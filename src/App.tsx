@@ -16,6 +16,8 @@ type Team = TeamBase & {
   runDiff: number;
   rsg: number;
   rag: number;
+  hpg: number;
+  kpg: number;
   tpi: number;
   baseTpi: number;
   sos: number;
@@ -234,6 +236,8 @@ const emptyTeam = (base: TeamBase): Team => ({
   runDiff: 0,
   rsg: 0,
   rag: 0,
+  hpg: 0,
+  kpg: 0,
   tpi: 0,
   baseTpi: 0,
   sos: 0,
@@ -315,6 +319,8 @@ const calculateTeams = (
     oppTpiSum: number;
     machineDiffSum: number;
     machineDiffCount: number;
+    battingHits: number;
+    battingKs: number;
     results: { diff: number; oppId: string }[];
   };
 
@@ -327,6 +333,8 @@ const calculateTeams = (
     oppTpiSum: 0,
     machineDiffSum: 0,
     machineDiffCount: 0,
+    battingHits: 0,
+    battingKs: 0,
     results: [],
   }));
 
@@ -349,6 +357,8 @@ const calculateTeams = (
       const innings = parseNumber(log.innings, 6) || 6;
       const awayK = parseNumber(log.awayK);
       const homeK = parseNumber(log.homeK);
+      const awayHits = parseNumber(log.awayHits);
+      const homeHits = parseNumber(log.homeHits);
 
       away.games += 1;
       home.games += 1;
@@ -356,6 +366,10 @@ const calculateTeams = (
       away.ra += homeRuns;
       home.rs += homeRuns;
       home.ra += awayRuns;
+      away.battingHits += awayHits;
+      home.battingHits += homeHits;
+      away.battingKs += awayK;
+      home.battingKs += homeK;
 
       away.awayKs += awayK;
       away.awayInns += innings;
@@ -386,6 +400,8 @@ const calculateTeams = (
     team.runDiff = team.rs - team.ra;
     team.rsg = team.games ? team.rs / team.games : 0;
     team.rag = team.games ? team.ra / team.games : 0;
+    team.hpg = team.games ? team.battingHits / team.games : 0;
+    team.kpg = team.games ? team.battingKs / team.games : 0;
 
     const innings = team.awayInns + team.homeInns;
     const k6 = innings ? ((team.awayKs + team.homeKs) / innings) * 6 : null;
@@ -759,7 +775,7 @@ export default function App() {
   const [newHome, setNewHome] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [recentChanges, setRecentChanges] = useState<string[]>([]);
-  const [lastImpact, setLastImpact] = useState<{ title: string; messages: string[] } | null>(null);
+  const [lastImpact, setLastImpact] = useState<{ title: string; scores: string[]; messages: string[] } | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
 
@@ -869,6 +885,14 @@ export default function App() {
       return (a.rank || 99) - (b.rank || 99);
     });
   }, [dashboardRows]);
+  const currentSosRanks = useMemo(() => {
+    return Object.fromEntries(
+      [...dashboardRows]
+        .sort((a, b) => b.sos - a.sos)
+        .map((team, index) => [team.id, index + 1])
+    ) as Record<string, number>;
+  }, [dashboardRows]);
+
 
   const cutLineTeams = useMemo(() => {
     return dashboardRows.filter((team) => {
@@ -944,6 +968,108 @@ export default function App() {
     return "Controls Spot";
   };
 
+  const statusLabel = (team: TeamWithProjection) => {
+    if (team.goldStatus === "Clinched") return "Clinched";
+    if (team.goldStatus === "Eliminated") return "Eliminated";
+
+    const currentSeed = team.rank || 99;
+    const projectedSeed = team.projectedRank || 99;
+    const currentCutoffTeam = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)];
+    const cutoffPoints = currentCutoffTeam ? standingsPoints(currentCutoffTeam) : 0;
+    const canStillReachCutLine = team.maxPoints >= cutoffPoints;
+
+    // Keep the labels honest: only the mathematical endpoints are Clinched/Eliminated.
+    // Firmly In requires current position, projection, odds, and a real cushion over the chase pack.
+    if (currentSeed <= goldCutoff) {
+      const currentPoints = standingsPoints(team);
+      const outsideThreats = dashboardRows.filter((other) =>
+        other.id !== team.id &&
+        (other.rank || 99) > goldCutoff &&
+        other.maxPoints >= currentPoints
+      ).length;
+      const cushionSlots = Math.max(0, goldCutoff - currentSeed);
+      const exposedToChasers = outsideThreats > cushionSlots;
+
+      if (currentSeed <= goldCutoff - 2 && projectedSeed <= goldCutoff && team.goldPct >= 90 && !exposedToChasers) {
+        return "Firmly In";
+      }
+      return "In";
+    }
+
+    // Outside the Gold cut line: Alive means a meaningful path, not merely a technical one.
+    const seedDistance = currentSeed - goldCutoff;
+    const projectedNearCut = projectedSeed <= goldCutoff + 1;
+
+    if (projectedSeed <= goldCutoff && team.goldPct >= 15) return "Alive";
+    if (team.goldPct >= 25 && seedDistance <= 3) return "Alive";
+    if (projectedNearCut && team.goldPct >= 12) return "Alive";
+    if (canStillReachCutLine) return "Work To Do";
+    return "Work To Do";
+  };
+
+  const statusClass = (team: TeamWithProjection) => {
+    const label = statusLabel(team);
+    if (label === "Clinched") return "bg-slate-950 text-white";
+    if (label === "Firmly In") return "bg-emerald-100 text-emerald-700";
+    if (label === "In") return "bg-blue-100 text-blue-700";
+    if (label === "Alive") return "bg-amber-100 text-amber-700";
+    if (label === "Work To Do") return "bg-orange-100 text-orange-700";
+    return "bg-red-100 text-red-700";
+  };
+
+  const formatGoldPct = (team: TeamWithProjection) => {
+    if (team.goldStatus !== "Eliminated" && team.goldPct > 0 && team.goldPct < 1) return "<1%";
+    return `${Math.round(team.goldPct)}%`;
+  };
+
+  const titleRaceBadgeForTeam = (team: TeamWithProjection) => {
+    const leader = dashboardRows[0];
+    if (!leader || leader.id === team.id) return team.rank === 1 ? "Title Leader" : "";
+    const teamBack = ((leader.w - team.w) + (team.l - leader.l) + (leader.t - team.t) * 0.5) / 2;
+    const teamMax = standingsPoints(team) + (remainingCounts[team.id] || 0);
+    const leaderCurrent = standingsPoints(leader);
+    if (teamMax < leaderCurrent) return "Title Eliminated";
+    if (teamBack <= 2 && (team.rank || 99) <= 5) return "Title Contender";
+    return "";
+  };
+
+  const teamPathNote = (team: TeamWithProjection) => {
+    const range = seedRangeForTeam(team.id);
+    const sos = scheduleDifficultyForTeam(team.id);
+    const name = displayName(team.name);
+    if (team.goldStatus === "Clinched") return `${name} has clinched Gold and is playing for seeding.`;
+    if (team.goldStatus === "Eliminated") return `${name} cannot reach Gold and can only affect other teams' paths.`;
+    if ((team.rank || 99) <= goldCutoff && range.worst <= goldCutoff) return `${name} controls the spot; even a rough path still projects inside Gold.`;
+    if ((team.rank || 99) <= goldCutoff) return `${name} is in now but can fall out if the next results break badly.`;
+    if (range.best <= goldCutoff && team.goldPct >= 10) return `${name} can move into Gold with wins and help near the cut line.`;
+    return `${name} needs wins plus multiple teams above the line to stumble.`;
+  };
+
+  const latestCompletedDate = completedGames.length ? formatGameDate(completedGames[completedGames.length - 1].date) : "No finals yet";
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Copied summary.");
+    } catch {
+      window.prompt("Copy this summary:", text);
+    }
+  };
+
+  const buildStandingsSummary = () => {
+    const rows = dashboardRows.slice(0, Math.min(dashboardRows.length, goldCutoff + 2));
+    return [`${settings.seasonLabel} Standings — updated through ${latestCompletedDate}`, ...rows.map((team) => `#${team.rank} ${displayName(team.name)} ${recordText(team)} (${statusLabel(team)}, Gold ${formatGoldPct(team)})`)].join("\n");
+  };
+
+  const buildBubbleSummary = () => {
+    return [`Bubble Watch — Top ${goldCutoff} make Gold`, ...bubbleMovementRows.map(({ team }) => `#${team.rank} ${displayName(team.name)}: ${teamPathNote(team)} Gold ${formatGoldPct(team)}.`)].join("\n");
+  };
+
+  const buildLatestImpactSummary = () => {
+    if (!lastImpact) return "No recent impact update.";
+    return [lastImpact.title, "Final Scores:", ...lastImpact.scores, "Impact:", ...lastImpact.messages].join("\n");
+  };
+
 
   const bubbleTierForTeam = (team: TeamWithProjection) => {
     if (team.goldStatus === "Clinched") return "Locked In";
@@ -994,26 +1120,15 @@ export default function App() {
     return `${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`;
   }, [remainingGames, dashboardRows, teams]);
 
-  const mostImportantTeam = useMemo(() => {
-    return [...dashboardRows]
-      .filter((team) => !["Clinched", "Eliminated"].includes(team.goldStatus))
-      .sort((a, b) => {
-        const aScore = Math.abs(a.goldPct - 50) + Math.abs((a.rank || 99) - goldCutoff) * 8;
-        const bScore = Math.abs(b.goldPct - 50) + Math.abs((b.rank || 99) - goldCutoff) * 8;
-        return aScore - bScore;
-      })[0] || null;
-  }, [dashboardRows, goldCutoff]);
-
   const todayPicture = useMemo(() => {
     const clinched = dashboardRows.filter((team) => team.goldStatus === "Clinched").map((team) => displayName(team.name));
     const eliminated = dashboardRows.filter((team) => team.goldStatus === "Eliminated").map((team) => displayName(team.name));
     return {
       clinched: clinched.length ? clinched.join(", ") : "None",
       eliminated: eliminated.length ? eliminated.join(", ") : "None",
-      importantTeam: mostImportantTeam ? displayName(mostImportantTeam.name) : "None",
       biggestGame: biggestBubbleGame || "None",
     };
-  }, [dashboardRows, mostImportantTeam, biggestBubbleGame]);
+  }, [dashboardRows, biggestBubbleGame]);
 
   const bubbleRows = useMemo(() => {
     return dashboardRows.map((team) => ({
@@ -1024,7 +1139,7 @@ export default function App() {
     }));
   }, [dashboardRows, remainingGames, goldCutoff]);
 
-  const getGameScenarioImpact = (game: Matchup) => {
+  function getGameScenarioImpact(game: Matchup) {
     const prediction = predictGame(game, liveTeams);
     const away = dashboardRows.find((team) => team.id === game.away);
     const home = dashboardRows.find((team) => team.id === game.home);
@@ -1048,33 +1163,106 @@ export default function App() {
       awayName: displayName(away?.name || game.away),
       homeName: displayName(home?.name || game.home),
     };
+  }
+
+
+  const nextGameForTeam = (teamId: string) => {
+    return remainingGames
+      .filter((game) => game.away === teamId || game.home === teamId)
+      .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))[0] || null;
   };
 
+  const isTeamNextGame = (teamId: string, game: Matchup) =>
+    nextGameForTeam(teamId)?.id === game.id;
+
+  const goldStatusAfterScenario = (teamId: string, game: Matchup, winnerId: string) => {
+    const scenarioTeams = rankTeams(applyResult(liveTeams, game, winnerId, liveTeams));
+    const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
+    const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
+    const scenarioTeam = scenarioTeams.find((team) => team.id === teamId);
+    if (!scenarioTeam) return null;
+    return getMathGoldStatus(scenarioTeam, scenarioTeams, scenarioCounts, goldCutoff).goldStatus;
+  };
+
+  const teamClinchesGoldWithWin = (teamId: string, game: Matchup) => {
+    const team = dashboardRows.find((item) => item.id === teamId);
+    if (!team || team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") return false;
+    if (!isTeamNextGame(teamId, game)) return false;
+    return goldStatusAfterScenario(teamId, game, teamId) === "Clinched";
+  };
+
+  const teamCanBeEliminatedWithLoss = (teamId: string, game: Matchup) => {
+    const team = dashboardRows.find((item) => item.id === teamId);
+    if (!team || team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") return false;
+    if (!isTeamNextGame(teamId, game)) return false;
+    const opponentId = game.away === teamId ? game.home : game.away;
+    return goldStatusAfterScenario(teamId, game, opponentId) === "Eliminated";
+  };
+
+  const teamClinchesRegularSeasonTitleWithWin = (teamId: string, game: Matchup) => {
+    const team = dashboardRows.find((item) => item.id === teamId);
+    if (!team || team.goldStatus === "Eliminated") return false;
+    if (!isTeamNextGame(teamId, game)) return false;
+
+    const scenarioTeams = rankTeams(applyResult(liveTeams, game, teamId, liveTeams));
+    const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
+    const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
+    const scenarioTeam = scenarioTeams.find((item) => item.id === teamId);
+    if (!scenarioTeam) return false;
+
+    const titlePoints = standingsPoints(scenarioTeam);
+    return scenarioTeams.every((other) => {
+      if (other.id === teamId) return true;
+      const otherMax = standingsPoints(other) + (scenarioCounts[other.id] || 0);
+      // Strictly less means nobody can even tie the team after this result.
+      return otherMax < titlePoints;
+    });
+  };
 
   const gameStatusForGame = (game: Matchup) => {
     const impact = getGameScenarioImpact(game);
     const away = dashboardRows.find((team) => team.id === game.away);
     const home = dashboardRows.find((team) => team.id === game.home);
-    const nearCutLine = [away, home].some((team) => team && Math.abs((team.rank || 99) - goldCutoff) <= 1);
-    const canCreateClinch = [
-      away && away.goldStatus !== "Clinched" && impact.awaySeedWin <= goldCutoff && away.goldPct >= 55,
-      home && home.goldStatus !== "Clinched" && impact.homeSeedWin <= goldCutoff && home.goldPct >= 55,
-    ].some(Boolean);
-    const canCreateEliminationRisk = [
-      away && away.goldStatus !== "Eliminated" && impact.awaySeedLoss > goldCutoff && away.goldPct <= 45,
-      home && home.goldStatus !== "Eliminated" && impact.homeSeedLoss > goldCutoff && home.goldPct <= 45,
-    ].some(Boolean);
+    const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
 
-    if (canCreateClinch) return "Clinching Game";
-    if (canCreateEliminationRisk) return "Elimination Game";
+    // Clinch/elimination badges should only appear when this is the affected team's next game.
+    // Once that team clinches, the badge disappears for them unless they can clinch the regular season title.
+    if (teamsInGame.some((team) => teamClinchesRegularSeasonTitleWithWin(team.id, game))) return "Title Clinch";
+    if (teamsInGame.some((team) => teamClinchesGoldWithWin(team.id, game))) return "Gold Bracket Clinch";
+    if (teamsInGame.some((team) => teamCanBeEliminatedWithLoss(team.id, game))) return "Elimination Scenario";
+
+    const nearCutLine = teamsInGame.some((team) => Math.abs((team.rank || 99) - goldCutoff) <= 1);
     if (impact.seedImpact >= 2) return "High Impact";
     if (nearCutLine || impact.seedImpact >= 1) return "Bubble Game";
     return "Low Impact";
   };
 
+  const gamesThatMatterMost = useMemo(() => {
+    return [...remainingGames]
+      .sort((a, b) => gameImportance(b) - gameImportance(a))
+      .slice(0, 5)
+      .map((game, index) => {
+        const away = dashboardRows.find((team) => team.id === game.away);
+        const home = dashboardRows.find((team) => team.id === game.home);
+        const impact = getGameScenarioImpact(game);
+        const status = gameStatusForGame(game);
+        const reason = status === "Low Impact"
+          ? `${impact.impactLabel} projected seed impact`
+          : status;
+        return {
+          game,
+          rank: index + 1,
+          label: `${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`,
+          reason,
+          date: formatGameDate(game.date),
+        };
+      });
+  }, [remainingGames, dashboardRows, liveTeams, goldCutoff]);
+
   const gameStatusClasses = (label: string) => {
-    if (label === "Clinching Game") return "bg-emerald-100 text-emerald-700";
-    if (label === "Elimination Game") return "bg-red-100 text-red-700";
+    if (label === "Title Clinch") return "bg-purple-100 text-purple-700";
+    if (label === "Gold Bracket Clinch") return "bg-emerald-100 text-emerald-700";
+    if (label === "Elimination Scenario") return "bg-red-100 text-red-700";
     if (label === "High Impact") return "bg-amber-100 text-amber-700";
     if (label === "Bubble Game") return "bg-blue-100 text-blue-700";
     return "bg-slate-200 text-slate-600";
@@ -1085,16 +1273,16 @@ export default function App() {
     if (!team) return [];
     const teamName = displayName(team.name);
 
-    if (team.goldStatus === "Clinched") return [`${teamName} has already clinched a Gold spot.`];
-    if (team.goldStatus === "Eliminated") return [`${teamName} is mathematically eliminated from Gold.`];
+    if (team.goldStatus === "Clinched") return [`${teamName} has already clinched a Gold Bracket spot.`];
+    if (team.goldStatus === "Eliminated") return [`${teamName} is eliminated from Gold Bracket contention.`];
 
     const scenarios = nextTwoSwingGames(teamId).slice(0, 2).map((swing) => {
       const opponentLine = `${swing.teamIsAway ? "at" : "vs"} ${swing.opponentName}`;
       if (swing.winSeed <= goldCutoff && swing.lossSeed > goldCutoff) {
-        return `${opponentLine}: win projects inside Gold at #${swing.winSeed}; loss drops outside at #${swing.lossSeed}.`;
+        return `${opponentLine}: win projects inside the Gold cut line at #${swing.winSeed}; loss drops outside the Gold cut line at #${swing.lossSeed}.`;
       }
       if (swing.winSeed <= goldCutoff && swing.lossSeed <= goldCutoff) {
-        return `${opponentLine}: win improves or protects the Gold path at #${swing.winSeed}; loss still projects #${swing.lossSeed}.`;
+        return `${opponentLine}: win improves or protects the Gold Bracket path at #${swing.winSeed}; loss still projects #${swing.lossSeed}.`;
       }
       if (swing.winSeed > goldCutoff && swing.lossSeed > goldCutoff) {
         return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}, so outside help is still needed.`;
@@ -1102,16 +1290,47 @@ export default function App() {
       return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}.`;
     });
 
-    if (!scenarios.length) return [`${teamName} has no remaining games; Gold status depends only on outside results.`];
+    if (!scenarios.length) return [`${teamName} has no remaining games; Gold Bracket status depends only on outside results.`];
     return scenarios;
   };
 
   const bubbleMovementRows = useMemo(() => {
-    return bubbleRows
-      .filter(({ tier }) => ["Bubble In", "Bubble Out", "Long Shot"].includes(tier))
-      .sort((a, b) => Math.abs(a.team.goldPct - 50) - Math.abs(b.team.goldPct - 50))
-      .slice(0, 8);
-  }, [bubbleRows]);
+    const byId = new Map(bubbleRows.map((row) => [row.team.id, row]));
+    const selected = new Map<string, (typeof bubbleRows)[number]>();
+    const add = (row: (typeof bubbleRows)[number] | undefined) => {
+      if (row) selected.set(row.team.id, row);
+    };
+
+    // Sharper Bubble Watch: last two currently in, first three currently out, plus projected crossers.
+    dashboardRows
+      .filter((team) => {
+        const seed = team.rank || 99;
+        return seed >= goldCutoff - 1 && seed <= goldCutoff;
+      })
+      .forEach((team) => add(byId.get(team.id)));
+
+    dashboardRows
+      .filter((team) => {
+        const seed = team.rank || 99;
+        return seed >= goldCutoff + 1 && seed <= goldCutoff + 3;
+      })
+      .forEach((team) => add(byId.get(team.id)));
+
+    dashboardRows
+      .filter((team) => {
+        const currentInside = (team.rank || 99) <= goldCutoff;
+        const projectedInside = (team.projectedRank || 99) <= goldCutoff;
+        return currentInside !== projectedInside;
+      })
+      .forEach((team) => add(byId.get(team.id)));
+
+    return [...selected.values()].sort((a, b) => {
+      const aCross = ((a.team.rank || 99) <= goldCutoff) !== ((a.team.projectedRank || 99) <= goldCutoff);
+      const bCross = ((b.team.rank || 99) <= goldCutoff) !== ((b.team.projectedRank || 99) <= goldCutoff);
+      if (aCross !== bCross) return aCross ? -1 : 1;
+      return Math.abs((a.team.rank || 99) - goldCutoff) - Math.abs((b.team.rank || 99) - goldCutoff);
+    });
+  }, [bubbleRows, dashboardRows, goldCutoff]);
 
   const clinchEliminationRows = useMemo(() => {
     return dashboardRows
@@ -1156,9 +1375,11 @@ export default function App() {
       const aNoDate = !a.date.trim();
       const bNoDate = !b.date.trim();
 
-      if (!aFinal && !bFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
+      // Open games stay first; final games stay at the bottom.
+      // Reopened final games are allowed to move back to the open section.
       if (aFinal !== bFinal) return aFinal ? 1 : -1;
-      return parseDateValue(a.date) - parseDateValue(b.date);
+      if (!aFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
+      return parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id);
     };
 
     const filtered = scoreboardTeamFilter === "ALL"
@@ -1251,8 +1472,13 @@ export default function App() {
 
         const finalGames = Object.values(importedLogs).filter((log) => isFinal(log)).length;
         const openGames = importedMatchups.length - finalGames;
+        const importedFinalGames = importedMatchups
+          .filter((game) => isFinal(importedLogs[game.id]))
+          .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
+        const latestImportedFinal = importedFinalGames[importedFinalGames.length - 1];
+        const latestImportedFinalDate = latestImportedFinal ? formatGameDate(latestImportedFinal.date) : "None";
         const confirmed = window.confirm(
-          `Import this schedule?\n\n${importedTeams.length} teams found\n${importedMatchups.length} games found\n${finalGames} finals imported\n${openGames} open games imported\n\nThis will replace the current season data.`
+          `Import this schedule?\n\n${importedTeams.length} teams found\n${importedMatchups.length} games found\n${finalGames} finals imported\n${openGames} open games imported\nLatest final: ${latestImportedFinalDate}\n\nThis will replace the current season data.`
         );
 
         if (!confirmed) return;
@@ -1360,19 +1586,16 @@ export default function App() {
     });
   };
 
-  const readBuilderTeamNames = () => {
-    return Array.from(
-      new Set(
-        seasonBuilderText
-          .split(/\r?\n|,/)
-          .map((name) => name.trim())
-          .filter(Boolean)
-      )
-    );
+  const readBuilderTeamNames = (): string[] => {
+    const cleaned = seasonBuilderText
+      .split(/\r?\n|,/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    return Array.from(new Set<string>(cleaned));
   };
 
   const buildRoundRobinSeason = () => {
-    const names = readBuilderTeamNames();
+    const names: string[] = readBuilderTeamNames();
     if (names.length < 2) {
       alert("Enter at least two teams to build a schedule.");
       return null;
@@ -1450,8 +1673,71 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const summarizeChanges = (before: ReturnType<typeof buildRankSnapshot>, after: ReturnType<typeof buildRankSnapshot>) => {
+  const summarizeChanges = (
+    before: ReturnType<typeof buildRankSnapshot>,
+    after: ReturnType<typeof buildRankSnapshot>,
+    impactedTeamIds: string[] = []
+  ) => {
     const messages: string[] = [];
+
+    const titleClinched = (team: ReturnType<typeof buildRankSnapshot>[number], field: ReturnType<typeof buildRankSnapshot>) => {
+      const currentPoints = standingsPoints(team);
+      return field.every((other) => {
+        if (other.id === team.id) return true;
+        return other.maxPoints < currentPoints;
+      });
+    };
+
+    const titleEliminated = (team: ReturnType<typeof buildRankSnapshot>[number], field: ReturnType<typeof buildRankSnapshot>) => {
+      return field.some((other) => {
+        if (other.id === team.id) return false;
+        return standingsPoints(other) > team.maxPoints;
+      });
+    };
+
+    const gamesBackOfFirst = (team: ReturnType<typeof buildRankSnapshot>[number], field: ReturnType<typeof buildRankSnapshot>) => {
+      const leader = [...field].sort((a, b) => {
+        const aPct = a.games > 0 ? (a.w + a.t * 0.5) / a.games : 0;
+        const bPct = b.games > 0 ? (b.w + b.t * 0.5) / b.games : 0;
+        if (Math.abs(bPct - aPct) > 0.0001) return bPct - aPct;
+        return b.runDiff - a.runDiff;
+      })[0];
+
+      if (!leader || leader.id === team.id) return 0;
+
+      // Baseball-style games back. Ties count as half a win and half a loss.
+      // This avoids the bad shortcut where an 8-0 team and a 7-4 team looked
+      // only one game apart just because their standings points differed by 1.
+      const leaderWins = leader.w + leader.t * 0.5;
+      const leaderLosses = leader.l + leader.t * 0.5;
+      const teamWins = team.w + team.t * 0.5;
+      const teamLosses = team.l + team.t * 0.5;
+      return Math.max(0, Math.round(((leaderWins - teamWins) + (teamLosses - leaderLosses)) * 5) / 10);
+    };
+
+    const titleClinchedInField = (field: ReturnType<typeof buildRankSnapshot>) =>
+      field.some((item) => titleClinched(item, field));
+
+    const titleWasAlreadyClinchedBeforeUpdate = titleClinchedInField(before);
+    const titleIsClinchedAfterUpdate = titleClinchedInField(after);
+
+    const hasRealisticTitlePath = (
+      team: ReturnType<typeof buildRankSnapshot>[number],
+      field: ReturnType<typeof buildRankSnapshot>
+    ) => {
+      if (titleClinched(team, field) || titleEliminated(team, field)) return false;
+      const back = gamesBackOfFirst(team, field);
+      const projectedRank = team.projectedRank || team.rank || 99;
+      const currentRank = team.rank || 99;
+
+      // Only mention the regular season title race when the team is close enough
+      // that the note tells the user something meaningful. Otherwise it clutters
+      // the impact panel with title-race context for teams that are technically
+      // alive but realistically not part of that race.
+      const remaining = Math.max(0, team.maxPoints - standingsPoints(team));
+      return remaining > 0 && (back <= 1.5 || projectedRank <= 2 || currentRank <= 2);
+    };
+
     after.forEach((team) => {
       const old = before.find((item) => item.id === team.id);
       if (!old) return;
@@ -1468,55 +1754,134 @@ export default function App() {
         messages.push(`${teamName} dropped below the Gold cut line`);
       }
       if (oldRank > goldCutoff && newRank <= goldCutoff) {
-        messages.push(`${teamName} moved above the Gold cut line`);
+        messages.push(`${teamName} moved above the Gold cut line into Gold position`);
+      }
+
+      const oldTitleClinched = titleClinched(old, before);
+      const newTitleClinched = titleClinched(team, after);
+      const oldTitleEliminated = titleEliminated(old, before);
+      const newTitleEliminated = titleEliminated(team, after);
+
+      // Once the regular season title has already been clinched, stop adding title-race
+      // context for anyone. The only title message allowed is the moment the title is clinched.
+      if (!titleWasAlreadyClinchedBeforeUpdate && !oldTitleClinched && newTitleClinched) {
+        messages.push(`${teamName} clinched the regular season title`);
+      }
+
+      if (!titleIsClinchedAfterUpdate && !oldTitleEliminated && newTitleEliminated && !newTitleClinched) {
+        messages.push(`${teamName} no longer have a path to the regular season title`);
       }
 
       if (typeof old.goldPct === "number" && typeof team.goldPct === "number") {
         const delta = Math.round(team.goldPct - old.goldPct);
         if (Math.abs(delta) >= 8) {
-          messages.push(`${teamName} Gold odds ${delta > 0 ? "+" : ""}${delta}%`);
+          messages.push(`${teamName} Gold Bracket odds ${delta > 0 ? "increased" : "decreased"} by ${Math.abs(delta)}%`);
         }
       }
 
       if (old.goldStatus !== team.goldStatus) {
-        if (team.goldStatus === "Eliminated") messages.push(`${teamName} was mathematically eliminated`);
-        else if (team.goldStatus === "Clinched") messages.push(`${teamName} clinched Gold`);
-        else messages.push(`${teamName} is now ${team.goldStatus}`);
+        if (team.goldStatus === "Eliminated") messages.push(`${teamName} is now eliminated from Gold Bracket contention`);
+        else if (team.goldStatus === "Clinched") messages.push(`${teamName} clinched the Gold Bracket`);
+        else messages.push(`${teamName} moved to ${team.goldStatus === "In" ? "Gold position" : "Alive status"}`);
       }
     });
 
-    return Array.from(new Set(messages)).slice(0, 7);
+    // Every final has mathematical impact. Keep this focused on meaningful race signals,
+    // not record or run-differential lines that are already visible in Standings.
+    impactedTeamIds.forEach((teamId) => {
+      const old = before.find((item) => item.id === teamId);
+      const team = after.find((item) => item.id === teamId);
+      if (!old || !team) return;
+
+      const teamName = displayName(team.name);
+      const oldPoints = standingsPoints(old);
+      const newPoints = standingsPoints(team);
+      const goldDelta = Math.round((team.goldPct || 0) - (old.goldPct || 0));
+      const oldTitleEliminated = titleEliminated(old, before);
+      const newTitleEliminated = titleEliminated(team, after);
+      const oldTitleClinched = titleClinched(old, before);
+      const newTitleClinched = titleClinched(team, after);
+
+      // Once the regular season title has been clinched, title-race notes should disappear.
+      // Keep only the actual clinch moment, then suppress all later title-race context.
+      if (!titleWasAlreadyClinchedBeforeUpdate && !oldTitleClinched && newTitleClinched) {
+        messages.push(`${teamName} clinched the regular season title`);
+      } else if (!titleIsClinchedAfterUpdate && !oldTitleEliminated && newTitleEliminated && !newTitleClinched) {
+        messages.push(`${teamName} no longer have a path to the regular season title`);
+      } else if (!titleIsClinchedAfterUpdate && team.games > old.games && hasRealisticTitlePath(team, after)) {
+        const back = gamesBackOfFirst(team, after);
+        if (back > 0) {
+          messages.push(`${teamName} sit ${back.toFixed(1).replace(/\.0$/, "")} game${back === 1 ? "" : "s"} back in the regular season title race`);
+        }
+      }
+
+      if (Math.abs(goldDelta) >= 1) {
+        messages.push(`${teamName} Gold Bracket odds ${goldDelta > 0 ? "increased" : "decreased"} by ${Math.abs(goldDelta)}%`);
+      }
+
+    });
+
+    return Array.from(new Set(messages)).slice(0, 10);
   };
 
   const toggleFinal = (gameId: string) => {
+    const scrollTopBeforeToggle = typeof window !== "undefined" ? window.scrollY : 0;
+    const restoreScoreboardScrollPosition = () => {
+      if (typeof window === "undefined") return;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: scrollTopBeforeToggle, behavior: "auto" });
+        });
+      });
+    };
+
     const current = logs[gameId] || blankLog();
     const isMarkingFinal = !current.isFinal;
-    const before = buildRankSnapshot(logs);
+    const game = matchups.find((item) => item.id === gameId);
+    const updateDate = game ? normalizeDateInput(game.date) : "";
+    const sameUpdateGames = game
+      ? matchups.filter((item) => {
+          if (updateDate) return normalizeDateInput(item.date) === updateDate;
+          return item.id === gameId;
+        })
+      : [];
+
     const nextLogs = {
       ...logs,
       [gameId]: { ...current, isFinal: !current.isFinal },
     };
-    const after = buildRankSnapshot(nextLogs);
-    const messages = isMarkingFinal ? summarizeChanges(before, after) : [];
 
     setLogs(nextLogs);
-    setRecentChanges(messages);
+    restoreScoreboardScrollPosition();
 
-    if (isMarkingFinal) {
-      const game = matchups.find((item) => item.id === gameId);
-      const away = game ? teams.find((team) => team.id === game.away) : null;
-      const home = game ? teams.find((team) => team.id === game.home) : null;
-      const awayRuns = current.awayRuns || "0";
-      const homeRuns = current.homeRuns || "0";
-      const title = game && away && home
-        ? `After ${displayName(away.name)} ${awayRuns}, ${displayName(home.name)} ${homeRuns}`
-        : "After final score";
+    if (isMarkingFinal && game) {
+      const beforeLogs = { ...nextLogs };
+      sameUpdateGames.forEach((item) => {
+        if (beforeLogs[item.id]) beforeLogs[item.id] = { ...beforeLogs[item.id], isFinal: false };
+      });
 
+      const before = buildRankSnapshot(beforeLogs);
+      const after = buildRankSnapshot(nextLogs);
+      const impactedTeamIds = Array.from(new Set<string>(sameUpdateGames.flatMap((item) => [item.away, item.home])));
+      const messages = summarizeChanges(before, after, impactedTeamIds);
+      const finalScores = sameUpdateGames
+        .filter((item) => isFinal(nextLogs[item.id]))
+        .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id))
+        .map((item) => {
+          const log = nextLogs[item.id] || blankLog();
+          const away = teams.find((team) => team.id === item.away);
+          const home = teams.find((team) => team.id === item.home);
+          return `${away ? displayName(away.name) : item.away} ${log.awayRuns || "0"}, ${home ? displayName(home.name) : item.home} ${log.homeRuns || "0"}`;
+        });
+
+      setRecentChanges(messages);
       setLastImpact({
-        title,
-        messages: messages.length ? messages : ["No seed, Gold status, or major Gold odds changes from this result."],
+        title: updateDate ? `Latest Update — ${updateDate}` : "Latest Update — No Date",
+        scores: finalScores,
+        messages: messages.length ? messages : ["This update was recorded, but no standings-impact detail could be calculated."],
       });
     } else {
+      setRecentChanges([]);
       setLastImpact(null);
     }
   };
@@ -1602,7 +1967,7 @@ export default function App() {
               onClick={() => setActiveView("model")}
               className={`rounded-xl px-4 py-2 text-sm font-black ${activeView === "model" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950"}`}
             >
-              Model
+              Projection
             </button>
             <button
               onClick={() => setActiveView("settings")}
@@ -1666,29 +2031,30 @@ export default function App() {
             </aside>
           </div>
         ) : activeView === "standings" ? (
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+          <div className="grid grid-cols-1 gap-6">
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
               <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4">
                 <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
                 <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
                 <Metric label="Cut Line" value={`Top ${goldCutoff}`} />
-                <Metric label="Remaining" value={remainingGames.length} />
+                <Metric label="Updated Through" value={latestCompletedDate} />
               </div>
 
               <div className="border-b border-slate-200 bg-white px-5 py-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <InsightTile label="Clinched" value={todayPicture.clinched} tone="slate" />
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <InsightTile label="Gold Clinched" value={todayPicture.clinched} tone="slate" />
                   <InsightTile label="Eliminated" value={todayPicture.eliminated} tone="red" />
-                  <InsightTile label="Most Important Team" value={todayPicture.importantTeam} tone="blue" />
                   <InsightTile label="Biggest Bubble Game" value={todayPicture.biggestGame} tone="amber" />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
                 </div>
               </div>
 
               {lastImpact && (
                 <div className="border-b border-slate-200 bg-blue-50 px-5 py-4">
-                  <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-[11px] font-black uppercase tracking-wide text-blue-700">Impact Since Last Final</div>
+                      <div className="text-[11px] font-black uppercase tracking-wide text-blue-700">Impact Since Last Update</div>
                       <div className="text-sm font-black text-slate-950">{lastImpact.title}</div>
                     </div>
                     <button
@@ -1699,6 +2065,16 @@ export default function App() {
                       Dismiss
                     </button>
                   </div>
+                  {lastImpact.scores.length > 0 && (
+                    <div className="mb-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-blue-100">
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-400">Final Scores</div>
+                      <div className="flex flex-wrap gap-2 text-xs font-black text-slate-800">
+                        {lastImpact.scores.map((score) => (
+                          <span key={score} className="rounded-full bg-slate-100 px-3 py-1">{score}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2 text-xs font-black text-blue-700">
                     {lastImpact.messages.map((change) => (
                       <span key={change} className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100">{change}</span>
@@ -1708,17 +2084,16 @@ export default function App() {
               )}
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1060px] text-left">
+                <table className="w-full min-w-[820px] text-left">
                   <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-5 py-3">Seed</th>
                       <th className="px-5 py-3">Team</th>
                       <th className="px-4 py-3 text-center">Record</th>
                       <th className="px-4 py-3 text-center">Diff</th>
-                      <th className="px-4 py-3 text-center">Gold</th>
-                      <th className="px-4 py-3 text-center">Status</th>
-                      <th className="px-4 py-3 text-center">Bubble</th>
                       <th className="px-4 py-3 text-center">SOS</th>
+                      <th className="px-4 py-3 text-center">Gold %</th>
+                      <th className="px-4 py-3 text-center">Playoff Status</th>
                       <th className="px-4 py-3 text-center">Trend</th>
                     </tr>
                   </thead>
@@ -1727,7 +2102,7 @@ export default function App() {
                       <React.Fragment key={team.id}>
                         {index === goldCutoff && (
                           <tr>
-                            <td colSpan={9} className="bg-slate-950 px-5 py-2 text-center text-xs font-black uppercase tracking-[0.22em] text-red-400">
+                            <td colSpan={8} className="bg-slate-950 px-5 py-2 text-center text-xs font-black uppercase tracking-[0.22em] text-red-400">
                               Gold Cut Line
                             </td>
                           </tr>
@@ -1749,8 +2124,16 @@ export default function App() {
                             {team.runDiff > 0 ? "+" : ""}{team.runDiff}
                           </td>
                           <td className="px-4 py-4 text-center">
+                            <span
+                              title={`Current SOS: ${team.sos.toFixed(2)}. Rank is based on opponents already played.`}
+                              className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700"
+                            >
+                              #{currentSosRanks[team.id] || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
                             <span className={`rounded-full px-3 py-1 text-xs font-black ${team.goldPct >= 75 ? "bg-emerald-100 text-emerald-700" : team.goldPct >= 40 ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                              {team.goldPct.toFixed(0)}%
+                              {formatGoldPct(team)}
                             </span>
                           </td>
                           <td className="px-4 py-4 text-center">
@@ -1760,26 +2143,12 @@ export default function App() {
                                   ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
                                   : team.goldStatus === "Clinched"
                                     ? `${displayName(team.name)} has mathematically secured a Top ${goldCutoff} spot even if they lose out.`
-                                    : `${displayName(team.name)} has not mathematically secured or lost a Top ${goldCutoff} finish yet.`
+                                    : `${displayName(team.name)} is still mathematically live for the Top ${goldCutoff}; status is based on current seed, projected seed, Gold odds, and remaining ceiling.`
                               }
-                              className={`rounded-full px-3 py-1 text-xs font-black ${
-                                team.goldStatus === "Eliminated"
-                                  ? "bg-red-100 text-red-700"
-                                  : team.goldStatus === "Clinched"
-                                    ? "bg-slate-950 text-white"
-                                    : team.goldStatus === "In"
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-amber-100 text-amber-700"
-                              }`}
+                              className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
                             >
-                              {team.goldStatus}
+                              {statusLabel(team)}
                             </span>
-                          </td>
-                          <td className="px-4 py-4 text-center">
-                            <span className={`rounded-full px-3 py-1 text-xs font-black ${bubbleTierForTeam(team) === "Locked In" ? "bg-slate-950 text-white" : bubbleTierForTeam(team) === "Eliminated" ? "bg-red-100 text-red-700" : bubbleTierForTeam(team) === "Bubble In" ? "bg-emerald-100 text-emerald-700" : bubbleTierForTeam(team) === "Bubble Out" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{bubbleTierForTeam(team)}</span>
-                          </td>
-                          <td className="px-4 py-4 text-center">
-                            <span title={scheduleDifficultyForTeam(team.id).opponents} className={`rounded-full px-3 py-1 text-xs font-black ${scheduleDifficultyForTeam(team.id).label === "Hard" ? "bg-red-100 text-red-700" : scheduleDifficultyForTeam(team.id).label === "Medium" ? "bg-amber-100 text-amber-700" : scheduleDifficultyForTeam(team.id).label === "Easy" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{scheduleDifficultyForTeam(team.id).label}</span>
                           </td>
                           <td className="px-4 py-4 text-center"><Sparkline values={team.goldTrend} /></td>
                         </tr>
@@ -1790,42 +2159,13 @@ export default function App() {
               </div>
             </section>
 
-            <aside className="space-y-6">
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-black tracking-tight">Cut Line</h2>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Top {goldCutoff}</span>
-                </div>
-                <div className="space-y-3">
-                  {cutLineTeams.map((team) => {
-                    const inside = (team.rank || 99) <= goldCutoff;
-                    const onLine = Math.abs((team.rank || 99) - goldCutoff) <= 1;
-                    return (
-                      <div key={team.id} className={`rounded-2xl border p-4 ${inside ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-white"}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-black">{displayName(team.name)}</div>
-                            <div className="mt-1 text-xs font-bold text-slate-500">
-                              #{team.rank} · {recordText(team)} · {team.goldPct.toFixed(0)}% Gold
-                            </div>
-                          </div>
-                          <span className={`rounded-full px-3 py-1 text-xs font-black ${inside ? "bg-emerald-100 text-emerald-700" : onLine ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                            {inside ? "In" : onLine ? "Bubble" : "Chasing"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            </aside>
           </div>
         ) : activeView === "model" ? (
           <section className="space-y-6">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight text-slate-950">Model</h2>
+                  <h2 className="text-2xl font-black tracking-tight text-slate-950">Projection</h2>
                 </div>
                 <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
                   Gold Cutoff: Top {goldCutoff}
@@ -1845,7 +2185,6 @@ export default function App() {
                       <th className="px-4 py-3 text-center">Now</th>
                       <th className="px-4 py-3 text-center">Projected</th>
                       <th className="px-4 py-3 text-center">Range</th>
-                      <th className="px-4 py-3 text-center">Control</th>
                       <th className="px-4 py-3 text-center">Projected Record</th>
                       <th className="px-4 py-3 text-center">Gold Odds</th>
                       <th className="px-4 py-3 text-center">Run Diff</th>
@@ -1856,7 +2195,6 @@ export default function App() {
                     {modelRows.map((team) => {
                       const movement = (team.rank || 99) - team.projectedRank;
                       const range = seedRangeForTeam(team.id);
-                      const control = controlLevelForTeam(team);
                       return (
                         <tr key={`forecast-${team.id}`} className="hover:bg-slate-50/70">
                           <td className="px-5 py-4 font-black">{displayName(team.name)}</td>
@@ -1868,13 +2206,8 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-4 py-4 text-center font-black">#{range.best}–#{range.worst}</td>
-                          <td className="px-4 py-4 text-center">
-                            <span className={`rounded-full px-3 py-1 text-xs font-black ${control === "Clinched" ? "bg-slate-950 text-white" : control === "Eliminated" ? "bg-red-100 text-red-700" : control === "Needs Help" ? "bg-amber-100 text-amber-700" : control === "At Risk" ? "bg-orange-100 text-orange-700" : "bg-emerald-100 text-emerald-700"}`}>
-                              {control}
-                            </span>
-                          </td>
                           <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
-                          <td className="px-4 py-4 text-center font-black">{team.goldPct.toFixed(0)}%</td>
+                          <td className="px-4 py-4 text-center font-black">{formatGoldPct(team)}</td>
                           <td className={`px-4 py-4 text-center font-black ${team.projectedRunDiff > 0 ? "text-emerald-600" : team.projectedRunDiff < 0 ? "text-red-600" : "text-slate-500"}`}>
                             {team.projectedRunDiff > 0 ? "+" : ""}{team.projectedRunDiff}
                           </td>
@@ -1889,12 +2222,45 @@ export default function App() {
 
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-black tracking-tight text-slate-950">Bubble Movement</h3>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Cut Line View</span>
+                <h3 className="text-lg font-black tracking-tight text-slate-950">Games That Matter Most</h3>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Next up</span>
+              </div>
+              {gamesThatMatterMost.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">No remaining games.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {gamesThatMatterMost.map((item) => (
+                    <div key={`matter-${item.game.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-400">#{item.rank} · {item.date}</div>
+                          <div className="mt-1 font-black text-slate-950">{item.label}</div>
+                        </div>
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${gameStatusClasses(item.reason)}`}>{item.reason}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-black tracking-tight text-slate-950">Bubble Watch</h3>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Around Top {goldCutoff}</span>
               </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {bubbleMovementRows.map(({ team, tier, sos, control }) => {
+                {bubbleMovementRows.map(({ team, tier, sos }) => {
                   const range = seedRangeForTeam(team.id);
+                  const bubbleNote = team.projectedRank <= goldCutoff && (team.rank || 99) > goldCutoff
+                    ? `${displayName(team.name)} is projected to move into the Gold Bracket.`
+                    : (team.rank || 99) <= goldCutoff && team.projectedRank > goldCutoff
+                      ? `${displayName(team.name)} currently holds a Gold spot but projects to fall below the cut line.`
+                      : (team.rank || 99) === goldCutoff
+                        ? `${displayName(team.name)} currently owns the final Gold Bracket spot.`
+                        : (team.rank || 99) === goldCutoff + 1
+                          ? `${displayName(team.name)} is the first team outside the Gold Bracket.`
+                          : `${displayName(team.name)} is close enough to the cut line to matter.`;
                   return (
                     <div key={`bubble-${team.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -1904,12 +2270,11 @@ export default function App() {
                         </div>
                         <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700 shadow-sm ring-1 ring-slate-200">{tier}</span>
                       </div>
-                      <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-black">
-                        <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200"><div className="text-slate-400">Gold</div><div className="mt-1 text-slate-950">{team.goldPct.toFixed(0)}%</div></div>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black">
+                        <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200"><div className="text-slate-400">Gold</div><div className="mt-1 text-slate-950">{formatGoldPct(team)}</div></div>
                         <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200"><div className="text-slate-400">SOS</div><div className="mt-1 text-slate-950">{sos.label}</div></div>
-                        <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200"><div className="text-slate-400">Control</div><div className="mt-1 text-slate-950">{control}</div></div>
                       </div>
-                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Remaining opponents: {sos.opponents}.</p>
+                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{bubbleNote} {teamPathNote(team)} Remaining opponents: {sos.opponents}.</p>
                     </div>
                   );
                 })}
@@ -1956,7 +2321,6 @@ export default function App() {
               <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-lg font-black tracking-tight text-slate-950">Game Forecasts</h3>
-                  <div className="mt-1 text-xs font-bold text-slate-500">Uses a spread-style projected margin for readability, not gambling.</div>
                 </div>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
                   {gameForecasts.length} Remaining
@@ -2232,9 +2596,13 @@ export default function App() {
           range={seedRangeForTeam(selectedTeam.id)}
           control={controlLevelForTeam(selectedTeam)}
           bubble={bubbleTierForTeam(selectedTeam)}
+          currentSosRank={currentSosRanks[selectedTeam.id] || null}
           sos={scheduleDifficultyForTeam(selectedTeam.id)}
           swings={nextTwoSwingGames(selectedTeam.id)}
           clinchScenarios={clinchScenariosForTeam(selectedTeam.id)}
+          titleRace={titleRaceBadgeForTeam(selectedTeam)}
+          playoffStatus={statusLabel(selectedTeam)}
+          goldPctLabel={formatGoldPct(selectedTeam)}
           cutoff={goldCutoff}
           onClose={() => setSelectedTeamId(null)}
         />
@@ -2248,9 +2616,13 @@ function TeamDrawer({
   range,
   control,
   bubble,
+  currentSosRank,
   sos,
   swings,
   clinchScenarios,
+  titleRace,
+  playoffStatus,
+  goldPctLabel,
   cutoff,
   onClose,
 }: {
@@ -2258,9 +2630,13 @@ function TeamDrawer({
   range: { best: number; worst: number; baseline: number };
   control: string;
   bubble: string;
+  currentSosRank: number | null;
   sos: { label: string; avgSeed: number; opponents: string };
   swings: SwingGame[];
   clinchScenarios: string[];
+  titleRace: string;
+  playoffStatus: string;
+  goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
 }) {
@@ -2271,49 +2647,55 @@ function TeamDrawer({
           <div>
             <div className="text-xs font-black uppercase tracking-wide text-slate-400">Team Detail</div>
             <h2 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{displayName(team.name)}</h2>
-            <div className="mt-2 text-sm font-bold text-slate-500">Current #{team.rank} · Projected #{team.projectedRank} · Top {cutoff} Gold</div>
+            <div className="mt-2 text-sm font-bold text-slate-500">Current #{team.rank} · Projected #{team.projectedRank} · Top {cutoff} Gold Bracket</div>
           </div>
           <button onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50">Close</button>
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
-          <DrawerMetric label="Gold" value={`${team.goldPct.toFixed(0)}%`} />
+          <DrawerMetric label="Gold %" value={goldPctLabel} />
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
           <DrawerMetric label="Bubble" value={bubble} />
-          <DrawerMetric label="SOS" value={sos.label} />
-          <DrawerMetric label="Control" value={control} />
+          <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
+          <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
+          <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
+          <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
+          <DrawerMetric label="Remaining SOS" value={sos.label} />
+          {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="font-black tracking-tight text-slate-950">Status</h3>
+          <h3 className="font-black tracking-tight text-slate-950">Playoff Status</h3>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-            {team.goldStatus === "Clinched"
-              ? `${displayName(team.name)} has mathematically secured a Gold spot.`
-              : team.goldStatus === "Eliminated"
-                ? `${displayName(team.name)} is mathematically eliminated from Gold. Even winning out cannot clear the cut line.`
-                : control === "Needs Help"
-                  ? `${displayName(team.name)} can still reach Gold, but winning out may not be enough without help.`
-                  : control === "At Risk"
-                    ? `${displayName(team.name)} is currently inside the cut line, but a loss can create real danger.`
-                    : `${displayName(team.name)} controls enough of its path to stay in the Gold race.`}
+            {playoffStatus === "Clinched"
+              ? `${displayName(team.name)} has mathematically secured a Gold Bracket spot.`
+              : playoffStatus === "Eliminated"
+                ? `${displayName(team.name)} is eliminated from Gold Bracket contention. Even winning out cannot clear the cut line.`
+                : playoffStatus === "Firmly In"
+                  ? `${displayName(team.name)} is not officially clinched, but the math and projection both strongly favor a Gold Bracket spot.`
+                  : playoffStatus === "In"
+                    ? `${displayName(team.name)} is currently positioned for the Gold Bracket but has not fully secured it.`
+                    : playoffStatus === "Alive"
+                      ? `${displayName(team.name)} is still realistically alive for the Gold Bracket based on remaining games and projected movement.`
+                      : `${displayName(team.name)} still has a mathematical path, but there is real work to do and help may be needed.`}
           </p>
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-black tracking-tight text-slate-950">Needs</h3>
+          <h3 className="font-black tracking-tight text-slate-950">Path</h3>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
             {team.goldStatus === "Clinched"
-              ? `${displayName(team.name)} can focus on seeding; the Gold spot is secure.`
+              ? `${displayName(team.name)} has secured a Gold Bracket spot. The remaining games are about seeding and regular-season positioning.`
               : team.goldStatus === "Eliminated"
-                ? `${displayName(team.name)} is out of the Gold math and can only affect other teams' paths.`
-                : control === "Controls Spot" || control === "Controls Path"
-                  ? `${displayName(team.name)} controls enough of the path: winning the remaining key games keeps the team in the Gold race.`
-                  : control === "At Risk"
-                    ? `${displayName(team.name)} needs to avoid a slip because one bad result can push them below the cut line.`
-                    : `${displayName(team.name)} needs help from teams above the cut line plus wins in its own remaining games.`}
+                ? `${displayName(team.name)} is eliminated from Gold Bracket contention and can only affect other teams' paths.`
+                : playoffStatus === "Firmly In" || playoffStatus === "In"
+                  ? `${displayName(team.name)} is inside the Gold cut line, but the remaining games still affect seeding and safety.`
+                  : playoffStatus === "Alive"
+                    ? `${displayName(team.name)} is close enough to push into the Gold Bracket with strong results and some help around the cut line.`
+                    : `${displayName(team.name)} still has a path, but needs wins and help from teams above the cut line.`}
           </p>
-          <p className="mt-2 text-xs font-bold text-slate-500">Remaining SOS: {sos.label}. Opponents left: {sos.opponents}.</p>
+          <p className="mt-2 text-xs font-bold text-slate-500">Current SOS #{currentSosRank || "—"} measures opponents already played. Remaining SOS is {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.</p>
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
