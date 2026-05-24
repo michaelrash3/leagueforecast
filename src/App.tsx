@@ -12,7 +12,6 @@ import { OnboardingTour } from "./components/OnboardingTour";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
 import { LineChart } from "./components/charts/LineChart";
-import { RaceToCutLine } from "./components/charts/RaceToCutLine";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
@@ -658,10 +657,10 @@ function TeamDrawer({
                     Model: {swing.modelPick} · {Math.round(swing.winPct * 100)}% team win chance
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-                    <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">
+                    <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                       Win: #{swing.winSeed}
                     </div>
-                    <div className="rounded-xl bg-red-50 px-3 py-2 text-red-700">
+                    <div className="rounded-xl bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/40 dark:text-red-300">
                       Loss: #{swing.lossSeed}
                     </div>
                   </div>
@@ -691,6 +690,7 @@ export default function App() {
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showTour, setShowTour] = useState(false);
   const [lastImpact, setLastImpact] = useState<
     { title: string; scores: string[]; messages: string[]; recapItems: RecapItem[] } | null
   >(null);
@@ -2194,6 +2194,12 @@ export default function App() {
         group: "Help",
         run: () => setShowShortcuts(true),
       },
+      {
+        id: "action-tour",
+        label: "Show app tour",
+        group: "Help",
+        run: () => setShowTour(true),
+      },
     ];
     return [...viewCmds, ...teamCmds, ...actionCmds];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2504,7 +2510,11 @@ export default function App() {
         shortcuts={shortcutEntries}
         onClose={() => setShowShortcuts(false)}
       />
-      <OnboardingTour enabled={teams.length === 0} />
+      <OnboardingTour
+        open={showTour}
+        onClose={() => setShowTour(false)}
+        autoOpenWhenEmpty={teams.length === 0}
+      />
 
       <ToastView toast={toast} onDismiss={dismissToast} />
     </div>
@@ -3049,43 +3059,13 @@ function ModelView(props: {
     gameForecasts,
     byId,
     gameStatusClasses,
-    teams,
-    matchups,
-    logs,
-    settings,
-    cutoff,
+    teams: _teams,
+    matchups: _matchups,
+    logs: _logs,
+    settings: _settings,
+    cutoff: _cutoff,
   } = props;
 
-  // Build race-to-the-cut-line series by replaying through the last few completed games.
-  const sortedCompleted = [...matchups]
-    .filter((g) => isFinal(logs[g.id]))
-    .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
-  const states = sortedCompleted.slice(-Math.min(8, sortedCompleted.length));
-  const rankSeries = useMemo(() => {
-    const series: { id: string; name: string; ranks: number[] }[] = teams.map((team) => ({
-      id: team.id,
-      name: team.name,
-      ranks: [],
-    }));
-    for (let i = 1; i <= states.length; i += 1) {
-      const allowed = new Set(states.slice(0, i).map((g) => g.id));
-      const stateLogs: Record<string, GameLog> = {};
-      matchups.forEach((game) => {
-        const log = logs[game.id];
-        if (log && allowed.has(game.id)) stateLogs[game.id] = log;
-      });
-      const stateTeams = calculateTeams(teams, matchups, stateLogs);
-      const ranked = rankTeams(stateTeams, {
-        runDiffTiebreaker: settings.runDiffTiebreaker,
-      });
-      ranked.forEach((team) => {
-        const entry = series.find((s) => s.id === team.id);
-        if (entry) entry.ranks.push(team.rank ?? teams.length);
-      });
-    }
-    return series;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teams, matchups, logs, settings, states.length]);
   return (
     <section className="space-y-6">
       <div className={`${card} p-6`}>
@@ -3238,25 +3218,6 @@ function ModelView(props: {
         )}
       </section>
 
-      {rankSeries.length > 0 && rankSeries[0] && rankSeries[0].ranks.length > 1 && (
-        <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              Race to the Cut Line
-            </h3>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              Last {rankSeries[0].ranks.length} games
-            </span>
-          </div>
-          <RaceToCutLine
-            rankSeries={rankSeries}
-            cutoff={cutoff}
-            totalTeams={teams.length}
-            highlightIds={modelRows.slice(0, Math.min(3, cutoff)).map((team) => team.id)}
-          />
-        </section>
-      )}
-
       <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -3397,10 +3358,10 @@ function ModelView(props: {
                           chance
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-bold">
-                          <div className="rounded-lg bg-emerald-50 px-2 py-2 text-emerald-700">
+                          <div className="rounded-lg bg-emerald-50 px-2 py-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                             Win: #{swing.winSeed}
                           </div>
-                          <div className="rounded-lg bg-red-50 px-2 py-2 text-red-700">
+                          <div className="rounded-lg bg-red-50 px-2 py-2 text-red-700 dark:bg-red-950/40 dark:text-red-300">
                             Loss: #{swing.lossSeed}
                           </div>
                         </div>
@@ -3657,7 +3618,7 @@ function SettingsView({
         </div>
 
         <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-900">
-          <div className="text-[11px] font-black uppercase tracking-wide text-blue-700">
+          <div className="text-[11px] font-black uppercase tracking-wide text-blue-700 dark:text-blue-400">
             Live preview
           </div>
           <p className="mt-2 leading-6">

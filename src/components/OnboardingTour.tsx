@@ -6,7 +6,7 @@ const STEPS = [
   {
     title: "Welcome to the NKB Season Tracker",
     body:
-      "Standings, projections, Gold Bracket odds, and what-if scenarios — all from results you enter or import. Everything is saved in this browser.",
+      "Standings, projections, Gold Bracket odds, and per-team scenarios — all from results you enter or import. Everything is saved in this browser.",
   },
   {
     title: "Start a season",
@@ -19,27 +19,47 @@ const STEPS = [
       "Type R/H/K per team, then mark Final. Standings, projections, and Gold odds update instantly.",
   },
   {
-    title: "Play with the model",
+    title: "Get around fast",
     body:
-      "Use the What-If tab to flip remaining games and see how the standings shift live. Press ⌘K (Ctrl+K) any time for the command palette.",
+      "Press ⌘K (Ctrl+K) for the command palette. Press ? for keyboard shortcuts. d toggles dark mode. Use Share to copy a snapshot URL.",
   },
 ];
 
-export function OnboardingTour({ enabled }: { enabled: boolean }) {
+export function OnboardingTour({
+  open,
+  onClose,
+  autoOpenWhenEmpty,
+}: {
+  open: boolean;
+  onClose: () => void;
+  autoOpenWhenEmpty: boolean;
+}) {
   const [step, setStep] = useState(0);
-  const [open, setOpen] = useState(false);
+  const [visible, setVisible] = useState(false);
 
+  // Sync controlled `open` prop into internal visibility.
   useEffect(() => {
-    if (!enabled) return;
+    if (open) {
+      setStep(0);
+      setVisible(true);
+    } else {
+      setVisible(false);
+    }
+  }, [open]);
+
+  // First-run auto-open: only when teams list is empty and the user hasn't dismissed before.
+  useEffect(() => {
+    if (!autoOpenWhenEmpty) return;
     try {
       if (localStorage.getItem(STORAGE_KEY) === "1") return;
     } catch {
       /* ignore */
     }
-    setOpen(true);
-  }, [enabled]);
+    setStep(0);
+    setVisible(true);
+  }, [autoOpenWhenEmpty]);
 
-  if (!open) return null;
+  if (!visible) return null;
   const current = STEPS[step];
   if (!current) return null;
 
@@ -49,7 +69,8 @@ export function OnboardingTour({ enabled }: { enabled: boolean }) {
     } catch {
       /* ignore */
     }
-    setOpen(false);
+    setVisible(false);
+    onClose();
   };
 
   return (
