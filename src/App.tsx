@@ -11,7 +11,6 @@ import { CompareDrawer } from "./components/CompareDrawer";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
-import { LineChart } from "./components/charts/LineChart";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
@@ -418,14 +417,12 @@ function TeamDrawer({
   swings,
   clinchScenarios,
   titleRace,
-  playoffStatus,
   goldPctLabel,
   cutoff,
   onClose,
   magicForGold,
   eliminationNumber,
   pathSummary,
-  goldTrend,
   onCompare,
 }: {
   team: TeamWithProjection;
@@ -436,14 +433,12 @@ function TeamDrawer({
   swings: SwingGame[];
   clinchScenarios: string[];
   titleRace: string;
-  playoffStatus: string;
   goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   pathSummary: string;
-  goldTrend: number[];
   onCompare: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -525,50 +520,16 @@ function TeamDrawer({
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
 
-        {goldTrend.length > 1 && (
-          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
-              Gold Odds Over Time
-            </h3>
-            <div className="mt-2">
-              <LineChart
-                series={[
-                  {
-                    id: team.id,
-                    label: displayName(team.name),
-                    values: goldTrend,
-                    tone:
-                      (team.goldPct ?? 0) >= 75
-                        ? "emerald"
-                        : (team.goldPct ?? 0) >= 40
-                          ? "blue"
-                          : "slate",
-                  },
-                ]}
-                yLabel="%"
-                height={180}
-                showLegend={false}
-              />
-            </div>
-          </section>
-        )}
-
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Playoff Status
+            Where they stand
           </h3>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-            {playoffStatus === "Clinched"
-              ? `${displayName(team.name)} has mathematically secured a Gold Bracket spot.`
-              : playoffStatus === "Eliminated"
-                ? `${displayName(team.name)} is eliminated from Gold Bracket contention. Even winning out cannot clear the cut line.`
-                : playoffStatus === "Firmly In"
-                  ? `${displayName(team.name)} is not officially clinched, but the math and projection both strongly favor a Gold Bracket spot.`
-                  : playoffStatus === "In"
-                    ? `${displayName(team.name)} is currently positioned for the Gold Bracket but has not fully secured it.`
-                    : playoffStatus === "Alive"
-                      ? `${displayName(team.name)} is still realistically alive for the Gold Bracket based on remaining games and projected movement.`
-                      : `${displayName(team.name)} still has a mathematical path, but there is real work to do and help may be needed.`}
+            {pathSummary}
+          </p>
+          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+            Current SOS #{currentSosRank ?? "—"} measures opponents already played. Remaining SOS is{" "}
+            {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.
           </p>
         </section>
 
@@ -592,39 +553,13 @@ function TeamDrawer({
           </ul>
         </section>
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Summary</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-            {pathSummary}
-          </p>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Path</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-            {team.goldStatus === "Clinched"
-              ? `${displayName(team.name)} has secured a Gold Bracket spot. The remaining games are about seeding and regular-season positioning.`
-              : team.goldStatus === "Eliminated"
-                ? `${displayName(team.name)} is eliminated from Gold Bracket contention and can only affect other teams' paths.`
-                : playoffStatus === "Firmly In" || playoffStatus === "In"
-                  ? `${displayName(team.name)} is inside the Gold cut line, but the remaining games still affect seeding and safety.`
-                  : playoffStatus === "Alive"
-                    ? `${displayName(team.name)} is close enough to push into the Gold Bracket with strong results and some help around the cut line.`
-                    : `${displayName(team.name)} still has a path, but needs wins and help from teams above the cut line.`}
-          </p>
-          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-            Current SOS #{currentSosRank ?? "—"} measures opponents already played. Remaining SOS is{" "}
-            {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.
-          </p>
-        </section>
-
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Clinch Scenarios</h3>
           <div className="mt-3 space-y-2">
             {clinchScenarios.map((scenario) => (
               <div
                 key={scenario}
-                className="rounded-xl bg-white p-3 text-sm font-bold leading-6 text-slate-600 shadow-sm ring-1 ring-slate-200"
+                className="rounded-xl bg-white p-3 text-sm font-bold leading-6 text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
               >
                 {scenario}
               </div>
@@ -643,7 +578,7 @@ function TeamDrawer({
               swings.map((swing) => (
                 <div
                   key={swing.game.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-black text-slate-950 dark:text-slate-100">
@@ -2445,7 +2380,6 @@ export default function App() {
           swings={nextTwoSwingGames(selectedTeam.id)}
           clinchScenarios={clinchScenariosForTeam(selectedTeam.id)}
           titleRace={titleRaceBadgeForTeam(selectedTeam)}
-          playoffStatus={statusLabel(selectedTeam)}
           goldPctLabel={formatGoldPct(selectedTeam)}
           cutoff={goldCutoff}
           magicForGold={magicForGold(
@@ -2476,7 +2410,6 @@ export default function App() {
               leaderName: currentLeader ? displayName(currentLeader.name) : "",
             }
           )}
-          goldTrend={selectedTeam.goldTrend}
           onClose={() => {
             setSelectedTeamId(null);
             setCompareTeamId(null);
