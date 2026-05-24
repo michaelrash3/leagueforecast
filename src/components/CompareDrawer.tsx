@@ -176,7 +176,7 @@ export function CompareDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -187,7 +187,7 @@ export function CompareDrawer({
             </div>
             <h2
               id={titleId}
-              className="mt-1 text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100"
+              className="mt-1 text-xl font-black leading-tight tracking-tight text-slate-950 sm:text-2xl dark:text-slate-100"
             >
               {displayName(left.name)} <span className="text-slate-400">vs</span> {displayName(right.name)}
             </h2>
@@ -226,22 +226,22 @@ export function CompareDrawer({
         </div>
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-xs sm:text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               <tr>
-                <th className="px-4 py-2">Metric</th>
-                <th className="px-4 py-2 text-right">{displayName(left.name)}</th>
-                <th className="px-4 py-2 text-right">{displayName(right.name)}</th>
+                <th className="px-2 py-2 sm:px-4">Metric</th>
+                <th className="px-2 py-2 text-right sm:px-4">{displayName(left.name)}</th>
+                <th className="px-2 py-2 text-right sm:px-4">{displayName(right.name)}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {rows.map((row) => (
                 <tr key={row.label}>
-                  <td className="px-4 py-2 font-bold text-slate-600 dark:text-slate-300">
+                  <td className="px-2 py-2 font-bold text-slate-600 sm:px-4 dark:text-slate-300">
                     {row.label}
                   </td>
-                  <td className={`px-4 py-2 text-right ${tone(row.better, "left")}`}>{row.left}</td>
-                  <td className={`px-4 py-2 text-right ${tone(row.better, "right")}`}>{row.right}</td>
+                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "left")}`}>{row.left}</td>
+                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "right")}`}>{row.right}</td>
                 </tr>
               ))}
             </tbody>
