@@ -600,7 +600,7 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-black tracking-tight text-slate-950">Path</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Path</h3>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
             {team.goldStatus === "Clinched"
               ? `${displayName(team.name)} has secured a Gold Bracket spot. The remaining games are about seeding and regular-season positioning.`
@@ -619,7 +619,7 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-          <h3 className="font-black tracking-tight text-slate-950">Clinch Scenarios</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Clinch Scenarios</h3>
           <div className="mt-3 space-y-2">
             {clinchScenarios.map((scenario) => (
               <div
@@ -633,7 +633,7 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6">
-          <h3 className="font-black tracking-tight text-slate-950">Next Two</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Next Two</h3>
           <div className="mt-3 space-y-3">
             {swings.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -646,10 +646,10 @@ function TeamDrawer({
                   className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-black">
+                    <div className="font-black text-slate-950 dark:text-slate-100">
                       {swing.teamIsAway ? "at" : "vs"} {swing.opponentName}
                     </div>
-                    <div className="text-xs font-black text-slate-500">
+                    <div className="text-xs font-black text-slate-500 dark:text-slate-400">
                       {formatGameDate(swing.game.date)}
                     </div>
                   </div>
@@ -2542,7 +2542,7 @@ function EmptyState({
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 shadow-sm">
         <h2 className="text-2xl font-black tracking-tight">Start a Season</h2>
-        <p className="mt-2 text-sm font-semibold text-slate-500">
+        <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
           Import an existing schedule CSV, or enter team names and build a blank round-robin
           schedule.
         </p>
@@ -2573,7 +2573,7 @@ function EmptyState({
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             New Season Builder
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500">
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
             Enter teams and create a blank schedule where every team plays every other team
             once.
           </p>
@@ -2629,7 +2629,7 @@ function EmptyState({
           placeholder={"Stallions\nGriddy\nTrash Pandas\nChaos"}
           className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
         />
-        <p className="mt-3 text-xs font-semibold text-slate-500">
+        <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
           One team per line. The generated CSV leaves dates blank so you can add them later.
         </p>
       </aside>
@@ -3240,7 +3240,7 @@ function ModelView(props: {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       #{item.rank} · {item.date}
                     </div>
                     <div className="mt-1 font-black text-slate-950 dark:text-slate-100">{item.label}</div>
@@ -3296,12 +3296,12 @@ function ModelView(props: {
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black">
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-slate-500">Gold</div>
-                      <div className="mt-1 text-slate-950">{formatGoldPct(team)}</div>
+                      <div className="text-slate-500 dark:text-slate-400">Gold</div>
+                      <div className="mt-1 text-slate-950 dark:text-slate-100">{formatGoldPct(team)}</div>
                     </div>
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-slate-500">SOS</div>
-                      <div className="mt-1 text-slate-950">{sos.label}</div>
+                      <div className="text-slate-500 dark:text-slate-400">SOS</div>
+                      <div className="mt-1 text-slate-950 dark:text-slate-100">{sos.label}</div>
                     </div>
                   </div>
                   <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
@@ -3334,8 +3334,8 @@ function ModelView(props: {
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="font-black">{displayName(team.name)}</div>
-                    <div className="text-xs font-black text-slate-500">
+                    <div className="font-black text-slate-950 dark:text-slate-100">{displayName(team.name)}</div>
+                    <div className="text-xs font-black text-slate-500 dark:text-slate-400">
                       #{team.rank} now · #{team.projectedRank} projected
                     </div>
                   </div>
@@ -3343,13 +3343,13 @@ function ModelView(props: {
                     {swings.map((swing) => (
                       <div
                         key={swing.game.id}
-                        className="rounded-xl bg-white p-3 text-sm shadow-sm ring-1 ring-slate-200"
+                        className="rounded-xl bg-white p-3 text-sm shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-black">
+                          <span className="font-black text-slate-950 dark:text-slate-100">
                             {swing.teamIsAway ? "at" : "vs"} {swing.opponentName}
                           </span>
-                          <span className="text-xs font-black text-slate-500">
+                          <span className="text-xs font-black text-slate-500 dark:text-slate-400">
                             {formatGameDate(swing.game.date)}
                           </span>
                         </div>
@@ -3395,19 +3395,19 @@ function ModelView(props: {
               return (
                 <article
                   key={`game-forecast-${item.game.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+                      <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         {formatGameDate(item.game.date)}
                       </div>
-                      <div className="mt-1 text-base font-black tracking-tight text-slate-950">
+                      <div className="mt-1 text-base font-black tracking-tight text-slate-950 dark:text-slate-100">
                         {item.awayName} at {item.homeName}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200">
-                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                    <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Pick
                       </div>
                       <div className="text-sm font-black text-slate-950 dark:text-slate-100">{item.winnerName}</div>
@@ -3419,13 +3419,13 @@ function ModelView(props: {
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Spread
                       </div>
-                      <div className="mt-1 text-base text-slate-950">{runLine}</div>
+                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">{runLine}</div>
                     </div>
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Chance
                       </div>
-                      <div className="mt-1 text-base text-slate-950">
+                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
                         {Math.round(item.winnerPct * 100)}%
                       </div>
                     </div>
@@ -3433,7 +3433,7 @@ function ModelView(props: {
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Upset Risk
                       </div>
-                      <div className="mt-1 text-base text-slate-950">{upsetRisk}</div>
+                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">{upsetRisk}</div>
                     </div>
                   </div>
 
@@ -3668,35 +3668,35 @@ function SettingsView({
         <div className="mt-4 space-y-3 text-sm font-bold text-slate-600">
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Season</span>
-            <span className="text-slate-950">{settings.seasonLabel}</span>
+            <span className="text-slate-950 dark:text-slate-100">{settings.seasonLabel}</span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Gold Cutoff</span>
-            <span className="text-slate-950">Top {goldCutoff}</span>
+            <span className="text-slate-950 dark:text-slate-100">Top {goldCutoff}</span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Win / Tie Points</span>
-            <span className="text-slate-950">
+            <span className="text-slate-950 dark:text-slate-100">
               {settings.winPoints} / {settings.tiePoints}
             </span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Run Diff Tiebreaker</span>
-            <span className="text-slate-950">{settings.runDiffTiebreaker ? "On" : "Off"}</span>
+            <span className="text-slate-950 dark:text-slate-100">{settings.runDiffTiebreaker ? "On" : "Off"}</span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Score Cap</span>
-            <span className="text-slate-950">{settings.maxScoreCap}</span>
+            <span className="text-slate-950 dark:text-slate-100">{settings.maxScoreCap}</span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Model</span>
-            <span className="text-slate-950">
+            <span className="text-slate-950 dark:text-slate-100">
               {settings.modelAggression} ({aggressionMultiplier.toFixed(1)}×)
             </span>
           </div>
           <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Teams</span>
-            <span className="text-slate-950">{teamsCount}</span>
+            <span className="text-slate-950 dark:text-slate-100">{teamsCount}</span>
           </div>
         </div>
       </aside>
