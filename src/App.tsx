@@ -6,8 +6,18 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { CommandPalette, type Command } from "./components/CommandPalette";
+import { CompareDrawer } from "./components/CompareDrawer";
+import { OnboardingTour } from "./components/OnboardingTour";
+import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
+import { WhatIfLab } from "./components/WhatIfLab";
+import { LineChart } from "./components/charts/LineChart";
+import { RaceToCutLine } from "./components/charts/RaceToCutLine";
+import { useDarkMode } from "./hooks/useDarkMode";
+import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
+import { useUrlSnapshot } from "./hooks/useUrlState";
 import {
   useSimulationOdds,
   useSimulationTrend,
@@ -25,6 +35,9 @@ import {
   parseDateValue,
 } from "./lib/date";
 import { displayName, recordText, teamAbbr } from "./lib/format";
+import { pathSummary, recapToMarkdown, weeklyRecap, type RecapItem } from "./lib/insights";
+import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import { buildShareUrl } from "./lib/share";
 import {
   applyResult,
   calculateTeams,
@@ -69,7 +82,7 @@ import {
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
 
-type ActiveView = "standings" | "games" | "model" | "settings";
+type ActiveView = "standings" | "games" | "model" | "whatif" | "settings";
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -84,10 +97,11 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
   games: "Games",
   model: "Projection",
+  whatif: "What-If",
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
+const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "whatif", "settings"];
 
 // ---------- Helpers that depend on app-shape but no state ----------
 
@@ -411,6 +425,11 @@ function TeamDrawer({
   goldPctLabel,
   cutoff,
   onClose,
+  magicForGold,
+  eliminationNumber,
+  pathSummary,
+  goldTrend,
+  onCompare,
 }: {
   team: TeamWithProjection;
   range: { best: number; worst: number; baseline: number };
@@ -424,6 +443,11 @@ function TeamDrawer({
   goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
+  magicForGold: import("./lib/magic").MagicResult;
+  eliminationNumber: import("./lib/magic").MagicResult;
+  pathSummary: string;
+  goldTrend: number[];
+  onCompare: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -451,32 +475,41 @@ function TeamDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl outline-none"
+        className="h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Team Detail
             </div>
             <h2
               id={titleId}
-              className="mt-1 text-3xl font-black tracking-tight text-slate-950"
+              className="mt-1 text-3xl font-black tracking-tight text-slate-950 dark:text-slate-100"
             >
               {displayName(team.name)}
             </h2>
-            <div className="mt-2 text-sm font-bold text-slate-500">
+            <div className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
               Current #{team.rank} · Projected #{team.projectedRank} · Top {cutoff} Gold Bracket
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50"
-          >
-            Close
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={onCompare}
+              className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+            >
+              Compare
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
@@ -495,9 +528,39 @@ function TeamDrawer({
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="font-black tracking-tight text-slate-950">Playoff Status</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+        {goldTrend.length > 1 && (
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Gold Odds Over Time
+            </h3>
+            <div className="mt-2">
+              <LineChart
+                series={[
+                  {
+                    id: team.id,
+                    label: displayName(team.name),
+                    values: goldTrend,
+                    tone:
+                      (team.goldPct ?? 0) >= 75
+                        ? "emerald"
+                        : (team.goldPct ?? 0) >= 40
+                          ? "blue"
+                          : "slate",
+                  },
+                ]}
+                yLabel="%"
+                height={180}
+                showLegend={false}
+              />
+            </div>
+          </section>
+        )}
+
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Playoff Status
+          </h3>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
             {playoffStatus === "Clinched"
               ? `${displayName(team.name)} has mathematically secured a Gold Bracket spot.`
               : playoffStatus === "Eliminated"
@@ -509,6 +572,33 @@ function TeamDrawer({
                     : playoffStatus === "Alive"
                       ? `${displayName(team.name)} is still realistically alive for the Gold Bracket based on remaining games and projected movement.`
                       : `${displayName(team.name)} still has a mathematical path, but there is real work to do and help may be needed.`}
+          </p>
+        </section>
+
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Magic Numbers
+          </h3>
+          <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+            <li>
+              <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                M (Gold clinch)
+              </span>
+              <div className="text-sm font-bold leading-snug">{magicForGold.description}</div>
+            </li>
+            <li>
+              <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                E (Gold elimination)
+              </span>
+              <div className="text-sm font-bold leading-snug">{eliminationNumber.description}</div>
+            </li>
+          </ul>
+        </section>
+
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Summary</h3>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+            {pathSummary}
           </p>
         </section>
 
@@ -600,14 +690,19 @@ export default function App() {
   const [newAway, setNewAway] = useState("");
   const [newHome, setNewHome] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [lastImpact, setLastImpact] = useState<
-    { title: string; scores: string[]; messages: string[] } | null
+    { title: string; scores: string[]; messages: string[]; recapItems: RecapItem[] } | null
   >(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
 
   const undoRef = useRef<UndoSnapshot | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  const { theme, toggle: toggleTheme } = useDarkMode();
+  const { snapshot: sharedSnapshot, clear: clearSharedSnapshot } = useUrlSnapshot();
 
   const goldCutoff = clamp(
     Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
@@ -1782,6 +1877,28 @@ export default function App() {
         const away = teamBaseById.get(game.away);
         const home = teamBaseById.get(game.home);
         const dateLabel = normalizeDateInput(game.date);
+        const awayScore = parseNumber(finalLog.awayRuns);
+        const homeScore = parseNumber(finalLog.homeRuns);
+        const recapItems = weeklyRecap({
+          before,
+          after: after.map((entry) => ({
+            id: entry.id,
+            rank: entry.rank,
+            goldPct: entry.goldPct,
+            goldStatus: entry.goldStatus,
+            name: entry.name,
+          })),
+          finalsSinceLast: [
+            {
+              game,
+              awayScore,
+              homeScore,
+              awayName: displayName(away?.name || game.away),
+              homeName: displayName(home?.name || game.home),
+            },
+          ],
+          cutoff: goldCutoff,
+        });
         setLastImpact({
           title: dateLabel ? `Latest Update — ${dateLabel}` : "Latest Update — No Date",
           scores: [
@@ -1790,6 +1907,7 @@ export default function App() {
           messages: messages.length
             ? messages
             : ["This update was recorded; no standings-impact detail to summarize."],
+          recapItems,
         });
       } else {
         setLastImpact(null);
@@ -1970,6 +2088,7 @@ export default function App() {
     standings: null,
     games: null,
     model: null,
+    whatif: null,
     settings: null,
   });
 
@@ -1988,31 +2107,211 @@ export default function App() {
   };
 
   const selectedTeam = selectedTeamId ? dashboardById.get(selectedTeamId) ?? null : null;
+  const compareTeam = compareTeamId ? dashboardById.get(compareTeamId) ?? null : null;
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
   const currentLeader = dashboardRows[0];
   const aggressionMultiplier = MODEL_AGGRESSION[settings.modelAggression];
 
+  // ---------- Share + URL snapshot ----------
+
+  const sharedHandledRef = useRef(false);
+  useEffect(() => {
+    if (!sharedSnapshot || sharedHandledRef.current) return;
+    sharedHandledRef.current = true;
+    const ok = window.confirm(
+      `A shared NKB season is in the URL (${sharedSnapshot.teams.length} teams, ${sharedSnapshot.matchups.length} games).\n\nReplace your current local data with the shared snapshot?\n\nClick Cancel to keep your data; the URL will be cleared either way.`
+    );
+    if (ok) {
+      captureUndo("Load shared snapshot");
+      setTeams(sharedSnapshot.teams);
+      setMatchups(sharedSnapshot.matchups);
+      setLogs(sharedSnapshot.logs);
+      setSettings(sharedSnapshot.settings);
+      showToast("Loaded shared snapshot.", {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: restoreUndo,
+      });
+    }
+    clearSharedSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedSnapshot]);
+
+  const shareSeason = async () => {
+    const snapshot = { v: 1 as const, teams, matchups, logs, settings };
+    const url = buildShareUrl(window.location.href, snapshot);
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Share URL copied to clipboard.", { tone: "success" });
+    } catch {
+      window.prompt("Copy this share URL:", url);
+    }
+  };
+
+  // ---------- Command palette + shortcuts ----------
+
+  const commands: Command[] = useMemo(() => {
+    const teamCmds: Command[] = dashboardRows.map((team) => ({
+      id: `team-${team.id}`,
+      label: `View ${displayName(team.name)}`,
+      group: "Team",
+      hint: `#${team.rank} · ${recordText(team)}`,
+      run: () => setSelectedTeamId(team.id),
+    }));
+    const viewCmds: Command[] = VIEW_ORDER.map((view) => ({
+      id: `view-${view}`,
+      label: `Go to ${VIEW_LABELS[view]}`,
+      group: "View",
+      run: () => setActiveView(view),
+    }));
+    const actionCmds: Command[] = [
+      {
+        id: "action-share",
+        label: "Share this season (copy URL)",
+        group: "Action",
+        run: shareSeason,
+      },
+      {
+        id: "action-export",
+        label: "Export schedule CSV",
+        group: "Action",
+        run: () => exportCSV(),
+      },
+      {
+        id: "action-backup",
+        label: "Download backup JSON",
+        group: "Action",
+        run: () => exportBackup(),
+      },
+      {
+        id: "action-toggle-theme",
+        label: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+        group: "Action",
+        run: toggleTheme,
+      },
+      {
+        id: "action-shortcuts",
+        label: "Show keyboard shortcuts",
+        group: "Help",
+        run: () => setShowShortcuts(true),
+      },
+    ];
+    return [...viewCmds, ...teamCmds, ...actionCmds];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboardRows, theme]);
+
+  const shortcuts: Shortcut[] = useMemo(
+    () => [
+      {
+        combo: "mod+k",
+        description: "Open command palette",
+        group: "General",
+        handler: () => setShowCommandPalette(true),
+      },
+      {
+        combo: "shift+/",
+        description: "Show shortcuts",
+        group: "General",
+        handler: () => setShowShortcuts(true),
+      },
+      {
+        combo: "g s",
+        description: "Go to Standings",
+        group: "Navigate",
+        handler: () => setActiveView("standings"),
+      },
+      {
+        combo: "g g",
+        description: "Go to Games",
+        group: "Navigate",
+        handler: () => setActiveView("games"),
+      },
+      {
+        combo: "g m",
+        description: "Go to Projection",
+        group: "Navigate",
+        handler: () => setActiveView("model"),
+      },
+      {
+        combo: "g w",
+        description: "Go to What-If",
+        group: "Navigate",
+        handler: () => setActiveView("whatif"),
+      },
+      {
+        combo: "g t",
+        description: "Go to Settings",
+        group: "Navigate",
+        handler: () => setActiveView("settings"),
+      },
+      {
+        combo: "d",
+        description: "Toggle dark mode",
+        group: "Action",
+        handler: toggleTheme,
+      },
+    ],
+    [toggleTheme]
+  );
+  useShortcuts(shortcuts);
+
+  const shortcutEntries = shortcuts.map((s) => ({
+    combo: s.combo,
+    description: s.description,
+    group: s.group,
+  }));
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+      <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-950">
+              <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-100">
                 NKB Season Tracker
               </h1>
-              <div className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-600">
+              <div className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 {settings.seasonLabel}
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCommandPalette(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                aria-label="Open command palette"
+              >
+                <span>⌘K</span>
+                <span className="hidden sm:inline">Quick actions</span>
+              </button>
+              {teams.length > 0 && (
+                <button
+                  type="button"
+                  onClick={shareSeason}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  aria-label="Copy share URL for this season"
+                >
+                  Share
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white p-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {theme === "dark" ? "☀" : "☾"}
+              </button>
             </div>
           </div>
 
           <div
             role="tablist"
             aria-label="Main views"
-            className="flex gap-2 rounded-2xl bg-slate-100 p-1 w-fit"
+            className="flex gap-2 rounded-2xl bg-slate-100 p-1 w-fit dark:bg-slate-800"
           >
             {VIEW_ORDER.map((view) => (
               <button
@@ -2061,6 +2360,16 @@ export default function App() {
             todayPicture={todayPicture}
             lastImpact={lastImpact}
             dismissImpact={() => setLastImpact(null)}
+            copyRecap={async () => {
+              if (!lastImpact) return;
+              const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
+              try {
+                await navigator.clipboard.writeText(md);
+                showToast("Recap copied.", { tone: "success" });
+              } catch {
+                window.prompt("Copy this recap:", md);
+              }
+            }}
             dashboardRows={dashboardRows}
             currentSosRanks={currentSosRanks}
             statusClass={statusClass}
@@ -2074,7 +2383,6 @@ export default function App() {
             goldCutoff={goldCutoff}
             modelRows={modelRows}
             seedRangeForTeam={seedRangeForTeam}
-            controlLevelForTeam={controlLevelForTeam}
             gamesThatMatterMost={gamesThatMatterMost}
             bubbleMovementRows={bubbleMovementRows}
             scheduleDifficultyForTeam={scheduleDifficultyForTeam}
@@ -2085,6 +2393,22 @@ export default function App() {
             gameForecasts={gameForecasts}
             byId={liveById}
             gameStatusClasses={gameStatusClasses}
+            teams={teams}
+            matchups={matchups}
+            logs={logs}
+            settings={settings}
+            cutoff={goldCutoff}
+          />
+        ) : activeView === "whatif" ? (
+          <WhatIfLab
+            liveTeams={liveTeams}
+            remainingGames={remainingGames}
+            matchups={matchups}
+            logs={logs}
+            teamBaseById={teamBaseById}
+            liveById={liveById}
+            goldCutoff={goldCutoff}
+            settings={settings}
           />
         ) : activeView === "settings" ? (
           <SettingsView
@@ -2138,9 +2462,69 @@ export default function App() {
           playoffStatus={statusLabel(selectedTeam)}
           goldPctLabel={formatGoldPct(selectedTeam)}
           cutoff={goldCutoff}
-          onClose={() => setSelectedTeamId(null)}
+          magicForGold={magicForGold(
+            selectedTeam.id,
+            dashboardRows,
+            remainingGames,
+            goldCutoff,
+            settings
+          )}
+          eliminationNumber={eliminationNumberForGold(
+            selectedTeam.id,
+            dashboardRows,
+            remainingGames,
+            goldCutoff,
+            settings
+          )}
+          pathSummary={pathSummary(
+            { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
+            goldCutoff,
+            nextTwoSwingGames(selectedTeam.id).map((swing) => ({
+              opponentName: swing.opponentName,
+              teamIsAway: swing.teamIsAway,
+              winSeed: swing.winSeed,
+              lossSeed: swing.lossSeed,
+            })),
+            {
+              totalTeams: dashboardRows.length,
+              leaderName: currentLeader ? displayName(currentLeader.name) : "",
+            }
+          )}
+          goldTrend={selectedTeam.goldTrend}
+          onClose={() => {
+            setSelectedTeamId(null);
+            setCompareTeamId(null);
+          }}
+          onCompare={() => {
+            const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
+            setCompareTeamId(candidate ? candidate.id : null);
+          }}
         />
       )}
+
+      {selectedTeam && compareTeam && (
+        <CompareDrawer
+          left={selectedTeam}
+          right={compareTeam}
+          allTeams={dashboardRows}
+          matchups={matchups}
+          logs={logs}
+          onClose={() => setCompareTeamId(null)}
+          onPickRight={(id) => setCompareTeamId(id)}
+        />
+      )}
+
+      <CommandPalette
+        open={showCommandPalette}
+        commands={commands}
+        onClose={() => setShowCommandPalette(false)}
+      />
+      <ShortcutsHelp
+        open={showShortcuts}
+        shortcuts={shortcutEntries}
+        onClose={() => setShowShortcuts(false)}
+      />
+      <OnboardingTour enabled={teams.length === 0} />
 
       <ToastView toast={toast} onDismiss={dismissToast} />
     </div>
@@ -2272,6 +2656,7 @@ function StandingsView({
   todayPicture,
   lastImpact,
   dismissImpact,
+  copyRecap,
   dashboardRows,
   currentSosRanks,
   statusClass,
@@ -2286,8 +2671,14 @@ function StandingsView({
   goldCutoff: number;
   latestCompletedDate: string;
   todayPicture: { clinched: string; eliminated: string; biggestGame: string };
-  lastImpact: { title: string; scores: string[]; messages: string[] } | null;
+  lastImpact: {
+    title: string;
+    scores: string[];
+    messages: string[];
+    recapItems: RecapItem[];
+  } | null;
   dismissImpact: () => void;
+  copyRecap: () => void;
   dashboardRows: TeamWithProjection[];
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
@@ -2315,46 +2706,67 @@ function StandingsView({
         </div>
 
         {lastImpact && (
-          <div className="border-b border-slate-200 bg-blue-50 px-5 py-4">
+          <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] font-black uppercase tracking-wide text-blue-700">
+                <div className="text-[11px] font-black uppercase tracking-wide text-blue-700 dark:text-blue-400">
                   Impact Since Last Update
                 </div>
-                <div className="text-sm font-black text-slate-950">{lastImpact.title}</div>
+                <div className="text-sm font-black text-slate-950 dark:text-slate-100">{lastImpact.title}</div>
               </div>
-              <button
-                type="button"
-                onClick={dismissImpact}
-                className="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-blue-100 hover:text-slate-950"
-              >
-                Dismiss
-              </button>
+              <div className="flex gap-2">
+                {lastImpact.recapItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={copyRecap}
+                    className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+                  >
+                    Copy Recap
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={dismissImpact}
+                  className="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-blue-100 hover:text-slate-950 dark:bg-slate-900 dark:text-slate-400 dark:ring-slate-700"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
             {lastImpact.scores.length > 0 && (
-              <div className="mb-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-blue-100">
-                <div className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-500">
+              <div className="mb-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                <div className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Final Scores
                 </div>
-                <div className="flex flex-wrap gap-2 text-xs font-black text-slate-800">
+                <div className="flex flex-wrap gap-2 text-xs font-black text-slate-800 dark:text-slate-200">
                   {lastImpact.scores.map((score) => (
-                    <span key={score} className="rounded-full bg-slate-100 px-3 py-1">
+                    <span key={score} className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800 dark:text-slate-200">
                       {score}
                     </span>
                   ))}
                 </div>
               </div>
             )}
-            <div className="flex flex-wrap gap-2 text-xs font-black text-blue-700">
-              {lastImpact.messages.map((change) => (
-                <span
-                  key={change}
-                  className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100"
-                >
-                  {change}
-                </span>
-              ))}
-            </div>
+            {lastImpact.recapItems.length > 0 ? (
+              <ul className="space-y-1.5 text-xs font-black text-blue-800 dark:text-blue-300">
+                {lastImpact.recapItems.map((item) => (
+                  <li key={item.text} className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                    {item.text}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex flex-wrap gap-2 text-xs font-black text-blue-700 dark:text-blue-300">
+                {lastImpact.messages.map((change) => (
+                  <span
+                    key={change}
+                    className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700"
+                  >
+                    {change}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -2539,7 +2951,6 @@ function ModelView(props: {
   goldCutoff: number;
   modelRows: TeamWithProjection[];
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
-  controlLevelForTeam: (t: TeamWithProjection) => string;
   gamesThatMatterMost: { game: Matchup; rank: number; label: string; reason: string; date: string }[];
   bubbleMovementRows: { team: TeamWithProjection; tier: string; sos: { label: string; opponents: string }; control: string }[];
   scheduleDifficultyForTeam: (id: string) => { label: string; opponents: string };
@@ -2559,12 +2970,16 @@ function ModelView(props: {
   }[];
   byId: Map<string, Team>;
   gameStatusClasses: (s: string) => string;
+  teams: TeamBase[];
+  matchups: Matchup[];
+  logs: Record<string, GameLog>;
+  settings: Settings;
+  cutoff: number;
 }) {
   const {
     goldCutoff,
     modelRows,
     seedRangeForTeam,
-    controlLevelForTeam,
     gamesThatMatterMost,
     bubbleMovementRows,
     scheduleDifficultyForTeam: _sd,
@@ -2575,7 +2990,43 @@ function ModelView(props: {
     gameForecasts,
     byId,
     gameStatusClasses,
+    teams,
+    matchups,
+    logs,
+    settings,
+    cutoff,
   } = props;
+
+  // Build race-to-the-cut-line series by replaying through the last few completed games.
+  const sortedCompleted = [...matchups]
+    .filter((g) => isFinal(logs[g.id]))
+    .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
+  const states = sortedCompleted.slice(-Math.min(8, sortedCompleted.length));
+  const rankSeries = useMemo(() => {
+    const series: { id: string; name: string; ranks: number[] }[] = teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      ranks: [],
+    }));
+    for (let i = 1; i <= states.length; i += 1) {
+      const allowed = new Set(states.slice(0, i).map((g) => g.id));
+      const stateLogs: Record<string, GameLog> = {};
+      matchups.forEach((game) => {
+        const log = logs[game.id];
+        if (log && allowed.has(game.id)) stateLogs[game.id] = log;
+      });
+      const stateTeams = calculateTeams(teams, matchups, stateLogs);
+      const ranked = rankTeams(stateTeams, {
+        runDiffTiebreaker: settings.runDiffTiebreaker,
+      });
+      ranked.forEach((team) => {
+        const entry = series.find((s) => s.id === team.id);
+        if (entry) entry.ranks.push(team.rank ?? teams.length);
+      });
+    }
+    return series;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teams, matchups, logs, settings, states.length]);
   return (
     <section className="space-y-6">
       <div className={`${card} p-6`}>
@@ -2596,26 +3047,24 @@ function ModelView(props: {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left">
-              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-5 py-3">Team</th>
                   <th className="px-4 py-3 text-center">Now</th>
                   <th className="px-4 py-3 text-center">Projected</th>
                   <th className="px-4 py-3 text-center">Range</th>
-                  <th className="px-4 py-3 text-center">Control</th>
                   <th className="px-4 py-3 text-center">Projected Record</th>
                   <th className="px-4 py-3 text-center">Gold Odds</th>
                   <th className="px-4 py-3 text-center">Run Diff</th>
                   <th className="px-5 py-3 text-right">TPI</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {modelRows.map((team) => {
                   const movement = (team.rank ?? 99) - team.projectedRank;
                   const range = seedRangeForTeam(team.id);
-                  const control = controlLevelForTeam(team);
                   return (
-                    <tr key={`forecast-${team.id}`} className="hover:bg-slate-50/70">
+                    <tr key={`forecast-${team.id}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/70">
                       <td className="px-5 py-4 font-black">{displayName(team.name)}</td>
                       <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
                       <td className="px-4 py-4 text-center font-black">
@@ -2638,23 +3087,6 @@ function ModelView(props: {
                       </td>
                       <td className="px-4 py-4 text-center font-black">
                         #{range.best}–#{range.worst}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span
-                          className={
-                            control === "Clinched"
-                              ? pill("dark")
-                              : control === "Eliminated"
-                                ? pill("red")
-                                : control === "Needs Help"
-                                  ? pill("amber")
-                                  : control === "At Risk"
-                                    ? "rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-700"
-                                    : pill("emerald")
-                          }
-                        >
-                          {control}
-                        </span>
                       </td>
                       <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
                       <td className="px-4 py-4 text-center font-black">{formatGoldPct(team)}</td>
@@ -2683,9 +3115,28 @@ function ModelView(props: {
         )}
       </section>
 
-      <section className={`${card} p-5`}>
+      {rankSeries.length > 0 && rankSeries[0] && rankSeries[0].ranks.length > 1 && (
+        <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Race to the Cut Line
+            </h3>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              Last {rankSeries[0].ranks.length} games
+            </span>
+          </div>
+          <RaceToCutLine
+            rankSeries={rankSeries}
+            cutoff={cutoff}
+            totalTeams={teams.length}
+            highlightIds={modelRows.slice(0, Math.min(3, cutoff)).map((team) => team.id)}
+          />
+        </section>
+      )}
+
+      <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-black tracking-tight text-slate-950">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Games That Matter Most
           </h3>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
