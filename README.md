@@ -33,10 +33,9 @@ Node `>=20`; the repo pins to `.nvmrc`.
 | **Standings** | Live record + diff + Gold % + status; sortable cut-line tracking; SOS rank; sparkline trend per team; weekly recap card with copy-to-clipboard. |
 | **Games** | Per-game R/H/K entry, prediction strip, swap/delete/final toggle, scoreboard filter, automatic standings/odds re-projection. |
 | **Projection** | Forecast Board (Now / Projected / Range / Projected Record / Gold Odds / Run Diff / TPI), Games-That-Matter-Most, Bubble Watch, Projected Cut-Line Games, full Game Forecasts with confidence/upset risk, **Race-to-the-Cut-Line** line chart over recent games. |
-| **What-If Lab** | Toggle each remaining game's winner between Away / Model / Home and watch standings, projected ranks, and Gold % update live (worker-driven). |
 | **Team drawer** | Per-team stats + path summary (plain English), magic / elimination numbers, full Gold-odds line chart, next-two swing games, clinch scenarios, **Compare** button opens a side-by-side compare drawer with head-to-head, common opponents, win/loss/runs/TPI tile-by-tile. |
 | **Settings** | Season label, Gold cutoff, win/tie points, run-diff tiebreaker, score cap, model aggression (Conservative / Balanced / Aggressive) — all wired into `calculateTeams`, `predictGame`, `applyResult`, `rankTeams`. |
-| **Power UX** | ⌘K / Ctrl-K command palette (jump to team/view, share, export, theme), `?` shortcuts help, `g s/g g/g m/g w/g t` view jumps, `d` theme toggle, dark mode, shareable URL (state encoded in the hash), CSV import/export with formula-injection guards + BOM strip, undo toasts on destructive actions, 4-step onboarding tour. |
+| **Power UX** | ⌘K / Ctrl-K command palette (jump to team/view, share, export, theme), `?` shortcuts help, `g s/g g/g m/g t` view jumps, `d` theme toggle, dark mode, shareable URL (state encoded in the hash), CSV import/export with formula-injection guards + BOM strip, undo toasts on destructive actions, 4-step onboarding tour. |
 | **A11y** | Modals (TeamDrawer, CompareDrawer, CommandPalette, ShortcutsHelp) are `role="dialog" aria-modal="true"` with focus trap + Escape + body scroll lock + focus restore. Tabs are `role="tablist"` with arrow-key nav. Inputs have programmatic labels. |
 | **Perf** | Monte Carlo simulator + trend states run in a Web Worker (`src/workers/sim.worker.ts`) with debounce + cancellation; standings render via `Map<id, T>` lookups (no `.find` in render loops); per-team scenarios memoized. |
 
@@ -55,7 +54,6 @@ src/
     csv.ts                      # parseCSVLine, csvEscape (formula-injection guard), stripBom
     sim.ts                      # calculateTeams, predictGame, applyResult, projectStandings,
                                 # rankTeams, simulateGoldOdds, standingsPoints, getMathGoldStatus
-    scenario.ts                 # what-if overlay -> projected standings / odds (reuses sim.ts)
     magic.ts                    # magic / elimination numbers per team for Gold
     insights.ts                 # pathSummary, weeklyRecap, recapToMarkdown, summarizeStandings
     share.ts                    # encode/decode snapshot in URL hash (base64), build share URL
@@ -72,7 +70,6 @@ src/
     sim.worker.ts               # Monte Carlo worker, posts odds + trend results
   components/
     Toast.tsx                   # toast renderer
-    WhatIfLab.tsx               # remaining-games overrides + live standings panel
     CompareDrawer.tsx           # side-by-side team comparison drawer
     WeeklyRecap.tsx             # recap card with copy-to-clipboard
     CommandPalette.tsx          # ⌘K-driven palette over teams/views/actions
@@ -112,7 +109,7 @@ src/
 
 - `⌘K` / `Ctrl-K` — Command palette
 - `?` (shift `/`) — Shortcuts help
-- `g s` / `g g` / `g m` / `g w` / `g t` — Jump to Standings / Games / Projection / What-If / Settings
+- `g s` / `g g` / `g m` / `g t` — Jump to Standings / Games / Projection / Settings
 - `d` — Toggle dark mode
 - `Esc` — Close any modal / drawer / palette
 

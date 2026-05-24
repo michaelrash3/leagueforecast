@@ -11,7 +11,6 @@ import { CompareDrawer } from "./components/CompareDrawer";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
-import { WhatIfLab } from "./components/WhatIfLab";
 import { LineChart } from "./components/charts/LineChart";
 import { RaceToCutLine } from "./components/charts/RaceToCutLine";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -82,7 +81,7 @@ import {
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
 
-type ActiveView = "standings" | "games" | "model" | "whatif" | "settings";
+type ActiveView = "standings" | "games" | "model" | "settings";
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -97,11 +96,10 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
   games: "Games",
   model: "Projection",
-  whatif: "What-If",
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "whatif", "settings"];
+const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
 
 // ---------- Helpers that depend on app-shape but no state ----------
 
@@ -265,7 +263,7 @@ function GameDateInput({
       onKeyDown={(event) => {
         if (event.key === "Enter") event.currentTarget.blur();
       }}
-      className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
+      className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-950 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white dark:focus:ring-slate-700"
       aria-label={ariaLabel ?? "Game date in M/D format"}
     />
   );
@@ -291,12 +289,12 @@ function InsightTile({
 }) {
   const toneClasses =
     tone === "red"
-      ? "border-red-100 bg-red-50 text-red-700"
+      ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300"
       : tone === "blue"
-        ? "border-blue-100 bg-blue-50 text-blue-700"
+        ? "border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-300"
         : tone === "amber"
-          ? "border-amber-100 bg-amber-50 text-amber-700"
-          : "border-slate-200 bg-slate-50 text-slate-800";
+          ? "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+          : "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
   return (
     <div className={`rounded-2xl border p-4 ${toneClasses}`}>
       <div className="text-[10px] font-black uppercase tracking-wide opacity-70">{label}</div>
@@ -307,9 +305,9 @@ function InsightTile({
 
 function DrawerMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-black text-slate-950">{value}</div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">{value}</div>
     </div>
   );
 }
@@ -359,7 +357,7 @@ const ScoreRow = React.memo(function ScoreRow({
               pattern="[0-9]*"
               maxLength={2}
               aria-label={`${display} ${field.aria}`}
-              className="mt-1 block h-10 w-11 rounded-xl border border-slate-300 bg-white text-center text-base font-black text-slate-950 outline-none focus:border-slate-950"
+              className="mt-1 block h-10 w-11 rounded-xl border border-slate-300 bg-white text-center text-base font-black text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
         ))}
@@ -604,7 +602,7 @@ function TeamDrawer({
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-black tracking-tight text-slate-950">Path</h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
             {team.goldStatus === "Clinched"
               ? `${displayName(team.name)} has secured a Gold Bracket spot. The remaining games are about seeding and regular-season positioning.`
               : team.goldStatus === "Eliminated"
@@ -615,13 +613,13 @@ function TeamDrawer({
                     ? `${displayName(team.name)} is close enough to push into the Gold Bracket with strong results and some help around the cut line.`
                     : `${displayName(team.name)} still has a path, but needs wins and help from teams above the cut line.`}
           </p>
-          <p className="mt-2 text-xs font-bold text-slate-500">
+          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
             Current SOS #{currentSosRank ?? "—"} measures opponents already played. Remaining SOS is{" "}
             {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.
           </p>
         </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="font-black tracking-tight text-slate-950">Clinch Scenarios</h3>
           <div className="mt-3 space-y-2">
             {clinchScenarios.map((scenario) => (
@@ -639,7 +637,7 @@ function TeamDrawer({
           <h3 className="font-black tracking-tight text-slate-950">Next Two</h3>
           <div className="mt-3 space-y-3">
             {swings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm font-bold text-slate-500">
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
                 No remaining games for this team.
               </div>
             ) : (
@@ -656,7 +654,7 @@ function TeamDrawer({
                       {formatGameDate(swing.game.date)}
                     </div>
                   </div>
-                  <div className="mt-2 text-xs font-bold text-slate-500">
+                  <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
                     Model: {swing.modelPick} · {Math.round(swing.winPct * 100)}% team win chance
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
@@ -2088,7 +2086,6 @@ export default function App() {
     standings: null,
     games: null,
     model: null,
-    whatif: null,
     settings: null,
   });
 
@@ -2235,12 +2232,6 @@ export default function App() {
         handler: () => setActiveView("model"),
       },
       {
-        combo: "g w",
-        description: "Go to What-If",
-        group: "Navigate",
-        handler: () => setActiveView("whatif"),
-      },
-      {
         combo: "g t",
         description: "Go to Settings",
         group: "Navigate",
@@ -2311,7 +2302,7 @@ export default function App() {
           <div
             role="tablist"
             aria-label="Main views"
-            className="flex gap-2 rounded-2xl bg-slate-100 p-1 w-fit dark:bg-slate-800"
+            className="-mx-2 flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 sm:mx-0 sm:gap-2 sm:overflow-visible sm:w-fit dark:bg-slate-800"
           >
             {VIEW_ORDER.map((view) => (
               <button
@@ -2398,17 +2389,6 @@ export default function App() {
             logs={logs}
             settings={settings}
             cutoff={goldCutoff}
-          />
-        ) : activeView === "whatif" ? (
-          <WhatIfLab
-            liveTeams={liveTeams}
-            remainingGames={remainingGames}
-            matchups={matchups}
-            logs={logs}
-            teamBaseById={teamBaseById}
-            liveById={liveById}
-            goldCutoff={goldCutoff}
-            settings={settings}
           />
         ) : activeView === "settings" ? (
           <SettingsView
@@ -2580,7 +2560,7 @@ function EmptyState({
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
-          <h3 className="text-lg font-black tracking-tight text-slate-950">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             New Season Builder
           </h3>
           <p className="mt-1 text-sm font-semibold text-slate-500">
@@ -2599,7 +2579,7 @@ function EmptyState({
                 ? teams.map((team) => displayName(team.name)).join("\n")
                 : "Stallions\nGriddy\nTrash Pandas"
             }
-            className="mt-4 h-44 w-full resize-none rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold outline-none focus:border-slate-950"
+            className="mt-4 h-44 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
           />
           <div className="mt-4 flex flex-wrap gap-3">
             <button
@@ -2610,7 +2590,7 @@ function EmptyState({
             </button>
             <button
               onClick={downloadRoundRobinCSV}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Download Blank CSV
             </button>
@@ -2620,7 +2600,7 @@ function EmptyState({
                   teams.map((team) => displayName(team.name)).join("\n")
                 )
               }
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Use Current Teams
             </button>
@@ -2628,7 +2608,7 @@ function EmptyState({
         </div>
       </div>
       <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-black tracking-tight text-slate-950">Team List</h3>
+        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Team List</h3>
         <label className="sr-only" htmlFor="team-list-textarea">
           Team list
         </label>
@@ -2637,7 +2617,7 @@ function EmptyState({
           value={seasonBuilderText}
           onChange={(event) => setSeasonBuilderText(event.target.value)}
           placeholder={"Stallions\nGriddy\nTrash Pandas\nChaos"}
-          className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold outline-none focus:border-slate-950"
+          className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
         />
         <p className="mt-3 text-xs font-semibold text-slate-500">
           One team per line. The generated CSV leaves dates blank so you can add them later.
@@ -2689,15 +2669,15 @@ function StandingsView({
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4">
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
           <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
           <Metric label="Cut Line" value={`Top ${goldCutoff}`} />
           <Metric label="Updated Through" value={latestCompletedDate} />
         </div>
 
-        <div className="border-b border-slate-200 bg-white px-5 py-4">
+        <div className="border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <InsightTile label="Gold Clinched" value={todayPicture.clinched} tone="slate" />
             <InsightTile label="Eliminated" value={todayPicture.eliminated} tone="red" />
@@ -2771,135 +2751,214 @@ function StandingsView({
         )}
 
         {dashboardRows.length === 0 ? (
-          <div className="p-8 text-center text-sm font-bold text-slate-500">
+          <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
             No final results yet. Mark a game Final in the Games tab to populate standings.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left">
-              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-3">Seed</th>
-                  <th className="px-5 py-3">Team</th>
-                  <th className="px-4 py-3 text-center">Record</th>
-                  <th className="px-4 py-3 text-center">Diff</th>
-                  <th className="px-4 py-3 text-center">SOS</th>
-                  <th className="px-4 py-3 text-center">Gold %</th>
-                  <th className="px-4 py-3 text-center">Playoff Status</th>
-                  <th className="px-4 py-3 text-center">Trend</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {dashboardRows.map((team, index) => {
-                  const select = () => onSelectTeam(team.id);
-                  const rowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      select();
-                    }
-                  };
-                  return (
-                    <React.Fragment key={team.id}>
-                      {index === goldCutoff && (
-                        <tr
-                          key="cut-line"
-                          // eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role
-                          role="separator"
-                          aria-label={`Gold cut line: top ${goldCutoff} teams qualify`}
-                        >
-                          <td
-                            colSpan={8}
-                            className="bg-slate-950 px-5 py-2 text-center text-xs font-black uppercase tracking-[0.22em] text-red-400"
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                  <tr>
+                    <th className="px-5 py-3">Seed</th>
+                    <th className="px-5 py-3">Team</th>
+                    <th className="px-4 py-3 text-center">Record</th>
+                    <th className="px-4 py-3 text-center">Diff</th>
+                    <th className="px-4 py-3 text-center">SOS</th>
+                    <th className="px-4 py-3 text-center">Gold %</th>
+                    <th className="px-4 py-3 text-center">Playoff Status</th>
+                    <th className="px-4 py-3 text-center">Trend</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {dashboardRows.map((team, index) => {
+                    const select = () => onSelectTeam(team.id);
+                    const rowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        select();
+                      }
+                    };
+                    return (
+                      <React.Fragment key={team.id}>
+                        {index === goldCutoff && (
+                          <tr
+                            key="cut-line"
+                            // eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role
+                            role="separator"
+                            aria-label={`Gold cut line: top ${goldCutoff} teams qualify`}
                           >
-                            Gold Cut Line
-                          </td>
-                        </tr>
-                      )}
-                      <tr
-                        onClick={select}
-                        onKeyDown={rowKeyDown}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`View ${displayName(team.name)} detail`}
-                        className="cursor-pointer hover:bg-slate-50/70 focus:bg-slate-100 focus:outline-none"
-                      >
-                        <td className="px-5 py-4 font-black text-slate-500">#{team.rank}</td>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white">
-                              {teamAbbr(team.name)}
-                            </div>
-                            <div>
-                              <div
-                                className="font-black tracking-tight"
-                                title={team.name}
-                              >
-                                {displayName(team.name)}
+                            <td
+                              colSpan={8}
+                              className="bg-slate-950 px-5 py-2 text-center text-xs font-black uppercase tracking-[0.22em] text-red-400 dark:bg-black"
+                            >
+                              Gold Cut Line
+                            </td>
+                          </tr>
+                        )}
+                        <tr
+                          onClick={select}
+                          onKeyDown={rowKeyDown}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`View ${displayName(team.name)} detail`}
+                          className="cursor-pointer text-slate-800 hover:bg-slate-50/70 focus:bg-slate-100 focus:outline-none dark:text-slate-100 dark:hover:bg-slate-800/70 dark:focus:bg-slate-800"
+                        >
+                          <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                                {teamAbbr(team.name)}
+                              </div>
+                              <div>
+                                <div
+                                  className="font-black tracking-tight text-slate-950 dark:text-slate-100"
+                                  title={team.name}
+                                >
+                                  {displayName(team.name)}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-center font-black">
-                          {recordText(team)}
-                        </td>
-                        <td
-                          className={`px-4 py-4 text-center font-black ${
-                            team.runDiff > 0
-                              ? "text-emerald-600"
-                              : team.runDiff < 0
-                                ? "text-red-600"
-                                : "text-slate-500"
-                          }`}
+                          </td>
+                          <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
+                            {recordText(team)}
+                          </td>
+                          <td
+                            className={`px-4 py-4 text-center font-black ${
+                              team.runDiff > 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : team.runDiff < 0
+                                  ? "text-red-600 dark:text-red-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {team.runDiff > 0 ? "+" : ""}
+                            {team.runDiff}
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span
+                              title={`Current SOS: ${team.sos.toFixed(2)}. Rank is based on opponents already played.`}
+                              className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                              #{currentSosRanks[team.id] || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span
+                              className={
+                                team.goldPct >= 75
+                                  ? pill("emerald")
+                                  : team.goldPct >= 40
+                                    ? pill("blue")
+                                    : pill("neutral")
+                              }
+                            >
+                              {formatGoldPct(team)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span
+                              title={
+                                team.goldStatus === "Eliminated"
+                                  ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
+                                  : team.goldStatus === "Clinched"
+                                    ? `${displayName(team.name)} has mathematically secured a Top ${goldCutoff} spot even if they lose out.`
+                                    : `${displayName(team.name)} is still mathematically live for the Top ${goldCutoff}.`
+                              }
+                              aria-label={`Playoff status: ${statusLabel(team)}`}
+                              className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
+                            >
+                              {statusLabel(team)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <Sparkline values={team.goldTrend} />
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
+              {dashboardRows.map((team, index) => {
+                const select = () => onSelectTeam(team.id);
+                const isLastInside = index + 1 === goldCutoff;
+                return (
+                  <li key={team.id}>
+                    <button
+                      type="button"
+                      onClick={select}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800"
+                      aria-label={`View ${displayName(team.name)} detail`}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="w-7 text-right text-xs font-black text-slate-500 dark:text-slate-400">
+                          #{team.rank}
+                        </span>
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-[10px] font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                          {teamAbbr(team.name)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                            {displayName(team.name)}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            {recordText(team)} ·{" "}
+                            <span
+                              className={
+                                team.runDiff > 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : team.runDiff < 0
+                                    ? "text-red-600 dark:text-red-400"
+                                    : ""
+                              }
+                            >
+                              {team.runDiff > 0 ? "+" : ""}
+                              {team.runDiff}
+                            </span>{" "}
+                            · SOS #{currentSosRanks[team.id] || "—"}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span
+                          className={
+                            team.goldPct >= 75
+                              ? pill("emerald")
+                              : team.goldPct >= 40
+                                ? pill("blue")
+                                : pill("neutral")
+                          }
                         >
-                          {team.runDiff > 0 ? "+" : ""}
-                          {team.runDiff}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span
-                            title={`Current SOS: ${team.sos.toFixed(2)}. Rank is based on opponents already played.`}
-                            className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700"
-                          >
-                            #{currentSosRanks[team.id] || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span
-                            className={
-                              team.goldPct >= 75
-                                ? pill("emerald")
-                                : team.goldPct >= 40
-                                  ? pill("blue")
-                                  : pill("neutral")
-                            }
-                          >
-                            {formatGoldPct(team)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span
-                            title={
-                              team.goldStatus === "Eliminated"
-                                ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
-                                : team.goldStatus === "Clinched"
-                                  ? `${displayName(team.name)} has mathematically secured a Top ${goldCutoff} spot even if they lose out.`
-                                  : `${displayName(team.name)} is still mathematically live for the Top ${goldCutoff}.`
-                            }
-                            aria-label={`Playoff status: ${statusLabel(team)}`}
-                            className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
-                          >
-                            {statusLabel(team)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <Sparkline values={team.goldTrend} />
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                          {formatGoldPct(team)}
+                        </span>
+                        <span
+                          aria-label={`Playoff status: ${statusLabel(team)}`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusClass(team)}`}
+                        >
+                          {statusLabel(team)}
+                        </span>
+                      </div>
+                    </button>
+                    {isLastInside && (
+                      <div
+                        role="separator"
+                        aria-label={`Gold cut line: top ${goldCutoff} teams qualify`}
+                        className="bg-slate-950 px-4 py-1.5 text-center text-[10px] font-black uppercase tracking-[0.22em] text-red-400 dark:bg-black"
+                      >
+                        Gold Cut Line
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </section>
 
@@ -2907,7 +2966,7 @@ function StandingsView({
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-black tracking-tight">Cut Line</h2>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               Top {goldCutoff}
             </span>
           </div>
@@ -2919,13 +2978,13 @@ function StandingsView({
                 <div
                   key={team.id}
                   className={`rounded-2xl border p-4 ${
-                    inside ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-white"
+                    inside ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800/60 dark:bg-emerald-950/30" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="font-black">{displayName(team.name)}</div>
-                      <div className="mt-1 text-xs font-bold text-slate-500">
+                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                         #{team.rank} · {recordText(team)} · {Math.round(team.goldPct)}% Gold
                       </div>
                     </div>
@@ -3031,51 +3090,116 @@ function ModelView(props: {
     <section className="space-y-6">
       <div className={`${card} p-6`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <h2 className="text-2xl font-black tracking-tight text-slate-950">Projection</h2>
+          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Projection</h2>
           <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
           </div>
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h3 className="text-lg font-black tracking-tight text-slate-950">Forecast Board</h3>
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Forecast Board</h3>
         </div>
         {modelRows.length === 0 ? (
-          <div className="p-8 text-center text-sm font-bold text-slate-500">No teams yet.</div>
+          <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">No teams yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left">
-              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                <tr>
-                  <th className="px-5 py-3">Team</th>
-                  <th className="px-4 py-3 text-center">Now</th>
-                  <th className="px-4 py-3 text-center">Projected</th>
-                  <th className="px-4 py-3 text-center">Range</th>
-                  <th className="px-4 py-3 text-center">Projected Record</th>
-                  <th className="px-4 py-3 text-center">Gold Odds</th>
-                  <th className="px-4 py-3 text-center">Run Diff</th>
-                  <th className="px-5 py-3 text-right">TPI</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {modelRows.map((team) => {
-                  const movement = (team.rank ?? 99) - team.projectedRank;
-                  const range = seedRangeForTeam(team.id);
-                  return (
-                    <tr key={`forecast-${team.id}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/70">
-                      <td className="px-5 py-4 font-black">{displayName(team.name)}</td>
-                      <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
-                      <td className="px-4 py-4 text-center font-black">
-                        #{team.projectedRank}
-                        <span
-                          className={`ml-2 rounded-full px-2 py-1 text-[10px] font-black ${
-                            movement > 0
-                              ? "bg-emerald-100 text-emerald-700"
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                  <tr>
+                    <th className="px-5 py-3">Team</th>
+                    <th className="px-4 py-3 text-center">Now</th>
+                    <th className="px-4 py-3 text-center">Projected</th>
+                    <th className="px-4 py-3 text-center">Range</th>
+                    <th className="px-4 py-3 text-center">Projected Record</th>
+                    <th className="px-4 py-3 text-center">Gold Odds</th>
+                    <th className="px-4 py-3 text-center">Run Diff</th>
+                    <th className="px-5 py-3 text-right">TPI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {modelRows.map((team) => {
+                    const movement = (team.rank ?? 99) - team.projectedRank;
+                    const range = seedRangeForTeam(team.id);
+                    return (
+                      <tr key={`forecast-${team.id}`} className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
+                        <td className="px-5 py-4 font-black">{displayName(team.name)}</td>
+                        <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
+                        <td className="px-4 py-4 text-center font-black">
+                          #{team.projectedRank}
+                          <span
+                            className={`ml-2 rounded-full px-2 py-1 text-[10px] font-black ${
+                              movement > 0
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                : movement < 0
+                                  ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                                  : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                            }`}
+                          >
+                            {movement > 0
+                              ? `+${movement}`
                               : movement < 0
-                                ? "bg-red-100 text-red-700"
-                                : "bg-slate-100 text-slate-600"
+                                ? `-${Math.abs(movement)}`
+                                : "0"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-black">
+                          #{range.best}–#{range.worst}
+                        </td>
+                        <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
+                        <td className="px-4 py-4 text-center font-black">{formatGoldPct(team)}</td>
+                        <td
+                          className={`px-4 py-4 text-center font-black ${
+                            team.projectedRunDiff > 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : team.projectedRunDiff < 0
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-slate-500 dark:text-slate-400"
+                          }`}
+                        >
+                          {team.projectedRunDiff > 0 ? "+" : ""}
+                          {team.projectedRunDiff}
+                        </td>
+                        <td className="px-5 py-4 text-right font-black">
+                          {team.tpi > 0 ? "+" : ""}
+                          {team.tpi.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
+              {modelRows.map((team) => {
+                const movement = (team.rank ?? 99) - team.projectedRank;
+                const range = seedRangeForTeam(team.id);
+                return (
+                  <li
+                    key={`forecast-mobile-${team.id}`}
+                    className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3"
+                  >
+                    <span className="text-xs font-black text-slate-500 dark:text-slate-400">
+                      #{team.rank}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                        {displayName(team.name)}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        Proj #{team.projectedRank}{" "}
+                        <span
+                          className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-black ${
+                            movement > 0
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              : movement < 0
+                                ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                                : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                           }`}
                         >
                           {movement > 0
@@ -3083,35 +3207,34 @@ function ModelView(props: {
                             : movement < 0
                               ? `-${Math.abs(movement)}`
                               : "0"}
+                        </span>{" "}
+                        · #{range.best}–#{range.worst} · {team.projectedRecord}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        TPI {team.tpi > 0 ? "+" : ""}
+                        {team.tpi.toFixed(2)} · Diff{" "}
+                        <span
+                          className={
+                            team.projectedRunDiff > 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : team.projectedRunDiff < 0
+                                ? "text-red-600 dark:text-red-400"
+                                : ""
+                          }
+                        >
+                          {team.projectedRunDiff > 0 ? "+" : ""}
+                          {team.projectedRunDiff}
                         </span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-black">
-                        #{range.best}–#{range.worst}
-                      </td>
-                      <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
-                      <td className="px-4 py-4 text-center font-black">{formatGoldPct(team)}</td>
-                      <td
-                        className={`px-4 py-4 text-center font-black ${
-                          team.projectedRunDiff > 0
-                            ? "text-emerald-600"
-                            : team.projectedRunDiff < 0
-                              ? "text-red-600"
-                              : "text-slate-500"
-                        }`}
-                      >
-                        {team.projectedRunDiff > 0 ? "+" : ""}
-                        {team.projectedRunDiff}
-                      </td>
-                      <td className="px-5 py-4 text-right font-black">
-                        {team.tpi > 0 ? "+" : ""}
-                        {team.tpi.toFixed(2)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                    <span className="text-right text-sm font-black text-slate-950 dark:text-slate-100">
+                      {formatGoldPct(team)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </section>
 
@@ -3139,12 +3262,12 @@ function ModelView(props: {
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Games That Matter Most
           </h3>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             Next up
           </span>
         </div>
         {gamesThatMatterMost.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
             No remaining games.
           </div>
         ) : (
@@ -3152,14 +3275,14 @@ function ModelView(props: {
             {gamesThatMatterMost.map((item) => (
               <div
                 key={`matter-${item.game.id}`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-xs font-black uppercase tracking-wide text-slate-500">
                       #{item.rank} · {item.date}
                     </div>
-                    <div className="mt-1 font-black text-slate-950">{item.label}</div>
+                    <div className="mt-1 font-black text-slate-950 dark:text-slate-100">{item.label}</div>
                   </div>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-black ${gameStatusClasses(item.reason)}`}
@@ -3176,8 +3299,8 @@ function ModelView(props: {
       {bubbleMovementRows.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-black tracking-tight text-slate-950">Bubble Watch</h3>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Bubble Watch</h3>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               Around Top {goldCutoff}
             </span>
           </div>
@@ -3197,12 +3320,12 @@ function ModelView(props: {
               return (
                 <div
                   key={`bubble-${team.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-black text-slate-950">{displayName(team.name)}</div>
-                      <div className="mt-1 text-xs font-bold text-slate-500">
+                      <div className="font-black text-slate-950 dark:text-slate-100">{displayName(team.name)}</div>
+                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                         Now #{team.rank} · Projected #{team.projectedRank} · Range #{range.best}–#{range.worst}
                       </div>
                     </div>
@@ -3211,16 +3334,16 @@ function ModelView(props: {
                     </span>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black">
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-slate-500">Gold</div>
                       <div className="mt-1 text-slate-950">{formatGoldPct(team)}</div>
                     </div>
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-slate-500">SOS</div>
                       <div className="mt-1 text-slate-950">{sos.label}</div>
                     </div>
                   </div>
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
                     {bubbleNote} {teamPathNote(team)} Remaining opponents: {sos.opponents}.
                   </p>
                 </div>
@@ -3233,10 +3356,10 @@ function ModelView(props: {
       {projectedCutLineTeams.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-black tracking-tight text-slate-950">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
               Projected Cut Line Games
             </h3>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               Next Two
             </span>
           </div>
@@ -3247,7 +3370,7 @@ function ModelView(props: {
               return (
                 <div
                   key={`model-swing-${team.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="font-black">{displayName(team.name)}</div>
@@ -3269,7 +3392,7 @@ function ModelView(props: {
                             {formatGameDate(swing.game.date)}
                           </span>
                         </div>
-                        <div className="mt-2 text-xs font-bold text-slate-500">
+                        <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
                           Model: {swing.modelPick} · {Math.round(swing.winPct * 100)}% team win
                           chance
                         </div>
@@ -3293,13 +3416,13 @@ function ModelView(props: {
 
       <section className={`${card} p-5`}>
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-lg font-black tracking-tight text-slate-950">Game Forecasts</h3>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Game Forecasts</h3>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {gameForecasts.length} Remaining
           </span>
         </div>
         {gameForecasts.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center font-bold text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500">
             No remaining games to project.
           </div>
         ) : (
@@ -3326,27 +3449,27 @@ function ModelView(props: {
                       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
                         Pick
                       </div>
-                      <div className="text-sm font-black text-slate-950">{item.winnerName}</div>
+                      <div className="text-sm font-black text-slate-950 dark:text-slate-100">{item.winnerName}</div>
                     </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-black">
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Spread
                       </div>
                       <div className="mt-1 text-base text-slate-950">{runLine}</div>
                     </div>
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Chance
                       </div>
                       <div className="mt-1 text-base text-slate-950">
                         {Math.round(item.winnerPct * 100)}%
                       </div>
                     </div>
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Upset Risk
                       </div>
                       <div className="mt-1 text-base text-slate-950">{upsetRisk}</div>
@@ -3379,7 +3502,7 @@ function ModelView(props: {
                     </span>
                   </div>
 
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
                     {item.explanation}
                   </p>
                 </article>
@@ -3423,7 +3546,7 @@ function SettingsView({
   return (
     <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
       <div className={`${card} p-6`}>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950">Settings</h2>
+        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Settings</h2>
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
           <label htmlFor={seasonId} className="block">
             <span className="text-sm font-black text-slate-700">Season</span>
@@ -3434,7 +3557,7 @@ function SettingsView({
                 setSettings((prev) => ({ ...prev, seasonLabel: event.target.value }))
               }
               placeholder="Spring 26"
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={cutoffId} className="block">
@@ -3451,7 +3574,7 @@ function SettingsView({
                   goldCutoff: Number(event.target.value),
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={winId} className="block">
@@ -3465,7 +3588,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, winPoints: Number(event.target.value) }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={tieId} className="block">
@@ -3479,7 +3602,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, tiePoints: Number(event.target.value) }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={capId} className="block">
@@ -3493,7 +3616,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, maxScoreCap: Number(event.target.value) }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={aggrId} className="block">
@@ -3507,14 +3630,14 @@ function SettingsView({
                   modelAggression: event.target.value as ModelAggression,
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 font-bold outline-none focus:border-slate-950"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="Conservative">Conservative</option>
               <option value="Balanced">Balanced</option>
               <option value="Aggressive">Aggressive</option>
             </select>
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-slate-300 px-4 py-3">
+          <label className="flex items-center justify-between rounded-2xl border border-slate-300 px-4 py-3 dark:border-slate-600">
             <span className="text-sm font-black text-slate-700">
               Run Differential Tiebreaker
             </span>
@@ -3545,7 +3668,7 @@ function SettingsView({
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <h3 className="text-lg font-black tracking-tight text-slate-950">Data</h3>
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Data</h3>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800">
               Import CSV
@@ -3563,13 +3686,13 @@ function SettingsView({
             </label>
             <button
               onClick={exportCSV}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Export CSV
             </button>
             <button
               onClick={exportBackup}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Backup JSON
             </button>
@@ -3580,37 +3703,37 @@ function SettingsView({
         </div>
       </div>
       <aside className={`${card} p-6`}>
-        <h3 className="text-lg font-black tracking-tight text-slate-950">Current Setup</h3>
+        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Current Setup</h3>
         <div className="mt-4 space-y-3 text-sm font-bold text-slate-600">
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Season</span>
             <span className="text-slate-950">{settings.seasonLabel}</span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Gold Cutoff</span>
             <span className="text-slate-950">Top {goldCutoff}</span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Win / Tie Points</span>
             <span className="text-slate-950">
               {settings.winPoints} / {settings.tiePoints}
             </span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Run Diff Tiebreaker</span>
             <span className="text-slate-950">{settings.runDiffTiebreaker ? "On" : "Off"}</span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Score Cap</span>
             <span className="text-slate-950">{settings.maxScoreCap}</span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Model</span>
             <span className="text-slate-950">
               {settings.modelAggression} ({aggressionMultiplier.toFixed(1)}×)
             </span>
           </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
             <span>Teams</span>
             <span className="text-slate-950">{teamsCount}</span>
           </div>
@@ -3697,7 +3820,7 @@ function GamesView({
               id={awayId}
               value={newAway}
               onChange={(event) => setNewAway(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold outline-none focus:border-slate-950"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="">Away team…</option>
               {teams.map((team) => (
@@ -3713,7 +3836,7 @@ function GamesView({
               id={homeId}
               value={newHome}
               onChange={(event) => setNewHome(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 font-bold outline-none focus:border-slate-950"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="">Home team…</option>
               {teams.map((team) => (
@@ -3748,7 +3871,7 @@ function GamesView({
             id={filterId}
             value={scoreboardTeamFilter}
             onChange={(event) => setScoreboardTeamFilter(event.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold outline-none focus:border-slate-950 md:w-72"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 md:w-72 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
           >
             <option value="ALL">All Teams</option>
             {teams.map((team) => (
@@ -3761,7 +3884,7 @@ function GamesView({
       </div>
 
       {scoreboardGames.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500">
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
           No games yet. Use the form above to add one.
         </div>
       ) : (
@@ -3775,11 +3898,11 @@ function GamesView({
             return (
               <article
                 key={game.id}
-                className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${
-                  final ? "border-slate-200 opacity-80" : "border-slate-200"
+                className={`overflow-hidden rounded-3xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
+                  final ? "border-slate-200 opacity-80 dark:border-slate-700" : "border-slate-200 dark:border-slate-700"
                 }`}
               >
-                <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
                   <GameDateInput
                     value={game.date}
                     ariaLabel={`Date for ${displayName(away?.name || game.away)} vs ${displayName(home?.name || game.home)}`}
@@ -3805,7 +3928,7 @@ function GamesView({
                     <button
                       type="button"
                       onClick={() => swapGame(game.id)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-black"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-black dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       aria-label="Swap home and away teams"
                     >
                       Swap
@@ -3813,7 +3936,7 @@ function GamesView({
                     <button
                       type="button"
                       onClick={() => removeGame(game.id)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-black text-red-600"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-black text-red-600 dark:border-slate-600 dark:bg-slate-800"
                       aria-label="Delete game"
                     >
                       Delete
@@ -3852,7 +3975,7 @@ function GamesView({
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
                   />
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500">
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:text-slate-400">
                     <label className="flex items-center gap-2">
                       Innings
                       <input
@@ -3872,7 +3995,7 @@ function GamesView({
                         pattern="[0-9]*"
                         maxLength={2}
                         aria-label="Innings played"
-                        className="w-14 rounded-lg border border-slate-300 px-2 py-1 text-center font-black text-slate-950"
+                        className="w-14 rounded-lg border border-slate-300 bg-white px-2 py-1 text-center font-black text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       />
                     </label>
                     <span>
