@@ -62,7 +62,6 @@ import {
 import {
   DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
-  MODEL_AGGRESSION,
   SIM_ITERATIONS,
   TREND_STATES,
   type GameLog,
@@ -272,31 +271,6 @@ function Metric({ label, value }: { label: string; value: string | number }) {
     <div className="p-4">
       <div className="text-[11px] font-black uppercase tracking-wide text-slate-300">{label}</div>
       <div className="mt-1 truncate text-xl font-black tracking-tight">{value}</div>
-    </div>
-  );
-}
-
-function InsightTile({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "slate" | "red" | "blue" | "amber";
-}) {
-  const toneClasses =
-    tone === "red"
-      ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300"
-      : tone === "blue"
-        ? "border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-300"
-        : tone === "amber"
-          ? "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
-          : "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
-  return (
-    <div className={`rounded-2xl border p-4 ${toneClasses}`}>
-      <div className="text-[10px] font-black uppercase tracking-wide opacity-70">{label}</div>
-      <div className="mt-1 line-clamp-2 text-sm font-black leading-5">{value}</div>
     </div>
   );
 }
@@ -526,10 +500,6 @@ function TeamDrawer({
           </h3>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
             {pathSummary}
-          </p>
-          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-            Current SOS #{currentSosRank ?? "—"} measures opponents already played. Remaining SOS is{" "}
-            {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.
           </p>
         </section>
 
@@ -1041,30 +1011,6 @@ export default function App() {
     [dashboardById, goldCutoff]
   );
 
-  const biggestBubbleGame = useMemo(() => {
-    const game = [...remainingGames].sort(
-      (a, b) => gameImportance(b) - gameImportance(a)
-    )[0];
-    if (!game) return null;
-    const awayName = displayName(teamBaseById.get(game.away)?.name || game.away);
-    const homeName = displayName(teamBaseById.get(game.home)?.name || game.home);
-    return `${awayName} vs ${homeName}`;
-  }, [remainingGames, gameImportance, teamBaseById]);
-
-  const todayPicture = useMemo(() => {
-    const clinched = dashboardRows
-      .filter((team) => team.goldStatus === "Clinched")
-      .map((team) => displayName(team.name));
-    const eliminated = dashboardRows
-      .filter((team) => team.goldStatus === "Eliminated")
-      .map((team) => displayName(team.name));
-    return {
-      clinched: clinched.length ? clinched.join(", ") : "None",
-      eliminated: eliminated.length ? eliminated.join(", ") : "None",
-      biggestGame: biggestBubbleGame || "None",
-    };
-  }, [dashboardRows, biggestBubbleGame]);
-
   const getGameScenarioImpactMap = useMemo(() => {
     const map = new Map<
       string,
@@ -1294,13 +1240,6 @@ export default function App() {
       );
     });
   }, [bubbleRows, dashboardRows, goldCutoff]);
-
-  const cutLineTeams = useMemo(() => {
-    return dashboardRows.filter((team) => {
-      const seed = team.rank ?? 99;
-      return seed >= goldCutoff - 2 && seed <= goldCutoff + 3;
-    });
-  }, [dashboardRows, goldCutoff]);
 
   const clinchScenariosForTeam = useCallback(
     (teamId: string) => {
@@ -2044,7 +1983,6 @@ export default function App() {
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
   const currentLeader = dashboardRows[0];
-  const aggressionMultiplier = MODEL_AGGRESSION[settings.modelAggression];
 
   // ---------- Share + URL snapshot ----------
 
@@ -2289,7 +2227,6 @@ export default function App() {
             totalGames={totalGamesCount}
             goldCutoff={goldCutoff}
             latestCompletedDate={latestCompletedDate}
-            todayPicture={todayPicture}
             lastImpact={lastImpact}
             dismissImpact={() => setLastImpact(null)}
             copyRecap={async () => {
@@ -2308,7 +2245,6 @@ export default function App() {
             statusLabel={statusLabel}
             formatGoldPct={formatGoldPct}
             onSelectTeam={(id) => setSelectedTeamId(id)}
-            cutLineTeams={cutLineTeams}
           />
         ) : activeView === "model" ? (
           <ModelView
@@ -2335,9 +2271,7 @@ export default function App() {
           <SettingsView
             settings={settings}
             setSettings={setSettings}
-            goldCutoff={goldCutoff}
             teamsCount={teams.length}
-            aggressionMultiplier={aggressionMultiplier}
             importCSV={importCSV}
             exportCSV={exportCSV}
             exportBackup={exportBackup}
@@ -2576,7 +2510,6 @@ function StandingsView({
   totalGames,
   goldCutoff,
   latestCompletedDate,
-  todayPicture,
   lastImpact,
   dismissImpact,
   copyRecap,
@@ -2586,14 +2519,12 @@ function StandingsView({
   statusLabel,
   formatGoldPct,
   onSelectTeam,
-  cutLineTeams,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
   totalGames: number;
   goldCutoff: number;
   latestCompletedDate: string;
-  todayPicture: { clinched: string; eliminated: string; biggestGame: string };
   lastImpact: {
     title: string;
     scores: string[];
@@ -2608,7 +2539,6 @@ function StandingsView({
   statusLabel: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
   onSelectTeam: (id: string) => void;
-  cutLineTeams: TeamWithProjection[];
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -2620,13 +2550,6 @@ function StandingsView({
           <Metric label="Updated Through" value={latestCompletedDate} />
         </div>
 
-        <div className="border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <InsightTile label="Gold Clinched" value={todayPicture.clinched} tone="slate" />
-            <InsightTile label="Eliminated" value={todayPicture.eliminated} tone="red" />
-            <InsightTile label="Biggest Bubble Game" value={todayPicture.biggestGame} tone="amber" />
-          </div>
-        </div>
 
         {lastImpact && (
           <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">
@@ -2905,46 +2828,6 @@ function StandingsView({
         )}
       </section>
 
-      {cutLineTeams.length > 0 && (
-        <section className={`${card} p-5`}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-black tracking-tight">Cut Line</h2>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              Top {goldCutoff}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {cutLineTeams.map((team) => {
-              const inside = (team.rank ?? 99) <= goldCutoff;
-              const onLine = Math.abs((team.rank ?? 99) - goldCutoff) <= 1;
-              return (
-                <div
-                  key={team.id}
-                  className={`rounded-2xl border p-4 ${
-                    inside ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800/60 dark:bg-emerald-950/30" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-black">{displayName(team.name)}</div>
-                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        #{team.rank} · {recordText(team)} · {Math.round(team.goldPct)}% Gold
-                      </div>
-                    </div>
-                    <span
-                      className={
-                        inside ? pill("emerald") : onLine ? pill("amber") : pill("neutral")
-                      }
-                    >
-                      {inside ? "In" : onLine ? "Bubble" : "Chasing"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -3412,9 +3295,7 @@ function ModelView(props: {
 function SettingsView({
   settings,
   setSettings,
-  goldCutoff,
   teamsCount,
-  aggressionMultiplier,
   importCSV,
   exportCSV,
   exportBackup,
@@ -3422,9 +3303,7 @@ function SettingsView({
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
-  goldCutoff: number;
   teamsCount: number;
-  aggressionMultiplier: number;
   importCSV: (file: File) => void;
   exportCSV: () => void;
   exportBackup: () => void;
@@ -3438,7 +3317,7 @@ function SettingsView({
   const aggrId = useId();
 
   return (
-    <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
+    <section className="grid grid-cols-1 gap-6">
       <div className={`${card} p-6`}>
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Settings</h2>
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -3550,16 +3429,6 @@ function SettingsView({
           </label>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-900">
-          <div className="text-[11px] font-black uppercase tracking-wide text-blue-700 dark:text-blue-400">
-            Live preview
-          </div>
-          <p className="mt-2 leading-6">
-            Standings points use Win {settings.winPoints} / Tie {settings.tiePoints}. Predictions
-            cap scores at {settings.maxScoreCap}. Model aggression multiplier:{" "}
-            {aggressionMultiplier.toFixed(1)}× (applied to tpi and momentum weights).
-          </p>
-        </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Data</h3>
@@ -3596,43 +3465,6 @@ function SettingsView({
           </div>
         </div>
       </div>
-      <aside className={`${card} p-6`}>
-        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Current Setup</h3>
-        <div className="mt-4 space-y-3 text-sm font-bold text-slate-600">
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Season</span>
-            <span className="text-slate-950 dark:text-slate-100">{settings.seasonLabel}</span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Gold Cutoff</span>
-            <span className="text-slate-950 dark:text-slate-100">Top {goldCutoff}</span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Win / Tie Points</span>
-            <span className="text-slate-950 dark:text-slate-100">
-              {settings.winPoints} / {settings.tiePoints}
-            </span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Run Diff Tiebreaker</span>
-            <span className="text-slate-950 dark:text-slate-100">{settings.runDiffTiebreaker ? "On" : "Off"}</span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Score Cap</span>
-            <span className="text-slate-950 dark:text-slate-100">{settings.maxScoreCap}</span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Model</span>
-            <span className="text-slate-950 dark:text-slate-100">
-              {settings.modelAggression} ({aggressionMultiplier.toFixed(1)}×)
-            </span>
-          </div>
-          <div className="flex justify-between rounded-2xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-            <span>Teams</span>
-            <span className="text-slate-950 dark:text-slate-100">{teamsCount}</span>
-          </div>
-        </div>
-      </aside>
     </section>
   );
 }
