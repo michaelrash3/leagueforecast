@@ -32,35 +32,32 @@ export const pathSummary = (
   const goldPct = Math.round(team.goldPct);
 
   if (team.goldStatus === "Clinched") {
-    return `${name} has clinched a Gold Bracket spot at #${seed} and is now competing for seeding.`;
+    return `${name} have clinched a Gold Bracket spot at #${seed} and are now playing for seeding.`;
   }
   if (team.goldStatus === "Eliminated") {
-    return `${name} is mathematically eliminated from the Gold Bracket; remaining games only affect other teams' paths.`;
+    return `${name} are mathematically eliminated from the Gold Bracket; their remaining games only affect other teams' paths.`;
   }
 
   const insideNow = seed <= cutoff;
   const insideProjected = projected <= cutoff;
   const swingLine = swings
     .slice(0, 2)
-    .map(
-      (s) =>
-        `${s.teamIsAway ? "at" : "vs"} ${s.opponentName} swings between #${s.winSeed} (win) and #${s.lossSeed} (loss)`
-    )
-    .join(", ");
+    .map((s) => `${s.teamIsAway ? "at" : "vs"} ${s.opponentName} (win → #${s.winSeed}, loss → #${s.lossSeed})`)
+    .join(" and ");
 
   if (insideNow && insideProjected) {
-    return `${name} sits at #${seed} with the model projecting #${projected} and ${goldPct}% Gold odds — inside the cut line on both fronts. Next two matter: ${swingLine}.`;
+    return `${name} sit at #${seed} with the model projecting #${projected} and ${goldPct}% Gold odds — inside the cut line on both fronts. The next two matter: ${swingLine}.`;
   }
   if (insideNow && !insideProjected) {
-    return `${name} currently holds #${seed} but projects to slip to #${projected} as the remaining schedule plays out (${goldPct}% Gold). ${swingLine ? "Hold the cushion in the next two: " + swingLine + "." : "Every remaining loss matters."}`;
+    return `${name} currently hold #${seed} but project to slip to #${projected} as the remaining schedule plays out (${goldPct}% Gold). ${swingLine ? "They need to protect the cushion in their next two: " + swingLine + "." : "Every remaining loss matters."}`;
   }
   if (!insideNow && insideProjected) {
-    return `${name} sits at #${seed} now but the model projects ${name} to climb to #${projected} (${goldPct}% Gold). The path is open if the next two break right: ${swingLine}.`;
+    return `${name} sit at #${seed} now but project to climb to #${projected} (${goldPct}% Gold). The path is open if the next two break right: ${swingLine}.`;
   }
   if (goldPct >= 15) {
-    return `${name} is at #${seed}, projected #${projected} — outside the cut line but with ${goldPct}% odds, the team is in the chase. ${context.leaderName ? `${context.leaderName} leads the conference.` : ""} Swings to watch: ${swingLine}.`;
+    return `${name} are at #${seed} and project to #${projected} — outside the cut line but at ${goldPct}% odds, still in the chase.${context.leaderName ? ` ${context.leaderName} lead the conference.` : ""}${swingLine ? ` Swings to watch: ${swingLine}.` : ""}`;
   }
-  return `${name} (#${seed} now, projected #${projected}, ${goldPct}% Gold) needs wins and chaser losses to break their way. ${swingLine ? "Swings: " + swingLine + "." : ""}`;
+  return `${name} (now #${seed}, projected #${projected}, ${goldPct}% Gold) need wins and chaser losses to break their way.${swingLine ? ` Swings: ${swingLine}.` : ""}`;
 };
 
 export type RecapInput = {
@@ -78,6 +75,8 @@ export type RecapItem = {
     | "biggest-faller"
     | "crossed-cut-up"
     | "crossed-cut-down"
+    | "rank-change"
+    | "gold-shift"
     | "summary";
   text: string;
 };
@@ -97,27 +96,26 @@ export const weeklyRecap = ({
       text:
         finalsSinceLast.length === 1
           ? `1 game finalized: ${finalsSinceLast[0]?.awayName} ${finalsSinceLast[0]?.awayScore}, ${finalsSinceLast[0]?.homeName} ${finalsSinceLast[0]?.homeScore}.`
-          : `${finalsSinceLast.length} games finalized since the last update.`,
+          : `${finalsSinceLast.length} games finalized: ${finalsSinceLast
+              .map((f) => `${f.awayName} ${f.awayScore}–${f.homeName} ${f.homeScore}`)
+              .join("; ")}.`,
     });
   }
 
-  let topMover: { name: string; delta: number } | null = null;
-  let topFaller: { name: string; delta: number } | null = null;
-
+  // Pass 1: clinch / elimination / cut-line crossings (highest signal first).
   after.forEach((team) => {
     const prev = beforeById.get(team.id);
     if (!prev) return;
-    const delta = prev.rank - team.rank; // positive = moved up
-    if (!topMover || delta > topMover.delta) topMover = { name: team.name, delta };
-    if (!topFaller || delta < topFaller.delta) topFaller = { name: team.name, delta };
-
     if (prev.goldStatus !== "Clinched" && team.goldStatus === "Clinched") {
-      items.push({ kind: "clinched", text: `${displayName(team.name)} clinched the Gold Bracket.` });
+      items.push({
+        kind: "clinched",
+        text: `${displayName(team.name)} clinched the Gold Bracket.`,
+      });
     }
     if (prev.goldStatus !== "Eliminated" && team.goldStatus === "Eliminated") {
       items.push({
         kind: "eliminated",
-        text: `${displayName(team.name)} was eliminated from Gold Bracket contention.`,
+        text: `${displayName(team.name)} were eliminated from Gold Bracket contention.`,
       });
     }
     if (prev.rank <= cutoff && team.rank > cutoff) {
@@ -134,20 +132,70 @@ export const weeklyRecap = ({
     }
   });
 
-  if (topMover && (topMover as { delta: number }).delta >= 2) {
+  // Pass 2: any rank change (excluded if already covered by a cut-line crossing).
+  const rankChanges: { name: string; from: number; to: number; delta: number }[] = [];
+  after.forEach((team) => {
+    const prev = beforeById.get(team.id);
+    if (!prev) return;
+    const delta = prev.rank - team.rank;
+    if (delta === 0) return;
+    rankChanges.push({ name: team.name, from: prev.rank, to: team.rank, delta });
+  });
+  rankChanges
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 4)
+    .forEach((c) => {
+      const verb = c.delta > 0 ? "climbed" : "slipped";
+      items.push({
+        kind: "rank-change",
+        text: `${displayName(c.name)} ${verb} from #${c.from} to #${c.to}.`,
+      });
+    });
+
+  // Pass 3: gold-odds shifts ≥ 5%.
+  const goldShifts: { name: string; delta: number; pct: number }[] = [];
+  after.forEach((team) => {
+    const prev = beforeById.get(team.id);
+    if (!prev) return;
+    const delta = Math.round(team.goldPct - prev.goldPct);
+    if (Math.abs(delta) >= 5) {
+      goldShifts.push({ name: team.name, delta, pct: Math.round(team.goldPct) });
+    }
+  });
+  goldShifts
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 4)
+    .forEach((s) => {
+      const direction = s.delta > 0 ? "climbed" : "dropped";
+      items.push({
+        kind: "gold-shift",
+        text: `${displayName(s.name)} Gold odds ${direction} ${s.delta > 0 ? "+" : ""}${s.delta}% (now ${s.pct}%).`,
+      });
+    });
+
+  // Pass 4: explicit biggest-mover / faller summary lines (so the impact bar
+  // always has at least one "headline" item when ranks shuffled).
+  let topMover: { name: string; delta: number } | null = null;
+  let topFaller: { name: string; delta: number } | null = null;
+  rankChanges.forEach((c) => {
+    if (!topMover || c.delta > topMover.delta) topMover = { name: c.name, delta: c.delta };
+    if (!topFaller || c.delta < topFaller.delta) topFaller = { name: c.name, delta: c.delta };
+  });
+  if (topMover && (topMover as { delta: number }).delta >= 3) {
     items.push({
       kind: "biggest-mover",
       text: `Biggest mover: ${displayName((topMover as { name: string }).name)} (+${(topMover as { delta: number }).delta} seeds).`,
     });
   }
-  if (topFaller && (topFaller as { delta: number }).delta <= -2) {
+  if (topFaller && (topFaller as { delta: number }).delta <= -3) {
     items.push({
       kind: "biggest-faller",
       text: `Biggest faller: ${displayName((topFaller as { name: string }).name)} (${(topFaller as { delta: number }).delta} seeds).`,
     });
   }
 
-  return items;
+  // Dedupe by text and cap.
+  return Array.from(new Map(items.map((item) => [item.text, item])).values()).slice(0, 12);
 };
 
 export const recapToMarkdown = (

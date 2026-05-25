@@ -1,10 +1,10 @@
 import { useId, useMemo, useRef } from "react";
-
-const compareSelectId = "compare-with-select";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import { displayName, recordText } from "../lib/format";
 import type { GameLog, Matchup, TeamWithProjection } from "../lib/types";
 import { isFinal, parseNumber } from "../lib/util";
+
+const compareSelectId = "compare-with-select";
 
 type Props = {
   left: TeamWithProjection;
@@ -225,6 +225,7 @@ export function CompareDrawer({
           </select>
         </div>
 
+
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -254,14 +255,32 @@ export function CompareDrawer({
           </h3>
           {headToHead.meetings.length === 0 ? (
             <p className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
-              No meetings have been finalized yet.
+              These two teams have not played yet.
             </p>
           ) : (
             <>
               <p className="mt-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-                {displayName(left.name)} {headToHead.leftW} · {displayName(right.name)}{" "}
-                {headToHead.rightW}
-                {headToHead.ties ? ` · ${headToHead.ties} tie${headToHead.ties === 1 ? "" : "s"}` : ""}
+                {(() => {
+                  const total = headToHead.leftW + headToHead.rightW + headToHead.ties;
+                  if (total === 1) {
+                    if (headToHead.ties === 1) {
+                      return `${displayName(left.name)} and ${displayName(right.name)} have played once — a tie.`;
+                    }
+                    const winner = headToHead.leftW === 1 ? left : right;
+                    return `${displayName(winner.name)} won the only meeting so far.`;
+                  }
+                  const leftLeads = headToHead.leftW > headToHead.rightW;
+                  const rightLeads = headToHead.rightW > headToHead.leftW;
+                  const leadLine = leftLeads
+                    ? `${displayName(left.name)} lead the series ${headToHead.leftW}–${headToHead.rightW}`
+                    : rightLeads
+                      ? `${displayName(right.name)} lead the series ${headToHead.rightW}–${headToHead.leftW}`
+                      : `Series tied ${headToHead.leftW}–${headToHead.rightW}`;
+                  const tieLine = headToHead.ties
+                    ? ` (${headToHead.ties} tie${headToHead.ties === 1 ? "" : "s"})`
+                    : "";
+                  return `${leadLine}${tieLine}.`;
+                })()}
               </p>
               <ul className="mt-2 space-y-1 text-xs font-bold text-slate-600 dark:text-slate-300">
                 {headToHead.meetings.map((line) => (
