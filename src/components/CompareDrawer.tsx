@@ -1,10 +1,12 @@
 import { useId, useMemo, useRef } from "react";
+import { AiText } from "./AiText";
+import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
+import type { CompareBundle } from "../lib/gemini";
+import { displayName, recordText } from "../lib/format";
+import type { AiModel, GameLog, Matchup, TeamWithProjection } from "../lib/types";
+import { isFinal, parseNumber } from "../lib/util";
 
 const compareSelectId = "compare-with-select";
-import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
-import { displayName, recordText } from "../lib/format";
-import type { GameLog, Matchup, TeamWithProjection } from "../lib/types";
-import { isFinal, parseNumber } from "../lib/util";
 
 type Props = {
   left: TeamWithProjection;
@@ -12,6 +14,10 @@ type Props = {
   allTeams: TeamWithProjection[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
+  aiEnabled: boolean;
+  apiKey: string;
+  aiModel: AiModel;
+  cutoff: number;
   onClose: () => void;
   onPickRight: (id: string) => void;
 };
@@ -27,6 +33,10 @@ export function CompareDrawer({
   allTeams,
   matchups,
   logs,
+  aiEnabled,
+  apiKey,
+  aiModel,
+  cutoff,
   onClose,
   onPickRight,
 }: Props) {
@@ -224,6 +234,51 @@ export function CompareDrawer({
               ))}
           </select>
         </div>
+
+        {aiEnabled && (
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              At a glance
+            </h3>
+            <AiText
+              bundle={{
+                surface: "compare",
+                cutoff,
+                left: {
+                  name: displayName(left.name),
+                  rank: left.rank ?? 99,
+                  projectedRank: left.projectedRank,
+                  goldPct: Math.round(left.goldPct),
+                  record: recordText(left),
+                  rsg: Math.round(left.rsg * 10) / 10,
+                  rag: Math.round(left.rag * 10) / 10,
+                  tpi: Math.round(left.tpi * 100) / 100,
+                },
+                right: {
+                  name: displayName(right.name),
+                  rank: right.rank ?? 99,
+                  projectedRank: right.projectedRank,
+                  goldPct: Math.round(right.goldPct),
+                  record: recordText(right),
+                  rsg: Math.round(right.rsg * 10) / 10,
+                  rag: Math.round(right.rag * 10) / 10,
+                  tpi: Math.round(right.tpi * 100) / 100,
+                },
+                headToHead: {
+                  leftWins: headToHead.leftW,
+                  rightWins: headToHead.rightW,
+                  ties: headToHead.ties,
+                },
+                commonOpponents,
+              } satisfies CompareBundle}
+              enabled={aiEnabled}
+              apiKey={apiKey}
+              model={aiModel}
+              fallback={`${displayName(left.name)} sits #${left.rank} (${recordText(left)}, ${Math.round(left.goldPct)}% Gold); ${displayName(right.name)} sits #${right.rank} (${recordText(right)}, ${Math.round(right.goldPct)}% Gold).`}
+              className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200"
+            />
+          </section>
+        )}
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">

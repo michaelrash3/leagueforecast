@@ -1,6 +1,7 @@
 import {
   DEFAULT_SETTINGS,
   STORAGE_VERSION,
+  type AiModel,
   type GameLog,
   type Matchup,
   type ModelAggression,
@@ -14,6 +15,8 @@ const KEYS = {
   logs: `league_logs_v${STORAGE_VERSION}`,
   settings: `league_settings_v${STORAGE_VERSION}`,
   undo: `league_undo_snapshot_v${STORAGE_VERSION}`,
+  geminiKey: `nkb_gemini_key_v1`,
+  geminiCache: `nkb_gemini_cache_v1`,
 } as const;
 
 const LEGACY_KEYS = {
@@ -89,6 +92,11 @@ const isGameLog = (v: unknown): v is GameLog =>
   (v.isFinal === undefined || isBoolean(v.isFinal));
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
+const AI_MODEL_VALUES: AiModel[] = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+];
 
 const coerceSettings = (raw: unknown): Settings => {
   if (!isRecord(raw)) return { ...DEFAULT_SETTINGS };
@@ -96,6 +104,11 @@ const coerceSettings = (raw: unknown): Settings => {
   const modelAggression: ModelAggression = isString(aggressionRaw) && AGGRESSION_VALUES.includes(aggressionRaw as ModelAggression)
     ? (aggressionRaw as ModelAggression)
     : DEFAULT_SETTINGS.modelAggression;
+
+  const aiModelRaw = raw.aiModel;
+  const aiModel: AiModel = isString(aiModelRaw) && AI_MODEL_VALUES.includes(aiModelRaw as AiModel)
+    ? (aiModelRaw as AiModel)
+    : DEFAULT_SETTINGS.aiModel;
 
   return {
     goldCutoff: isNumber(raw.goldCutoff) ? raw.goldCutoff : DEFAULT_SETTINGS.goldCutoff,
@@ -108,8 +121,63 @@ const coerceSettings = (raw: unknown): Settings => {
         : DEFAULT_SETTINGS.runDiffTiebreaker,
     maxScoreCap: isNumber(raw.maxScoreCap) ? raw.maxScoreCap : DEFAULT_SETTINGS.maxScoreCap,
     modelAggression,
+    aiNarrative: isBoolean(raw.aiNarrative) ? raw.aiNarrative : DEFAULT_SETTINGS.aiNarrative,
+    aiModel,
   };
 };
+
+// ---------- Gemini API key + cache (separate keys so they don't get bundled
+// into the Backup JSON export). ----------
+
+export const loadGeminiKey = (): string => {
+  const raw = safeGet(KEYS.geminiKey);
+  return raw ?? "";
+};
+
+export const saveGeminiKey = (key: string): boolean => {
+  if (!key) {
+    safeRemove(KEYS.geminiKey);
+    return true;
+  }
+  return safeSet(KEYS.geminiKey, key);
+};
+
+export type GeminiCacheEntry = { text: string; timestamp: number };
+
+const MAX_CACHE_ENTRIES = 80;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+export const loadGeminiCache = (): Record<string, GeminiCacheEntry> => {
+  const raw = parseJson(safeGet(KEYS.geminiCache));
+  if (!isRecord(raw)) return {};
+  const now = Date.now();
+  const out: Record<string, GeminiCacheEntry> = {};
+  Object.entries(raw).forEach(([hash, value]) => {
+    if (
+      isRecord(value) &&
+      isString(value.text) &&
+      isNumber(value.timestamp) &&
+      now - value.timestamp < CACHE_TTL_MS
+    ) {
+      out[hash] = { text: value.text, timestamp: value.timestamp };
+    }
+  });
+  return out;
+};
+
+export const writeGeminiCache = (cache: Record<string, GeminiCacheEntry>): boolean => {
+  // Trim to MAX_CACHE_ENTRIES newest entries.
+  const entries = Object.entries(cache).sort(
+    (a, b) => b[1].timestamp - a[1].timestamp
+  );
+  const trimmed: Record<string, GeminiCacheEntry> = {};
+  entries.slice(0, MAX_CACHE_ENTRIES).forEach(([hash, value]) => {
+    trimmed[hash] = value;
+  });
+  return safeSet(KEYS.geminiCache, JSON.stringify(trimmed));
+};
+
+export const clearGeminiCache = () => safeRemove(KEYS.geminiCache);
 
 // ---------- Public loaders ----------
 

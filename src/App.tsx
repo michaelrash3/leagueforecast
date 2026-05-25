@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AiText } from "./components/AiText";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { OnboardingTour } from "./components/OnboardingTour";
@@ -48,11 +49,14 @@ import {
   standingsPoints,
 } from "./lib/sim";
 import {
+  clearGeminiCache,
+  loadGeminiKey,
   loadLogs,
   loadMatchups,
   loadSettings,
   loadTeams,
   readUndoSnapshot,
+  saveGeminiKey,
   saveLogs,
   saveMatchups,
   saveSettings,
@@ -65,6 +69,7 @@ import {
   MODEL_AGGRESSION,
   SIM_ITERATIONS,
   TREND_STATES,
+  type AiModel,
   type GameLog,
   type Matchup,
   type ModelAggression,
@@ -76,6 +81,7 @@ import {
   type TeamWithProjection,
   type UndoSnapshot,
 } from "./lib/types";
+import type { ImpactBundle, TeamBundle } from "./lib/gemini";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
 
@@ -423,6 +429,10 @@ function TeamDrawer({
   magicForGold,
   eliminationNumber,
   pathSummary,
+  aiBundle,
+  aiEnabled,
+  apiKey,
+  aiModel,
   onCompare,
 }: {
   team: TeamWithProjection;
@@ -439,6 +449,10 @@ function TeamDrawer({
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   pathSummary: string;
+  aiBundle: TeamBundle;
+  aiEnabled: boolean;
+  apiKey: string;
+  aiModel: AiModel;
   onCompare: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -524,9 +538,14 @@ function TeamDrawer({
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Where they stand
           </h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-            {pathSummary}
-          </p>
+          <AiText
+            bundle={aiBundle}
+            enabled={aiEnabled}
+            apiKey={apiKey}
+            model={aiModel}
+            fallback={pathSummary}
+            className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300"
+          />
           <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
             Current SOS #{currentSosRank ?? "—"} measures opponents already played. Remaining SOS is{" "}
             {sos.label.toLowerCase()} based on opponents still left: {sos.opponents}.
@@ -626,6 +645,14 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [geminiKey, setGeminiKey] = useState<string>(() => loadGeminiKey());
+
+  const aiEnabled = settings.aiNarrative && !!geminiKey;
+
+  const updateGeminiKey = (key: string) => {
+    saveGeminiKey(key);
+    setGeminiKey(key);
+  };
   const [lastImpact, setLastImpact] = useState<
     { title: string; scores: string[]; messages: string[]; recapItems: RecapItem[] } | null
   >(null);
@@ -1435,11 +1462,27 @@ export default function App() {
         const winner = teamBaseById.get(prediction.winnerId);
         const away = teamBaseById.get(game.away);
         const home = teamBaseById.get(game.home);
+        const awayLive = liveById.get(game.away);
+        const homeLive = liveById.get(game.home);
         const winnerPct =
           prediction.winnerId === game.away
             ? prediction.awayWinPct
             : 1 - prediction.awayWinPct;
         const impact = getGameScenarioImpactMap.get(game.id);
+        const margin = Math.abs(prediction.awayScore - prediction.homeScore);
+        const edges = awayLive && homeLive
+          ? {
+              scoring: Math.round((awayLive.rsg - homeLive.rsg) * 10) / 10,
+              prevention: Math.round((homeLive.rag - awayLive.rag) * 10) / 10,
+              tpi: Math.round((awayLive.tpi - homeLive.tpi) * 100) / 100,
+              contact:
+                Math.round(
+                  ((homeLive.homeK6 ?? 4.5) -
+                    ((awayLive.awayK6 ?? 4.5) + homeLive.machineDifficulty)) *
+                    10
+                ) / 10,
+            }
+          : { scoring: 0, prevention: 0, tpi: 0, contact: 0 };
         return {
           game,
           prediction,
@@ -1451,6 +1494,13 @@ export default function App() {
           explanation: impact
             ? `${describePrediction(game, prediction, liveById)} Seed impact is ${impact.impactLabel.toLowerCase()}: ${impact.awayName} ranges from #${impact.awaySeedWin} with a win to #${impact.awaySeedLoss} with a loss, while ${impact.homeName} ranges from #${impact.homeSeedWin} to #${impact.homeSeedLoss}. Estimated Gold swing: ${impact.awayName} ${impact.awayGoldSwing >= 0 ? "+" : ""}${Math.round(impact.awayGoldSwing)}%, ${impact.homeName} ${impact.homeGoldSwing >= 0 ? "+" : ""}${Math.round(impact.homeGoldSwing)}%.`
             : describePrediction(game, prediction, liveById),
+          edges,
+          spread: projectedRunLine(prediction, liveById),
+          upsetRisk: upsetRiskLabel(winnerPct, margin),
+          awaySeedSwing: impact ? Math.abs(impact.awaySeedWin - impact.awaySeedLoss) : 0,
+          homeSeedSwing: impact ? Math.abs(impact.homeSeedWin - impact.homeSeedLoss) : 0,
+          awayGoldSwing: impact?.awayGoldSwing ?? 0,
+          homeGoldSwing: impact?.homeGoldSwing ?? 0,
         };
       });
   }, [
@@ -2309,9 +2359,16 @@ export default function App() {
             formatGoldPct={formatGoldPct}
             onSelectTeam={(id) => setSelectedTeamId(id)}
             cutLineTeams={cutLineTeams}
+            aiEnabled={aiEnabled}
+            apiKey={geminiKey}
+            aiModel={settings.aiModel}
+            seasonLabel={settings.seasonLabel}
           />
         ) : activeView === "model" ? (
           <ModelView
+            aiEnabled={aiEnabled}
+            apiKey={geminiKey}
+            aiModel={settings.aiModel}
             goldCutoff={goldCutoff}
             modelRows={modelRows}
             seedRangeForTeam={seedRangeForTeam}
@@ -2342,6 +2399,12 @@ export default function App() {
             exportCSV={exportCSV}
             exportBackup={exportBackup}
             resetSeason={resetSeason}
+            geminiKey={geminiKey}
+            setGeminiKey={updateGeminiKey}
+            onClearAiCache={() => {
+              clearGeminiCache();
+              showToast("AI cache cleared.", { tone: "success" });
+            }}
           />
         ) : (
           <GamesView
@@ -2370,56 +2433,93 @@ export default function App() {
         )}
       </main>
 
-      {selectedTeam && (
-        <TeamDrawer
-          team={selectedTeam}
-          range={seedRangeForTeam(selectedTeam.id)}
-          bubble={bubbleTierForTeam(selectedTeam)}
-          currentSosRank={currentSosRanks[selectedTeam.id] ?? null}
-          sos={scheduleDifficultyForTeam(selectedTeam.id)}
-          swings={nextTwoSwingGames(selectedTeam.id)}
-          clinchScenarios={clinchScenariosForTeam(selectedTeam.id)}
-          titleRace={titleRaceBadgeForTeam(selectedTeam)}
-          goldPctLabel={formatGoldPct(selectedTeam)}
-          cutoff={goldCutoff}
-          magicForGold={magicForGold(
-            selectedTeam.id,
-            dashboardRows,
-            remainingGames,
-            goldCutoff,
-            settings
-          )}
-          eliminationNumber={eliminationNumberForGold(
-            selectedTeam.id,
-            dashboardRows,
-            remainingGames,
-            goldCutoff,
-            settings
-          )}
-          pathSummary={pathSummary(
-            { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
-            goldCutoff,
-            nextTwoSwingGames(selectedTeam.id).map((swing) => ({
-              opponentName: swing.opponentName,
-              teamIsAway: swing.teamIsAway,
-              winSeed: swing.winSeed,
-              lossSeed: swing.lossSeed,
-            })),
-            {
-              totalTeams: dashboardRows.length,
-              leaderName: currentLeader ? displayName(currentLeader.name) : "",
-            }
-          )}
-          onClose={() => {
-            setSelectedTeamId(null);
-            setCompareTeamId(null);
-          }}
-          onCompare={() => {
-            const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
-            setCompareTeamId(candidate ? candidate.id : null);
-          }}
-        />
-      )}
+      {selectedTeam && (() => {
+        const drawerSwings = nextTwoSwingGames(selectedTeam.id);
+        const drawerMagic = magicForGold(
+          selectedTeam.id,
+          dashboardRows,
+          remainingGames,
+          goldCutoff,
+          settings
+        );
+        const drawerElim = eliminationNumberForGold(
+          selectedTeam.id,
+          dashboardRows,
+          remainingGames,
+          goldCutoff,
+          settings
+        );
+        const drawerSummary = pathSummary(
+          { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
+          goldCutoff,
+          drawerSwings.map((swing) => ({
+            opponentName: swing.opponentName,
+            teamIsAway: swing.teamIsAway,
+            winSeed: swing.winSeed,
+            lossSeed: swing.lossSeed,
+          })),
+          {
+            totalTeams: dashboardRows.length,
+            leaderName: currentLeader ? displayName(currentLeader.name) : "",
+          }
+        );
+        const teamBundle: TeamBundle = {
+          surface: "team-summary",
+          team: {
+            name: displayName(selectedTeam.name),
+            rank: selectedTeam.rank ?? 99,
+            projectedRank: selectedTeam.projectedRank,
+            goldPct: Math.round(selectedTeam.goldPct),
+            record: recordText(selectedTeam),
+            runDiff: selectedTeam.runDiff,
+            rsg: Math.round(selectedTeam.rsg * 10) / 10,
+            rag: Math.round(selectedTeam.rag * 10) / 10,
+            tpi: Math.round(selectedTeam.tpi * 100) / 100,
+            goldStatus: selectedTeam.goldStatus,
+            magicGold: drawerMagic.description,
+            eliminationGold: drawerElim.description,
+          },
+          cutoff: goldCutoff,
+          totalTeams: dashboardRows.length,
+          leaderName: currentLeader ? displayName(currentLeader.name) : "",
+          nextTwo: drawerSwings.map((swing) => ({
+            opp: swing.opponentName,
+            home: !swing.teamIsAway,
+            winSeed: swing.winSeed,
+            lossSeed: swing.lossSeed,
+            teamWinPct: Math.round(swing.winPct * 100) / 100,
+          })),
+        };
+        return (
+          <TeamDrawer
+            team={selectedTeam}
+            range={seedRangeForTeam(selectedTeam.id)}
+            bubble={bubbleTierForTeam(selectedTeam)}
+            currentSosRank={currentSosRanks[selectedTeam.id] ?? null}
+            sos={scheduleDifficultyForTeam(selectedTeam.id)}
+            swings={drawerSwings}
+            clinchScenarios={clinchScenariosForTeam(selectedTeam.id)}
+            titleRace={titleRaceBadgeForTeam(selectedTeam)}
+            goldPctLabel={formatGoldPct(selectedTeam)}
+            cutoff={goldCutoff}
+            magicForGold={drawerMagic}
+            eliminationNumber={drawerElim}
+            pathSummary={drawerSummary}
+            aiBundle={teamBundle}
+            aiEnabled={aiEnabled}
+            apiKey={geminiKey}
+            aiModel={settings.aiModel}
+            onClose={() => {
+              setSelectedTeamId(null);
+              setCompareTeamId(null);
+            }}
+            onCompare={() => {
+              const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
+              setCompareTeamId(candidate ? candidate.id : null);
+            }}
+          />
+        );
+      })()}
 
       {selectedTeam && compareTeam && (
         <CompareDrawer
@@ -2428,6 +2528,10 @@ export default function App() {
           allTeams={dashboardRows}
           matchups={matchups}
           logs={logs}
+          aiEnabled={aiEnabled}
+          apiKey={geminiKey}
+          aiModel={settings.aiModel}
+          cutoff={goldCutoff}
           onClose={() => setCompareTeamId(null)}
           onPickRight={(id) => setCompareTeamId(id)}
         />
@@ -2587,6 +2691,10 @@ function StandingsView({
   formatGoldPct,
   onSelectTeam,
   cutLineTeams,
+  aiEnabled,
+  apiKey,
+  aiModel,
+  seasonLabel,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
@@ -2609,7 +2717,22 @@ function StandingsView({
   formatGoldPct: (t: TeamWithProjection) => string;
   onSelectTeam: (id: string) => void;
   cutLineTeams: TeamWithProjection[];
+  aiEnabled: boolean;
+  apiKey: string;
+  aiModel: AiModel;
+  seasonLabel: string;
 }) {
+  const impactBundle: ImpactBundle | null = lastImpact
+    ? {
+        surface: "impact-recap",
+        seasonLabel,
+        cutoff: goldCutoff,
+        scores: lastImpact.scores,
+        changes: lastImpact.recapItems.length
+          ? lastImpact.recapItems.map((item) => item.text)
+          : lastImpact.messages,
+      }
+    : null;
   return (
     <div className="grid grid-cols-1 gap-6">
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -2670,7 +2793,18 @@ function StandingsView({
                 </div>
               </div>
             )}
-            {lastImpact.recapItems.length > 0 ? (
+            {aiEnabled && impactBundle ? (
+              <AiText
+                bundle={impactBundle}
+                enabled={aiEnabled}
+                apiKey={apiKey}
+                model={aiModel}
+                fallback={lastImpact.recapItems.length
+                  ? lastImpact.recapItems.map((item) => item.text).join(" ")
+                  : lastImpact.messages.join(" ")}
+                className="text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200"
+              />
+            ) : lastImpact.recapItems.length > 0 ? (
               <ul className="space-y-1.5 text-xs font-black text-blue-800 dark:text-blue-300">
                 {lastImpact.recapItems.map((item) => (
                   <li key={item.text} className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
@@ -2950,6 +3084,9 @@ function StandingsView({
 }
 
 function ModelView(props: {
+  aiEnabled: boolean;
+  apiKey: string;
+  aiModel: AiModel;
   goldCutoff: number;
   modelRows: TeamWithProjection[];
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
@@ -2969,6 +3106,13 @@ function ModelView(props: {
     winnerPct: number;
     impact: ReturnType<Map<string, { impactLabel: "High" | "Medium" | "Low" }>["get"]>;
     explanation: string;
+    edges: { scoring: number; prevention: number; tpi: number; contact: number };
+    spread: string;
+    upsetRisk: string;
+    awaySeedSwing: number;
+    homeSeedSwing: number;
+    awayGoldSwing: number;
+    homeGoldSwing: number;
   }[];
   byId: Map<string, Team>;
   gameStatusClasses: (s: string) => string;
@@ -2979,6 +3123,9 @@ function ModelView(props: {
   cutoff: number;
 }) {
   const {
+    aiEnabled,
+    apiKey,
+    aiModel,
     goldCutoff,
     modelRows,
     seedRangeForTeam,
@@ -3396,9 +3543,32 @@ function ModelView(props: {
                     </span>
                   </div>
 
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-                    {item.explanation}
-                  </p>
+                  <AiText
+                    bundle={{
+                      surface: "game-forecast",
+                      awayName: item.awayName,
+                      homeName: item.homeName,
+                      date: formatGameDate(item.game.date),
+                      pickName: item.winnerName,
+                      pickPct: Math.round(item.winnerPct * 100) / 100,
+                      spread: item.spread,
+                      confidence: item.prediction.confidence,
+                      upsetRisk: item.upsetRisk,
+                      edges: item.edges,
+                      impact: {
+                        awaySeedSwing: item.awaySeedSwing,
+                        homeSeedSwing: item.homeSeedSwing,
+                        awayGoldSwing: Math.round(item.awayGoldSwing),
+                        homeGoldSwing: Math.round(item.homeGoldSwing),
+                        impactLabel: item.impact?.impactLabel ?? "Low",
+                      },
+                    }}
+                    enabled={aiEnabled}
+                    apiKey={apiKey}
+                    model={aiModel}
+                    fallback={item.explanation}
+                    className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300"
+                  />
                 </article>
               );
             })}
@@ -3419,6 +3589,9 @@ function SettingsView({
   exportCSV,
   exportBackup,
   resetSeason,
+  geminiKey,
+  setGeminiKey,
+  onClearAiCache,
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -3429,6 +3602,9 @@ function SettingsView({
   exportCSV: () => void;
   exportBackup: () => void;
   resetSeason: () => void;
+  geminiKey: string;
+  setGeminiKey: (key: string) => void;
+  onClearAiCache: () => void;
 }) {
   const seasonId = useId();
   const cutoffId = useId();
@@ -3436,6 +3612,9 @@ function SettingsView({
   const tieId = useId();
   const capId = useId();
   const aggrId = useId();
+  const aiKeyId = useId();
+  const aiModelId = useId();
+  const aiToggleId = useId();
 
   return (
     <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
@@ -3561,7 +3740,91 @@ function SettingsView({
           </p>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-800">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            AI Narrative (Gemini)
+          </h3>
+          <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+            Optional. Replaces the deterministic team/path/forecast/compare summaries with
+            short Gemini prose. Your key is stored only in this browser&apos;s localStorage
+            and sent only to{" "}
+            <code className="rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-700">
+              generativelanguage.googleapis.com
+            </code>
+            .
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label htmlFor={aiKeyId} className="block">
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+                Gemini API key
+              </span>
+              <input
+                id={aiKeyId}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={geminiKey}
+                onChange={(event) => setGeminiKey(event.target.value)}
+                placeholder="AIzaSy…"
+                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-mono text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-white"
+              />
+            </label>
+            <label htmlFor={aiModelId} className="block">
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+                Model
+              </span>
+              <select
+                id={aiModelId}
+                value={settings.aiModel}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    aiModel: event.target.value as AiModel,
+                  }))
+                }
+                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              >
+                <option value="gemini-2.5-flash-lite">
+                  gemini-2.5-flash-lite (fastest, cheapest)
+                </option>
+                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              </select>
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <label
+              htmlFor={aiToggleId}
+              className="flex items-center justify-between rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            >
+              <span className="mr-3">Enable AI summaries</span>
+              <input
+                id={aiToggleId}
+                type="checkbox"
+                checked={settings.aiNarrative}
+                onChange={(event) =>
+                  setSettings((prev) => ({ ...prev, aiNarrative: event.target.checked }))
+                }
+                disabled={!geminiKey}
+                className="h-5 w-5"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={onClearAiCache}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            >
+              Clear AI cache
+            </button>
+            {!geminiKey && (
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Paste a Gemini key to enable.
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Data</h3>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800">

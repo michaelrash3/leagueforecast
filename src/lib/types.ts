@@ -80,6 +80,11 @@ export type SwingGame = {
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 
+export type AiModel =
+  | "gemini-2.5-flash-lite"
+  | "gemini-2.5-flash"
+  | "gemini-2.5-pro";
+
 export type Settings = {
   goldCutoff: number;
   seasonLabel: string;
@@ -88,6 +93,8 @@ export type Settings = {
   runDiffTiebreaker: boolean;
   maxScoreCap: number;
   modelAggression: ModelAggression;
+  aiNarrative: boolean;
+  aiModel: AiModel;
 };
 
 export type RankSnapshot = (Team & {
@@ -122,6 +129,8 @@ export const DEFAULT_SETTINGS: Settings = {
   runDiffTiebreaker: true,
   maxScoreCap: 18,
   modelAggression: "Balanced",
+  aiNarrative: false,
+  aiModel: "gemini-2.5-flash-lite",
 };
 
 export const MODEL_AGGRESSION: Record<ModelAggression, number> = {
