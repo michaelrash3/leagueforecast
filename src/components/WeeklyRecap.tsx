@@ -2,11 +2,13 @@ import type { RecapItem } from "../lib/insights";
 
 export function WeeklyRecapCard({
   title,
+  scopeLabel,
   items,
   onCopy,
   onDismiss,
 }: {
   title: string;
+  scopeLabel: string;
   items: RecapItem[];
   onCopy: () => void;
   onDismiss: () => void;
@@ -14,13 +16,13 @@ export function WeeklyRecapCard({
   if (items.length === 0) return null;
   return (
     <section
-      aria-label="Weekly recap"
+      aria-label={scopeLabel}
       className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-[11px] font-black uppercase tracking-wide text-blue-700 dark:text-blue-400">
-            Recap Since Last Update
+            {scopeLabel}
           </div>
           <h2 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             {title}

@@ -4,6 +4,7 @@ import {
   type GameLog,
   type Matchup,
   type ModelAggression,
+  type RecapGrouping,
   type Settings,
   type TeamBase,
 } from "./types";
@@ -89,6 +90,7 @@ const isGameLog = (v: unknown): v is GameLog =>
   (v.isFinal === undefined || isBoolean(v.isFinal));
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
+const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
 
 const coerceSettings = (raw: unknown): Settings => {
   if (!isRecord(raw)) return { ...DEFAULT_SETTINGS };
@@ -96,6 +98,11 @@ const coerceSettings = (raw: unknown): Settings => {
   const modelAggression: ModelAggression = isString(aggressionRaw) && AGGRESSION_VALUES.includes(aggressionRaw as ModelAggression)
     ? (aggressionRaw as ModelAggression)
     : DEFAULT_SETTINGS.modelAggression;
+  const recapGroupingRaw = raw.recapGrouping;
+  const recapGrouping: RecapGrouping =
+    isString(recapGroupingRaw) && RECAP_GROUPING_VALUES.includes(recapGroupingRaw as RecapGrouping)
+      ? (recapGroupingRaw as RecapGrouping)
+      : DEFAULT_SETTINGS.recapGrouping;
 
   return {
     goldCutoff: isNumber(raw.goldCutoff) ? raw.goldCutoff : DEFAULT_SETTINGS.goldCutoff,
@@ -108,6 +115,7 @@ const coerceSettings = (raw: unknown): Settings => {
         : DEFAULT_SETTINGS.runDiffTiebreaker,
     maxScoreCap: isNumber(raw.maxScoreCap) ? raw.maxScoreCap : DEFAULT_SETTINGS.maxScoreCap,
     modelAggression,
+    recapGrouping,
   };
 };
 
