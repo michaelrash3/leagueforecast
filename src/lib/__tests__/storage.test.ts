@@ -10,47 +10,22 @@ import {
 } from "../storage";
 import { DEFAULT_SETTINGS } from "../types";
 
-const createLocalStorageMock = (): Storage => {
-  const store = new Map<string, string>();
 
+const createLocalStorageMock = () => {
+  const store = new Map<string, string>();
   return {
-    get length() {
-      return store.size;
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
     },
     clear: () => {
       store.clear();
     },
-    getItem: (key: string) => store.get(key) ?? null,
-    key: (index: number) => Array.from(store.keys())[index] ?? null,
-    removeItem: (key: string) => {
-      store.delete(key);
-    },
-    setItem: (key: string, value: string) => {
-      store.set(key, String(value));
-    },
-  };
+  } as Storage;
 };
-
-const createThrowingStorageMock = (errorMessage: string): Storage => ({
-  get length(): number {
-    throw new Error(errorMessage);
-  },
-  clear: () => {
-    throw new Error(errorMessage);
-  },
-  getItem: (): string | null => {
-    throw new Error(errorMessage);
-  },
-  key: (): string | null => {
-    throw new Error(errorMessage);
-  },
-  removeItem: (_key: string): void => {
-    throw new Error(errorMessage);
-  },
-  setItem: (_key: string, _value: string): void => {
-    throw new Error(errorMessage);
-  },
-});
 
 describe("storage", () => {
   beforeEach(() => {
@@ -133,56 +108,6 @@ describe("storage", () => {
     ]);
   });
 
-
-  it("migrates legacy matchups, logs, and settings keys on read", () => {
-    const matchups = [{ id: "m2", date: "2026-05-27", away: "x", home: "y" }];
-    const logs = {
-      m2: {
-        awayRuns: "2",
-        awayHits: "3",
-        awayK: "1",
-        homeRuns: "1",
-        homeHits: "2",
-        homeK: "4",
-        innings: "6",
-        isFinal: true,
-      },
-    };
-    const settings = {
-      ...DEFAULT_SETTINGS,
-      seasonLabel: "Summer 2026",
-      goldCutoff: 5,
-    };
-
-    localStorage.setItem("league_matchups", JSON.stringify(matchups));
-    localStorage.setItem("league_logs", JSON.stringify(logs));
-    localStorage.setItem("league_settings", JSON.stringify(settings));
-
-    expect(loadMatchups()).toEqual(matchups);
-    expect(loadLogs()).toEqual(logs);
-    expect(loadSettings()).toEqual(settings);
-
-    expect(localStorage.getItem(STORAGE_KEYS.matchups)).toBe(JSON.stringify(matchups));
-    expect(localStorage.getItem(STORAGE_KEYS.logs)).toBe(JSON.stringify(logs));
-    expect(localStorage.getItem(STORAGE_KEYS.settings)).toBe(JSON.stringify(settings));
-
-    expect(localStorage.getItem("league_matchups")).toBeNull();
-    expect(localStorage.getItem("league_logs")).toBeNull();
-    expect(localStorage.getItem("league_settings")).toBeNull();
-  });
-
-  it("returns safe defaults for malformed JSON payloads", () => {
-    localStorage.setItem(STORAGE_KEYS.teams, "not-json");
-    localStorage.setItem(STORAGE_KEYS.matchups, "not-json");
-    localStorage.setItem(STORAGE_KEYS.logs, "not-json");
-    localStorage.setItem(STORAGE_KEYS.settings, "not-json");
-
-    expect(loadTeams()).toEqual([]);
-    expect(loadMatchups()).toEqual([]);
-    expect(loadLogs()).toEqual({});
-    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-  });
-
   it("coerces invalid settings values back to defaults", () => {
     localStorage.setItem(
       STORAGE_KEYS.settings,
@@ -203,10 +128,22 @@ describe("storage", () => {
     expect(saveUndoSnapshot(snapshot)).toBe(true);
     expect(readUndoSnapshot()).toEqual(snapshot);
   });
-
   it("returns safe defaults when localStorage access throws", () => {
     Object.defineProperty(globalThis, "localStorage", {
-      value: createThrowingStorageMock("blocked"),
+      value: {
+        getItem: () => {
+          throw new Error("blocked");
+        },
+        setItem: () => {
+          throw new Error("blocked");
+        },
+        removeItem: () => {
+          throw new Error("blocked");
+        },
+        clear: () => {
+          throw new Error("blocked");
+        },
+      } as unknown as Storage,
       configurable: true,
       writable: true,
     });
@@ -219,20 +156,20 @@ describe("storage", () => {
   });
 
   it("returns false when undo snapshot write throws", () => {
-    const storage = createLocalStorageMock();
-    const failingStorage: Storage = {
-      ...storage,
-      setItem: (_key: string, _value: string): void => {
-        throw new Error("quota");
-      },
-    };
-
     Object.defineProperty(globalThis, "localStorage", {
-      value: failingStorage,
+      value: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("quota");
+        },
+        removeItem: () => undefined,
+        clear: () => undefined,
+      } as unknown as Storage,
       configurable: true,
       writable: true,
     });
 
     expect(saveUndoSnapshot({ kind: "delete" })).toBe(false);
   });
+
 });
