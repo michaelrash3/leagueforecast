@@ -1,4 +1,5 @@
 import React, {
+  startTransition,
   useCallback,
   useEffect,
   useId,
@@ -596,6 +597,7 @@ export default function App() {
   const [newHome, setNewHome] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
+  const [drawerHeavyReady, setDrawerHeavyReady] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
@@ -2044,8 +2046,20 @@ export default function App() {
   const compareTeam = compareTeamId ? dashboardById.get(compareTeamId) ?? null : null;
   const currentLeader = dashboardRows[0];
 
+  useEffect(() => {
+    if (!selectedTeamId) {
+      setDrawerHeavyReady(false);
+      return;
+    }
+    setDrawerHeavyReady(false);
+    const id = window.requestAnimationFrame(() => {
+      startTransition(() => setDrawerHeavyReady(true));
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [selectedTeamId]);
+
   const selectedTeamDetail = useMemo(() => {
-    if (!selectedTeam) return null;
+    if (!selectedTeam || !drawerHeavyReady) return null;
 
     const swings = nextTwoSwingGames(selectedTeam.id);
     return {
@@ -2088,6 +2102,7 @@ export default function App() {
     };
   }, [
     selectedTeam,
+    drawerHeavyReady,
     nextTwoSwingGames,
     seedRangeForTeam,
     bubbleTierForTeam,
@@ -2424,21 +2439,21 @@ export default function App() {
         )}
       </main>
 
-      {selectedTeam && selectedTeamDetail && (
+      {selectedTeam && (
         <TeamDrawer
           team={selectedTeam}
-          range={selectedTeamDetail.range}
-          bubble={selectedTeamDetail.bubble}
-          currentSosRank={selectedTeamDetail.currentSosRank}
-          sos={selectedTeamDetail.sos}
-          swings={selectedTeamDetail.swings}
-          clinchScenarios={selectedTeamDetail.clinchScenarios}
-          titleRace={selectedTeamDetail.titleRace}
-          goldPctLabel={selectedTeamDetail.goldPctLabel}
+          range={selectedTeamDetail?.range ?? { best: selectedTeam.rank ?? 99, worst: selectedTeam.rank ?? 99, baseline: selectedTeam.rank ?? 99 }}
+          bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
+          currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
+          sos={selectedTeamDetail?.sos ?? { label: "Loading…", avgSeed: 0, opponents: "" }}
+          swings={selectedTeamDetail?.swings ?? []}
+          clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
+          titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
+          goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
           cutoff={goldCutoff}
-          magicForGold={selectedTeamDetail.magic}
-          eliminationNumber={selectedTeamDetail.elimination}
-          pathSummary={selectedTeamDetail.path}
+          magicForGold={selectedTeamDetail?.magic ?? { type: "magic", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading magic number…" }}
+          eliminationNumber={selectedTeamDetail?.elimination ?? { type: "elimination", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading elimination number…" }}
+          pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
           onClose={() => {
             setSelectedTeamId(null);
             setCompareTeamId(null);
@@ -2735,12 +2750,6 @@ function StandingsView({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {dashboardRows.map((team, index) => {
                     const select = () => onSelectTeam(team.id);
-                    const rowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        select();
-                      }
-                    };
                     return (
                       <React.Fragment key={team.id}>
                         {index === goldCutoff && (
@@ -2759,28 +2768,23 @@ function StandingsView({
                           </tr>
                         )}
                         <tr
-                          onClick={select}
-                          onKeyDown={rowKeyDown}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`View ${displayName(team.name)} detail`}
-                          className="cursor-pointer text-slate-800 hover:bg-slate-50/70 focus:bg-slate-100 focus:outline-none dark:text-slate-100 dark:hover:bg-slate-800/70 dark:focus:bg-slate-800"
+                          className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70"
                         >
                           <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
                           <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={select}
+                              aria-label={`View ${displayName(team.name)} detail`}
+                              className="flex items-center gap-3 rounded-lg p-1 -m-1 text-left focus:bg-slate-100 focus:outline-none dark:focus:bg-slate-800"
+                            >
                               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
                                 {teamAbbr(team.name)}
                               </div>
-                              <div>
-                                <div
-                                  className="font-black tracking-tight text-slate-950 dark:text-slate-100"
-                                  title={team.name}
-                                >
-                                  {displayName(team.name)}
-                                </div>
+                              <div className="font-black tracking-tight text-slate-950 dark:text-slate-100" title={team.name}>
+                                {displayName(team.name)}
                               </div>
-                            </div>
+                            </button>
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
