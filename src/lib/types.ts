@@ -79,6 +79,7 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
+export type RecapGrouping = "game" | "date" | "week";
 
 export type Settings = {
   goldCutoff: number;
@@ -88,6 +89,7 @@ export type Settings = {
   runDiffTiebreaker: boolean;
   maxScoreCap: number;
   modelAggression: ModelAggression;
+  recapGrouping: RecapGrouping;
 };
 
 export type RankSnapshot = (Team & {
@@ -122,6 +124,7 @@ export const DEFAULT_SETTINGS: Settings = {
   runDiffTiebreaker: true,
   maxScoreCap: 18,
   modelAggression: "Balanced",
+  recapGrouping: "date",
 };
 
 export const MODEL_AGGRESSION: Record<ModelAggression, number> = {

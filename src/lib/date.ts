@@ -48,3 +48,15 @@ export const formatGameDate = (date: string) =>
 
 export const formatGameDateLong = (date: string) =>
   normalizeDateInput(date) || "Needs Date";
+
+export const sundayEndingWeekKey = (date: string) => {
+  const normalized = normalizeDateInput(date);
+  if (!normalized) return "";
+  const parsed = new Date(`${normalized}/${DEFAULT_SEASON_YEAR}`);
+  if (!Number.isFinite(parsed.getTime())) return "";
+  const day = parsed.getDay();
+  const daysUntilSunday = (7 - day) % 7;
+  const weekEnding = new Date(parsed);
+  weekEnding.setDate(parsed.getDate() + daysUntilSunday);
+  return toMMDD(weekEnding);
+};

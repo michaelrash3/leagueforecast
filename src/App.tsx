@@ -30,6 +30,7 @@ import {
   formatGameDateLong,
   normalizeDateInput,
   parseDateValue,
+  sundayEndingWeekKey,
 } from "./lib/date";
 import { displayName, recordText, teamAbbr } from "./lib/format";
 import { pathSummary, recapToMarkdown, weeklyRecap, type RecapItem } from "./lib/insights";
@@ -68,6 +69,7 @@ import {
   type Matchup,
   type ModelAggression,
   type Prediction,
+  type RecapGrouping,
   type Settings,
   type SwingGame,
   type Team,
@@ -1780,14 +1782,22 @@ export default function App() {
 
       if (isMarkingFinal && game) {
         const dateLabel = normalizeDateInput(game.date);
-        const finalizedOnDate = matchups.filter((m) => {
-          if (normalizeDateInput(m.date) !== dateLabel) return false;
+        const weekLabel = sundayEndingWeekKey(game.date);
+        const sameRecapWindow = (m: Matchup) => {
+          if (settings.recapGrouping === "game") return m.id === gameId;
+          if (settings.recapGrouping === "week") {
+            return sundayEndingWeekKey(m.date) === weekLabel;
+          }
+          return normalizeDateInput(m.date) === dateLabel;
+        };
+        const groupedFinals = matchups.filter((m) => {
+          if (!sameRecapWindow(m)) return false;
           const log = nextLogs[m.id];
           return !!log?.isFinal;
         });
 
         const beforeLogs = { ...nextLogs };
-        finalizedOnDate.forEach((m) => {
+        groupedFinals.forEach((m) => {
           const log = beforeLogs[m.id] || blankLog();
           beforeLogs[m.id] = { ...log, isFinal: false };
         });
@@ -1795,7 +1805,7 @@ export default function App() {
         const before = buildRankSnapshot(beforeLogs);
         const after = buildRankSnapshot(nextLogs);
         const messages = summarizeChanges(before, after);
-        const finalsSinceLast = finalizedOnDate.map((m) => {
+        const finalsSinceLast = groupedFinals.map((m) => {
           const log = nextLogs[m.id] || blankLog();
           const away = teamBaseById.get(m.away);
           const home = teamBaseById.get(m.home);
@@ -1820,7 +1830,14 @@ export default function App() {
           cutoff: goldCutoff,
         });
         setLastImpact({
-          title: dateLabel ? `Latest Update — ${dateLabel}` : "Latest Update — No Date",
+          title:
+            settings.recapGrouping === "game"
+              ? `Latest Update — ${finalsSinceLast[0]?.awayName ?? "Away"} vs ${finalsSinceLast[0]?.homeName ?? "Home"}`
+              : settings.recapGrouping === "week"
+                ? `Latest Update — Week Ending ${weekLabel || "No Date"}`
+                : dateLabel
+                  ? `Latest Update — ${dateLabel}`
+                  : "Latest Update — No Date",
           scores: finalsSinceLast.map((item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`),
           messages: messages.length
             ? messages
@@ -3364,6 +3381,7 @@ function SettingsView({
   const winId = useId();
   const tieId = useId();
   const aggrId = useId();
+  const recapId = useId();
 
   return (
     <section className="grid grid-cols-1 gap-6">
@@ -3444,6 +3462,24 @@ function SettingsView({
               <option value="Conservative">Conservative</option>
               <option value="Balanced">Balanced</option>
               <option value="Aggressive">Aggressive</option>
+            </select>
+          </label>
+          <label htmlFor={recapId} className="block">
+            <span className="text-sm font-black text-slate-700">Recap Grouping</span>
+            <select
+              id={recapId}
+              value={settings.recapGrouping}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  recapGrouping: event.target.value as RecapGrouping,
+                }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            >
+              <option value="game">Per Game</option>
+              <option value="date">Per Date</option>
+              <option value="week">Per Week (ending Sunday)</option>
             </select>
           </label>
           <label className="flex items-center justify-between rounded-2xl border border-slate-300 px-4 py-3 dark:border-slate-600">
