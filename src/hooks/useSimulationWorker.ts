@@ -125,7 +125,10 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
       }
     }, debounceMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      handle.worker?.postMessage({ kind: "cancel", id });
+    };
   }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
 
   return { odds, pending };
@@ -216,7 +219,10 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
       }
     }, debounceMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      handle.worker?.postMessage({ kind: "cancel", id });
+    };
   }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
 
   return trend;

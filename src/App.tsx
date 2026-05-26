@@ -85,6 +85,7 @@ import {
 } from "./lib/types";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
+import { formatGoldPct as formatGoldPctValue, titleRaceBadgeForTeam as titleRaceBadgeForTeamValue } from "./lib/standingsView";
 
 type ActiveView = "standings" | "games" | "model" | "settings";
 
@@ -606,6 +607,17 @@ export default function App() {
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  useEffect(() => {
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
   const [lastImpact, setLastImpact] = useState<
     { title: string; scores: string[]; messages: string[]; recapItems: RecapItem[] } | null
   >(null);
@@ -1377,12 +1389,7 @@ export default function App() {
     [dashboardById, nextTwoSwingGames, goldCutoff]
   );
 
-  const formatGoldPct = (team: TeamWithProjection) => {
-    if (team.goldStatus !== "Eliminated" && team.goldPct > 0 && team.goldPct < 1) return "<1%";
-    if (team.goldStatus !== "Clinched" && team.goldPct >= 99.5) return "99%+";
-    if (team.goldStatus !== "Eliminated" && team.goldPct <= 0.5) return "<1%";
-    return `${Math.round(team.goldPct)}%`;
-  };
+  const formatGoldPct = useCallback((team: TeamWithProjection) => formatGoldPctValue(team), []);
 
   const statusLabel = (team: TeamWithProjection) => {
     if (team.goldStatus === "Clinched") return "Clinched";
@@ -1436,19 +1443,11 @@ export default function App() {
     return "bg-red-100 text-red-700";
   };
 
-  const titleRaceBadgeForTeam = (team: TeamWithProjection) => {
-    const leader = dashboardRows[0];
-    if (!leader || leader.id === team.id) return team.rank === 1 ? "Title Leader" : "";
-    const teamBack =
-      (leader.w - team.w + (team.l - leader.l) + (leader.t - team.t) * 0.5) / 2;
-    const teamMax =
-      standingsPoints(team, settings) +
-      (remainingCounts[team.id] ?? 0) * settings.winPoints;
-    const leaderCurrent = standingsPoints(leader, settings);
-    if (teamMax < leaderCurrent) return "Title Eliminated";
-    if (teamBack <= 2 && (team.rank ?? 99) <= 5) return "Title Contender";
-    return "";
-  };
+  const titleRaceBadgeForTeam = useCallback(
+    (team: TeamWithProjection) =>
+      titleRaceBadgeForTeamValue(team, dashboardRows, remainingCounts, settings),
+    [dashboardRows, remainingCounts, settings]
+  );
 
   const teamPathNote = (team: TeamWithProjection) => {
     const range = seedRangeForTeam(team.id);
@@ -2182,12 +2181,18 @@ export default function App() {
 
   const shareSeason = async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
-    const url = buildShareUrl(window.location.href, snapshot);
     try {
-      await navigator.clipboard.writeText(url);
-      showToast("Share URL copied to clipboard.", { tone: "success" });
+      const url = buildShareUrl(window.location.href, snapshot);
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("Share URL copied to clipboard.", { tone: "success" });
+      } catch {
+        window.prompt("Copy this share URL:", url);
+      }
     } catch {
-      window.prompt("Copy this share URL:", url);
+      showToast("Snapshot is too large for a share URL. Download a backup JSON instead.", {
+        tone: "error",
+      });
     }
   };
 
@@ -2315,7 +2320,13 @@ export default function App() {
   }));
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <>
+      {isOffline && (
+        <div className="sticky top-0 z-40 bg-amber-100 px-4 py-2 text-center text-xs font-black text-amber-800 dark:bg-amber-900/70 dark:text-amber-100">
+          You are offline. Showing cached app shell and local data.
+        </div>
+      )}
+      <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -2551,6 +2562,7 @@ export default function App() {
 
       <ToastView toast={toast} onDismiss={dismissToast} />
     </div>
+    </>
   );
 }
 

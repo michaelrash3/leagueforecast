@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildShareUrl, decodeSnapshot, encodeSnapshot, readSharedFromHash, type SharedSnapshot } from "../share";
+import { MAX_SHARE_URL_PAYLOAD, buildShareUrl, decodeSnapshot, encodeSnapshot, readSharedFromHash, type SharedSnapshot } from "../share";
 import { DEFAULT_SETTINGS } from "../types";
 
 const snapshot: SharedSnapshot = {
@@ -31,6 +31,12 @@ describe("encode / decodeSnapshot", () => {
   it("returns null for garbage", () => {
     expect(decodeSnapshot("not-base64-data!!")).toBeNull();
   });
+
+
+  it("rejects payloads above max share length", () => {
+    const oversized = "a".repeat(MAX_SHARE_URL_PAYLOAD + 1);
+    expect(decodeSnapshot(oversized)).toBeNull();
+  });
 });
 
 describe("buildShareUrl + readSharedFromHash", () => {
@@ -45,5 +51,13 @@ describe("buildShareUrl + readSharedFromHash", () => {
   it("returns null when no payload in hash", () => {
     expect(readSharedFromHash("")).toBeNull();
     expect(readSharedFromHash("#foo=bar")).toBeNull();
+  });
+
+  it("throws when share payload is too large", () => {
+    const largeSnapshot: SharedSnapshot = {
+      ...snapshot,
+      teams: Array.from({ length: 400 }, (_, i) => ({ id: `T${i}`, name: `Team ${i}` })),
+    };
+    expect(() => buildShareUrl("https://example.com", largeSnapshot)).toThrow();
   });
 });
