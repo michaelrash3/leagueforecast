@@ -698,28 +698,63 @@ export default function App() {
       if (!games.length) {
         return { label: "Complete", avgSeed: 0, opponents: "No games left" };
       }
-      const oppSeeds = games.map((game) => {
+
+      const maxSos = Math.max(...dashboardRows.map((row) => row.sos), 1);
+      const opponentSnapshots = games.map((game) => {
         const opponentId = game.away === teamId ? game.home : game.away;
         const opponent = dashboardById.get(opponentId);
+        const seed = opponent?.rank ?? 99;
+        const projectedSeed = opponent?.projectedRank ?? seed;
+        const tpi = opponent?.tpi ?? 0;
+        const sos = opponent?.sos ?? 0;
+        const goldPct = opponent?.goldPct ?? 0;
+
+        const seedScore = 1 / Math.max(seed, 1);
+        const projectedSeedScore = 1 / Math.max(projectedSeed, 1);
+        const tpiScore = Math.max(0, tpi) / 12;
+        const sosScore = Math.max(0, sos) / maxSos;
+        const goldPctScore = goldPct / 100;
+
+        const compositeDifficulty =
+          seedScore * 0.35 +
+          projectedSeedScore * 0.2 +
+          tpiScore * 0.25 +
+          sosScore * 0.1 +
+          goldPctScore * 0.1;
+
         return {
-          seed: opponent?.rank ?? 99,
+          seed,
           name: displayName(opponent?.name || opponentId),
+          projectedSeed,
+          compositeDifficulty,
         };
       });
-      const avgSeed = oppSeeds.reduce((sum, item) => sum + item.seed, 0) / Math.max(oppSeeds.length, 1);
+
+      const avgSeed =
+        opponentSnapshots.reduce((sum, item) => sum + item.seed, 0) /
+        Math.max(opponentSnapshots.length, 1);
+      const avgDifficulty =
+        opponentSnapshots.reduce((sum, item) => sum + item.compositeDifficulty, 0) /
+        Math.max(opponentSnapshots.length, 1);
+
+      const hardCutoff = 0.5;
+      const mediumCutoff = 0.33;
       const label =
-        avgSeed <= Math.max(2, goldCutoff - 2)
+        avgDifficulty >= hardCutoff
           ? "Hard"
-          : avgSeed <= goldCutoff + 2
+          : avgDifficulty >= mediumCutoff
             ? "Medium"
             : "Easy";
+
       return {
         label,
         avgSeed,
-        opponents: oppSeeds.map((item) => `#${item.seed} ${item.name}`).join(", "),
+        opponents: opponentSnapshots
+          .map((item) => `#${item.seed}/P${item.projectedSeed} ${item.name}`)
+          .join(", "),
       };
     },
-    [remainingGames, dashboardById, goldCutoff]
+    [remainingGames, dashboardById, dashboardRows]
   );
 
   const gameImportance = useCallback(
