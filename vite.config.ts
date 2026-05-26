@@ -35,11 +35,24 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Precaching the build output is what makes the app installable in
-        // Chromium browsers. We keep it minimal: no runtime API caching, no
-        // expiration plugins, no extra strategies — just the static bundle.
         navigateFallback: "/index.html",
         cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.destination === "document",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "pages",
+              networkTimeoutSeconds: 3,
+            },
+          },
+          {
+            urlPattern: ({ request }) =>
+              ["script", "style", "worker"].includes(request.destination),
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "assets" },
+          },
+        ],
       },
     }),
   ],
