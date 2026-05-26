@@ -75,7 +75,7 @@ describe("weeklyRecap", () => {
     expect(text).toContain("dropped below");
   });
 
-  it("explains 1-seed swap with finalized opponent result and tie-break context", () => {
+  it("summarizes a 1-seed swap in a single sentence", () => {
     const items = weeklyRecap({
       before: [
         { id: "A", rank: 2, goldPct: 70, goldStatus: "In" },
@@ -97,9 +97,9 @@ describe("weeklyRecap", () => {
       cutoff: 5,
     });
     const aSwap = items.find((i) => i.kind === "rank-change" && i.text.includes("Aces"));
-    expect(aSwap?.why?.join(" | ")).toContain("won vs Raiders");
-    expect(aSwap?.why?.join(" | ")).toContain("tie-break");
-    expect(aSwap?.why?.join(" | ")).toContain("Raiders");
+    expect(aSwap?.text).toContain("took care of business vs Raiders");
+    expect(aSwap?.text).toContain("tie-break");
+    expect(aSwap?.text).toContain("Raiders");
   });
 });
 

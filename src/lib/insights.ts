@@ -114,7 +114,7 @@ export const weeklyRecap = ({
   const beforeById = new Map(before.map((b) => [b.id, b]));
   const afterById = new Map(after.map((a) => [a.id, a]));
   type ChangeAttribution = {
-    ownResult?: { opponentName: string; didWin: boolean; pointsGained: number };
+    ownResult?: { opponentName: string; didWin: boolean; wasUpset: boolean };
     competitorResults: { teamName: string; didLose: boolean; rank: number }[];
     tieBreakWith?: { teamName: string; fromRank: number; toRank: number };
   };
@@ -138,7 +138,7 @@ export const weeklyRecap = ({
       winnerAttr.ownResult = {
         opponentName: winnerId === f.game.away ? f.homeName : f.awayName,
         didWin: true,
-        pointsGained: 1,
+        wasUpset: (beforeById.get(winnerId)?.rank ?? 999) > (beforeById.get(loserId)?.rank ?? 999),
       };
       winnerAttr.competitorResults.push({
         teamName: winnerId === f.game.away ? f.homeName : f.awayName,
@@ -151,7 +151,7 @@ export const weeklyRecap = ({
       loserAttr.ownResult = {
         opponentName: loserId === f.game.away ? f.homeName : f.awayName,
         didWin: false,
-        pointsGained: 0,
+        wasUpset: (beforeById.get(winnerId)?.rank ?? 999) > (beforeById.get(loserId)?.rank ?? 999),
       };
       loserAttr.competitorResults.push({
         teamName: loserId === f.game.away ? f.homeName : f.awayName,
@@ -257,26 +257,34 @@ export const weeklyRecap = ({
       const verb = c.delta > 0 ? "climbed" : "slipped";
       const team = after.find((a) => a.name === c.name);
       const attr = team ? attributionById.get(team.id) : undefined;
-      const why: string[] = [];
+      const reasons: string[] = [];
       if (attr?.ownResult) {
-        const ownVerb = attr.ownResult.didWin ? "won" : "lost";
-        why.push(`${displayName(c.name)} ${ownVerb} vs ${attr.ownResult.opponentName}, gained ${attr.ownResult.pointsGained} standings point${attr.ownResult.pointsGained === 1 ? "" : "s"}.`);
+        if (attr.ownResult.didWin) {
+          const upsetTag = attr.ownResult.wasUpset ? " in an upset special" : "";
+          reasons.push(`they took care of business vs ${attr.ownResult.opponentName}${upsetTag}`);
+        } else {
+          const upsetTag = attr.ownResult.wasUpset ? " in an upset" : "";
+          reasons.push(`they got clipped by ${attr.ownResult.opponentName}${upsetTag}`);
+        }
       }
       const competitor = attr?.competitorResults.find((x) => x.rank > 0 && x.teamName !== displayName(c.name));
       if (competitor) {
-        const compVerb = competitor.didLose ? "loss dropped" : "win pushed";
-        why.push(`${competitor.teamName} ${compVerb} them to #${competitor.rank}.`);
+        if (competitor.didLose) {
+          reasons.push(`${competitor.teamName} slipped to #${competitor.rank}`);
+        } else {
+          reasons.push(`${competitor.teamName} climbed to #${competitor.rank}`);
+        }
       }
       if (attr?.tieBreakWith) {
-        why.push(`Tied on points with ${attr.tieBreakWith.teamName}; tie-break moved ${displayName(c.name)} from #${attr.tieBreakWith.fromRank} to #${attr.tieBreakWith.toRank}.`);
+        reasons.push(`the tie-break edge over ${attr.tieBreakWith.teamName} settled it`);
       }
-      if (why.length === 0) {
-        why.push(`Position changed by ${Math.abs(c.delta)} seed(s).`, "Shift came from finalized results in this update window.");
-      }
+      const conciseReason =
+        reasons.length > 0
+          ? `${reasons.join("; ")}.`
+          : "final scores across the board scrambled the order.";
       items.push({
         kind: "rank-change",
-        text: `${displayName(c.name)} ${verb} from #${c.from} to #${c.to}.`,
-        why,
+        text: `${displayName(c.name)} ${verb} from #${c.from} to #${c.to}. ${conciseReason}`,
       });
     });
 

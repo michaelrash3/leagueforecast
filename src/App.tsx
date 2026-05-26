@@ -2780,16 +2780,6 @@ function StandingsView({
                         Impact {item.impactScore ?? 0}
                       </span>
                     </div>
-                    {item.why && item.why.length > 0 && (
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Why did this move?</summary>
-                        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                          {item.why.map((reason) => (
-                            <li key={reason}>{reason}</li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
                   </li>
                 ))}
               </ul>
