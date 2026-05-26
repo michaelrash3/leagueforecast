@@ -1210,26 +1210,48 @@ export default function App() {
     });
   };
 
+  const gameScenarioBadgesForGame = (game: Matchup) => {
+    const away = dashboardById.get(game.away);
+    const home = dashboardById.get(game.home);
+    const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
+    const badges: string[] = [];
+
+    const clinchTeams = new Set<string>();
+    teamsInGame.forEach((team) => {
+      if (teamClinchesGoldWithWin(team.id, game)) clinchTeams.add(displayName(team.name));
+    });
+    teamsClinchingAfterGameResult(game, game.away).forEach((teamId) => {
+      const team = dashboardById.get(teamId);
+      clinchTeams.add(displayName(team?.name || teamId));
+    });
+    teamsClinchingAfterGameResult(game, game.home).forEach((teamId) => {
+      const team = dashboardById.get(teamId);
+      clinchTeams.add(displayName(team?.name || teamId));
+    });
+    if (clinchTeams.size > 0) {
+      badges.push(`Clinch Scenario: ${[...clinchTeams].join(", ")}`);
+    }
+
+    const eliminationTeams = new Set<string>();
+    teamsInGame.forEach((team) => {
+      if (teamCanBeEliminatedWithLoss(team.id, game)) eliminationTeams.add(displayName(team.name));
+    });
+    if (eliminationTeams.size > 0) {
+      badges.push(`Elimination Scenario: ${[...eliminationTeams].join(", ")}`);
+    }
+
+    return badges;
+  };
+
   const gameStatusForGame = (game: Matchup) => {
     const impact = getGameScenarioImpactMap.get(game.id);
     const away = dashboardById.get(game.away);
     const home = dashboardById.get(game.home);
     const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
-
     const titleTeam = teamsInGame.find((team) => teamClinchesRegularSeasonTitleWithWin(team.id, game));
     if (titleTeam) return `Title Clinch-${displayName(titleTeam.name)}`;
-    const clinchTeam = teamsInGame.find((team) => teamClinchesGoldWithWin(team.id, game));
-    if (clinchTeam) return `Clinch Game-${displayName(clinchTeam.name)}`;
-
-    const awayClinches = teamsClinchingAfterGameResult(game, game.away);
-    const homeClinches = teamsClinchingAfterGameResult(game, game.home);
-    const firstExternalClinch = [...awayClinches, ...homeClinches][0];
-    if (firstExternalClinch) {
-      const target = dashboardById.get(firstExternalClinch);
-      return `Clinch Watch-${displayName(target?.name || firstExternalClinch)}`;
-    }
-    const elimTeam = teamsInGame.find((team) => teamCanBeEliminatedWithLoss(team.id, game));
-    if (elimTeam) return `Elimination Game-${displayName(elimTeam.name)}`;
+    const scenarioBadges = gameScenarioBadgesForGame(game);
+    if (scenarioBadges.length > 0) return scenarioBadges[0] ?? "Clinch Scenario";
 
     const nearCutLine = teamsInGame.some(
       (team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1
@@ -1243,7 +1265,9 @@ export default function App() {
     if (label.startsWith("Title Clinch-")) return "bg-purple-100 text-purple-700";
     if (label.startsWith("Clinch Game-")) return "bg-emerald-100 text-emerald-700";
     if (label.startsWith("Clinch Watch-")) return "bg-teal-100 text-teal-700";
+    if (label.startsWith("Clinch Scenario:")) return "bg-emerald-100 text-emerald-700";
     if (label.startsWith("Elimination Game-")) return "bg-red-100 text-red-700";
+    if (label.startsWith("Elimination Scenario:")) return "bg-red-100 text-red-700";
     if (label === "High Impact") return "bg-amber-100 text-amber-700";
     if (label === "Bubble Game") return "bg-blue-100 text-blue-700";
     return "bg-slate-200 text-slate-600";
@@ -1507,7 +1531,7 @@ export default function App() {
   const scoreboardPredictions = useMemo(() => {
     const map = new Map<
       string,
-      { spread: string; pickName: string; pickPct: number; status: string; impactScore: number }
+      { spread: string; pickName: string; pickPct: number; scenarioBadges: string[]; impactScore: number }
     >();
     remainingGames.forEach((game) => {
       const prediction = predictGame(game, liveTeams, settings, liveById);
@@ -1530,7 +1554,7 @@ export default function App() {
         spread: projectedRunLine(prediction, liveById),
         pickName: displayName(winner?.name || prediction.winnerId),
         pickPct: winnerPct,
-        status: gameStatusForGame(game),
+        scenarioBadges: gameScenarioBadgesForGame(game),
         impactScore,
       });
     });
@@ -3723,7 +3747,7 @@ function GamesView({
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   scoreboardGames: Matchup[];
-  scoreboardPredictions: Map<string, { spread: string; pickName: string; pickPct: number; status: string; impactScore: number }>;
+  scoreboardPredictions: Map<string, { spread: string; pickName: string; pickPct: number; scenarioBadges: string[]; impactScore: number }>;
   scoreboardTeamFilter: string;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
@@ -3924,11 +3948,14 @@ function GamesView({
                         <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-sm ring-1 ring-slate-200">
                           Spread: {prediction.spread}
                         </span>
-                        <span
-                          className={`rounded-full px-3 py-1 ${gameStatusClasses(prediction.status)}`}
-                        >
-                          {prediction.status}
-                        </span>
+                        {prediction.scenarioBadges.map((badge) => (
+                          <span
+                            key={badge}
+                            className={`rounded-full px-3 py-1 ${gameStatusClasses(badge)}`}
+                          >
+                            {badge}
+                          </span>
+                        ))}
                       </div>
                       <span className="text-slate-500">
                         Pick: {prediction.pickName} ·{" "}
