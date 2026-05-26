@@ -14,7 +14,7 @@ const STEPS = [
       "Import a schedule CSV, or paste team names into the New Season Builder to generate a blank round-robin schedule.",
   },
   {
-    title: "Enter scores in Games",
+    title: "Enter scores in Schedule",
     body:
       "Type R/H/K per team, then mark Final. Standings, projections, and Gold odds update instantly.",
   },

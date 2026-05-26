@@ -100,7 +100,7 @@ type RankSnapshotEntry = Team & {
 
 const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
-  games: "Games",
+  games: "Schedule",
   model: "Season Predictor",
   settings: "Settings",
 };
@@ -2290,7 +2290,7 @@ export default function App() {
       },
       {
         combo: "g g",
-        description: "Go to Games",
+        description: "Go to Schedule",
         group: "Navigate",
         handler: () => setActiveView("games"),
       },
@@ -2819,7 +2819,7 @@ function StandingsView({
 
         {dashboardRows.length === 0 ? (
           <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-            No final results yet. Mark a game Final in the Games tab to populate standings.
+            No final results yet. Mark a game Final in the Schedule tab to populate standings.
           </div>
         ) : (
           <>
