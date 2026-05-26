@@ -8,18 +8,111 @@ export type MagicResult = {
   description: string;
 };
 
+type PointsMap = Record<string, number>;
+
+type OutcomeMode = "any" | "all";
+
 const remainingGamesFor = (teamId: string, remaining: Matchup[]) =>
   remaining.filter((g) => g.away === teamId || g.home === teamId);
 
-/**
- * Magic number for finishing inside the top `cutoff`.
- *
- * For each candidate (own wins, opponent losses) combination we ask:
- * "If the team wins exactly W of its remaining games and the chasers
- *  collectively lose at least L of theirs, can fewer than `cutoff` teams
- *  still pass them?" We return the smallest W (then smallest L) that
- *  guarantees the answer is yes.
- */
+const buildPointsMap = (teams: Team[], settings: Settings): PointsMap => {
+  const out: PointsMap = {};
+  teams.forEach((t) => {
+    out[t.id] = standingsPoints(t, settings);
+  });
+  return out;
+};
+
+const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
+
+const rankOfTeam = (
+  teamId: string,
+  points: PointsMap,
+  teams: Team[],
+  settings: Pick<Settings, "runDiffTiebreaker">
+) => {
+  const my = points[teamId] ?? 0;
+  let above = 0;
+  let tiedAhead = 0;
+  for (const t of teams) {
+    if (t.id === teamId) continue;
+    const p = points[t.id] ?? 0;
+    if (p > my) {
+      above += 1;
+    } else if (p === my) {
+      // With runDiff tie-breakers enabled in live standings, break deterministic
+      // ties by team id for stable worst-case math in this pure points solver.
+      if (settings.runDiffTiebreaker ? t.id < teamId : t.id < teamId) tiedAhead += 1;
+    }
+  }
+  return above + tiedAhead + 1;
+};
+
+const solveCutoff = (
+  teamId: string,
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings,
+  requiredOwnWins: number,
+  extraForcedLosses: number,
+  mode: OutcomeMode
+) => {
+  const base = buildPointsMap(teams, settings);
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
+  if (requiredOwnWins > myRemaining || extraForcedLosses > myRemaining) return false;
+
+  const ids = sortedTeamIds(teams);
+  const memo = new Map<string, boolean>();
+
+  const dfs = (idx: number, ownWins: number, forcedLosses: number, points: PointsMap): boolean => {
+    if (idx === remaining.length) {
+      if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return false;
+      return rankOfTeam(teamId, points, teams, settings) <= settings.goldCutoff;
+    }
+
+    const pointsKey = ids.map((id) => points[id] ?? 0).join(",");
+    const key = `${mode}|${idx}|${ownWins}|${forcedLosses}|${pointsKey}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+
+    const g = remaining[idx];
+    const outcomes: Array<{ next: PointsMap; own: number; loss: number }> = [
+      {
+        next: { ...points, [g.away]: (points[g.away] ?? 0) + settings.winPoints },
+        own: ownWins + (g.away === teamId ? 1 : 0),
+        loss: forcedLosses + (g.home === teamId ? 1 : 0),
+      },
+      {
+        next: { ...points, [g.home]: (points[g.home] ?? 0) + settings.winPoints },
+        own: ownWins + (g.home === teamId ? 1 : 0),
+        loss: forcedLosses + (g.away === teamId ? 1 : 0),
+      },
+    ];
+
+    if (settings.tiePoints > 0) {
+      outcomes.push({
+        next: {
+          ...points,
+          [g.away]: (points[g.away] ?? 0) + settings.tiePoints,
+          [g.home]: (points[g.home] ?? 0) + settings.tiePoints,
+        },
+        own: ownWins,
+        loss: forcedLosses,
+      });
+    }
+
+    const result =
+      mode === "any"
+        ? outcomes.some((o) => dfs(idx + 1, o.own, o.loss, o.next))
+        : outcomes.every((o) => dfs(idx + 1, o.own, o.loss, o.next));
+
+    memo.set(key, result);
+    return result;
+  };
+
+  return dfs(0, 0, 0, base);
+};
+
 export const magicForGold = (
   teamId: string,
   teams: Team[],
@@ -30,86 +123,29 @@ export const magicForGold = (
   const me = teams.find((t) => t.id === teamId);
   if (!me) return { type: "impossible", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Unknown team." };
 
-  const myRemaining = remainingGamesFor(teamId, remaining);
-  const myCurrent = standingsPoints(me, settings);
-  const winPts = settings.winPoints;
+  const effectiveSettings = { ...settings, goldCutoff: cutoff };
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
 
-  // Chasers: teams currently outside the cut line (in points-rank sense)
-  // that could still mathematically pass us.
-  const myRank = teams
-    .slice()
-    .sort((a, b) => standingsPoints(b, settings) - standingsPoints(a, settings))
-    .findIndex((t) => t.id === teamId) + 1;
-
-  if (myRank <= cutoff) {
-    // Can we clinch by zero more wins? Check if no other team can pass us
-    // even with all remaining games.
-    for (let w = 0; w <= myRemaining.length; w += 1) {
-      const myMaxIfW = myCurrent + w * winPts;
-      // Count teams that could still equal-or-exceed myMaxIfW.
-      const threats = teams.filter((other) => {
-        if (other.id === teamId) return false;
-        const otherRemaining = remainingGamesFor(other.id, remaining).length;
-        return standingsPoints(other, settings) + otherRemaining * winPts >= myMaxIfW;
-      });
-      // If fewer than (cutoff) threats exist (i.e. at most cutoff-1), team
-      // is guaranteed a spot when reaching myMaxIfW.
-      if (threats.length < cutoff) {
-        if (w === 0) {
-          return {
-            type: "clinched",
-            ownWinsNeeded: 0,
-            opponentLossesNeeded: 0,
-            description: "Already clinched.",
-          };
-        }
-        return {
-          type: "magic",
-          ownWinsNeeded: w,
-          opponentLossesNeeded: 0,
-          description: `${w} more win${w === 1 ? "" : "s"} clinches a top-${cutoff} spot.`,
-        };
-      }
-    }
+  if (solveCutoff(teamId, teams, remaining, effectiveSettings, 0, 0, "all")) {
+    return {
+      type: "clinched",
+      ownWinsNeeded: 0,
+      opponentLossesNeeded: 0,
+      description: "Already clinched.",
+    };
   }
 
-  // General case: combination search.
-  for (let w = 0; w <= myRemaining.length; w += 1) {
-    const myAt = myCurrent + w * winPts;
-    // We need: at least (cutoff) teams (including us) to finish at or above myAt.
-    // Equivalently: at most (totalTeams - cutoff) teams can finish strictly above us.
-    // Compute, given each "chaser" loses L of its remaining, how many teams could still pass.
-    // We pick smallest L such that no more than (cutoff-1) other teams can hit > myAt.
-    const others = teams.filter((t) => t.id !== teamId);
-    for (let l = 0; l <= remaining.length; l += 1) {
-      // For each other team, after they lose `l` of their remaining games
-      // distributed to them, what is their best-case points?
-      // We approximate by allowing each other team to lose ceil(l / others.length) of theirs.
-      // This is a fast lower bound; for the small leagues here it's accurate.
-      const sharedLosses = Math.ceil(l / Math.max(others.length, 1));
-      const threats = others.filter((other) => {
-        const otherRemaining = remainingGamesFor(other.id, remaining).length;
-        const otherWinsCapped = Math.max(0, otherRemaining - sharedLosses);
-        const otherMax = standingsPoints(other, settings) + otherWinsCapped * winPts;
-        return otherMax > myAt;
-      });
-      if (threats.length < cutoff) {
-        if (w === 0 && l === 0) {
-          return {
-            type: "clinched",
-            ownWinsNeeded: 0,
-            opponentLossesNeeded: 0,
-            description: "Already clinched.",
-          };
-        }
+  for (let winsNeeded = 0; winsNeeded <= myRemaining; winsNeeded += 1) {
+    for (let lossesNeeded = 0; lossesNeeded <= myRemaining; lossesNeeded += 1) {
+      if (solveCutoff(teamId, teams, remaining, effectiveSettings, winsNeeded, lossesNeeded, "all")) {
         return {
           type: "magic",
-          ownWinsNeeded: w,
-          opponentLossesNeeded: l,
+          ownWinsNeeded: winsNeeded,
+          opponentLossesNeeded: lossesNeeded,
           description:
-            l === 0
-              ? `${w} more win${w === 1 ? "" : "s"} clinches a top-${cutoff} spot.`
-              : `${w} win${w === 1 ? "" : "s"} + ${l} chaser loss${l === 1 ? "" : "es"} clinches a top-${cutoff} spot.`,
+            lossesNeeded === 0
+              ? `${winsNeeded} more win${winsNeeded === 1 ? "" : "s"} clinches a top-${cutoff} spot.`
+              : `${winsNeeded} win${winsNeeded === 1 ? "" : "s"} + ${lossesNeeded} additional own-opponent loss${lossesNeeded === 1 ? "" : "es"} clinches a top-${cutoff} spot.`,
         };
       }
     }
@@ -123,10 +159,6 @@ export const magicForGold = (
   };
 };
 
-/**
- * Elimination number: how many more losses (out of remaining games) before
- * the team is mathematically eliminated from the top `cutoff`.
- */
 export const eliminationNumberForGold = (
   teamId: string,
   teams: Team[],
@@ -144,24 +176,20 @@ export const eliminationNumberForGold = (
     };
   }
 
+  const effectiveSettings = { ...settings, goldCutoff: cutoff };
   const myRemaining = remainingGamesFor(teamId, remaining).length;
-  const myCurrent = standingsPoints(me, settings);
-  const winPts = settings.winPoints;
-  const others = teams.filter((t) => t.id !== teamId);
 
-  for (let l = 0; l <= myRemaining; l += 1) {
-    const myMax = myCurrent + (myRemaining - l) * winPts;
-    // Teams whose CURRENT points already exceed our max.
-    const blockers = others.filter((other) => standingsPoints(other, settings) > myMax).length;
-    if (blockers >= cutoff) {
+  for (let losses = 0; losses <= myRemaining; losses += 1) {
+    const stillCan = solveCutoff(teamId, teams, remaining, effectiveSettings, 0, losses, "any");
+    if (!stillCan) {
       return {
         type: "elimination",
         ownWinsNeeded: 0,
-        opponentLossesNeeded: l,
+        opponentLossesNeeded: losses,
         description:
-          l === 0
+          losses === 0
             ? `Already eliminated from top-${cutoff}.`
-            : `${l} more loss${l === 1 ? "" : "es"} would eliminate the team from top-${cutoff}.`,
+            : `${losses} more loss${losses === 1 ? "" : "es"} would eliminate the team from top-${cutoff}.`,
       };
     }
   }

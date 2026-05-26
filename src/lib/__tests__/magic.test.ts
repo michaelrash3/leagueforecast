@@ -31,12 +31,12 @@ const finalLog = (a: number, h: number): GameLog => ({
 const settings = { ...DEFAULT_SETTINGS };
 
 describe("magicForGold", () => {
-  it("reports a magic number for a team in the chase", () => {
+  it("returns impossible when no guarantees can be made", () => {
     const live = calculateTeams(teams, matchups, {
       g1: finalLog(5, 1),
     });
     const result = magicForGold("A", live, matchups, 2, settings);
-    expect(["magic", "clinched"]).toContain(result.type);
+    expect(result.type).toBe("impossible");
   });
 
   it("clinched when nobody can pass", () => {
@@ -45,7 +45,7 @@ describe("magicForGold", () => {
       g3: finalLog(5, 0),
     });
     const result = magicForGold("A", live, matchups, 1, settings);
-    expect(["clinched", "magic"]).toContain(result.type);
+    expect(result.type).toBe("clinched");
   });
 });
 
@@ -54,5 +54,12 @@ describe("eliminationNumberForGold", () => {
     const live = calculateTeams(teams, matchups, {});
     const result = eliminationNumberForGold("A", live, matchups, 1, settings);
     expect(result.type === "elimination" || result.type === "magic").toBe(true);
+  });
+
+  it("considers ties as legal outcomes when tiePoints > 0", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const tieSettings = { ...settings, tiePoints: 0.5 };
+    const result = eliminationNumberForGold("A", live, matchups, 2, tieSettings);
+    expect(["magic", "elimination"]).toContain(result.type);
   });
 });
