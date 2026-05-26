@@ -1,9 +1,10 @@
 import { useId, useMemo, useRef } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import { displayName, recordText } from "../lib/format";
-import { HeadToHeadMatrix, type H2HCell } from "./charts/HeadToHeadMatrix";
+import { HeadToHeadMatrix } from "./charts/HeadToHeadMatrix";
 import type { GameLog, Matchup, TeamWithProjection } from "../lib/types";
 import { isFinal, parseNumber } from "../lib/util";
+import { h2hCellFor } from "../lib/headToHead";
 
 const compareSelectId = "compare-with-select";
 
@@ -159,31 +160,6 @@ export function CompareDrawer({
 
 
 
-  const h2hCellFor = (rowId: string, colId: string): H2HCell => {
-    if (rowId === colId) return "self";
-    let wins = 0;
-    let losses = 0;
-    let ties = 0;
-    matchups.forEach((game) => {
-      const log = logs[game.id];
-      if (!log || !isFinal(log)) return;
-      const involves =
-        (game.away === rowId && game.home === colId) ||
-        (game.away === colId && game.home === rowId);
-      if (!involves) return;
-      const awayRuns = parseNumber(log.awayRuns);
-      const homeRuns = parseNumber(log.homeRuns);
-      if (awayRuns === homeRuns) ties += 1;
-      else {
-        const rowWon = (game.away === rowId && awayRuns > homeRuns) || (game.home === rowId && homeRuns > awayRuns);
-        if (rowWon) wins += 1; else losses += 1;
-      }
-    });
-    if (wins === 0 && losses === 0 && ties === 0) return "none";
-    if (wins > losses) return "win";
-    if (losses > wins) return "loss";
-    return "tie";
-  };
 
   const tone = (which: "left" | "right" | "tie" | undefined, side: "left" | "right") => {
     if (which === "tie" || which === undefined) return "text-slate-700 dark:text-slate-200";
@@ -326,7 +302,7 @@ export function CompareDrawer({
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Head-to-Head Matrix</h3>
           <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">Green = winning series, red = trailing series, amber = tied.</p>
           <div className="mt-3">
-            <HeadToHeadMatrix teams={allTeams.map((t) => ({ id: t.id, name: t.name }))} cellFor={h2hCellFor} />
+            <HeadToHeadMatrix teams={allTeams.map((t) => ({ id: t.id, name: t.name }))} cellFor={(rowId, colId) => h2hCellFor(rowId, colId, matchups, logs)} />
           </div>
         </section>
 
