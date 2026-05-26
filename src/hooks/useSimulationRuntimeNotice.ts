@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { telemetry } from "../lib/telemetry";
 import type { ToastTone } from "./useToast";
 
-type Runtime = "worker" | "inline";
+export type SimulationRuntime = "worker" | "inline";
 
 type ShowToast = (
   message: string,
@@ -15,8 +15,12 @@ type ShowToast = (
   }
 ) => void;
 
-export function useSimulationRuntimeNotice(runtime: Runtime, showToast: ShowToast) {
-  const lastRuntimeRef = useRef<Runtime | null>(null);
+export function shouldShowInlineRuntimeToast(runtime: SimulationRuntime, inlineToastShown: boolean) {
+  return runtime === "inline" && !inlineToastShown;
+}
+
+export function useSimulationRuntimeNotice(runtime: SimulationRuntime, showToast: ShowToast) {
+  const lastRuntimeRef = useRef<SimulationRuntime | null>(null);
   const inlineToastShownRef = useRef(false);
 
   useEffect(() => {
@@ -24,7 +28,7 @@ export function useSimulationRuntimeNotice(runtime: Runtime, showToast: ShowToas
 
     telemetry.track("simulation_runtime", { runtime });
 
-    if (runtime === "inline" && !inlineToastShownRef.current) {
+    if (shouldShowInlineRuntimeToast(runtime, inlineToastShownRef.current)) {
       showToast("Simulation worker unavailable; running inline mode.", {
         tone: "info",
         durationMs: 4000,

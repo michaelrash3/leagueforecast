@@ -86,4 +86,22 @@ describe("critical flows integration", () => {
     expect(remainingCounts["a"]).toBe(2);
     expect(remainingCounts["b"]).toBe(2);
   });
+  it("keeps unfinalized games out of standings until finalized", () => {
+    const matchups: Matchup[] = [{ id: "g1", away: "a", home: "b", date: "5/1" }];
+
+    const pendingLogs: Record<string, GameLog> = { g1: log("5", "1", false) };
+    const pendingTeams = calculateTeams(teams, matchups, pendingLogs);
+
+    expect(pendingTeams.find((t) => t.id === "a")?.w).toBe(0);
+    expect(pendingTeams.find((t) => t.id === "b")?.l).toBe(0);
+
+    const finalLogs: Record<string, GameLog> = { g1: log("5", "1", true) };
+    const finalTeams = calculateTeams(teams, matchups, finalLogs);
+    const ranked = rankTeams(finalTeams, { runDiffTiebreaker: DEFAULT_SETTINGS.runDiffTiebreaker });
+
+    expect(finalTeams.find((t) => t.id === "a")?.w).toBe(1);
+    expect(finalTeams.find((t) => t.id === "b")?.l).toBe(1);
+    expect(ranked[0]?.id).toBe("a");
+  });
+
 });
