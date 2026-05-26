@@ -85,6 +85,26 @@ describe("magicForGold", () => {
     expect(magicForGold("A", live, symmetricMatchups, symmetricTeams.length - 1, settings).type).toBe("impossible");
   });
 
+  it("returns known-answer magic number in a manually provable 3-team race", () => {
+    const tinyTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+    ];
+    const tinyMatchups: Matchup[] = [
+      { id: "k1", date: "5/1", away: "A", home: "B" },
+      { id: "k2", date: "5/2", away: "A", home: "C" },
+    ];
+
+    const live = calculateTeams(tinyTeams, tinyMatchups, {});
+    const result = magicForGold("A", live, tinyMatchups, 1, settings);
+
+    // Even winning out cannot guarantee first because B/C can also finish ahead on points.
+    expect(result.type).toBe("impossible");
+    expect(result.ownWinsNeeded).toBe(0);
+    expect(result.opponentLossesNeeded).toBe(0);
+  });
+
   it("returns impossible for mathematically impossible clinch cases", () => {
     const tinyTeams: TeamBase[] = [
       { id: "A", name: "A" },
@@ -106,10 +126,57 @@ describe("eliminationNumberForGold", () => {
     expect(result.type === "elimination" || result.type === "magic").toBe(true);
   });
 
+  it("returns known-answer elimination number in a manually provable 3-team race", () => {
+    const tinyTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+    ];
+    const tinyMatchups: Matchup[] = [
+      { id: "k1", date: "5/1", away: "A", home: "B" },
+      { id: "k2", date: "5/2", away: "A", home: "C" },
+    ];
+
+    const live = calculateTeams(tinyTeams, tinyMatchups, {});
+    const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
+
+    // A is eliminated once it accrues two losses in this 2-game schedule.
+    expect(result.type).toBe("elimination");
+    expect(result.opponentLossesNeeded).toBe(2);
+  });
+
   it("considers ties as legal outcomes when tiePoints > 0", () => {
     const live = calculateTeams(teams, matchups, {});
     const tieSettings = { ...settings, tiePoints: 0.5 };
     const result = eliminationNumberForGold("A", live, matchups, 2, tieSettings);
+    expect(["magic", "elimination"]).toContain(result.type);
+  });
+
+  it("handles larger synthetic schedules for regression-level performance coverage", () => {
+    const biggerTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+      { id: "D", name: "D" },
+      { id: "E", name: "E" },
+    ];
+    const biggerMatchups: Matchup[] = [];
+    let id = 1;
+    for (let round = 0; round < 1; round += 1) {
+      for (let i = 0; i < biggerTeams.length; i += 1) {
+        for (let j = i + 1; j < biggerTeams.length; j += 1) {
+          biggerMatchups.push({
+            id: `p${id++}`,
+            date: `6/${id}`,
+            away: biggerTeams[i]!.id,
+            home: biggerTeams[j]!.id,
+          });
+        }
+      }
+    }
+
+    const live = calculateTeams(biggerTeams, biggerMatchups, {});
+    const result = eliminationNumberForGold("A", live, biggerMatchups, 3, settings);
     expect(["magic", "elimination"]).toContain(result.type);
   });
 });

@@ -1779,16 +1779,34 @@ export default function App() {
       const nextLogs = { ...prev, [gameId]: { ...current, isFinal: !current.isFinal } };
 
       if (isMarkingFinal && game) {
-        const beforeLogs = { ...nextLogs, [gameId]: { ...current, isFinal: false } };
+        const dateLabel = normalizeDateInput(game.date);
+        const finalizedOnDate = matchups.filter((m) => {
+          if (normalizeDateInput(m.date) !== dateLabel) return false;
+          const log = nextLogs[m.id];
+          return !!log?.isFinal;
+        });
+
+        const beforeLogs = { ...nextLogs };
+        finalizedOnDate.forEach((m) => {
+          const log = beforeLogs[m.id] || blankLog();
+          beforeLogs[m.id] = { ...log, isFinal: false };
+        });
+
         const before = buildRankSnapshot(beforeLogs);
         const after = buildRankSnapshot(nextLogs);
         const messages = summarizeChanges(before, after);
-        const finalLog = nextLogs[gameId] || blankLog();
-        const away = teamBaseById.get(game.away);
-        const home = teamBaseById.get(game.home);
-        const dateLabel = normalizeDateInput(game.date);
-        const awayScore = parseNumber(finalLog.awayRuns);
-        const homeScore = parseNumber(finalLog.homeRuns);
+        const finalsSinceLast = finalizedOnDate.map((m) => {
+          const log = nextLogs[m.id] || blankLog();
+          const away = teamBaseById.get(m.away);
+          const home = teamBaseById.get(m.home);
+          return {
+            game: m,
+            awayScore: parseNumber(log.awayRuns),
+            homeScore: parseNumber(log.homeRuns),
+            awayName: displayName(away?.name || m.away),
+            homeName: displayName(home?.name || m.home),
+          };
+        });
         const recapItems = weeklyRecap({
           before,
           after: after.map((entry) => ({
@@ -1798,22 +1816,12 @@ export default function App() {
             goldStatus: entry.goldStatus,
             name: entry.name,
           })),
-          finalsSinceLast: [
-            {
-              game,
-              awayScore,
-              homeScore,
-              awayName: displayName(away?.name || game.away),
-              homeName: displayName(home?.name || game.home),
-            },
-          ],
+          finalsSinceLast,
           cutoff: goldCutoff,
         });
         setLastImpact({
           title: dateLabel ? `Latest Update — ${dateLabel}` : "Latest Update — No Date",
-          scores: [
-            `${away ? displayName(away.name) : game.away} ${finalLog.awayRuns || "0"}, ${home ? displayName(home.name) : game.home} ${finalLog.homeRuns || "0"}`,
-          ],
+          scores: finalsSinceLast.map((item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`),
           messages: messages.length
             ? messages
             : ["This update was recorded; no standings-impact detail to summarize."],
