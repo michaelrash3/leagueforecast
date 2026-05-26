@@ -34,7 +34,13 @@ import {
   sundayEndingWeekKey,
 } from "./lib/date";
 import { displayName, recordText, teamAbbr } from "./lib/format";
-import { pathSummary, recapToMarkdown, weeklyRecap, type RecapItem } from "./lib/insights";
+import {
+  pathSummary,
+  recapToMarkdown,
+  recapToStoryBrief,
+  weeklyRecap,
+  type RecapItem,
+} from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { buildShareUrl } from "./lib/share";
 import {
@@ -599,6 +605,7 @@ export default function App() {
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [drawerHeavyReady, setDrawerHeavyReady] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [lastImpact, setLastImpact] = useState<
@@ -2195,61 +2202,71 @@ export default function App() {
 
   // ---------- Command palette + shortcuts ----------
 
+  const runTrackedCommand = (id: string, run: () => void) => () => {
+    setCommandHistory((prev) => [id, ...prev.filter((item) => item !== id)].slice(0, 6));
+    run();
+  };
+
   const commands: Command[] = useMemo(() => {
     const teamCmds: Command[] = dashboardRows.map((team) => ({
       id: `team-${team.id}`,
       label: `View ${displayName(team.name)}`,
       group: "Team",
       hint: `#${team.rank} · ${recordText(team)}`,
-      run: () => setSelectedTeamId(team.id),
+      run: runTrackedCommand(`team-${team.id}`, () => setSelectedTeamId(team.id)),
     }));
     const viewCmds: Command[] = VIEW_ORDER.map((view) => ({
       id: `view-${view}`,
       label: `Go to ${VIEW_LABELS[view]}`,
       group: "View",
-      run: () => setActiveView(view),
+      run: runTrackedCommand(`view-${view}`, () => setActiveView(view)),
     }));
     const actionCmds: Command[] = [
       {
         id: "action-share",
         label: "Share this season (copy URL)",
         group: "Action",
-        run: shareSeason,
+        run: runTrackedCommand("action-share", shareSeason),
       },
       {
         id: "action-export",
         label: "Export schedule CSV",
         group: "Action",
-        run: () => exportCSV(),
+        run: runTrackedCommand("action-export", () => exportCSV()),
       },
       {
         id: "action-backup",
         label: "Download backup JSON",
         group: "Action",
-        run: () => exportBackup(),
+        run: runTrackedCommand("action-backup", () => exportBackup()),
       },
       {
         id: "action-toggle-theme",
         label: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
         group: "Action",
-        run: toggleTheme,
+        run: runTrackedCommand("action-toggle-theme", toggleTheme),
       },
       {
         id: "action-shortcuts",
         label: "Show keyboard shortcuts",
         group: "Help",
-        run: () => setShowShortcuts(true),
+        run: runTrackedCommand("action-shortcuts", () => setShowShortcuts(true)),
       },
       {
         id: "action-tour",
         label: "Show app tour",
         group: "Help",
-        run: () => setShowTour(true),
+        run: runTrackedCommand("action-tour", () => setShowTour(true)),
       },
     ];
-    return [...viewCmds, ...teamCmds, ...actionCmds];
+    const byId = new Map([...viewCmds, ...teamCmds, ...actionCmds].map((c) => [c.id, c]));
+    const historyCmds = commandHistory
+      .map((id) => byId.get(id))
+      .filter((cmd): cmd is Command => !!cmd)
+      .map((cmd) => ({ ...cmd, group: "Recent" }));
+    return [...historyCmds, ...viewCmds, ...teamCmds, ...actionCmds];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboardRows, theme]);
+  }, [commandHistory, dashboardRows, theme]);
 
   const shortcuts: Shortcut[] = useMemo(
     () => [
@@ -2410,6 +2427,16 @@ export default function App() {
                 showToast("Recap copied.", { tone: "success" });
               } catch {
                 window.prompt("Copy this recap:", md);
+              }
+            }}
+            copyStory={async () => {
+              if (!lastImpact) return;
+              const story = recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+              try {
+                await navigator.clipboard.writeText(story);
+                showToast("Story copied.", { tone: "success" });
+              } catch {
+                window.prompt("Copy this story:", story);
               }
             }}
             dashboardRows={dashboardRows}
@@ -2661,6 +2688,7 @@ function StandingsView({
   lastImpact,
   dismissImpact,
   copyRecap,
+  copyStory,
   dashboardRows,
   currentSosRanks,
   statusClass,
@@ -2681,6 +2709,7 @@ function StandingsView({
   } | null;
   dismissImpact: () => void;
   copyRecap: () => void;
+  copyStory: () => void;
   dashboardRows: TeamWithProjection[];
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
@@ -2709,6 +2738,15 @@ function StandingsView({
                 <div className="text-sm font-black text-slate-950 dark:text-slate-100">{lastImpact.title}</div>
               </div>
               <div className="flex gap-2">
+                {lastImpact.recapItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={copyStory}
+                    className="rounded-full bg-blue-600 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-white shadow-sm hover:bg-blue-500"
+                  >
+                    Copy Story
+                  </button>
+                )}
                 {lastImpact.recapItems.length > 0 && (
                   <button
                     type="button"
@@ -2742,10 +2780,25 @@ function StandingsView({
               </div>
             )}
             {lastImpact.recapItems.length > 0 ? (
-              <ul className="space-y-1.5 text-xs font-black text-blue-800 dark:text-blue-300">
+              <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
                 {lastImpact.recapItems.map((item) => (
-                  <li key={item.text} className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                    {item.text}
+                  <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{item.text}</span>
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                        Impact {item.impactScore ?? 0}
+                      </span>
+                    </div>
+                    {item.why && item.why.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Why did this move?</summary>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          {item.why.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                   </li>
                 ))}
               </ul>

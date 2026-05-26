@@ -79,6 +79,29 @@ export type RecapItem = {
     | "gold-shift"
     | "summary";
   text: string;
+  impactScore?: number;
+  why?: string[];
+};
+
+const recapImpactScore = (kind: RecapItem["kind"], text: string) => {
+  switch (kind) {
+    case "clinched":
+    case "eliminated":
+      return 95;
+    case "crossed-cut-up":
+    case "crossed-cut-down":
+      return 85;
+    case "biggest-mover":
+    case "biggest-faller":
+      return 72;
+    case "rank-change":
+      return text.includes("#") ? 58 : 45;
+    case "gold-shift":
+      return 55;
+    case "summary":
+    default:
+      return 40;
+  }
 };
 
 export const weeklyRecap = ({
@@ -110,24 +133,28 @@ export const weeklyRecap = ({
       items.push({
         kind: "clinched",
         text: `${displayName(team.name)} clinched the Gold Bracket.`,
+        why: ["Team status changed to Clinched.", "Remaining results now affect only seeding."],
       });
     }
     if (prev.goldStatus !== "Eliminated" && team.goldStatus === "Eliminated") {
       items.push({
         kind: "eliminated",
         text: `${displayName(team.name)} were eliminated from Gold Bracket contention.`,
+        why: ["Team status changed to Eliminated.", "Gold path is no longer mathematically available."],
       });
     }
     if (prev.rank <= cutoff && team.rank > cutoff) {
       items.push({
         kind: "crossed-cut-down",
         text: `${displayName(team.name)} dropped below the Gold cut line (#${prev.rank} → #${team.rank}).`,
+        why: ["Seed moved from inside to outside the cutoff.", "Cut-line movement can swing weekly priorities."],
       });
     }
     if (prev.rank > cutoff && team.rank <= cutoff) {
       items.push({
         kind: "crossed-cut-up",
         text: `${displayName(team.name)} moved above the Gold cut line (#${prev.rank} → #${team.rank}).`,
+        why: ["Seed moved from outside to inside the cutoff.", "Team now controls its path more directly."],
       });
     }
   });
@@ -149,6 +176,7 @@ export const weeklyRecap = ({
       items.push({
         kind: "rank-change",
         text: `${displayName(c.name)} ${verb} from #${c.from} to #${c.to}.`,
+        why: [`Position changed by ${Math.abs(c.delta)} seed(s).`, "Shift came from finalized results in this update window."],
       });
     });
 
@@ -170,6 +198,7 @@ export const weeklyRecap = ({
       items.push({
         kind: "gold-shift",
         text: `${displayName(s.name)} Gold odds ${direction} ${s.delta > 0 ? "+" : ""}${s.delta}% (now ${s.pct}%).`,
+        why: ["Simulation odds moved by at least 5 percentage points.", "This reflects both own result and competitor outcomes."],
       });
     });
 
@@ -182,20 +211,38 @@ export const weeklyRecap = ({
     if (!topFaller || c.delta < topFaller.delta) topFaller = { name: c.name, delta: c.delta };
   });
   if (topMover && (topMover as { delta: number }).delta >= 3) {
-    items.push({
-      kind: "biggest-mover",
-      text: `Biggest mover: ${displayName((topMover as { name: string }).name)} (+${(topMover as { delta: number }).delta} seeds).`,
-    });
+      items.push({
+        kind: "biggest-mover",
+        text: `Biggest mover: ${displayName((topMover as { name: string }).name)} (+${(topMover as { delta: number }).delta} seeds).`,
+        why: ["Largest positive seed movement in this update window."],
+      });
   }
   if (topFaller && (topFaller as { delta: number }).delta <= -3) {
-    items.push({
-      kind: "biggest-faller",
-      text: `Biggest faller: ${displayName((topFaller as { name: string }).name)} (${(topFaller as { delta: number }).delta} seeds).`,
-    });
+      items.push({
+        kind: "biggest-faller",
+        text: `Biggest faller: ${displayName((topFaller as { name: string }).name)} (${(topFaller as { delta: number }).delta} seeds).`,
+        why: ["Largest negative seed movement in this update window."],
+      });
   }
 
   // Dedupe by text and cap.
-  return Array.from(new Map(items.map((item) => [item.text, item])).values()).slice(0, 12);
+  return Array.from(new Map(items.map((item) => [item.text, item])).values())
+    .map((item) => ({ ...item, impactScore: recapImpactScore(item.kind, item.text) }))
+    .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0))
+    .slice(0, 12);
+};
+
+export const recapToStoryBrief = (
+  seasonLabel: string,
+  items: RecapItem[],
+  generatedAt = new Date()
+) => {
+  const dateLabel = formatGameDate(`${generatedAt.getMonth() + 1}/${generatedAt.getDate()}`);
+  const top = [...items].sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0)).slice(0, 3);
+  return [
+    `${seasonLabel} League Story — ${dateLabel}`,
+    ...top.map((item, i) => `${i + 1}) ${item.text}`),
+  ].join("\n");
 };
 
 export const recapToMarkdown = (
