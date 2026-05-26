@@ -182,7 +182,7 @@ export const weeklyRecap = ({
       const movedList = Array.from(movedNames).slice(0, 6).join(", ");
       items.push({
         kind: "summary",
-        text: `Ripple effect: ${movedList} shifted after this finalized window.`,
+        text: `Standings shifted for ${movedList} after finalized games.`,
         why: [
           "Finalized results changed standings order for multiple teams.",
           "Cut-line pressure and tie-break cascades can move teams not playing head-to-head.",
