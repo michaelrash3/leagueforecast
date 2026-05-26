@@ -84,6 +84,7 @@ export type RecapGrouping = "game" | "date" | "week";
 export type Settings = {
   goldCutoff: number;
   seasonLabel: string;
+  regularSeasonGamesPerTeam: number;
   winPoints: number;
   tiePoints: number;
   runDiffTiebreaker: boolean;
@@ -119,6 +120,7 @@ export const STORAGE_VERSION = 1;
 export const DEFAULT_SETTINGS: Settings = {
   goldCutoff: DEFAULT_GOLD_CUTOFF,
   seasonLabel: DEFAULT_SEASON_LABEL,
+  regularSeasonGamesPerTeam: 0,
   winPoints: 1,
   tiePoints: 0.5,
   runDiffTiebreaker: true,

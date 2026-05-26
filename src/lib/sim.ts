@@ -54,7 +54,11 @@ export const standingsPoints = (
   settings: Pick<Settings, "winPoints" | "tiePoints">
 ) => team.w * settings.winPoints + team.t * settings.tiePoints;
 
-export const getRemainingCounts = (teams: Team[], remainingGames: Matchup[]) => {
+export const getRemainingCounts = (
+  teams: Team[],
+  remainingGames: Matchup[],
+  regularSeasonGamesPerTeam = 0
+) => {
   const counts: Record<string, number> = {};
   teams.forEach((team) => {
     counts[team.id] = 0;
@@ -64,6 +68,13 @@ export const getRemainingCounts = (teams: Team[], remainingGames: Matchup[]) => 
     counts[game.away] = (counts[game.away] ?? 0) + 1;
     counts[game.home] = (counts[game.home] ?? 0) + 1;
   });
+
+  if (regularSeasonGamesPerTeam > 0) {
+    teams.forEach((team) => {
+      const minimumRemainingFromSeasonLength = Math.max(0, regularSeasonGamesPerTeam - team.games);
+      counts[team.id] = Math.max(counts[team.id] ?? 0, minimumRemainingFromSeasonLength);
+    });
+  }
 
   return counts;
 };

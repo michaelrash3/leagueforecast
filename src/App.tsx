@@ -682,8 +682,13 @@ export default function App() {
     [matchups, logs]
   );
   const remainingCounts = useMemo(
-    () => getRemainingCounts(liveTeams, remainingGames),
-    [liveTeams, remainingGames]
+    () =>
+      getRemainingCounts(
+        liveTeams,
+        remainingGames,
+        Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
+      ),
+    [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
   );
   const projected = useMemo(
     () => projectStandings(liveTeams, remainingGames, settings),
@@ -3416,6 +3421,7 @@ function SettingsView({
   const cutoffId = useId();
   const winId = useId();
   const tieId = useId();
+  const regularSeasonGamesId = useId();
   const aggrId = useId();
   const recapId = useId();
 
@@ -3477,6 +3483,22 @@ function SettingsView({
               value={settings.tiePoints}
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, tiePoints: Number(event.target.value) }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            />
+          </label>
+          <label htmlFor={regularSeasonGamesId} className="block">
+            <span className="text-sm font-black text-slate-700">Regular Season Games / Team</span>
+            <input
+              id={regularSeasonGamesId}
+              type="number"
+              min={0}
+              value={settings.regularSeasonGamesPerTeam}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  regularSeasonGamesPerTeam: Number(event.target.value),
+                }))
               }
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
