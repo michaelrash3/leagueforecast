@@ -2774,12 +2774,7 @@ function StandingsView({
               <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
                 {lastImpact.recapItems.map((item) => (
                   <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>{item.text}</span>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-                        Impact {item.impactScore ?? 0}
-                      </span>
-                    </div>
+                    <span>{item.text}</span>
                   </li>
                 ))}
               </ul>
@@ -3882,12 +3877,6 @@ function GamesView({
                 </div>
 
                 <div className="space-y-4 p-4">
-                  <div className="flex items-center justify-between text-xs font-black">
-                    <span className="text-slate-500">Game Impact</span>
-                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">
-                      Impact {prediction?.impactScore ?? 15}
-                    </span>
-                  </div>
                   {!final && prediction && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black">
                       <div className="flex flex-wrap items-center gap-2">
