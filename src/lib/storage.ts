@@ -107,6 +107,9 @@ const coerceSettings = (raw: unknown): Settings => {
   return {
     goldCutoff: isNumber(raw.goldCutoff) ? raw.goldCutoff : DEFAULT_SETTINGS.goldCutoff,
     seasonLabel: isString(raw.seasonLabel) ? raw.seasonLabel : DEFAULT_SETTINGS.seasonLabel,
+    regularSeasonGamesPerTeam: isNumber(raw.regularSeasonGamesPerTeam)
+      ? raw.regularSeasonGamesPerTeam
+      : DEFAULT_SETTINGS.regularSeasonGamesPerTeam,
     winPoints: isNumber(raw.winPoints) ? raw.winPoints : DEFAULT_SETTINGS.winPoints,
     tiePoints: isNumber(raw.tiePoints) ? raw.tiePoints : DEFAULT_SETTINGS.tiePoints,
     runDiffTiebreaker:
