@@ -83,6 +83,7 @@ import {
   type UndoSnapshot,
 } from "./lib/types";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
+import { telemetry } from "./lib/telemetry";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
 
 type ActiveView = "standings" | "games" | "model" | "settings";
@@ -444,14 +445,7 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const handleSimulationFallback = useCallback(() => {
-    showToast("Simulation worker unavailable; running inline mode.", {
-      tone: "info",
-      durationMs: 4000,
-    });
-  }, [showToast]);
-
-  const { odds, runtime: simulationRuntime } = useSimulationOdds(oddsInput, 200, handleSimulationFallback);
+  const { odds, runtime: simulationRuntime } = useSimulationOdds(oddsInput, 200);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -484,11 +478,25 @@ export default function App() {
     return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
   }, [teams, matchups, logs, completedGames, goldCutoff, settings]);
 
+  const lastRuntimeRef = useRef<"worker" | "inline" | null>(null);
+  const inlineToastShownRef = useRef(false);
+
   useEffect(() => {
-    if (simulationRuntime === "inline") {
-      console.info("[telemetry] simulation_runtime", { runtime: simulationRuntime });
+    const runtimeChanged = lastRuntimeRef.current !== simulationRuntime;
+    if (!runtimeChanged) return;
+
+    telemetry.track("simulation_runtime", { runtime: simulationRuntime });
+
+    if (simulationRuntime === "inline" && !inlineToastShownRef.current) {
+      showToast("Simulation worker unavailable; running inline mode.", {
+        tone: "info",
+        durationMs: 4000,
+      });
+      inlineToastShownRef.current = true;
     }
-  }, [simulationRuntime]);
+
+    lastRuntimeRef.current = simulationRuntime;
+  }, [simulationRuntime, showToast]);
   const trendMap = useSimulationTrend(trendInput);
 
   // ---------- Dashboard / scenario computations ----------

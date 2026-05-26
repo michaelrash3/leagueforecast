@@ -78,7 +78,7 @@ src/
     OnboardingTour.tsx          # 4-step first-run coachmark sequence
     charts/
       LineChart.tsx             # reusable SVG multi-series line chart (available; currently not surfaced)
-      HeadToHeadMatrix.tsx      # color-coded W/L/T grid (available, not yet surfaced)
+      HeadToHeadMatrix.tsx      # color-coded W/L/T grid used in the Compare drawer
   styles/tokens.ts              # pill/card/tab/button class helpers
 ```
 
@@ -124,3 +124,9 @@ src/
 ## Deploy
 
 Vercel infers Vite via `vercel.json`. CI (`.github/workflows/ci.yml`) runs `lint → typecheck → test → build` on push and PR.
+
+## Test coverage highlights
+
+- `src/lib/__tests__/criticalFlows.test.ts` covers integration-style standings flows: finalized vs unfinalized game handling, tie-points ranking impact, run-diff tiebreaker on/off behavior, and remaining-games recalculation.
+- `src/lib/__tests__/headToHead.test.ts` covers head-to-head matrix aggregation output (`win/loss/tie/none/self`) via the pure `h2hCellFor` helper.
+- Worker runtime telemetry is routed through `src/lib/telemetry.ts`, keeping instrumentation structured and testable even while currently no-op.
