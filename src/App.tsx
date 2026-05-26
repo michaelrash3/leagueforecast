@@ -100,7 +100,7 @@ type RankSnapshotEntry = Team & {
 
 const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
-  games: "Games",
+  games: "Schedule",
   model: "Season Predictor",
   settings: "Settings",
 };
@@ -1507,7 +1507,7 @@ export default function App() {
   const scoreboardPredictions = useMemo(() => {
     const map = new Map<
       string,
-      { spread: string; pickName: string; pickPct: number; status: string }
+      { spread: string; pickName: string; pickPct: number; status: string; impactScore: number }
     >();
     remainingGames.forEach((game) => {
       const prediction = predictGame(game, liveTeams, settings, liveById);
@@ -1516,11 +1516,22 @@ export default function App() {
         prediction.winnerId === game.away
           ? prediction.awayWinPct
           : 1 - prediction.awayWinPct;
+      const impact = getGameScenarioImpactMap.get(game.id);
+      const impactScore = clamp(
+        Math.round(
+          (impact?.seedImpact ?? 0) * 18 +
+            Math.abs(Math.round(impact?.awayGoldSwing ?? 0)) * 0.8 +
+            Math.abs(Math.round(impact?.homeGoldSwing ?? 0)) * 0.8
+        ),
+        20,
+        98
+      );
       map.set(game.id, {
         spread: projectedRunLine(prediction, liveById),
         pickName: displayName(winner?.name || prediction.winnerId),
         pickPct: winnerPct,
         status: gameStatusForGame(game),
+        impactScore,
       });
     });
     return map;
@@ -2290,7 +2301,7 @@ export default function App() {
       },
       {
         combo: "g g",
-        description: "Go to Games",
+        description: "Go to Schedule",
         group: "Navigate",
         handler: () => setActiveView("games"),
       },
@@ -2819,7 +2830,7 @@ function StandingsView({
 
         {dashboardRows.length === 0 ? (
           <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-            No final results yet. Mark a game Final in the Games tab to populate standings.
+            No final results yet. Mark a game Final in the Schedule tab to populate standings.
           </div>
         ) : (
           <>
@@ -3712,7 +3723,7 @@ function GamesView({
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   scoreboardGames: Matchup[];
-  scoreboardPredictions: Map<string, { spread: string; pickName: string; pickPct: number; status: string }>;
+  scoreboardPredictions: Map<string, { spread: string; pickName: string; pickPct: number; status: string; impactScore: number }>;
   scoreboardTeamFilter: string;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
@@ -3901,6 +3912,12 @@ function GamesView({
                 </div>
 
                 <div className="space-y-4 p-4">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-slate-500">Game Impact</span>
+                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">
+                      Impact {prediction?.impactScore ?? 15}
+                    </span>
+                  </div>
                   {!final && prediction && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black">
                       <div className="flex flex-wrap items-center gap-2">

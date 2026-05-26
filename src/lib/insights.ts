@@ -171,6 +171,24 @@ export const weeklyRecap = ({
               .map((f) => `${f.awayName} ${f.awayScore}–${f.homeName} ${f.homeScore}`)
               .join("; ")}.`,
     });
+
+    const movedNames = new Set<string>();
+    after.forEach((team) => {
+      const prev = beforeById.get(team.id);
+      if (!prev || prev.rank === team.rank) return;
+      movedNames.add(displayName(team.name));
+    });
+    if (movedNames.size > 0) {
+      const movedList = Array.from(movedNames).slice(0, 6).join(", ");
+      items.push({
+        kind: "summary",
+        text: `Ripple effect: ${movedList} shifted after this finalized window.`,
+        why: [
+          "Finalized results changed standings order for multiple teams.",
+          "Cut-line pressure and tie-break cascades can move teams not playing head-to-head.",
+        ],
+      });
+    }
   }
 
   // Pass 1: clinch / elimination / cut-line crossings (highest signal first).
