@@ -77,8 +77,7 @@ src/
     ShortcutsHelp.tsx           # ? modal listing shortcuts
     OnboardingTour.tsx          # 4-step first-run coachmark sequence
     charts/
-      LineChart.tsx             # shared SVG line chart (used by Gold-odds + Race-to-Cut-Line)
-      RaceToCutLine.tsx         # rank-over-time line chart with cut-line band
+      LineChart.tsx             # reusable SVG multi-series line chart (available; currently not surfaced)
       HeadToHeadMatrix.tsx      # color-coded W/L/T grid (available, not yet surfaced)
   styles/tokens.ts              # pill/card/tab/button class helpers
 ```
