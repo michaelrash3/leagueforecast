@@ -103,6 +103,7 @@ src/
 ## Performance notes
 
 - `simulateGoldOdds` and the trend states run in `src/workers/sim.worker.ts` via `useSimulationOdds` / `useSimulationTrend`. Both hooks debounce (200–250 ms), cancel in-flight runs when inputs change, and fall back to inline sim when `Worker` is unavailable (tests, SSR).
+- `useSimulationOdds` now returns a `runtime` (`"worker" | "inline"`) and accepts an optional `onFallback` callback to support user-facing fallback UX and telemetry when worker execution is unavailable.
 - All `.find` lookups in render loops were replaced with `Map<string, T>` built once per `useMemo`. Per-team scenario seeds, control-level, and game-impact computations are memoized into `Map`s.
 
 ## Keyboard shortcuts

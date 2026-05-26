@@ -12,7 +12,11 @@ import { OnboardingTour } from "./components/OnboardingTour";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
 import { Sparkline } from "./components/charts/Sparkline";
+import { GameDateInput } from "./components/GameDateInput";
+import { DrawerMetric, Metric } from "./components/Metrics";
+import { ScoreRow } from "./components/ScoreRow";
 import { useDarkMode } from "./hooks/useDarkMode";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
@@ -35,6 +39,7 @@ import {
 import { displayName, recordText, teamAbbr } from "./lib/format";
 import { pathSummary, recapToMarkdown, weeklyRecap, type RecapItem } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import { calcBip } from "./lib/gameMetrics";
 import { describePrediction, projectedRunLine, upsetRiskLabel } from "./lib/predictionText";
 import { buildShareUrl } from "./lib/share";
 import {
@@ -103,171 +108,10 @@ const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
 // ---------- Helpers that depend on app-shape but no state ----------
 
 
-const calcBip = (hits: string, runs: string, strikeouts: string, innings: string) => {
-  const h = parseNumber(hits, NaN);
-  const r = parseNumber(runs, NaN);
-  const k = parseNumber(strikeouts, 0);
-  const inn = parseNumber(innings, 6);
-  const contact = Number.isFinite(h) ? h : Number.isFinite(r) ? r : 0;
-  return contact + inn * 3 - k;
-};
-
 // ---------- Subcomponents ----------
 
 
-function GameDateInput({
-  value,
-  onCommit,
-  ariaLabel,
-}: {
-  value: string;
-  onCommit: (value: string) => void;
-  ariaLabel?: string;
-}) {
-  const [draft, setDraft] = useState(value || "");
-
-  useEffect(() => {
-    setDraft(value || "");
-  }, [value]);
-
-  const commit = () => {
-    const normalized = normalizeDateInput(draft);
-    onCommit(normalized);
-    setDraft(normalized);
-  };
-
-  return (
-    <input
-      type="text"
-      inputMode="text"
-      placeholder="5/1"
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-      className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-950 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white dark:focus:ring-slate-700"
-      aria-label={ariaLabel ?? "Game date in M/D format"}
-    />
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="p-4">
-      <div className="text-[11px] font-black uppercase tracking-wide text-slate-300">{label}</div>
-      <div className="mt-1 truncate text-xl font-black tracking-tight">{value}</div>
-    </div>
-  );
-}
-
-function DrawerMetric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
-      <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">{value}</div>
-    </div>
-  );
-}
-
-const ScoreRow = React.memo(function ScoreRow({
-  teamName,
-  prefix,
-  log,
-  onChange,
-}: {
-  teamName: string;
-  prefix: "away" | "home";
-  log: GameLog;
-  onChange: (field: keyof GameLog, value: string) => void;
-}) {
-  const fields = [
-    { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
-    { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
-    { key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" },
-  ];
-  const display = displayName(teamName);
-  const abbr = teamAbbr(teamName);
-
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white">
-          {abbr}
-        </div>
-        <div className="truncate font-bold" title={teamName}>
-          {display}
-        </div>
-      </div>
-      <div className="flex gap-2">
-        {fields.map((field) => (
-          <label
-            key={field.key}
-            className="text-center text-[10px] font-black uppercase text-slate-500"
-          >
-            {field.label}
-            <input
-              value={String(log[field.key] ?? "")}
-              onChange={(event) =>
-                onChange(field.key, event.target.value.replace(/[^0-9]/g, "").slice(0, 2))
-              }
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={2}
-              aria-label={`${display} ${field.aria}`}
-              className="mt-1 block h-10 w-11 rounded-xl border border-slate-300 bg-white text-center text-base font-black text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-            />
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-});
-
 // ---------- TeamDrawer (a11y modal) ----------
-
-function useFocusTrap(open: boolean, ref: React.RefObject<HTMLElement>) {
-  useEffect(() => {
-    if (!open) return;
-    const node = ref.current;
-    if (!node) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const focusableSel =
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
-    const focusables = () =>
-      Array.from(node.querySelectorAll<HTMLElement>(focusableSel)).filter(
-        (el) => !el.hasAttribute("disabled")
-      );
-    const first = focusables()[0];
-    first?.focus();
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const items = focusables();
-      if (!items.length) return;
-      const firstItem = items[0];
-      const lastItem = items[items.length - 1];
-      if (!firstItem || !lastItem) return;
-      if (event.shiftKey && document.activeElement === firstItem) {
-        event.preventDefault();
-        lastItem.focus();
-      } else if (!event.shiftKey && document.activeElement === lastItem) {
-        event.preventDefault();
-        firstItem.focus();
-      }
-    };
-    node.addEventListener("keydown", onKey);
-    return () => {
-      node.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      previouslyFocused?.focus?.();
-    };
-  }, [open, ref]);
-}
 
 function TeamDrawer({
   team,
@@ -600,7 +444,14 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds } = useSimulationOdds(oddsInput);
+  const handleSimulationFallback = useCallback(() => {
+    showToast("Simulation worker unavailable; running inline mode.", {
+      tone: "info",
+      durationMs: 4000,
+    });
+  }, [showToast]);
+
+  const { odds, runtime: simulationRuntime } = useSimulationOdds(oddsInput, 200, handleSimulationFallback);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -632,6 +483,12 @@ export default function App() {
     }
     return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
   }, [teams, matchups, logs, completedGames, goldCutoff, settings]);
+
+  useEffect(() => {
+    if (simulationRuntime === "inline") {
+      console.info("[telemetry] simulation_runtime", { runtime: simulationRuntime });
+    }
+  }, [simulationRuntime]);
   const trendMap = useSimulationTrend(trendInput);
 
   // ---------- Dashboard / scenario computations ----------

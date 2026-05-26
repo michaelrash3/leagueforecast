@@ -20,6 +20,8 @@ type TrendInput = {
   settings: Settings;
 };
 
+export type SimulationRuntime = "worker" | "inline";
+
 type WorkerHandle = {
   worker: Worker | null;
   nextId: number;
@@ -37,10 +39,11 @@ const createWorker = (): Worker | null => {
   }
 };
 
-export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
+export function useSimulationOdds(input: OddsInput, debounceMs = 200, onFallback?: (runtime: SimulationRuntime) => void) {
   const [odds, setOdds] = useState<Record<string, number>>({});
   const [pending, setPending] = useState(false);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
+  const fallbackNotifiedRef = useRef(false);
   const latestIdRef = useRef(0);
 
   useEffect(() => {
@@ -110,6 +113,10 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         };
         handle.worker.postMessage(req);
       } else {
+        if (!fallbackNotifiedRef.current) {
+          onFallback?.("inline");
+          fallbackNotifiedRef.current = true;
+        }
         const result = simulateGoldOdds(
           input.teams,
           input.remaining,
@@ -126,9 +133,10 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
+  }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings, onFallback]);
 
-  return { odds, pending };
+  const runtime: SimulationRuntime = handleRef.current.worker ? "worker" : "inline";
+  return { odds, pending, runtime };
 }
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
