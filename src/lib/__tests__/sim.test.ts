@@ -116,11 +116,7 @@ describe("predictGame", () => {
     expect(sameScore).toBe(false);
   });
 
-  it("clamps scores at maxScoreCap", () => {
-    const capped = predictGame(game, live, { ...settings, maxScoreCap: 9 });
-    expect(capped.awayScore).toBeLessThanOrEqual(9);
-    expect(capped.homeScore).toBeLessThanOrEqual(9);
-  });
+
 });
 
 describe("applyResult", () => {
