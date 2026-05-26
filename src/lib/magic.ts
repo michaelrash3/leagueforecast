@@ -76,6 +76,11 @@ const solveCutoff = (
     if (cached !== undefined) return cached;
 
     const g = remaining[idx];
+    if (!g) {
+      memo.set(key, false);
+      return false;
+    }
+
     const outcomes: Array<{ next: PointsMap; own: number; loss: number }> = [
       {
         next: { ...points, [g.away]: (points[g.away] ?? 0) + settings.winPoints },
