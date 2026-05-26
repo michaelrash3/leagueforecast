@@ -295,7 +295,7 @@ const buildByIdMap = (teams: Team[]) => {
 export const predictGame = (
   game: Matchup,
   teams: Team[],
-  settings: Pick<Settings, "maxScoreCap" | "modelAggression">,
+  settings: Pick<Settings, "modelAggression">,
   byId?: Map<string, Team>
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
@@ -337,9 +337,8 @@ export const predictGame = (
   if (kDiff > 0) homeScore += kDiff * 0.2;
   if (kDiff < 0) awayScore += Math.abs(kDiff) * 0.2;
 
-  const cap = Math.max(8, settings.maxScoreCap || 18);
-  const safeAway = clamp(awayScore, 1, cap);
-  const safeHome = clamp(homeScore, 1, cap);
+  const safeAway = Math.max(1, awayScore);
+  const safeHome = Math.max(1, homeScore);
   const rawMargin = safeAway - safeHome;
   const roundedAway = Math.round(safeAway);
   const roundedHome = Math.round(safeHome);

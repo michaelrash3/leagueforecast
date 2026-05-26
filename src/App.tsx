@@ -92,7 +92,7 @@ type RankSnapshotEntry = Team & {
 const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
   games: "Games",
-  model: "Projection",
+  model: "Season Predictor",
   settings: "Settings",
 };
 
@@ -208,8 +208,9 @@ const Sparkline = React.memo(function Sparkline({ values }: { values: number[] }
       viewBox={`0 0 ${width} ${height}`}
       className="overflow-visible"
       role="img"
-      aria-label={`Gold odds trend, latest ${Math.round(last)}%`}
+      aria-label={`Gold odds trend over recent completed games. Starts at ${Math.round(data[0] ?? 0)}%, ends at ${Math.round(last)}%.`}
     >
+      <title>{`Gold odds over recent completed games: ${Math.round(data[0] ?? 0)}% to ${Math.round(last)}%. Higher is better.`}</title>
       <polyline
         points={points}
         fill="none"
@@ -697,7 +698,7 @@ export default function App() {
       simulationSeed(
         matchups,
         logs,
-        `odds-${goldCutoff}-${settings.modelAggression}-${settings.maxScoreCap}-${settings.winPoints}-${settings.tiePoints}-${settings.runDiffTiebreaker}`
+        `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.runDiffTiebreaker}`
       ),
     [matchups, logs, goldCutoff, settings]
   );
@@ -1099,6 +1100,32 @@ export default function App() {
     ).goldStatus;
   };
 
+
+
+  const teamsClinchingAfterGameResult = (game: Matchup, winnerId: string) => {
+    const scenarioTeams = rankTeams(
+      applyResult(liveTeams, game, winnerId, liveTeams, settings),
+      { runDiffTiebreaker: settings.runDiffTiebreaker }
+    );
+    const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
+    const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
+
+    return scenarioTeams
+      .filter((scenarioTeam) => {
+        const before = dashboardById.get(scenarioTeam.id);
+        if (!before || before.goldStatus === "Clinched" || before.goldStatus === "Eliminated") return false;
+        const after = getMathGoldStatus(
+          scenarioTeam,
+          scenarioTeams,
+          scenarioCounts,
+          goldCutoff,
+          settings
+        ).goldStatus;
+        return after === "Clinched";
+      })
+      .map((team) => team.id);
+  };
+
   const teamClinchesGoldWithWin = (teamId: string, game: Matchup) => {
     const team = dashboardById.get(teamId);
     if (!team || team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") return false;
@@ -1143,12 +1170,20 @@ export default function App() {
     const home = dashboardById.get(game.home);
     const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
 
-    if (teamsInGame.some((team) => teamClinchesRegularSeasonTitleWithWin(team.id, game)))
-      return "Title Clinch";
-    if (teamsInGame.some((team) => teamClinchesGoldWithWin(team.id, game)))
-      return "Gold Bracket Clinch";
-    if (teamsInGame.some((team) => teamCanBeEliminatedWithLoss(team.id, game)))
-      return "Elimination Scenario";
+    const titleTeam = teamsInGame.find((team) => teamClinchesRegularSeasonTitleWithWin(team.id, game));
+    if (titleTeam) return `Title Clinch-${displayName(titleTeam.name)}`;
+    const clinchTeam = teamsInGame.find((team) => teamClinchesGoldWithWin(team.id, game));
+    if (clinchTeam) return `Clinch Game-${displayName(clinchTeam.name)}`;
+
+    const awayClinches = teamsClinchingAfterGameResult(game, game.away);
+    const homeClinches = teamsClinchingAfterGameResult(game, game.home);
+    const firstExternalClinch = [...awayClinches, ...homeClinches][0];
+    if (firstExternalClinch) {
+      const target = dashboardById.get(firstExternalClinch);
+      return `Clinch Watch-${displayName(target?.name || firstExternalClinch)}`;
+    }
+    const elimTeam = teamsInGame.find((team) => teamCanBeEliminatedWithLoss(team.id, game));
+    if (elimTeam) return `Elimination Game-${displayName(elimTeam.name)}`;
 
     const nearCutLine = teamsInGame.some(
       (team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1
@@ -1159,9 +1194,10 @@ export default function App() {
   };
 
   const gameStatusClasses = (label: string) => {
-    if (label === "Title Clinch") return "bg-purple-100 text-purple-700";
-    if (label === "Gold Bracket Clinch") return "bg-emerald-100 text-emerald-700";
-    if (label === "Elimination Scenario") return "bg-red-100 text-red-700";
+    if (label.startsWith("Title Clinch-")) return "bg-purple-100 text-purple-700";
+    if (label.startsWith("Clinch Game-")) return "bg-emerald-100 text-emerald-700";
+    if (label.startsWith("Clinch Watch-")) return "bg-teal-100 text-teal-700";
+    if (label.startsWith("Elimination Game-")) return "bg-red-100 text-red-700";
     if (label === "High Impact") return "bg-amber-100 text-amber-700";
     if (label === "Bubble Game") return "bg-blue-100 text-blue-700";
     return "bg-slate-200 text-slate-600";
@@ -1275,6 +1311,8 @@ export default function App() {
 
   const formatGoldPct = (team: TeamWithProjection) => {
     if (team.goldStatus !== "Eliminated" && team.goldPct > 0 && team.goldPct < 1) return "<1%";
+    if (team.goldStatus !== "Clinched" && team.goldPct >= 99.5) return "99%+";
+    if (team.goldStatus !== "Eliminated" && team.goldPct <= 0.5) return "<1%";
     return `${Math.round(team.goldPct)}%`;
   };
 
@@ -2106,7 +2144,7 @@ export default function App() {
       },
       {
         combo: "g m",
-        description: "Go to Projection",
+        description: "Go to Season Predictor",
         group: "Navigate",
         handler: () => setActiveView("model"),
       },
@@ -2634,7 +2672,7 @@ function StandingsView({
                     <th className="px-4 py-3 text-center">SOS</th>
                     <th className="px-4 py-3 text-center">Gold %</th>
                     <th className="px-4 py-3 text-center">Playoff Status</th>
-                    <th className="px-4 py-3 text-center">Trend</th>
+                    <th className="px-4 py-3 text-center" title="Gold % trend.">Trend (Gold %)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2747,6 +2785,8 @@ function StandingsView({
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400">
             </div>
 
             {/* Mobile cards */}
@@ -2886,7 +2926,7 @@ function ModelView(props: {
     <section className="space-y-6">
       <div className={`${card} p-6`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Projection</h2>
+          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Season Predictor</h2>
           <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
           </div>
@@ -2968,6 +3008,8 @@ function ModelView(props: {
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400">
             </div>
 
             {/* Mobile cards */}
@@ -3313,7 +3355,6 @@ function SettingsView({
   const cutoffId = useId();
   const winId = useId();
   const tieId = useId();
-  const capId = useId();
   const aggrId = useId();
 
   return (
@@ -3378,20 +3419,7 @@ function SettingsView({
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
-          <label htmlFor={capId} className="block">
-            <span className="text-sm font-black text-slate-700">Max Score Cap</span>
-            <input
-              id={capId}
-              type="number"
-              min={8}
-              max={30}
-              value={settings.maxScoreCap}
-              onChange={(event) =>
-                setSettings((prev) => ({ ...prev, maxScoreCap: Number(event.target.value) }))
-              }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-            />
-          </label>
+          
           <label htmlFor={aggrId} className="block">
             <span className="text-sm font-black text-slate-700">Model Aggression</span>
             <select
@@ -3647,9 +3675,9 @@ function GamesView({
                       className={`rounded-lg px-3 py-1 text-xs font-black ${
                         final ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"
                       }`}
-                      aria-label={final ? "Mark game as open" : "Mark game as final"}
+                      aria-label={final ? "Mark game as scheduled" : "Mark game as final"}
                     >
-                      {final ? "Final" : "Open"}
+                      {final ? "Final" : "Scheduled"}
                     </button>
                     <button
                       type="button"
