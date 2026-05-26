@@ -25,12 +25,16 @@ const buildPointsMap = (teams: Team[], settings: Settings): PointsMap => {
 
 const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
 
-const rankOfTeam = (
-  teamId: string,
-  points: PointsMap,
-  teams: Team[],
-  settings: Pick<Settings, "runDiffTiebreaker">
-) => {
+/**
+ * Solver ranking policy:
+ * - This module intentionally solves on standings points only.
+ * - For equal points, it uses a deterministic team-id tie-break (lexicographic ascending).
+ *
+ * This keeps playoff math deterministic and cache-stable while avoiding implicit dependency
+ * on richer UI tie-break rules (e.g. run differential). If app-wide tie policy changes,
+ * update this function and matching tests together.
+ */
+const rankOfTeam = (teamId: string, points: PointsMap, teams: Team[]) => {
   const my = points[teamId] ?? 0;
   let above = 0;
   let tiedAhead = 0;
@@ -39,15 +43,24 @@ const rankOfTeam = (
     const p = points[t.id] ?? 0;
     if (p > my) {
       above += 1;
-    } else if (p === my) {
-      // With runDiff tie-breakers enabled in live standings, break deterministic
-      // ties by team id for stable worst-case math in this pure points solver.
-      if (settings.runDiffTiebreaker ? t.id < teamId : t.id < teamId) tiedAhead += 1;
+    } else if (p === my && t.id < teamId) {
+      tiedAhead += 1;
     }
   }
   return above + tiedAhead + 1;
 };
 
+/**
+ * Exact playoff-math solver.
+ *
+ * Complexity is exponential in remaining games: O(branches^G), where branches is 2 (W/L)
+ * or 3 (W/L/T when tiePoints > 0) and G is remaining.length.
+ *
+ * Guardrails:
+ * - Memoization collapses many equivalent states and is effective in practical schedules.
+ * - This must stay exact: when schedules grow too large for acceptable latency, callers
+ *   should cap usage by remaining-game count and/or route to a future approximation mode.
+ */
 const solveCutoff = (
   teamId: string,
   teams: Team[],
@@ -67,7 +80,7 @@ const solveCutoff = (
   const dfs = (idx: number, ownWins: number, forcedLosses: number, points: PointsMap): boolean => {
     if (idx === remaining.length) {
       if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return false;
-      return rankOfTeam(teamId, points, teams, settings) <= settings.goldCutoff;
+      return rankOfTeam(teamId, points, teams) <= settings.goldCutoff;
     }
 
     const pointsKey = ids.map((id) => points[id] ?? 0).join(",");

@@ -47,6 +47,56 @@ describe("magicForGold", () => {
     const result = magicForGold("A", live, matchups, 1, settings);
     expect(result.type).toBe("clinched");
   });
+
+  it("uses deterministic team-id ordering in tie-heavy schedules", () => {
+    const tinyTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+    ];
+    const noGamesLeft: Matchup[] = [];
+
+    const live = calculateTeams(tinyTeams, noGamesLeft, {});
+    const aResult = magicForGold("A", live, noGamesLeft, 1, settings);
+    const cResult = magicForGold("C", live, noGamesLeft, 1, settings);
+
+    expect(aResult.type).toBe("clinched");
+    expect(cResult.type).toBe("impossible");
+  });
+
+  it("supports edge cutoff values of 1 and n-1 in symmetric schedules", () => {
+    const symmetricTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+      { id: "D", name: "D" },
+    ];
+    const symmetricMatchups: Matchup[] = [
+      { id: "s1", date: "5/1", away: "A", home: "B" },
+      { id: "s2", date: "5/2", away: "A", home: "C" },
+      { id: "s3", date: "5/3", away: "A", home: "D" },
+      { id: "s4", date: "5/4", away: "B", home: "C" },
+      { id: "s5", date: "5/5", away: "B", home: "D" },
+      { id: "s6", date: "5/6", away: "C", home: "D" },
+    ];
+
+    const live = calculateTeams(symmetricTeams, symmetricMatchups, {});
+    expect(magicForGold("A", live, symmetricMatchups, 1, settings).type).toBe("impossible");
+    expect(magicForGold("A", live, symmetricMatchups, symmetricTeams.length - 1, settings).type).toBe("impossible");
+  });
+
+  it("returns impossible for mathematically impossible clinch cases", () => {
+    const tinyTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+    ];
+    const noGamesLeft: Matchup[] = [];
+    const live = calculateTeams(tinyTeams, noGamesLeft, {});
+
+    expect(magicForGold("A", live, noGamesLeft, 1, settings).type).toBe("clinched");
+    expect(magicForGold("C", live, noGamesLeft, 1, settings).type).toBe("impossible");
+  });
 });
 
 describe("eliminationNumberForGold", () => {
