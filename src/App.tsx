@@ -35,6 +35,7 @@ import {
 import { displayName, recordText, teamAbbr } from "./lib/format";
 import { pathSummary, recapToMarkdown, weeklyRecap, type RecapItem } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import { calcBip } from "./lib/gameMetrics";
 import { describePrediction, projectedRunLine, upsetRiskLabel } from "./lib/predictionText";
 import { buildShareUrl } from "./lib/share";
 import {
@@ -102,15 +103,6 @@ const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
 
 // ---------- Helpers that depend on app-shape but no state ----------
 
-
-const calcBip = (hits: string, runs: string, strikeouts: string, innings: string) => {
-  const h = parseNumber(hits, NaN);
-  const r = parseNumber(runs, NaN);
-  const k = parseNumber(strikeouts, 0);
-  const inn = parseNumber(innings, 6);
-  const contact = Number.isFinite(h) ? h : Number.isFinite(r) ? r : 0;
-  return contact + inn * 3 - k;
-};
 
 // ---------- Subcomponents ----------
 
