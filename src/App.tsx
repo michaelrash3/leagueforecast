@@ -3649,6 +3649,17 @@ function GamesView({
   const homeId = useId();
   const filterId = useId();
 
+  const handleToggleFinal = useCallback(
+    (gameId: string) => {
+      const priorScrollY = window.scrollY;
+      toggleFinal(gameId);
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: priorScrollY });
+      });
+    },
+    [toggleFinal]
+  );
+
   return (
     <section className="space-y-6">
       <div className={`${card} p-5`}>
@@ -3775,7 +3786,7 @@ function GamesView({
                       type="button"
                       onClick={(event) => {
                         event.currentTarget.blur();
-                        toggleFinal(game.id);
+                        handleToggleFinal(game.id);
                       }}
                       className={`rounded-lg px-3 py-1 text-xs font-black ${
                         final ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"
