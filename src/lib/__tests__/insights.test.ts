@@ -74,6 +74,33 @@ describe("weeklyRecap", () => {
     expect(text).toContain("clinched");
     expect(text).toContain("dropped below");
   });
+
+  it("explains 1-seed swap with finalized opponent result and tie-break context", () => {
+    const items = weeklyRecap({
+      before: [
+        { id: "A", rank: 2, goldPct: 70, goldStatus: "In" },
+        { id: "B", rank: 1, goldPct: 70, goldStatus: "In" },
+      ],
+      after: [
+        { id: "A", rank: 1, goldPct: 70, goldStatus: "In", name: "Aces" },
+        { id: "B", rank: 2, goldPct: 70, goldStatus: "In", name: "Raiders" },
+      ],
+      finalsSinceLast: [
+        {
+          game: { id: "g1", date: "2026-05-20", away: "A", home: "B" },
+          awayScore: 6,
+          homeScore: 4,
+          awayName: "Aces",
+          homeName: "Raiders",
+        },
+      ],
+      cutoff: 5,
+    });
+    const aSwap = items.find((i) => i.kind === "rank-change" && i.text.includes("Aces"));
+    expect(aSwap?.why?.join(" | ")).toContain("won vs Raiders");
+    expect(aSwap?.why?.join(" | ")).toContain("tie-break");
+    expect(aSwap?.why?.join(" | ")).toContain("Raiders");
+  });
 });
 
 describe("recapToMarkdown / summarizeStandings", () => {

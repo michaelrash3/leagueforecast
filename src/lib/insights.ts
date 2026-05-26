@@ -112,6 +112,54 @@ export const weeklyRecap = ({
 }: RecapInput): RecapItem[] => {
   const items: RecapItem[] = [];
   const beforeById = new Map(before.map((b) => [b.id, b]));
+  const afterById = new Map(after.map((a) => [a.id, a]));
+  type ChangeAttribution = {
+    ownResult?: { opponentName: string; didWin: boolean; pointsGained: number };
+    competitorResults: { teamName: string; didLose: boolean; rank: number }[];
+    tieBreakWith?: { teamName: string; fromRank: number; toRank: number };
+  };
+  const attributionById = new Map<string, ChangeAttribution>();
+  const getAttribution = (id: string) => {
+    const existing = attributionById.get(id);
+    if (existing) return existing;
+    const next: ChangeAttribution = { competitorResults: [] };
+    attributionById.set(id, next);
+    return next;
+  };
+
+  finalsSinceLast.forEach((f) => {
+    const awayPoints = f.awayScore > f.homeScore ? 1 : 0;
+    const homePoints = f.homeScore > f.awayScore ? 1 : 0;
+    const winnerId = awayPoints > homePoints ? f.game.away : homePoints > awayPoints ? f.game.home : "";
+    const loserId = awayPoints > homePoints ? f.game.home : homePoints > awayPoints ? f.game.away : "";
+
+    if (winnerId) {
+      const winnerAttr = getAttribution(winnerId);
+      winnerAttr.ownResult = {
+        opponentName: winnerId === f.game.away ? f.homeName : f.awayName,
+        didWin: true,
+        pointsGained: 1,
+      };
+      winnerAttr.competitorResults.push({
+        teamName: winnerId === f.game.away ? f.homeName : f.awayName,
+        didLose: true,
+        rank: afterById.get(loserId)?.rank ?? -1,
+      });
+    }
+    if (loserId) {
+      const loserAttr = getAttribution(loserId);
+      loserAttr.ownResult = {
+        opponentName: loserId === f.game.away ? f.homeName : f.awayName,
+        didWin: false,
+        pointsGained: 0,
+      };
+      loserAttr.competitorResults.push({
+        teamName: loserId === f.game.away ? f.homeName : f.awayName,
+        didLose: false,
+        rank: afterById.get(winnerId)?.rank ?? -1,
+      });
+    }
+  });
 
   if (finalsSinceLast.length) {
     items.push({
@@ -167,16 +215,50 @@ export const weeklyRecap = ({
     const delta = prev.rank - team.rank;
     if (delta === 0) return;
     rankChanges.push({ name: team.name, from: prev.rank, to: team.rank, delta });
+    const tiedSwap = after.find((other) => {
+      if (other.id === team.id) return false;
+      const otherPrev = beforeById.get(other.id);
+      if (!otherPrev) return false;
+      const crossed =
+        (prev.rank < otherPrev.rank && team.rank > other.rank) ||
+        (prev.rank > otherPrev.rank && team.rank < other.rank);
+      return crossed && Math.round(other.goldPct) === Math.round(team.goldPct);
+    });
+    if (tiedSwap) {
+      getAttribution(team.id).tieBreakWith = {
+        teamName: displayName(tiedSwap.name),
+        fromRank: prev.rank,
+        toRank: team.rank,
+      };
+    }
   });
   rankChanges
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 4)
     .forEach((c) => {
       const verb = c.delta > 0 ? "climbed" : "slipped";
+      const team = after.find((a) => a.name === c.name);
+      const attr = team ? attributionById.get(team.id) : undefined;
+      const why: string[] = [];
+      if (attr?.ownResult) {
+        const ownVerb = attr.ownResult.didWin ? "won" : "lost";
+        why.push(`${displayName(c.name)} ${ownVerb} vs ${attr.ownResult.opponentName}, gained ${attr.ownResult.pointsGained} standings point${attr.ownResult.pointsGained === 1 ? "" : "s"}.`);
+      }
+      const competitor = attr?.competitorResults.find((x) => x.rank > 0 && x.teamName !== displayName(c.name));
+      if (competitor) {
+        const compVerb = competitor.didLose ? "loss dropped" : "win pushed";
+        why.push(`${competitor.teamName} ${compVerb} them to #${competitor.rank}.`);
+      }
+      if (attr?.tieBreakWith) {
+        why.push(`Tied on points with ${attr.tieBreakWith.teamName}; tie-break moved ${displayName(c.name)} from #${attr.tieBreakWith.fromRank} to #${attr.tieBreakWith.toRank}.`);
+      }
+      if (why.length === 0) {
+        why.push(`Position changed by ${Math.abs(c.delta)} seed(s).`, "Shift came from finalized results in this update window.");
+      }
       items.push({
         kind: "rank-change",
         text: `${displayName(c.name)} ${verb} from #${c.from} to #${c.to}.`,
-        why: [`Position changed by ${Math.abs(c.delta)} seed(s).`, "Shift came from finalized results in this update window."],
+        why,
       });
     });
 
