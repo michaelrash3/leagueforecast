@@ -424,6 +424,27 @@ export default function App() {
 
   // ---------- Worker-driven odds + trend ----------
 
+  const simulationSettings = useMemo(
+    () => ({
+      goldCutoff: settings.goldCutoff,
+      seasonLabel: settings.seasonLabel,
+      modelAggression: settings.modelAggression,
+      maxScoreCap: settings.maxScoreCap,
+      winPoints: settings.winPoints,
+      tiePoints: settings.tiePoints,
+      runDiffTiebreaker: settings.runDiffTiebreaker,
+    }),
+    [
+      settings.modelAggression,
+      settings.maxScoreCap,
+      settings.winPoints,
+      settings.tiePoints,
+      settings.runDiffTiebreaker,
+      settings.goldCutoff,
+      settings.seasonLabel,
+    ]
+  );
+
   const oddsSeed = useMemo(
     () =>
       simulationSeed(
@@ -441,16 +462,16 @@ export default function App() {
       iterations: SIM_ITERATIONS,
       seedText: oddsSeed,
       cutoff: goldCutoff,
-      settings,
+      settings: simulationSettings,
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, simulationSettings]
   );
   const { odds, runtime: simulationRuntime } = useSimulationOdds(oddsInput, 200);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
     if (!teamIds.length) {
-      return { teamIds: [], states: [], iterations: 70, cutoff: goldCutoff, settings };
+      return { teamIds: [], states: [], iterations: 70, cutoff: goldCutoff, settings: simulationSettings };
     }
     const states = completedGames.slice(-TREND_STATES);
     // Build states from index=1 (drops the misleading empty-logs leading zero).
@@ -475,8 +496,8 @@ export default function App() {
       );
       built.push({ teams: stateTeams, remaining: stateRemaining, seedText });
     }
-    return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
-  }, [teams, matchups, logs, completedGames, goldCutoff, settings]);
+    return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings: simulationSettings };
+  }, [teams, matchups, logs, completedGames, goldCutoff, simulationSettings]);
 
   useSimulationRuntimeNotice(simulationRuntime, showToast);
   const trendMap = useSimulationTrend(trendInput);

@@ -27,6 +27,35 @@ type WorkerHandle = {
   nextId: number;
 };
 
+
+const settingsKey = (settings: Settings) =>
+  [
+    settings.modelAggression,
+    settings.maxScoreCap,
+    settings.winPoints,
+    settings.tiePoints,
+    settings.runDiffTiebreaker ? 1 : 0,
+  ].join("|");
+
+export const buildOddsRerunKey = (input: OddsInput) =>
+  JSON.stringify([
+    input.teams.length,
+    input.remaining.length,
+    input.iterations,
+    input.seedText,
+    input.cutoff,
+    settingsKey(input.settings),
+  ]);
+
+export const buildTrendRerunKey = (input: TrendInput) =>
+  JSON.stringify([
+    input.teamIds,
+    input.states.map((state) => state.seedText),
+    input.iterations,
+    input.cutoff,
+    settingsKey(input.settings),
+  ]);
+
 const createWorker = (): Worker | null => {
   if (typeof Worker === "undefined") return null;
   try {
@@ -55,24 +84,20 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200, onFallback
     };
   }, []);
 
-  // Stable hash of inputs so we don't re-run on identity changes.
+  // Stable hash of minimal primitive inputs so we do not re-run on identity-only changes.
   const key = useMemo(
-    () =>
-      JSON.stringify([
-        input.teams.length,
-        input.remaining.length,
-        input.iterations,
-        input.seedText,
-        input.cutoff,
-        input.settings,
-      ]),
+    () => buildOddsRerunKey(input),
     [
       input.teams.length,
       input.remaining.length,
       input.iterations,
       input.seedText,
       input.cutoff,
-      input.settings,
+      input.settings.modelAggression,
+      input.settings.maxScoreCap,
+      input.settings.winPoints,
+      input.settings.tiePoints,
+      input.settings.runDiffTiebreaker,
     ]
   );
 
@@ -133,7 +158,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200, onFallback
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings, onFallback]);
+  }, [key, debounceMs, onFallback]);
 
   const runtime: SimulationRuntime = handleRef.current.worker ? "worker" : "inline";
   return { odds, pending, runtime };
@@ -154,15 +179,18 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
   }, []);
 
   const key = useMemo(
-    () =>
-      JSON.stringify([
-        input.teamIds,
-        input.states.map((s) => s.seedText),
-        input.iterations,
-        input.cutoff,
-        input.settings,
-      ]),
-    [input.teamIds, input.states, input.iterations, input.cutoff, input.settings]
+    () => buildTrendRerunKey(input),
+    [
+      input.teamIds,
+      input.states,
+      input.iterations,
+      input.cutoff,
+      input.settings.modelAggression,
+      input.settings.maxScoreCap,
+      input.settings.winPoints,
+      input.settings.tiePoints,
+      input.settings.runDiffTiebreaker,
+    ]
   );
 
   useEffect(() => {
@@ -225,7 +253,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
+  }, [key, debounceMs]);
 
   return trend;
 }
