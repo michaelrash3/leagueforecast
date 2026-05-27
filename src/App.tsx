@@ -42,6 +42,7 @@ import {
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { buildShareUrl } from "./lib/share";
+import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
   applyResult,
   calculateTeams,
@@ -88,6 +89,12 @@ import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
 import { formatGoldPct as formatGoldPctValue, titleRaceBadgeForTeam as titleRaceBadgeForTeamValue } from "./lib/standingsView";
 
 type ActiveView = "standings" | "games" | "model" | "settings";
+type ConfirmState = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+};
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -312,6 +319,7 @@ const ScoreRow = React.memo(function ScoreRow({
   ];
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -324,17 +332,22 @@ const ScoreRow = React.memo(function ScoreRow({
         </div>
       </div>
       <div className="flex gap-2">
-        {fields.map((field) => (
+        {fields.map((field, index) => (
           <label
             key={field.key}
             className="text-center text-[10px] font-black uppercase text-slate-500"
           >
             {field.label}
             <input
+              ref={(node) => {
+                inputRefs.current[index] = node;
+              }}
               value={String(log[field.key] ?? "")}
-              onChange={(event) =>
-                onChange(field.key, event.target.value.replace(/[^0-9]/g, "").slice(0, 2))
-              }
+              onChange={(event) => {
+                const next = event.target.value.replace(/[^0-9]/g, "").slice(0, 2);
+                onChange(field.key, next);
+                if (next.length >= 2) inputRefs.current[index + 1]?.focus();
+              }}
               inputMode="numeric"
               pattern="[0-9]*"
               maxLength={2}
@@ -623,11 +636,36 @@ export default function App() {
   >(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const confirmDialogRef = useRef<HTMLElement>(null);
 
   const undoRef = useRef<UndoSnapshot | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const { theme, toggle: toggleTheme } = useDarkMode();
   const { snapshot: sharedSnapshot, clear: clearSharedSnapshot } = useUrlSnapshot();
+  const requestConfirmation = useCallback(
+    (options: ConfirmState) =>
+      new Promise<boolean>((resolve) => {
+        confirmResolverRef.current = resolve;
+        setConfirmState(options);
+      }),
+    []
+  );
+  const resolveConfirmation = useCallback((confirmed: boolean) => {
+    confirmResolverRef.current?.(confirmed);
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+  }, []);
+  useFocusTrap(!!confirmState, confirmDialogRef as React.RefObject<HTMLElement>);
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") resolveConfirmation(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmState, resolveConfirmation]);
 
   const goldCutoff = clamp(
     Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
@@ -1613,7 +1651,7 @@ export default function App() {
 
   const importCSV = (file: File) => {
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("File is not text");
@@ -1660,19 +1698,34 @@ export default function App() {
         const importedMatchups: Matchup[] = [];
         const importedLogs: Record<string, GameLog> = {};
         const importSuffix = Math.random().toString(36).slice(2, 8);
+        let missingTeamRows = 0;
+        let unknownTeamRows = 0;
+        let duplicateIdRows = 0;
+        const seenIds = new Set<string>();
 
         rows.forEach((row, rowIndex) => {
           const awayName = row[awayTeamIndex]?.trim();
           const homeName = row[homeTeamIndex]?.trim();
-          if (!awayName || !homeName) return;
+          if (!awayName || !homeName) {
+            missingTeamRows += 1;
+            return;
+          }
 
           const away = nameToId.get(awayName);
           const home = nameToId.get(homeName);
-          if (!away || !home) return;
+          if (!away || !home) {
+            unknownTeamRows += 1;
+            return;
+          }
 
           const id =
             row[gameIdIndex]?.trim() ||
             `game_${Date.now()}_${importSuffix}_${rowIndex}`;
+          if (seenIds.has(id)) {
+            duplicateIdRows += 1;
+            return;
+          }
+          seenIds.add(id);
           const awayRuns = awayRunsIndex >= 0 ? row[awayRunsIndex]?.trim() ?? "" : "";
           const homeRuns = homeRunsIndex >= 0 ? row[homeRunsIndex]?.trim() ?? "" : "";
           const awayK = awayKIndex >= 0 ? row[awayKIndex]?.trim() ?? "" : "";
@@ -1706,9 +1759,17 @@ export default function App() {
 
         const finalGames = Object.values(importedLogs).filter(isFinal).length;
         const openGames = importedMatchups.length - finalGames;
-        const confirmed = window.confirm(
-          `Import this schedule?\n\n${importedTeams.length} teams found\n${importedMatchups.length} games found\n${finalGames} finals imported\n${openGames} open games imported\n\nThis will replace the current season data (an undo snapshot will be saved).`
-        );
+        const warningLines: string[] = [];
+        if (missingTeamRows) warningLines.push(`${missingTeamRows} row(s) skipped: missing Away/Home team`);
+        if (unknownTeamRows) warningLines.push(`${unknownTeamRows} row(s) skipped: team name mismatch`);
+        if (duplicateIdRows) warningLines.push(`${duplicateIdRows} row(s) skipped: duplicate Game ID`);
+        const confirmed = await requestConfirmation({
+          title: "Import schedule CSV?",
+          message: `${importedTeams.length} teams found · ${importedMatchups.length} games found · ${finalGames} finals · ${openGames} open.\n\n${
+            warningLines.length ? `Warnings:\n- ${warningLines.join("\n- ")}\n\n` : ""
+          }This will replace the current season data and save an undo snapshot.`,
+          confirmLabel: warningLines.length ? "Import with warnings" : "Replace season",
+        });
         if (!confirmed) return;
 
         captureUndo("CSV import");
@@ -1796,13 +1857,61 @@ export default function App() {
     anchor.click();
     URL.revokeObjectURL(url);
   };
+  const importBackup = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const raw = event.target?.result;
+        if (typeof raw !== "string") throw new Error("Backup is not text");
+        const parsed = JSON.parse(raw) as unknown;
+        if (!isRecord(parsed)) throw new Error("Backup must be an object");
+        if (!Array.isArray(parsed.teams) || !Array.isArray(parsed.matchups) || !isRecord(parsed.logs)) {
+          throw new Error("Backup is missing teams, matchups, or logs");
+        }
 
-  const resetSeason = () => {
-    if (
-      !window.confirm(
-        "Reset this season? This clears teams, games, and scores from this browser (an undo snapshot will be saved)."
-      )
-    )
+        const nextTeams = parsed.teams.filter(isTeamBase);
+        const nextMatchups = parsed.matchups.filter(isMatchup);
+        const nextLogs: Record<string, GameLog> = {};
+        Object.entries(parsed.logs).forEach(([k, v]) => {
+          if (isGameLog(v)) nextLogs[k] = v;
+        });
+        const nextSettings = coerceSettings(parsed.settings);
+        const confirmed = await requestConfirmation({
+          title: "Import backup JSON?",
+          message: `${nextTeams.length} teams · ${nextMatchups.length} games found.\n\nThis will replace current season data and save an undo snapshot.`,
+          confirmLabel: "Import backup",
+        });
+        if (!confirmed) return;
+
+        captureUndo("Backup import");
+        setTeams(nextTeams);
+        setMatchups(nextMatchups);
+        setLogs(nextLogs);
+        setSettings(nextSettings);
+        setSelectedTeamId(null);
+        setLastImpact(null);
+        setActiveView("standings");
+        showToast(`Imported backup (${nextMatchups.length} games).`, {
+          tone: "undo",
+          actionLabel: "Undo",
+          onAction: restoreUndo,
+        });
+      } catch (error) {
+        console.error(error);
+        showToast("Could not import this backup JSON.", { tone: "error" });
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const resetSeason = async () => {
+    const confirmed = await requestConfirmation({
+      title: "Reset season?",
+      message:
+        "This clears teams, games, and scores from this browser. An undo snapshot will be saved.",
+      confirmLabel: "Reset season",
+    });
+    if (!confirmed)
       return;
     captureUndo("Reset season");
     setTeams([]);
@@ -1953,8 +2062,13 @@ export default function App() {
     setNewDate("");
   };
 
-  const removeGame = (gameId: string) => {
-    if (!window.confirm("Delete this game?")) return;
+  const removeGame = async (gameId: string) => {
+    const confirmed = await requestConfirmation({
+      title: "Delete this game?",
+      message: "This removes the game and its current score data. An undo snapshot will be saved.",
+      confirmLabel: "Delete game",
+    });
+    if (!confirmed) return;
     const game = matchups.find((m) => m.id === gameId);
     captureUndo(
       game
@@ -2035,12 +2149,14 @@ export default function App() {
     return { builtTeams, builtMatchups, builtLogs };
   };
 
-  const createSeasonFromTeamList = () => {
+  const createSeasonFromTeamList = async () => {
     const built = buildRoundRobinSeason();
     if (!built) return;
-    const confirmed = window.confirm(
-      `Create a new blank schedule?\n\n${built.builtTeams.length} teams\n${built.builtMatchups.length} games\n\nEach team will play every other team once. This will replace the current season data (an undo snapshot will be saved).`
-    );
+    const confirmed = await requestConfirmation({
+      title: "Create blank season?",
+      message: `${built.builtTeams.length} teams · ${built.builtMatchups.length} games.\n\nEach team plays every other team once. This replaces current season data and saves an undo snapshot.`,
+      confirmLabel: "Create season",
+    });
     if (!confirmed) return;
     captureUndo("Create blank season");
     setTeams(built.builtTeams);
@@ -2153,6 +2269,10 @@ export default function App() {
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
+  const weeklyStory = useMemo(() => {
+    if (!lastImpact || lastImpact.recapItems.length === 0) return "";
+    return recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+  }, [lastImpact, settings.seasonLabel]);
 
   // ---------- Share + URL snapshot ----------
 
@@ -2160,9 +2280,11 @@ export default function App() {
   useEffect(() => {
     if (!sharedSnapshot || sharedHandledRef.current) return;
     sharedHandledRef.current = true;
-    const ok = window.confirm(
-      `A shared NKB season is in the URL (${sharedSnapshot.teams.length} teams, ${sharedSnapshot.matchups.length} games).\n\nReplace your current local data with the shared snapshot?\n\nClick Cancel to keep your data; the URL will be cleared either way.`
-    );
+    requestConfirmation({
+      title: "Load shared season snapshot?",
+      message: `${sharedSnapshot.teams.length} teams · ${sharedSnapshot.matchups.length} games found in this URL.\n\nReplace your current local data? Cancel keeps your data; the URL snapshot will still be cleared.`,
+      confirmLabel: "Load snapshot",
+    }).then((ok) => {
     if (ok) {
       captureUndo("Load shared snapshot");
       setTeams(sharedSnapshot.teams);
@@ -2175,7 +2297,8 @@ export default function App() {
         onAction: restoreUndo,
       });
     }
-    clearSharedSnapshot();
+      clearSharedSnapshot();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharedSnapshot]);
 
@@ -2187,7 +2310,7 @@ export default function App() {
         await navigator.clipboard.writeText(url);
         showToast("Share URL copied to clipboard.", { tone: "success" });
       } catch {
-        window.prompt("Copy this share URL:", url);
+        showToast("Could not copy automatically. Share URL is ready in your browser clipboard permissions prompt.", { tone: "error" });
       }
     } catch {
       showToast("Snapshot is too large for a share URL. Download a backup JSON instead.", {
@@ -2428,7 +2551,7 @@ export default function App() {
                 await navigator.clipboard.writeText(md);
                 showToast("Recap copied.", { tone: "success" });
               } catch {
-                window.prompt("Copy this recap:", md);
+                showToast("Could not copy recap to clipboard.", { tone: "error" });
               }
             }}
             copyStory={async () => {
@@ -2438,10 +2561,11 @@ export default function App() {
                 await navigator.clipboard.writeText(story);
                 showToast("Story copied.", { tone: "success" });
               } catch {
-                window.prompt("Copy this story:", story);
+                showToast("Could not copy story to clipboard.", { tone: "error" });
               }
             }}
             dashboardRows={dashboardRows}
+            weeklyStory={weeklyStory}
             currentSosRanks={currentSosRanks}
             statusClass={statusClass}
             statusLabel={statusLabel}
@@ -2475,6 +2599,7 @@ export default function App() {
             setSettings={setSettings}
             teamsCount={teams.length}
             importCSV={importCSV}
+            importBackup={importBackup}
             exportCSV={exportCSV}
             exportBackup={exportBackup}
             resetSeason={resetSeason}
@@ -2559,6 +2684,40 @@ export default function App() {
         onClose={() => setShowTour(false)}
         autoOpenWhenEmpty={teams.length === 0}
       />
+      {confirmState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="presentation">
+          <section
+            ref={confirmDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={confirmState.title}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+          >
+            <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+              {confirmState.title}
+            </h2>
+            <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+              {confirmState.message}
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => resolveConfirmation(false)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                {confirmState.cancelLabel ?? "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveConfirmation(true)}
+                className={buttonClasses.danger}
+              >
+                {confirmState.confirmLabel ?? "Confirm"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <ToastView toast={toast} onDismiss={dismissToast} />
     </div>
@@ -2693,6 +2852,7 @@ function StandingsView({
   copyRecap,
   copyStory,
   dashboardRows,
+  weeklyStory,
   currentSosRanks,
   statusClass,
   statusLabel,
@@ -2714,6 +2874,7 @@ function StandingsView({
   copyRecap: () => void;
   copyStory: () => void;
   dashboardRows: TeamWithProjection[];
+  weeklyStory: string;
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
@@ -2783,13 +2944,23 @@ function StandingsView({
               </div>
             )}
             {lastImpact.recapItems.length > 0 ? (
-              <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
-                {lastImpact.recapItems.map((item) => (
-                  <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                    <span>{item.text}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                {weeklyStory && (
+                  <div className="mb-3 rounded-2xl bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Weekly League Story
+                    </div>
+                    {weeklyStory}
+                  </div>
+                )}
+                <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
+                  {lastImpact.recapItems.map((item) => (
+                    <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                      <span>{item.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
               <div className="flex flex-wrap gap-2 text-xs font-black text-blue-700 dark:text-blue-300">
                 {lastImpact.messages.map((change) => (
@@ -3479,6 +3650,7 @@ function SettingsView({
   setSettings,
   teamsCount,
   importCSV,
+  importBackup,
   exportCSV,
   exportBackup,
   resetSeason,
@@ -3487,6 +3659,7 @@ function SettingsView({
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   teamsCount: number;
   importCSV: (file: File) => void;
+  importBackup: (file: File) => void;
   exportCSV: () => void;
   exportBackup: () => void;
   resetSeason: () => void;
@@ -3651,6 +3824,20 @@ function SettingsView({
                 }}
               />
             </label>
+            <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
+              Import Backup JSON
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                aria-label="Import backup JSON"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) importBackup(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
             <button
               onClick={exportCSV}
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
@@ -3722,6 +3909,12 @@ function GamesView({
   const awayId = useId();
   const homeId = useId();
   const filterId = useId();
+  const [quickFilter, setQuickFilter] = useState<"all" | "open" | "today">("all");
+
+  const todayKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getUTCMonth() + 1}/${now.getUTCDate()}`;
+  }, []);
 
   const handleToggleFinal = useCallback(
     (gameId: string) => {
@@ -3733,6 +3926,24 @@ function GamesView({
     },
     [toggleFinal]
   );
+  const visibleGames = useMemo(() => {
+    if (quickFilter === "open") return scoreboardGames.filter((g) => !isFinal(logs[g.id]));
+    if (quickFilter === "today") {
+      return scoreboardGames.filter((g) => normalizeDateInput(g.date) === normalizeDateInput(todayKey));
+    }
+    return scoreboardGames;
+  }, [quickFilter, scoreboardGames, logs, todayKey]);
+  const nextOpenGameId = useMemo(
+    () => scoreboardGames.find((game) => !isFinal(logs[game.id]))?.id ?? null,
+    [scoreboardGames, logs]
+  );
+  const jumpToNextOpen = useCallback(() => {
+    if (!nextOpenGameId) return;
+    document.getElementById(`game-card-${nextOpenGameId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [nextOpenGameId]);
 
   return (
     <section className="space-y-6">
@@ -3822,15 +4033,23 @@ function GamesView({
             ))}
           </select>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setQuickFilter("all")} className={tab(quickFilter === "all")}>All Games</button>
+          <button type="button" onClick={() => setQuickFilter("open")} className={tab(quickFilter === "open")}>Open Games</button>
+          <button type="button" onClick={() => setQuickFilter("today")} className={tab(quickFilter === "today")}>Today</button>
+          <button type="button" onClick={jumpToNextOpen} disabled={!nextOpenGameId} className="ml-auto rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+            Next Unfinalized
+          </button>
+        </div>
       </div>
 
-      {scoreboardGames.length === 0 ? (
+      {visibleGames.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
           No games yet. Use the form above to add one.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {scoreboardGames.map((game) => {
+          {visibleGames.map((game) => {
             const log = logs[game.id] || blankLog();
             const away = teams.find((team) => team.id === game.away);
             const home = teams.find((team) => team.id === game.home);
@@ -3839,6 +4058,7 @@ function GamesView({
             return (
               <article
                 key={game.id}
+                id={`game-card-${game.id}`}
                 className={`overflow-hidden rounded-3xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
                   final ? "border-slate-200 opacity-80 dark:border-slate-700" : "border-slate-200 dark:border-slate-700"
                 }`}
@@ -3952,6 +4172,15 @@ function GamesView({
                           ? formatGameDateLong(game.date)
                           : "Needs Date"}
                     </span>
+                    {!final && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFinal(game.id)}
+                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white"
+                      >
+                        Save + Final
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
