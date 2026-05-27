@@ -161,16 +161,16 @@ const describePrediction = (
 
   const reasons: string[] = [];
   if (Math.abs(scoringEdge) >= 1.2) {
-    reasons.push(`${scoringEdge > 0 ? awayName : homeName} has the stronger scoring profile`);
+    reasons.push(`${scoringEdge > 0 ? awayName : homeName} have the stronger scoring profile`);
   }
   if (Math.abs(preventionEdge) >= 1.2) {
-    reasons.push(`${preventionEdge > 0 ? awayName : homeName} has allowed fewer runs`);
+    reasons.push(`${preventionEdge > 0 ? awayName : homeName} have allowed fewer runs`);
   }
   if (Math.abs(tpiEdge) >= 1.5) {
-    reasons.push(`${tpiEdge > 0 ? awayName : homeName} owns the better adjusted profile`);
+    reasons.push(`${tpiEdge > 0 ? awayName : homeName} own the better adjusted profile`);
   }
   if (Math.abs(kEdge) >= 1.0) {
-    reasons.push(`${kEdge > 0 ? awayName : homeName} gets a contact/machine edge`);
+    reasons.push(`${kEdge > 0 ? awayName : homeName} get a contact/machine edge`);
   }
   if (!reasons.length) {
     reasons.push("the teams grade close, so the lean is mostly from projected run balance");
@@ -1401,9 +1401,9 @@ export default function App() {
       if (!team) return [];
       const teamName = displayName(team.name);
 
-      if (team.goldStatus === "Clinched") return [`${teamName} has already clinched a Gold Bracket spot.`];
+      if (team.goldStatus === "Clinched") return [`${teamName} have already clinched a Gold Bracket spot.`];
       if (team.goldStatus === "Eliminated")
-        return [`${teamName} is eliminated from Gold Bracket contention.`];
+        return [`${teamName} are eliminated from Gold Bracket contention.`];
 
       const scenarios = nextTwoSwingGames(teamId).slice(0, 2).map((swing) => {
         const opponentLine = `${swing.teamIsAway ? "at" : "vs"} ${swing.opponentName}`;
@@ -1420,7 +1420,7 @@ export default function App() {
       });
 
       if (!scenarios.length) {
-        return [`${teamName} has no remaining games; Gold Bracket status depends only on outside results.`];
+        return [`${teamName} have no remaining games; Gold Bracket status depends only on outside results.`];
       }
       return scenarios;
     },
@@ -1491,16 +1491,16 @@ export default function App() {
     const range = seedRangeForTeam(team.id);
     const sos = scheduleDifficultyForTeam(team.id);
     const name = displayName(team.name);
-    if (team.goldStatus === "Clinched") return `${name} has clinched Gold and is playing for seeding.`;
+    if (team.goldStatus === "Clinched") return `${name} have clinched Gold and are playing for seeding.`;
     if (team.goldStatus === "Eliminated")
       return `${name} cannot reach Gold and can only affect other teams' paths.`;
     if ((team.rank ?? 99) <= goldCutoff && range.worst <= goldCutoff)
-      return `${name} controls the spot; even a rough path still projects inside Gold.`;
+      return `${name} control the spot; even a rough path still projects inside Gold.`;
     if ((team.rank ?? 99) <= goldCutoff)
-      return `${name} is in now but can fall out if the next results break badly.`;
+      return `${name} are in now but can fall out if the next results break badly.`;
     if (range.best <= goldCutoff && team.goldPct >= 10)
       return `${name} can move into Gold with wins and help near the cut line.`;
-    return `${name} needs wins plus multiple teams above the line${sos.label === "Hard" ? " and a tough remaining schedule" : ""} to stumble.`;
+    return `${name} need wins plus multiple teams above the line${sos.label === "Hard" ? " and a tough remaining schedule" : ""} to stumble.`;
   };
 
   const latestCompletedDate = completedGames.length
@@ -1531,7 +1531,7 @@ export default function App() {
           winnerPct,
           impact,
           explanation: impact
-            ? `${describePrediction(game, prediction, liveById)} Seed impact is ${impact.impactLabel.toLowerCase()}: ${impact.awayName} ranges from #${impact.awaySeedWin} with a win to #${impact.awaySeedLoss} with a loss, while ${impact.homeName} ranges from #${impact.homeSeedWin} to #${impact.homeSeedLoss}. Estimated Gold swing: ${impact.awayName} ${impact.awayGoldSwing >= 0 ? "+" : ""}${Math.round(impact.awayGoldSwing)}%, ${impact.homeName} ${impact.homeGoldSwing >= 0 ? "+" : ""}${Math.round(impact.homeGoldSwing)}%.`
+            ? `${describePrediction(game, prediction, liveById)} Seed impact is ${impact.impactLabel.toLowerCase()}: ${impact.awayName} range from #${impact.awaySeedWin} with a win to #${impact.awaySeedLoss} with a loss, while ${impact.homeName} range from #${impact.homeSeedWin} with a win to #${impact.homeSeedLoss} with a loss. Estimated Gold swing: ${impact.awayName} ${impact.awayGoldSwing >= 0 ? "+" : ""}${Math.round(impact.awayGoldSwing)}%, ${impact.homeName} ${impact.homeGoldSwing >= 0 ? "+" : ""}${Math.round(impact.homeGoldSwing)}%.`
             : describePrediction(game, prediction, liveById),
         };
       });
@@ -2570,7 +2570,6 @@ export default function App() {
             statusClass={statusClass}
             statusLabel={statusLabel}
             formatGoldPct={formatGoldPct}
-            onSelectTeam={(id) => setSelectedTeamId(id)}
           />
         ) : activeView === "model" ? (
           <ModelView
@@ -2857,7 +2856,6 @@ function StandingsView({
   statusClass,
   statusLabel,
   formatGoldPct,
-  onSelectTeam,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
@@ -2879,7 +2877,6 @@ function StandingsView({
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
-  onSelectTeam: (id: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -2999,7 +2996,6 @@ function StandingsView({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {dashboardRows.map((team, index) => {
-                    const select = () => onSelectTeam(team.id);
                     return (
                       <React.Fragment key={team.id}>
                         {index === goldCutoff && (
@@ -3022,19 +3018,14 @@ function StandingsView({
                         >
                           <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
                           <td className="px-5 py-4">
-                            <button
-                              type="button"
-                              onClick={select}
-                              aria-label={`View ${displayName(team.name)} detail`}
-                              className="flex items-center gap-3 rounded-lg p-1 -m-1 text-left focus:bg-slate-100 focus:outline-none dark:focus:bg-slate-800"
-                            >
+                            <div className="flex items-center gap-3 p-1 -m-1 text-left">
                               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
                                 {teamAbbr(team.name)}
                               </div>
                               <div className="font-black tracking-tight text-slate-950 dark:text-slate-100" title={team.name}>
                                 {displayName(team.name)}
                               </div>
-                            </button>
+                            </div>
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
@@ -3078,8 +3069,8 @@ function StandingsView({
                                 team.goldStatus === "Eliminated"
                                   ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
                                   : team.goldStatus === "Clinched"
-                                    ? `${displayName(team.name)} has mathematically secured a Top ${goldCutoff} spot even if they lose out.`
-                                    : `${displayName(team.name)} is still mathematically live for the Top ${goldCutoff}.`
+                                    ? `${displayName(team.name)} have mathematically secured a Top ${goldCutoff} spot even if they lose out.`
+                                    : `${displayName(team.name)} are still mathematically live for the Top ${goldCutoff}.`
                               }
                               aria-label={`Playoff status: ${statusLabel(team)}`}
                               className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
@@ -3103,16 +3094,10 @@ function StandingsView({
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
               {dashboardRows.map((team, index) => {
-                const select = () => onSelectTeam(team.id);
                 const isLastInside = index + 1 === goldCutoff;
                 return (
                   <li key={team.id}>
-                    <button
-                      type="button"
-                      onClick={select}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800"
-                      aria-label={`View ${displayName(team.name)} detail`}
-                    >
+                    <div className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="w-7 text-right text-xs font-black text-slate-500 dark:text-slate-400">
                           #{team.rank}
@@ -3161,7 +3146,7 @@ function StandingsView({
                           {statusLabel(team)}
                         </span>
                       </div>
-                    </button>
+                    </div>
                     {isLastInside && (
                       <div
                         role="separator"
