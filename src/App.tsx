@@ -1688,19 +1688,34 @@ export default function App() {
         const importedMatchups: Matchup[] = [];
         const importedLogs: Record<string, GameLog> = {};
         const importSuffix = Math.random().toString(36).slice(2, 8);
+        let missingTeamRows = 0;
+        let unknownTeamRows = 0;
+        let duplicateIdRows = 0;
+        const seenIds = new Set<string>();
 
         rows.forEach((row, rowIndex) => {
           const awayName = row[awayTeamIndex]?.trim();
           const homeName = row[homeTeamIndex]?.trim();
-          if (!awayName || !homeName) return;
+          if (!awayName || !homeName) {
+            missingTeamRows += 1;
+            return;
+          }
 
           const away = nameToId.get(awayName);
           const home = nameToId.get(homeName);
-          if (!away || !home) return;
+          if (!away || !home) {
+            unknownTeamRows += 1;
+            return;
+          }
 
           const id =
             row[gameIdIndex]?.trim() ||
             `game_${Date.now()}_${importSuffix}_${rowIndex}`;
+          if (seenIds.has(id)) {
+            duplicateIdRows += 1;
+            return;
+          }
+          seenIds.add(id);
           const awayRuns = awayRunsIndex >= 0 ? row[awayRunsIndex]?.trim() ?? "" : "";
           const homeRuns = homeRunsIndex >= 0 ? row[homeRunsIndex]?.trim() ?? "" : "";
           const awayK = awayKIndex >= 0 ? row[awayKIndex]?.trim() ?? "" : "";
@@ -1734,10 +1749,16 @@ export default function App() {
 
         const finalGames = Object.values(importedLogs).filter(isFinal).length;
         const openGames = importedMatchups.length - finalGames;
+        const warningLines: string[] = [];
+        if (missingTeamRows) warningLines.push(`${missingTeamRows} row(s) skipped: missing Away/Home team`);
+        if (unknownTeamRows) warningLines.push(`${unknownTeamRows} row(s) skipped: team name mismatch`);
+        if (duplicateIdRows) warningLines.push(`${duplicateIdRows} row(s) skipped: duplicate Game ID`);
         const confirmed = await requestConfirmation({
           title: "Import schedule CSV?",
-          message: `${importedTeams.length} teams found · ${importedMatchups.length} games found · ${finalGames} finals · ${openGames} open.\n\nThis will replace the current season data and save an undo snapshot.`,
-          confirmLabel: "Replace season",
+          message: `${importedTeams.length} teams found · ${importedMatchups.length} games found · ${finalGames} finals · ${openGames} open.\n\n${
+            warningLines.length ? `Warnings:\n- ${warningLines.join("\n- ")}\n\n` : ""
+          }This will replace the current season data and save an undo snapshot.`,
+          confirmLabel: warningLines.length ? "Import with warnings" : "Replace season",
         });
         if (!confirmed) return;
 
