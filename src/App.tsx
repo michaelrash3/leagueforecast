@@ -638,6 +638,7 @@ export default function App() {
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const confirmDialogRef = useRef<HTMLElement>(null);
 
   const undoRef = useRef<UndoSnapshot | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
@@ -656,6 +657,15 @@ export default function App() {
     confirmResolverRef.current = null;
     setConfirmState(null);
   }, []);
+  useFocusTrap(!!confirmState, confirmDialogRef as React.RefObject<HTMLElement>);
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") resolveConfirmation(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmState, resolveConfirmation]);
 
   const goldCutoff = clamp(
     Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
@@ -2259,6 +2269,10 @@ export default function App() {
 
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
+  const weeklyStory = useMemo(() => {
+    if (!lastImpact || lastImpact.recapItems.length === 0) return "";
+    return recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+  }, [lastImpact, settings.seasonLabel]);
 
   // ---------- Share + URL snapshot ----------
 
@@ -2551,6 +2565,7 @@ export default function App() {
               }
             }}
             dashboardRows={dashboardRows}
+            weeklyStory={weeklyStory}
             currentSosRanks={currentSosRanks}
             statusClass={statusClass}
             statusLabel={statusLabel}
@@ -2672,6 +2687,7 @@ export default function App() {
       {confirmState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="presentation">
           <section
+            ref={confirmDialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={confirmState.title}
@@ -2836,6 +2852,7 @@ function StandingsView({
   copyRecap,
   copyStory,
   dashboardRows,
+  weeklyStory,
   currentSosRanks,
   statusClass,
   statusLabel,
@@ -2857,6 +2874,7 @@ function StandingsView({
   copyRecap: () => void;
   copyStory: () => void;
   dashboardRows: TeamWithProjection[];
+  weeklyStory: string;
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
@@ -2926,13 +2944,23 @@ function StandingsView({
               </div>
             )}
             {lastImpact.recapItems.length > 0 ? (
-              <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
-                {lastImpact.recapItems.map((item) => (
-                  <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                    <span>{item.text}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                {weeklyStory && (
+                  <div className="mb-3 rounded-2xl bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Weekly League Story
+                    </div>
+                    {weeklyStory}
+                  </div>
+                )}
+                <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
+                  {lastImpact.recapItems.map((item) => (
+                    <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                      <span>{item.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
               <div className="flex flex-wrap gap-2 text-xs font-black text-blue-700 dark:text-blue-300">
                 {lastImpact.messages.map((change) => (
@@ -3604,7 +3632,10 @@ function ModelView(props: {
                     </span>
                   </div>
 
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+                  <div className="mt-3 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Why this prediction?
+                  </div>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
                     {item.explanation}
                   </p>
                 </article>
