@@ -226,6 +226,15 @@ describe("projectStandings + simulateGoldOdds", () => {
     expect(Math.round(total)).toBe(200);
   });
 
+
+
+  it("maintains cutoff-slot normalization even with adaptive convergence", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const odds = simulateGoldOdds(live, matchups, 500, "adaptive-seed", 2, settings);
+    const total = Object.values(odds).reduce((sum, v) => sum + v, 0);
+    expect(Math.round(total)).toBe(200);
+  });
+
   it("is deterministic for a given seed", () => {
     const live = calculateTeams(teams, matchups, {});
     const a = simulateGoldOdds(live, matchups, 40, "seed-x", 2, settings);

@@ -505,6 +505,26 @@ export const simulationSeed = (
   return `${extras}::${finals}`;
 };
 
+
+const hasConvergedOdds = (
+  teams: Team[],
+  counts: Record<string, number>,
+  previous: Record<string, number> | null,
+  completedIterations: number,
+  thresholdPct: number
+) => {
+  if (!previous || completedIterations <= 0) return false;
+
+  let maxDelta = 0;
+  teams.forEach((team) => {
+    const currentPct = ((counts[team.id] ?? 0) / completedIterations) * 100;
+    const delta = Math.abs(currentPct - (previous[team.id] ?? 0));
+    if (delta > maxDelta) maxDelta = delta;
+  });
+
+  return maxDelta <= thresholdPct;
+};
+
 export const simulateGoldOdds = (
   teams: Team[],
   remaining: Matchup[],
@@ -519,6 +539,11 @@ export const simulateGoldOdds = (
   });
 
   const random = makeRandom(hashSeed(seedText));
+  const minIterations = Math.min(iterations, 100);
+  const convergenceCheckInterval = 25;
+  const convergenceThresholdPct = 0.35;
+  let lastSnapshot: Record<string, number> | null = null;
+  let completedIterations = 0;
 
   for (let i = 0; i < iterations; i += 1) {
     let simTeams = teams.map((team) => ({ ...team }));
@@ -535,11 +560,26 @@ export const simulateGoldOdds = (
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
       });
+
+    completedIterations += 1;
+    const reachedMinimum = completedIterations >= minIterations;
+    const onCheckInterval = completedIterations % convergenceCheckInterval === 0;
+    if (!reachedMinimum || !onCheckInterval) continue;
+
+    if (hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)) {
+      break;
+    }
+
+    lastSnapshot = {};
+    teams.forEach((team) => {
+      lastSnapshot![team.id] = ((counts[team.id] ?? 0) / completedIterations) * 100;
+    });
   }
 
+  const denominator = Math.max(1, completedIterations);
   const odds: Record<string, number> = {};
   teams.forEach((team) => {
-    odds[team.id] = ((counts[team.id] ?? 0) / iterations) * 100;
+    odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
   });
   return odds;
 };
