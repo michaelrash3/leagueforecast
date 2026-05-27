@@ -42,6 +42,7 @@ import {
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { buildShareUrl } from "./lib/share";
+import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
   applyResult,
   calculateTeams,
@@ -1825,6 +1826,52 @@ export default function App() {
     anchor.click();
     URL.revokeObjectURL(url);
   };
+  const importBackup = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const raw = event.target?.result;
+        if (typeof raw !== "string") throw new Error("Backup is not text");
+        const parsed = JSON.parse(raw) as unknown;
+        if (!isRecord(parsed)) throw new Error("Backup must be an object");
+        if (!Array.isArray(parsed.teams) || !Array.isArray(parsed.matchups) || !isRecord(parsed.logs)) {
+          throw new Error("Backup is missing teams, matchups, or logs");
+        }
+
+        const nextTeams = parsed.teams.filter(isTeamBase);
+        const nextMatchups = parsed.matchups.filter(isMatchup);
+        const nextLogs: Record<string, GameLog> = {};
+        Object.entries(parsed.logs).forEach(([k, v]) => {
+          if (isGameLog(v)) nextLogs[k] = v;
+        });
+        const nextSettings = coerceSettings(parsed.settings);
+        const confirmed = await requestConfirmation({
+          title: "Import backup JSON?",
+          message: `${nextTeams.length} teams · ${nextMatchups.length} games found.\n\nThis will replace current season data and save an undo snapshot.`,
+          confirmLabel: "Import backup",
+        });
+        if (!confirmed) return;
+
+        captureUndo("Backup import");
+        setTeams(nextTeams);
+        setMatchups(nextMatchups);
+        setLogs(nextLogs);
+        setSettings(nextSettings);
+        setSelectedTeamId(null);
+        setLastImpact(null);
+        setActiveView("standings");
+        showToast(`Imported backup (${nextMatchups.length} games).`, {
+          tone: "undo",
+          actionLabel: "Undo",
+          onAction: restoreUndo,
+        });
+      } catch (error) {
+        console.error(error);
+        showToast("Could not import this backup JSON.", { tone: "error" });
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const resetSeason = async () => {
     const confirmed = await requestConfirmation({
@@ -2516,6 +2563,7 @@ export default function App() {
             setSettings={setSettings}
             teamsCount={teams.length}
             importCSV={importCSV}
+            importBackup={importBackup}
             exportCSV={exportCSV}
             exportBackup={exportBackup}
             resetSeason={resetSeason}
@@ -3553,6 +3601,7 @@ function SettingsView({
   setSettings,
   teamsCount,
   importCSV,
+  importBackup,
   exportCSV,
   exportBackup,
   resetSeason,
@@ -3561,6 +3610,7 @@ function SettingsView({
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   teamsCount: number;
   importCSV: (file: File) => void;
+  importBackup: (file: File) => void;
   exportCSV: () => void;
   exportBackup: () => void;
   resetSeason: () => void;
@@ -3721,6 +3771,20 @@ function SettingsView({
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) importCSV(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
+              Import Backup JSON
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                aria-label="Import backup JSON"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) importBackup(file);
                   event.currentTarget.value = "";
                 }}
               />
