@@ -27,6 +27,21 @@ type WorkerHandle = {
   nextId: number;
 };
 
+export function attachWorkerRequestListener(
+  worker: Worker,
+  id: number,
+  kind: WorkerResponse["kind"],
+  latestIdRef: { current: number },
+  onResolve: (payload: WorkerResponse) => void
+) {
+  const onMessage = (event: MessageEvent<WorkerResponse>) => {
+    if (event.data.kind !== kind || event.data.id !== id) return;
+    if (latestIdRef.current === id) onResolve(event.data);
+  };
+  worker.addEventListener("message", onMessage);
+  return () => worker.removeEventListener("message", onMessage);
+}
+
 const createWorker = (): Worker | null => {
   if (typeof Worker === "undefined") return null;
   try {
@@ -87,20 +102,17 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200, onFallback
     handle.nextId = id;
     latestIdRef.current = id;
     setPending(true);
+    let removeListener = () => {};
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
 
       if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind !== "odds" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          if (latestIdRef.current === id) {
-            setOdds(event.data.odds);
-            setPending(false);
-          }
-        };
-        handle.worker.addEventListener("message", onMessage);
+        removeListener = attachWorkerRequestListener(handle.worker, id, "odds", latestIdRef, (response) => {
+          if (response.kind !== "odds") return;
+          setOdds(response.odds);
+          setPending(false);
+        });
         const req: WorkerRequest = {
           kind: "odds",
           id,
@@ -132,7 +144,13 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200, onFallback
       }
     }, debounceMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      removeListener();
+      if (latestIdRef.current === id) {
+        setPending(false);
+      }
+    };
   }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings, onFallback]);
 
   const runtime: SimulationRuntime = handleRef.current.worker ? "worker" : "inline";
@@ -178,19 +196,16 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     const id = handle.nextId + 1;
     handle.nextId = id;
     latestIdRef.current = id;
+    let removeListener = () => {};
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
 
       if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind !== "trend" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          if (latestIdRef.current === id) {
-            setTrend(event.data.trend);
-          }
-        };
-        handle.worker.addEventListener("message", onMessage);
+        removeListener = attachWorkerRequestListener(handle.worker, id, "trend", latestIdRef, (response) => {
+          if (response.kind !== "trend") return;
+          setTrend(response.trend);
+        });
         const req: WorkerRequest = {
           kind: "trend",
           id,
@@ -224,7 +239,10 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
       }
     }, debounceMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      removeListener();
+    };
   }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
 
   return trend;
