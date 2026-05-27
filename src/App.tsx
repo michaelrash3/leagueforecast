@@ -3632,10 +3632,7 @@ function ModelView(props: {
                     </span>
                   </div>
 
-                  <div className="mt-3 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Why this prediction?
-                  </div>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
                     {item.explanation}
                   </p>
                 </article>
