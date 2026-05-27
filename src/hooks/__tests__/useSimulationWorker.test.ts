@@ -1,97 +1,70 @@
-import { describe, expect, it } from "vitest";
-import {
-  buildOddsRerunKey,
-  buildTrendRerunKey,
-} from "../useSimulationWorker";
-import type { Matchup, Settings, Team } from "../../lib/types";
+import { describe, expect, it, vi } from "vitest";
 
-const settings: Settings = {
-  goldCutoff: 4,
-  seasonLabel: "Spring 26",
-  modelAggression: "Balanced",
-  maxScoreCap: 18,
-  winPoints: 1,
-  tiePoints: 0.5,
-  runDiffTiebreaker: true,
-};
+import { attachWorkerRequestListener } from "../useSimulationWorker";
 
-const teams: Team[] = [
-  {
-    id: "a",
-    name: "A",
-    w: 1,
-    l: 0,
-    t: 0,
-    rs: 10,
-    ra: 8,
-    games: 1,
-    pct: 1,
-    runDiff: 2,
-    rsg: 10,
-    rag: 8,
-    hpg: 8,
-    kpg: 4,
-    tpi: 0,
-    baseTpi: 0,
-    sos: 0,
-    momentum: 0,
-    awayK6: null,
-    homeK6: null,
-    totalK6: null,
-    machineDifficulty: 0,
-  },
-];
+class MockWorker {
+  listeners = new Set<(event: MessageEvent<any>) => void>();
 
-const remaining: Matchup[] = [{ id: "g1", date: "2026-05-25", away: "a", home: "b" }];
+  addEventListener(_type: "message", listener: (event: MessageEvent<any>) => void) {
+    this.listeners.add(listener);
+  }
 
-describe("simulation rerun keys", () => {
-  it("keeps odds key stable across identity-only input changes", () => {
-    const key1 = buildOddsRerunKey({
-      teams,
-      remaining,
-      iterations: 2000,
-      seedText: "seed-1",
-      cutoff: 4,
-      settings,
-    });
+  removeEventListener(_type: "message", listener: (event: MessageEvent<any>) => void) {
+    this.listeners.delete(listener);
+  }
 
-    const key2 = buildOddsRerunKey({
-      teams: [...teams],
-      remaining: [...remaining],
-      iterations: 2000,
-      seedText: "seed-1",
-      cutoff: 4,
-      settings: { ...settings },
-    });
+  emit(data: any) {
+    for (const listener of this.listeners) {
+      listener({ data } as MessageEvent<any>);
+    }
+  }
+}
 
-    expect(key2).toBe(key1);
+describe("attachWorkerRequestListener", () => {
+  it("removes superseded listeners during rapid request changes", () => {
+    const worker = new MockWorker() as unknown as Worker;
+    const latestIdRef = { current: 1 };
+    const firstResolved = vi.fn();
+    const secondResolved = vi.fn();
+
+    const removeFirst = attachWorkerRequestListener(worker, 1, "odds", latestIdRef, firstResolved);
+    expect((worker as unknown as MockWorker).listeners.size).toBe(1);
+
+    latestIdRef.current = 2;
+    removeFirst();
+    expect((worker as unknown as MockWorker).listeners.size).toBe(0);
+
+    const removeSecond = attachWorkerRequestListener(worker, 2, "odds", latestIdRef, secondResolved);
+    expect((worker as unknown as MockWorker).listeners.size).toBe(1);
+
+    (worker as unknown as MockWorker).emit({ kind: "odds", id: 1, odds: { x: 1 } });
+    expect(firstResolved).not.toHaveBeenCalled();
+
+    (worker as unknown as MockWorker).emit({ kind: "odds", id: 2, odds: { y: 2 } });
+    expect(secondResolved).toHaveBeenCalledTimes(1);
+
+    removeSecond();
+    expect((worker as unknown as MockWorker).listeners.size).toBe(0);
   });
 
-  it("changes trend key only when simulation-critical inputs change", () => {
-    const base = buildTrendRerunKey({
-      teamIds: ["a"],
-      states: [{ teams, remaining, seedText: "state-1" }],
-      iterations: 70,
-      cutoff: 4,
-      settings,
-    });
+  it("routes trend and ignores stale ids", () => {
+    const worker = new MockWorker() as unknown as Worker;
+    const latestIdRef = { current: 2 };
+    const resolved = vi.fn();
 
-    const identityOnly = buildTrendRerunKey({
-      teamIds: ["a"],
-      states: [{ teams: [...teams], remaining: [...remaining], seedText: "state-1" }],
-      iterations: 70,
-      cutoff: 4,
-      settings: { ...settings },
-    });
-    expect(identityOnly).toBe(base);
+    const remove = attachWorkerRequestListener(worker, 2, "trend", latestIdRef, resolved);
+    (worker as unknown as MockWorker).emit({ kind: "odds", id: 2, odds: {} });
+    (worker as unknown as MockWorker).emit({ kind: "trend", id: 1, trend: {} });
+    expect(resolved).not.toHaveBeenCalled();
 
-    const changedSeed = buildTrendRerunKey({
-      teamIds: ["a"],
-      states: [{ teams, remaining, seedText: "state-2" }],
-      iterations: 70,
-      cutoff: 4,
-      settings,
-    });
-    expect(changedSeed).not.toBe(base);
+    (worker as unknown as MockWorker).emit({ kind: "trend", id: 2, trend: { a: [1] } });
+    expect(resolved).toHaveBeenCalledTimes(1);
+
+    latestIdRef.current = 3;
+    (worker as unknown as MockWorker).emit({ kind: "trend", id: 2, trend: { a: [2] } });
+    expect(resolved).toHaveBeenCalledTimes(1);
+
+    remove();
+    expect((worker as unknown as MockWorker).listeners.size).toBe(0);
   });
 });
