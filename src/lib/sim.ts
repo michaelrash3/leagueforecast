@@ -303,6 +303,23 @@ const buildByIdMap = (teams: Team[]) => {
   return map;
 };
 
+
+const logit = (p: number) => Math.log(p / (1 - p));
+
+export const calibrateAwayWinPct = (
+  rawPct: number,
+  awayGames: number,
+  homeGames: number,
+  aggression: number
+) => {
+  const clipped = clamp(rawPct, 0.02, 0.98);
+  const totalGames = awayGames + homeGames;
+  const reliability = clamp(totalGames / 20, 0, 1);
+  const shrink = 0.58 + reliability * 0.28;
+  const aggressionInfluence = clamp(1 + (aggression - 1) * 0.12, 0.9, 1.1);
+  const calibrated = 1 / (1 + Math.exp(-logit(clipped) * shrink * aggressionInfluence));
+  return clamp(calibrated, 0.04, 0.96);
+};
 export const predictGame = (
   game: Matchup,
   teams: Team[],
@@ -353,7 +370,8 @@ export const predictGame = (
   const rawMargin = safeAway - safeHome;
   const roundedAway = Math.round(safeAway);
   const roundedHome = Math.round(safeHome);
-  const awayWinPct = 1 / (1 + Math.exp(-rawMargin / 4));
+  const rawAwayWinPct = 1 / (1 + Math.exp(-rawMargin / 4));
+  const awayWinPct = calibrateAwayWinPct(rawAwayWinPct, away.games, home.games, aggression);
   const winnerId = rawMargin >= 0 ? game.away : game.home;
   const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
   const margin = Math.abs(rawMargin);

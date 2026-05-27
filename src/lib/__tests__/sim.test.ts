@@ -8,6 +8,7 @@ import {
   simulateGoldOdds,
   simulationSeed,
   standingsPoints,
+  calibrateAwayWinPct,
 } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type Settings, type TeamBase } from "../types";
 
@@ -132,6 +133,19 @@ describe("predictGame", () => {
     expect(sameScore).toBe(false);
   });
 
+
+  it("calibrates probabilities away from overconfident extremes", () => {
+    const aggressive = calibrateAwayWinPct(0.9, 2, 2, 1.25);
+    const mature = calibrateAwayWinPct(0.9, 12, 12, 1.25);
+    expect(aggressive).toBeLessThan(0.9);
+    expect(mature).toBeGreaterThan(aggressive);
+  });
+
+  it("keeps calibration symmetric around 50%", () => {
+    const favored = calibrateAwayWinPct(0.72, 8, 8, 1);
+    const underdog = calibrateAwayWinPct(0.28, 8, 8, 1);
+    expect(Math.abs((favored + underdog) - 1)).toBeLessThan(0.001);
+  });
 
 });
 
