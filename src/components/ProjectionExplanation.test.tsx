@@ -24,4 +24,22 @@ describe("ProjectionExplanation", () => {
     expect(html).not.toMatch(/what changed\?/i);
     expect(html).not.toMatch(/<h[1-6]/i);
   });
+
+  it("trims blank entries while preserving ordered inline explanations", () => {
+    const html = renderToStaticMarkup(
+      <ProjectionExplanation
+        explanations={[
+          " ",
+          "Projected points improved by 1, strengthening the Gold position.",
+          "Standings points slipped by 1.5 after recent results.",
+          "",
+        ]}
+      />
+    );
+
+    expect(html).toContain("Projected points improved by 1, strengthening the Gold position.");
+    expect(html).toContain("Standings points slipped by 1.5 after recent results.");
+    expect(html.match(/<li/g)).toHaveLength(2);
+    expect(html).not.toMatch(/why did this change\?|what changed\?/i);
+  });
 });

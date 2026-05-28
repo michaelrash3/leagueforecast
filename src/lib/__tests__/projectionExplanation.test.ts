@@ -54,15 +54,21 @@ describe("buildProjectionExplanations", () => {
     ]);
   });
 
-  it("explains projected points movement", () => {
+  it("explains projected points movement up and down", () => {
     expect(explanationsFor({ projectedPoints: 7 }, { projectedPoints: 8 })).toEqual([
       "Projected points improved by 1, strengthening the Gold position.",
     ]);
+    expect(explanationsFor({ projectedPoints: 8 }, { projectedPoints: 6.5 })).toEqual([
+      "Projected points slipped by 1.5, weakening the Gold position.",
+    ]);
   });
 
-  it("explains standings points movement", () => {
+  it("explains standings points movement up and down", () => {
     expect(explanationsFor({ standingsPoints: 4 }, { standingsPoints: 5 })).toEqual([
       "Standings points improved by 1 after recent results.",
+    ]);
+    expect(explanationsFor({ standingsPoints: 5 }, { standingsPoints: 3.5 })).toEqual([
+      "Standings points slipped by 1.5 after recent results.",
     ]);
   });
 
@@ -78,6 +84,10 @@ describe("buildProjectionExplanations", () => {
     expect(explanationsFor({ projectedPoints: 8 }, { projectedPoints: 8.49 })).toEqual([]);
   });
 
+  it("suppresses tiny standings points movement", () => {
+    expect(explanationsFor({ standingsPoints: 4 }, { standingsPoints: 4.49 })).toEqual([]);
+  });
+
   it("still shows rank movement at the rank threshold", () => {
     expect(explanationsFor({ rank: 5 }, { rank: 4 })).toEqual([
       "Recent results lifted the projected finish by 1 spot.",
@@ -91,6 +101,25 @@ describe("buildProjectionExplanations", () => {
         { goldOdds: 52.5, projectedPoints: 8.4, standingsPoints: 4.4 }
       )
     ).toEqual([]);
+  });
+
+  it("uses cutoff-aware Gold odds copy when rank moves down toward the cutoff", () => {
+    expect(explanationsFor({ rank: 2, goldOdds: 55 }, { rank: 4, goldOdds: 45 })).toEqual([
+      "Gold odds dipped by 10 points after the projected finish moved closer to the cutoff.",
+      "Recent results pushed the projected finish down by 2 spots.",
+    ]);
+  });
+
+  it("returns no explanations for non-numeric team additions or removals", () => {
+    expect(buildProjectionExplanations(diffProjectionTeam(undefined, snapshotTeam()))).toEqual([]);
+    expect(buildProjectionExplanations(diffProjectionTeam(snapshotTeam(), undefined))).toEqual([]);
+  });
+
+  it("returns no explanations for settings or cutoff-only changes", () => {
+    const delta = diffProjectionTeam(snapshotTeam(), snapshotTeam(), { settingsChanged: true });
+
+    expect(delta.changes).toEqual([{ field: "settings", reason: "settings-change" }]);
+    expect(buildProjectionExplanations(delta)).toEqual([]);
   });
 
   it("respects the max explanation count while ranking by normalized impact", () => {
@@ -132,6 +161,9 @@ describe("buildProjectionExplanations", () => {
       explanationsFor({ goldOdds: 40 }, { goldOdds: 47 }),
       explanationsFor({ projectedPoints: 7 }, { projectedPoints: 8 }),
       explanationsFor({ standingsPoints: 4 }, { standingsPoints: 5 }),
+      explanationsFor({ projectedPoints: 8 }, { projectedPoints: 6.5 }),
+      explanationsFor({ standingsPoints: 5 }, { standingsPoints: 3.5 }),
+      explanationsFor({ rank: 2, goldOdds: 55 }, { rank: 4, goldOdds: 45 }),
       explanationsFor(
         { rank: 6, goldOdds: 30, projectedPoints: 7, standingsPoints: 4 },
         { rank: 3, goldOdds: 42, projectedPoints: 8, standingsPoints: 5 }
@@ -139,6 +171,25 @@ describe("buildProjectionExplanations", () => {
     ];
 
     scenarios.forEach(expectNoForbiddenHeadings);
+  });
+
+  it("returns no explanations when the snapshot delta does not include the team id", () => {
+    const before = {
+      createdAt: "2026-05-27T00:00:00.000Z",
+      teams: [snapshotTeam({ teamId: "A", rank: 4 })],
+    };
+    const after = {
+      createdAt: "2026-05-28T00:00:00.000Z",
+      teams: [snapshotTeam({ teamId: "A", rank: 2 })],
+    };
+    const delta = {
+      before,
+      after,
+      teams: [diffProjectionTeam(before.teams[0], after.teams[0])],
+      reasons: ["projection-change" as const],
+    };
+
+    expect(explainProjectionDelta({ delta, teamId: "B" })).toEqual([]);
   });
 
   it("accepts a snapshot delta plus team id", () => {

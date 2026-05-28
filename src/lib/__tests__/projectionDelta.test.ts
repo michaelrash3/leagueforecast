@@ -46,49 +46,105 @@ const snapshotTeam = (overrides: Partial<ProjectionTeamSnapshot> = {}): Projecti
 
 const settings: Settings = { ...DEFAULT_SETTINGS, winPoints: 2, tiePoints: 1 };
 
-const reasonsFor = (before: ProjectionTeamSnapshot, after: ProjectionTeamSnapshot) =>
-  diffProjectionTeam(before, after).reasons;
-
 describe("diffProjectionTeam", () => {
-  it("captures rank movement", () => {
-    const delta = diffProjectionTeam(snapshotTeam({ rank: 4 }), snapshotTeam({ rank: 2 }));
+  it("captures rank movement up and down", () => {
+    const improved = diffProjectionTeam(snapshotTeam({ rank: 4 }), snapshotTeam({ rank: 2 }));
+    const declined = diffProjectionTeam(snapshotTeam({ rank: 2 }), snapshotTeam({ rank: 5 }));
 
-    expect(delta.status).toBe("changed");
-    expect(delta.changes).toContainEqual({
+    expect(improved.status).toBe("changed");
+    expect(improved.changes).toContainEqual({
       field: "rank",
       reason: "projection-change",
       before: 4,
       after: 2,
       delta: -2,
     });
+    expect(declined.changes).toContainEqual({
+      field: "rank",
+      reason: "projection-change",
+      before: 2,
+      after: 5,
+      delta: 3,
+    });
   });
 
-  it("captures Gold odds movement with the odds reason", () => {
-    const delta = diffProjectionTeam(
+  it("captures Gold odds movement up and down with the odds reason", () => {
+    const improved = diffProjectionTeam(
       snapshotTeam({ goldOdds: 20 }),
       snapshotTeam({ goldOdds: 45 })
     );
+    const declined = diffProjectionTeam(
+      snapshotTeam({ goldOdds: 45 }),
+      snapshotTeam({ goldOdds: 20 })
+    );
 
-    expect(delta.changes).toContainEqual({
+    expect(improved.changes).toContainEqual({
       field: "goldOdds",
       reason: "odds-change",
       before: 20,
       after: 45,
       delta: 25,
     });
-    expect(delta.reasons).toEqual(["odds-change"]);
+    expect(improved.reasons).toEqual(["odds-change"]);
+    expect(declined.changes).toContainEqual({
+      field: "goldOdds",
+      reason: "odds-change",
+      before: 45,
+      after: 20,
+      delta: -25,
+    });
   });
 
-  it("captures projected points movement", () => {
-    expect(
-      reasonsFor(snapshotTeam({ projectedPoints: 7 }), snapshotTeam({ projectedPoints: 8 }))
-    ).toEqual(["projection-change"]);
+  it("captures projected points movement up and down", () => {
+    const improved = diffProjectionTeam(
+      snapshotTeam({ projectedPoints: 7 }),
+      snapshotTeam({ projectedPoints: 8 })
+    );
+    const declined = diffProjectionTeam(
+      snapshotTeam({ projectedPoints: 8 }),
+      snapshotTeam({ projectedPoints: 6.5 })
+    );
+
+    expect(improved.changes).toContainEqual({
+      field: "projectedPoints",
+      reason: "projection-change",
+      before: 7,
+      after: 8,
+      delta: 1,
+    });
+    expect(declined.changes).toContainEqual({
+      field: "projectedPoints",
+      reason: "projection-change",
+      before: 8,
+      after: 6.5,
+      delta: -1.5,
+    });
   });
 
-  it("captures standings points movement with the result reason", () => {
-    expect(
-      reasonsFor(snapshotTeam({ standingsPoints: 4 }), snapshotTeam({ standingsPoints: 5 }))
-    ).toEqual(["result-change"]);
+  it("captures standings points movement up and down with the result reason", () => {
+    const improved = diffProjectionTeam(
+      snapshotTeam({ standingsPoints: 4 }),
+      snapshotTeam({ standingsPoints: 5 })
+    );
+    const declined = diffProjectionTeam(
+      snapshotTeam({ standingsPoints: 5 }),
+      snapshotTeam({ standingsPoints: 3.5 })
+    );
+
+    expect(improved.changes).toContainEqual({
+      field: "standingsPoints",
+      reason: "result-change",
+      before: 4,
+      after: 5,
+      delta: 1,
+    });
+    expect(declined.changes).toContainEqual({
+      field: "standingsPoints",
+      reason: "result-change",
+      before: 5,
+      after: 3.5,
+      delta: -1.5,
+    });
   });
 
   it("reports no movement for identical team snapshots", () => {
@@ -98,6 +154,21 @@ describe("diffProjectionTeam", () => {
     expect(delta.status).toBe("unchanged");
     expect(delta.changes).toEqual([]);
     expect(delta.reasons).toEqual([]);
+  });
+
+  it("preserves deterministic reason ordering for multiple field changes", () => {
+    const delta = diffProjectionTeam(
+      snapshotTeam({ rank: 5, goldOdds: 20, projectedPoints: 6, standingsPoints: 4 }),
+      snapshotTeam({ rank: 3, goldOdds: 35, projectedPoints: 7, standingsPoints: 5 })
+    );
+
+    expect(delta.reasons).toEqual(["projection-change", "odds-change", "result-change"]);
+    expect(delta.changes.map((change) => change.field)).toEqual([
+      "rank",
+      "goldOdds",
+      "projectedPoints",
+      "standingsPoints",
+    ]);
   });
 
   it("tags rank movement as a tiebreak change when tiebreak stats also change", () => {
@@ -172,15 +243,25 @@ describe("diffProjectionSnapshots", () => {
 
     const delta = diffProjectionSnapshots(before, after);
 
-    expect(delta.teams.find((teamDelta) => teamDelta.teamId === "B")?.status).toBe("removed");
-    expect(delta.teams.find((teamDelta) => teamDelta.teamId === "C")?.status).toBe("added");
+    const removed = delta.teams.find((teamDelta) => teamDelta.teamId === "B");
+    const added = delta.teams.find((teamDelta) => teamDelta.teamId === "C");
+
+    expect(delta.teams.map((teamDelta) => teamDelta.teamId)).toEqual(["A", "B", "C"]);
+    expect(removed?.status).toBe("removed");
+    expect(removed?.changes).toEqual([
+      { field: "team", reason: "projection-change", before: "B", after: null },
+    ]);
+    expect(added?.status).toBe("added");
+    expect(added?.changes).toEqual([
+      { field: "team", reason: "projection-change", before: null, after: "C" },
+    ]);
   });
 
-  it("tags settings, schedule, and finalized game context deterministically", () => {
+  it("tags settings, cutoff, schedule, and finalized game context deterministically", () => {
     const delta = diffProjectionSnapshots(
       {
         createdAt: "2026-05-27T00:00:00.000Z",
-        settings: { winPoints: 1 },
+        settings: { winPoints: 1, goldCutoff: 4 },
         matchupCount: 8,
         logCount: 3,
         finalizedGameCount: 3,
@@ -188,7 +269,7 @@ describe("diffProjectionSnapshots", () => {
       },
       {
         createdAt: "2026-05-28T00:00:00.000Z",
-        settings: { winPoints: 2 },
+        settings: { winPoints: 2, goldCutoff: 6 },
         matchupCount: 9,
         logCount: 4,
         finalizedGameCount: 4,
