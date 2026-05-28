@@ -41,6 +41,7 @@ export type ProjectionSnapshot = {
   teams: ProjectionTeamSnapshot[];
   settings?: ProjectionRelevantSettings;
   matchupCount?: number;
+  logCount?: number;
   finalizedGameCount?: number;
   createdAt: string;
 };
@@ -54,6 +55,7 @@ export type ProjectionDeltaField =
   | "tiebreakers"
   | "settings"
   | "matchupCount"
+  | "logCount"
   | "finalizedGameCount";
 
 export type ProjectionTeamDeltaChange = {
@@ -98,6 +100,7 @@ export type BuildProjectionSnapshotInput = {
   matchups?: Matchup[];
   logs?: Record<string, GameLog>;
   matchupCount?: number;
+  logCount?: number;
   finalizedGameCount?: number;
   createdAt?: string | number | Date;
 };
@@ -179,6 +182,7 @@ export const buildProjectionSnapshot = ({
   matchups,
   logs,
   matchupCount,
+  logCount,
   finalizedGameCount,
   createdAt,
 }: BuildProjectionSnapshotInput): ProjectionSnapshot => {
@@ -202,6 +206,7 @@ export const buildProjectionSnapshot = ({
     }),
     settings,
     matchupCount: matchupCount ?? matchups?.length,
+    logCount: logCount ?? (logs ? Object.keys(logs).length : undefined),
     finalizedGameCount: finalizedGameCount ?? countFinalizedGames(matchups, logs),
     createdAt: toIsoTimestamp(createdAt),
   };
@@ -213,6 +218,7 @@ export const diffProjectionTeam = (
   context: {
     settingsChanged?: boolean;
     matchupCountChanged?: boolean;
+    logCountChanged?: boolean;
     finalizedGameCountChanged?: boolean;
   } = {}
 ): ProjectionTeamDelta => {
@@ -270,6 +276,9 @@ export const diffProjectionTeam = (
   if (context.matchupCountChanged) {
     changes.push({ field: "matchupCount", reason: "schedule-strength" });
   }
+  if (context.logCountChanged) {
+    changes.push({ field: "logCount", reason: "result-change" });
+  }
   if (context.finalizedGameCountChanged) {
     changes.push({ field: "finalizedGameCount", reason: "result-change" });
   }
@@ -298,6 +307,7 @@ export const diffProjectionSnapshots = (
   const context = {
     settingsChanged: !sameObject(before.settings, after.settings),
     matchupCountChanged: before.matchupCount !== after.matchupCount,
+    logCountChanged: before.logCount !== after.logCount,
     finalizedGameCountChanged: before.finalizedGameCount !== after.finalizedGameCount,
   };
 
