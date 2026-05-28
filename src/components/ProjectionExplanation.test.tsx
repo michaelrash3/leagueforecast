@@ -42,4 +42,20 @@ describe("ProjectionExplanation", () => {
     expect(html.match(/<li/g)).toHaveLength(2);
     expect(html).not.toMatch(/why did this change\?|what changed\?/i);
   });
+
+  it("keeps repeated context subtle and non-duplicative for assistive tech", () => {
+    const html = renderToStaticMarkup(
+      <ProjectionExplanation
+        explanations={[
+          "Gold odds improved by 7 points after the projection strengthened.",
+          " Gold odds improved by 7 points after the projection strengthened. ",
+        ]}
+      />
+    );
+
+    expect(html.match(/<li/g)).toHaveLength(1);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).not.toMatch(/<aside|aria-label=|<h[1-6]/i);
+  });
 });
