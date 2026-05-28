@@ -40,6 +40,7 @@ const createWorker = (): Worker | null => {
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   const [odds, setOdds] = useState<Record<string, number>>({});
   const [pending, setPending] = useState(false);
+  const [resultKey, setResultKey] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
   const latestIdRef = useRef(0);
 
@@ -76,6 +77,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   useEffect(() => {
     if (!input.teams.length) {
       setOdds({});
+      setResultKey(key);
       setPending(false);
       return;
     }
@@ -98,6 +100,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           handle.worker?.removeEventListener("message", onMessage);
           if (latestIdRef.current === id) {
             setOdds(event.data.odds);
+            setResultKey(key);
             setPending(false);
           }
         };
@@ -125,6 +128,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         );
         if (latestIdRef.current === id) {
           setOdds(result);
+          setResultKey(key);
           setPending(false);
           console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
         }
@@ -137,7 +141,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     };
   }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
 
-  return { odds, pending };
+  return { odds, pending, inputKey: key, resultKey };
 }
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {

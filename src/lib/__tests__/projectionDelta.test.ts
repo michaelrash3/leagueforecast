@@ -143,6 +143,7 @@ describe("buildProjectionSnapshot", () => {
     expect(snapshot).toMatchObject({
       createdAt: "2026-05-28T00:00:00.000Z",
       matchupCount: 1,
+      logCount: 1,
       finalizedGameCount: 1,
       teams: [
         {
@@ -181,6 +182,7 @@ describe("diffProjectionSnapshots", () => {
         createdAt: "2026-05-27T00:00:00.000Z",
         settings: { winPoints: 1 },
         matchupCount: 8,
+        logCount: 3,
         finalizedGameCount: 3,
         teams: [snapshotTeam()],
       },
@@ -188,6 +190,7 @@ describe("diffProjectionSnapshots", () => {
         createdAt: "2026-05-28T00:00:00.000Z",
         settings: { winPoints: 2 },
         matchupCount: 9,
+        logCount: 4,
         finalizedGameCount: 4,
         teams: [snapshotTeam()],
       }

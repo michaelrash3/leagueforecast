@@ -41,6 +41,12 @@ import {
   type RecapItem,
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import {
+  buildProjectionSnapshot,
+  diffProjectionSnapshots,
+  type ProjectionSnapshot,
+  type ProjectionSnapshotDelta,
+} from "./lib/projectionDelta";
 import { buildShareUrl } from "./lib/share";
 import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
@@ -641,6 +647,12 @@ export default function App() {
   const confirmDialogRef = useRef<HTMLElement>(null);
 
   const undoRef = useRef<UndoSnapshot | null>(null);
+  const projectionSnapshotsRef = useRef<{
+    previous: ProjectionSnapshot | null;
+    current: ProjectionSnapshot | null;
+    delta: ProjectionSnapshotDelta | null;
+    key: string | null;
+  }>({ previous: null, current: null, delta: null, key: null });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const { theme, toggle: toggleTheme } = useDarkMode();
   const { snapshot: sharedSnapshot, clear: clearSharedSnapshot } = useUrlSnapshot();
@@ -778,7 +790,8 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds } = useSimulationOdds(oddsInput);
+  const { odds, pending: oddsPending, inputKey: oddsInputKey, resultKey: oddsResultKey } =
+    useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -859,6 +872,110 @@ export default function App() {
       return seed >= goldCutoff - 2 && seed <= goldCutoff + 3;
     });
   }, [modelRows, goldCutoff]);
+
+  // ---------- Projection explanation snapshots (captured for future inline explanations) ----------
+
+  const projectionRelevantSettings = useMemo(
+    () => ({
+      goldCutoff,
+      regularSeasonGamesPerTeam: settings.regularSeasonGamesPerTeam,
+      winPoints: settings.winPoints,
+      tiePoints: settings.tiePoints,
+      runDiffTiebreaker: settings.runDiffTiebreaker,
+      maxScoreCap: settings.maxScoreCap,
+      modelAggression: settings.modelAggression,
+    }),
+    [
+      goldCutoff,
+      settings.regularSeasonGamesPerTeam,
+      settings.winPoints,
+      settings.tiePoints,
+      settings.runDiffTiebreaker,
+      settings.maxScoreCap,
+      settings.modelAggression,
+    ]
+  );
+
+  const projectionSnapshotTeams = useMemo(
+    () =>
+      ranked.map((team) => ({
+        ...team,
+        projectedRank: projectedById.get(team.id)?.rank ?? team.rank,
+        goldPct: odds[team.id] ?? 0,
+      })),
+    [ranked, projectedById, odds]
+  );
+
+  const projectionSnapshotKey = useMemo(
+    () =>
+      JSON.stringify([
+        oddsResultKey,
+        projectionSnapshotTeams.map((team) => [
+          team.id,
+          team.rank,
+          team.projectedRank,
+          team.goldPct,
+          team.w,
+          team.t,
+          team.rs,
+          team.ra,
+          team.runDiff,
+        ]),
+        projected.map((team) => [team.id, team.rank, team.w, team.t, team.rs, team.ra, team.runDiff]),
+        matchups.length,
+        Object.keys(logs).length,
+        completedGames.length,
+        projectionRelevantSettings,
+      ]),
+    [
+      oddsResultKey,
+      projectionSnapshotTeams,
+      projected,
+      matchups.length,
+      logs,
+      completedGames.length,
+      projectionRelevantSettings,
+    ]
+  );
+
+  const currentProjectionSnapshot = useMemo(() => {
+    if (oddsPending || oddsResultKey !== oddsInputKey) return null;
+    if (!projectionSnapshotTeams.length) return null;
+
+    return buildProjectionSnapshot({
+      teams: projectionSnapshotTeams,
+      projectedTeams: projected,
+      settings: projectionRelevantSettings,
+      matchups,
+      logs,
+      matchupCount: matchups.length,
+      logCount: Object.keys(logs).length,
+      finalizedGameCount: completedGames.length,
+    });
+  }, [
+    oddsPending,
+    oddsResultKey,
+    oddsInputKey,
+    projectionSnapshotTeams,
+    projected,
+    projectionRelevantSettings,
+    matchups,
+    logs,
+    completedGames.length,
+  ]);
+
+  useEffect(() => {
+    if (!currentProjectionSnapshot) return;
+    if (projectionSnapshotsRef.current.key === projectionSnapshotKey) return;
+
+    const previous = projectionSnapshotsRef.current.current;
+    projectionSnapshotsRef.current = {
+      previous,
+      current: currentProjectionSnapshot,
+      delta: previous ? diffProjectionSnapshots(previous, currentProjectionSnapshot) : null,
+      key: projectionSnapshotKey,
+    };
+  }, [currentProjectionSnapshot, projectionSnapshotKey]);
 
   // ---------- Scenario helpers ----------
 
