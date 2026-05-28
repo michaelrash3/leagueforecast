@@ -1441,51 +1441,63 @@ export default function App() {
     );
 
     const linesForTeam = (team: TeamWithProjection) => {
-      const lines: string[] = [];
-      const ownGame = nextGameByTeam.get(team.id);
-      if (ownGame) {
-        const opponentId = ownGame.away === team.id ? ownGame.home : ownGame.away;
-        const opponentName = displayName(dashboardById.get(opponentId)?.name || opponentId);
-        const ownWinClinches = goldStatusAfterScenario(team.id, ownGame, team.id) === "Clinched";
-        if (ownWinClinches) {
-          lines.push(`Win ${team.id === ownGame.away ? "at" : "vs"} ${opponentName}.`);
-        }
+      const seasonRemaining = remainingGames.filter(
+        (game) => game.away === team.id || game.home === team.id
+      ).length;
+      const magic = magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings);
+      const elimination = eliminationNumberForGold(
+        team.id,
+        dashboardRows,
+        remainingGames,
+        goldCutoff,
+        settings
+      );
+
+      if (magic.type === "clinched") {
+        return ["Already clinched a Gold Bracket spot regardless of remaining results."];
+      }
+      if (magic.type === "impossible") {
+        return ["No path to mathematically clinch a Gold Bracket spot with results still to play."];
       }
 
-      remainingGames.slice(0, 20).forEach((game) => {
-        if (game.away === team.id || game.home === team.id) return;
-        const awayClinches = teamsClinchingAfterGameResult(game, game.away).includes(team.id);
-        const homeClinches = teamsClinchingAfterGameResult(game, game.home).includes(team.id);
-        if (awayClinches !== homeClinches) {
-          const winnerId = awayClinches ? game.away : game.home;
-          const loserId = awayClinches ? game.home : game.away;
-          const winnerName = displayName(dashboardById.get(winnerId)?.name || winnerId);
-          const loserName = displayName(dashboardById.get(loserId)?.name || loserId);
-          lines.push(`Need help: ${winnerName} over ${loserName}.`);
-        }
-      });
-
-      return Array.from(new Set(lines)).slice(0, 4);
+      const lines: string[] = [];
+      if (magic.opponentLossesNeeded === 0) {
+        lines.push(
+          `Control path: win ${magic.ownWinsNeeded} of ${seasonRemaining} remaining and the spot is guaranteed.`
+        );
+      } else {
+        lines.push(
+          `Need help path: ${magic.ownWinsNeeded} own win${magic.ownWinsNeeded === 1 ? "" : "s"} plus ${magic.opponentLossesNeeded} loss${magic.opponentLossesNeeded === 1 ? "" : "es"} by teams they face.`
+        );
+      }
+      lines.push(`Clinch math: ${magic.description}`);
+      lines.push(`Elimination pressure: ${elimination.description}`);
+      return lines;
     };
 
     return openTeams
       .map((team) => {
         const scenarios = linesForTeam(team);
-        const hasControl = scenarios.some((line) => !line.startsWith("Need help:"));
-        const hasHelp = scenarios.some((line) => line.startsWith("Need help:"));
-        const bucket: ClinchScenarioRow["bucket"] = hasControl
-          ? hasHelp
-            ? "Needs Help"
-            : "Controls Destiny"
-          : "Long Shot";
-        return { team, bucket, scenarios: scenarios.length ? scenarios : ["No immediate clinch path in the next slate."] };
+        const first = scenarios[0] ?? "";
+        const bucket: ClinchScenarioRow["bucket"] = first.startsWith("Need help path:")
+          ? "Needs Help"
+          : first.startsWith("No path")
+            ? "Long Shot"
+            : "Controls Destiny";
+        return {
+          team,
+          bucket,
+          scenarios: scenarios.length
+            ? scenarios
+            : ["No full-season clinch path identified from current standings."],
+        };
       })
       .sort((a, b) => {
         const gapA = Math.abs((a.team.rank ?? 99) - goldCutoff);
         const gapB = Math.abs((b.team.rank ?? 99) - goldCutoff);
         return gapA - gapB;
       });
-  }, [dashboardRows, nextGameByTeam, dashboardById, goldStatusAfterScenario, remainingGames, teamsClinchingAfterGameResult, goldCutoff]);
+  }, [dashboardRows, remainingGames, goldCutoff, settings]);
 
   const statusLabel = (team: TeamWithProjection) => {
     if (team.goldStatus === "Clinched") return "Clinched";
@@ -3709,7 +3721,7 @@ function ClinchScenariosView({
           Gold Clinch Scenarios
         </h3>
         <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
-          Paths that can clinch a top {goldCutoff} Gold Bracket spot based on upcoming results.
+          Paths that can clinch a top {goldCutoff} Gold Bracket spot across all remaining regular-season games.
         </p>
       </div>
       <div className="space-y-5">
