@@ -9,6 +9,7 @@ import React, {
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { OnboardingTour } from "./components/OnboardingTour";
+import { ProjectionExplanation } from "./components/ProjectionExplanation";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -47,6 +48,7 @@ import {
   type ProjectionSnapshot,
   type ProjectionSnapshotDelta,
 } from "./lib/projectionDelta";
+import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { buildShareUrl } from "./lib/share";
 import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
@@ -426,6 +428,7 @@ function TeamDrawer({
   magicForGold,
   eliminationNumber,
   pathSummary,
+  projectionExplanations,
   onCompare,
 }: {
   team: TeamWithProjection;
@@ -442,6 +445,7 @@ function TeamDrawer({
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   pathSummary: string;
+  projectionExplanations: string[];
   onCompare: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -506,6 +510,8 @@ function TeamDrawer({
             </button>
           </div>
         </div>
+
+        <ProjectionExplanation explanations={projectionExplanations} />
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
@@ -653,6 +659,10 @@ export default function App() {
     delta: ProjectionSnapshotDelta | null;
     key: string | null;
   }>({ previous: null, current: null, delta: null, key: null });
+  const [projectionSnapshotState, setProjectionSnapshotState] = useState<{
+    delta: ProjectionSnapshotDelta | null;
+    key: string | null;
+  }>({ delta: null, key: null });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const { theme, toggle: toggleTheme } = useDarkMode();
   const { snapshot: sharedSnapshot, clear: clearSharedSnapshot } = useUrlSnapshot();
@@ -969,12 +979,14 @@ export default function App() {
     if (projectionSnapshotsRef.current.key === projectionSnapshotKey) return;
 
     const previous = projectionSnapshotsRef.current.current;
+    const delta = previous ? diffProjectionSnapshots(previous, currentProjectionSnapshot) : null;
     projectionSnapshotsRef.current = {
       previous,
       current: currentProjectionSnapshot,
-      delta: previous ? diffProjectionSnapshots(previous, currentProjectionSnapshot) : null,
+      delta,
       key: projectionSnapshotKey,
     };
+    setProjectionSnapshotState({ delta, key: projectionSnapshotKey });
   }, [currentProjectionSnapshot, projectionSnapshotKey]);
 
   // ---------- Scenario helpers ----------
@@ -2384,6 +2396,26 @@ export default function App() {
     };
   }, [selectedTeam, nextTwoSwingGames, bubbleTierForTeam, currentSosRanks, formatGoldPct, seedRangeForTeam, scheduleDifficultyForTeam, titleRaceBadgeForTeam, clinchScenariosForTeam, dashboardRows, remainingGames, goldCutoff, settings, currentLeader]);
 
+  const selectedTeamProjectionExplanations = useMemo(() => {
+    if (!selectedTeam) return [];
+    if (oddsPending || oddsResultKey !== oddsInputKey) return [];
+    if (projectionSnapshotState.key !== projectionSnapshotKey || !projectionSnapshotState.delta) {
+      return [];
+    }
+
+    return buildProjectionExplanations({
+      delta: projectionSnapshotState.delta,
+      teamId: selectedTeam.id,
+    });
+  }, [
+    selectedTeam,
+    oddsPending,
+    oddsResultKey,
+    oddsInputKey,
+    projectionSnapshotState,
+    projectionSnapshotKey,
+  ]);
+
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
   const weeklyStory = useMemo(() => {
@@ -2762,6 +2794,7 @@ export default function App() {
           magicForGold={selectedTeamDetail?.magic ?? { type: "magic", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading magic number…" }}
           eliminationNumber={selectedTeamDetail?.elimination ?? { type: "elimination", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading elimination number…" }}
           pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
+          projectionExplanations={selectedTeamProjectionExplanations}
           onClose={() => {
             setSelectedTeamId(null);
             setCompareTeamId(null);
