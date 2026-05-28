@@ -7,6 +7,7 @@ import {
   type Prediction,
   type Settings,
   type Team,
+  type TiebreakerFactor,
   type TeamBase,
 } from "./types";
 
@@ -32,6 +33,7 @@ export const emptyTeam = (base: TeamBase): Team => ({
   homeK6: null,
   totalK6: null,
   machineDifficulty: 0,
+  headToHead: {},
 });
 
 export const createTeamId = (name: string, existing: Set<string>) => {
@@ -124,15 +126,75 @@ export const getMathGoldStatus = (
   };
 };
 
-export const rankTeams = (teams: Team[], options: { runDiffTiebreaker: boolean }) => {
+export type RankOptions = {
+  runDiffTiebreaker?: boolean;
+  tiebreakerOrder?: TiebreakerFactor[];
+};
+
+const resolvedTiebreakerOrder = (options: RankOptions) => {
+  if (options.tiebreakerOrder) return options.tiebreakerOrder;
+  return options.runDiffTiebreaker ? (["runDifferential"] satisfies TiebreakerFactor[]) : [];
+};
+
+const headToHeadPct = (team: Team, opponentId: string) => {
+  const record = team.headToHead?.[opponentId];
+  if (!record) return null;
+  const games = record.wins + record.losses + record.ties;
+  if (games <= 0) return null;
+  return (record.wins + record.ties * 0.5) / games;
+};
+
+const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor) => {
+  switch (factor) {
+    case "headToHead": {
+      const aPct = headToHeadPct(a, b.id);
+      const bPct = headToHeadPct(b, a.id);
+      if (aPct === null || bPct === null || Math.abs(aPct - bPct) <= 0.0001) return 0;
+      return bPct - aPct;
+    }
+    case "runsAgainst":
+      if (a.ra !== b.ra) return a.ra - b.ra;
+      return 0;
+    case "runDifferential":
+      if (a.runDiff !== b.runDiff) return b.runDiff - a.runDiff;
+      return 0;
+    default:
+      return 0;
+  }
+};
+
+export const rankTeams = (teams: Team[], options: RankOptions) => {
+  const tiebreakerOrder = resolvedTiebreakerOrder(options);
   const sorted = [...teams].sort((a, b) => {
     if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
-    if (options.runDiffTiebreaker && b.runDiff !== a.runDiff) {
-      return b.runDiff - a.runDiff;
+
+    for (const factor of tiebreakerOrder) {
+      const diff = compareByTiebreaker(a, b, factor);
+      if (diff !== 0) return diff;
     }
-    return b.tpi - a.tpi;
+
+    if (Math.abs(b.tpi - a.tpi) > 0.0001) return b.tpi - a.tpi;
+    return a.id.localeCompare(b.id);
   });
   return sorted.map((team, index) => ({ ...team, rank: index + 1 }));
+};
+
+const cloneHeadToHead = (headToHead: Team["headToHead"] = {}) =>
+  Object.fromEntries(
+    Object.entries(headToHead).map(([id, record]) => [id, { ...record }])
+  ) as Record<string, NonNullable<Team["headToHead"]>[string]>;
+
+const ensureHeadToHeadRecord = (team: Team, opponentId: string) => {
+  team.headToHead ??= {};
+  team.headToHead[opponentId] ??= { wins: 0, losses: 0, ties: 0 };
+  return team.headToHead[opponentId];
+};
+
+const addHeadToHeadResult = (team: Team, opponentId: string, diff: number) => {
+  const record = ensureHeadToHeadRecord(team, opponentId);
+  if (diff > 0) record.wins += 1;
+  else if (diff < 0) record.losses += 1;
+  else record.ties += 1;
 };
 
 type InternalTeam = Team & {
@@ -210,6 +272,8 @@ export const calculateTeams = (
 
       away.results.push({ diff: awayRuns - homeRuns, oppId: home.id });
       home.results.push({ diff: homeRuns - awayRuns, oppId: away.id });
+      addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
+      addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
 
       if (awayRuns > homeRuns) {
         away.w += 1;
@@ -265,31 +329,30 @@ export const calculateTeams = (
     home.machineDiffCount += 1;
   });
 
+  const computeRecencyMomentum = (team: InternalTeam, byId: Map<string, InternalTeam>) => {
+    const recent = team.results.slice(-6);
+    if (recent.length < 3 || team.games === 0) return 0;
 
-const computeRecencyMomentum = (team: InternalTeam, byId: Map<string, InternalTeam>) => {
-  const recent = team.results.slice(-6);
-  if (recent.length < 3 || team.games === 0) return 0;
+    let weightedDiff = 0;
+    let weightedOppStrength = 0;
+    let weightSum = 0;
+    recent.forEach((game, index) => {
+      const age = recent.length - 1 - index;
+      const weight = 0.72 ** age;
+      const opp = byId.get(game.oppId);
+      weightedDiff += game.diff * weight;
+      weightedOppStrength += (opp?.baseTpi ?? 0) * weight;
+      weightSum += weight;
+    });
 
-  let weightedDiff = 0;
-  let weightedOppStrength = 0;
-  let weightSum = 0;
-  recent.forEach((game, index) => {
-    const age = recent.length - 1 - index;
-    const weight = 0.72 ** age;
-    const opp = byId.get(game.oppId);
-    weightedDiff += game.diff * weight;
-    weightedOppStrength += (opp?.baseTpi ?? 0) * weight;
-    weightSum += weight;
-  });
+    if (weightSum <= 0) return 0;
 
-  if (weightSum <= 0) return 0;
+    const recencyDiff = weightedDiff / weightSum;
+    const recencyOppStrength = weightedOppStrength / weightSum;
+    const seasonDiff = team.runDiff / team.games;
 
-  const recencyDiff = weightedDiff / weightSum;
-  const recencyOppStrength = weightedOppStrength / weightSum;
-  const seasonDiff = team.runDiff / team.games;
-
-  return clamp(recencyDiff - seasonDiff + recencyOppStrength * 0.18, -4.5, 4.5);
-};
+    return clamp(recencyDiff - seasonDiff + recencyOppStrength * 0.18, -4.5, 4.5);
+  };
 
   teams.forEach((team) => {
     team.sos = team.games ? team.oppTpiSum / team.games : 0;
@@ -323,7 +386,6 @@ const buildByIdMap = (teams: Team[]) => {
   teams.forEach((team) => map.set(team.id, team));
   return map;
 };
-
 
 const logit = (p: number) => Math.log(p / (1 - p));
 
@@ -378,11 +440,7 @@ export const predictGame = (
     homeScore * (1 - tpiDiff * 0.025 * aggression) +
     clamp(home.momentum, -3, 3) * 0.15 * aggression;
 
-  const kDiff = clamp(
-    (away.awayK6 ?? 4.5) + home.machineDifficulty - (home.homeK6 ?? 4.5),
-    -3,
-    3
-  );
+  const kDiff = clamp((away.awayK6 ?? 4.5) + home.machineDifficulty - (home.homeK6 ?? 4.5), -3, 3);
   if (kDiff > 0) homeScore += kDiff * 0.2;
   if (kDiff < 0) awayScore += Math.abs(kDiff) * 0.2;
 
@@ -420,7 +478,7 @@ export const applyResult = (
   modelTeams: Team[],
   settings: Settings
 ) => {
-  const next = teams.map((team) => ({ ...team }));
+  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
   const byId = buildByIdMap(next);
   const away = byId.get(game.away);
   const home = byId.get(game.home);
@@ -439,6 +497,9 @@ export const applyResult = (
   away.ra += homeRuns;
   home.rs += homeRuns;
   home.ra += awayRuns;
+
+  addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
+  addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
 
   if (winnerId === game.away) {
     away.w += 1;
@@ -462,18 +523,17 @@ export const applyResult = (
   return next;
 };
 
-export const projectStandings = (
-  teams: Team[],
-  games: Matchup[],
-  settings: Settings
-) => {
+export const projectStandings = (teams: Team[], games: Matchup[], settings: Settings) => {
   let projected = teams.map((team) => ({ ...team }));
   games.forEach((game) => {
     const projectionById = buildByIdMap(projected);
     const prediction = predictGame(game, projected, settings, projectionById);
     projected = applyResult(projected, game, prediction.winnerId, projected, settings);
   });
-  return rankTeams(projected, { runDiffTiebreaker: settings.runDiffTiebreaker });
+  return rankTeams(projected, {
+    runDiffTiebreaker: settings.runDiffTiebreaker,
+    tiebreakerOrder: settings.tiebreakerOrder,
+  });
 };
 
 export const hashSeed = (text: string) => {
@@ -504,7 +564,6 @@ export const simulationSeed = (
     .join(",");
   return `${extras}::${finals}`;
 };
-
 
 const hasConvergedOdds = (
   teams: Team[],
@@ -555,7 +614,10 @@ export const simulateGoldOdds = (
       simTeams = applyResult(simTeams, game, winner, simTeams, settings);
     });
 
-    rankTeams(simTeams, { runDiffTiebreaker: settings.runDiffTiebreaker })
+    rankTeams(simTeams, {
+      runDiffTiebreaker: settings.runDiffTiebreaker,
+      tiebreakerOrder: settings.tiebreakerOrder,
+    })
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
@@ -566,7 +628,9 @@ export const simulateGoldOdds = (
     const onCheckInterval = completedIterations % convergenceCheckInterval === 0;
     if (!reachedMinimum || !onCheckInterval) continue;
 
-    if (hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)) {
+    if (
+      hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)
+    ) {
       break;
     }
 

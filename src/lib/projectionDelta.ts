@@ -17,6 +17,7 @@ export type ProjectionRelevantSettings = Partial<
     | "winPoints"
     | "tiePoints"
     | "runDiffTiebreaker"
+    | "tiebreakerOrder"
     | "maxScoreCap"
     | "modelAggression"
   >

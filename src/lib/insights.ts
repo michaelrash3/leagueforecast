@@ -42,7 +42,10 @@ export const pathSummary = (
   const insideProjected = projected <= cutoff;
   const swingLine = swings
     .slice(0, 2)
-    .map((s) => `${s.teamIsAway ? "at" : "vs"} ${s.opponentName} (win → #${s.winSeed}, loss → #${s.lossSeed})`)
+    .map(
+      (s) =>
+        `${s.teamIsAway ? "at" : "vs"} ${s.opponentName} (win → #${s.winSeed}, loss → #${s.lossSeed})`
+    )
     .join(" and ");
 
   if (insideNow && insideProjected) {
@@ -63,7 +66,13 @@ export const pathSummary = (
 export type RecapInput = {
   before: { id: string; rank: number; goldPct: number; goldStatus: GoldStatus }[];
   after: { id: string; rank: number; goldPct: number; goldStatus: GoldStatus; name: string }[];
-  finalsSinceLast: { game: Matchup; awayScore: number; homeScore: number; awayName: string; homeName: string }[];
+  finalsSinceLast: {
+    game: Matchup;
+    awayScore: number;
+    homeScore: number;
+    awayName: string;
+    homeName: string;
+  }[];
   cutoff: number;
 };
 
@@ -116,7 +125,6 @@ export const weeklyRecap = ({
   type ChangeAttribution = {
     ownResult?: { opponentName: string; didWin: boolean; wasUpset: boolean };
     competitorResults: { teamName: string; didLose: boolean; rank: number }[];
-    tieBreakWith?: { teamName: string; fromRank: number; toRank: number };
   };
   const attributionById = new Map<string, ChangeAttribution>();
   const getAttribution = (id: string) => {
@@ -130,8 +138,10 @@ export const weeklyRecap = ({
   finalsSinceLast.forEach((f) => {
     const awayPoints = f.awayScore > f.homeScore ? 1 : 0;
     const homePoints = f.homeScore > f.awayScore ? 1 : 0;
-    const winnerId = awayPoints > homePoints ? f.game.away : homePoints > awayPoints ? f.game.home : "";
-    const loserId = awayPoints > homePoints ? f.game.home : homePoints > awayPoints ? f.game.away : "";
+    const winnerId =
+      awayPoints > homePoints ? f.game.away : homePoints > awayPoints ? f.game.home : "";
+    const loserId =
+      awayPoints > homePoints ? f.game.home : homePoints > awayPoints ? f.game.away : "";
 
     if (winnerId) {
       const winnerAttr = getAttribution(winnerId);
@@ -185,7 +195,7 @@ export const weeklyRecap = ({
         text: `The board got shuffled for ${movedList} after those finals.`,
         why: [
           "Finalized results changed standings order for multiple teams.",
-          "Cut-line pressure and tie-break cascades can move teams not playing head-to-head.",
+          "Cut-line pressure can move teams not playing head-to-head.",
         ],
       });
     }
@@ -206,21 +216,30 @@ export const weeklyRecap = ({
       items.push({
         kind: "eliminated",
         text: `${displayName(team.name)} were knocked out of Gold Bracket contention.`,
-        why: ["Team status changed to Eliminated.", "Gold path is no longer mathematically available."],
+        why: [
+          "Team status changed to Eliminated.",
+          "Gold path is no longer mathematically available.",
+        ],
       });
     }
     if (prev.rank <= cutoff && team.rank > cutoff) {
       items.push({
         kind: "crossed-cut-down",
         text: `${displayName(team.name)} dropped below the Gold cut line (#${prev.rank} → #${team.rank}).`,
-        why: ["Seed moved from inside to outside the cutoff.", "Cut-line movement can swing weekly priorities."],
+        why: [
+          "Seed moved from inside to outside the cutoff.",
+          "Cut-line movement can swing weekly priorities.",
+        ],
       });
     }
     if (prev.rank > cutoff && team.rank <= cutoff) {
       items.push({
         kind: "crossed-cut-up",
         text: `${displayName(team.name)} moved above the Gold cut line (#${prev.rank} → #${team.rank}).`,
-        why: ["Seed moved from outside to inside the cutoff.", "Team now controls its path more directly."],
+        why: [
+          "Seed moved from outside to inside the cutoff.",
+          "Team now controls its path more directly.",
+        ],
       });
     }
   });
@@ -233,22 +252,6 @@ export const weeklyRecap = ({
     const delta = prev.rank - team.rank;
     if (delta === 0) return;
     rankChanges.push({ name: team.name, from: prev.rank, to: team.rank, delta });
-    const tiedSwap = after.find((other) => {
-      if (other.id === team.id) return false;
-      const otherPrev = beforeById.get(other.id);
-      if (!otherPrev) return false;
-      const crossed =
-        (prev.rank < otherPrev.rank && team.rank > other.rank) ||
-        (prev.rank > otherPrev.rank && team.rank < other.rank);
-      return crossed && Math.round(other.goldPct) === Math.round(team.goldPct);
-    });
-    if (tiedSwap) {
-      getAttribution(team.id).tieBreakWith = {
-        teamName: displayName(tiedSwap.name),
-        fromRank: prev.rank,
-        toRank: team.rank,
-      };
-    }
   });
   rankChanges
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
@@ -267,16 +270,15 @@ export const weeklyRecap = ({
           reasons.push(`they got clipped by ${attr.ownResult.opponentName}${upsetTag}`);
         }
       }
-      const competitor = attr?.competitorResults.find((x) => x.rank > 0 && x.teamName !== displayName(c.name));
+      const competitor = attr?.competitorResults.find(
+        (x) => x.rank > 0 && x.teamName !== displayName(c.name)
+      );
       if (competitor) {
         if (competitor.didLose) {
           reasons.push(`${competitor.teamName} slipped to #${competitor.rank}`);
         } else {
           reasons.push(`${competitor.teamName} climbed to #${competitor.rank}`);
         }
-      }
-      if (attr?.tieBreakWith) {
-        reasons.push(`the tie-break edge over ${attr.tieBreakWith.teamName} settled it`);
       }
       const conciseReason =
         reasons.length > 0
@@ -306,7 +308,10 @@ export const weeklyRecap = ({
       items.push({
         kind: "gold-shift",
         text: `${displayName(s.name)} Gold odds ${direction} ${s.delta > 0 ? "+" : ""}${s.delta}% (now ${s.pct}%).`,
-        why: ["Simulation odds moved by at least 5 percentage points.", "This reflects both own result and competitor outcomes."],
+        why: [
+          "Simulation odds moved by at least 5 percentage points.",
+          "This reflects both own result and competitor outcomes.",
+        ],
       });
     });
 
@@ -319,18 +324,18 @@ export const weeklyRecap = ({
     if (!topFaller || c.delta < topFaller.delta) topFaller = { name: c.name, delta: c.delta };
   });
   if (topMover && (topMover as { delta: number }).delta >= 3) {
-      items.push({
-        kind: "biggest-mover",
-        text: `Biggest mover: ${displayName((topMover as { name: string }).name)} (+${(topMover as { delta: number }).delta} seeds).`,
-        why: ["Largest positive seed movement in this update window."],
-      });
+    items.push({
+      kind: "biggest-mover",
+      text: `Biggest mover: ${displayName((topMover as { name: string }).name)} (+${(topMover as { delta: number }).delta} seeds).`,
+      why: ["Largest positive seed movement in this update window."],
+    });
   }
   if (topFaller && (topFaller as { delta: number }).delta <= -3) {
-      items.push({
-        kind: "biggest-faller",
-        text: `Biggest faller: ${displayName((topFaller as { name: string }).name)} (${(topFaller as { delta: number }).delta} seeds).`,
-        why: ["Largest negative seed movement in this update window."],
-      });
+    items.push({
+      kind: "biggest-faller",
+      text: `Biggest faller: ${displayName((topFaller as { name: string }).name)} (${(topFaller as { delta: number }).delta} seeds).`,
+      why: ["Largest negative seed movement in this update window."],
+    });
   }
 
   // Dedupe by text and cap.

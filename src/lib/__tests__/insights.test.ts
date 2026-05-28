@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { pathSummary, recapToMarkdown, summarizeStandings, weeklyRecap, type InsightTeam } from "../insights";
+import {
+  pathSummary,
+  recapToMarkdown,
+  summarizeStandings,
+  weeklyRecap,
+  type InsightTeam,
+} from "../insights";
 
 const team = (overrides: Partial<InsightTeam>): InsightTeam => ({
   id: "X",
@@ -98,7 +104,7 @@ describe("weeklyRecap", () => {
     });
     const aSwap = items.find((i) => i.kind === "rank-change" && i.text.includes("Aces"));
     expect(aSwap?.text).toContain("took care of business vs Raiders");
-    expect(aSwap?.text).toContain("tie-break");
+    expect(aSwap?.text).not.toContain("tie-break");
     expect(aSwap?.text).toContain("Raiders");
   });
 });

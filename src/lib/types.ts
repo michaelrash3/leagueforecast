@@ -3,6 +3,14 @@ export type TeamBase = {
   name: string;
 };
 
+export type HeadToHeadRecord = {
+  wins: number;
+  losses: number;
+  ties: number;
+};
+
+export type TiebreakerFactor = "headToHead" | "runsAgainst" | "runDifferential";
+
 export type Team = TeamBase & {
   w: number;
   l: number;
@@ -24,6 +32,7 @@ export type Team = TeamBase & {
   homeK6: number | null;
   totalK6: number | null;
   machineDifficulty: number;
+  headToHead?: Record<string, HeadToHeadRecord>;
   rank?: number;
 };
 
@@ -81,6 +90,18 @@ export type SwingGame = {
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 export type RecapGrouping = "game" | "date" | "week";
 
+export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {
+  headToHead: "Head to Head",
+  runsAgainst: "Runs Against",
+  runDifferential: "Run Differential",
+};
+
+export const DEFAULT_TIEBREAKER_ORDER: TiebreakerFactor[] = [
+  "headToHead",
+  "runDifferential",
+  "runsAgainst",
+];
+
 export type Settings = {
   goldCutoff: number;
   seasonLabel: string;
@@ -88,6 +109,7 @@ export type Settings = {
   winPoints: number;
   tiePoints: number;
   runDiffTiebreaker: boolean;
+  tiebreakerOrder: TiebreakerFactor[];
   maxScoreCap: number;
   modelAggression: ModelAggression;
   recapGrouping: RecapGrouping;
@@ -124,6 +146,7 @@ export const DEFAULT_SETTINGS: Settings = {
   winPoints: 1,
   tiePoints: 0.5,
   runDiffTiebreaker: true,
+  tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: 18,
   modelAggression: "Balanced",
   recapGrouping: "date",

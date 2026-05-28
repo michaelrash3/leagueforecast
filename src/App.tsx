@@ -79,6 +79,7 @@ import {
   DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
+  TIEBREAKER_LABELS,
   TREND_STATES,
   type GameLog,
   type Matchup,
@@ -90,6 +91,7 @@ import {
   type Team,
   type TeamBase,
   type TeamWithProjection,
+  type TiebreakerFactor,
   type UndoSnapshot,
 } from "./lib/types";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
@@ -121,6 +123,13 @@ const VIEW_LABELS: Record<ActiveView, string> = {
 };
 
 const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
+const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
+type TiebreakerSelectValue = TiebreakerFactor | "none";
+
+const rankOptionsForSettings = (settings: Settings) => ({
+  runDiffTiebreaker: settings.runDiffTiebreaker,
+  tiebreakerOrder: settings.tiebreakerOrder,
+});
 
 // ---------- Helpers that depend on app-shape but no state ----------
 
@@ -744,8 +753,8 @@ export default function App() {
   }, [teams]);
 
   const ranked = useMemo(
-    () => rankTeams(liveTeams, { runDiffTiebreaker: settings.runDiffTiebreaker }),
-    [liveTeams, settings.runDiffTiebreaker]
+    () => rankTeams(liveTeams, rankOptionsForSettings(settings)),
+    [liveTeams, settings]
   );
   const remainingGames = useMemo(
     () => matchups.filter((game) => !isFinal(logs[game.id])),
@@ -784,7 +793,7 @@ export default function App() {
       simulationSeed(
         matchups,
         logs,
-        `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.runDiffTiebreaker}`
+        `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
       ),
     [matchups, logs, goldCutoff, settings]
   );
@@ -892,6 +901,7 @@ export default function App() {
       winPoints: settings.winPoints,
       tiePoints: settings.tiePoints,
       runDiffTiebreaker: settings.runDiffTiebreaker,
+      tiebreakerOrder: settings.tiebreakerOrder,
       maxScoreCap: settings.maxScoreCap,
       modelAggression: settings.modelAggression,
     }),
@@ -901,6 +911,7 @@ export default function App() {
       settings.winPoints,
       settings.tiePoints,
       settings.runDiffTiebreaker,
+      settings.tiebreakerOrder,
       settings.maxScoreCap,
       settings.modelAggression,
     ]
@@ -1118,7 +1129,7 @@ export default function App() {
       });
 
       const winOutSeed =
-        rankTeams(winOut, { runDiffTiebreaker: settings.runDiffTiebreaker }).find(
+        rankTeams(winOut, rankOptionsForSettings(settings)).find(
           (item) => item.id === team.id
         )?.rank ?? 99;
       const swings = nextTwoSwingGames(team.id);
@@ -1308,7 +1319,7 @@ export default function App() {
   const goldStatusAfterScenario = (teamId: string, game: Matchup, winnerId: string) => {
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, winnerId, liveTeams, settings),
-      { runDiffTiebreaker: settings.runDiffTiebreaker }
+      rankOptionsForSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1328,7 +1339,7 @@ export default function App() {
   const teamsClinchingAfterGameResult = (game: Matchup, winnerId: string) => {
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, winnerId, liveTeams, settings),
-      { runDiffTiebreaker: settings.runDiffTiebreaker }
+      rankOptionsForSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1371,7 +1382,7 @@ export default function App() {
 
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, teamId, liveTeams, settings),
-      { runDiffTiebreaker: settings.runDiffTiebreaker }
+      rankOptionsForSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1730,7 +1741,7 @@ export default function App() {
 
   const buildRankSnapshot = (nextLogs: Record<string, GameLog>): RankSnapshotEntry[] => {
     const nextLive = calculateTeams(teams, matchups, nextLogs);
-    const nextRanked = rankTeams(nextLive, { runDiffTiebreaker: settings.runDiffTiebreaker });
+    const nextRanked = rankTeams(nextLive, rankOptionsForSettings(settings));
     const nextRemaining = matchups.filter((game) => !isFinal(nextLogs[game.id]));
     const nextRemainingCounts = getRemainingCounts(nextLive, nextRemaining);
     const nextProjected = projectStandings(nextLive, nextRemaining, settings);
@@ -3806,6 +3817,20 @@ function SettingsView({
   const regularSeasonGamesId = useId();
   const aggrId = useId();
   const recapId = useId();
+  const tiebreakerId = useId();
+  const updateTiebreaker = (index: number, value: TiebreakerSelectValue) => {
+    setSettings((prev) => {
+      const next: Array<TiebreakerFactor | undefined> = [...prev.tiebreakerOrder];
+      next[index] = value === "none" ? undefined : value;
+      return {
+        ...prev,
+        tiebreakerOrder: next.filter(
+          (factor, factorIndex): factor is TiebreakerFactor =>
+            factor !== undefined && next.indexOf(factor) === factorIndex
+        ),
+      };
+    });
+  };
 
   return (
     <section className="grid grid-cols-1 gap-6">
@@ -3922,23 +3947,42 @@ function SettingsView({
               <option value="week">Per Week (ending Sunday)</option>
             </select>
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-slate-300 px-4 py-3 dark:border-slate-600">
-            <span className="text-sm font-black text-slate-700">
-              Run Differential Tiebreaker
-            </span>
-            <input
-              type="checkbox"
-              checked={settings.runDiffTiebreaker}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  runDiffTiebreaker: event.target.checked,
-                }))
-              }
-              className="h-5 w-5"
-              aria-label="Use run differential as a tiebreaker"
-            />
-          </label>
+          <fieldset
+            className="rounded-2xl border border-slate-300 p-4 dark:border-slate-600 md:col-span-2"
+            aria-labelledby={tiebreakerId}
+          >
+            <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700">
+              League Tiebreaker Order
+            </legend>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              Applied after win percentage. Pick the deciding factors in order; lower Runs Against
+              wins, higher Run Differential wins.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              {[0, 1, 2].map((index) => (
+                <label key={index} className="block">
+                  <span className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Tie-break {index + 1}
+                  </span>
+                  <select
+                    value={settings.tiebreakerOrder[index] ?? "none"}
+                    onChange={(event) =>
+                      updateTiebreaker(index, event.target.value as TiebreakerSelectValue)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                    aria-label={`Tie-break ${index + 1}`}
+                  >
+                    <option value="none">None</option>
+                    {TIEBREAKER_FACTORS.map((factor) => (
+                      <option key={factor} value={factor}>
+                        {TIEBREAKER_LABELS[factor]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
 
 

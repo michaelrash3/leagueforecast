@@ -10,7 +10,13 @@ import {
   standingsPoints,
   calibrateAwayWinPct,
 } from "../sim";
-import { DEFAULT_SETTINGS, type GameLog, type Matchup, type Settings, type TeamBase } from "../types";
+import {
+  DEFAULT_SETTINGS,
+  type GameLog,
+  type Matchup,
+  type Settings,
+  type TeamBase,
+} from "../types";
 
 const teams: TeamBase[] = [
   { id: "A", name: "Aces" },
@@ -56,7 +62,12 @@ describe("calculateTeams", () => {
     };
     const result = calculateTeams(teams, matchups, logs);
     const totals = result.reduce(
-      (acc, t) => ({ games: acc.games + t.games, w: acc.w + t.w, l: acc.l + t.l, ties: acc.ties + t.t }),
+      (acc, t) => ({
+        games: acc.games + t.games,
+        w: acc.w + t.w,
+        l: acc.l + t.l,
+        ties: acc.ties + t.t,
+      }),
       { games: 0, w: 0, l: 0, ties: 0 }
     );
     expect(totals.games).toBe(6);
@@ -81,7 +92,6 @@ describe("calculateTeams", () => {
     expect(byId.get("A")!.rs).toBe(10);
     expect(byId.get("A")!.ra).toBe(6);
   });
-
 
   it("weights recent form more heavily in momentum", () => {
     const formTeams: TeamBase[] = [
@@ -110,7 +120,6 @@ describe("calculateTeams", () => {
     expect(a.momentum).toBeGreaterThan(0);
     expect(b.momentum).toBeLessThan(0);
   });
-
 });
 
 describe("standingsPoints + rankTeams", () => {
@@ -130,6 +139,61 @@ describe("standingsPoints + rankTeams", () => {
     // Same shape, but the comparator skips runDiff when disabled — both should
     // be deterministic and stable.
     expect(withDiff.map((t) => t.id).sort()).toEqual(withoutDiff.map((t) => t.id).sort());
+  });
+
+  it("applies configurable head-to-head before run differential", () => {
+    const leagueTeams: TeamBase[] = [
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+      { id: "C", name: "Comets" },
+    ];
+    const leagueMatchups: Matchup[] = [
+      { id: "h1", date: "5/1", away: "A", home: "B" },
+      { id: "h2", date: "5/2", away: "A", home: "C" },
+      { id: "h3", date: "5/3", away: "B", home: "C" },
+    ];
+    const live = calculateTeams(leagueTeams, leagueMatchups, {
+      h1: finalLog({ awayRuns: "5", homeRuns: "4" }),
+      h2: finalLog({ awayRuns: "0", homeRuns: "10" }),
+      h3: finalLog({ awayRuns: "10", homeRuns: "0" }),
+    });
+
+    const headToHeadFirst = rankTeams(live, {
+      tiebreakerOrder: ["headToHead", "runDifferential"],
+    }).map((team) => team.id);
+    const runDifferentialFirst = rankTeams(live, {
+      tiebreakerOrder: ["runDifferential", "headToHead"],
+    }).map((team) => team.id);
+
+    expect(headToHeadFirst.indexOf("A")).toBeLessThan(headToHeadFirst.indexOf("B"));
+    expect(runDifferentialFirst.indexOf("B")).toBeLessThan(runDifferentialFirst.indexOf("A"));
+  });
+
+  it("honors runs-against and run-differential tiebreaker order", () => {
+    const leagueTeams: TeamBase[] = [
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+      { id: "C", name: "Comets" },
+    ];
+    const leagueMatchups: Matchup[] = [
+      { id: "r1", date: "5/1", away: "A", home: "C" },
+      { id: "r2", date: "5/2", away: "B", home: "C" },
+    ];
+    const live = calculateTeams(leagueTeams, leagueMatchups, {
+      r1: finalLog({ awayRuns: "5", homeRuns: "4" }),
+      r2: finalLog({ awayRuns: "10", homeRuns: "8" }),
+    });
+
+    expect(
+      rankTeams(live, { tiebreakerOrder: ["runsAgainst", "runDifferential"] })
+        .slice(0, 2)
+        .map((team) => team.id)
+    ).toEqual(["A", "B"]);
+    expect(
+      rankTeams(live, { tiebreakerOrder: ["runDifferential", "runsAgainst"] })
+        .slice(0, 2)
+        .map((team) => team.id)
+    ).toEqual(["B", "A"]);
   });
 });
 
@@ -163,7 +227,6 @@ describe("predictGame", () => {
     expect(sameScore).toBe(false);
   });
 
-
   it("calibrates probabilities away from overconfident extremes", () => {
     const aggressive = calibrateAwayWinPct(0.9, 2, 2, 1.25);
     const mature = calibrateAwayWinPct(0.9, 12, 12, 1.25);
@@ -174,9 +237,8 @@ describe("predictGame", () => {
   it("keeps calibration symmetric around 50%", () => {
     const favored = calibrateAwayWinPct(0.72, 8, 8, 1);
     const underdog = calibrateAwayWinPct(0.28, 8, 8, 1);
-    expect(Math.abs((favored + underdog) - 1)).toBeLessThan(0.001);
+    expect(Math.abs(favored + underdog - 1)).toBeLessThan(0.001);
   });
-
 });
 
 describe("applyResult", () => {
@@ -207,7 +269,9 @@ describe("projectStandings + simulateGoldOdds", () => {
   });
 
   it("produces stable projection regression output", () => {
-    const live = calculateTeams(teams, matchups, { g1: finalLog({ awayRuns: "3", homeRuns: "2" }) });
+    const live = calculateTeams(teams, matchups, {
+      g1: finalLog({ awayRuns: "3", homeRuns: "2" }),
+    });
     const projected = projectStandings(live, [matchups[1]!, matchups[2]!], settings);
     expect(projected.map((t) => `${t.id}:${t.w}-${t.l}-${t.t}:r${t.rank}`)).toMatchInlineSnapshot(`
       [
@@ -225,8 +289,6 @@ describe("projectStandings + simulateGoldOdds", () => {
     // Each iteration awards `cutoff` slots, so total percent equals cutoff*100.
     expect(Math.round(total)).toBe(200);
   });
-
-
 
   it("maintains cutoff-slot normalization even with adaptive convergence", () => {
     const live = calculateTeams(teams, matchups, {});
