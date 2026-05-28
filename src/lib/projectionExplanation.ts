@@ -9,6 +9,8 @@ export type ProjectionExplanationOptions = {
   maxItems?: number;
   /** Minimum absolute Gold odds movement, in percentage points, worth explaining. */
   goldOddsThreshold?: number;
+  /** Minimum absolute projected-rank movement worth explaining. */
+  rankThreshold?: number;
   /** Minimum absolute projected-points movement worth explaining. */
   projectedPointsThreshold?: number;
   /** Minimum absolute standings-points movement worth explaining. */
@@ -29,8 +31,9 @@ type ExplanationCandidate = {
 };
 
 const DEFAULT_MAX_ITEMS = 3;
-const DEFAULT_GOLD_ODDS_THRESHOLD = 2;
-const DEFAULT_POINTS_THRESHOLD = 0.25;
+const DEFAULT_GOLD_ODDS_THRESHOLD = 3;
+const DEFAULT_RANK_THRESHOLD = 1;
+const DEFAULT_POINTS_THRESHOLD = 0.5;
 
 const absoluteDelta = (change: ProjectionTeamDeltaChange) =>
   typeof change.delta === "number" ? Math.abs(change.delta) : 0;
@@ -84,18 +87,35 @@ const goldOddsText = (delta: number, rankMovedTowardCutoff: boolean) => {
 };
 
 const projectedPointsText = (delta: number) => {
-  if (delta > 0) return "Projected points improved enough to strengthen the Gold position.";
-  return "Projected points slipped enough to weaken the Gold position.";
+  const points = formatCount(Math.abs(delta));
+  if (delta > 0) return `Projected points improved by ${points}, strengthening the Gold position.`;
+  return `Projected points slipped by ${points}, weakening the Gold position.`;
 };
 
 const standingsPointsText = (delta: number) => {
-  if (delta > 0) return "Standings points improved after recent results.";
-  return "Standings points slipped after recent results.";
+  const points = formatCount(Math.abs(delta));
+  if (delta > 0) return `Standings points improved by ${points} after recent results.`;
+  return `Standings points slipped by ${points} after recent results.`;
 };
+
+const thresholdImpact = (
+  change: ProjectionTeamDeltaChange,
+  threshold: number,
+  weight: number,
+  base = 0
+) => base + (threshold > 0 ? absoluteDelta(change) / threshold : absoluteDelta(change)) * weight;
 
 const meaningfulChanges = (
   teamDelta: ProjectionTeamDelta,
-  options: Required<Pick<ProjectionExplanationOptions, "goldOddsThreshold" | "projectedPointsThreshold" | "standingsPointsThreshold">>
+  options: Required<
+    Pick<
+      ProjectionExplanationOptions,
+      | "goldOddsThreshold"
+      | "rankThreshold"
+      | "projectedPointsThreshold"
+      | "standingsPointsThreshold"
+    >
+  >
 ) => {
   const changes = teamDelta.changes.filter((change) => {
     const delta = finiteDelta(change);
@@ -103,7 +123,7 @@ const meaningfulChanges = (
 
     switch (change.field) {
       case "rank":
-        return absoluteDelta(change) >= 1;
+        return absoluteDelta(change) >= options.rankThreshold;
       case "goldOdds":
         return absoluteDelta(change) >= options.goldOddsThreshold;
       case "projectedPoints":
@@ -130,6 +150,7 @@ export const buildProjectionExplanations = (
 
   const thresholds = {
     goldOddsThreshold: options.goldOddsThreshold ?? DEFAULT_GOLD_ODDS_THRESHOLD,
+    rankThreshold: options.rankThreshold ?? DEFAULT_RANK_THRESHOLD,
     projectedPointsThreshold: options.projectedPointsThreshold ?? DEFAULT_POINTS_THRESHOLD,
     standingsPointsThreshold: options.standingsPointsThreshold ?? DEFAULT_POINTS_THRESHOLD,
   };
@@ -148,7 +169,7 @@ export const buildProjectionExplanations = (
     if (change.field === "rank") {
       candidates.push({
         text: rankText(delta, change.reason),
-        impact: 80 + absoluteDelta(change) * 10,
+        impact: thresholdImpact(change, thresholds.rankThreshold, 24, 12),
         order,
       });
     }
@@ -156,7 +177,7 @@ export const buildProjectionExplanations = (
     if (change.field === "goldOdds") {
       candidates.push({
         text: goldOddsText(delta, rankMovedTowardCutoff),
-        impact: 70 + absoluteDelta(change),
+        impact: thresholdImpact(change, thresholds.goldOddsThreshold, 22, 10),
         order,
       });
     }
@@ -164,7 +185,7 @@ export const buildProjectionExplanations = (
     if (change.field === "projectedPoints") {
       candidates.push({
         text: projectedPointsText(delta),
-        impact: 60 + absoluteDelta(change) * 8,
+        impact: thresholdImpact(change, thresholds.projectedPointsThreshold, 18, 8),
         order,
       });
     }
@@ -172,7 +193,7 @@ export const buildProjectionExplanations = (
     if (change.field === "standingsPoints") {
       candidates.push({
         text: standingsPointsText(delta),
-        impact: 65 + absoluteDelta(change) * 8,
+        impact: thresholdImpact(change, thresholds.standingsPointsThreshold, 18, 7),
         order,
       });
     }
