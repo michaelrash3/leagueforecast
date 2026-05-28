@@ -12,12 +12,7 @@ function ProjectionExplanationView({ explanations }: ProjectionExplanationProps)
   if (!items.length) return null;
 
   return (
-    <div
-      className="mt-3 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-    >
+    <div className="mt-3 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">
       <ul className="space-y-1.5">
         {items.map((item) => (
           <li key={item} className="flex gap-2">

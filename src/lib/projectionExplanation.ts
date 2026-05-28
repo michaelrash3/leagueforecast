@@ -77,25 +77,25 @@ const goldOddsText = (delta: number, rankMovedTowardCutoff: boolean) => {
 
   if (delta > 0) {
     return rankMovedTowardCutoff
-      ? `Gold odds improved by ${pointText} as the projected finish strengthened.`
-      : `Gold odds improved by ${pointText} after the projection strengthened.`;
+      ? `Gold odds lifted by ${pointText} as the projected finish moved up.`
+      : `Gold odds lifted by ${pointText} after the projection moved up.`;
   }
 
   return rankMovedTowardCutoff
     ? `Gold odds dipped by ${pointText} after the projected finish moved closer to the cutoff.`
-    : `Gold odds dipped by ${pointText} after the projection softened.`;
+    : `Gold odds dipped by ${pointText} after the projection moved down.`;
 };
 
 const projectedPointsText = (delta: number) => {
   const points = formatCount(Math.abs(delta));
-  if (delta > 0) return `Projected points improved by ${points}, strengthening the Gold position.`;
-  return `Projected points slipped by ${points}, weakening the Gold position.`;
+  if (delta > 0) return `Projected points nudged up by ${points}, lifting the Gold outlook.`;
+  return `Projected points dipped by ${points}, softening the Gold outlook.`;
 };
 
 const standingsPointsText = (delta: number) => {
   const points = formatCount(Math.abs(delta));
-  if (delta > 0) return `Standings points improved by ${points} after recent results.`;
-  return `Standings points slipped by ${points} after recent results.`;
+  if (delta > 0) return `Standings points moved up by ${points} after recent results.`;
+  return `Standings points dipped by ${points} after recent results.`;
 };
 
 const thresholdImpact = (

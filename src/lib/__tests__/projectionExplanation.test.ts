@@ -44,31 +44,31 @@ describe("buildProjectionExplanations", () => {
 
   it("explains Gold odds improvement above the noise threshold", () => {
     expect(explanationsFor({ goldOdds: 40 }, { goldOdds: 47 })).toEqual([
-      "Gold odds improved by 7 points after the projection strengthened.",
+      "Gold odds lifted by 7 points after the projection moved up.",
     ]);
   });
 
   it("explains Gold odds decline above the noise threshold", () => {
     expect(explanationsFor({ goldOdds: 55 }, { goldOdds: 45 })).toEqual([
-      "Gold odds dipped by 10 points after the projection softened.",
+      "Gold odds dipped by 10 points after the projection moved down.",
     ]);
   });
 
   it("explains projected points movement up and down", () => {
     expect(explanationsFor({ projectedPoints: 7 }, { projectedPoints: 8 })).toEqual([
-      "Projected points improved by 1, strengthening the Gold position.",
+      "Projected points nudged up by 1, lifting the Gold outlook.",
     ]);
     expect(explanationsFor({ projectedPoints: 8 }, { projectedPoints: 6.5 })).toEqual([
-      "Projected points slipped by 1.5, weakening the Gold position.",
+      "Projected points dipped by 1.5, softening the Gold outlook.",
     ]);
   });
 
   it("explains standings points movement up and down", () => {
     expect(explanationsFor({ standingsPoints: 4 }, { standingsPoints: 5 })).toEqual([
-      "Standings points improved by 1 after recent results.",
+      "Standings points moved up by 1 after recent results.",
     ]);
     expect(explanationsFor({ standingsPoints: 5 }, { standingsPoints: 3.5 })).toEqual([
-      "Standings points slipped by 1.5 after recent results.",
+      "Standings points dipped by 1.5 after recent results.",
     ]);
   });
 
@@ -130,7 +130,7 @@ describe("buildProjectionExplanations", () => {
     );
 
     expect(explanations).toEqual([
-      "Gold odds improved by 12 points after the projection strengthened.",
+      "Gold odds lifted by 12 points after the projection moved up.",
       "Recent results lifted the projected finish by 3 spots.",
     ]);
   });
@@ -142,7 +142,7 @@ describe("buildProjectionExplanations", () => {
     );
 
     expect(explanations[0]).toBe(
-      "Gold odds improved by 15 points after the projection strengthened."
+      "Gold odds lifted by 15 points after the projection moved up."
     );
   });
 
