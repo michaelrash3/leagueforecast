@@ -106,6 +106,19 @@ type ConfirmState = {
   cancelLabel?: string;
 };
 
+type TeamSplitLine = {
+  label: string;
+  games: number;
+  offense: { runs: number; hits: number; strikeouts: number };
+  defense: { runs: number; hits: number; strikeouts: number };
+};
+
+type TeamSplitSummary = {
+  all: TeamSplitLine;
+  home: TeamSplitLine;
+  away: TeamSplitLine;
+};
+
 type RankSnapshotEntry = Team & {
   rank: number;
   projectedRank: number;
@@ -214,6 +227,76 @@ const calcBip = (hits: string, runs: string, strikeouts: string, innings: string
   return contact + inn * 3 - k;
 };
 
+const emptySplitLine = (label: string): TeamSplitLine => ({
+  label,
+  games: 0,
+  offense: { runs: 0, hits: 0, strikeouts: 0 },
+  defense: { runs: 0, hits: 0, strikeouts: 0 },
+});
+
+const addSplitGame = (
+  line: TeamSplitLine,
+  offense: { runs: number; hits: number; strikeouts: number },
+  defense: { runs: number; hits: number; strikeouts: number }
+) => {
+  line.games += 1;
+  line.offense.runs += offense.runs;
+  line.offense.hits += offense.hits;
+  line.offense.strikeouts += offense.strikeouts;
+  line.defense.runs += defense.runs;
+  line.defense.hits += defense.hits;
+  line.defense.strikeouts += defense.strikeouts;
+};
+
+const buildTeamSplitSummary = (
+  teamId: string,
+  matchups: Matchup[],
+  logs: Record<string, GameLog>
+): TeamSplitSummary => {
+  const summary: TeamSplitSummary = {
+    all: emptySplitLine("Overall"),
+    home: emptySplitLine("Home"),
+    away: emptySplitLine("Away"),
+  };
+
+  matchups.forEach((game) => {
+    if (game.away !== teamId && game.home !== teamId) return;
+    const log = logs[game.id];
+    if (!log || !isFinal(log)) return;
+
+    const isAway = game.away === teamId;
+    const offense = isAway
+      ? {
+          runs: parseNumber(log.awayRuns),
+          hits: parseNumber(log.awayHits),
+          strikeouts: parseNumber(log.awayK),
+        }
+      : {
+          runs: parseNumber(log.homeRuns),
+          hits: parseNumber(log.homeHits),
+          strikeouts: parseNumber(log.homeK),
+        };
+    const defense = isAway
+      ? {
+          runs: parseNumber(log.homeRuns),
+          hits: parseNumber(log.homeHits),
+          strikeouts: parseNumber(log.homeK),
+        }
+      : {
+          runs: parseNumber(log.awayRuns),
+          hits: parseNumber(log.awayHits),
+          strikeouts: parseNumber(log.awayK),
+        };
+
+    addSplitGame(summary.all, offense, defense);
+    addSplitGame(isAway ? summary.away : summary.home, offense, defense);
+  });
+
+  return summary;
+};
+
+const perGame = (value: number, games: number) => (games ? (value / games).toFixed(1) : "—");
+
 // ---------- Subcomponents ----------
 
 const Sparkline = React.memo(function Sparkline({ values }: { values: number[] }) {
@@ -314,6 +397,57 @@ function DrawerMetric({ label, value }: { label: string; value: string | number 
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
       <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">{value}</div>
+    </div>
+  );
+}
+
+function SplitStatsTable({
+  title,
+  lines,
+  side,
+}: {
+  title: string;
+  lines: TeamSplitLine[];
+  side: "offense" | "defense";
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+        <h4 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">{title}</h4>
+        <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+          Per-game split from final scores you manually entered.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <tr>
+              <th className="px-4 py-2">Split</th>
+              <th className="px-3 py-2 text-center">G</th>
+              <th className="px-3 py-2 text-center">R/G</th>
+              <th className="px-3 py-2 text-center">H/G</th>
+              <th className="px-3 py-2 text-center">K/G</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-slate-800 dark:divide-slate-800 dark:text-slate-100">
+            {lines.map((line) => (
+              <tr key={`${title}-${line.label}`}>
+                <td className="px-4 py-3 font-black">{line.label}</td>
+                <td className="px-3 py-3 text-center font-bold">{line.games}</td>
+                <td className="px-3 py-3 text-center font-bold">
+                  {perGame(line[side].runs, line.games)}
+                </td>
+                <td className="px-3 py-3 text-center font-bold">
+                  {perGame(line[side].hits, line.games)}
+                </td>
+                <td className="px-3 py-3 text-center font-bold">
+                  {perGame(line[side].strikeouts, line.games)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -438,6 +572,7 @@ function TeamDrawer({
   eliminationNumber,
   pathSummary,
   projectionExplanations,
+  splitSummary,
   onCompare,
 }: {
   team: TeamWithProjection;
@@ -455,6 +590,7 @@ function TeamDrawer({
   eliminationNumber: import("./lib/magic").MagicResult;
   pathSummary: string;
   projectionExplanations: string[];
+  splitSummary: TeamSplitSummary;
   onCompare: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -545,6 +681,27 @@ function TeamDrawer({
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
             {pathSummary}
           </p>
+        </section>
+
+        <section className="mt-6 space-y-3">
+          <div>
+            <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Team Stats Splits
+            </h3>
+            <p className="mt-1 text-xs font-bold leading-5 text-slate-500 dark:text-slate-400">
+              Offense is what this team recorded at the plate; defense is what opponents recorded against them.
+            </p>
+          </div>
+          <SplitStatsTable
+            title="Offensive Splits"
+            side="offense"
+            lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
+          />
+          <SplitStatsTable
+            title="Defensive Splits"
+            side="defense"
+            lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
+          />
         </section>
 
         <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -2373,6 +2530,17 @@ export default function App() {
   };
 
   const selectedTeam = selectedTeamId ? dashboardById.get(selectedTeamId) ?? null : null;
+  const selectedTeamSplitSummary = useMemo(
+    () =>
+      selectedTeam
+        ? buildTeamSplitSummary(selectedTeam.id, matchups, logs)
+        : {
+            all: emptySplitLine("Overall"),
+            home: emptySplitLine("Home"),
+            away: emptySplitLine("Away"),
+          },
+    [selectedTeam, matchups, logs]
+  );
   const compareTeam = compareTeamId ? dashboardById.get(compareTeamId) ?? null : null;
   const currentLeader = dashboardRows[0];
 
@@ -2730,6 +2898,7 @@ export default function App() {
             statusClass={statusClass}
             statusLabel={statusLabel}
             formatGoldPct={formatGoldPct}
+            onSelectTeam={setSelectedTeamId}
           />
         ) : activeView === "model" ? (
           <ModelView
@@ -2751,6 +2920,7 @@ export default function App() {
             logs={logs}
             settings={settings}
             cutoff={goldCutoff}
+            onSelectTeam={setSelectedTeamId}
           />
         ) : activeView === "settings" ? (
           <SettingsView
@@ -2806,6 +2976,7 @@ export default function App() {
           eliminationNumber={selectedTeamDetail?.elimination ?? { type: "elimination", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading elimination number…" }}
           pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
           projectionExplanations={selectedTeamProjectionExplanations}
+          splitSummary={selectedTeamSplitSummary}
           onClose={() => {
             setSelectedTeamId(null);
             setCompareTeamId(null);
@@ -3017,6 +3188,7 @@ function StandingsView({
   statusClass,
   statusLabel,
   formatGoldPct,
+  onSelectTeam,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
@@ -3038,6 +3210,7 @@ function StandingsView({
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
+  onSelectTeam: (id: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -3179,14 +3352,22 @@ function StandingsView({
                         >
                           <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
                           <td className="px-5 py-4">
-                            <div className="flex items-center gap-3 p-1 -m-1 text-left">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => onSelectTeam(team.id)}
+                              className="-m-1 flex items-center gap-3 rounded-2xl p-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                              aria-label={`View stats for ${displayName(team.name)}`}
+                            >
+                              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
                                 {teamAbbr(team.name)}
-                              </div>
-                              <div className="font-black tracking-tight text-slate-950 dark:text-slate-100" title={team.name}>
+                              </span>
+                              <span
+                                className="font-black tracking-tight text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200"
+                                title={team.name}
+                              >
                                 {displayName(team.name)}
-                              </div>
-                            </div>
+                              </span>
+                            </button>
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
@@ -3259,7 +3440,12 @@ function StandingsView({
                 return (
                   <li key={team.id}>
                     <div className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
-                      <div className="flex min-w-0 items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => onSelectTeam(team.id)}
+                        className="flex min-w-0 items-center gap-3 rounded-2xl text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                        aria-label={`View stats for ${displayName(team.name)}`}
+                      >
                         <span className="w-7 text-right text-xs font-black text-slate-500 dark:text-slate-400">
                           #{team.rank}
                         </span>
@@ -3267,7 +3453,7 @@ function StandingsView({
                           {teamAbbr(team.name)}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                          <span className="block truncate text-sm font-black text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
                             {displayName(team.name)}
                           </span>
                           <span className="mt-0.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400">
@@ -3287,7 +3473,7 @@ function StandingsView({
                             · SOS #{currentSosRanks[team.id] || "—"}
                           </span>
                         </span>
-                      </div>
+                      </button>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <span
                           className={
@@ -3357,6 +3543,7 @@ function ModelView(props: {
   logs: Record<string, GameLog>;
   settings: Settings;
   cutoff: number;
+  onSelectTeam: (id: string) => void;
 }) {
   const {
     goldCutoff,
@@ -3377,6 +3564,7 @@ function ModelView(props: {
     logs: _logs,
     settings: _settings,
     cutoff: _cutoff,
+    onSelectTeam,
   } = props;
 
   return (
@@ -3419,7 +3607,16 @@ function ModelView(props: {
                     const range = seedRangeForTeam(team.id);
                     return (
                       <tr key={`forecast-${team.id}`} className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
-                        <td className="px-5 py-4 font-black">{displayName(team.name)}</td>
+                        <td className="px-5 py-4 font-black">
+                          <button
+                            type="button"
+                            onClick={() => onSelectTeam(team.id)}
+                            className="rounded-xl text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200 dark:focus:ring-offset-slate-900"
+                            aria-label={`View stats for ${displayName(team.name)}`}
+                          >
+                            {displayName(team.name)}
+                          </button>
+                        </td>
                         <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
                         <td className="px-4 py-4 text-center font-black">
                           #{team.projectedRank}
@@ -3483,9 +3680,14 @@ function ModelView(props: {
                       #{team.rank}
                     </span>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => onSelectTeam(team.id)}
+                        className="truncate rounded-xl text-left text-sm font-black text-blue-700 underline decoration-blue-300 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:focus:ring-offset-slate-900"
+                        aria-label={`View stats for ${displayName(team.name)}`}
+                      >
                         {displayName(team.name)}
-                      </div>
+                      </button>
                       <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
                         Proj #{team.projectedRank}{" "}
                         <span
