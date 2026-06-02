@@ -129,7 +129,18 @@ export const getMathGoldStatus = (
 export type RankOptions = {
   runDiffTiebreaker?: boolean;
   tiebreakerOrder?: TiebreakerFactor[];
+  winPoints?: number;
+  tiePoints?: number;
 };
+
+export const rankOptionsFromSettings = (
+  settings: Pick<Settings, "runDiffTiebreaker" | "tiebreakerOrder" | "winPoints" | "tiePoints">
+): RankOptions => ({
+  runDiffTiebreaker: settings.runDiffTiebreaker,
+  tiebreakerOrder: settings.tiebreakerOrder,
+  winPoints: settings.winPoints,
+  tiePoints: settings.tiePoints,
+});
 
 const resolvedTiebreakerOrder = (options: RankOptions) => {
   if (options.tiebreakerOrder) return options.tiebreakerOrder;
@@ -165,7 +176,14 @@ const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor) => {
 
 export const rankTeams = (teams: Team[], options: RankOptions) => {
   const tiebreakerOrder = resolvedTiebreakerOrder(options);
+  const pointsSettings = {
+    winPoints: options.winPoints ?? 1,
+    tiePoints: options.tiePoints ?? 0.5,
+  };
   const sorted = [...teams].sort((a, b) => {
+    const pointsDiff = standingsPoints(b, pointsSettings) - standingsPoints(a, pointsSettings);
+    if (Math.abs(pointsDiff) > 0.0001) return pointsDiff;
+
     if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
 
     for (const factor of tiebreakerOrder) {
@@ -530,10 +548,7 @@ export const projectStandings = (teams: Team[], games: Matchup[], settings: Sett
     const prediction = predictGame(game, projected, settings, projectionById);
     projected = applyResult(projected, game, prediction.winnerId, projected, settings);
   });
-  return rankTeams(projected, {
-    runDiffTiebreaker: settings.runDiffTiebreaker,
-    tiebreakerOrder: settings.tiebreakerOrder,
-  });
+  return rankTeams(projected, rankOptionsFromSettings(settings));
 };
 
 export const hashSeed = (text: string) => {
@@ -614,10 +629,7 @@ export const simulateGoldOdds = (
       simTeams = applyResult(simTeams, game, winner, simTeams, settings);
     });
 
-    rankTeams(simTeams, {
-      runDiffTiebreaker: settings.runDiffTiebreaker,
-      tiebreakerOrder: settings.tiebreakerOrder,
-    })
+    rankTeams(simTeams, rankOptionsFromSettings(settings))
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;

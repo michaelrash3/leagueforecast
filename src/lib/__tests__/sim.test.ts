@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyResult,
   calculateTeams,
+  emptyTeam,
   predictGame,
   projectStandings,
   rankTeams,
@@ -127,6 +128,34 @@ describe("standingsPoints + rankTeams", () => {
     const team = { w: 4, t: 2 };
     expect(standingsPoints(team, { winPoints: 1, tiePoints: 0.5 })).toBe(5);
     expect(standingsPoints(team, { winPoints: 3, tiePoints: 1 })).toBe(14);
+  });
+
+  it("ranks GameChanger-style standings points before winning percentage", () => {
+    const strongerPct = {
+      ...emptyTeam({ id: "A", name: "9-3 Team" }),
+      w: 9,
+      l: 3,
+      t: 0,
+      games: 12,
+      pct: 9 / 12,
+      tpi: 1,
+    };
+    const morePoints = {
+      ...emptyTeam({ id: "B", name: "8-2-3 Team" }),
+      w: 8,
+      l: 2,
+      t: 3,
+      games: 13,
+      pct: (8 + 3 * 0.5) / 13,
+      tpi: 0,
+    };
+
+    const ranked = rankTeams([strongerPct, morePoints], { winPoints: 1, tiePoints: 0.5 });
+
+    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
+    expect(standingsPoints(morePoints, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
+      standingsPoints(strongerPct, { winPoints: 1, tiePoints: 0.5 })
+    );
   });
 
   it("skips run-diff tier when disabled", () => {
@@ -280,6 +309,57 @@ describe("projectStandings + simulateGoldOdds", () => {
         "C:0-2-0:r3",
       ]
     `);
+  });
+
+  it("uses custom scoring settings when ranking projected standings", () => {
+    const higherWinTotal = {
+      ...emptyTeam({ id: "A", name: "9-3 Team" }),
+      w: 9,
+      l: 3,
+      games: 12,
+      pct: 9 / 12,
+    };
+    const tieHeavy = {
+      ...emptyTeam({ id: "B", name: "8-2-3 Team" }),
+      w: 8,
+      l: 2,
+      t: 3,
+      games: 13,
+      pct: (8 + 3 * 0.5) / 13,
+    };
+
+    const projected = projectStandings([tieHeavy, higherWinTotal], [], {
+      ...settings,
+      tiePoints: 0,
+    });
+
+    expect(projected.map((team) => team.id)).toEqual(["A", "B"]);
+  });
+
+  it("uses custom scoring settings when ranking simulated gold odds", () => {
+    const higherWinTotal = {
+      ...emptyTeam({ id: "A", name: "9-3 Team" }),
+      w: 9,
+      l: 3,
+      games: 12,
+      pct: 9 / 12,
+    };
+    const tieHeavy = {
+      ...emptyTeam({ id: "B", name: "8-2-3 Team" }),
+      w: 8,
+      l: 2,
+      t: 3,
+      games: 13,
+      pct: (8 + 3 * 0.5) / 13,
+    };
+
+    const odds = simulateGoldOdds([tieHeavy, higherWinTotal], [], 10, "custom-scoring", 1, {
+      ...settings,
+      tiePoints: 0,
+    });
+
+    expect(odds.A).toBe(100);
+    expect(odds.B).toBe(0);
   });
 
   it("simulator returns percentages summing to (cutoff * 100)", () => {

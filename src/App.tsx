@@ -59,6 +59,7 @@ import {
   getRemainingCounts,
   predictGame,
   projectStandings,
+  rankOptionsFromSettings,
   rankTeams,
   simulationSeed,
   standingsPoints,
@@ -169,11 +170,6 @@ const VIEW_LABELS: Record<ActiveView, string> = {
 const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
 type TiebreakerSelectValue = TiebreakerFactor | "none";
-
-const rankOptionsForSettings = (settings: Settings) => ({
-  runDiffTiebreaker: settings.runDiffTiebreaker,
-  tiebreakerOrder: settings.tiebreakerOrder,
-});
 
 // ---------- Helpers that depend on app-shape but no state ----------
 
@@ -952,7 +948,7 @@ export default function App() {
   }, [teams]);
 
   const ranked = useMemo(
-    () => rankTeams(liveTeams, rankOptionsForSettings(settings)),
+    () => rankTeams(liveTeams, rankOptionsFromSettings(settings)),
     [liveTeams, settings]
   );
   const remainingGames = useMemo(
@@ -1328,7 +1324,7 @@ export default function App() {
       });
 
       const winOutSeed =
-        rankTeams(winOut, rankOptionsForSettings(settings)).find(
+        rankTeams(winOut, rankOptionsFromSettings(settings)).find(
           (item) => item.id === team.id
         )?.rank ?? 99;
       const swings = nextTwoSwingGames(team.id);
@@ -1518,7 +1514,7 @@ export default function App() {
   const goldStatusAfterScenario = (teamId: string, game: Matchup, winnerId: string) => {
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, winnerId, liveTeams, settings),
-      rankOptionsForSettings(settings)
+      rankOptionsFromSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1538,7 +1534,7 @@ export default function App() {
   const teamsClinchingAfterGameResult = (game: Matchup, winnerId: string) => {
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, winnerId, liveTeams, settings),
-      rankOptionsForSettings(settings)
+      rankOptionsFromSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1581,7 +1577,7 @@ export default function App() {
 
     const scenarioTeams = rankTeams(
       applyResult(liveTeams, game, teamId, liveTeams, settings),
-      rankOptionsForSettings(settings)
+      rankOptionsFromSettings(settings)
     );
     const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
@@ -1940,7 +1936,7 @@ export default function App() {
 
   const buildRankSnapshot = (nextLogs: Record<string, GameLog>): RankSnapshotEntry[] => {
     const nextLive = calculateTeams(teams, matchups, nextLogs);
-    const nextRanked = rankTeams(nextLive, rankOptionsForSettings(settings));
+    const nextRanked = rankTeams(nextLive, rankOptionsFromSettings(settings));
     const nextRemaining = matchups.filter((game) => !isFinal(nextLogs[game.id]));
     const nextRemainingCounts = getRemainingCounts(nextLive, nextRemaining);
     const nextProjected = projectStandings(nextLive, nextRemaining, settings);
