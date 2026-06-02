@@ -34,6 +34,7 @@ import {
   type ProjectionSnapshotDelta,
 } from "./lib/projectionDelta";
 import { buildProjectionExplanations } from "./lib/projectionExplanation";
+import { backtestPredictions } from "./lib/backtest";
 import { buildShareUrl } from "./lib/share";
 import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
@@ -126,6 +127,80 @@ type RankSnapshotEntry = Team & {
 
 const TEAM_QUERY_PARAM = "team";
 const EXACT_MAGIC_REMAINING_GAME_LIMIT = 14;
+
+const DEMO_TEAM_NAMES = [
+  "Northside Knockouts",
+  "River City Rockets",
+  "Metro Mashers",
+  "Lakeside Legends",
+  "Capital Crushers",
+  "East End Eagles",
+  "Westfield Whales",
+  "Southtown Sluggers",
+];
+
+const buildDemoSeason = () => {
+  const existingIds = new Set<string>();
+  const demoTeams: TeamBase[] = DEMO_TEAM_NAMES.map((name) => ({
+    id: createTeamId(name, existingIds),
+    name,
+  }));
+  const demoMatchups: Matchup[] = [];
+  const demoLogs: Record<string, GameLog> = {};
+  const dates = [
+    "2026-04-05",
+    "2026-04-12",
+    "2026-04-19",
+    "2026-04-26",
+    "2026-05-03",
+    "2026-05-10",
+    "2026-05-17",
+  ];
+  let gameIndex = 1;
+
+  for (let round = 0; round < demoTeams.length - 1; round += 1) {
+    for (let slot = 0; slot < demoTeams.length / 2; slot += 1) {
+      const awayIndex = (round + slot) % demoTeams.length;
+      const homeIndex = (demoTeams.length - 1 - slot + round) % demoTeams.length;
+      if (awayIndex === homeIndex) continue;
+      const away = demoTeams[awayIndex];
+      const home = demoTeams[homeIndex];
+      if (!away || !home) continue;
+      const id = `demo-${String(gameIndex).padStart(2, "0")}`;
+      demoMatchups.push({ id, date: dates[round] ?? "", away: away.id, home: home.id });
+
+      if (gameIndex <= 18) {
+        const awayRuns = 6 + ((gameIndex * 3 + awayIndex) % 9);
+        const homeRuns = 5 + ((gameIndex * 5 + homeIndex) % 9);
+        demoLogs[id] = {
+          innings: "6",
+          awayRuns: String(awayRuns === homeRuns ? awayRuns + 1 : awayRuns),
+          awayHits: String(Math.max(awayRuns + 3, 8 + ((gameIndex + awayIndex) % 8))),
+          awayK: String(2 + ((gameIndex + awayIndex) % 6)),
+          homeRuns: String(homeRuns),
+          homeHits: String(Math.max(homeRuns + 3, 8 + ((gameIndex + homeIndex) % 8))),
+          homeK: String(2 + ((gameIndex + homeIndex) % 6)),
+          isFinal: true,
+        };
+      } else {
+        demoLogs[id] = blankLog();
+      }
+      gameIndex += 1;
+    }
+  }
+
+  return {
+    teams: demoTeams,
+    matchups: demoMatchups,
+    logs: demoLogs,
+    settings: {
+      ...DEFAULT_SETTINGS,
+      seasonLabel: "Demo Gold Chase",
+      goldCutoff: 4,
+      regularSeasonGamesPerTeam: demoTeams.length - 1,
+    },
+  };
+};
 
 const linkedTeamIdFromUrl = () => {
   if (typeof window === "undefined") return null;
@@ -1074,6 +1149,11 @@ export default function App() {
     return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
   }, [teams, matchups, logs, completedGames, goldCutoff, settings]);
   const trendMap = useSimulationTrend(trendInput);
+
+  const backtestResult = useMemo(
+    () => backtestPredictions(teams, matchups, logs, settings),
+    [teams, matchups, logs, settings]
+  );
 
   // ---------- Dashboard / scenario computations ----------
 
@@ -2482,6 +2562,29 @@ export default function App() {
     });
   };
 
+  const loadDemoSeason = async () => {
+    const confirmed = await requestConfirmation({
+      title: "Load demo season?",
+      message:
+        "This replaces the current teams, games, and scores with a sample season and saves an undo snapshot.",
+      confirmLabel: "Load demo",
+    });
+    if (!confirmed) return;
+    const demo = buildDemoSeason();
+    captureUndo("Load demo season");
+    setTeams(demo.teams);
+    setMatchups(demo.matchups);
+    setLogs(demo.logs);
+    setSettings(demo.settings);
+    setActiveView("standings");
+    closeTeamData();
+    showToast("Loaded demo season.", {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: restoreUndo,
+    });
+  };
+
   // ---------- Season builder ----------
 
   const readBuilderTeamNames = (): string[] => {
@@ -2801,6 +2904,12 @@ export default function App() {
         run: runTrackedCommand("action-backup", () => exportBackup()),
       },
       {
+        id: "action-demo",
+        label: "Load demo season",
+        group: "Action",
+        run: runTrackedCommand("action-demo", loadDemoSeason),
+      },
+      {
         id: "action-toggle-theme",
         label: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
         group: "Action",
@@ -2975,6 +3084,7 @@ export default function App() {
               seasonBuilderText={seasonBuilderText}
               setSeasonBuilderText={setSeasonBuilderText}
               teams={teams}
+              loadDemoSeason={loadDemoSeason}
             />
           ) : activeView === "standings" ? (
             <StandingsView
@@ -3035,6 +3145,9 @@ export default function App() {
               settings={settings}
               cutoff={goldCutoff}
               onSelectTeam={openTeamData}
+              liveTeams={liveTeams}
+              remainingGames={remainingGames}
+              backtestResult={backtestResult}
             />
           ) : activeView === "settings" ? (
             <SettingsView
@@ -3046,6 +3159,7 @@ export default function App() {
               exportCSV={exportCSV}
               exportBackup={exportBackup}
               resetSeason={resetSeason}
+              loadDemoSeason={loadDemoSeason}
             />
           ) : (
             <GamesView
@@ -3200,6 +3314,7 @@ function EmptyState({
   seasonBuilderText,
   setSeasonBuilderText,
   teams,
+  loadDemoSeason,
 }: {
   importCSV: (file: File) => void;
   createSeasonFromTeamList: () => void;
@@ -3207,6 +3322,7 @@ function EmptyState({
   seasonBuilderText: string;
   setSeasonBuilderText: (v: string) => void;
   teams: TeamBase[];
+  loadDemoSeason: () => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
@@ -3236,6 +3352,9 @@ function EmptyState({
           </button>
           <button onClick={downloadRoundRobinCSV} className={buttonClasses.ghost}>
             Download Blank CSV
+          </button>
+          <button onClick={loadDemoSeason} className={buttonClasses.ghost}>
+            Load Demo Season
           </button>
         </div>
 
@@ -3742,6 +3861,9 @@ function ModelView(props: {
   settings: Settings;
   cutoff: number;
   onSelectTeam: (id: string) => void;
+  liveTeams: Team[];
+  remainingGames: Matchup[];
+  backtestResult: ReturnType<typeof backtestPredictions>;
 }) {
   const {
     goldCutoff,
@@ -3763,7 +3885,50 @@ function ModelView(props: {
     settings: _settings,
     cutoff: _cutoff,
     onSelectTeam,
+    liveTeams,
+    remainingGames,
+    backtestResult,
   } = props;
+
+  const [scenarioPicks, setScenarioPicks] = useState<Record<string, string>>({});
+  const scenarioEntries = useMemo(
+    () =>
+      Object.entries(scenarioPicks).filter(([gameId, winnerId]) =>
+        remainingGames.some(
+          (game) => game.id === gameId && (game.away === winnerId || game.home === winnerId)
+        )
+      ),
+    [scenarioPicks, remainingGames]
+  );
+  const scenarioRows = useMemo(() => {
+    let scenarioTeams = liveTeams.map((team) => ({ ...team }));
+    const selectedGameIds = new Set(scenarioEntries.map(([gameId]) => gameId));
+    scenarioEntries.forEach(([gameId, winnerId]) => {
+      const game = remainingGames.find((item) => item.id === gameId);
+      if (game)
+        scenarioTeams = applyResult(scenarioTeams, game, winnerId, scenarioTeams, _settings);
+    });
+    const scenarioRemaining = remainingGames.filter((game) => !selectedGameIds.has(game.id));
+    const projected = projectStandings(scenarioTeams, scenarioRemaining, _settings);
+    return rankTeams(projected, rankOptionsFromSettings(_settings)).map((team) => {
+      const baseline = modelRows.find((item) => item.id === team.id);
+      return {
+        ...team,
+        baselineRank: baseline?.projectedRank ?? baseline?.rank ?? team.rank ?? 99,
+      };
+    });
+  }, [scenarioEntries, liveTeams, remainingGames, _settings, modelRows]);
+  const scenarioPreviewGames = useMemo(
+    () =>
+      [...remainingGames]
+        .sort((a, b) => {
+          const aMatter = gamesThatMatterMost.find((item) => item.game.id === a.id)?.rank ?? 99;
+          const bMatter = gamesThatMatterMost.find((item) => item.game.id === b.id)?.rank ?? 99;
+          return aMatter - bMatter || parseDateValue(a.date) - parseDateValue(b.date);
+        })
+        .slice(0, 8),
+    [remainingGames, gamesThatMatterMost]
+  );
 
   return (
     <section className="space-y-6">
@@ -3777,6 +3942,192 @@ function ModelView(props: {
           </div>
         </div>
       </div>
+
+      <section className={`${card} p-5`}>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              What-if Scenario Builder
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Pick winners for key remaining games and preview how the projected table changes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScenarioPicks({})}
+            disabled={scenarioEntries.length === 0}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+          >
+            Clear picks
+          </button>
+        </div>
+        {scenarioPreviewGames.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+            No remaining games are available for what-if picks.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_460px]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {scenarioPreviewGames.map((game) => {
+                const away = byId.get(game.away);
+                const home = byId.get(game.home);
+                const pick = scenarioPicks[game.id] ?? "";
+                return (
+                  <article
+                    key={`scenario-${game.id}`}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {formatGameDate(game.date)}
+                    </div>
+                    <div className="mt-1 text-sm font-black text-slate-950 dark:text-slate-100">
+                      {displayName(away?.name || game.away)} at{" "}
+                      {displayName(home?.name || game.home)}
+                    </div>
+                    <label className="mt-3 block text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Hypothetical winner
+                      <select
+                        value={pick}
+                        onChange={(event) =>
+                          setScenarioPicks((prev) => {
+                            const next = { ...prev };
+                            if (event.target.value) next[game.id] = event.target.value;
+                            else delete next[game.id];
+                            return next;
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-black text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-white"
+                      >
+                        <option value="">Use model pick</option>
+                        <option value={game.away}>{displayName(away?.name || game.away)}</option>
+                        <option value={game.home}>{displayName(home?.name || game.home)}</option>
+                      </select>
+                    </label>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Scenario projection
+                </h4>
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                  {scenarioEntries.length} pick{scenarioEntries.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2">Team</th>
+                      <th className="px-3 py-2 text-center">Proj.</th>
+                      <th className="px-3 py-2 text-center">Move</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {scenarioRows.slice(0, Math.max(goldCutoff + 3, 8)).map((team) => {
+                      const delta = team.baselineRank - (team.rank ?? 99);
+                      return (
+                        <tr key={`scenario-row-${team.id}`}>
+                          <td className="px-3 py-2 font-black text-slate-800 dark:text-slate-100">
+                            {displayName(team.name)}
+                          </td>
+                          <td className="px-3 py-2 text-center font-black">#{team.rank}</td>
+                          <td
+                            className={`px-3 py-2 text-center font-black ${
+                              delta > 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : delta < 0
+                                  ? "text-red-600 dark:text-red-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {delta > 0 ? `+${delta}` : delta}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className={`${card} p-5`}>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Model Health
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Backtests finalized games using only results that were known before each game.
+            </p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {backtestResult.sampleSize} finalized samples
+          </span>
+        </div>
+        {backtestResult.sampleSize === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+            Finalize at least one non-tie game to see calibration metrics.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
+            <div className="grid grid-cols-3 gap-3 text-center lg:grid-cols-1">
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Brier
+                </div>
+                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
+                  {backtestResult.brierScore.toFixed(3)}
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Upset capture
+                </div>
+                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
+                  {Math.round(backtestResult.upsetCaptureRate * 100)}%
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Buckets
+                </div>
+                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
+                  {backtestResult.calibration.length}
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {backtestResult.calibration.map((bucket) => (
+                <div key={`${bucket.min}-${bucket.max}`}>
+                  <div className="mb-1 flex justify-between text-xs font-black text-slate-500 dark:text-slate-400">
+                    <span>
+                      {Math.round(bucket.min * 100)}-{Math.round(bucket.max * 100)}% away win bucket
+                      · {bucket.samples} game{bucket.samples === 1 ? "" : "s"}
+                    </span>
+                    <span>
+                      Pred {Math.round(bucket.predicted * 100)}% / Actual{" "}
+                      {Math.round(bucket.actual * 100)}%
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <div
+                      className="h-full rounded-full bg-blue-500"
+                      style={{ width: `${Math.round(bucket.actual * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
@@ -4233,6 +4584,7 @@ function SettingsView({
   exportCSV,
   exportBackup,
   resetSeason,
+  loadDemoSeason,
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -4242,6 +4594,7 @@ function SettingsView({
   exportCSV: () => void;
   exportBackup: () => void;
   resetSeason: () => void;
+  loadDemoSeason: () => void;
 }) {
   const seasonId = useId();
   const cutoffId = useId();
@@ -4464,6 +4817,12 @@ function SettingsView({
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Backup JSON
+            </button>
+            <button
+              onClick={loadDemoSeason}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            >
+              Load Demo
             </button>
             <button onClick={resetSeason} className={buttonClasses.danger}>
               Reset Season
