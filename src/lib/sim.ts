@@ -129,6 +129,8 @@ export const getMathGoldStatus = (
 export type RankOptions = {
   runDiffTiebreaker?: boolean;
   tiebreakerOrder?: TiebreakerFactor[];
+  winPoints?: number;
+  tiePoints?: number;
 };
 
 const resolvedTiebreakerOrder = (options: RankOptions) => {
@@ -165,7 +167,14 @@ const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor) => {
 
 export const rankTeams = (teams: Team[], options: RankOptions) => {
   const tiebreakerOrder = resolvedTiebreakerOrder(options);
+  const pointsSettings = {
+    winPoints: options.winPoints ?? 1,
+    tiePoints: options.tiePoints ?? 0.5,
+  };
   const sorted = [...teams].sort((a, b) => {
+    const pointsDiff = standingsPoints(b, pointsSettings) - standingsPoints(a, pointsSettings);
+    if (Math.abs(pointsDiff) > 0.0001) return pointsDiff;
+
     if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
 
     for (const factor of tiebreakerOrder) {

@@ -173,6 +173,8 @@ type TiebreakerSelectValue = TiebreakerFactor | "none";
 const rankOptionsForSettings = (settings: Settings) => ({
   runDiffTiebreaker: settings.runDiffTiebreaker,
   tiebreakerOrder: settings.tiebreakerOrder,
+  winPoints: settings.winPoints,
+  tiePoints: settings.tiePoints,
 });
 
 // ---------- Helpers that depend on app-shape but no state ----------
