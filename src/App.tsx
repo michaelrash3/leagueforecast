@@ -128,6 +128,37 @@ type RankSnapshotEntry = Team & {
   blockersAhead: number;
 };
 
+
+const TEAM_QUERY_PARAM = "team";
+
+const linkedTeamIdFromUrl = () => {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(TEAM_QUERY_PARAM);
+};
+
+const buildTeamDataHref = (teamId: string) => {
+  const encodedTeamId = encodeURIComponent(teamId);
+  if (typeof window === "undefined") return `?${TEAM_QUERY_PARAM}=${encodedTeamId}`;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set(TEAM_QUERY_PARAM, teamId);
+  url.hash = "";
+  return `${url.pathname}${url.search}`;
+};
+
+const replaceTeamDataUrl = (teamId: string | null) => {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  if (teamId) {
+    url.searchParams.set(TEAM_QUERY_PARAM, teamId);
+  } else {
+    url.searchParams.delete(TEAM_QUERY_PARAM);
+  }
+  url.hash = "";
+  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+};
+
 const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
   games: "Schedule",
@@ -792,7 +823,7 @@ export default function App() {
   const [newDate, setNewDate] = useState("");
   const [newAway, setNewAway] = useState("");
   const [newHome, setNewHome] = useState("");
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => linkedTeamIdFromUrl());
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
@@ -845,6 +876,17 @@ export default function App() {
     confirmResolverRef.current = null;
     setConfirmState(null);
   }, []);
+  const openTeamData = useCallback((teamId: string) => {
+    setSelectedTeamId(teamId);
+    replaceTeamDataUrl(teamId);
+  }, []);
+
+  const closeTeamData = useCallback(() => {
+    setSelectedTeamId(null);
+    setCompareTeamId(null);
+    replaceTeamDataUrl(null);
+  }, []);
+
   useFocusTrap(!!confirmState, confirmDialogRef as React.RefObject<HTMLElement>);
   useEffect(() => {
     if (!confirmState) return;
@@ -1939,7 +1981,7 @@ export default function App() {
     setTeams(snapshot.teams);
     setMatchups(snapshot.matchups);
     setLogs(snapshot.logs);
-    setSelectedTeamId(null);
+    closeTeamData();
     undoRef.current = null;
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
   };
@@ -2073,7 +2115,7 @@ export default function App() {
         setTeams(importedTeams);
         setMatchups(importedMatchups);
         setLogs(importedLogs);
-        setSelectedTeamId(null);
+        closeTeamData();
         setActiveView("standings");
         showToast(`Imported ${importedMatchups.length} games.`, {
           tone: "undo",
@@ -2185,7 +2227,7 @@ export default function App() {
         setMatchups(nextMatchups);
         setLogs(nextLogs);
         setSettings(nextSettings);
-        setSelectedTeamId(null);
+        closeTeamData();
         setLastImpact(null);
         setActiveView("standings");
         showToast(`Imported backup (${nextMatchups.length} games).`, {
@@ -2215,7 +2257,7 @@ export default function App() {
     setMatchups([]);
     setLogs({});
     setLastImpact(null);
-    setSelectedTeamId(null);
+    closeTeamData();
     setActiveView("standings");
     showToast("Season reset.", {
       tone: "undo",
@@ -2460,7 +2502,7 @@ export default function App() {
     setMatchups(built.builtMatchups);
     setLogs(built.builtLogs);
     setLastImpact(null);
-    setSelectedTeamId(null);
+    closeTeamData();
     setScoreboardTeamFilter("ALL");
     setActiveView("games");
     showToast(`Created ${built.builtMatchups.length}-game schedule.`, {
@@ -2660,7 +2702,7 @@ export default function App() {
       label: `View ${displayName(team.name)}`,
       group: "Team",
       hint: `#${team.rank} · ${recordText(team)}`,
-      run: runTrackedCommand(`team-${team.id}`, () => setSelectedTeamId(team.id)),
+      run: runTrackedCommand(`team-${team.id}`, () => openTeamData(team.id)),
     }));
     const viewCmds: Command[] = VIEW_ORDER.map((view) => ({
       id: `view-${view}`,
@@ -2898,7 +2940,7 @@ export default function App() {
             statusClass={statusClass}
             statusLabel={statusLabel}
             formatGoldPct={formatGoldPct}
-            onSelectTeam={setSelectedTeamId}
+            onSelectTeam={openTeamData}
           />
         ) : activeView === "model" ? (
           <ModelView
@@ -2920,7 +2962,7 @@ export default function App() {
             logs={logs}
             settings={settings}
             cutoff={goldCutoff}
-            onSelectTeam={setSelectedTeamId}
+            onSelectTeam={openTeamData}
           />
         ) : activeView === "settings" ? (
           <SettingsView
@@ -2977,10 +3019,7 @@ export default function App() {
           pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
           projectionExplanations={selectedTeamProjectionExplanations}
           splitSummary={selectedTeamSplitSummary}
-          onClose={() => {
-            setSelectedTeamId(null);
-            setCompareTeamId(null);
-          }}
+          onClose={closeTeamData}
           onCompare={() => {
             const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
             setCompareTeamId(candidate ? candidate.id : null);
@@ -3352,9 +3391,12 @@ function StandingsView({
                         >
                           <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
                           <td className="px-5 py-4">
-                            <button
-                              type="button"
-                              onClick={() => onSelectTeam(team.id)}
+                            <a
+                              href={buildTeamDataHref(team.id)}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                onSelectTeam(team.id);
+                              }}
                               className="-m-1 flex items-center gap-3 rounded-2xl p-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                               aria-label={`View stats for ${displayName(team.name)}`}
                             >
@@ -3367,7 +3409,7 @@ function StandingsView({
                               >
                                 {displayName(team.name)}
                               </span>
-                            </button>
+                            </a>
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
@@ -3440,9 +3482,12 @@ function StandingsView({
                 return (
                   <li key={team.id}>
                     <div className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
-                      <button
-                        type="button"
-                        onClick={() => onSelectTeam(team.id)}
+                      <a
+                        href={buildTeamDataHref(team.id)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          onSelectTeam(team.id);
+                        }}
                         className="flex min-w-0 items-center gap-3 rounded-2xl text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
@@ -3473,7 +3518,7 @@ function StandingsView({
                             · SOS #{currentSosRanks[team.id] || "—"}
                           </span>
                         </span>
-                      </button>
+                      </a>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <span
                           className={
@@ -3608,14 +3653,17 @@ function ModelView(props: {
                     return (
                       <tr key={`forecast-${team.id}`} className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
                         <td className="px-5 py-4 font-black">
-                          <button
-                            type="button"
-                            onClick={() => onSelectTeam(team.id)}
+                          <a
+                            href={buildTeamDataHref(team.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              onSelectTeam(team.id);
+                            }}
                             className="rounded-xl text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200 dark:focus:ring-offset-slate-900"
                             aria-label={`View stats for ${displayName(team.name)}`}
                           >
                             {displayName(team.name)}
-                          </button>
+                          </a>
                         </td>
                         <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
                         <td className="px-4 py-4 text-center font-black">
@@ -3680,14 +3728,17 @@ function ModelView(props: {
                       #{team.rank}
                     </span>
                     <div className="min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => onSelectTeam(team.id)}
-                        className="truncate rounded-xl text-left text-sm font-black text-blue-700 underline decoration-blue-300 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:focus:ring-offset-slate-900"
+                      <a
+                        href={buildTeamDataHref(team.id)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          onSelectTeam(team.id);
+                        }}
+                        className="block truncate rounded-xl text-left text-sm font-black text-blue-700 underline decoration-blue-300 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:focus:ring-offset-slate-900"
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
                         {displayName(team.name)}
-                      </button>
+                      </a>
                       <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
                         Proj #{team.projectedRank}{" "}
                         <span
