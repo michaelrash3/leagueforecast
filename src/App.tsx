@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CommandPalette, type Command } from "./components/CommandPalette";
+import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
+import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { ProjectionExplanation } from "./components/ProjectionExplanation";
+import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -10,6 +13,11 @@ import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
 import { useSimulationOdds, useSimulationTrend } from "./hooks/useSimulationWorker";
+import {
+  clinchingPathsForTeams,
+  goldCutLineSnapshot,
+  type ClinchingPathNote,
+} from "./lib/clinchingPaths";
 import { csvEscape, normalizeHeader, parseCSVLine, stripBom } from "./lib/csv";
 import {
   formatGameDate,
@@ -36,6 +44,7 @@ import {
 import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { backtestPredictions } from "./lib/backtest";
 import { buildShareUrl } from "./lib/share";
+import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
 import {
   applyResult,
@@ -68,6 +77,7 @@ import {
   SIM_ITERATIONS,
   TIEBREAKER_LABELS,
   TREND_STATES,
+  type ActiveShareView,
   type GameLog,
   type Matchup,
   type ModelAggression,
@@ -88,7 +98,7 @@ import {
   titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
 } from "./lib/standingsView";
 
-type ActiveView = "standings" | "games" | "model" | "settings";
+type ActiveView = ActiveShareView;
 type ConfirmState = {
   title: string;
   message: string;
@@ -964,7 +974,11 @@ export default function App() {
   }>({ delta: null, key: null });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const { theme, toggle: toggleTheme } = useDarkMode();
-  const { snapshot: sharedSnapshot, clear: clearSharedSnapshot } = useUrlSnapshot();
+  const {
+    snapshot: sharedSnapshot,
+    uiState: sharedUiState,
+    clear: clearSharedSnapshot,
+  } = useUrlSnapshot();
   const requestConfirmation = useCallback(
     (options: ConfirmState) =>
       new Promise<boolean>((resolve) => {
@@ -1421,6 +1435,32 @@ export default function App() {
         });
     },
     [remainingGames, teamBaseById, liveTeams, settings, liveById, seedForScenario]
+  );
+
+  const clinchingPaths = useMemo(
+    () =>
+      clinchingPathsForTeams(
+        dashboardRows,
+        remainingGames,
+        goldCutoff,
+        settings,
+        nextTwoSwingGames,
+        {
+          limit: 8,
+          exactLimit: EXACT_MAGIC_REMAINING_GAME_LIMIT,
+        }
+      ),
+    [dashboardRows, remainingGames, goldCutoff, settings, nextTwoSwingGames]
+  );
+
+  const cutLineSnapshot = useMemo(
+    () => goldCutLineSnapshot(dashboardRows, goldCutoff, settings),
+    [dashboardRows, goldCutoff, settings]
+  );
+
+  const timelineEntries = useMemo(
+    () => buildSeasonTimeline(teams, matchups, logs, settings, 6),
+    [teams, matchups, logs, settings]
   );
 
   const controlLevelMap = useMemo(() => {
@@ -2832,7 +2872,9 @@ export default function App() {
         setMatchups(sharedSnapshot.matchups);
         setLogs(sharedSnapshot.logs);
         setSettings(sharedSnapshot.settings);
-        showToast("Loaded shared snapshot.", {
+        if (sharedUiState.view) setActiveView(sharedUiState.view);
+        if (sharedUiState.teamId) setSelectedTeamId(sharedUiState.teamId);
+        showToast("Loaded shared snapshot and view state.", {
           tone: "undo",
           actionLabel: "Undo",
           onAction: restoreUndo,
@@ -2841,15 +2883,23 @@ export default function App() {
       clearSharedSnapshot();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sharedSnapshot]);
+  }, [sharedSnapshot, sharedUiState]);
 
   const shareSeason = async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
-      const url = buildShareUrl(window.location.href, snapshot);
+      const url = buildShareUrl(window.location.href, snapshot, {
+        view: activeView,
+        teamId: selectedTeamId ?? undefined,
+      });
       try {
         await navigator.clipboard.writeText(url);
-        showToast("Share URL copied to clipboard.", { tone: "success" });
+        showToast(
+          activeView === "standings" && !selectedTeamId
+            ? "Share URL copied to clipboard."
+            : "Share URL copied with the current tab and team context.",
+          { tone: "success" }
+        );
       } catch {
         showToast(
           "Could not copy automatically. Share URL is ready in your browser clipboard permissions prompt.",
@@ -2857,9 +2907,12 @@ export default function App() {
         );
       }
     } catch {
-      showToast("Snapshot is too large for a share URL. Download a backup JSON instead.", {
-        tone: "error",
-      });
+      showToast(
+        "Snapshot is too large for a share URL. Use Settings → Download backup JSON instead.",
+        {
+          tone: "error",
+        }
+      );
     }
   };
 
@@ -3148,6 +3201,9 @@ export default function App() {
               liveTeams={liveTeams}
               remainingGames={remainingGames}
               backtestResult={backtestResult}
+              clinchingPaths={clinchingPaths}
+              cutLineSnapshot={cutLineSnapshot}
+              timelineEntries={timelineEntries}
             />
           ) : activeView === "settings" ? (
             <SettingsView
@@ -3864,6 +3920,9 @@ function ModelView(props: {
   liveTeams: Team[];
   remainingGames: Matchup[];
   backtestResult: ReturnType<typeof backtestPredictions>;
+  clinchingPaths: ClinchingPathNote[];
+  cutLineSnapshot: ReturnType<typeof goldCutLineSnapshot>;
+  timelineEntries: SeasonTimelineEntry[];
 }) {
   const {
     goldCutoff,
@@ -3888,6 +3947,9 @@ function ModelView(props: {
     liveTeams,
     remainingGames,
     backtestResult,
+    clinchingPaths,
+    cutLineSnapshot,
+    timelineEntries,
   } = props;
 
   const [scenarioPicks, setScenarioPicks] = useState<Record<string, string>>({});
@@ -3942,6 +4004,14 @@ function ModelView(props: {
           </div>
         </div>
       </div>
+
+      <ClinchingPathsPanel
+        paths={clinchingPaths}
+        lastInName={cutLineSnapshot.lastInName}
+        firstOutName={cutLineSnapshot.firstOutName}
+        pointsGap={cutLineSnapshot.pointsGap}
+        onSelectTeam={onSelectTeam}
+      />
 
       <section className={`${card} p-5`}>
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -4052,78 +4122,6 @@ function ModelView(props: {
                   </tbody>
                 </table>
               </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className={`${card} p-5`}>
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              Model Health
-            </h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              Backtests finalized games using only results that were known before each game.
-            </p>
-          </div>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {backtestResult.sampleSize} finalized samples
-          </span>
-        </div>
-        {backtestResult.sampleSize === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
-            Finalize at least one non-tie game to see calibration metrics.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
-            <div className="grid grid-cols-3 gap-3 text-center lg:grid-cols-1">
-              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
-                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Brier
-                </div>
-                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
-                  {backtestResult.brierScore.toFixed(3)}
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
-                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Upset capture
-                </div>
-                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
-                  {Math.round(backtestResult.upsetCaptureRate * 100)}%
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
-                <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Buckets
-                </div>
-                <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-100">
-                  {backtestResult.calibration.length}
-                </div>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {backtestResult.calibration.map((bucket) => (
-                <div key={`${bucket.min}-${bucket.max}`}>
-                  <div className="mb-1 flex justify-between text-xs font-black text-slate-500 dark:text-slate-400">
-                    <span>
-                      {Math.round(bucket.min * 100)}-{Math.round(bucket.max * 100)}% away win bucket
-                      · {bucket.samples} game{bucket.samples === 1 ? "" : "s"}
-                    </span>
-                    <span>
-                      Pred {Math.round(bucket.predicted * 100)}% / Actual{" "}
-                      {Math.round(bucket.actual * 100)}%
-                    </span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-blue-500"
-                      style={{ width: `${Math.round(bucket.actual * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}
@@ -4571,6 +4569,9 @@ function ModelView(props: {
           </div>
         )}
       </section>
+      <SeasonTimelinePanel entries={timelineEntries} />
+
+      <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
     </section>
   );
 }

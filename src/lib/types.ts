@@ -88,6 +88,7 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
+export type ActiveShareView = "standings" | "games" | "model" | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
 export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {

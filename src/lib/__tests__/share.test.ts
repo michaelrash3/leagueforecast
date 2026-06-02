@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SHARE_URL_PAYLOAD, buildShareUrl, decodeSnapshot, encodeSnapshot, readSharedFromHash, type SharedSnapshot } from "../share";
+import {
+  MAX_SHARE_URL_PAYLOAD,
+  buildShareUrl,
+  decodeSnapshot,
+  encodeSnapshot,
+  readShareUiStateFromHash,
+  readSharedFromHash,
+  type SharedSnapshot,
+} from "../share";
 import { DEFAULT_SETTINGS } from "../types";
 
 const snapshot: SharedSnapshot = {
@@ -32,7 +40,6 @@ describe("encode / decodeSnapshot", () => {
     expect(decodeSnapshot("not-base64-data!!")).toBeNull();
   });
 
-
   it("rejects payloads above max share length", () => {
     const oversized = "a".repeat(MAX_SHARE_URL_PAYLOAD + 1);
     expect(decodeSnapshot(oversized)).toBeNull();
@@ -40,17 +47,23 @@ describe("encode / decodeSnapshot", () => {
 });
 
 describe("buildShareUrl + readSharedFromHash", () => {
-  it("survives a full URL round-trip", () => {
-    const url = buildShareUrl("https://example.com/?foo=bar#old", snapshot);
+  it("survives a full URL round-trip and preserves UI context", () => {
+    const url = buildShareUrl("https://example.com/?foo=bar#old", snapshot, {
+      view: "model",
+      teamId: "A",
+    });
     expect(url.startsWith("https://example.com/?foo=bar#s=")).toBe(true);
+    expect(url).toContain("&view=model&team=A");
     const hash = url.split("#")[1] ?? "";
     const decoded = readSharedFromHash(`#${hash}`);
     expect(decoded).toEqual(snapshot);
+    expect(readShareUiStateFromHash(`#${hash}`)).toEqual({ view: "model", teamId: "A" });
   });
 
   it("returns null when no payload in hash", () => {
     expect(readSharedFromHash("")).toBeNull();
     expect(readSharedFromHash("#foo=bar")).toBeNull();
+    expect(readShareUiStateFromHash("#view=not-real&team=A")).toEqual({ teamId: "A" });
   });
 
   it("throws when share payload is too large", () => {
