@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { OnboardingTour } from "./components/OnboardingTour";
@@ -16,16 +9,8 @@ import { useDarkMode } from "./hooks/useDarkMode";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
-import {
-  useSimulationOdds,
-  useSimulationTrend,
-} from "./hooks/useSimulationWorker";
-import {
-  csvEscape,
-  normalizeHeader,
-  parseCSVLine,
-  stripBom,
-} from "./lib/csv";
+import { useSimulationOdds, useSimulationTrend } from "./hooks/useSimulationWorker";
+import { csvEscape, normalizeHeader, parseCSVLine, stripBom } from "./lib/csv";
 import {
   formatGameDate,
   formatGameDateLong,
@@ -97,7 +82,10 @@ import {
 } from "./lib/types";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
-import { formatGoldPct as formatGoldPctValue, titleRaceBadgeForTeam as titleRaceBadgeForTeamValue } from "./lib/standingsView";
+import {
+  formatGoldPct as formatGoldPctValue,
+  titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
+} from "./lib/standingsView";
 
 type ActiveView = "standings" | "games" | "model" | "settings";
 type ConfirmState = {
@@ -120,6 +108,13 @@ type TeamSplitSummary = {
   away: TeamSplitLine;
 };
 
+type LeagueAverageStats = {
+  games: number;
+  runs: number;
+  hits: number;
+  strikeouts: number;
+};
+
 type RankSnapshotEntry = Team & {
   rank: number;
   projectedRank: number;
@@ -129,8 +124,8 @@ type RankSnapshotEntry = Team & {
   blockersAhead: number;
 };
 
-
 const TEAM_QUERY_PARAM = "team";
+const EXACT_MAGIC_REMAINING_GAME_LIMIT = 14;
 
 const linkedTeamIdFromUrl = () => {
   if (typeof window === "undefined") return null;
@@ -187,11 +182,7 @@ const upsetRiskLabel = (winnerPct: number, margin: number) => {
   return "Low";
 };
 
-const describePrediction = (
-  game: Matchup,
-  prediction: Prediction,
-  byId: Map<string, Team>
-) => {
+const describePrediction = (game: Matchup, prediction: Prediction, byId: Map<string, Team>) => {
   const away = byId.get(game.away);
   const home = byId.get(game.home);
   const winner = byId.get(prediction.winnerId);
@@ -208,9 +199,7 @@ const describePrediction = (
   }
 
   const winnerPct =
-    prediction.winnerId === game.away
-      ? prediction.awayWinPct
-      : 1 - prediction.awayWinPct;
+    prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
   const tpiEdge = away.tpi - home.tpi;
   const scoringEdge = away.rsg - home.rsg;
   const preventionEdge = home.rag - away.rag;
@@ -322,6 +311,25 @@ const buildTeamSplitSummary = (
   return summary;
 };
 
+const buildLeagueAverageStats = (
+  matchups: Matchup[],
+  logs: Record<string, GameLog>
+): LeagueAverageStats => {
+  return matchups.reduce<LeagueAverageStats>(
+    (totals, game) => {
+      const log = logs[game.id];
+      if (!log || !isFinal(log)) return totals;
+
+      totals.games += 2;
+      totals.runs += parseNumber(log.awayRuns) + parseNumber(log.homeRuns);
+      totals.hits += parseNumber(log.awayHits) + parseNumber(log.homeHits);
+      totals.strikeouts += parseNumber(log.awayK) + parseNumber(log.homeK);
+      return totals;
+    },
+    { games: 0, runs: 0, hits: 0, strikeouts: 0 }
+  );
+};
+
 const perGame = (value: number, games: number) => (games ? (value / games).toFixed(1) : "—");
 
 // ---------- Subcomponents ----------
@@ -422,7 +430,9 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 function DrawerMetric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {label}
+      </div>
       <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">{value}</div>
     </div>
   );
@@ -440,7 +450,9 @@ function SplitStatsTable({
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-        <h4 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">{title}</h4>
+        <h4 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">
+          {title}
+        </h4>
         <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
           Per-game split from final scores you manually entered.
         </p>
@@ -601,6 +613,7 @@ function TeamDrawer({
   projectionExplanations,
   splitSummary,
   onCompare,
+  leagueAverageStats,
 }: {
   team: TeamWithProjection;
   range: { best: number; worst: number; baseline: number };
@@ -619,6 +632,7 @@ function TeamDrawer({
   projectionExplanations: string[];
   splitSummary: TeamSplitSummary;
   onCompare: () => void;
+  leagueAverageStats: LeagueAverageStats;
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -694,9 +708,18 @@ function TeamDrawer({
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
           <DrawerMetric
-            label="Current SOS"
-            value={currentSosRank ? `#${currentSosRank}` : "—"}
+            label="Lg Avg R/G"
+            value={perGame(leagueAverageStats.runs, leagueAverageStats.games)}
           />
+          <DrawerMetric
+            label="Lg Avg H/G"
+            value={perGame(leagueAverageStats.hits, leagueAverageStats.games)}
+          />
+          <DrawerMetric
+            label="Lg Avg K/G"
+            value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
+          />
+          <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
@@ -716,7 +739,8 @@ function TeamDrawer({
               Team Stats Splits
             </h3>
             <p className="mt-1 text-xs font-bold leading-5 text-slate-500 dark:text-slate-400">
-              Offense is what this team recorded at the plate; defense is what opponents recorded against them.
+              Offense is what this team recorded at the plate; defense is what opponents recorded
+              against them.
             </p>
           </div>
           <SplitStatsTable
@@ -752,7 +776,9 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Clinch Scenarios</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Clinch Scenarios
+          </h3>
           <div className="mt-3 space-y-2">
             {clinchScenarios.map((scenario) => (
               <div
@@ -825,7 +851,9 @@ export default function App() {
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
-  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== "undefined" ? !navigator.onLine : false
+  );
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
     const onOffline = () => setIsOffline(true);
@@ -836,9 +864,12 @@ export default function App() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
-  const [lastImpact, setLastImpact] = useState<
-    { title: string; scores: string[]; messages: string[]; recapItems: RecapItem[] } | null
-  >(null);
+  const [lastImpact, setLastImpact] = useState<{
+    title: string;
+    scores: string[];
+    messages: string[];
+    recapItems: RecapItem[];
+  } | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -932,10 +963,7 @@ export default function App() {
 
   // ---------- Derived state ----------
 
-  const liveTeams = useMemo(
-    () => calculateTeams(teams, matchups, logs),
-    [teams, matchups, logs]
-  );
+  const liveTeams = useMemo(() => calculateTeams(teams, matchups, logs), [teams, matchups, logs]);
   const liveById = useMemo(() => {
     const map = new Map<string, Team>();
     liveTeams.forEach((team) => map.set(team.id, team));
@@ -960,6 +988,10 @@ export default function App() {
       matchups
         .filter((game) => isFinal(logs[game.id]))
         .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date)),
+    [matchups, logs]
+  );
+  const leagueAverageStats = useMemo(
+    () => buildLeagueAverageStats(matchups, logs),
     [matchups, logs]
   );
   const remainingCounts = useMemo(
@@ -1004,8 +1036,12 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds, pending: oddsPending, inputKey: oddsInputKey, resultKey: oddsResultKey } =
-    useSimulationOdds(oddsInput);
+  const {
+    odds,
+    pending: oddsPending,
+    inputKey: oddsInputKey,
+    resultKey: oddsResultKey,
+  } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -1137,7 +1173,15 @@ export default function App() {
           team.ra,
           team.runDiff,
         ]),
-        projected.map((team) => [team.id, team.rank, team.w, team.t, team.rs, team.ra, team.runDiff]),
+        projected.map((team) => [
+          team.id,
+          team.rank,
+          team.w,
+          team.t,
+          team.rs,
+          team.ra,
+          team.runDiff,
+        ]),
         matchups.length,
         Object.keys(logs).length,
         completedGames.length,
@@ -1199,7 +1243,9 @@ export default function App() {
 
   const scenarioSeedCacheRef = useRef<Map<string, Map<string, number>>>(new Map());
   const teamScenarioSeedCacheRef = useRef<Map<string, number>>(new Map());
-  const seedRangeCacheRef = useRef<Map<string, { best: number; worst: number; baseline: number }>>(new Map());
+  const seedRangeCacheRef = useRef<Map<string, { best: number; worst: number; baseline: number }>>(
+    new Map()
+  );
 
   useEffect(() => {
     scenarioSeedCacheRef.current.clear();
@@ -1240,19 +1286,20 @@ export default function App() {
       const cached = seedRangeCacheRef.current.get(teamId);
       if (cached) return cached;
       const baseline =
-        projectedById.get(teamId)?.rank ??
-        ranked.find((item) => item.id === teamId)?.rank ??
-        99;
+        projectedById.get(teamId)?.rank ?? ranked.find((item) => item.id === teamId)?.rank ?? 99;
       let best = baseline;
       let worst = baseline;
-      remainingGames.forEach((game) => {
-        const winSeed = seedForScenario(teamId, game, game.away);
-        const lossSeed = seedForScenario(teamId, game, game.home);
-        if (winSeed < best) best = winSeed;
-        if (winSeed > worst) worst = winSeed;
-        if (lossSeed < best) best = lossSeed;
-        if (lossSeed > worst) worst = lossSeed;
-      });
+      remainingGames
+        .filter((game) => game.away === teamId || game.home === teamId)
+        .forEach((game) => {
+          const opponentId = game.away === teamId ? game.home : game.away;
+          const winSeed = seedForScenario(teamId, game, teamId);
+          const lossSeed = seedForScenario(teamId, game, opponentId);
+          if (winSeed < best) best = winSeed;
+          if (winSeed > worst) worst = winSeed;
+          if (lossSeed < best) best = lossSeed;
+          if (lossSeed > worst) worst = lossSeed;
+        });
       const result = { best, worst, baseline };
       seedRangeCacheRef.current.set(teamId, result);
       return result;
@@ -1274,9 +1321,7 @@ export default function App() {
         .map((game) => {
           const teamIsAway = game.away === teamId;
           const opponentId = teamIsAway ? game.home : game.away;
-          const opponentName = displayName(
-            teamBaseById.get(opponentId)?.name || opponentId
-          );
+          const opponentName = displayName(teamBaseById.get(opponentId)?.name || opponentId);
           const prediction = predictGame(game, liveTeams, settings, liveById);
           const winSeed = seedForScenario(teamId, game, teamId);
           const lossSeed = seedForScenario(teamId, game, opponentId);
@@ -1324,9 +1369,8 @@ export default function App() {
       });
 
       const winOutSeed =
-        rankTeams(winOut, rankOptionsFromSettings(settings)).find(
-          (item) => item.id === team.id
-        )?.rank ?? 99;
+        rankTeams(winOut, rankOptionsFromSettings(settings)).find((item) => item.id === team.id)
+          ?.rank ?? 99;
       const swings = nextTwoSwingGames(team.id);
       const lossRisk = swings.some((swing) => swing.lossSeed > goldCutoff);
 
@@ -1364,16 +1408,11 @@ export default function App() {
       if (team.goldStatus === "Eliminated") return "Eliminated";
       const currentSeed = team.rank ?? 99;
       const projectedSeed = team.projectedRank ?? 99;
-      if (
-        currentSeed <= goldCutoff - 2 &&
-        projectedSeed <= goldCutoff &&
-        team.goldPct >= 80
-      ) {
+      if (currentSeed <= goldCutoff - 2 && projectedSeed <= goldCutoff && team.goldPct >= 80) {
         return "Likely In";
       }
       if (currentSeed <= goldCutoff || projectedSeed <= goldCutoff) return "Bubble In";
-      const cutoffRow =
-        dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)] ?? team;
+      const cutoffRow = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)] ?? team;
       if (
         team.goldPct >= 20 ||
         projectedSeed <= goldCutoff + 2 ||
@@ -1388,9 +1427,7 @@ export default function App() {
 
   const scheduleDifficultyForTeam = useCallback(
     (teamId: string) => {
-      const games = remainingGames.filter(
-        (game) => game.away === teamId || game.home === teamId
-      );
+      const games = remainingGames.filter((game) => game.away === teamId || game.home === teamId);
       if (!games.length) {
         return { label: "Complete", avgSeed: 0, opponents: "No games left" };
       }
@@ -1402,7 +1439,8 @@ export default function App() {
           name: displayName(opponent?.name || opponentId),
         };
       });
-      const avgSeed = oppSeeds.reduce((sum, item) => sum + item.seed, 0) / Math.max(oppSeeds.length, 1);
+      const avgSeed =
+        oppSeeds.reduce((sum, item) => sum + item.seed, 0) / Math.max(oppSeeds.length, 1);
       const label =
         avgSeed <= Math.max(2, goldCutoff - 2)
           ? "Hard"
@@ -1520,16 +1558,9 @@ export default function App() {
     const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
     const scenarioTeam = scenarioTeams.find((team) => team.id === teamId);
     if (!scenarioTeam) return null;
-    return getMathGoldStatus(
-      scenarioTeam,
-      scenarioTeams,
-      scenarioCounts,
-      goldCutoff,
-      settings
-    ).goldStatus;
+    return getMathGoldStatus(scenarioTeam, scenarioTeams, scenarioCounts, goldCutoff, settings)
+      .goldStatus;
   };
-
-
 
   const teamsClinchingAfterGameResult = (game: Matchup, winnerId: string) => {
     const scenarioTeams = rankTeams(
@@ -1542,7 +1573,8 @@ export default function App() {
     return scenarioTeams
       .filter((scenarioTeam) => {
         const before = dashboardById.get(scenarioTeam.id);
-        if (!before || before.goldStatus === "Clinched" || before.goldStatus === "Eliminated") return false;
+        if (!before || before.goldStatus === "Clinched" || before.goldStatus === "Eliminated")
+          return false;
         const after = getMathGoldStatus(
           scenarioTeam,
           scenarioTeams,
@@ -1631,14 +1663,14 @@ export default function App() {
     const away = dashboardById.get(game.away);
     const home = dashboardById.get(game.home);
     const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
-    const titleTeam = teamsInGame.find((team) => teamClinchesRegularSeasonTitleWithWin(team.id, game));
+    const titleTeam = teamsInGame.find((team) =>
+      teamClinchesRegularSeasonTitleWithWin(team.id, game)
+    );
     if (titleTeam) return `Title Clinch-${displayName(titleTeam.name)}`;
     const scenarioBadges = gameScenarioBadgesForGame(game);
     if (scenarioBadges.length > 0) return scenarioBadges[0] ?? "Clinch Scenario";
 
-    const nearCutLine = teamsInGame.some(
-      (team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1
-    );
+    const nearCutLine = teamsInGame.some((team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1);
     if (impact && impact.seedImpact >= 2) return "High Impact";
     if (nearCutLine || (impact && impact.seedImpact >= 1)) return "Bubble Game";
     return "Low Impact";
@@ -1720,9 +1752,9 @@ export default function App() {
 
     return [...selected.values()].sort((a, b) => {
       const aCross =
-        ((a.team.rank ?? 99) <= goldCutoff) !== ((a.team.projectedRank ?? 99) <= goldCutoff);
+        (a.team.rank ?? 99) <= goldCutoff !== (a.team.projectedRank ?? 99) <= goldCutoff;
       const bCross =
-        ((b.team.rank ?? 99) <= goldCutoff) !== ((b.team.projectedRank ?? 99) <= goldCutoff);
+        (b.team.rank ?? 99) <= goldCutoff !== (b.team.projectedRank ?? 99) <= goldCutoff;
       if (aCross !== bCross) return aCross ? -1 : 1;
       return (
         Math.abs((a.team.rank ?? 99) - goldCutoff) - Math.abs((b.team.rank ?? 99) - goldCutoff)
@@ -1736,26 +1768,31 @@ export default function App() {
       if (!team) return [];
       const teamName = displayName(team.name);
 
-      if (team.goldStatus === "Clinched") return [`${teamName} have already clinched a Gold Bracket spot.`];
+      if (team.goldStatus === "Clinched")
+        return [`${teamName} have already clinched a Gold Bracket spot.`];
       if (team.goldStatus === "Eliminated")
         return [`${teamName} are eliminated from Gold Bracket contention.`];
 
-      const scenarios = nextTwoSwingGames(teamId).slice(0, 2).map((swing) => {
-        const opponentLine = `${swing.teamIsAway ? "at" : "vs"} ${swing.opponentName}`;
-        if (swing.winSeed <= goldCutoff && swing.lossSeed > goldCutoff) {
-          return `${opponentLine}: win projects inside the Gold cut line at #${swing.winSeed}; loss drops outside the Gold cut line at #${swing.lossSeed}.`;
-        }
-        if (swing.winSeed <= goldCutoff && swing.lossSeed <= goldCutoff) {
-          return `${opponentLine}: win improves or protects the Gold Bracket path at #${swing.winSeed}; loss still projects #${swing.lossSeed}.`;
-        }
-        if (swing.winSeed > goldCutoff && swing.lossSeed > goldCutoff) {
-          return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}, so outside help is still needed.`;
-        }
-        return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}.`;
-      });
+      const scenarios = nextTwoSwingGames(teamId)
+        .slice(0, 2)
+        .map((swing) => {
+          const opponentLine = `${swing.teamIsAway ? "at" : "vs"} ${swing.opponentName}`;
+          if (swing.winSeed <= goldCutoff && swing.lossSeed > goldCutoff) {
+            return `${opponentLine}: win projects inside the Gold cut line at #${swing.winSeed}; loss drops outside the Gold cut line at #${swing.lossSeed}.`;
+          }
+          if (swing.winSeed <= goldCutoff && swing.lossSeed <= goldCutoff) {
+            return `${opponentLine}: win improves or protects the Gold Bracket path at #${swing.winSeed}; loss still projects #${swing.lossSeed}.`;
+          }
+          if (swing.winSeed > goldCutoff && swing.lossSeed > goldCutoff) {
+            return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}, so outside help is still needed.`;
+          }
+          return `${opponentLine}: win projects #${swing.winSeed}; loss projects #${swing.lossSeed}.`;
+        });
 
       if (!scenarios.length) {
-        return [`${teamName} have no remaining games; Gold Bracket status depends only on outside results.`];
+        return [
+          `${teamName} have no remaining games; Gold Bracket status depends only on outside results.`,
+        ];
       }
       return scenarios;
     },
@@ -1826,7 +1863,8 @@ export default function App() {
     const range = seedRangeForTeam(team.id);
     const sos = scheduleDifficultyForTeam(team.id);
     const name = displayName(team.name);
-    if (team.goldStatus === "Clinched") return `${name} have clinched Gold and are playing for seeding.`;
+    if (team.goldStatus === "Clinched")
+      return `${name} have clinched Gold and are playing for seeding.`;
     if (team.goldStatus === "Eliminated")
       return `${name} cannot reach Gold and can only affect other teams' paths.`;
     if ((team.rank ?? 99) <= goldCutoff && range.worst <= goldCutoff)
@@ -1853,9 +1891,7 @@ export default function App() {
         const away = teamBaseById.get(game.away);
         const home = teamBaseById.get(game.home);
         const winnerPct =
-          prediction.winnerId === game.away
-            ? prediction.awayWinPct
-            : 1 - prediction.awayWinPct;
+          prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
         const impact = getGameScenarioImpactMap.get(game.id);
         return {
           game,
@@ -1870,14 +1906,7 @@ export default function App() {
             : describePrediction(game, prediction, liveById),
         };
       });
-  }, [
-    remainingGames,
-    liveTeams,
-    settings,
-    liveById,
-    teamBaseById,
-    getGameScenarioImpactMap,
-  ]);
+  }, [remainingGames, liveTeams, settings, liveById, teamBaseById, getGameScenarioImpactMap]);
 
   const scoreboardGames = useMemo(() => {
     const dateCompare = (a: Matchup, b: Matchup) => {
@@ -1901,15 +1930,19 @@ export default function App() {
   const scoreboardPredictions = useMemo(() => {
     const map = new Map<
       string,
-      { spread: string; pickName: string; pickPct: number; scenarioBadges: string[]; impactScore: number }
+      {
+        spread: string;
+        pickName: string;
+        pickPct: number;
+        scenarioBadges: string[];
+        impactScore: number;
+      }
     >();
     remainingGames.forEach((game) => {
       const prediction = predictGame(game, liveTeams, settings, liveById);
       const winner = teamBaseById.get(prediction.winnerId);
       const winnerPct =
-        prediction.winnerId === game.away
-          ? prediction.awayWinPct
-          : 1 - prediction.awayWinPct;
+        prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
       const impact = getGameScenarioImpactMap.get(game.id);
       const impactScore = clamp(
         Math.round(
@@ -1930,7 +1963,17 @@ export default function App() {
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingGames, liveTeams, settings, liveById, teamBaseById, getGameScenarioImpactMap, dashboardById, goldCutoff, nextGameByTeam]);
+  }, [
+    remainingGames,
+    liveTeams,
+    settings,
+    liveById,
+    teamBaseById,
+    getGameScenarioImpactMap,
+    dashboardById,
+    goldCutoff,
+    nextGameByTeam,
+  ]);
 
   // ---------- Snapshots / undo ----------
 
@@ -1943,13 +1986,7 @@ export default function App() {
 
     return nextRanked.map((team) => {
       const projectedTeam = nextProjected.find((item) => item.id === team.id);
-      const status = getMathGoldStatus(
-        team,
-        nextRanked,
-        nextRemainingCounts,
-        goldCutoff,
-        settings
-      );
+      const status = getMathGoldStatus(team, nextRanked, nextRemainingCounts, goldCutoff, settings);
       return {
         ...team,
         projectedRank: projectedTeam?.rank ?? team.rank ?? 99,
@@ -2053,18 +2090,16 @@ export default function App() {
             return;
           }
 
-          const id =
-            row[gameIdIndex]?.trim() ||
-            `game_${Date.now()}_${importSuffix}_${rowIndex}`;
+          const id = row[gameIdIndex]?.trim() || `game_${Date.now()}_${importSuffix}_${rowIndex}`;
           if (seenIds.has(id)) {
             duplicateIdRows += 1;
             return;
           }
           seenIds.add(id);
-          const awayRuns = awayRunsIndex >= 0 ? row[awayRunsIndex]?.trim() ?? "" : "";
-          const homeRuns = homeRunsIndex >= 0 ? row[homeRunsIndex]?.trim() ?? "" : "";
-          const awayK = awayKIndex >= 0 ? row[awayKIndex]?.trim() ?? "" : "";
-          const homeK = homeKIndex >= 0 ? row[homeKIndex]?.trim() ?? "" : "";
+          const awayRuns = awayRunsIndex >= 0 ? (row[awayRunsIndex]?.trim() ?? "") : "";
+          const homeRuns = homeRunsIndex >= 0 ? (row[homeRunsIndex]?.trim() ?? "") : "";
+          const awayK = awayKIndex >= 0 ? (row[awayKIndex]?.trim() ?? "") : "";
+          const homeK = homeKIndex >= 0 ? (row[homeKIndex]?.trim() ?? "") : "";
 
           importedMatchups.push({
             id,
@@ -2076,13 +2111,12 @@ export default function App() {
           importedLogs[id] = {
             innings: inningsIndex >= 0 ? row[inningsIndex]?.trim() || "6" : "6",
             awayRuns,
-            awayHits: awayHitsIndex >= 0 ? row[awayHitsIndex]?.trim() ?? "" : "",
+            awayHits: awayHitsIndex >= 0 ? (row[awayHitsIndex]?.trim() ?? "") : "",
             awayK,
             homeRuns,
-            homeHits: homeHitsIndex >= 0 ? row[homeHitsIndex]?.trim() ?? "" : "",
+            homeHits: homeHitsIndex >= 0 ? (row[homeHitsIndex]?.trim() ?? "") : "",
             homeK,
-            isFinal:
-              awayRuns !== "" && homeRuns !== "" && awayK !== "" && homeK !== "",
+            isFinal: awayRuns !== "" && homeRuns !== "" && awayK !== "" && homeK !== "",
           };
         });
 
@@ -2095,9 +2129,12 @@ export default function App() {
         const finalGames = Object.values(importedLogs).filter(isFinal).length;
         const openGames = importedMatchups.length - finalGames;
         const warningLines: string[] = [];
-        if (missingTeamRows) warningLines.push(`${missingTeamRows} row(s) skipped: missing Away/Home team`);
-        if (unknownTeamRows) warningLines.push(`${unknownTeamRows} row(s) skipped: team name mismatch`);
-        if (duplicateIdRows) warningLines.push(`${duplicateIdRows} row(s) skipped: duplicate Game ID`);
+        if (missingTeamRows)
+          warningLines.push(`${missingTeamRows} row(s) skipped: missing Away/Home team`);
+        if (unknownTeamRows)
+          warningLines.push(`${unknownTeamRows} row(s) skipped: team name mismatch`);
+        if (duplicateIdRows)
+          warningLines.push(`${duplicateIdRows} row(s) skipped: duplicate Game ID`);
         const confirmed = await requestConfirmation({
           title: "Import schedule CSV?",
           message: `${importedTeams.length} teams found · ${importedMatchups.length} games found · ${finalGames} finals · ${openGames} open.\n\n${
@@ -2181,10 +2218,9 @@ export default function App() {
   };
 
   const exportBackup = () => {
-    const blob = new Blob(
-      [JSON.stringify({ teams, matchups, logs, settings }, null, 2)],
-      { type: "application/json" }
-    );
+    const blob = new Blob([JSON.stringify({ teams, matchups, logs, settings }, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -2200,7 +2236,11 @@ export default function App() {
         if (typeof raw !== "string") throw new Error("Backup is not text");
         const parsed = JSON.parse(raw) as unknown;
         if (!isRecord(parsed)) throw new Error("Backup must be an object");
-        if (!Array.isArray(parsed.teams) || !Array.isArray(parsed.matchups) || !isRecord(parsed.logs)) {
+        if (
+          !Array.isArray(parsed.teams) ||
+          !Array.isArray(parsed.matchups) ||
+          !isRecord(parsed.logs)
+        ) {
           throw new Error("Backup is missing teams, matchups, or logs");
         }
 
@@ -2246,8 +2286,7 @@ export default function App() {
         "This clears teams, games, and scores from this browser. An undo snapshot will be saved.",
       confirmLabel: "Reset season",
     });
-    if (!confirmed)
-      return;
+    if (!confirmed) return;
     captureUndo("Reset season");
     setTeams([]);
     setMatchups([]);
@@ -2262,10 +2301,7 @@ export default function App() {
     });
   };
 
-  const summarizeChanges = (
-    before: RankSnapshotEntry[],
-    after: RankSnapshotEntry[]
-  ) => {
+  const summarizeChanges = (before: RankSnapshotEntry[], after: RankSnapshotEntry[]) => {
     const messages: string[] = [];
     after.forEach((team) => {
       const old = before.find((item) => item.id === team.id);
@@ -2358,7 +2394,9 @@ export default function App() {
                 : dateLabel
                   ? `Latest Update — ${dateLabel}`
                   : "Latest Update — No Date",
-          scores: finalsSinceLast.map((item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`),
+          scores: finalsSinceLast.map(
+            (item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`
+          ),
           messages: messages.length
             ? messages
             : ["This update was recorded; no standings-impact detail to summarize."],
@@ -2371,15 +2409,12 @@ export default function App() {
     });
   };
 
-  const updateLog = useCallback(
-    (gameId: string, field: keyof GameLog, value: string | boolean) => {
-      setLogs((prev) => ({
-        ...prev,
-        [gameId]: { ...(prev[gameId] || blankLog()), [field]: value },
-      }));
-    },
-    []
-  );
+  const updateLog = useCallback((gameId: string, field: keyof GameLog, value: string | boolean) => {
+    setLogs((prev) => ({
+      ...prev,
+      [gameId]: { ...(prev[gameId] || blankLog()), [field]: value },
+    }));
+  }, []);
 
   const addGameValid = !!newAway && !!newHome && newAway !== newHome;
 
@@ -2567,7 +2602,7 @@ export default function App() {
     tabRefs.current[nextView]?.focus();
   };
 
-  const selectedTeam = selectedTeamId ? dashboardById.get(selectedTeamId) ?? null : null;
+  const selectedTeam = selectedTeamId ? (dashboardById.get(selectedTeamId) ?? null) : null;
   const selectedTeamSplitSummary = useMemo(
     () =>
       selectedTeam
@@ -2579,7 +2614,7 @@ export default function App() {
           },
     [selectedTeam, matchups, logs]
   );
-  const compareTeam = compareTeamId ? dashboardById.get(compareTeamId) ?? null : null;
+  const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
   const currentLeader = dashboardRows[0];
 
   const selectedTeamDetail = useMemo(() => {
@@ -2594,8 +2629,30 @@ export default function App() {
       swings,
       titleRace: titleRaceBadgeForTeam(selectedTeam),
       clinchScenarios: clinchScenariosForTeam(selectedTeam.id),
-      magic: magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings),
-      elimination: eliminationNumberForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings),
+      magic:
+        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+          ? magicForGold(selectedTeam.id, dashboardRows, remainingGames, goldCutoff, settings)
+          : {
+              type: "magic" as const,
+              ownWinsNeeded: 0,
+              opponentLossesNeeded: 0,
+              description: `Exact magic number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
+            },
+      elimination:
+        remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+          ? eliminationNumberForGold(
+              selectedTeam.id,
+              dashboardRows,
+              remainingGames,
+              goldCutoff,
+              settings
+            )
+          : {
+              type: "elimination" as const,
+              ownWinsNeeded: 0,
+              opponentLossesNeeded: 0,
+              description: `Exact elimination number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
+            },
       path: pathSummary(
         { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
         goldCutoff,
@@ -2611,7 +2668,22 @@ export default function App() {
         }
       ),
     };
-  }, [selectedTeam, nextTwoSwingGames, bubbleTierForTeam, currentSosRanks, formatGoldPct, seedRangeForTeam, scheduleDifficultyForTeam, titleRaceBadgeForTeam, clinchScenariosForTeam, dashboardRows, remainingGames, goldCutoff, settings, currentLeader]);
+  }, [
+    selectedTeam,
+    nextTwoSwingGames,
+    bubbleTierForTeam,
+    currentSosRanks,
+    formatGoldPct,
+    seedRangeForTeam,
+    scheduleDifficultyForTeam,
+    titleRaceBadgeForTeam,
+    clinchScenariosForTeam,
+    dashboardRows,
+    remainingGames,
+    goldCutoff,
+    settings,
+    currentLeader,
+  ]);
 
   const selectedTeamProjectionExplanations = useMemo(() => {
     if (!selectedTeam) return [];
@@ -2651,18 +2723,18 @@ export default function App() {
       message: `${sharedSnapshot.teams.length} teams · ${sharedSnapshot.matchups.length} games found in this URL.\n\nReplace your current local data? Cancel keeps your data; the URL snapshot will still be cleared.`,
       confirmLabel: "Load snapshot",
     }).then((ok) => {
-    if (ok) {
-      captureUndo("Load shared snapshot");
-      setTeams(sharedSnapshot.teams);
-      setMatchups(sharedSnapshot.matchups);
-      setLogs(sharedSnapshot.logs);
-      setSettings(sharedSnapshot.settings);
-      showToast("Loaded shared snapshot.", {
-        tone: "undo",
-        actionLabel: "Undo",
-        onAction: restoreUndo,
-      });
-    }
+      if (ok) {
+        captureUndo("Load shared snapshot");
+        setTeams(sharedSnapshot.teams);
+        setMatchups(sharedSnapshot.matchups);
+        setLogs(sharedSnapshot.logs);
+        setSettings(sharedSnapshot.settings);
+        showToast("Loaded shared snapshot.", {
+          tone: "undo",
+          actionLabel: "Undo",
+          onAction: restoreUndo,
+        });
+      }
       clearSharedSnapshot();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2676,7 +2748,10 @@ export default function App() {
         await navigator.clipboard.writeText(url);
         showToast("Share URL copied to clipboard.", { tone: "success" });
       } catch {
-        showToast("Could not copy automatically. Share URL is ready in your browser clipboard permissions prompt.", { tone: "error" });
+        showToast(
+          "Could not copy automatically. Share URL is ready in your browser clipboard permissions prompt.",
+          { tone: "error" }
+        );
       }
     } catch {
       showToast("Snapshot is too large for a share URL. Download a backup JSON instead.", {
@@ -2816,277 +2891,302 @@ export default function App() {
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-                NKB Season Tracker
-              </h1>
-              <div className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {settings.seasonLabel}
+        <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+                  NKB Season Tracker
+                </h1>
+                <div className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {settings.seasonLabel}
+                </div>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCommandPalette(true)}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                aria-label="Open command palette"
-              >
-                <span>⌘K</span>
-                <span className="hidden sm:inline">Quick actions</span>
-              </button>
-              {teams.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={shareSeason}
+                  onClick={() => setShowCommandPalette(true)}
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                  aria-label="Copy share URL for this season"
+                  aria-label="Open command palette"
                 >
-                  Share
+                  <span>⌘K</span>
+                  <span className="hidden sm:inline">Quick actions</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white p-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              >
-                {theme === "dark" ? "☀" : "☾"}
-              </button>
+                {teams.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={shareSeason}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    aria-label="Copy share URL for this season"
+                  >
+                    Share
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white p-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {theme === "dark" ? "☀" : "☾"}
+                </button>
+              </div>
+            </div>
+
+            <div
+              role="tablist"
+              aria-label="Main views"
+              className="-mx-2 flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 sm:mx-0 sm:gap-2 sm:overflow-visible sm:w-fit dark:bg-slate-800"
+            >
+              {VIEW_ORDER.map((view) => (
+                <button
+                  key={view}
+                  ref={(el) => {
+                    tabRefs.current[view] = el;
+                  }}
+                  role="tab"
+                  id={`tab-${view}`}
+                  aria-selected={activeView === view}
+                  aria-controls={`panel-${view}`}
+                  tabIndex={activeView === view ? 0 : -1}
+                  onClick={() => setActiveView(view)}
+                  onKeyDown={onTabKeyDown}
+                  className={tab(activeView === view)}
+                >
+                  {VIEW_LABELS[view]}
+                </button>
+              ))}
             </div>
           </div>
+        </header>
 
-          <div
-            role="tablist"
-            aria-label="Main views"
-            className="-mx-2 flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 sm:mx-0 sm:gap-2 sm:overflow-visible sm:w-fit dark:bg-slate-800"
-          >
-            {VIEW_ORDER.map((view) => (
-              <button
-                key={view}
-                ref={(el) => {
-                  tabRefs.current[view] = el;
-                }}
-                role="tab"
-                id={`tab-${view}`}
-                aria-selected={activeView === view}
-                aria-controls={`panel-${view}`}
-                tabIndex={activeView === view ? 0 : -1}
-                onClick={() => setActiveView(view)}
-                onKeyDown={onTabKeyDown}
-                className={tab(activeView === view)}
-              >
-                {VIEW_LABELS[view]}
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+        <main
+          className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+          id={`panel-${activeView}`}
+          role="tabpanel"
+          aria-labelledby={`tab-${activeView}`}
+        >
+          {teams.length === 0 ? (
+            <EmptyState
+              importCSV={importCSV}
+              createSeasonFromTeamList={createSeasonFromTeamList}
+              downloadRoundRobinCSV={downloadRoundRobinCSV}
+              seasonBuilderText={seasonBuilderText}
+              setSeasonBuilderText={setSeasonBuilderText}
+              teams={teams}
+            />
+          ) : activeView === "standings" ? (
+            <StandingsView
+              currentLeader={currentLeader}
+              finalCount={finalCount}
+              totalGames={totalGamesCount}
+              goldCutoff={goldCutoff}
+              latestCompletedDate={latestCompletedDate}
+              lastImpact={lastImpact}
+              dismissImpact={() => setLastImpact(null)}
+              copyRecap={async () => {
+                if (!lastImpact) return;
+                const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
+                try {
+                  await navigator.clipboard.writeText(md);
+                  showToast("Recap copied.", { tone: "success" });
+                } catch {
+                  showToast("Could not copy recap to clipboard.", { tone: "error" });
+                }
+              }}
+              copyStory={async () => {
+                if (!lastImpact) return;
+                const story = recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+                try {
+                  await navigator.clipboard.writeText(story);
+                  showToast("Story copied.", { tone: "success" });
+                } catch {
+                  showToast("Could not copy story to clipboard.", { tone: "error" });
+                }
+              }}
+              dashboardRows={dashboardRows}
+              weeklyStory={weeklyStory}
+              currentSosRanks={currentSosRanks}
+              statusClass={statusClass}
+              statusLabel={statusLabel}
+              formatGoldPct={formatGoldPct}
+              onSelectTeam={openTeamData}
+              leagueAverageStats={leagueAverageStats}
+            />
+          ) : activeView === "model" ? (
+            <ModelView
+              goldCutoff={goldCutoff}
+              modelRows={modelRows}
+              seedRangeForTeam={seedRangeForTeam}
+              gamesThatMatterMost={gamesThatMatterMost}
+              bubbleMovementRows={bubbleMovementRows}
+              scheduleDifficultyForTeam={scheduleDifficultyForTeam}
+              teamPathNote={teamPathNote}
+              formatGoldPct={formatGoldPct}
+              projectedCutLineTeams={projectedCutLineTeams}
+              nextTwoSwingGames={nextTwoSwingGames}
+              gameForecasts={gameForecasts}
+              byId={liveById}
+              gameStatusClasses={gameStatusClasses}
+              teams={teams}
+              matchups={matchups}
+              logs={logs}
+              settings={settings}
+              cutoff={goldCutoff}
+              onSelectTeam={openTeamData}
+            />
+          ) : activeView === "settings" ? (
+            <SettingsView
+              settings={settings}
+              setSettings={setSettings}
+              teamsCount={teams.length}
+              importCSV={importCSV}
+              importBackup={importBackup}
+              exportCSV={exportCSV}
+              exportBackup={exportBackup}
+              resetSeason={resetSeason}
+            />
+          ) : (
+            <GamesView
+              teams={teams}
+              matchups={matchups}
+              logs={logs}
+              scoreboardGames={scoreboardGames}
+              scoreboardPredictions={scoreboardPredictions}
+              scoreboardTeamFilter={scoreboardTeamFilter}
+              setScoreboardTeamFilter={setScoreboardTeamFilter}
+              newDate={newDate}
+              setNewDate={setNewDate}
+              newAway={newAway}
+              setNewAway={setNewAway}
+              newHome={newHome}
+              setNewHome={setNewHome}
+              addGameValid={addGameValid}
+              addGame={addGame}
+              toggleFinal={toggleFinal}
+              swapGame={swapGame}
+              removeGame={removeGame}
+              updateLog={updateLog}
+              setMatchups={setMatchups}
+              gameStatusClasses={gameStatusClasses}
+            />
+          )}
+        </main>
 
-      <main
-        className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
-        id={`panel-${activeView}`}
-        role="tabpanel"
-        aria-labelledby={`tab-${activeView}`}
-      >
-        {teams.length === 0 ? (
-          <EmptyState
-            importCSV={importCSV}
-            createSeasonFromTeamList={createSeasonFromTeamList}
-            downloadRoundRobinCSV={downloadRoundRobinCSV}
-            seasonBuilderText={seasonBuilderText}
-            setSeasonBuilderText={setSeasonBuilderText}
-            teams={teams}
-          />
-        ) : activeView === "standings" ? (
-          <StandingsView
-            currentLeader={currentLeader}
-            finalCount={finalCount}
-            totalGames={totalGamesCount}
-            goldCutoff={goldCutoff}
-            latestCompletedDate={latestCompletedDate}
-            lastImpact={lastImpact}
-            dismissImpact={() => setLastImpact(null)}
-            copyRecap={async () => {
-              if (!lastImpact) return;
-              const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
-              try {
-                await navigator.clipboard.writeText(md);
-                showToast("Recap copied.", { tone: "success" });
-              } catch {
-                showToast("Could not copy recap to clipboard.", { tone: "error" });
+        {selectedTeam && (
+          <TeamDrawer
+            team={selectedTeam}
+            range={
+              selectedTeamDetail?.range ?? {
+                best: selectedTeam.rank ?? 99,
+                worst: selectedTeam.rank ?? 99,
+                baseline: selectedTeam.rank ?? 99,
               }
-            }}
-            copyStory={async () => {
-              if (!lastImpact) return;
-              const story = recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-              try {
-                await navigator.clipboard.writeText(story);
-                showToast("Story copied.", { tone: "success" });
-              } catch {
-                showToast("Could not copy story to clipboard.", { tone: "error" });
-              }
-            }}
-            dashboardRows={dashboardRows}
-            weeklyStory={weeklyStory}
-            currentSosRanks={currentSosRanks}
-            statusClass={statusClass}
-            statusLabel={statusLabel}
-            formatGoldPct={formatGoldPct}
-            onSelectTeam={openTeamData}
-          />
-        ) : activeView === "model" ? (
-          <ModelView
-            goldCutoff={goldCutoff}
-            modelRows={modelRows}
-            seedRangeForTeam={seedRangeForTeam}
-            gamesThatMatterMost={gamesThatMatterMost}
-            bubbleMovementRows={bubbleMovementRows}
-            scheduleDifficultyForTeam={scheduleDifficultyForTeam}
-            teamPathNote={teamPathNote}
-            formatGoldPct={formatGoldPct}
-            projectedCutLineTeams={projectedCutLineTeams}
-            nextTwoSwingGames={nextTwoSwingGames}
-            gameForecasts={gameForecasts}
-            byId={liveById}
-            gameStatusClasses={gameStatusClasses}
-            teams={teams}
-            matchups={matchups}
-            logs={logs}
-            settings={settings}
+            }
+            bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
+            currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
+            sos={selectedTeamDetail?.sos ?? { label: "Loading…", avgSeed: 0, opponents: "" }}
+            swings={selectedTeamDetail?.swings ?? []}
+            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
+            titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
+            goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
             cutoff={goldCutoff}
-            onSelectTeam={openTeamData}
-          />
-        ) : activeView === "settings" ? (
-          <SettingsView
-            settings={settings}
-            setSettings={setSettings}
-            teamsCount={teams.length}
-            importCSV={importCSV}
-            importBackup={importBackup}
-            exportCSV={exportCSV}
-            exportBackup={exportBackup}
-            resetSeason={resetSeason}
-          />
-        ) : (
-          <GamesView
-            teams={teams}
-            matchups={matchups}
-            logs={logs}
-            scoreboardGames={scoreboardGames}
-            scoreboardPredictions={scoreboardPredictions}
-            scoreboardTeamFilter={scoreboardTeamFilter}
-            setScoreboardTeamFilter={setScoreboardTeamFilter}
-            newDate={newDate}
-            setNewDate={setNewDate}
-            newAway={newAway}
-            setNewAway={setNewAway}
-            newHome={newHome}
-            setNewHome={setNewHome}
-            addGameValid={addGameValid}
-            addGame={addGame}
-            toggleFinal={toggleFinal}
-            swapGame={swapGame}
-            removeGame={removeGame}
-            updateLog={updateLog}
-            setMatchups={setMatchups}
-            gameStatusClasses={gameStatusClasses}
+            magicForGold={
+              selectedTeamDetail?.magic ?? {
+                type: "magic",
+                ownWinsNeeded: 0,
+                opponentLossesNeeded: 0,
+                description: "Loading magic number…",
+              }
+            }
+            eliminationNumber={
+              selectedTeamDetail?.elimination ?? {
+                type: "elimination",
+                ownWinsNeeded: 0,
+                opponentLossesNeeded: 0,
+                description: "Loading elimination number…",
+              }
+            }
+            pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
+            projectionExplanations={selectedTeamProjectionExplanations}
+            splitSummary={selectedTeamSplitSummary}
+            leagueAverageStats={leagueAverageStats}
+            onClose={closeTeamData}
+            onCompare={() => {
+              const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
+              setCompareTeamId(candidate ? candidate.id : null);
+            }}
           />
         )}
-      </main>
 
-      {selectedTeam && (
-        <TeamDrawer
-          team={selectedTeam}
-          range={selectedTeamDetail?.range ?? { best: selectedTeam.rank ?? 99, worst: selectedTeam.rank ?? 99, baseline: selectedTeam.rank ?? 99 }}
-          bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
-          currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-          sos={selectedTeamDetail?.sos ?? { label: "Loading…", avgSeed: 0, opponents: "" }}
-          swings={selectedTeamDetail?.swings ?? []}
-          clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
-          titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
-          goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
-          cutoff={goldCutoff}
-          magicForGold={selectedTeamDetail?.magic ?? { type: "magic", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading magic number…" }}
-          eliminationNumber={selectedTeamDetail?.elimination ?? { type: "elimination", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Loading elimination number…" }}
-          pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
-          projectionExplanations={selectedTeamProjectionExplanations}
-          splitSummary={selectedTeamSplitSummary}
-          onClose={closeTeamData}
-          onCompare={() => {
-            const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
-            setCompareTeamId(candidate ? candidate.id : null);
-          }}
+        {selectedTeam && compareTeam && (
+          <CompareDrawer
+            left={selectedTeam}
+            right={compareTeam}
+            allTeams={dashboardRows}
+            matchups={matchups}
+            logs={logs}
+            onClose={() => setCompareTeamId(null)}
+            onPickRight={(id) => setCompareTeamId(id)}
+          />
+        )}
+
+        <CommandPalette
+          open={showCommandPalette}
+          commands={commands}
+          onClose={() => setShowCommandPalette(false)}
         />
-      )}
-
-      {selectedTeam && compareTeam && (
-        <CompareDrawer
-          left={selectedTeam}
-          right={compareTeam}
-          allTeams={dashboardRows}
-          matchups={matchups}
-          logs={logs}
-          onClose={() => setCompareTeamId(null)}
-          onPickRight={(id) => setCompareTeamId(id)}
+        <ShortcutsHelp
+          open={showShortcuts}
+          shortcuts={shortcutEntries}
+          onClose={() => setShowShortcuts(false)}
         />
-      )}
-
-      <CommandPalette
-        open={showCommandPalette}
-        commands={commands}
-        onClose={() => setShowCommandPalette(false)}
-      />
-      <ShortcutsHelp
-        open={showShortcuts}
-        shortcuts={shortcutEntries}
-        onClose={() => setShowShortcuts(false)}
-      />
-      <OnboardingTour
-        open={showTour}
-        onClose={() => setShowTour(false)}
-        autoOpenWhenEmpty={teams.length === 0}
-      />
-      {confirmState && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="presentation">
-          <section
-            ref={confirmDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label={confirmState.title}
-            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+        <OnboardingTour
+          open={showTour}
+          onClose={() => setShowTour(false)}
+          autoOpenWhenEmpty={teams.length === 0}
+        />
+        {confirmState && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
+            role="presentation"
           >
-            <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-              {confirmState.title}
-            </h2>
-            <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-              {confirmState.message}
-            </p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => resolveConfirmation(false)}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-              >
-                {confirmState.cancelLabel ?? "Cancel"}
-              </button>
-              <button
-                type="button"
-                onClick={() => resolveConfirmation(true)}
-                className={buttonClasses.danger}
-              >
-                {confirmState.confirmLabel ?? "Confirm"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+            <section
+              ref={confirmDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={confirmState.title}
+              className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+            >
+              <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+                {confirmState.title}
+              </h2>
+              <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+                {confirmState.message}
+              </p>
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => resolveConfirmation(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  {confirmState.cancelLabel ?? "Cancel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveConfirmation(true)}
+                  className={buttonClasses.danger}
+                >
+                  {confirmState.confirmLabel ?? "Confirm"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
-      <ToastView toast={toast} onDismiss={dismissToast} />
-    </div>
+        <ToastView toast={toast} onDismiss={dismissToast} />
+      </div>
     </>
   );
 }
@@ -3144,8 +3244,7 @@ function EmptyState({
             New Season Builder
           </h3>
           <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            Enter teams and create a blank schedule where every team plays every other team
-            once.
+            Enter teams and create a blank schedule where every team plays every other team once.
           </p>
           <label className="sr-only" htmlFor="season-builder-textarea">
             Team list
@@ -3176,9 +3275,7 @@ function EmptyState({
             </button>
             <button
               onClick={() =>
-                setSeasonBuilderText(
-                  teams.map((team) => displayName(team.name)).join("\n")
-                )
+                setSeasonBuilderText(teams.map((team) => displayName(team.name)).join("\n"))
               }
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
@@ -3188,7 +3285,9 @@ function EmptyState({
         </div>
       </div>
       <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Team List</h3>
+        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+          Team List
+        </h3>
         <label className="sr-only" htmlFor="team-list-textarea">
           Team list
         </label>
@@ -3224,6 +3323,7 @@ function StandingsView({
   statusLabel,
   formatGoldPct,
   onSelectTeam,
+  leagueAverageStats,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
@@ -3246,6 +3346,7 @@ function StandingsView({
   statusLabel: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
   onSelectTeam: (id: string) => void;
+  leagueAverageStats: LeagueAverageStats;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -3257,6 +3358,43 @@ function StandingsView({
           <Metric label="Updated Through" value={latestCompletedDate} />
         </div>
 
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
+          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              League Avg Sample
+            </div>
+            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+              {leagueAverageStats.games}
+            </div>
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              team-games
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              League Avg R/G
+            </div>
+            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+              {perGame(leagueAverageStats.runs, leagueAverageStats.games)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              League Avg H/G
+            </div>
+            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+              {perGame(leagueAverageStats.hits, leagueAverageStats.games)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              League Avg K/G
+            </div>
+            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+              {perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
+            </div>
+          </div>
+        </div>
 
         {lastImpact && (
           <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">
@@ -3265,7 +3403,9 @@ function StandingsView({
                 <div className="text-[11px] font-black uppercase tracking-wide text-blue-700 dark:text-blue-400">
                   Impact Since Last Update
                 </div>
-                <div className="text-sm font-black text-slate-950 dark:text-slate-100">{lastImpact.title}</div>
+                <div className="text-sm font-black text-slate-950 dark:text-slate-100">
+                  {lastImpact.title}
+                </div>
               </div>
               <div className="flex gap-2">
                 {lastImpact.recapItems.length > 0 && (
@@ -3302,7 +3442,10 @@ function StandingsView({
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs font-black text-slate-800 dark:text-slate-200">
                   {lastImpact.scores.map((score) => (
-                    <span key={score} className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800 dark:text-slate-200">
+                    <span
+                      key={score}
+                      className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800 dark:text-slate-200"
+                    >
                       {score}
                     </span>
                   ))}
@@ -3321,7 +3464,10 @@ function StandingsView({
                 )}
                 <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
                   {lastImpact.recapItems.map((item) => (
-                    <li key={item.text} className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                    <li
+                      key={item.text}
+                      className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700"
+                    >
                       <span>{item.text}</span>
                     </li>
                   ))}
@@ -3360,7 +3506,9 @@ function StandingsView({
                     <th className="px-4 py-3 text-center">SOS</th>
                     <th className="px-4 py-3 text-center">Gold %</th>
                     <th className="px-4 py-3 text-center">Playoff Status</th>
-                    <th className="px-4 py-3 text-center" title="Gold % trend.">Trend (Gold %)</th>
+                    <th className="px-4 py-3 text-center" title="Gold % trend.">
+                      Trend (Gold %)
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3382,10 +3530,10 @@ function StandingsView({
                             </td>
                           </tr>
                         )}
-                        <tr
-                          className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70"
-                        >
-                          <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">#{team.rank}</td>
+                        <tr className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
+                          <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">
+                            #{team.rank}
+                          </td>
                           <td className="px-5 py-4">
                             <a
                               href={buildTeamDataHref(team.id)}
@@ -3468,8 +3616,7 @@ function StandingsView({
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400">
-            </div>
+            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400"></div>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
@@ -3551,7 +3698,6 @@ function StandingsView({
           </>
         )}
       </section>
-
     </div>
   );
 }
@@ -3560,8 +3706,19 @@ function ModelView(props: {
   goldCutoff: number;
   modelRows: TeamWithProjection[];
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
-  gamesThatMatterMost: { game: Matchup; rank: number; label: string; reason: string; date: string }[];
-  bubbleMovementRows: { team: TeamWithProjection; tier: string; sos: { label: string; opponents: string }; control: string }[];
+  gamesThatMatterMost: {
+    game: Matchup;
+    rank: number;
+    label: string;
+    reason: string;
+    date: string;
+  }[];
+  bubbleMovementRows: {
+    team: TeamWithProjection;
+    tier: string;
+    sos: { label: string; opponents: string };
+    control: string;
+  }[];
   scheduleDifficultyForTeam: (id: string) => { label: string; opponents: string };
   teamPathNote: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
@@ -3612,7 +3769,9 @@ function ModelView(props: {
     <section className="space-y-6">
       <div className={`${card} p-6`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Season Predictor</h2>
+          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Season Predictor
+          </h2>
           <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
           </div>
@@ -3621,10 +3780,14 @@ function ModelView(props: {
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Forecast Board</h3>
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Forecast Board
+          </h3>
         </div>
         {modelRows.length === 0 ? (
-          <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">No teams yet.</div>
+          <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
+            No teams yet.
+          </div>
         ) : (
           <>
             {/* Desktop table */}
@@ -3647,7 +3810,10 @@ function ModelView(props: {
                     const movement = (team.rank ?? 99) - team.projectedRank;
                     const range = seedRangeForTeam(team.id);
                     return (
-                      <tr key={`forecast-${team.id}`} className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
+                      <tr
+                        key={`forecast-${team.id}`}
+                        className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70"
+                      >
                         <td className="px-5 py-4 font-black">
                           <a
                             href={buildTeamDataHref(team.id)}
@@ -3707,8 +3873,7 @@ function ModelView(props: {
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400">
-            </div>
+            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400"></div>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
@@ -3807,7 +3972,9 @@ function ModelView(props: {
                     <div className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       #{item.rank} · {item.date}
                     </div>
-                    <div className="mt-1 font-black text-slate-950 dark:text-slate-100">{item.label}</div>
+                    <div className="mt-1 font-black text-slate-950 dark:text-slate-100">
+                      {item.label}
+                    </div>
                   </div>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-black ${gameStatusClasses(item.reason)}`}
@@ -3824,7 +3991,9 @@ function ModelView(props: {
       {bubbleMovementRows.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Bubble Watch</h3>
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Bubble Watch
+            </h3>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               Around Top {goldCutoff}
             </span>
@@ -3849,9 +4018,12 @@ function ModelView(props: {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-black text-slate-950 dark:text-slate-100">{displayName(team.name)}</div>
+                      <div className="font-black text-slate-950 dark:text-slate-100">
+                        {displayName(team.name)}
+                      </div>
                       <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Now #{team.rank} · Projected #{team.projectedRank} · Range #{range.best}–#{range.worst}
+                        Now #{team.rank} · Projected #{team.projectedRank} · Range #{range.best}–#
+                        {range.worst}
                       </div>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700 shadow-sm ring-1 ring-slate-200">
@@ -3861,7 +4033,9 @@ function ModelView(props: {
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black">
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-slate-500 dark:text-slate-400">Gold</div>
-                      <div className="mt-1 text-slate-950 dark:text-slate-100">{formatGoldPct(team)}</div>
+                      <div className="mt-1 text-slate-950 dark:text-slate-100">
+                        {formatGoldPct(team)}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-slate-500 dark:text-slate-400">SOS</div>
@@ -3898,7 +4072,9 @@ function ModelView(props: {
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="font-black text-slate-950 dark:text-slate-100">{displayName(team.name)}</div>
+                    <div className="font-black text-slate-950 dark:text-slate-100">
+                      {displayName(team.name)}
+                    </div>
                     <div className="text-xs font-black text-slate-500 dark:text-slate-400">
                       #{team.rank} now · #{team.projectedRank} projected
                     </div>
@@ -3941,7 +4117,9 @@ function ModelView(props: {
 
       <section className={`${card} p-5`}>
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Game Forecasts</h3>
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Game Forecasts
+          </h3>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {gameForecasts.length} Remaining
           </span>
@@ -3974,7 +4152,9 @@ function ModelView(props: {
                       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Pick
                       </div>
-                      <div className="text-sm font-black text-slate-950 dark:text-slate-100">{item.winnerName}</div>
+                      <div className="text-sm font-black text-slate-950 dark:text-slate-100">
+                        {item.winnerName}
+                      </div>
                     </div>
                   </div>
 
@@ -3983,7 +4163,9 @@ function ModelView(props: {
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Spread
                       </div>
-                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">{runLine}</div>
+                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
+                        {runLine}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -3997,7 +4179,9 @@ function ModelView(props: {
                       <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Upset Risk
                       </div>
-                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">{upsetRisk}</div>
+                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
+                        {upsetRisk}
+                      </div>
                     </div>
                   </div>
 
@@ -4084,7 +4268,9 @@ function SettingsView({
   return (
     <section className="grid grid-cols-1 gap-6">
       <div className={`${card} p-6`}>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">Settings</h2>
+        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+          Settings
+        </h2>
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
           <label htmlFor={seasonId} className="block">
             <span className="text-sm font-black text-slate-700">Season</span>
@@ -4159,7 +4345,7 @@ function SettingsView({
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
-          
+
           <label htmlFor={aggrId} className="block">
             <span className="text-sm font-black text-slate-700">Model Aggression</span>
             <select
@@ -4234,9 +4420,10 @@ function SettingsView({
           </fieldset>
         </div>
 
-
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">Data</h3>
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Data
+          </h3>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800">
               Import CSV
@@ -4315,7 +4502,16 @@ function GamesView({
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   scoreboardGames: Matchup[];
-  scoreboardPredictions: Map<string, { spread: string; pickName: string; pickPct: number; scenarioBadges: string[]; impactScore: number }>;
+  scoreboardPredictions: Map<
+    string,
+    {
+      spread: string;
+      pickName: string;
+      pickPct: number;
+      scenarioBadges: string[];
+      impactScore: number;
+    }
+  >;
   scoreboardTeamFilter: string;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
@@ -4357,7 +4553,9 @@ function GamesView({
   const visibleGames = useMemo(() => {
     if (quickFilter === "open") return scoreboardGames.filter((g) => !isFinal(logs[g.id]));
     if (quickFilter === "today") {
-      return scoreboardGames.filter((g) => normalizeDateInput(g.date) === normalizeDateInput(todayKey));
+      return scoreboardGames.filter(
+        (g) => normalizeDateInput(g.date) === normalizeDateInput(todayKey)
+      );
     }
     return scoreboardGames;
   }, [quickFilter, scoreboardGames, logs, todayKey]);
@@ -4386,13 +4584,7 @@ function GamesView({
               onCommit={(v) => setNewDate(v)}
               ariaLabel="New game date (M/D)"
             />
-            <input
-              id={dateId}
-              type="hidden"
-              value={newDate}
-              readOnly
-              aria-hidden="true"
-            />
+            <input id={dateId} type="hidden" value={newDate} readOnly aria-hidden="true" />
           </div>
           <label htmlFor={awayId} className="block">
             <span className="sr-only">Away team</span>
@@ -4462,10 +4654,33 @@ function GamesView({
           </select>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setQuickFilter("all")} className={tab(quickFilter === "all")}>All Games</button>
-          <button type="button" onClick={() => setQuickFilter("open")} className={tab(quickFilter === "open")}>Open Games</button>
-          <button type="button" onClick={() => setQuickFilter("today")} className={tab(quickFilter === "today")}>Today</button>
-          <button type="button" onClick={jumpToNextOpen} disabled={!nextOpenGameId} className="ml-auto rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+          <button
+            type="button"
+            onClick={() => setQuickFilter("all")}
+            className={tab(quickFilter === "all")}
+          >
+            All Games
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter("open")}
+            className={tab(quickFilter === "open")}
+          >
+            Open Games
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter("today")}
+            className={tab(quickFilter === "today")}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={jumpToNextOpen}
+            disabled={!nextOpenGameId}
+            className="ml-auto rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+          >
             Next Unfinalized
           </button>
         </div>
@@ -4488,7 +4703,9 @@ function GamesView({
                 key={game.id}
                 id={`game-card-${game.id}`}
                 className={`overflow-hidden rounded-3xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
-                  final ? "border-slate-200 opacity-80 dark:border-slate-700" : "border-slate-200 dark:border-slate-700"
+                  final
+                    ? "border-slate-200 opacity-80 dark:border-slate-700"
+                    : "border-slate-200 dark:border-slate-700"
                 }`}
               >
                 <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
@@ -4553,8 +4770,7 @@ function GamesView({
                         ))}
                       </div>
                       <span className="text-slate-500">
-                        Pick: {prediction.pickName} ·{" "}
-                        {Math.round(prediction.pickPct * 100)}%
+                        Pick: {prediction.pickName} · {Math.round(prediction.pickPct * 100)}%
                       </span>
                     </div>
                   )}
