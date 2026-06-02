@@ -133,6 +133,15 @@ export type RankOptions = {
   tiePoints?: number;
 };
 
+export const rankOptionsFromSettings = (
+  settings: Pick<Settings, "runDiffTiebreaker" | "tiebreakerOrder" | "winPoints" | "tiePoints">
+): RankOptions => ({
+  runDiffTiebreaker: settings.runDiffTiebreaker,
+  tiebreakerOrder: settings.tiebreakerOrder,
+  winPoints: settings.winPoints,
+  tiePoints: settings.tiePoints,
+});
+
 const resolvedTiebreakerOrder = (options: RankOptions) => {
   if (options.tiebreakerOrder) return options.tiebreakerOrder;
   return options.runDiffTiebreaker ? (["runDifferential"] satisfies TiebreakerFactor[]) : [];
@@ -539,12 +548,7 @@ export const projectStandings = (teams: Team[], games: Matchup[], settings: Sett
     const prediction = predictGame(game, projected, settings, projectionById);
     projected = applyResult(projected, game, prediction.winnerId, projected, settings);
   });
-  return rankTeams(projected, {
-    runDiffTiebreaker: settings.runDiffTiebreaker,
-    tiebreakerOrder: settings.tiebreakerOrder,
-    winPoints: settings.winPoints,
-    tiePoints: settings.tiePoints,
-  });
+  return rankTeams(projected, rankOptionsFromSettings(settings));
 };
 
 export const hashSeed = (text: string) => {
@@ -625,12 +629,7 @@ export const simulateGoldOdds = (
       simTeams = applyResult(simTeams, game, winner, simTeams, settings);
     });
 
-    rankTeams(simTeams, {
-      runDiffTiebreaker: settings.runDiffTiebreaker,
-      tiebreakerOrder: settings.tiebreakerOrder,
-      winPoints: settings.winPoints,
-      tiePoints: settings.tiePoints,
-    })
+    rankTeams(simTeams, rankOptionsFromSettings(settings))
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
