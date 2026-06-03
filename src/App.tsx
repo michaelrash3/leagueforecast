@@ -128,7 +128,7 @@ type RankSnapshotEntry = Team & {
 };
 
 const TEAM_QUERY_PARAM = "team";
-const EXACT_MAGIC_REMAINING_GAME_LIMIT = 14;
+const EXACT_MAGIC_REMAINING_GAME_LIMIT = 30;
 
 const DEMO_TEAM_NAMES = [
   "Northside Knockouts",
