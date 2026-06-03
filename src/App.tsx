@@ -138,6 +138,11 @@ const TEAM_QUERY_PARAM = "team";
 // so larger schedules should continue showing the paused message until this
 // computation moves off the React render path.
 const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
+// One-game seed swing projections are O(remaining games²) because each game
+// needs away-win and home-win season projections. On a freshly imported full
+// schedule this can otherwise block the browser before the confirmation toast
+// and first render complete.
+const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 
 const DEMO_TEAM_NAMES = [
   "Northside Knockouts",
@@ -1336,6 +1341,9 @@ export default function App() {
       ),
     [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
   );
+  const exactScenarioAnalysisEnabled =
+    remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+
   const projected = useMemo(
     () => projectStandings(liveTeams, remainingGames, settings),
     [liveTeams, remainingGames, settings]
@@ -1497,6 +1505,7 @@ export default function App() {
   const getScenarioRankMap = useCallback(
     (game: Matchup, winnerId: string) => {
       const scenarioKey = `${game.id}|${winnerId}`;
+      if (!exactScenarioAnalysisEnabled) return new Map<string, number>();
       const cached = scenarioSeedCacheRef.current.get(scenarioKey);
       if (cached) return cached;
       const scenario = applyResult(liveTeams, game, winnerId, liveTeams, settings);
@@ -1507,7 +1516,7 @@ export default function App() {
       scenarioSeedCacheRef.current.set(scenarioKey, rankMap);
       return rankMap;
     },
-    [liveTeams, remainingGames, settings]
+    [exactScenarioAnalysisEnabled, liveTeams, remainingGames, settings]
   );
 
   const seedForScenario = useCallback(
@@ -1528,6 +1537,11 @@ export default function App() {
       if (cached) return cached;
       const baseline =
         projectedById.get(teamId)?.rank ?? ranked.find((item) => item.id === teamId)?.rank ?? 99;
+      if (!exactScenarioAnalysisEnabled) {
+        const result = { best: baseline, worst: baseline, baseline };
+        seedRangeCacheRef.current.set(teamId, result);
+        return result;
+      }
       let best = baseline;
       let worst = baseline;
       remainingGames
@@ -1545,7 +1559,7 @@ export default function App() {
       seedRangeCacheRef.current.set(teamId, result);
       return result;
     },
-    [projectedById, ranked, remainingGames, seedForScenario]
+    [projectedById, ranked, exactScenarioAnalysisEnabled, remainingGames, seedForScenario]
   );
 
   const seedRangeForTeam = useCallback(
@@ -1564,8 +1578,16 @@ export default function App() {
           const opponentId = teamIsAway ? game.home : game.away;
           const opponentName = displayName(teamBaseById.get(opponentId)?.name || opponentId);
           const prediction = predictGame(game, liveTeams, settings, liveById);
-          const winSeed = seedForScenario(teamId, game, teamId);
-          const lossSeed = seedForScenario(teamId, game, opponentId);
+          const baselineSeed =
+            projectedById.get(teamId)?.rank ??
+            ranked.find((item) => item.id === teamId)?.rank ??
+            99;
+          const winSeed = exactScenarioAnalysisEnabled
+            ? seedForScenario(teamId, game, teamId)
+            : baselineSeed;
+          const lossSeed = exactScenarioAnalysisEnabled
+            ? seedForScenario(teamId, game, opponentId)
+            : baselineSeed;
           const teamWinPct = teamIsAway ? prediction.awayWinPct : 1 - prediction.awayWinPct;
           const modelPick = displayName(
             teamBaseById.get(prediction.winnerId)?.name || prediction.winnerId
@@ -1581,7 +1603,17 @@ export default function App() {
           };
         });
     },
-    [remainingGames, teamBaseById, liveTeams, settings, liveById, seedForScenario]
+    [
+      remainingGames,
+      teamBaseById,
+      liveTeams,
+      settings,
+      liveById,
+      projectedById,
+      ranked,
+      exactScenarioAnalysisEnabled,
+      seedForScenario,
+    ]
   );
 
   const clinchingPaths = useMemo(
@@ -1762,6 +1794,7 @@ export default function App() {
         homeName: string;
       }
     >();
+    if (!exactScenarioAnalysisEnabled) return map;
     remainingGames.forEach((game) => {
       const prediction = predictGame(game, liveTeams, settings, liveById);
       const away = dashboardById.get(game.away);
@@ -1800,7 +1833,15 @@ export default function App() {
       });
     });
     return map;
-  }, [remainingGames, liveTeams, settings, liveById, dashboardById, seedForScenario]);
+  }, [
+    exactScenarioAnalysisEnabled,
+    remainingGames,
+    liveTeams,
+    settings,
+    liveById,
+    dashboardById,
+    seedForScenario,
+  ]);
 
   const nextGameByTeam = useMemo(() => {
     const map = new Map<string, Matchup>();
