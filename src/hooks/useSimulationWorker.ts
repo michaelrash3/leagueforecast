@@ -41,6 +41,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   const [odds, setOdds] = useState<Record<string, number>>({});
   const [pending, setPending] = useState(false);
   const [resultKey, setResultKey] = useState<string | null>(null);
+  const [workerError, setWorkerError] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
   const latestIdRef = useRef(0);
 
@@ -90,33 +91,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
 
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
-            return;
-          }
-          if (event.data.kind !== "odds" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          if (latestIdRef.current === id) {
-            setOdds(event.data.odds);
-            setResultKey(key);
-            setPending(false);
-          }
-        };
-        handle.worker.addEventListener("message", onMessage);
-        const req: WorkerRequest = {
-          kind: "odds",
-          id,
-          teams: input.teams,
-          remaining: input.remaining,
-          iterations: input.iterations,
-          seedText: input.seedText,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        handle.worker.postMessage(req);
-      } else {
+      const runInline = () => {
         const start = performance.now();
         const result = simulateGoldOdds(
           input.teams,
@@ -132,20 +107,72 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           setPending(false);
           console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
         }
+      };
+
+      if (handle.worker) {
+        const onMessage = (event: MessageEvent<WorkerResponse>) => {
+          if (event.data.kind === "runtime-stats" && event.data.id === id) {
+            console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
+            return;
+          }
+          if (event.data.kind !== "odds" || event.data.id !== id) return;
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+          if (latestIdRef.current === id) {
+            setWorkerError(null);
+            setOdds(event.data.odds);
+            setResultKey(key);
+            setPending(false);
+          }
+        };
+        const onError = (event: Event) => {
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+          setWorkerError(event.type);
+          runInline();
+        };
+        handle.worker.addEventListener("message", onMessage);
+        handle.worker.addEventListener("error", onError);
+        handle.worker.addEventListener("messageerror", onError);
+        const req: WorkerRequest = {
+          kind: "odds",
+          id,
+          teams: input.teams,
+          remaining: input.remaining,
+          iterations: input.iterations,
+          seedText: input.seedText,
+          cutoff: input.cutoff,
+          settings: input.settings,
+        };
+        try {
+          handle.worker.postMessage(req);
+        } catch (err) {
+          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
+          runInline();
+        }
+      } else {
+        runInline();
       }
     }, debounceMs);
 
     return () => {
       window.clearTimeout(timer);
-      handle.worker?.postMessage({ kind: "cancel", id });
+      try {
+        handle.worker?.postMessage({ kind: "cancel", id });
+      } catch {
+        // Worker may already be terminating; stale responses are ignored by id.
+      }
     };
   }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
 
-  return { odds, pending, inputKey: key, resultKey };
+  return { odds, pending, inputKey: key, resultKey, workerError };
 }
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
   const [trend, setTrend] = useState<Record<string, number[]>>({});
+  const [workerError, setWorkerError] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
   const latestIdRef = useRef(0);
 
@@ -187,30 +214,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
 
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
-            return;
-          }
-          if (event.data.kind !== "trend" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          if (latestIdRef.current === id) {
-            setTrend(event.data.trend);
-          }
-        };
-        handle.worker.addEventListener("message", onMessage);
-        const req: WorkerRequest = {
-          kind: "trend",
-          id,
-          teamIds: input.teamIds,
-          states: input.states,
-          iterations: input.iterations,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        handle.worker.postMessage(req);
-      } else {
+      const runInline = () => {
         const start = performance.now();
         const result: Record<string, number[]> = {};
         input.teamIds.forEach((tid) => {
@@ -232,14 +236,63 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
         });
         if (latestIdRef.current === id) setTrend(result);
         console.debug(`[sim-inline] trend ${(performance.now() - start).toFixed(1)}ms`);
+      };
+
+      if (handle.worker) {
+        const onMessage = (event: MessageEvent<WorkerResponse>) => {
+          if (event.data.kind === "runtime-stats" && event.data.id === id) {
+            console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
+            return;
+          }
+          if (event.data.kind !== "trend" || event.data.id !== id) return;
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+          if (latestIdRef.current === id) {
+            setWorkerError(null);
+            setTrend(event.data.trend);
+          }
+        };
+        const onError = (event: Event) => {
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+          setWorkerError(event.type);
+          runInline();
+        };
+        handle.worker.addEventListener("message", onMessage);
+        handle.worker.addEventListener("error", onError);
+        handle.worker.addEventListener("messageerror", onError);
+        const req: WorkerRequest = {
+          kind: "trend",
+          id,
+          teamIds: input.teamIds,
+          states: input.states,
+          iterations: input.iterations,
+          cutoff: input.cutoff,
+          settings: input.settings,
+        };
+        try {
+          handle.worker.postMessage(req);
+        } catch (err) {
+          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
+          runInline();
+        }
+      } else {
+        runInline();
       }
     }, debounceMs);
 
     return () => {
       window.clearTimeout(timer);
-      handle.worker?.postMessage({ kind: "cancel", id });
+      try {
+        handle.worker?.postMessage({ kind: "cancel", id });
+      } catch {
+        // Worker may already be terminating; stale responses are ignored by id.
+      }
     };
   }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
 
+  void workerError;
   return trend;
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadSettings, loadTeams } from "../storage";
+import { loadLogs, loadMatchups, loadSettings, loadTeams } from "../storage";
 
 const backing = new Map<string, string>();
 
@@ -23,5 +23,68 @@ describe("storage hardening", () => {
     const settings = loadSettings();
     expect(settings.goldCutoff).toBe(1);
     expect(settings.maxScoreCap).toBe(99);
+  });
+
+  it("drops duplicate teams, invalid matchups, and orphan logs", () => {
+    backing.set(
+      "league_teams_v1",
+      JSON.stringify([
+        { id: "A", name: "Aces" },
+        { id: "A", name: "Duplicate" },
+        { id: "B", name: "Bears" },
+      ])
+    );
+    backing.set(
+      "league_matchups_v1",
+      JSON.stringify([
+        { id: "g1", date: "5/1", away: "A", home: "B" },
+        { id: "g1", date: "5/2", away: "B", home: "A" },
+        { id: "bad", date: "5/3", away: "A", home: "A" },
+        { id: "missing", date: "5/4", away: "A", home: "Z" },
+      ])
+    );
+    backing.set(
+      "league_logs_v1",
+      JSON.stringify({
+        g1: {
+          awayRuns: "101",
+          awayHits: "8",
+          awayK: "4",
+          homeRuns: "3",
+          homeHits: "7",
+          homeK: "2",
+          innings: "6",
+          isFinal: true,
+        },
+        orphan: {
+          awayRuns: "1",
+          awayHits: "1",
+          awayK: "1",
+          homeRuns: "0",
+          homeHits: "0",
+          homeK: "0",
+          innings: "6",
+          isFinal: true,
+        },
+      })
+    );
+
+    expect(loadTeams()).toEqual([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    expect(loadMatchups()).toEqual([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
+    expect(loadLogs()).toEqual({
+      g1: {
+        awayRuns: "18",
+        awayHits: "8",
+        awayK: "4",
+        homeRuns: "3",
+        homeHits: "7",
+        homeK: "2",
+        innings: "6",
+        isFinal: true,
+      },
+    });
   });
 });

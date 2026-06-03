@@ -6,8 +6,10 @@ import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
+import { HelpTip } from "./components/HelpTip";
 import { ToastView } from "./components/Toast";
 import { useDarkMode } from "./hooks/useDarkMode";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
@@ -37,7 +39,7 @@ import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildShareUrl } from "./lib/share";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
-import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./lib/validate";
+import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./lib/validate";
 import {
   applyResult,
   calculateTeams,
@@ -504,7 +506,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function DrawerMetric({ label, value }: { label: string; value: string | number }) {
+function DrawerMetric({ label, value }: { label: React.ReactNode; value: string | number }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -627,48 +629,6 @@ const ScoreRow = React.memo(function ScoreRow({
 
 // ---------- TeamDrawer (a11y modal) ----------
 
-function useFocusTrap(open: boolean, ref: React.RefObject<HTMLElement>) {
-  useEffect(() => {
-    if (!open) return;
-    const node = ref.current;
-    if (!node) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const focusableSel =
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
-    const focusables = () =>
-      Array.from(node.querySelectorAll<HTMLElement>(focusableSel)).filter(
-        (el) => !el.hasAttribute("disabled")
-      );
-    const first = focusables()[0];
-    first?.focus();
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const items = focusables();
-      if (!items.length) return;
-      const firstItem = items[0];
-      const lastItem = items[items.length - 1];
-      if (!firstItem || !lastItem) return;
-      if (event.shiftKey && document.activeElement === firstItem) {
-        event.preventDefault();
-        lastItem.focus();
-      } else if (!event.shiftKey && document.activeElement === lastItem) {
-        event.preventDefault();
-        firstItem.focus();
-      }
-    };
-    node.addEventListener("keydown", onKey);
-    return () => {
-      node.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      previouslyFocused?.focus?.();
-    };
-  }, [open, ref]);
-}
-
 function TeamDrawer({
   team,
   range,
@@ -771,9 +731,29 @@ function TeamDrawer({
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
-          <DrawerMetric label="Gold %" value={goldPctLabel} />
+          <DrawerMetric
+            label={
+              <>
+                Gold %
+                <HelpTip title="Gold %">
+                  Simulated chance to finish inside the Gold Bracket cutoff.
+                </HelpTip>
+              </>
+            }
+            value={goldPctLabel}
+          />
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
-          <DrawerMetric label="Bubble" value={bubble} />
+          <DrawerMetric
+            label={
+              <>
+                Bubble
+                <HelpTip title="Bubble label">
+                  A quick status based on current seed, projected seed, max points, and Gold odds.
+                </HelpTip>
+              </>
+            }
+            value={bubble}
+          />
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
@@ -789,7 +769,17 @@ function TeamDrawer({
             label="Lg Avg K/G"
             value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
           />
-          <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
+          <DrawerMetric
+            label={
+              <>
+                Current SOS
+                <HelpTip title="Current SOS">
+                  Rank of opponent difficulty from games already finalized.
+                </HelpTip>
+              </>
+            }
+            value={currentSosRank ? `#${currentSosRank}` : "—"}
+          />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
@@ -2214,13 +2204,10 @@ export default function App() {
           throw new Error("Backup is missing teams, matchups, or logs");
         }
 
-        const nextTeams = parsed.teams.filter(isTeamBase);
-        const nextMatchups = parsed.matchups.filter(isMatchup);
-        const nextLogs: Record<string, GameLog> = {};
-        Object.entries(parsed.logs).forEach(([k, v]) => {
-          if (isGameLog(v)) nextLogs[k] = v;
-        });
         const nextSettings = coerceSettings(parsed.settings);
+        const nextTeams = coerceTeams(parsed.teams);
+        const nextMatchups = coerceMatchups(parsed.matchups, nextTeams);
+        const nextLogs = coerceLogs(parsed.logs, nextMatchups, nextSettings);
         const confirmed = await requestConfirmation({
           title: "Import backup JSON?",
           message: `${nextTeams.length} teams · ${nextMatchups.length} games found.\n\nThis will replace current season data and save an undo snapshot.`,
@@ -3507,8 +3494,18 @@ function StandingsView({
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Record</th>
                     <th className="px-4 py-3 text-center">Diff</th>
-                    <th className="px-4 py-3 text-center">SOS</th>
-                    <th className="px-4 py-3 text-center">Gold %</th>
+                    <th className="px-4 py-3 text-center">
+                      SOS
+                      <HelpTip title="SOS">
+                        Strength of schedule ranks opponents already played by their model strength.
+                      </HelpTip>
+                    </th>
+                    <th className="px-4 py-3 text-center">
+                      Gold %
+                      <HelpTip title="Gold %">
+                        Estimated chance this team finishes inside the Gold Bracket cutoff after the remaining schedule is simulated.
+                      </HelpTip>
+                    </th>
                     <th className="px-4 py-3 text-center">Playoff Status</th>
                     <th className="px-4 py-3 text-center" title="Gold % trend.">
                       Trend (Gold %)
@@ -3975,10 +3972,25 @@ function ModelView(props: {
                   <tr>
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Now</th>
-                    <th className="px-4 py-3 text-center">Projected</th>
-                    <th className="px-4 py-3 text-center">Range</th>
+                    <th className="px-4 py-3 text-center">
+                      Projected
+                      <HelpTip title="Projected seed">
+                        The seed from the deterministic forecast after applying model picks to remaining games.
+                      </HelpTip>
+                    </th>
+                    <th className="px-4 py-3 text-center">
+                      Range
+                      <HelpTip title="Seed range">
+                        Best and worst projected seed from quick one-game swing scenarios.
+                      </HelpTip>
+                    </th>
                     <th className="px-4 py-3 text-center">Projected Record</th>
-                    <th className="px-4 py-3 text-center">Gold Odds</th>
+                    <th className="px-4 py-3 text-center">
+                      Gold Odds
+                      <HelpTip title="Gold odds">
+                        Monte Carlo estimate of how often this team lands inside the configured Gold cutoff.
+                      </HelpTip>
+                    </th>
                     <th className="px-4 py-3 text-center">Run Diff</th>
                     <th className="px-5 py-3 text-right">TPI</th>
                   </tr>

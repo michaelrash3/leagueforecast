@@ -1,4 +1,5 @@
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
+import { parseDateValue } from "./date";
 import { calculateTeams, predictGame } from "./sim";
 import { isFinal } from "./util";
 
@@ -12,7 +13,9 @@ export const backtestPredictions = (
   settings: Settings,
   bucketSize = 0.1
 ): BacktestResult => {
-  const ordered = [...matchups].sort((a, b) => a.id.localeCompare(b.id));
+  const ordered = [...matchups].sort(
+    (a, b) => parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id)
+  );
   const progressiveLogs: Record<string, GameLog> = {};
   const rows: Array<{ p: number; y: 0 | 1; upset: boolean; captured: boolean }> = [];
 

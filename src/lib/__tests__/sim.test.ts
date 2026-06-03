@@ -234,9 +234,12 @@ describe("predictGame", () => {
   });
   const game: Matchup = { id: "future", date: "5/9", away: "A", home: "B" };
 
-  it("falls back to a low-confidence default when sample is thin", () => {
+  it("uses neutral league priors when the sample is thin", () => {
     const thinLive = calculateTeams(teams, matchups, {});
-    expect(predictGame(game, thinLive, settings).confidence).toBe("Low");
+    const prediction = predictGame(game, thinLive, settings);
+    expect(prediction.confidence).toBe("Low");
+    expect(prediction.awayWinPct).toBe(0.5);
+    expect(prediction.awayScore).toBe(prediction.homeScore);
   });
 
   it("aggression scales the predicted scores", () => {
@@ -305,8 +308,8 @@ describe("projectStandings + simulateGoldOdds", () => {
     expect(projected.map((t) => `${t.id}:${t.w}-${t.l}-${t.t}:r${t.rank}`)).toMatchInlineSnapshot(`
       [
         "A:2-0-0:r1",
-        "B:1-1-0:r2",
-        "C:0-2-0:r3",
+        "C:1-1-0:r2",
+        "B:0-2-0:r3",
       ]
     `);
   });
