@@ -5,6 +5,7 @@ const KEYS = {
   teams: `league_teams_v${STORAGE_VERSION}`,
   matchups: `league_matchups_v${STORAGE_VERSION}`,
   logs: `league_logs_v${STORAGE_VERSION}`,
+  bracketLogs: `league_bracket_logs_v${STORAGE_VERSION}`,
   settings: `league_settings_v${STORAGE_VERSION}`,
   undo: `league_undo_snapshot_v${STORAGE_VERSION}`,
 } as const;
@@ -19,17 +20,34 @@ const LEGACY_KEYS = {
 export type StorageKey = keyof typeof KEYS;
 
 const safeGet = (key: string): string | null => {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
 };
 const safeSet = (key: string, value: string): boolean => {
-  try { localStorage.setItem(key, value); return true; } catch { return false; }
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
 };
 const safeRemove = (key: string) => {
-  try { localStorage.removeItem(key); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
 };
 const parseJson = (raw: string | null): unknown => {
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 };
 
 const migrateOnce = (legacyKey: string, currentKey: string) => {
@@ -55,11 +73,17 @@ export const loadSettings = (): Settings => {
   migrateOnce(LEGACY_KEYS.settings, KEYS.settings);
   return coerceSettings(parseJson(safeGet(KEYS.settings)));
 };
+export const loadBracketLogs = (): Record<string, GameLog> =>
+  coerceLogs(parseJson(safeGet(KEYS.bracketLogs)), [], loadSettings());
 
 export const saveTeams = (teams: TeamBase[]) => safeSet(KEYS.teams, JSON.stringify(teams));
-export const saveMatchups = (matchups: Matchup[]) => safeSet(KEYS.matchups, JSON.stringify(matchups));
+export const saveMatchups = (matchups: Matchup[]) =>
+  safeSet(KEYS.matchups, JSON.stringify(matchups));
 export const saveLogs = (logs: Record<string, GameLog>) => safeSet(KEYS.logs, JSON.stringify(logs));
-export const saveSettings = (settings: Settings) => safeSet(KEYS.settings, JSON.stringify(settings));
+export const saveBracketLogs = (logs: Record<string, GameLog>) =>
+  safeSet(KEYS.bracketLogs, JSON.stringify(logs));
+export const saveSettings = (settings: Settings) =>
+  safeSet(KEYS.settings, JSON.stringify(settings));
 export const saveUndoSnapshot = (snapshot: unknown) => safeSet(KEYS.undo, JSON.stringify(snapshot));
 export const readUndoSnapshot = () => parseJson(safeGet(KEYS.undo));
 export const STORAGE_KEYS = KEYS;

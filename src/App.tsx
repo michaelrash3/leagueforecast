@@ -37,6 +37,7 @@ import {
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
+import { buildBracketProjection, type BracketGameProjection } from "./lib/bracket";
 import { buildShareUrl } from "./lib/share";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./lib/validate";
@@ -54,11 +55,13 @@ import {
   standingsPoints,
 } from "./lib/sim";
 import {
+  loadBracketLogs,
   loadLogs,
   loadMatchups,
   loadSettings,
   loadTeams,
   readUndoSnapshot,
+  saveBracketLogs,
   saveLogs,
   saveMatchups,
   saveSettings,
@@ -631,6 +634,275 @@ const ScoreRow = React.memo(function ScoreRow({
   );
 });
 
+function BracketScoreInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="text-center text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      {label}
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
+        inputMode="numeric"
+        pattern="[0-9]*"
+        maxLength={2}
+        className="mt-1 block h-10 w-12 rounded-xl border border-slate-300 bg-white text-center text-base font-black text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+      />
+    </label>
+  );
+}
+
+function BracketTeamLine({
+  slot,
+  score,
+  isWinner,
+  sourceLabel,
+  onScoreChange,
+}: {
+  slot: BracketGameProjection["top"];
+  score: string;
+  isWinner: boolean;
+  sourceLabel: "Projected" | "Actual" | "Bye" | "";
+  onScoreChange: (value: string) => void;
+}) {
+  const team = slot.team;
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+        isWinner
+          ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
+          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="rounded-lg bg-slate-950 px-2 py-1 text-[10px] font-black text-white">
+            {slot.seed ? `#${slot.seed}` : "—"}
+          </span>
+          <span className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
+            {team ? displayName(team.name) : slot.sourceGameId ? "Awaiting previous game" : "Bye"}
+          </span>
+        </div>
+        <div className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+          {team
+            ? `${`Seed #${slot.seed}`}${sourceLabel ? ` · ${sourceLabel}` : ""}`
+            : slot.sourceGameId
+              ? `Winner of ${slot.sourceGameId.toUpperCase()}`
+              : "Automatic advance"}
+        </div>
+      </div>
+      {team && <BracketScoreInput label="R" value={score} onChange={onScoreChange} />}
+    </div>
+  );
+}
+
+const winnerLabelForTeam = (
+  source: BracketGameProjection["winnerSource"]
+): "Projected" | "Actual" | "Bye" | "" => {
+  if (source === "actual") return "Actual";
+  if (source === "projected") return "Projected";
+  if (source === "bye") return "Bye";
+  return "";
+};
+
+function BracketGameCard({
+  game,
+  onScoreChange,
+  onToggleFinal,
+}: {
+  game: BracketGameProjection;
+  onScoreChange: (gameId: string, field: keyof GameLog, value: string) => void;
+  onToggleFinal: (gameId: string) => void;
+}) {
+  const topWinner = !!game.top.team && game.winnerId === game.top.team.id;
+  const bottomWinner = !!game.bottom.team && game.winnerId === game.bottom.team.id;
+  const winnerLabel =
+    game.winnerSource === "actual"
+      ? "Actual winner"
+      : game.winnerSource === "bye"
+        ? "Bye advance"
+        : game.winnerSource === "projected"
+          ? "Model pick"
+          : "Pending";
+  const pickPct = game.prediction
+    ? game.prediction.winnerId === game.matchup?.away
+      ? game.prediction.awayWinPct
+      : 1 - game.prediction.awayWinPct
+    : null;
+  const hasPlayableTeams = !!game.top.team && !!game.bottom.team;
+
+  return (
+    <article className="min-w-[260px] rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Game {game.gameIndex + 1}
+          </div>
+          <div className="text-sm font-black text-slate-950 dark:text-slate-100">{winnerLabel}</div>
+        </div>
+        {hasPlayableTeams && (
+          <button
+            type="button"
+            onClick={() => onToggleFinal(game.id)}
+            className={`rounded-lg px-3 py-1 text-xs font-black ${
+              game.log.isFinal ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"
+            }`}
+          >
+            {game.log.isFinal ? "Final" : "Set Final"}
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <BracketTeamLine
+          slot={game.top}
+          score={game.log.homeRuns}
+          isWinner={topWinner}
+          sourceLabel={topWinner ? winnerLabelForTeam(game.winnerSource) : ""}
+          onScoreChange={(value) => onScoreChange(game.id, "homeRuns", value)}
+        />
+        <BracketTeamLine
+          slot={game.bottom}
+          score={game.log.awayRuns}
+          isWinner={bottomWinner}
+          sourceLabel={bottomWinner ? winnerLabelForTeam(game.winnerSource) : ""}
+          onScoreChange={(value) => onScoreChange(game.id, "awayRuns", value)}
+        />
+      </div>
+
+      {game.prediction && pickPct !== null && (
+        <div className="mt-3 rounded-xl bg-white p-3 text-xs font-bold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+          Model score: {game.prediction.awayScore}-{game.prediction.homeScore} ·{" "}
+          {Math.round(pickPct * 100)}% confidence on the pick
+        </div>
+      )}
+    </article>
+  );
+}
+
+function BracketPredictionPanel({
+  title,
+  description,
+  emptyMessage,
+  championLabel,
+  projection,
+  onScoreChange,
+  onToggleFinal,
+  onClearScores,
+}: {
+  title: string;
+  description: string;
+  emptyMessage: string;
+  championLabel: string;
+  projection: ReturnType<typeof buildBracketProjection>;
+  onScoreChange: (gameId: string, field: keyof GameLog, value: string | boolean) => void;
+  onToggleFinal: (gameId: string) => void;
+  onClearScores: (gameIds: string[], label: string) => void;
+}) {
+  const bracketGames = projection.rounds.flat();
+  const savedGames = bracketGames.filter(
+    (game) =>
+      game.log.isFinal ||
+      game.log.awayRuns !== "" ||
+      game.log.homeRuns !== "" ||
+      game.log.awayHits !== "" ||
+      game.log.homeHits !== ""
+  ).length;
+  const champion = projection.champion;
+  return (
+    <section className={`${card} p-5`} aria-label="Bracket prediction model">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            {title}
+          </h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+            {description}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {projection.entrantCount} teams · {projection.size}-slot bracket
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              onClearScores(
+                bracketGames.map((game) => game.id),
+                title
+              )
+            }
+            disabled={savedGames === 0}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+          >
+            Clear bracket scores
+          </button>
+        </div>
+      </div>
+
+      {projection.rounds.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+          {emptyMessage}
+        </div>
+      ) : (
+        <>
+          <div className="mb-4 rounded-2xl bg-slate-950 p-4 text-white">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">
+              {championLabel}
+            </div>
+            <div className="mt-1 text-2xl font-black">
+              {champion ? displayName(champion.name) : "Pending"}
+            </div>
+            <div className="mt-1 text-sm font-bold text-slate-300">
+              {projection.championSource === "actual"
+                ? "Driven by actual bracket finals entered below."
+                : projection.championSource === "projected"
+                  ? "Projected from model picks until actual results replace them."
+                  : projection.championSource === "bye"
+                    ? "Advanced by bye."
+                    : "Waiting for enough teams to resolve the bracket."}
+            </div>
+          </div>
+          <div className="overflow-x-auto pb-2">
+            <div
+              className="grid min-w-max gap-4"
+              style={{
+                gridTemplateColumns: `repeat(${projection.rounds.length}, minmax(280px, 1fr))`,
+              }}
+            >
+              {projection.rounds.map((round) => (
+                <div key={round[0]?.roundName ?? "round"} className="space-y-4">
+                  <div className="sticky left-0 rounded-xl bg-slate-100 px-3 py-2 text-center text-xs font-black uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {round[0]?.roundName}
+                  </div>
+                  <div className="space-y-4">
+                    {round.map((game) => (
+                      <BracketGameCard
+                        key={game.id}
+                        game={game}
+                        onScoreChange={(gameId, field, value) =>
+                          onScoreChange(gameId, field, value)
+                        }
+                        onToggleFinal={onToggleFinal}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ---------- TeamDrawer (a11y modal) ----------
 
 function TeamDrawer({
@@ -900,6 +1172,7 @@ export default function App() {
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
   const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
   const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
+  const [bracketLogs, setBracketLogs] = useState<Record<string, GameLog>>(() => loadBracketLogs());
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
   const [newDate, setNewDate] = useState("");
@@ -1003,6 +1276,12 @@ export default function App() {
       showToast("Could not save scores (storage full).", { tone: "error" });
     }
   }, [logs, showToast]);
+
+  useEffect(() => {
+    if (!saveBracketLogs(bracketLogs)) {
+      showToast("Could not save bracket scores (storage full).", { tone: "error" });
+    }
+  }, [bracketLogs, showToast]);
 
   useEffect(() => {
     if (!saveSettings(settings)) {
@@ -1160,6 +1439,30 @@ export default function App() {
       return (a.rank ?? 99) - (b.rank ?? 99);
     });
   }, [dashboardRows]);
+
+  const bracketProjection = useMemo(
+    () =>
+      buildBracketProjection({
+        teams: modelRows,
+        cutoff: goldCutoff,
+        logs: bracketLogs,
+        settings,
+      }),
+    [modelRows, goldCutoff, bracketLogs, settings]
+  );
+
+  const silverBracketProjection = useMemo(
+    () =>
+      buildBracketProjection({
+        teams: modelRows,
+        cutoff: Math.max(0, modelRows.length - goldCutoff),
+        startIndex: goldCutoff,
+        idPrefix: "silver-bracket",
+        logs: bracketLogs,
+        settings,
+      }),
+    [modelRows, goldCutoff, bracketLogs, settings]
+  );
 
   const currentSosRanks = useMemo(() => {
     const ordered = [...dashboardRows].sort((a, b) => b.sos - a.sos);
@@ -1965,6 +2268,7 @@ export default function App() {
       teams,
       matchups,
       logs,
+      bracketLogs,
       label,
       timestamp: Date.now(),
     };
@@ -1978,6 +2282,7 @@ export default function App() {
     setTeams(snapshot.teams);
     setMatchups(snapshot.matchups);
     setLogs(snapshot.logs);
+    setBracketLogs(snapshot.bracketLogs ?? {});
     closeTeamData();
     undoRef.current = null;
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
@@ -2112,6 +2417,7 @@ export default function App() {
         setTeams(importedTeams);
         setMatchups(importedMatchups);
         setLogs(importedLogs);
+        setBracketLogs({});
         closeTeamData();
         setActiveView("standings");
         showToast(`Imported ${importedMatchups.length} games.`, {
@@ -2182,9 +2488,12 @@ export default function App() {
   };
 
   const exportBackup = () => {
-    const blob = new Blob([JSON.stringify({ teams, matchups, logs, settings }, null, 2)], {
-      type: "application/json",
-    });
+    const blob = new Blob(
+      [JSON.stringify({ teams, matchups, logs, bracketLogs, settings }, null, 2)],
+      {
+        type: "application/json",
+      }
+    );
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -2223,6 +2532,9 @@ export default function App() {
         setTeams(nextTeams);
         setMatchups(nextMatchups);
         setLogs(nextLogs);
+        setBracketLogs(
+          coerceLogs(isRecord(parsed.bracketLogs) ? parsed.bracketLogs : {}, [], nextSettings)
+        );
         setSettings(nextSettings);
         closeTeamData();
         setLastImpact(null);
@@ -2252,6 +2564,7 @@ export default function App() {
     setTeams([]);
     setMatchups([]);
     setLogs({});
+    setBracketLogs({});
     setLastImpact(null);
     closeTeamData();
     setActiveView("standings");
@@ -2377,6 +2690,50 @@ export default function App() {
     }));
   }, []);
 
+  const updateBracketLog = useCallback(
+    (gameId: string, field: keyof GameLog, value: string | boolean) => {
+      setBracketLogs((prev) => {
+        const current = prev[gameId] || blankLog();
+        return {
+          ...prev,
+          [gameId]: {
+            ...current,
+            awayK: current.awayK || "0",
+            homeK: current.homeK || "0",
+            [field]: value,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const toggleBracketFinal = useCallback((gameId: string) => {
+    setBracketLogs((prev) => {
+      const current = prev[gameId] || blankLog();
+      return {
+        ...prev,
+        [gameId]: {
+          ...current,
+          awayK: current.awayK || "0",
+          homeK: current.homeK || "0",
+          isFinal: !current.isFinal,
+        },
+      };
+    });
+  }, []);
+
+  const clearBracketScores = useCallback(
+    (gameIds: string[], label: string) => {
+      const ids = new Set(gameIds);
+      setBracketLogs((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([gameId]) => !ids.has(gameId)))
+      );
+      showToast(`${label} scores cleared.`, { tone: "success" });
+    },
+    [showToast]
+  );
+
   const addGameValid = !!newAway && !!newHome && newAway !== newHome;
 
   const addGame = () => {
@@ -2456,6 +2813,7 @@ export default function App() {
     setTeams(demo.teams);
     setMatchups(demo.matchups);
     setLogs(demo.logs);
+    setBracketLogs({});
     setSettings(demo.settings);
     setActiveView("standings");
     closeTeamData();
@@ -2516,6 +2874,7 @@ export default function App() {
     setTeams(built.builtTeams);
     setMatchups(built.builtMatchups);
     setLogs(built.builtLogs);
+    setBracketLogs({});
     setLastImpact(null);
     closeTeamData();
     setScoreboardTeamFilter("ALL");
@@ -3002,6 +3361,11 @@ export default function App() {
             <ModelView
               goldCutoff={goldCutoff}
               modelRows={modelRows}
+              bracketProjection={bracketProjection}
+              silverBracketProjection={silverBracketProjection}
+              updateBracketLog={updateBracketLog}
+              toggleBracketFinal={toggleBracketFinal}
+              clearBracketScores={clearBracketScores}
               seedRangeForTeam={seedRangeForTeam}
               gamesThatMatterMost={gamesThatMatterMost}
               bubbleMovementRows={bubbleMovementRows}
@@ -3507,7 +3871,8 @@ function StandingsView({
                     <th className="px-4 py-3 text-center">
                       Gold %
                       <HelpTip title="Gold %">
-                        Estimated chance this team finishes inside the Gold Bracket cutoff after the remaining schedule is simulated.
+                        Estimated chance this team finishes inside the Gold Bracket cutoff after the
+                        remaining schedule is simulated.
                       </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">Playoff Status</th>
@@ -3710,6 +4075,11 @@ function StandingsView({
 function ModelView(props: {
   goldCutoff: number;
   modelRows: TeamWithProjection[];
+  bracketProjection: ReturnType<typeof buildBracketProjection>;
+  silverBracketProjection: ReturnType<typeof buildBracketProjection>;
+  updateBracketLog: (gameId: string, field: keyof GameLog, value: string | boolean) => void;
+  toggleBracketFinal: (gameId: string) => void;
+  clearBracketScores: (gameIds: string[], label: string) => void;
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
   gamesThatMatterMost: {
     game: Matchup;
@@ -3757,6 +4127,11 @@ function ModelView(props: {
   const {
     goldCutoff,
     modelRows,
+    bracketProjection,
+    silverBracketProjection,
+    updateBracketLog,
+    toggleBracketFinal,
+    clearBracketScores,
     seedRangeForTeam,
     gamesThatMatterMost,
     bubbleMovementRows,
@@ -3841,6 +4216,28 @@ function ModelView(props: {
         firstOutName={cutLineSnapshot.firstOutName}
         pointsGap={cutLineSnapshot.pointsGap}
         onSelectTeam={onSelectTeam}
+      />
+
+      <BracketPredictionPanel
+        title="Gold Bracket Predictor"
+        description="Seeds come from the projected Gold field. Enter actual bracket scores and mark games final to advance winners through the layout."
+        emptyMessage="Add at least two projected Gold teams to build a bracket."
+        championLabel="Projected Gold Champion"
+        projection={bracketProjection}
+        onScoreChange={updateBracketLog}
+        onToggleFinal={toggleBracketFinal}
+        onClearScores={clearBracketScores}
+      />
+
+      <BracketPredictionPanel
+        title="Silver Bracket Predictor"
+        description="All projected teams below the Gold cut line seed this Silver bracket. Enter scores here to advance actual Silver winners as the bracket plays out."
+        emptyMessage="Add at least two teams below the projected Gold cut line to build a Silver bracket."
+        championLabel="Projected Silver Champion"
+        projection={silverBracketProjection}
+        onScoreChange={updateBracketLog}
+        onToggleFinal={toggleBracketFinal}
+        onClearScores={clearBracketScores}
       />
 
       <section className={`${card} p-5`}>
@@ -3979,7 +4376,8 @@ function ModelView(props: {
                     <th className="px-4 py-3 text-center">
                       Projected
                       <HelpTip title="Projected seed">
-                        The seed from the deterministic forecast after applying model picks to remaining games.
+                        The seed from the deterministic forecast after applying model picks to
+                        remaining games.
                       </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">
@@ -3992,7 +4390,8 @@ function ModelView(props: {
                     <th className="px-4 py-3 text-center">
                       Gold Odds
                       <HelpTip title="Gold odds">
-                        Monte Carlo estimate of how often this team lands inside the configured Gold cutoff.
+                        Monte Carlo estimate of how often this team lands inside the configured Gold
+                        cutoff.
                       </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">Run Diff</th>

@@ -129,6 +129,7 @@ export type UndoSnapshot = {
   teams: TeamBase[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
+  bracketLogs?: Record<string, GameLog>;
   label: string;
   timestamp: number;
 };
