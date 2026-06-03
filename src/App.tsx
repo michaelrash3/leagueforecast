@@ -130,7 +130,11 @@ type RankSnapshotEntry = Team & {
 };
 
 const TEAM_QUERY_PARAM = "team";
-const EXACT_MAGIC_REMAINING_GAME_LIMIT = 30;
+// Keep the synchronous exact solver capped below browser-freezing schedule sizes.
+// The solver branches exponentially over every unfinished game (including ties),
+// so larger schedules should continue showing the paused message until this
+// computation moves off the React render path.
+const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 
 const DEMO_TEAM_NAMES = [
   "Northside Knockouts",
