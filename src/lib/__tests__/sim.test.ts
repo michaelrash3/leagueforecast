@@ -94,6 +94,41 @@ describe("calculateTeams", () => {
     expect(byId.get("A")!.ra).toBe(6);
   });
 
+  it("bases per-game runs, hits, and strikeouts only on finalized games", () => {
+    const logs: Record<string, GameLog> = {
+      g1: finalLog({
+        awayRuns: "8",
+        awayHits: "10",
+        awayK: "3",
+        homeRuns: "4",
+        homeHits: "6",
+        homeK: "5",
+      }),
+      g3: {
+        awayRuns: "20",
+        awayHits: "25",
+        awayK: "9",
+        homeRuns: "1",
+        homeHits: "2",
+        homeK: "7",
+        innings: "6",
+        isFinal: false,
+      },
+    };
+
+    const result = calculateTeams(teams, matchups, logs);
+    const byId = new Map(result.map((t) => [t.id, t]));
+
+    expect(byId.get("A")!.games).toBe(1);
+    expect(byId.get("A")!.rsg).toBe(8);
+    expect(byId.get("A")!.hpg).toBe(10);
+    expect(byId.get("A")!.kpg).toBe(3);
+    expect(byId.get("C")!.games).toBe(0);
+    expect(byId.get("C")!.rsg).toBe(0);
+    expect(byId.get("C")!.hpg).toBe(0);
+    expect(byId.get("C")!.kpg).toBe(0);
+  });
+
   it("weights recent form more heavily in momentum", () => {
     const formTeams: TeamBase[] = [
       { id: "A", name: "A" },
@@ -290,6 +325,18 @@ describe("applyResult", () => {
     const winner = result.find((t) => t.id === "B")!;
     expect(typeof winner.baseTpi).toBe("number");
     expect(Number.isFinite(winner.tpi)).toBe(true);
+  });
+
+  it("does not fold projected results into finalized-only per-game rates", () => {
+    const before = live.find((t) => t.id === "B")!;
+    const result = applyResult(live, future, "B", live, settings);
+    const after = result.find((t) => t.id === "B")!;
+
+    expect(after.games).toBe(before.games + 1);
+    expect(after.rsg).toBe(before.rsg);
+    expect(after.rag).toBe(before.rag);
+    expect(after.hpg).toBe(before.hpg);
+    expect(after.kpg).toBe(before.kpg);
   });
 });
 
