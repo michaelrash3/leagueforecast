@@ -150,6 +150,7 @@ const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 // schedule this can otherwise block the browser before the confirmation toast
 // and first render complete.
 const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
+const SCORE_INPUT_COMMIT_DELAY_MS = 250;
 
 const DEMO_TEAM_NAMES = [
   "Northside Knockouts",
@@ -597,14 +598,82 @@ const ScoreRow = React.memo(function ScoreRow({
   log: GameLog;
   onChange: (field: keyof GameLog, value: string) => void;
 }) {
-  const fields = [
-    { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
-    { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
-    { key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" },
-  ];
+  const fields = useMemo(
+    () => [
+      { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
+      { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
+      { key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" },
+    ],
+    [prefix]
+  );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const timersRef = useRef<Partial<Record<keyof GameLog, number>>>({});
+  const pendingValuesRef = useRef<Partial<Record<keyof GameLog, string>>>({});
+  const dirtyFieldsRef = useRef<Set<keyof GameLog>>(new Set());
+  const onChangeRef = useRef(onChange);
+  const [draft, setDraft] = useState<Partial<Record<keyof GameLog, string>>>(() => {
+    const initialDraft: Partial<Record<keyof GameLog, string>> = {};
+    fields.forEach((field) => {
+      initialDraft[field.key] = String(log[field.key] ?? "");
+    });
+    return initialDraft;
+  });
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    setDraft((current) => {
+      const next = { ...current };
+      fields.forEach((field) => {
+        if (!dirtyFieldsRef.current.has(field.key)) {
+          next[field.key] = String(log[field.key] ?? "");
+        }
+      });
+      return next;
+    });
+  }, [fields, log]);
+
+  useEffect(
+    () => () => {
+      fields.forEach((field) => {
+        const timer = timersRef.current[field.key];
+        if (timer) window.clearTimeout(timer);
+        const pendingValue = pendingValuesRef.current[field.key];
+        if (pendingValue !== undefined) {
+          onChangeRef.current(field.key, pendingValue);
+        }
+      });
+    },
+    [fields]
+  );
+
+  const flushField = useCallback((field: keyof GameLog) => {
+    const timer = timersRef.current[field];
+    if (timer) window.clearTimeout(timer);
+    delete timersRef.current[field];
+    const pendingValue = pendingValuesRef.current[field];
+    if (pendingValue === undefined) return;
+    delete pendingValuesRef.current[field];
+    dirtyFieldsRef.current.delete(field);
+    onChangeRef.current(field, pendingValue);
+  }, []);
+
+  const queueFieldCommit = useCallback(
+    (field: keyof GameLog, value: string) => {
+      pendingValuesRef.current[field] = value;
+      dirtyFieldsRef.current.add(field);
+      const existingTimer = timersRef.current[field];
+      if (existingTimer) window.clearTimeout(existingTimer);
+      timersRef.current[field] = window.setTimeout(() => {
+        flushField(field);
+      }, SCORE_INPUT_COMMIT_DELAY_MS);
+    },
+    [flushField]
+  );
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -627,12 +696,14 @@ const ScoreRow = React.memo(function ScoreRow({
               ref={(node) => {
                 inputRefs.current[index] = node;
               }}
-              value={String(log[field.key] ?? "")}
+              value={draft[field.key] ?? ""}
               onChange={(event) => {
                 const next = event.target.value.replace(/[^0-9]/g, "").slice(0, 2);
-                onChange(field.key, next);
+                setDraft((current) => ({ ...current, [field.key]: next }));
+                queueFieldCommit(field.key, next);
                 if (next.length >= 2) inputRefs.current[index + 1]?.focus();
               }}
+              onBlur={() => flushField(field.key)}
               inputMode="numeric"
               pattern="[0-9]*"
               maxLength={2}

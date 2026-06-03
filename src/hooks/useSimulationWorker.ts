@@ -87,6 +87,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     handle.nextId = id;
     latestIdRef.current = id;
     setPending(true);
+    let removeWorkerListeners: (() => void) | null = null;
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
@@ -116,9 +117,8 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
             return;
           }
           if (event.data.kind !== "odds" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
           if (latestIdRef.current === id) {
             setWorkerError(null);
             setOdds(event.data.odds);
@@ -127,15 +127,19 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           }
         };
         const onError = (event: Event) => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
           setWorkerError(event.type);
           runInline();
         };
         handle.worker.addEventListener("message", onMessage);
         handle.worker.addEventListener("error", onError);
         handle.worker.addEventListener("messageerror", onError);
+        removeWorkerListeners = () => {
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+        };
         const req: WorkerRequest = {
           kind: "odds",
           id,
@@ -159,6 +163,8 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
 
     return () => {
       window.clearTimeout(timer);
+      removeWorkerListeners?.();
+      removeWorkerListeners = null;
       try {
         handle.worker?.postMessage({ kind: "cancel", id });
       } catch {
@@ -210,6 +216,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     const id = handle.nextId + 1;
     handle.nextId = id;
     latestIdRef.current = id;
+    let removeWorkerListeners: (() => void) | null = null;
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
@@ -245,24 +252,27 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
             return;
           }
           if (event.data.kind !== "trend" || event.data.id !== id) return;
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
           if (latestIdRef.current === id) {
             setWorkerError(null);
             setTrend(event.data.trend);
           }
         };
         const onError = (event: Event) => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
           setWorkerError(event.type);
           runInline();
         };
         handle.worker.addEventListener("message", onMessage);
         handle.worker.addEventListener("error", onError);
         handle.worker.addEventListener("messageerror", onError);
+        removeWorkerListeners = () => {
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+        };
         const req: WorkerRequest = {
           kind: "trend",
           id,
@@ -285,6 +295,8 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
 
     return () => {
       window.clearTimeout(timer);
+      removeWorkerListeners?.();
+      removeWorkerListeners = null;
       try {
         handle.worker?.postMessage({ kind: "cancel", id });
       } catch {
