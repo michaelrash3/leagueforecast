@@ -544,9 +544,9 @@ export const applyResult = (
   [away, home].forEach((team) => {
     team.pct = team.games ? (team.w + team.t * 0.5) / team.games : 0;
     team.runDiff = team.rs - team.ra;
-    team.rsg = team.games ? team.rs / team.games : 0;
-    team.rag = team.games ? team.ra / team.games : 0;
-    // Refresh baseTpi/tpi so projected near-ties don't sort with stale values.
+    // Keep per-game production rates anchored to finalized games only. Projected
+    // results can update standings and run-differential tiebreakers, but they
+    // should not dilute displayed R/G, H/G, or K/G with model-generated games.
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
