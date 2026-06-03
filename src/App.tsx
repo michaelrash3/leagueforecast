@@ -4,7 +4,6 @@ import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
-import { ProjectionExplanation } from "./components/ProjectionExplanation";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
@@ -35,13 +34,6 @@ import {
   type RecapItem,
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
-import {
-  buildProjectionSnapshot,
-  diffProjectionSnapshots,
-  type ProjectionSnapshot,
-  type ProjectionSnapshotDelta,
-} from "./lib/projectionDelta";
-import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { backtestPredictions } from "./lib/backtest";
 import { buildShareUrl } from "./lib/share";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
@@ -538,9 +530,6 @@ function SplitStatsTable({
         <h4 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">
           {title}
         </h4>
-        <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-          Per-game split from final scores you manually entered.
-        </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -695,7 +684,6 @@ function TeamDrawer({
   magicForGold,
   eliminationNumber,
   pathSummary,
-  projectionExplanations,
   splitSummary,
   onCompare,
   leagueAverageStats,
@@ -714,7 +702,6 @@ function TeamDrawer({
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   pathSummary: string;
-  projectionExplanations: string[];
   splitSummary: TeamSplitSummary;
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
@@ -782,8 +769,6 @@ function TeamDrawer({
           </div>
         </div>
 
-        <ProjectionExplanation explanations={projectionExplanations} />
-
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
           <DrawerMetric label="Gold %" value={goldPctLabel} />
@@ -823,10 +808,6 @@ function TeamDrawer({
             <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
               Team Stats Splits
             </h3>
-            <p className="mt-1 text-xs font-bold leading-5 text-slate-500 dark:text-slate-400">
-              Offense is what this team recorded at the plate; defense is what opponents recorded
-              against them.
-            </p>
           </div>
           <SplitStatsTable
             title="Offensive Splits"
@@ -962,16 +943,6 @@ export default function App() {
   const confirmDialogRef = useRef<HTMLElement>(null);
 
   const undoRef = useRef<UndoSnapshot | null>(null);
-  const projectionSnapshotsRef = useRef<{
-    previous: ProjectionSnapshot | null;
-    current: ProjectionSnapshot | null;
-    delta: ProjectionSnapshotDelta | null;
-    key: string | null;
-  }>({ previous: null, current: null, delta: null, key: null });
-  const [projectionSnapshotState, setProjectionSnapshotState] = useState<{
-    delta: ProjectionSnapshotDelta | null;
-    key: string | null;
-  }>({ delta: null, key: null });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const { theme, toggle: toggleTheme } = useDarkMode();
   const {
@@ -1125,12 +1096,7 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const {
-    odds,
-    pending: oddsPending,
-    inputKey: oddsInputKey,
-    resultKey: oddsResultKey,
-  } = useSimulationOdds(oddsInput);
+  const { odds } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -1216,122 +1182,6 @@ export default function App() {
       return seed >= goldCutoff - 2 && seed <= goldCutoff + 3;
     });
   }, [modelRows, goldCutoff]);
-
-  // ---------- Projection explanation snapshots (captured for future inline explanations) ----------
-
-  const projectionRelevantSettings = useMemo(
-    () => ({
-      goldCutoff,
-      regularSeasonGamesPerTeam: settings.regularSeasonGamesPerTeam,
-      winPoints: settings.winPoints,
-      tiePoints: settings.tiePoints,
-      runDiffTiebreaker: settings.runDiffTiebreaker,
-      tiebreakerOrder: settings.tiebreakerOrder,
-      maxScoreCap: settings.maxScoreCap,
-      modelAggression: settings.modelAggression,
-    }),
-    [
-      goldCutoff,
-      settings.regularSeasonGamesPerTeam,
-      settings.winPoints,
-      settings.tiePoints,
-      settings.runDiffTiebreaker,
-      settings.tiebreakerOrder,
-      settings.maxScoreCap,
-      settings.modelAggression,
-    ]
-  );
-
-  const projectionSnapshotTeams = useMemo(
-    () =>
-      ranked.map((team) => ({
-        ...team,
-        projectedRank: projectedById.get(team.id)?.rank ?? team.rank,
-        goldPct: odds[team.id] ?? 0,
-      })),
-    [ranked, projectedById, odds]
-  );
-
-  const projectionSnapshotKey = useMemo(
-    () =>
-      JSON.stringify([
-        oddsResultKey,
-        projectionSnapshotTeams.map((team) => [
-          team.id,
-          team.rank,
-          team.projectedRank,
-          team.goldPct,
-          team.w,
-          team.t,
-          team.rs,
-          team.ra,
-          team.runDiff,
-        ]),
-        projected.map((team) => [
-          team.id,
-          team.rank,
-          team.w,
-          team.t,
-          team.rs,
-          team.ra,
-          team.runDiff,
-        ]),
-        matchups.length,
-        Object.keys(logs).length,
-        completedGames.length,
-        projectionRelevantSettings,
-      ]),
-    [
-      oddsResultKey,
-      projectionSnapshotTeams,
-      projected,
-      matchups.length,
-      logs,
-      completedGames.length,
-      projectionRelevantSettings,
-    ]
-  );
-
-  const currentProjectionSnapshot = useMemo(() => {
-    if (oddsPending || oddsResultKey !== oddsInputKey) return null;
-    if (!projectionSnapshotTeams.length) return null;
-
-    return buildProjectionSnapshot({
-      teams: projectionSnapshotTeams,
-      projectedTeams: projected,
-      settings: projectionRelevantSettings,
-      matchups,
-      logs,
-      matchupCount: matchups.length,
-      logCount: Object.keys(logs).length,
-      finalizedGameCount: completedGames.length,
-    });
-  }, [
-    oddsPending,
-    oddsResultKey,
-    oddsInputKey,
-    projectionSnapshotTeams,
-    projected,
-    projectionRelevantSettings,
-    matchups,
-    logs,
-    completedGames.length,
-  ]);
-
-  useEffect(() => {
-    if (!currentProjectionSnapshot) return;
-    if (projectionSnapshotsRef.current.key === projectionSnapshotKey) return;
-
-    const previous = projectionSnapshotsRef.current.current;
-    const delta = previous ? diffProjectionSnapshots(previous, currentProjectionSnapshot) : null;
-    projectionSnapshotsRef.current = {
-      previous,
-      current: currentProjectionSnapshot,
-      delta,
-      key: projectionSnapshotKey,
-    };
-    setProjectionSnapshotState({ delta, key: projectionSnapshotKey });
-  }, [currentProjectionSnapshot, projectionSnapshotKey]);
 
   // ---------- Scenario helpers ----------
 
@@ -2828,26 +2678,6 @@ export default function App() {
     currentLeader,
   ]);
 
-  const selectedTeamProjectionExplanations = useMemo(() => {
-    if (!selectedTeam) return [];
-    if (oddsPending || oddsResultKey !== oddsInputKey) return [];
-    if (projectionSnapshotState.key !== projectionSnapshotKey || !projectionSnapshotState.delta) {
-      return [];
-    }
-
-    return buildProjectionExplanations({
-      delta: projectionSnapshotState.delta,
-      teamId: selectedTeam.id,
-    });
-  }, [
-    selectedTeam,
-    oddsPending,
-    oddsResultKey,
-    oddsInputKey,
-    projectionSnapshotState,
-    projectionSnapshotKey,
-  ]);
-
   const finalCount = completedGames.length;
   const totalGamesCount = matchups.length;
   const weeklyStory = useMemo(() => {
@@ -3279,7 +3109,6 @@ export default function App() {
               }
             }
             pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
-            projectionExplanations={selectedTeamProjectionExplanations}
             splitSummary={selectedTeamSplitSummary}
             leagueAverageStats={leagueAverageStats}
             onClose={closeTeamData}
