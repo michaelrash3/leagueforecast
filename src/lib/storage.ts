@@ -1,5 +1,5 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
-import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./validate";
+import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams } from "./validate";
 
 const KEYS = {
   teams: `league_teams_v${STORAGE_VERSION}`,
@@ -41,23 +41,15 @@ const migrateOnce = (legacyKey: string, currentKey: string) => {
 
 export const loadTeams = (): TeamBase[] => {
   migrateOnce(LEGACY_KEYS.teams, KEYS.teams);
-  const raw = parseJson(safeGet(KEYS.teams));
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(isTeamBase);
+  return coerceTeams(parseJson(safeGet(KEYS.teams)));
 };
 export const loadMatchups = (): Matchup[] => {
   migrateOnce(LEGACY_KEYS.matchups, KEYS.matchups);
-  const raw = parseJson(safeGet(KEYS.matchups));
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(isMatchup);
+  return coerceMatchups(parseJson(safeGet(KEYS.matchups)), loadTeams());
 };
 export const loadLogs = (): Record<string, GameLog> => {
   migrateOnce(LEGACY_KEYS.logs, KEYS.logs);
-  const raw = parseJson(safeGet(KEYS.logs));
-  if (!isRecord(raw)) return {};
-  const out: Record<string, GameLog> = {};
-  Object.entries(raw).forEach(([key, value]) => { if (isGameLog(value)) out[key] = value; });
-  return out;
+  return coerceLogs(parseJson(safeGet(KEYS.logs)), loadMatchups(), loadSettings());
 };
 export const loadSettings = (): Settings => {
   migrateOnce(LEGACY_KEYS.settings, KEYS.settings);

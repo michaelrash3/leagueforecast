@@ -1,5 +1,5 @@
 import type { ActiveShareView, GameLog, Matchup, Settings, TeamBase } from "./types";
-import { coerceSettings, isGameLog, isMatchup, isRecord, isTeamBase } from "./validate";
+import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 
 export type SharedSnapshot = {
   v: 1;
@@ -13,8 +13,19 @@ export const MAX_SHARE_URL_PAYLOAD = 7000;
 
 const SHARE_VIEWS = new Set<ActiveShareView>(["standings", "games", "model", "settings"]);
 
+const bytesToBase64 = (bytes: Uint8Array) => {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+};
+const base64ToBytes = (base64: string) => {
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+};
 const encodeRaw = (value: string) =>
-  btoa(unescape(encodeURIComponent(value)))
+  bytesToBase64(new TextEncoder().encode(value))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
@@ -22,7 +33,7 @@ const decodeRaw = (encoded: string) => {
   const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (padded.length % 4)) % 4;
   const full = padded + "=".repeat(padLen);
-  return decodeURIComponent(escape(atob(full)));
+  return new TextDecoder().decode(base64ToBytes(full));
 };
 
 export const encodeSnapshot = (snapshot: SharedSnapshot): string =>
@@ -35,13 +46,11 @@ export const decodeSnapshot = (encoded: string): SharedSnapshot | null => {
     if (!isRecord(parsed) || parsed.v !== 1) return null;
     if (!Array.isArray(parsed.teams) || !Array.isArray(parsed.matchups) || !isRecord(parsed.logs))
       return null;
-    const teams = parsed.teams.filter(isTeamBase);
-    const matchups = parsed.matchups.filter(isMatchup);
-    const logs: Record<string, GameLog> = {};
-    Object.entries(parsed.logs).forEach(([k, v]) => {
-      if (isGameLog(v)) logs[k] = v;
-    });
-    return { v: 1, teams, matchups, logs, settings: coerceSettings(parsed.settings) };
+    const settings = coerceSettings(parsed.settings);
+    const teams = coerceTeams(parsed.teams);
+    const matchups = coerceMatchups(parsed.matchups, teams);
+    const logs = coerceLogs(parsed.logs, matchups, settings);
+    return { v: 1, teams, matchups, logs, settings };
   } catch {
     return null;
   }

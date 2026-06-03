@@ -430,22 +430,36 @@ export const predictGame = (
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
   const home = lookup.get(game.home);
+  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const leagueRuns = totalGames ? totalRuns / totalGames : 7;
+  const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
-  if (!away || !home || away.games < 2 || home.games < 2) {
+  if (!away || !home) {
     return {
-      awayScore: 7,
-      homeScore: 6,
-      awayWinPct: 0.52,
+      awayScore: Math.round(leagueRuns),
+      homeScore: Math.round(leagueRuns),
+      awayWinPct: 0.5,
       winnerId: game.away,
       confidence: "Low",
     };
   }
 
-  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
-  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
-  const leagueRuns = totalGames ? totalRuns / totalGames : 8;
+  if (away.games < 2 || home.games < 2) {
+    const awayPrior = away.games ? away.pct : 0.5;
+    const homePrior = home.games ? home.pct : 0.5;
+    const priorDiff = clamp((awayPrior - homePrior) * 0.18, -0.08, 0.08);
+    const awayWinPct = calibrateAwayWinPct(0.5 + priorDiff, away.games, home.games, aggression);
+    const scoreSpread = clamp((awayWinPct - 0.5) * 6, -1, 1);
+    return {
+      awayScore: Math.max(1, Math.round(leagueRuns + scoreSpread)),
+      homeScore: Math.max(1, Math.round(leagueRuns - scoreSpread)),
+      awayWinPct,
+      winnerId: awayWinPct >= 0.5 ? game.away : game.home,
+      confidence: "Low",
+    };
+  }
 
-  const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   let awayScore = (away.rsg * home.rag) / Math.max(leagueRuns, 1);
   let homeScore = (home.rsg * away.rag) / Math.max(leagueRuns, 1);

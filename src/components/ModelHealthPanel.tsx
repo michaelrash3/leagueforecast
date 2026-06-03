@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { HelpTip } from "./HelpTip";
 import type { backtestPredictions } from "../lib/backtest";
 
 type ModelHealthPanelProps = {
@@ -38,7 +40,17 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
               <div className="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
-                <Metric label="Brier" value={backtestResult.brierScore.toFixed(3)} />
+                <Metric
+                  label={
+                    <>
+                      Brier
+                      <HelpTip title="Brier score">
+                        Lower is better. It measures how close predicted win probabilities were to finalized non-tie outcomes.
+                      </HelpTip>
+                    </>
+                  }
+                  value={backtestResult.brierScore.toFixed(3)}
+                />
                 <Metric
                   label="Upsets"
                   value={`${Math.round(backtestResult.upsetCaptureRate * 100)}%`}
@@ -75,7 +87,7 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: { label: ReactNode; value: string }) {
   return (
     <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

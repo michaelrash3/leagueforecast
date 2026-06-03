@@ -9,6 +9,7 @@ import {
   type TeamBase,
   type TiebreakerFactor,
 } from "./types";
+import { normalizeDateInput } from "./date";
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
@@ -20,10 +21,34 @@ export const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+const cleanId = (value: string) => value.trim();
+const cleanName = (value: string) => value.trim().slice(0, 120);
+const clampScoreText = (value: unknown, maxScoreCap: number) => {
+  if (value === undefined || value === null) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return "";
+  return String(Math.min(maxScoreCap, Math.max(0, Math.round(numeric))));
+};
+const clampInningsText = (value: unknown) => {
+  const numeric = Number(String(value ?? "").trim());
+  if (!Number.isFinite(numeric)) return "6";
+  return String(Math.min(10, Math.max(1, Math.round(numeric))));
+};
+
 export const isTeamBase = (v: unknown): v is TeamBase =>
-  isRecord(v) && isString(v.id) && isString(v.name);
+  isRecord(v) && isString(v.id) && isString(v.name) && cleanId(v.id).length > 0 && cleanName(v.name).length > 0;
 export const isMatchup = (v: unknown): v is Matchup =>
-  isRecord(v) && isString(v.id) && isString(v.date) && isString(v.away) && isString(v.home);
+  isRecord(v) &&
+  isString(v.id) &&
+  isString(v.date) &&
+  isString(v.away) &&
+  isString(v.home) &&
+  cleanId(v.id).length > 0 &&
+  cleanId(v.away).length > 0 &&
+  cleanId(v.home).length > 0 &&
+  cleanId(v.away) !== cleanId(v.home);
 export const isGameLog = (v: unknown): v is GameLog =>
   isRecord(v) &&
   isString(v.awayRuns) &&
@@ -34,6 +59,75 @@ export const isGameLog = (v: unknown): v is GameLog =>
   isString(v.homeK) &&
   isString(v.innings) &&
   (v.isFinal === undefined || isBoolean(v.isFinal));
+
+export const coerceTeams = (raw: unknown): TeamBase[] => {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: TeamBase[] = [];
+  raw.forEach((item) => {
+    if (!isRecord(item) || !isString(item.id) || !isString(item.name)) return;
+    const id = cleanId(item.id);
+    const name = cleanName(item.name);
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, name });
+  });
+  return out;
+};
+
+export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] => {
+  if (!Array.isArray(raw)) return [];
+  const teamIds = new Set(teams.map((team) => team.id));
+  const requireKnownTeams = teamIds.size > 0;
+  const seen = new Set<string>();
+  const out: Matchup[] = [];
+  raw.forEach((item) => {
+    if (!isRecord(item)) return;
+    const id = isString(item.id) ? cleanId(item.id) : "";
+    const away = isString(item.away) ? cleanId(item.away) : "";
+    const home = isString(item.home) ? cleanId(item.home) : "";
+    if (!id || !away || !home || away === home || seen.has(id)) return;
+    if (requireKnownTeams && (!teamIds.has(away) || !teamIds.has(home))) return;
+    seen.add(id);
+    out.push({
+      id,
+      away,
+      home,
+      date: normalizeDateInput(isString(item.date) ? item.date : ""),
+    });
+  });
+  return out;
+};
+
+export const coerceLogs = (
+  raw: unknown,
+  matchups: Matchup[] = [],
+  settings: Pick<Settings, "maxScoreCap"> = DEFAULT_SETTINGS
+): Record<string, GameLog> => {
+  if (!isRecord(raw)) return {};
+  const matchupIds = new Set(matchups.map((matchup) => matchup.id));
+  const requireKnownGames = matchupIds.size > 0;
+  const out: Record<string, GameLog> = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    if (requireKnownGames && !matchupIds.has(key)) return;
+    if (!isRecord(value)) return;
+    const log: GameLog = {
+      awayRuns: clampScoreText(value.awayRuns, settings.maxScoreCap),
+      awayHits: clampScoreText(value.awayHits, settings.maxScoreCap),
+      awayK: clampScoreText(value.awayK, settings.maxScoreCap),
+      homeRuns: clampScoreText(value.homeRuns, settings.maxScoreCap),
+      homeHits: clampScoreText(value.homeHits, settings.maxScoreCap),
+      homeK: clampScoreText(value.homeK, settings.maxScoreCap),
+      innings: clampInningsText(value.innings),
+      isFinal: isBoolean(value.isFinal) ? value.isFinal : undefined,
+    };
+    const hasScore = log.awayRuns !== "" && log.homeRuns !== "";
+    const hasKs = log.awayK !== "" && log.homeK !== "";
+    log.isFinal = Boolean(log.isFinal && hasScore && hasKs);
+    out[key] = log;
+  });
+  return out;
+};
 
 const coerceTiebreakerOrder = (raw: unknown, runDiffTiebreaker: boolean): TiebreakerFactor[] => {
   if (!Array.isArray(raw)) {

@@ -12,8 +12,11 @@ import { DEFAULT_SETTINGS } from "../types";
 
 const snapshot: SharedSnapshot = {
   v: 1,
-  teams: [{ id: "A", name: "Aces" }],
-  matchups: [{ id: "g1", date: "5/1", away: "A", home: "A" }],
+  teams: [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+  ],
+  matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
   logs: {
     g1: {
       awayRuns: "1",
