@@ -39,6 +39,7 @@ import {
 } from "./lib/date";
 import { displayName, recordText, teamAbbr } from "./lib/format";
 import { summarizeCsvImportIssues, type CsvImportIssue } from "./lib/importReport";
+import { buildSeasonImportPreview, formatSeasonImportPreview } from "./lib/importPreview";
 import {
   pathSummary,
   recapToMarkdown,
@@ -49,8 +50,10 @@ import {
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildBracketProjection, type BracketGameProjection } from "./lib/bracket";
+import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
+import { projectionConfidenceForTeam } from "./lib/projectionConfidence";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./lib/validate";
 import {
@@ -976,7 +979,7 @@ function TeamDrawer({
   range: { best: number; worst: number; baseline: number };
   bubble: string;
   currentSosRank: number | null;
-  sos: { label: string; avgSeed: number; opponents: string };
+  sos: { label: string; rating: number; opponents: string };
   swings: SwingGame[];
   clinchScenarios: string[];
   titleRace: string;
@@ -1800,34 +1803,9 @@ export default function App() {
   );
 
   const scheduleDifficultyForTeam = useCallback(
-    (teamId: string) => {
-      const games = remainingGames.filter((game) => game.away === teamId || game.home === teamId);
-      if (!games.length) {
-        return { label: "Complete", avgSeed: 0, opponents: "No games left" };
-      }
-      const oppSeeds = games.map((game) => {
-        const opponentId = game.away === teamId ? game.home : game.away;
-        const opponent = dashboardById.get(opponentId);
-        return {
-          seed: opponent?.rank ?? 99,
-          name: displayName(opponent?.name || opponentId),
-        };
-      });
-      const avgSeed =
-        oppSeeds.reduce((sum, item) => sum + item.seed, 0) / Math.max(oppSeeds.length, 1);
-      const label =
-        avgSeed <= Math.max(2, goldCutoff - 2)
-          ? "Hard"
-          : avgSeed <= goldCutoff + 2
-            ? "Medium"
-            : "Easy";
-      return {
-        label,
-        avgSeed,
-        opponents: oppSeeds.map((item) => `#${item.seed} ${item.name}`).join(", "),
-      };
-    },
-    [remainingGames, dashboardById, goldCutoff]
+    (teamId: string) =>
+      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, deferredLogs),
+    [remainingGames, dashboardRows, matchups, deferredLogs]
   );
 
   const gameImportance = useCallback(
@@ -2499,14 +2477,23 @@ export default function App() {
           if (!matchupIds.has(id)) delete importedLogs[id];
         });
 
-        const finalGames = Object.values(importedLogs).filter(isFinal).length;
-        const openGames = importedMatchups.length - finalGames;
         const warningLines = summarizeCsvImportIssues(importIssues);
+        const importedTeamNameById = new Map(
+          importedTeams.map((team) => [team.id, displayName(team.name)])
+        );
+        const preview = buildSeasonImportPreview(
+          importedTeams,
+          importedMatchups,
+          importedLogs,
+          teams,
+          matchups,
+          (teamId) => importedTeamNameById.get(teamId) ?? displayName(teamId)
+        );
         const confirmed = await requestConfirmation({
           title: "Import schedule CSV?",
-          message: `${importedTeams.length} teams found · ${importedMatchups.length} games found · ${finalGames} finals · ${openGames} open.\n\n${
-            warningLines.length ? `Warnings:\n- ${warningLines.join("\n- ")}\n\n` : ""
-          }This will replace the current season data and save an undo snapshot.`,
+          message: `${formatSeasonImportPreview(preview, warningLines)}
+
+This will replace the current season data and save an undo snapshot.`,
           confirmLabel: warningLines.length ? "Import with warnings" : "Replace season",
         });
         if (!confirmed) return;
@@ -2622,9 +2609,22 @@ export default function App() {
         const nextTeams = coerceTeams(parsed.teams);
         const nextMatchups = coerceMatchups(parsed.matchups, nextTeams);
         const nextLogs = coerceLogs(parsed.logs, nextMatchups, nextSettings);
+        const backupTeamNameById = new Map(
+          nextTeams.map((team) => [team.id, displayName(team.name)])
+        );
+        const preview = buildSeasonImportPreview(
+          nextTeams,
+          nextMatchups,
+          nextLogs,
+          teams,
+          matchups,
+          (teamId) => backupTeamNameById.get(teamId) ?? displayName(teamId)
+        );
         const confirmed = await requestConfirmation({
           title: "Import backup JSON?",
-          message: `${nextTeams.length} teams · ${nextMatchups.length} games found.\n\nThis will replace current season data and save an undo snapshot.`,
+          message: `${formatSeasonImportPreview(preview)}
+
+This will replace current season data and save an undo snapshot.`,
           confirmLabel: "Import backup",
         });
         if (!confirmed) return;
@@ -3334,7 +3334,8 @@ export default function App() {
     <>
       {isOffline && (
         <div className="sticky top-0 z-40 bg-amber-100 px-4 py-2 text-center text-xs font-black text-amber-800 dark:bg-amber-900/70 dark:text-amber-100">
-          You are offline. Showing cached app shell and local data.
+          You are offline. Showing cached app shell and local data; score edits still save in this
+          browser.
         </div>
       )}
       <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
@@ -3573,7 +3574,7 @@ export default function App() {
             }
             bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
             currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-            sos={selectedTeamDetail?.sos ?? { label: "Loading…", avgSeed: 0, opponents: "" }}
+            sos={selectedTeamDetail?.sos ?? { label: "Loading…", rating: 0, opponents: "" }}
             swings={selectedTeamDetail?.swings ?? []}
             clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
             titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
@@ -4234,7 +4235,7 @@ function ModelView(props: {
     sos: { label: string; opponents: string };
     control: string;
   }[];
-  scheduleDifficultyForTeam: (id: string) => { label: string; opponents: string };
+  scheduleDifficultyForTeam: (id: string) => { label: string; rating: number; opponents: string };
   teamPathNote: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
   formatGoldMargin: (t: TeamWithProjection) => string;
@@ -4276,7 +4277,7 @@ function ModelView(props: {
     seedRangeForTeam,
     gamesThatMatterMost,
     bubbleMovementRows,
-    scheduleDifficultyForTeam: _sd,
+    scheduleDifficultyForTeam,
     teamPathNote,
     formatGoldPct,
     formatGoldMargin,
@@ -4291,53 +4292,13 @@ function ModelView(props: {
     settings: _settings,
     cutoff: _cutoff,
     onSelectTeam,
-    liveTeams,
-    remainingGames,
+    liveTeams: _liveTeams,
+    remainingGames: _remainingGames,
     backtestResult,
     clinchingPaths,
     cutLineSnapshot,
     timelineEntries,
   } = props;
-
-  const [scenarioPicks, setScenarioPicks] = useState<Record<string, string>>({});
-  const scenarioEntries = useMemo(
-    () =>
-      Object.entries(scenarioPicks).filter(([gameId, winnerId]) =>
-        remainingGames.some(
-          (game) => game.id === gameId && (game.away === winnerId || game.home === winnerId)
-        )
-      ),
-    [scenarioPicks, remainingGames]
-  );
-  const scenarioRows = useMemo(() => {
-    let scenarioTeams = liveTeams.map((team) => ({ ...team }));
-    const selectedGameIds = new Set(scenarioEntries.map(([gameId]) => gameId));
-    scenarioEntries.forEach(([gameId, winnerId]) => {
-      const game = remainingGames.find((item) => item.id === gameId);
-      if (game)
-        scenarioTeams = applyResult(scenarioTeams, game, winnerId, scenarioTeams, _settings);
-    });
-    const scenarioRemaining = remainingGames.filter((game) => !selectedGameIds.has(game.id));
-    const projected = projectStandings(scenarioTeams, scenarioRemaining, _settings);
-    return rankTeams(projected, rankOptionsFromSettings(_settings)).map((team) => {
-      const baseline = modelRows.find((item) => item.id === team.id);
-      return {
-        ...team,
-        baselineRank: baseline?.projectedRank ?? baseline?.rank ?? team.rank ?? 99,
-      };
-    });
-  }, [scenarioEntries, liveTeams, remainingGames, _settings, modelRows]);
-  const scenarioPreviewGames = useMemo(
-    () =>
-      [...remainingGames]
-        .sort((a, b) => {
-          const aMatter = gamesThatMatterMost.find((item) => item.game.id === a.id)?.rank ?? 99;
-          const bMatter = gamesThatMatterMost.find((item) => item.game.id === b.id)?.rank ?? 99;
-          return aMatter - bMatter || parseDateValue(a.date) - parseDateValue(b.date);
-        })
-        .slice(0, 8),
-    [remainingGames, gamesThatMatterMost]
-  );
 
   return (
     <section className="space-y-6">
@@ -4360,6 +4321,53 @@ function ModelView(props: {
         onSelectTeam={onSelectTeam}
       />
 
+      <section className={`${card} p-5`} aria-label="Schedule difficulty heatmap">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Schedule Difficulty Heatmap
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Remaining opponents rated by how they score and prevent runs versus opponent averages,
+              with record included as a smaller signal.
+            </p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            Remaining slate
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {modelRows.map((team) => {
+            const sos = scheduleDifficultyForTeam(team.id);
+            const toneClass =
+              sos.label === "Hard"
+                ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200"
+                : sos.label === "Medium"
+                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
+                  : sos.label === "Complete"
+                    ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200";
+            return (
+              <button
+                type="button"
+                key={`sos-heat-${team.id}`}
+                onClick={() => onSelectTeam(team.id)}
+                className={`rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+                aria-label={`${displayName(team.name)} remaining schedule difficulty: ${sos.label}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-black">{displayName(team.name)}</span>
+                  <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-current dark:bg-black/20">
+                    {sos.label}
+                  </span>
+                </div>
+                <p className="mt-2 line-clamp-2 text-xs font-bold opacity-80">{sos.opponents}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <BracketPredictionPanel
         title="Gold Bracket Predictor"
         description="Seeds come from the projected Gold field. Enter actual bracket scores and mark games final to advance winners through the layout."
@@ -4381,120 +4389,6 @@ function ModelView(props: {
         onToggleFinal={toggleBracketFinal}
         onClearScores={clearBracketScores}
       />
-
-      <section className={`${card} p-5`}>
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              What-if Scenario Builder
-            </h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              Pick winners for key remaining games and preview how the projected table changes.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setScenarioPicks({})}
-            disabled={scenarioEntries.length === 0}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-          >
-            Clear picks
-          </button>
-        </div>
-        {scenarioPreviewGames.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
-            No remaining games are available for what-if picks.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_460px]">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {scenarioPreviewGames.map((game) => {
-                const away = byId.get(game.away);
-                const home = byId.get(game.home);
-                const pick = scenarioPicks[game.id] ?? "";
-                return (
-                  <article
-                    key={`scenario-${game.id}`}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      {formatGameDate(game.date)}
-                    </div>
-                    <div className="mt-1 text-sm font-black text-slate-950 dark:text-slate-100">
-                      {displayName(away?.name || game.away)} at{" "}
-                      {displayName(home?.name || game.home)}
-                    </div>
-                    <label className="mt-3 block text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Hypothetical winner
-                      <select
-                        value={pick}
-                        onChange={(event) =>
-                          setScenarioPicks((prev) => {
-                            const next = { ...prev };
-                            if (event.target.value) next[game.id] = event.target.value;
-                            else delete next[game.id];
-                            return next;
-                          })
-                        }
-                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-black text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-white"
-                      >
-                        <option value="">Use model pick</option>
-                        <option value={game.away}>{displayName(away?.name || game.away)}</option>
-                        <option value={game.home}>{displayName(home?.name || game.home)}</option>
-                      </select>
-                    </label>
-                  </article>
-                );
-              })}
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Scenario projection
-                </h4>
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                  {scenarioEntries.length} pick{scenarioEntries.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-slate-100 dark:border-slate-800">
-                <table className="w-full text-left text-sm">
-                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2">Team</th>
-                      <th className="px-3 py-2 text-center">Proj.</th>
-                      <th className="px-3 py-2 text-center">Move</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {scenarioRows.slice(0, Math.max(goldCutoff + 3, 8)).map((team) => {
-                      const delta = team.baselineRank - (team.rank ?? 99);
-                      return (
-                        <tr key={`scenario-row-${team.id}`}>
-                          <td className="px-3 py-2 font-black text-slate-800 dark:text-slate-100">
-                            {displayName(team.name)}
-                          </td>
-                          <td className="px-3 py-2 text-center font-black">#{team.rank}</td>
-                          <td
-                            className={`px-3 py-2 text-center font-black ${
-                              delta > 0
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : delta < 0
-                                  ? "text-red-600 dark:text-red-400"
-                                  : "text-slate-500 dark:text-slate-400"
-                            }`}
-                          >
-                            {delta > 0 ? `+${delta}` : delta}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
@@ -4544,6 +4438,13 @@ function ModelView(props: {
                   {modelRows.map((team) => {
                     const movement = (team.rank ?? 99) - team.projectedRank;
                     const range = seedRangeForTeam(team.id);
+                    const confidence = projectionConfidenceForTeam(team);
+                    const confidenceClass =
+                      confidence.tone === "emerald"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                        : confidence.tone === "amber"
+                          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300";
                     return (
                       <tr
                         key={`forecast-${team.id}`}
@@ -4590,6 +4491,12 @@ function ModelView(props: {
                           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
                             {formatGoldMargin(team)}
                           </div>
+                          <span
+                            className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${confidenceClass}`}
+                            title={confidence.detail}
+                          >
+                            {confidence.label}
+                          </span>
                         </td>
                         <td
                           className={`px-4 py-4 text-center font-black ${
@@ -4620,6 +4527,7 @@ function ModelView(props: {
               {modelRows.map((team) => {
                 const movement = (team.rank ?? 99) - team.projectedRank;
                 const range = seedRangeForTeam(team.id);
+                const confidence = projectionConfidenceForTeam(team);
                 return (
                   <li
                     key={`forecast-mobile-${team.id}`}
@@ -4680,6 +4588,9 @@ function ModelView(props: {
                       {formatGoldPct(team)}
                       <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400">
                         {formatGoldMargin(team)}
+                      </span>
+                      <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400">
+                        {confidence.label}
                       </span>
                     </span>
                   </li>
@@ -4744,6 +4655,7 @@ function ModelView(props: {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {bubbleMovementRows.map(({ team, tier, sos }) => {
               const range = seedRangeForTeam(team.id);
+              const confidence = projectionConfidenceForTeam(team);
               const bubbleNote =
                 team.projectedRank <= goldCutoff && (team.rank ?? 99) > goldCutoff
                   ? `${displayName(team.name)} is projected to move into the Gold Bracket.`
@@ -4780,7 +4692,7 @@ function ModelView(props: {
                         {formatGoldPct(team)}
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {formatGoldMargin(team)}
+                        {formatGoldMargin(team)} · {confidence.label}
                       </div>
                     </div>
                     <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
