@@ -1,6 +1,6 @@
 import React, {
+  startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -158,7 +158,7 @@ const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 // schedule this can otherwise block the browser before the confirmation toast
 // and first render complete.
 const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
-const SCORE_INPUT_COMMIT_DELAY_MS = 1200;
+const EMPTY_GAME_LOG = blankLog();
 
 const DEMO_TEAM_NAMES = [
   "Northside Knockouts",
@@ -595,17 +595,14 @@ function SplitStatsTable({
   );
 }
 
-const ScoreRow = React.memo(function ScoreRow({
-  teamName,
-  prefix,
-  log,
-  onChange,
-}: {
+type ScoreRowProps = {
   teamName: string;
   prefix: "away" | "home";
   log: GameLog;
   onChange: (field: keyof GameLog, value: string) => void;
-}) {
+};
+
+const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange }: ScoreRowProps) {
   const fields = useMemo(
     () => [
       { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
@@ -616,72 +613,21 @@ const ScoreRow = React.memo(function ScoreRow({
   );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const timersRef = useRef<Partial<Record<keyof GameLog, number>>>({});
-  const pendingValuesRef = useRef<Partial<Record<keyof GameLog, string>>>({});
-  const dirtyFieldsRef = useRef<Set<keyof GameLog>>(new Set());
+  const inputRefs = useRef<Partial<Record<keyof GameLog, HTMLInputElement | null>>>({});
   const onChangeRef = useRef(onChange);
-  const [draft, setDraft] = useState<Partial<Record<keyof GameLog, string>>>(() => {
-    const initialDraft: Partial<Record<keyof GameLog, string>> = {};
-    fields.forEach((field) => {
-      initialDraft[field.key] = String(log[field.key] ?? "");
-    });
-    return initialDraft;
-  });
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
   useEffect(() => {
-    setDraft((current) => {
-      const next = { ...current };
-      fields.forEach((field) => {
-        if (!dirtyFieldsRef.current.has(field.key)) {
-          next[field.key] = String(log[field.key] ?? "");
-        }
-      });
-      return next;
+    fields.forEach((field) => {
+      const input = inputRefs.current[field.key];
+      if (!input || document.activeElement === input) return;
+      const nextValue = String(log[field.key] ?? "");
+      if (input.value !== nextValue) input.value = nextValue;
     });
   }, [fields, log]);
-
-  useEffect(
-    () => () => {
-      fields.forEach((field) => {
-        const timer = timersRef.current[field.key];
-        if (timer) window.clearTimeout(timer);
-        const pendingValue = pendingValuesRef.current[field.key];
-        if (pendingValue !== undefined) {
-          onChangeRef.current(field.key, pendingValue);
-        }
-      });
-    },
-    [fields]
-  );
-
-  const flushField = useCallback((field: keyof GameLog) => {
-    const timer = timersRef.current[field];
-    if (timer) window.clearTimeout(timer);
-    delete timersRef.current[field];
-    const pendingValue = pendingValuesRef.current[field];
-    if (pendingValue === undefined) return;
-    delete pendingValuesRef.current[field];
-    dirtyFieldsRef.current.delete(field);
-    onChangeRef.current(field, pendingValue);
-  }, []);
-
-  const queueFieldCommit = useCallback(
-    (field: keyof GameLog, value: string) => {
-      pendingValuesRef.current[field] = value;
-      dirtyFieldsRef.current.add(field);
-      const existingTimer = timersRef.current[field];
-      if (existingTimer) window.clearTimeout(existingTimer);
-      timersRef.current[field] = window.setTimeout(() => {
-        flushField(field);
-      }, SCORE_INPUT_COMMIT_DELAY_MS);
-    },
-    [flushField]
-  );
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -702,21 +648,18 @@ const ScoreRow = React.memo(function ScoreRow({
             {field.label}
             <input
               ref={(node) => {
-                inputRefs.current[index] = node;
+                inputRefs.current[field.key] = node;
               }}
-              value={draft[field.key] ?? ""}
+              defaultValue={String(log[field.key] ?? "")}
               onChange={(event) => {
-                const next = event.target.value.replace(/[^0-9]/g, "").slice(0, 2);
-                setDraft((current) => ({ ...current, [field.key]: next }));
-                queueFieldCommit(field.key, next);
-                if (next.length >= 2) inputRefs.current[index + 1]?.focus();
+                const next = event.currentTarget.value.replace(/[^0-9]/g, "").slice(0, 2);
+                if (event.currentTarget.value !== next) event.currentTarget.value = next;
+                startTransition(() => {
+                  onChangeRef.current(field.key, next);
+                });
+                const nextField = fields[index + 1];
+                if (next.length >= 2 && nextField) inputRefs.current[nextField.key]?.focus();
               }}
-              onBlur={(event) => {
-                const nextTarget = event.relatedTarget as HTMLElement | null;
-                if (nextTarget?.dataset.scoreInput === "true") return;
-                flushField(field.key);
-              }}
-              data-score-input="true"
               inputMode="numeric"
               pattern="[0-9]*"
               maxLength={2}
@@ -728,7 +671,15 @@ const ScoreRow = React.memo(function ScoreRow({
       </div>
     </div>
   );
-});
+}, areScoreRowPropsEqual);
+
+function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
+  return (
+    previous.teamName === next.teamName &&
+    previous.prefix === next.prefix &&
+    previous.log === next.log
+  );
+}
 
 function BracketScoreInput({
   label,
@@ -1394,7 +1345,11 @@ export default function App() {
   }, [matchups, recordSaveResult]);
 
   useEffect(() => {
-    recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
+    const saveTimer = window.setTimeout(() => {
+      recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
+    }, 500);
+
+    return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
 
   useEffect(() => {
@@ -2598,7 +2553,7 @@ export default function App() {
       "Home BIP",
     ];
     const rows = matchups.map((game) => {
-      const log = logs[game.id] || blankLog();
+      const log = logs[game.id] || EMPTY_GAME_LOG;
       const away = teamBaseById.get(game.away)?.name || game.away;
       const home = teamBaseById.get(game.home)?.name || game.home;
       const awayBip = calcBip(log.awayHits, log.awayRuns, log.awayK, log.innings);
@@ -5494,7 +5449,7 @@ function GamesView({
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {visibleGames.map((game) => {
-            const log = logs[game.id] || blankLog();
+            const log = logs[game.id] || EMPTY_GAME_LOG;
             const away = teams.find((team) => team.id === game.away);
             const home = teams.find((team) => team.id === game.home);
             const final = isFinal(log);
