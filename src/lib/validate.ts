@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  GAME_STAT_CAP,
+  RUN_SCORE_CAP,
   DEFAULT_TIEBREAKER_ORDER,
   type GameLog,
   type Matchup,
@@ -23,14 +25,16 @@ export const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 const cleanId = (value: string) => value.trim();
 const cleanName = (value: string) => value.trim().slice(0, 120);
-const clampScoreText = (value: unknown, maxScoreCap: number) => {
+const clampStatText = (value: unknown, maxValue: number) => {
   if (value === undefined || value === null) return "";
   const raw = String(value).trim();
   if (!raw) return "";
   const numeric = Number(raw);
   if (!Number.isFinite(numeric)) return "";
-  return String(Math.min(maxScoreCap, Math.max(0, Math.round(numeric))));
+  return String(Math.min(maxValue, Math.max(0, Math.round(numeric))));
 };
+const clampRunText = (value: unknown) => clampStatText(value, RUN_SCORE_CAP);
+const clampGameStatText = (value: unknown) => clampStatText(value, GAME_STAT_CAP);
 const clampInningsText = (value: unknown) => {
   const numeric = Number(String(value ?? "").trim());
   if (!Number.isFinite(numeric)) return "6";
@@ -38,7 +42,11 @@ const clampInningsText = (value: unknown) => {
 };
 
 export const isTeamBase = (v: unknown): v is TeamBase =>
-  isRecord(v) && isString(v.id) && isString(v.name) && cleanId(v.id).length > 0 && cleanName(v.name).length > 0;
+  isRecord(v) &&
+  isString(v.id) &&
+  isString(v.name) &&
+  cleanId(v.id).length > 0 &&
+  cleanName(v.name).length > 0;
 export const isMatchup = (v: unknown): v is Matchup =>
   isRecord(v) &&
   isString(v.id) &&
@@ -102,7 +110,7 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
 export const coerceLogs = (
   raw: unknown,
   matchups: Matchup[] = [],
-  settings: Pick<Settings, "maxScoreCap"> = DEFAULT_SETTINGS
+  _settings: Pick<Settings, "maxScoreCap"> = DEFAULT_SETTINGS
 ): Record<string, GameLog> => {
   if (!isRecord(raw)) return {};
   const matchupIds = new Set(matchups.map((matchup) => matchup.id));
@@ -112,12 +120,12 @@ export const coerceLogs = (
     if (requireKnownGames && !matchupIds.has(key)) return;
     if (!isRecord(value)) return;
     const log: GameLog = {
-      awayRuns: clampScoreText(value.awayRuns, settings.maxScoreCap),
-      awayHits: clampScoreText(value.awayHits, settings.maxScoreCap),
-      awayK: clampScoreText(value.awayK, settings.maxScoreCap),
-      homeRuns: clampScoreText(value.homeRuns, settings.maxScoreCap),
-      homeHits: clampScoreText(value.homeHits, settings.maxScoreCap),
-      homeK: clampScoreText(value.homeK, settings.maxScoreCap),
+      awayRuns: clampRunText(value.awayRuns),
+      awayHits: clampGameStatText(value.awayHits),
+      awayK: clampGameStatText(value.awayK),
+      homeRuns: clampRunText(value.homeRuns),
+      homeHits: clampGameStatText(value.homeHits),
+      homeK: clampGameStatText(value.homeK),
       innings: clampInningsText(value.innings),
       isFinal: isBoolean(value.isFinal) ? value.isFinal : undefined,
     };
@@ -180,9 +188,7 @@ export const coerceSettings = (raw: unknown): Settings => {
       : DEFAULT_SETTINGS.tiePoints,
     runDiffTiebreaker,
     tiebreakerOrder: coerceTiebreakerOrder(raw.tiebreakerOrder, runDiffTiebreaker),
-    maxScoreCap: isNumber(raw.maxScoreCap)
-      ? Math.min(99, Math.max(1, Math.round(raw.maxScoreCap)))
-      : DEFAULT_SETTINGS.maxScoreCap,
+    maxScoreCap: RUN_SCORE_CAP,
     modelAggression,
     recapGrouping,
   };

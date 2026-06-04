@@ -141,6 +141,8 @@ export const DEFAULT_SEASON_YEAR = 2026;
 export const SIM_ITERATIONS = 220;
 export const TREND_STATES = 8;
 export const STORAGE_VERSION = 1;
+export const RUN_SCORE_CAP = 35;
+export const GAME_STAT_CAP = 99;
 
 export const DEFAULT_SETTINGS: Settings = {
   goldCutoff: DEFAULT_GOLD_CUTOFF,
@@ -150,7 +152,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tiePoints: 0.5,
   runDiffTiebreaker: true,
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
-  maxScoreCap: 18,
+  maxScoreCap: RUN_SCORE_CAP,
   modelAggression: "Balanced",
   recapGrouping: "date",
 };

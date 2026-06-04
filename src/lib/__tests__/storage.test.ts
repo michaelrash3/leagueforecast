@@ -7,8 +7,12 @@ beforeEach(() => {
   backing.clear();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
-    setItem: (k: string, v: string) => { backing.set(k, v); },
-    removeItem: (k: string) => { backing.delete(k); },
+    setItem: (k: string, v: string) => {
+      backing.set(k, v);
+    },
+    removeItem: (k: string) => {
+      backing.delete(k);
+    },
   });
 });
 
@@ -22,7 +26,7 @@ describe("storage hardening", () => {
     backing.set("league_settings_v1", JSON.stringify({ goldCutoff: -3, maxScoreCap: 500 }));
     const settings = loadSettings();
     expect(settings.goldCutoff).toBe(1);
-    expect(settings.maxScoreCap).toBe(99);
+    expect(settings.maxScoreCap).toBe(35);
   });
 
   it("drops duplicate teams, invalid matchups, and orphan logs", () => {
@@ -48,8 +52,8 @@ describe("storage hardening", () => {
       JSON.stringify({
         g1: {
           awayRuns: "101",
-          awayHits: "8",
-          awayK: "4",
+          awayHits: "88",
+          awayK: "44",
           homeRuns: "3",
           homeHits: "7",
           homeK: "2",
@@ -76,9 +80,9 @@ describe("storage hardening", () => {
     expect(loadMatchups()).toEqual([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
     expect(loadLogs()).toEqual({
       g1: {
-        awayRuns: "18",
-        awayHits: "8",
-        awayK: "4",
+        awayRuns: "35",
+        awayHits: "88",
+        awayK: "44",
         homeRuns: "3",
         homeHits: "7",
         homeK: "2",

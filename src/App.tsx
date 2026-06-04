@@ -86,6 +86,7 @@ import {
 import {
   DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
+  RUN_SCORE_CAP,
   SIM_ITERATIONS,
   TIEBREAKER_LABELS,
   TREND_STATES,
@@ -656,7 +657,10 @@ const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange 
               }}
               defaultValue={String(log[field.key] ?? "")}
               onChange={(event) => {
-                const next = event.currentTarget.value.replace(/[^0-9]/g, "").slice(0, 2);
+                const digits = event.currentTarget.value.replace(/[^0-9]/g, "").slice(0, 2);
+                const isRunsField = field.key === "awayRuns" || field.key === "homeRuns";
+                const next =
+                  isRunsField && Number(digits) > RUN_SCORE_CAP ? String(RUN_SCORE_CAP) : digits;
                 if (event.currentTarget.value !== next) event.currentTarget.value = next;
                 startTransition(() => {
                   onChangeRef.current(field.key, next);
@@ -699,7 +703,10 @@ function BracketScoreInput({
       {label}
       <input
         value={value}
-        onChange={(event) => onChange(event.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/[^0-9]/g, "").slice(0, 2);
+          onChange(Number(digits) > RUN_SCORE_CAP ? String(RUN_SCORE_CAP) : digits);
+        }}
         inputMode="numeric"
         pattern="[0-9]*"
         maxLength={2}
