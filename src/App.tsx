@@ -29,7 +29,7 @@ import {
   goldCutLineSnapshot,
   type ClinchingPathNote,
 } from "./lib/clinchingPaths";
-import { csvEscape, normalizeHeader, parseCSVLine, stripBom } from "./lib/csv";
+import { csvEscape } from "./lib/csv";
 import {
   formatGameDate,
   formatGameDateLong,
@@ -38,8 +38,9 @@ import {
   sundayEndingWeekKey,
 } from "./lib/date";
 import { displayName, recordText, teamAbbr } from "./lib/format";
-import { summarizeCsvImportIssues, type CsvImportIssue } from "./lib/importReport";
+import { summarizeCsvImportIssues } from "./lib/importReport";
 import { buildSeasonImportPreview, formatSeasonImportPreview } from "./lib/importPreview";
+import { parseScheduleCsvImport } from "./lib/scheduleCsvImport";
 import {
   pathSummary,
   recapToMarkdown,
@@ -2382,107 +2383,12 @@ export default function App() {
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("File is not text");
-        const text = stripBom(raw);
-        const lines = text.split(/\r?\n/).filter((line) => line.trim());
-        if (lines.length < 2) throw new Error("CSV has no rows");
-
-        const headers = parseCSVLine(lines[0] ?? "").map(normalizeHeader);
-        const index = (name: string) => headers.indexOf(normalizeHeader(name));
-
-        const gameIdIndex = index("Game ID");
-        const dateIndex = index("Date");
-        const awayTeamIndex = index("Away Team");
-        const inningsIndex = index("Innings");
-        const awayRunsIndex = index("Away Runs");
-        const awayHitsIndex = index("Away Hits");
-        const awayKIndex = index("Away K");
-        const homeTeamIndex = index("Home Team");
-        const homeRunsIndex = index("Home Runs");
-        const homeHitsIndex = index("Home Hits");
-        const homeKIndex = index("Home K");
-
-        if (gameIdIndex < 0 || dateIndex < 0 || awayTeamIndex < 0 || homeTeamIndex < 0) {
-          throw new Error("Missing required columns");
-        }
-
-        const rows = lines.slice(1).map(parseCSVLine);
-        const names = new Set<string>();
-        rows.forEach((row) => {
-          if (row[awayTeamIndex]?.trim()) names.add(row[awayTeamIndex].trim());
-          if (row[homeTeamIndex]?.trim()) names.add(row[homeTeamIndex].trim());
-        });
-
-        const existingIds = new Set<string>();
-        const nameToId = new Map<string, string>();
-        const importedTeams = Array.from(names)
-          .sort((a, b) => displayName(a).localeCompare(displayName(b)))
-          .map((name) => {
-            const id = createTeamId(displayName(name), existingIds);
-            nameToId.set(name, id);
-            return { id, name };
-          });
-
-        const importedMatchups: Matchup[] = [];
-        const importedLogs: Record<string, GameLog> = {};
-        const importSuffix = Math.random().toString(36).slice(2, 8);
-        const importIssues: CsvImportIssue[] = [];
-        const seenIds = new Set<string>();
-
-        rows.forEach((row, rowIndex) => {
-          const awayName = row[awayTeamIndex]?.trim();
-          const homeName = row[homeTeamIndex]?.trim();
-          const csvRowNumber = rowIndex + 2;
-          if (!awayName || !homeName) {
-            importIssues.push({ kind: "missing-team", rowNumber: csvRowNumber });
-            return;
-          }
-
-          const away = nameToId.get(awayName);
-          const home = nameToId.get(homeName);
-          if (!away || !home) {
-            importIssues.push({
-              kind: "unknown-team",
-              rowNumber: csvRowNumber,
-              detail: [awayName, homeName].filter((name) => !nameToId.has(name)).join(" vs "),
-            });
-            return;
-          }
-
-          const id = row[gameIdIndex]?.trim() || `game_${Date.now()}_${importSuffix}_${rowIndex}`;
-          if (seenIds.has(id)) {
-            importIssues.push({ kind: "duplicate-id", rowNumber: csvRowNumber, detail: id });
-            return;
-          }
-          seenIds.add(id);
-          const awayRuns = awayRunsIndex >= 0 ? (row[awayRunsIndex]?.trim() ?? "") : "";
-          const homeRuns = homeRunsIndex >= 0 ? (row[homeRunsIndex]?.trim() ?? "") : "";
-          const awayK = awayKIndex >= 0 ? (row[awayKIndex]?.trim() ?? "") : "";
-          const homeK = homeKIndex >= 0 ? (row[homeKIndex]?.trim() ?? "") : "";
-
-          importedMatchups.push({
-            id,
-            date: normalizeDateInput(row[dateIndex]?.trim() || ""),
-            away,
-            home,
-          });
-
-          importedLogs[id] = {
-            innings: inningsIndex >= 0 ? row[inningsIndex]?.trim() || "6" : "6",
-            awayRuns,
-            awayHits: awayHitsIndex >= 0 ? (row[awayHitsIndex]?.trim() ?? "") : "",
-            awayK,
-            homeRuns,
-            homeHits: homeHitsIndex >= 0 ? (row[homeHitsIndex]?.trim() ?? "") : "",
-            homeK,
-            isFinal: awayRuns !== "" && homeRuns !== "" && awayK !== "" && homeK !== "",
-          };
-        });
-
-        // Drop orphan logs not tied to a matchup.
-        const matchupIds = new Set(importedMatchups.map((m) => m.id));
-        Object.keys(importedLogs).forEach((id) => {
-          if (!matchupIds.has(id)) delete importedLogs[id];
-        });
+        const {
+          teams: importedTeams,
+          matchups: importedMatchups,
+          logs: importedLogs,
+          issues: importIssues,
+        } = parseScheduleCsvImport(raw);
 
         const warningLines = summarizeCsvImportIssues(importIssues);
         const importedTeamNameById = new Map(
