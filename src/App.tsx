@@ -1219,6 +1219,7 @@ export default function App() {
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
   const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
   const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
+  const deferredLogs = useDeferredValue(logs);
   const [bracketLogs, setBracketLogs] = useState<Record<string, GameLog>>(() => loadBracketLogs());
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
@@ -1370,7 +1371,10 @@ export default function App() {
 
   // ---------- Derived state ----------
 
-  const liveTeams = useMemo(() => calculateTeams(teams, matchups, logs), [teams, matchups, logs]);
+  const liveTeams = useMemo(
+    () => calculateTeams(teams, matchups, deferredLogs),
+    [teams, matchups, deferredLogs]
+  );
   const liveById = useMemo(() => {
     const map = new Map<string, Team>();
     liveTeams.forEach((team) => map.set(team.id, team));
@@ -1387,19 +1391,19 @@ export default function App() {
     [liveTeams, settings]
   );
   const remainingGames = useMemo(
-    () => matchups.filter((game) => !isFinal(logs[game.id])),
-    [matchups, logs]
+    () => matchups.filter((game) => !isFinal(deferredLogs[game.id])),
+    [matchups, deferredLogs]
   );
   const completedGames = useMemo(
     () =>
       matchups
-        .filter((game) => isFinal(logs[game.id]))
+        .filter((game) => isFinal(deferredLogs[game.id]))
         .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date)),
-    [matchups, logs]
+    [matchups, deferredLogs]
   );
   const leagueAverageStats = useMemo(
-    () => buildLeagueAverageStats(matchups, logs),
-    [matchups, logs]
+    () => buildLeagueAverageStats(matchups, deferredLogs),
+    [matchups, deferredLogs]
   );
   const remainingCounts = useMemo(
     () =>
@@ -1429,10 +1433,10 @@ export default function App() {
     () =>
       simulationSeed(
         matchups,
-        logs,
+        deferredLogs,
         `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
       ),
-    [matchups, logs, goldCutoff, settings]
+    [matchups, deferredLogs, goldCutoff, settings]
   );
 
   const oddsInput = useMemo(
@@ -1459,7 +1463,7 @@ export default function App() {
       const allowed = new Set(states.slice(0, limitIndex).map((g) => g.id));
       const stateLogs: Record<string, GameLog> = {};
       matchups.forEach((game) => {
-        const log = logs[game.id];
+        const log = deferredLogs[game.id];
         if (allowed.has(game.id) && log) stateLogs[game.id] = log;
       });
       return stateLogs;
@@ -1477,12 +1481,12 @@ export default function App() {
       built.push({ teams: stateTeams, remaining: stateRemaining, seedText });
     }
     return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
-  }, [teams, matchups, logs, completedGames, goldCutoff, settings]);
+  }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings]);
   const trendMap = useSimulationTrend(trendInput);
 
   const backtestResult = useMemo(
-    () => backtestPredictions(teams, matchups, logs, settings),
-    [teams, matchups, logs, settings]
+    () => backtestPredictions(teams, matchups, deferredLogs, settings),
+    [teams, matchups, deferredLogs, settings]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -1708,8 +1712,8 @@ export default function App() {
   );
 
   const timelineEntries = useMemo(
-    () => buildSeasonTimeline(teams, matchups, logs, settings, 6),
-    [teams, matchups, logs, settings]
+    () => buildSeasonTimeline(teams, matchups, deferredLogs, settings, 6),
+    [teams, matchups, deferredLogs, settings]
   );
 
   const controlLevelMap = useMemo(() => {
