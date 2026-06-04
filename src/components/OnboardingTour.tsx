@@ -5,23 +5,19 @@ const STORAGE_KEY = "nkb_onboarded_v1";
 const STEPS = [
   {
     title: "Welcome to the NKB Season Tracker",
-    body:
-      "Standings, projections, Gold Bracket odds, and per-team scenarios — all from results you enter or import. Everything is saved in this browser.",
+    body: "Standings, projections, Gold Bracket odds, and per-team paths — all from results you enter or import. Everything is saved in this browser.",
   },
   {
     title: "Start a season",
-    body:
-      "Import a schedule CSV, or paste team names into the New Season Builder to generate a blank round-robin schedule.",
+    body: "Import a schedule CSV, or paste team names into the New Season Builder to generate a blank round-robin schedule.",
   },
   {
     title: "Enter scores in Schedule",
-    body:
-      "Type R/H/K per team, then mark Final. Standings, projections, and Gold odds update instantly.",
+    body: "Type R/H/K per team, then mark Final. Standings, projections, and Gold odds update instantly.",
   },
   {
     title: "Get around fast",
-    body:
-      "Press ⌘K (Ctrl+K) for the command palette. Press ? for keyboard shortcuts. d toggles dark mode. Use Share to copy a snapshot URL.",
+    body: "Press ⌘K (Ctrl+K) for the command palette. Press ? for keyboard shortcuts. d toggles dark mode. Use Share to copy a snapshot URL.",
   },
 ];
 
