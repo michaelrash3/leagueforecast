@@ -31,7 +31,13 @@ type CompactSnapshot = {
   s: Settings;
 };
 
-const SHARE_VIEWS = new Set<ActiveShareView>(["standings", "games", "model", "settings"]);
+const SHARE_VIEWS = new Set<ActiveShareView>([
+  "standings",
+  "teamStats",
+  "games",
+  "model",
+  "settings",
+]);
 
 const bytesToBase64 = (bytes: Uint8Array) => {
   let binary = "";

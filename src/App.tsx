@@ -154,7 +154,7 @@ type StatRankingEntry = {
   teamName: string;
   rank: number;
   games: number;
-  value: number;
+  value: number | null;
 };
 
 type StatRankings = {
@@ -304,12 +304,13 @@ const replaceTeamDataUrl = (teamId: string | null) => {
 
 const VIEW_LABELS: Record<ActiveView, string> = {
   standings: "Standings",
+  teamStats: "Team Stats",
   games: "Schedule",
   model: "Season Predictor",
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "games", "model", "settings"];
+const VIEW_ORDER: ActiveView[] = ["standings", "teamStats", "games", "model", "settings"];
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
 type TiebreakerSelectValue = TiebreakerFactor | "none";
 
@@ -440,19 +441,20 @@ const buildTeamStatRankings = (
     direction: "asc" | "desc"
   ): StatRankingEntry[] =>
     summaries
-      .filter(({ line }) => line.games > 0)
       .map(({ team, line }) => ({
         teamId: team.id,
         teamName: team.name,
         games: line.games,
-        value: valueForLine(line) / line.games,
+        value: line.games > 0 ? valueForLine(line) / line.games : null,
       }))
       .sort((a, b) => {
+        if (a.value === null && b.value === null) return a.teamName.localeCompare(b.teamName);
+        if (a.value === null) return 1;
+        if (b.value === null) return -1;
         const valueDiff = direction === "asc" ? a.value - b.value : b.value - a.value;
         if (Math.abs(valueDiff) > 0.0001) return valueDiff;
         return a.teamName.localeCompare(b.teamName);
       })
-      .slice(0, 5)
       .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
   const sampleGames = summaries.reduce((sum, { line }) => sum + line.games, 0);
@@ -462,27 +464,27 @@ const buildTeamStatRankings = (
     metrics: [
       {
         key: "runs-scored",
-        label: "Top R/G",
+        label: "R/G",
         entries: rankedEntries((line) => line.offense.runs, "desc"),
       },
       {
         key: "hits",
-        label: "Top H/G",
+        label: "H/G",
         entries: rankedEntries((line) => line.offense.hits, "desc"),
       },
       {
         key: "least-strikeouts",
-        label: "Lowest K/G",
+        label: "K/G",
         entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
       },
       {
         key: "runs-allowed",
-        label: "Lowest RA/G",
+        label: "RA/G",
         entries: rankedEntries((line) => line.defense.runs, "asc"),
       },
       {
         key: "hits-allowed",
-        label: "Lowest HA/G",
+        label: "HA/G",
         entries: rankedEntries((line) => line.defense.hits, "asc"),
       },
     ],
@@ -649,14 +651,14 @@ function SplitStatsTable({
 
 function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
   return (
-    <section className="border-b border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+    <section className="bg-white p-5 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Stat Rankings
+            Team Stats
           </div>
           <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Top 5 Per-Game Leaders
+            Per-Game Rankings
           </h2>
         </div>
         <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
@@ -694,14 +696,14 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                       </div>
                     </div>
                     <div className="text-lg font-black tabular-nums text-slate-950 dark:text-slate-100">
-                      {entry.value.toFixed(1)}
+                      {entry.value === null ? "—" : entry.value.toFixed(1)}
                     </div>
                   </li>
                 ))}
               </ol>
             ) : (
               <div className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-                No completed games yet.
+                No teams added yet.
               </div>
             )}
           </div>
@@ -3082,6 +3084,7 @@ This will replace current season data and save an undo snapshot.`,
 
   const tabRefs = useRef<Record<ActiveView, HTMLButtonElement | null>>({
     standings: null,
+    teamStats: null,
     games: null,
     model: null,
     settings: null,
@@ -3347,6 +3350,12 @@ This will replace current season data and save an undo snapshot.`,
         handler: () => setActiveView("standings"),
       },
       {
+        combo: "g t",
+        description: "Go to Team Stats",
+        group: "Navigate",
+        handler: () => setActiveView("teamStats"),
+      },
+      {
         combo: "g g",
         description: "Go to Schedule",
         group: "Navigate",
@@ -3359,7 +3368,7 @@ This will replace current season data and save an undo snapshot.`,
         handler: () => setActiveView("model"),
       },
       {
-        combo: "g t",
+        combo: "g e",
         description: "Go to Settings",
         group: "Navigate",
         handler: () => setActiveView("settings"),
@@ -3538,9 +3547,9 @@ This will replace current season data and save an undo snapshot.`,
               formatGoldPct={formatGoldPct}
               formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
               onSelectTeam={openTeamData}
-              leagueAverageStats={leagueAverageStats}
-              statRankings={statRankings}
             />
+          ) : activeView === "teamStats" ? (
+            <TeamStatsView leagueAverageStats={leagueAverageStats} statRankings={statRankings} />
           ) : activeView === "model" ? (
             <ModelView
               goldCutoff={goldCutoff}
@@ -3838,62 +3847,16 @@ function EmptyState({
   );
 }
 
-function StandingsView({
-  currentLeader,
-  finalCount,
-  totalGames,
-  goldCutoff,
-  latestCompletedDate,
-  lastImpact,
-  dismissImpact,
-  copyRecap,
-  copyStory,
-  dashboardRows,
-  weeklyStory,
-  currentSosRanks,
-  statusClass,
-  statusLabel,
-  formatGoldPct,
-  formatGoldMargin,
-  onSelectTeam,
+function TeamStatsView({
   leagueAverageStats,
   statRankings,
 }: {
-  currentLeader: TeamWithProjection | undefined;
-  finalCount: number;
-  totalGames: number;
-  goldCutoff: number;
-  latestCompletedDate: string;
-  lastImpact: {
-    title: string;
-    scores: string[];
-    messages: string[];
-    recapItems: RecapItem[];
-  } | null;
-  dismissImpact: () => void;
-  copyRecap: () => void;
-  copyStory: () => void;
-  dashboardRows: TeamWithProjection[];
-  weeklyStory: string;
-  currentSosRanks: Record<string, number>;
-  statusClass: (t: TeamWithProjection) => string;
-  statusLabel: (t: TeamWithProjection) => string;
-  formatGoldPct: (t: TeamWithProjection) => string;
-  formatGoldMargin: (t: TeamWithProjection) => string;
-  onSelectTeam: (id: string) => void;
   leagueAverageStats: LeagueAverageStats;
   statRankings: StatRankings;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
-          <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
-          <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
-          <Metric label="Cut Line" value={`Top ${goldCutoff}`} />
-          <Metric label="Updated Through" value={latestCompletedDate} />
-        </div>
-
         <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -3933,6 +3896,62 @@ function StandingsView({
         </div>
 
         <StatRankingsPanel rankings={statRankings} />
+      </section>
+    </div>
+  );
+}
+
+function StandingsView({
+  currentLeader,
+  finalCount,
+  totalGames,
+  goldCutoff,
+  latestCompletedDate,
+  lastImpact,
+  dismissImpact,
+  copyRecap,
+  copyStory,
+  dashboardRows,
+  weeklyStory,
+  currentSosRanks,
+  statusClass,
+  statusLabel,
+  formatGoldPct,
+  formatGoldMargin,
+  onSelectTeam,
+}: {
+  currentLeader: TeamWithProjection | undefined;
+  finalCount: number;
+  totalGames: number;
+  goldCutoff: number;
+  latestCompletedDate: string;
+  lastImpact: {
+    title: string;
+    scores: string[];
+    messages: string[];
+    recapItems: RecapItem[];
+  } | null;
+  dismissImpact: () => void;
+  copyRecap: () => void;
+  copyStory: () => void;
+  dashboardRows: TeamWithProjection[];
+  weeklyStory: string;
+  currentSosRanks: Record<string, number>;
+  statusClass: (t: TeamWithProjection) => string;
+  statusLabel: (t: TeamWithProjection) => string;
+  formatGoldPct: (t: TeamWithProjection) => string;
+  formatGoldMargin: (t: TeamWithProjection) => string;
+  onSelectTeam: (id: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-6">
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
+          <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
+          <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
+          <Metric label="Cut Line" value={`Top ${goldCutoff}`} />
+          <Metric label="Updated Through" value={latestCompletedDate} />
+        </div>
 
         {lastImpact && (
           <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">

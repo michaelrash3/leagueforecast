@@ -69,15 +69,15 @@ describe("encode / decodeSnapshot", () => {
 describe("buildShareUrl + readSharedFromHash", () => {
   it("survives a full URL round-trip and preserves UI context", () => {
     const url = buildShareUrl("https://example.com/?foo=bar#old", snapshot, {
-      view: "model",
+      view: "teamStats",
       teamId: "A",
     });
     expect(url.startsWith("https://example.com/?foo=bar#s=")).toBe(true);
-    expect(url).toContain("&view=model&team=A");
+    expect(url).toContain("&view=teamStats&team=A");
     const hash = url.split("#")[1] ?? "";
     const decoded = readSharedFromHash(`#${hash}`);
     expect(decoded).toEqual(snapshot);
-    expect(readShareUiStateFromHash(`#${hash}`)).toEqual({ view: "model", teamId: "A" });
+    expect(readShareUiStateFromHash(`#${hash}`)).toEqual({ view: "teamStats", teamId: "A" });
   });
 
   it("returns null when no payload in hash", () => {
