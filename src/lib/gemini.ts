@@ -21,7 +21,23 @@ type GeminiResponse = {
   error?: { message?: string };
 };
 
+const GEMINI_NETWORK_ERROR_MESSAGE =
+  "Could not reach Gemini from this browser. Check your internet connection, API key browser restrictions, and that generativelanguage.googleapis.com is allowed.";
+
 const cleanApiKey = (apiKey: string) => apiKey.trim();
+
+const isFetchNetworkError = (error: unknown) =>
+  error instanceof TypeError && /fetch|network|load|cors/i.test(error.message);
+
+const buildGeminiEndpoint = (model: string, apiKey?: string) => {
+  const endpoint = new URL(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      model
+    )}:generateContent`
+  );
+  if (apiKey) endpoint.searchParams.set("key", apiKey);
+  return endpoint.toString();
+};
 
 export const buildGeminiRecapPrompt = ({
   seasonLabel,
@@ -77,29 +93,43 @@ export const generateGeminiRecap = async ({
   const key = cleanApiKey(apiKey);
   if (!key) throw new Error("Add a Gemini API key in Settings first.");
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent`;
-  const response = await fetcher(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": key,
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: buildGeminiRecapPrompt({ seasonLabel, title, scores, items }) }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.9,
-        maxOutputTokens: 450,
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: buildGeminiRecapPrompt({ seasonLabel, title, scores, items }) }],
       },
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      topP: 0.9,
+      maxOutputTokens: 450,
+    },
   });
+
+  let response: Response;
+  try {
+    response = await fetcher(buildGeminiEndpoint(model), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+      },
+      body,
+    });
+  } catch (error) {
+    if (!isFetchNetworkError(error)) throw error;
+
+    try {
+      response = await fetcher(buildGeminiEndpoint(model, key), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    } catch {
+      throw new Error(GEMINI_NETWORK_ERROR_MESSAGE);
+    }
+  }
 
   const payload = (await response.json().catch(() => ({}))) as GeminiResponse;
   if (!response.ok) {
