@@ -144,7 +144,8 @@ type TeamSplitSummary = {
 };
 
 type LeagueAverageStats = {
-  games: number;
+  completedGames: number;
+  teamGames: number;
   runs: number;
   hits: number;
   strikeouts: number;
@@ -580,13 +581,14 @@ const buildLeagueAverageStats = (
       const log = logs[game.id];
       if (!log || !isFinal(log)) return totals;
 
-      totals.games += 2;
+      totals.completedGames += 1;
+      totals.teamGames += 2;
       totals.runs += parseNumber(log.awayRuns) + parseNumber(log.homeRuns);
       totals.hits += parseNumber(log.awayHits) + parseNumber(log.homeHits);
       totals.strikeouts += parseNumber(log.awayK) + parseNumber(log.homeK);
       return totals;
     },
-    { games: 0, runs: 0, hits: 0, strikeouts: 0 }
+    { completedGames: 0, teamGames: 0, runs: 0, hits: 0, strikeouts: 0 }
   );
 };
 
@@ -621,7 +623,7 @@ const buildTeamStatRankings = (
       })
       .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
-  const sampleGames = summaries.reduce((sum, { line }) => sum + line.games, 0);
+  const sampleGames = matchups.filter((game) => isFinal(logs[game.id])).length;
 
   return {
     sampleGames,
@@ -826,7 +828,7 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
           </h2>
         </div>
         <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
-          Based on {rankings.sampleGames} completed team-games
+          Based on {rankings.sampleGames} completed games
         </div>
       </div>
 
@@ -1334,15 +1336,15 @@ function TeamDrawer({
           <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
           <DrawerMetric
             label="Lg Avg R/G"
-            value={perGame(leagueAverageStats.runs, leagueAverageStats.games)}
+            value={perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
           />
           <DrawerMetric
             label="Lg Avg H/G"
-            value={perGame(leagueAverageStats.hits, leagueAverageStats.games)}
+            value={perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
           />
           <DrawerMetric
             label="Lg Avg K/G"
-            value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
+            value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
           />
           <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
@@ -4089,7 +4091,7 @@ function TeamStatsView({
               League Avg Sample
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {leagueAverageStats.games / 2}
+              {leagueAverageStats.completedGames}
             </div>
             <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
               games played
@@ -4100,7 +4102,7 @@ function TeamStatsView({
               League Avg R/G
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {perGame(leagueAverageStats.runs, leagueAverageStats.games)}
+              {perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
             </div>
           </div>
           <div className="rounded-2xl bg-gradient-to-br from-amber-500/14 via-white to-white p-4 shadow-sm ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
@@ -4108,7 +4110,7 @@ function TeamStatsView({
               League Avg H/G
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {perGame(leagueAverageStats.hits, leagueAverageStats.games)}
+              {perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
             </div>
           </div>
           <div className="rounded-2xl bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
@@ -4116,7 +4118,7 @@ function TeamStatsView({
               League Avg K/G
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
+              {perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
             </div>
           </div>
         </div>
