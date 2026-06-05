@@ -4,8 +4,8 @@ A browser-only web app for NKB standings, projections, and Gold Bracket odds.
 
 ## Stack
 
-- Vite 5 + React 18 + TypeScript 5
-- Tailwind CSS 3
+- Vite 5.4 latest-line + React 18.3 + TypeScript 5.9
+- Tailwind CSS 3.4 latest-line
 - Web Worker-based Monte Carlo simulation
 - Vitest
 - ESLint + Prettier
@@ -24,7 +24,7 @@ npm run lint
 npm run format
 ```
 
-Node `>=20` (see `.nvmrc`).
+Node `>=24` (see `.nvmrc`) for the latest available LTS/current runtime baseline used by this project.
 
 ## Features
 
@@ -126,6 +126,10 @@ src/
 - Tabs support keyboard navigation.
 - Inputs are programmatically labeled.
 - Standings rows support Enter/Space.
+
+## Platform baseline
+
+This project tracks the newest dependency/runtime baseline that can be installed and verified in the current environment. The npm registry was unavailable through the configured proxy during the latest modernization pass, so the package manifest was advanced to the newest versions already present in the local lockfile/cache and runtime (`node` 24). When registry access is available, the next modernization target is the current stable major line for React, Vite, Tailwind CSS, ESLint, Vitest, and vite-plugin-pwa.
 
 ## Deploy
 
