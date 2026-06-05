@@ -153,6 +153,14 @@ type RankSnapshotEntry = Team & {
   blockersAhead: number;
 };
 
+type ScoreboardPrediction = {
+  spread: string;
+  pickName: string;
+  pickPct: number;
+  scenarioBadges: string[];
+  impactScore: number;
+};
+
 const TEAM_QUERY_PARAM = "team";
 // Keep the synchronous exact solver capped below browser-freezing schedule sizes.
 // The solver branches exponentially over every unfinished game (including ties),
@@ -164,6 +172,14 @@ const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 // schedule this can otherwise block the browser before the confirmation toast
 // and first render complete.
 const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
+// Full-season imports can contain hundreds of open games. Projecting every
+// remaining game synchronously is useful late in the season, but it can block
+// the browser immediately after import or while saving a final. Keep the UI
+// responsive by falling back to current standings until the schedule is small
+// enough for synchronous projection work.
+const PROJECT_STANDINGS_REMAINING_GAME_LIMIT = 250;
+const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
+const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 const EMPTY_GAME_LOG = blankLog();
 
 const DEMO_TEAM_NAMES = [
@@ -1266,6 +1282,9 @@ export default function App() {
     recapItems: RecapItem[];
   } | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
+  const [scoreboardPredictions, setScoreboardPredictions] = useState<Map<string, ScoreboardPrediction>>(
+    () => new Map()
+  );
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
@@ -1426,12 +1445,16 @@ export default function App() {
       ),
     [liveTeams, remainingGames, settings.regularSeasonGamesPerTeam]
   );
+  const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
-    activeView !== "games" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+    activeView === "model" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
 
   const projected = useMemo(
-    () => projectStandings(liveTeams, remainingGames, settings),
-    [liveTeams, remainingGames, settings]
+    () =>
+      projectionAnalysisEnabled
+        ? projectStandings(liveTeams, remainingGames, settings)
+        : rankTeams(liveTeams, rankOptionsFromSettings(settings)),
+    [projectionAnalysisEnabled, liveTeams, remainingGames, settings]
   );
   const projectedById = useMemo(() => {
     const map = new Map<string, Team & { rank: number }>();
@@ -1704,18 +1727,20 @@ export default function App() {
 
   const clinchingPaths = useMemo(
     () =>
-      clinchingPathsForTeams(
-        dashboardRows,
-        remainingGames,
-        goldCutoff,
-        settings,
-        nextTwoSwingGames,
-        {
-          limit: 8,
-          exactLimit: EXACT_MAGIC_REMAINING_GAME_LIMIT,
-        }
-      ),
-    [dashboardRows, remainingGames, goldCutoff, settings, nextTwoSwingGames]
+      activeView === "model"
+        ? clinchingPathsForTeams(
+            dashboardRows,
+            remainingGames,
+            goldCutoff,
+            settings,
+            nextTwoSwingGames,
+            {
+              limit: 8,
+              exactLimit: EXACT_MAGIC_REMAINING_GAME_LIMIT,
+            }
+          )
+        : [],
+    [activeView, dashboardRows, remainingGames, goldCutoff, settings, nextTwoSwingGames]
   );
 
   const cutLineSnapshot = useMemo(
@@ -1731,6 +1756,19 @@ export default function App() {
   const controlLevelMap = useMemo(() => {
     const result = new Map<string, string>();
     if (!dashboardRows.length) return result;
+
+    if (activeView !== "model" || remainingGames.length > PROJECT_STANDINGS_REMAINING_GAME_LIMIT) {
+      dashboardRows.forEach((team) => {
+        if (team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") {
+          result.set(team.id, team.goldStatus);
+        } else if ((team.rank ?? 99) <= goldCutoff) {
+          result.set(team.id, "Controls Spot");
+        } else {
+          result.set(team.id, "Needs Help");
+        }
+      });
+      return result;
+    }
 
     teams.forEach((team) => {
       const row = dashboardById.get(team.id);
@@ -1771,6 +1809,7 @@ export default function App() {
     });
     return result;
   }, [
+    activeView,
     teams,
     dashboardRows,
     dashboardById,
@@ -2252,6 +2291,7 @@ export default function App() {
   // ---------- Game forecasts ----------
 
   const gameForecasts = useMemo(() => {
+    if (activeView !== "model") return [];
     return [...remainingGames]
       .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
       .map((game) => {
@@ -2275,7 +2315,15 @@ export default function App() {
             : describePrediction(game, prediction, liveById),
         };
       });
-  }, [remainingGames, liveTeams, settings, liveById, teamBaseById, getGameScenarioImpactMap]);
+  }, [
+    activeView,
+    remainingGames,
+    liveTeams,
+    settings,
+    liveById,
+    teamBaseById,
+    getGameScenarioImpactMap,
+  ]);
 
   const scoreboardGames = useMemo(() => {
     const dateCompare = (a: Matchup, b: Matchup) => {
@@ -2296,35 +2344,64 @@ export default function App() {
     return [...filtered].sort(dateCompare);
   }, [matchups, logs, scoreboardTeamFilter]);
 
-  const scoreboardPredictions = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        spread: string;
-        pickName: string;
-        pickPct: number;
-        scenarioBadges: string[];
-        impactScore: number;
-      }
-    >();
-    remainingGames.forEach((game) => {
-      const prediction = predictGame(game, liveTeams, settings, liveById);
-      const winner = teamBaseById.get(prediction.winnerId);
-      const winnerPct =
-        prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-      map.set(game.id, {
-        spread: projectedRunLine(prediction, liveById),
-        pickName: displayName(winner?.name || prediction.winnerId),
-        pickPct: winnerPct,
-        // Keep Schedule score entry lightweight. Exact clinch/elimination badges are
-        // still computed in the Model view, but doing them for every open game on
-        // each score keystroke makes the scoring workflow feel frozen.
-        scenarioBadges: [],
-        impactScore: 0,
-      });
-    });
-    return map;
-  }, [remainingGames, liveTeams, settings, liveById, teamBaseById]);
+  useEffect(() => {
+    setScoreboardPredictions(new Map());
+    if (activeView !== "games" || !remainingGames.length) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof window.setTimeout> | null = null;
+    let index = 0;
+    const games = [...remainingGames];
+
+    const queueNextChunk = () => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        const entries: [string, ScoreboardPrediction][] = [];
+        const chunkEnd = Math.min(index + SCOREBOARD_PREDICTION_CHUNK_SIZE, games.length);
+
+        for (; index < chunkEnd; index += 1) {
+          const game = games[index];
+          if (!game) continue;
+          const prediction = predictGame(game, liveTeams, settings, liveById);
+          const winner = teamBaseById.get(prediction.winnerId);
+          const winnerPct =
+            prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
+          entries.push([
+            game.id,
+            {
+              spread: projectedRunLine(prediction, liveById),
+              pickName: displayName(winner?.name || prediction.winnerId),
+              pickPct: winnerPct,
+              // Keep Schedule score entry lightweight. Exact clinch/elimination badges are
+              // still computed in the Model view, but doing them for every open game on
+              // each score keystroke makes the scoring workflow feel frozen.
+              scenarioBadges: [],
+              impactScore: 0,
+            },
+          ]);
+        }
+
+        if (entries.length) {
+          startTransition(() => {
+            setScoreboardPredictions((prev) => {
+              if (cancelled) return prev;
+              const next = new Map(prev);
+              entries.forEach(([gameId, prediction]) => next.set(gameId, prediction));
+              return next;
+            });
+          });
+        }
+
+        if (index < games.length) queueNextChunk();
+      }, 0);
+    };
+
+    queueNextChunk();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeView, remainingGames, liveTeams, settings, liveById, teamBaseById]);
 
   // ---------- Snapshots / undo ----------
 
@@ -2333,7 +2410,10 @@ export default function App() {
     const nextRanked = rankTeams(nextLive, rankOptionsFromSettings(settings));
     const nextRemaining = matchups.filter((game) => !isFinal(nextLogs[game.id]));
     const nextRemainingCounts = getRemainingCounts(nextLive, nextRemaining);
-    const nextProjected = projectStandings(nextLive, nextRemaining, settings);
+    const nextProjected =
+      nextRemaining.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT
+        ? projectStandings(nextLive, nextRemaining, settings)
+        : rankTeams(nextLive, rankOptionsFromSettings(settings));
 
     return nextRanked.map((team) => {
       const projectedTeam = nextProjected.find((item) => item.id === team.id);
@@ -2391,6 +2471,15 @@ export default function App() {
         } = parseScheduleCsvImport(raw);
 
         const warningLines = summarizeCsvImportIssues(importIssues);
+        const importedScoreCount = Object.values(importedLogs).filter(isFinal).length;
+        const logsPendingVerification = importedScoreCount
+          ? Object.fromEntries(
+              Object.entries(importedLogs).map(([gameId, log]) => [
+                gameId,
+                isFinal(log) ? { ...log, isFinal: false } : log,
+              ])
+            )
+          : importedLogs;
         const importedTeamNameById = new Map(
           importedTeams.map((team) => [team.id, displayName(team.name)])
         );
@@ -2402,9 +2491,12 @@ export default function App() {
           matchups,
           (teamId) => importedTeamNameById.get(teamId) ?? displayName(teamId)
         );
+        const verificationMessage = importedScoreCount
+          ? `\n\n${importedScoreCount} imported scored game${importedScoreCount === 1 ? "" : "s"} will load into the Scoreboard as pending verification. Review each score and use Verify Final before standings or prediction work counts it.`
+          : "";
         const confirmed = await requestConfirmation({
           title: "Import schedule CSV?",
-          message: `${formatSeasonImportPreview(preview, warningLines)}
+          message: `${formatSeasonImportPreview(preview, warningLines)}${verificationMessage}
 
 This will replace the current season data and save an undo snapshot.`,
           confirmLabel: warningLines.length ? "Import with warnings" : "Replace season",
@@ -2414,12 +2506,12 @@ This will replace the current season data and save an undo snapshot.`,
         captureUndo("CSV import");
         setTeams(importedTeams);
         setMatchups(importedMatchups);
-        setLogs(importedLogs);
+        setLogs(logsPendingVerification);
         setBracketLogs({});
         closeTeamData();
-        setActiveView("standings");
+        setActiveView(importedScoreCount ? "games" : "standings");
         showToast(
-          `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}.`,
+          `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}${importedScoreCount ? `; ${importedScoreCount} scored game${importedScoreCount === 1 ? "" : "s"} pending verification` : ""}.`,
           {
             tone: "undo",
             actionLabel: "Undo",
@@ -2627,6 +2719,29 @@ This will replace current season data and save an undo snapshot.`,
       if (isMarkingFinal && game) {
         const dateLabel = normalizeDateInput(game.date);
         const weekLabel = sundayEndingWeekKey(game.date);
+        const nextRemainingCount = matchups.reduce(
+          (count, matchup) => count + (isFinal(nextLogs[matchup.id]) ? 0 : 1),
+          0
+        );
+        if (nextRemainingCount > IMPACT_RECAP_REMAINING_GAME_LIMIT) {
+          const away = teamBaseById.get(game.away);
+          const home = teamBaseById.get(game.home);
+          setLastImpact({
+            title: `Latest Update — ${displayName(away?.name || game.away)} vs ${displayName(
+              home?.name || game.home
+            )}`,
+            scores: [
+              `${displayName(away?.name || game.away)} ${parseNumber(current.awayRuns)}, ${displayName(
+                home?.name || game.home
+              )} ${parseNumber(current.homeRuns)}`,
+            ],
+            messages: [
+              `Final saved. Detailed standings-impact recap is paused until ${IMPACT_RECAP_REMAINING_GAME_LIMIT} or fewer games remain to keep scoring responsive.`,
+            ],
+            recapItems: [],
+          });
+          return nextLogs;
+        }
         const sameRecapWindow = (m: Matchup) => {
           if (settings.recapGrouping === "game") return m.id === gameId;
           if (settings.recapGrouping === "week") {
@@ -5279,6 +5394,7 @@ function GamesView({
             const away = teams.find((team) => team.id === game.away);
             const home = teams.find((team) => team.id === game.home);
             const final = isFinal(log);
+            const hasEnteredScore = log.awayRuns.trim() !== "" && log.homeRuns.trim() !== "";
             const prediction = scoreboardPredictions.get(game.id);
             return (
               <article
@@ -5336,7 +5452,7 @@ function GamesView({
                 </div>
 
                 <div className="space-y-4 p-4">
-                  {!final && prediction && (
+                  {!final && prediction ? (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-sm ring-1 ring-slate-200">
@@ -5355,7 +5471,11 @@ function GamesView({
                         Pick: {prediction.pickName} · {Math.round(prediction.pickPct * 100)}%
                       </span>
                     </div>
-                  )}
+                  ) : !final ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                      Prediction queued in the background — score entry and final verification are ready now.
+                    </div>
+                  ) : null}
                   <ScoreRow
                     teamName={away?.name || game.away}
                     prefix="away"
@@ -5394,9 +5514,11 @@ function GamesView({
                     <span>
                       {final
                         ? `Final · ${formatGameDate(game.date)}`
-                        : (game.date ?? "").trim()
-                          ? formatGameDateLong(game.date)
-                          : "Needs Date"}
+                        : hasEnteredScore
+                          ? "Scores entered — verify final"
+                          : (game.date ?? "").trim()
+                            ? formatGameDateLong(game.date)
+                            : "Needs Date"}
                     </span>
                     {!final && (
                       <button
@@ -5404,7 +5526,7 @@ function GamesView({
                         onClick={() => handleToggleFinal(game.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white"
                       >
-                        Save + Final
+                        {hasEnteredScore ? "Verify Final" : "Save + Final"}
                       </button>
                     )}
                   </div>
