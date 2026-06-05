@@ -120,6 +120,34 @@ describe("clinchingPathForTeam", () => {
 
     expect(note.notes.join(" ")).toContain("get help if");
   });
+
+  it("suppresses projected swing possibilities once exact math eliminates a team", () => {
+    const exactEliminated = team({
+      id: "A",
+      name: "Aces",
+      rank: 3,
+      projectedRank: 3,
+      goldStatus: "Alive",
+    });
+
+    const note = clinchingPathForTeam({
+      team: exactEliminated,
+      teams: [
+        exactEliminated,
+        team({ id: "B", name: "Bears", w: 1, rank: 1, projectedRank: 1 }),
+        team({ id: "C", name: "Comets", w: 1, rank: 2, projectedRank: 2 }),
+      ],
+      remaining: [],
+      cutoff: 2,
+      settings,
+      swings: [swing({ winSeed: 2, lossSeed: 4 })],
+      exactLimit: 0,
+    });
+
+    expect(note.status).toBe("Eliminated");
+    expect(note.notes).toEqual(["Eliminated from Gold Bracket contention; can only play spoiler."]);
+    expect(note.notes.join(" ")).not.toContain("win projects");
+  });
 });
 
 describe("clinchingPathsForTeams", () => {
@@ -129,11 +157,63 @@ describe("clinchingPathsForTeams", () => {
       team({ id: "B", rank: 2, projectedRank: 3, goldPct: 52, goldStatus: "In" }),
       team({ id: "C", rank: 4, projectedRank: 4, goldPct: 2, goldStatus: "Alive" }),
     ];
-    const paths = clinchingPathsForTeams(teams, [], 2, settings, () => [], {
-      limit: 1,
+    const paths = clinchingPathsForTeams(
+      teams,
+      [{ id: "g1", date: "5/1", away: "B", home: "C" }],
+      2,
+      settings,
+      () => [],
+      {
+        limit: 1,
+        exactLimit: 0,
+      }
+    );
+    expect(paths[0]?.teamId).toBe("B");
+  });
+
+  it("omits terminal teams from the active Gold paths list", () => {
+    const teams = [
+      team({ id: "A", rank: 1, projectedRank: 1, goldPct: 99, goldStatus: "In" }),
+      team({ id: "B", rank: 2, projectedRank: 2, goldPct: 100, goldStatus: "Clinched" }),
+      team({ id: "C", rank: 3, projectedRank: 3, goldPct: 0, goldStatus: "Eliminated" }),
+    ];
+
+    const paths = clinchingPathsForTeams(
+      teams,
+      [{ id: "g1", date: "5/1", away: "A", home: "B" }],
+      2,
+      settings,
+      () => [swing({})],
+      {
+        limit: 8,
+        exactLimit: 0,
+      }
+    );
+
+    expect(paths.map((path) => path.teamId)).toEqual(["A"]);
+  });
+
+  it("omits teams clinched by exact math from the active Gold paths list", () => {
+    const exactClinched = team({
+      id: "A",
+      name: "Aces",
+      w: 2,
+      rank: 1,
+      projectedRank: 1,
+      goldStatus: "In",
+    });
+    const teams = [
+      exactClinched,
+      team({ id: "B", name: "Bears", w: 1, rank: 2, projectedRank: 2 }),
+      team({ id: "C", name: "Comets", rank: 3, projectedRank: 3 }),
+    ];
+
+    const paths = clinchingPathsForTeams(teams, [], 2, settings, () => [swing({})], {
+      limit: 8,
       exactLimit: 0,
     });
-    expect(paths[0]?.teamId).toBe("B");
+
+    expect(paths.map((path) => path.teamId)).not.toContain("A");
   });
 });
 
