@@ -55,4 +55,51 @@ describe("Gemini recap helpers", () => {
       })
     );
   });
+
+  it("retries Gemini with a query-string key when the browser blocks the API key header", async () => {
+    const fetcher = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "AI recap" }] } }] }),
+          { status: 200 }
+        )
+      );
+
+    await expect(
+      generateGeminiRecap({
+        apiKey: " test-key ",
+        seasonLabel: "Spring 26",
+        title: "Latest Update",
+        scores: [],
+        items: [item],
+        fetcher,
+      })
+    ).resolves.toBe("AI recap");
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("?key=test-key"),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+  });
+
+  it("shows an actionable message when Gemini cannot be reached", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(
+      generateGeminiRecap({
+        apiKey: "test-key",
+        seasonLabel: "Spring 26",
+        title: "Latest Update",
+        scores: [],
+        items: [item],
+        fetcher,
+      })
+    ).rejects.toThrow("Could not reach Gemini from this browser");
+  });
 });
