@@ -8,6 +8,7 @@ const KEYS = {
   bracketLogs: `league_bracket_logs_v${STORAGE_VERSION}`,
   settings: `league_settings_v${STORAGE_VERSION}`,
   undo: `league_undo_snapshot_v${STORAGE_VERSION}`,
+  geminiApiKey: `league_gemini_api_key_v${STORAGE_VERSION}`,
 } as const;
 
 const LEGACY_KEYS = {
@@ -86,4 +87,7 @@ export const saveSettings = (settings: Settings) =>
   safeSet(KEYS.settings, JSON.stringify(settings));
 export const saveUndoSnapshot = (snapshot: unknown) => safeSet(KEYS.undo, JSON.stringify(snapshot));
 export const readUndoSnapshot = () => parseJson(safeGet(KEYS.undo));
+export const loadGeminiApiKey = () => safeGet(KEYS.geminiApiKey) ?? "";
+export const saveGeminiApiKey = (apiKey: string) =>
+  apiKey.trim() ? safeSet(KEYS.geminiApiKey, apiKey.trim()) : (safeRemove(KEYS.geminiApiKey), true);
 export const STORAGE_KEYS = KEYS;

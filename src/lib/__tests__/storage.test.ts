@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadLogs, loadMatchups, loadSettings, loadTeams } from "../storage";
+import {
+  loadGeminiApiKey,
+  loadLogs,
+  loadMatchups,
+  loadSettings,
+  loadTeams,
+  saveGeminiApiKey,
+} from "../storage";
 
 const backing = new Map<string, string>();
 
@@ -90,5 +97,19 @@ describe("storage hardening", () => {
         isFinal: true,
       },
     });
+  });
+});
+
+describe("Gemini API key storage", () => {
+  it("stores the key outside exported season settings", () => {
+    expect(saveGeminiApiKey(" test-key ")).toBe(true);
+    expect(loadGeminiApiKey()).toBe("test-key");
+    expect(backing.has("league_settings_v1")).toBe(false);
+  });
+
+  it("removes the key when cleared", () => {
+    expect(saveGeminiApiKey("test-key")).toBe(true);
+    expect(saveGeminiApiKey(" ")).toBe(true);
+    expect(loadGeminiApiKey()).toBe("");
   });
 });
