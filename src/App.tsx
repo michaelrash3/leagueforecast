@@ -143,6 +143,25 @@ type LeagueAverageStats = {
   strikeouts: number;
 };
 
+type StatRankingMetric = {
+  key: string;
+  label: string;
+  entries: StatRankingEntry[];
+};
+
+type StatRankingEntry = {
+  teamId: string;
+  teamName: string;
+  rank: number;
+  games: number;
+  value: number;
+};
+
+type StatRankings = {
+  sampleGames: number;
+  metrics: StatRankingMetric[];
+};
+
 type RankSnapshotEntry = Team & {
   rank: number;
   projectedRank: number;
@@ -406,6 +425,70 @@ const buildLeagueAverageStats = (
   );
 };
 
+const buildTeamStatRankings = (
+  teams: TeamBase[],
+  matchups: Matchup[],
+  logs: Record<string, GameLog>
+): StatRankings => {
+  const summaries = teams.map((team) => ({
+    team,
+    line: buildTeamSplitSummary(team.id, matchups, logs).all,
+  }));
+
+  const rankedEntries = (
+    valueForLine: (line: TeamSplitLine) => number,
+    direction: "asc" | "desc"
+  ): StatRankingEntry[] =>
+    summaries
+      .filter(({ line }) => line.games > 0)
+      .map(({ team, line }) => ({
+        teamId: team.id,
+        teamName: team.name,
+        games: line.games,
+        value: valueForLine(line) / line.games,
+      }))
+      .sort((a, b) => {
+        const valueDiff = direction === "asc" ? a.value - b.value : b.value - a.value;
+        if (Math.abs(valueDiff) > 0.0001) return valueDiff;
+        return a.teamName.localeCompare(b.teamName);
+      })
+      .slice(0, 5)
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+  const sampleGames = summaries.reduce((sum, { line }) => sum + line.games, 0);
+
+  return {
+    sampleGames,
+    metrics: [
+      {
+        key: "runs-scored",
+        label: "Top R/G",
+        entries: rankedEntries((line) => line.offense.runs, "desc"),
+      },
+      {
+        key: "hits",
+        label: "Top H/G",
+        entries: rankedEntries((line) => line.offense.hits, "desc"),
+      },
+      {
+        key: "least-strikeouts",
+        label: "Lowest K/G",
+        entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
+      },
+      {
+        key: "runs-allowed",
+        label: "Lowest RA/G",
+        entries: rankedEntries((line) => line.defense.runs, "asc"),
+      },
+      {
+        key: "hits-allowed",
+        label: "Lowest HA/G",
+        entries: rankedEntries((line) => line.defense.hits, "asc"),
+      },
+    ],
+  };
+};
+
 const perGame = (value: number, games: number) => (games ? (value / games).toFixed(1) : "—");
 
 // ---------- Subcomponents ----------
@@ -561,6 +644,70 @@ function SplitStatsTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
+  return (
+    <section className="border-b border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Stat Rankings
+          </div>
+          <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Top 5 Per-Game Leaders
+          </h2>
+        </div>
+        <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+          Based on {rankings.sampleGames} completed team-games
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {rankings.metrics.map((metric) => (
+          <div
+            key={metric.key}
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-800/60"
+          >
+            <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+              <h3 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">
+                {metric.label}
+              </h3>
+            </div>
+            {metric.entries.length > 0 ? (
+              <ol className="divide-y divide-slate-200 dark:divide-slate-700">
+                {metric.entries.map((entry) => (
+                  <li
+                    key={`${metric.key}-${entry.teamId}`}
+                    className="flex items-center gap-3 px-4 py-3"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white dark:bg-white dark:text-slate-950">
+                      {entry.rank}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                        {displayName(entry.teamName)}
+                      </div>
+                      <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        {entry.games} games
+                      </div>
+                    </div>
+                    <div className="text-lg font-black tabular-nums text-slate-950 dark:text-slate-100">
+                      {entry.value.toFixed(1)}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
+                No completed games yet.
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1174,9 +1321,9 @@ export default function App() {
     recapItems: RecapItem[];
   } | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
-  const [scoreboardPredictions, setScoreboardPredictions] = useState<Map<string, ScoreboardPrediction>>(
-    () => new Map()
-  );
+  const [scoreboardPredictions, setScoreboardPredictions] = useState<
+    Map<string, ScoreboardPrediction>
+  >(() => new Map());
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
@@ -1327,6 +1474,10 @@ export default function App() {
   const leagueAverageStats = useMemo(
     () => buildLeagueAverageStats(matchups, deferredLogs),
     [matchups, deferredLogs]
+  );
+  const statRankings = useMemo(
+    () => buildTeamStatRankings(teams, matchups, deferredLogs),
+    [teams, matchups, deferredLogs]
   );
   const remainingCounts = useMemo(
     () =>
@@ -3388,6 +3539,7 @@ This will replace current season data and save an undo snapshot.`,
               formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
               onSelectTeam={openTeamData}
               leagueAverageStats={leagueAverageStats}
+              statRankings={statRankings}
             />
           ) : activeView === "model" ? (
             <ModelView
@@ -3705,6 +3857,7 @@ function StandingsView({
   formatGoldMargin,
   onSelectTeam,
   leagueAverageStats,
+  statRankings,
 }: {
   currentLeader: TeamWithProjection | undefined;
   finalCount: number;
@@ -3729,6 +3882,7 @@ function StandingsView({
   formatGoldMargin: (t: TeamWithProjection) => string;
   onSelectTeam: (id: string) => void;
   leagueAverageStats: LeagueAverageStats;
+  statRankings: StatRankings;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -3777,6 +3931,8 @@ function StandingsView({
             </div>
           </div>
         </div>
+
+        <StatRankingsPanel rankings={statRankings} />
 
         {lastImpact && (
           <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">
@@ -4277,16 +4433,10 @@ function ModelView(props: {
                   <tr>
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Now</th>
-                    <th className="px-4 py-3 text-center">
-                      Projected
-                    </th>
-                    <th className="px-4 py-3 text-center">
-                      Range
-                    </th>
+                    <th className="px-4 py-3 text-center">Projected</th>
+                    <th className="px-4 py-3 text-center">Range</th>
                     <th className="px-4 py-3 text-center">Projected Record</th>
-                    <th className="px-4 py-3 text-center">
-                      Gold Odds
-                    </th>
+                    <th className="px-4 py-3 text-center">Gold Odds</th>
                     <th className="px-4 py-3 text-center">Run Diff</th>
                     <th className="px-5 py-3 text-right">TPI</th>
                   </tr>
@@ -4712,7 +4862,6 @@ function ModelView(props: {
                       Seed Impact: {item.impact?.impactLabel ?? "—"}
                     </span>
                   </div>
-
                 </article>
               );
             })}
@@ -5282,7 +5431,8 @@ function GamesView({
                     </div>
                   ) : !final ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-                      Prediction queued in the background — score entry and final verification are ready now.
+                      Prediction queued in the background — score entry and final verification are
+                      ready now.
                     </div>
                   ) : null}
                   <ScoreRow
