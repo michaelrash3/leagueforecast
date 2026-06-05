@@ -8,9 +8,6 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Season Timeline
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            Recent finals with standings movement and Gold cut-line impact.
-          </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {entries.length} recent finals
@@ -18,7 +15,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
       </div>
       {entries.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
-          Finalized games will appear here as a season recap history.
+          No final results yet.
         </div>
       ) : (
         <ol className="space-y-3">

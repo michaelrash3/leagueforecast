@@ -16,7 +16,6 @@ import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
-import { HelpTip } from "./components/HelpTip";
 import { ToastView } from "./components/Toast";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useFocusTrap } from "./hooks/useFocusTrap";
@@ -309,58 +308,6 @@ const upsetRiskLabel = (winnerPct: number, margin: number) => {
   if (winnerPct < 0.58 || margin <= 2) return "High";
   if (winnerPct < 0.7 || margin <= 5) return "Medium";
   return "Low";
-};
-
-const describePrediction = (game: Matchup, prediction: Prediction, byId: Map<string, Team>) => {
-  const away = byId.get(game.away);
-  const home = byId.get(game.home);
-  const winner = byId.get(prediction.winnerId);
-  const loserId = prediction.winnerId === game.away ? game.home : game.away;
-  const loser = byId.get(loserId);
-
-  const awayName = displayName(away?.name || game.away);
-  const homeName = displayName(home?.name || game.home);
-  const winnerName = displayName(winner?.name || prediction.winnerId);
-  void loser;
-
-  if (!away || !home) {
-    return `Model leans ${winnerName}, but one or both teams are missing from the imported team list.`;
-  }
-
-  const winnerPct =
-    prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-  const tpiEdge = away.tpi - home.tpi;
-  const scoringEdge = away.rsg - home.rsg;
-  const preventionEdge = home.rag - away.rag;
-  const kEdge = (home.homeK6 ?? 4.5) - ((away.awayK6 ?? 4.5) + home.machineDifficulty);
-
-  const reasons: string[] = [];
-  if (Math.abs(scoringEdge) >= 1.2) {
-    reasons.push(`${scoringEdge > 0 ? awayName : homeName} have the stronger scoring profile`);
-  }
-  if (Math.abs(preventionEdge) >= 1.2) {
-    reasons.push(`${preventionEdge > 0 ? awayName : homeName} have allowed fewer runs`);
-  }
-  if (Math.abs(tpiEdge) >= 1.5) {
-    reasons.push(`${tpiEdge > 0 ? awayName : homeName} own the better adjusted profile`);
-  }
-  if (Math.abs(kEdge) >= 1.0) {
-    reasons.push(`${kEdge > 0 ? awayName : homeName} get a contact/machine edge`);
-  }
-  if (!reasons.length) {
-    reasons.push("the teams grade close, so the lean is mostly from projected run balance");
-  }
-
-  const confidenceText =
-    prediction.confidence === "High"
-      ? "a strong lean"
-      : prediction.confidence === "Medium"
-        ? "a clear lean"
-        : "a light lean";
-
-  return `${projectedRunLine(prediction, byId)} is ${confidenceText}: ${reasons.slice(0, 2).join(" and ")}. That gives ${winnerName} a ${Math.round(
-    winnerPct * 100
-  )}% win chance without treating the forecast like a literal final score.`;
 };
 
 const calcBip = (hits: string, runs: string, strikeouts: string, innings: string) => {
@@ -863,7 +810,6 @@ function BracketGameCard({
 
 function BracketPredictionPanel({
   title,
-  description,
   emptyMessage,
   championLabel,
   projection,
@@ -872,7 +818,6 @@ function BracketPredictionPanel({
   onClearScores,
 }: {
   title: string;
-  description: string;
   emptyMessage: string;
   championLabel: string;
   projection: ReturnType<typeof buildBracketProjection>;
@@ -897,9 +842,6 @@ function BracketPredictionPanel({
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             {title}
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            {description}
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -933,15 +875,6 @@ function BracketPredictionPanel({
             </div>
             <div className="mt-1 text-2xl font-black">
               {champion ? displayName(champion.name) : "Pending"}
-            </div>
-            <div className="mt-1 text-sm font-bold text-slate-300">
-              {projection.championSource === "actual"
-                ? "Driven by actual bracket finals entered below."
-                : projection.championSource === "projected"
-                  ? "Projected from model picks until actual results replace them."
-                  : projection.championSource === "bye"
-                    ? "Advanced by bye."
-                    : "Waiting for enough teams to resolve the bracket."}
             </div>
           </div>
           <div className="overflow-x-auto pb-2">
@@ -994,7 +927,6 @@ function TeamDrawer({
   onClose,
   magicForGold,
   eliminationNumber,
-  pathSummary,
   splitSummary,
   onCompare,
   leagueAverageStats,
@@ -1012,7 +944,6 @@ function TeamDrawer({
   onClose: () => void;
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
-  pathSummary: string;
   splitSummary: TeamSplitSummary;
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
@@ -1082,29 +1013,9 @@ function TeamDrawer({
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
-          <DrawerMetric
-            label={
-              <>
-                Gold %
-                <HelpTip title="Gold %">
-                  Simulated chance to finish inside the Gold Bracket cutoff.
-                </HelpTip>
-              </>
-            }
-            value={goldPctLabel}
-          />
+          <DrawerMetric label="Gold %" value={goldPctLabel} />
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
-          <DrawerMetric
-            label={
-              <>
-                Bubble
-                <HelpTip title="Bubble label">
-                  A quick status based on current seed, projected seed, max points, and Gold odds.
-                </HelpTip>
-              </>
-            }
-            value={bubble}
-          />
+          <DrawerMetric label="Bubble" value={bubble} />
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
@@ -1120,29 +1031,10 @@ function TeamDrawer({
             label="Lg Avg K/G"
             value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.games)}
           />
-          <DrawerMetric
-            label={
-              <>
-                Current SOS
-                <HelpTip title="Current SOS">
-                  Rank of opponent difficulty from games already finalized.
-                </HelpTip>
-              </>
-            }
-            value={currentSosRank ? `#${currentSosRank}` : "—"}
-          />
+          <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
-
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Where they stand
-          </h3>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-            {pathSummary}
-          </p>
-        </section>
 
         <section className="mt-6 space-y-3">
           <div>
@@ -2267,23 +2159,6 @@ export default function App() {
     [dashboardRows, remainingCounts, settings]
   );
 
-  const teamPathNote = (team: TeamWithProjection) => {
-    const range = seedRangeForTeam(team.id);
-    const sos = scheduleDifficultyForTeam(team.id);
-    const name = displayName(team.name);
-    if (team.goldStatus === "Clinched")
-      return `${name} have clinched Gold and are playing for seeding.`;
-    if (team.goldStatus === "Eliminated")
-      return `${name} cannot reach Gold and can only affect other teams' paths.`;
-    if ((team.rank ?? 99) <= goldCutoff && range.worst <= goldCutoff)
-      return `${name} control the spot; even a rough path still projects inside Gold.`;
-    if ((team.rank ?? 99) <= goldCutoff)
-      return `${name} are in now but can fall out if the next results break badly.`;
-    if (range.best <= goldCutoff && team.goldPct >= 10)
-      return `${name} can move into Gold with wins and help near the cut line.`;
-    return `${name} need wins plus multiple teams above the line${sos.label === "Hard" ? " and a tough remaining schedule" : ""} to stumble.`;
-  };
-
   const latestCompletedDate = completedGames.length
     ? formatGameDate(completedGames[completedGames.length - 1]?.date ?? "")
     : "No finals yet";
@@ -2310,9 +2185,6 @@ export default function App() {
           winnerName: displayName(winner?.name || prediction.winnerId),
           winnerPct,
           impact,
-          explanation: impact
-            ? `${describePrediction(game, prediction, liveById)} Seed impact is ${impact.impactLabel.toLowerCase()}: ${impact.awayName} range from #${impact.awaySeedWin} with a win to #${impact.awaySeedLoss} with a loss, while ${impact.homeName} range from #${impact.homeSeedWin} with a win to #${impact.homeSeedLoss} with a loss. Estimated Gold swing: ${impact.awayName} ${impact.awayGoldSwing >= 0 ? "+" : ""}${Math.round(impact.awayGoldSwing)}%, ${impact.homeName} ${impact.homeGoldSwing >= 0 ? "+" : ""}${Math.round(impact.homeGoldSwing)}%.`
-            : describePrediction(game, prediction, liveById),
         };
       });
   }, [
@@ -3530,7 +3402,6 @@ This will replace current season data and save an undo snapshot.`,
               gamesThatMatterMost={gamesThatMatterMost}
               bubbleMovementRows={bubbleMovementRows}
               scheduleDifficultyForTeam={scheduleDifficultyForTeam}
-              teamPathNote={teamPathNote}
               formatGoldPct={formatGoldPct}
               formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
               projectedCutLineTeams={projectedCutLineTeams}
@@ -3624,7 +3495,6 @@ This will replace current season data and save an undo snapshot.`,
                 description: "Loading elimination number…",
               }
             }
-            pathSummary={selectedTeamDetail?.path ?? "Loading team path summary..."}
             splitSummary={selectedTeamSplitSummary}
             leagueAverageStats={leagueAverageStats}
             onClose={closeTeamData}
@@ -3729,10 +3599,6 @@ function EmptyState({
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 shadow-sm">
         <h2 className="text-2xl font-black tracking-tight">Start a Season</h2>
-        <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Import an existing schedule CSV, or enter team names and build a blank round-robin
-          schedule.
-        </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <label className={`inline-flex cursor-pointer ${buttonClasses.primary}`}>
             Import CSV
@@ -3763,9 +3629,6 @@ function EmptyState({
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             New Season Builder
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-            Enter teams and create a blank schedule where every team plays every other team once.
-          </p>
           <label className="sr-only" htmlFor="season-builder-textarea">
             Team list
           </label>
@@ -3818,9 +3681,6 @@ function EmptyState({
           placeholder={"Stallions\nGriddy\nTrash Pandas\nChaos"}
           className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
         />
-        <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          One team per line. The generated CSV leaves dates blank so you can add them later.
-        </p>
       </aside>
     </div>
   );
@@ -4025,19 +3885,8 @@ function StandingsView({
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Record</th>
                     <th className="px-4 py-3 text-center">Diff</th>
-                    <th className="px-4 py-3 text-center">
-                      SOS
-                      <HelpTip title="SOS">
-                        Strength of schedule ranks opponents already played by their model strength.
-                      </HelpTip>
-                    </th>
-                    <th className="px-4 py-3 text-center">
-                      Gold %
-                      <HelpTip title="Gold %">
-                        Estimated chance this team finishes inside the Gold Bracket cutoff after the
-                        remaining schedule is simulated.
-                      </HelpTip>
-                    </th>
+                    <th className="px-4 py-3 text-center">SOS</th>
+                    <th className="px-4 py-3 text-center">Gold %</th>
                     <th className="px-4 py-3 text-center">Playoff Status</th>
                     <th className="px-4 py-3 text-center" title="Gold % trend.">
                       Trend (Gold %)
@@ -4264,7 +4113,6 @@ function ModelView(props: {
     control: string;
   }[];
   scheduleDifficultyForTeam: (id: string) => { label: string; rating: number; opponents: string };
-  teamPathNote: (t: TeamWithProjection) => string;
   formatGoldPct: (t: TeamWithProjection) => string;
   formatGoldMargin: (t: TeamWithProjection) => string;
   projectedCutLineTeams: TeamWithProjection[];
@@ -4277,7 +4125,6 @@ function ModelView(props: {
     winnerName: string;
     winnerPct: number;
     impact: ReturnType<Map<string, { impactLabel: "High" | "Medium" | "Low" }>["get"]>;
-    explanation: string;
   }[];
   byId: Map<string, Team>;
   gameStatusClasses: (s: string) => string;
@@ -4306,7 +4153,6 @@ function ModelView(props: {
     gamesThatMatterMost,
     bubbleMovementRows,
     scheduleDifficultyForTeam,
-    teamPathNote,
     formatGoldPct,
     formatGoldMargin,
     projectedCutLineTeams,
@@ -4355,10 +4201,6 @@ function ModelView(props: {
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
               Schedule Difficulty Heatmap
             </h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              Remaining opponents rated by how they score and prevent runs versus opponent averages,
-              with record included as a smaller signal.
-            </p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             Remaining slate
@@ -4398,8 +4240,7 @@ function ModelView(props: {
 
       <BracketPredictionPanel
         title="Gold Bracket Predictor"
-        description="Seeds come from the projected Gold field. Enter actual bracket scores and mark games final to advance winners through the layout."
-        emptyMessage="Add at least two projected Gold teams to build a bracket."
+        emptyMessage="Not enough Gold teams."
         championLabel="Projected Gold Champion"
         projection={bracketProjection}
         onScoreChange={updateBracketLog}
@@ -4409,8 +4250,7 @@ function ModelView(props: {
 
       <BracketPredictionPanel
         title="Silver Bracket Predictor"
-        description="All projected teams below the Gold cut line seed this Silver bracket. Enter scores here to advance actual Silver winners as the bracket plays out."
-        emptyMessage="Add at least two teams below the projected Gold cut line to build a Silver bracket."
+        emptyMessage="Not enough Silver teams."
         championLabel="Projected Silver Champion"
         projection={silverBracketProjection}
         onScoreChange={updateBracketLog}
@@ -4439,24 +4279,13 @@ function ModelView(props: {
                     <th className="px-4 py-3 text-center">Now</th>
                     <th className="px-4 py-3 text-center">
                       Projected
-                      <HelpTip title="Projected seed">
-                        The seed from the deterministic forecast after applying model picks to
-                        remaining games.
-                      </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">
                       Range
-                      <HelpTip title="Seed range">
-                        Best and worst projected seed from quick one-game swing scenarios.
-                      </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">Projected Record</th>
                     <th className="px-4 py-3 text-center">
                       Gold Odds
-                      <HelpTip title="Gold odds">
-                        Monte Carlo estimate of how often this team lands inside the configured Gold
-                        cutoff.
-                      </HelpTip>
                     </th>
                     <th className="px-4 py-3 text-center">Run Diff</th>
                     <th className="px-5 py-3 text-right">TPI</th>
@@ -4684,16 +4513,6 @@ function ModelView(props: {
             {bubbleMovementRows.map(({ team, tier, sos }) => {
               const range = seedRangeForTeam(team.id);
               const confidence = projectionConfidenceForTeam(team);
-              const bubbleNote =
-                team.projectedRank <= goldCutoff && (team.rank ?? 99) > goldCutoff
-                  ? `${displayName(team.name)} is projected to move into the Gold Bracket.`
-                  : (team.rank ?? 99) <= goldCutoff && team.projectedRank > goldCutoff
-                    ? `${displayName(team.name)} currently holds a Gold spot but projects to fall below the cut line.`
-                    : (team.rank ?? 99) === goldCutoff
-                      ? `${displayName(team.name)} currently owns the final Gold Bracket spot.`
-                      : (team.rank ?? 99) === goldCutoff + 1
-                        ? `${displayName(team.name)} is the first team outside the Gold Bracket.`
-                        : `${displayName(team.name)} is close enough to the cut line to matter.`;
               return (
                 <div
                   key={`bubble-${team.id}`}
@@ -4728,9 +4547,6 @@ function ModelView(props: {
                       <div className="mt-1 text-slate-950 dark:text-slate-100">{sos.label}</div>
                     </div>
                   </div>
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-                    {bubbleNote} {teamPathNote(team)} Remaining opponents: {sos.opponents}.
-                  </p>
                 </div>
               );
             })}
@@ -4897,9 +4713,6 @@ function ModelView(props: {
                     </span>
                   </div>
 
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-                    {item.explanation}
-                  </p>
                 </article>
               );
             })}
@@ -5080,10 +4893,6 @@ function SettingsView({
             <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700">
               League Tiebreaker Order
             </legend>
-            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Applied after win percentage. Pick the deciding factors in order; lower Runs Against
-              wins, higher Run Differential wins.
-            </p>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
               {[0, 1, 2].map((index) => (
                 <label key={index} className="block">
@@ -5385,7 +5194,7 @@ function GamesView({
 
       {visibleGames.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-          No games yet. Use the form above to add one.
+          No games yet.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

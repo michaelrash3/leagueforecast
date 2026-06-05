@@ -20,9 +20,6 @@ export function ClinchingPathsPanel({
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Gold Bracket Paths
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            Plain-English clinching and danger notes for the teams closest to the cut line.
-          </p>
         </div>
         <div className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm ring-1 ring-amber-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-amber-900/60">
           Last in: {lastInName} · First out: {firstOutName}
@@ -32,7 +29,7 @@ export function ClinchingPathsPanel({
 
       {paths.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-amber-300 bg-white/70 p-6 text-center text-sm font-bold text-slate-500 dark:border-amber-900 dark:bg-slate-900/50 dark:text-slate-400">
-          Add teams and remaining games to generate Gold Bracket path notes.
+          No paths yet.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

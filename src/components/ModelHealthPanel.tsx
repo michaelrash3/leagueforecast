@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { HelpTip } from "./HelpTip";
 import type { backtestPredictions } from "../lib/backtest";
 
 type ModelHealthPanelProps = {
@@ -16,9 +15,6 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
             <h3 className="text-base font-black tracking-tight text-slate-800 dark:text-slate-200">
               Model Health
             </h3>
-            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Supporting calibration checks from finalized non-tie games.
-            </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-black text-slate-600 dark:text-slate-300">
             <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
@@ -35,20 +31,13 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
           {backtestResult.sampleSize === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
-              Finalize at least one non-tie game to see calibration metrics.
+              No calibration yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
               <div className="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
                 <Metric
-                  label={
-                    <>
-                      Brier
-                      <HelpTip title="Brier score">
-                        Lower is better. It measures how close predicted win probabilities were to finalized non-tie outcomes.
-                      </HelpTip>
-                    </>
-                  }
+                  label="Brier"
                   value={backtestResult.brierScore.toFixed(3)}
                 />
                 <Metric
