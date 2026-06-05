@@ -3863,10 +3863,10 @@ function TeamStatsView({
               League Avg Sample
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {leagueAverageStats.games}
+              {leagueAverageStats.games / 2}
             </div>
             <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-              team-games
+              games played
             </div>
           </div>
           <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
