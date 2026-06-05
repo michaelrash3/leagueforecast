@@ -25,10 +25,10 @@ export const card =
   "rounded-[2rem] border border-white/70 bg-white/90 shadow-xl shadow-slate-200/60 ring-1 ring-slate-200/80 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/85 dark:shadow-black/30 dark:ring-slate-800";
 
 export const tab = (active: boolean) =>
-  `whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-black sm:px-4 sm:py-2 sm:text-sm ${
+  `whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-black transition sm:px-6 sm:py-3 sm:text-base ${
     active
-      ? "bg-white text-slate-950 shadow-sm ring-1 ring-white/70 dark:bg-slate-700 dark:text-white dark:ring-white/10"
-      : "text-slate-500 hover:bg-white/60 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-white"
+      ? "bg-white text-slate-950 shadow-lg shadow-black/15 ring-1 ring-white/80"
+      : "text-slate-300/75 hover:bg-white/10 hover:text-white"
   }`;
 
 export const button = {

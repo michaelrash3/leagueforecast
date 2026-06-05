@@ -438,126 +438,7 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "teamStats", "games", "model", "settings"];
-
-type SiteVisualHeroProps = {
-  activeView: ActiveView;
-  seasonLabel: string;
-  teamsCount: number;
-  finalCount: number;
-  totalGames: number;
-  goldCutoff: number;
-};
-
-const viewHeroCopy: Record<ActiveView, { eyebrow: string; title: string; body: string }> = {
-  standings: {
-    eyebrow: "Race board",
-    title: "Every seed movement gets a spotlight.",
-    body: "The standings view leads with the league story, then backs it up with cut-line color, projected finish, and weekly momentum.",
-  },
-  teamStats: {
-    eyebrow: "Stat room",
-    title: "Team profiles feel like a broadcast package.",
-    body: "League averages and stat leaders get the same card treatment as the race so performance context is easier to scan.",
-  },
-  games: {
-    eyebrow: "Score desk",
-    title: "Schedule work stays visually guided.",
-    body: "Game cards, filters, and score entry sit inside the same high-contrast design language as the rest of the site.",
-  },
-  model: {
-    eyebrow: "Prediction lab",
-    title: "The model has a stronger stage.",
-    body: "Forecasts, brackets, clinching paths, and swing games are framed as connected visual panels instead of isolated tables.",
-  },
-  settings: {
-    eyebrow: "Control room",
-    title: "League operations stay clear and polished.",
-    body: "Rules, imports, exports, backups, and reset paths now sit under a more visual operating surface.",
-  },
-};
-
-function SiteVisualHero({
-  activeView,
-  seasonLabel,
-  teamsCount,
-  finalCount,
-  totalGames,
-  goldCutoff,
-}: SiteVisualHeroProps) {
-  const copy = viewHeroCopy[activeView];
-  const progress = totalGames > 0 ? Math.round((finalCount / totalGames) * 100) : 0;
-  const heroStats = [
-    { label: "Season", value: seasonLabel },
-    { label: "Teams", value: teamsCount.toString() },
-    { label: "Gold line", value: `Top ${goldCutoff}` },
-    { label: "Complete", value: `${progress}%` },
-  ];
-
-  return (
-    <section
-      className={`${card} mb-6 overflow-hidden`}
-      aria-label={`${VIEW_LABELS[activeView]} visual overview`}
-    >
-      <div className="grid grid-cols-1 lg:grid-cols-[1.45fr_0.55fr]">
-        <div className="relative isolate overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-amber-900 p-6 text-white sm:p-7">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_18%_18%,_rgba(251,191,36,0.34),_transparent_26%),radial-gradient(circle_at_88%_20%,_rgba(59,130,246,0.32),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.12)_0_1px,_transparent_1px_12px)]" />
-          <div className="inline-flex rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.28em] text-amber-100 ring-1 ring-white/15 backdrop-blur">
-            {copy.eyebrow}
-          </div>
-          <h2 className="mt-4 max-w-3xl text-2xl font-black tracking-tight text-white sm:text-3xl">
-            {copy.title}
-          </h2>
-          <p className="mt-3 max-w-3xl text-sm font-bold leading-6 text-slate-200 sm:text-base">
-            {copy.body}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {heroStats.map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/15 backdrop-blur"
-              >
-                <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">
-                  {stat.label}
-                </div>
-                <div className="mt-1 text-sm font-black text-white">{stat.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="bg-white/85 p-5 dark:bg-slate-900/85">
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                  Visual pulse
-                </div>
-                <div className="mt-1 text-lg font-black text-slate-950 dark:text-white">
-                  {VIEW_LABELS[activeView]}
-                </div>
-              </div>
-              <span className={pill("amber")}>{progress}% played</span>
-            </div>
-            <div className="mt-5 h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-700">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-red-500 via-amber-400 to-emerald-400"
-                style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-              />
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs font-black text-slate-600 dark:text-slate-300">
-              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-700">
-                {finalCount} final
-              </div>
-              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-700">
-                {Math.max(0, totalGames - finalCount)} open
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+const VIEW_ORDER: ActiveView[] = ["standings", "games", "teamStats", "model", "settings"];
 
 type RaceTone = "clinched" | "safe" | "inside" | "bubble" | "chasing" | "out";
 
@@ -3682,26 +3563,28 @@ This will replace current season data and save an undo snapshot.`,
         </div>
       )}
       <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.16),_transparent_34%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] text-slate-950 dark:bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.26),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)] dark:text-slate-100">
-        <header className="border-b border-white/10 bg-gradient-to-r from-slate-950 via-blue-950 to-amber-900 text-white shadow-2xl shadow-slate-950/20">
-          <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <header className="relative isolate overflow-hidden border-b border-white/10 bg-[linear-gradient(90deg,#020617_0%,#0b1f4d_46%,#263064_66%,#9a3f06_100%)] text-white shadow-2xl shadow-slate-950/20">
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_22%_18%,rgba(30,64,175,0.42),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.28),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[length:auto,auto,18px_18px]" />
+          <div className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-black/25 to-transparent" />
+          <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-7 sm:px-6 sm:py-9 lg:px-8">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="text-xs font-black uppercase tracking-[0.3em] text-amber-200">
+                <div className="text-xs font-black uppercase tracking-[0.42em] text-amber-200 drop-shadow">
                   League Command Center
                 </div>
-                <h1 className="mt-2 text-3xl font-black tracking-tight text-white sm:text-4xl">
+                <h1 className="mt-4 text-4xl font-black tracking-tight text-white drop-shadow-sm sm:text-6xl">
                   NKB Season Tracker
                 </h1>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <div className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 backdrop-blur">
+                  <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur">
                     {settings.seasonLabel}
                   </div>
                   {saveStatus && (
                     <div
                       className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
                         saveStatus.state === "saved"
-                          ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
-                          : "bg-red-400/15 text-red-100 ring-1 ring-red-300/30"
+                          ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30 shadow-inner shadow-emerald-100/10"
+                          : "bg-red-400/15 text-red-100 ring-1 ring-red-300/30 shadow-inner shadow-red-100/10"
                       }`}
                       title={`${saveStatus.label} ${new Date(saveStatus.timestamp).toLocaleTimeString()}`}
                     >
@@ -3714,7 +3597,7 @@ This will replace current season data and save an undo snapshot.`,
                 <button
                   type="button"
                   onClick={() => setShowCommandPalette(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-black text-white shadow-sm backdrop-blur hover:bg-white/15"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm shadow-black/10 backdrop-blur hover:bg-white/15"
                   aria-label="Open command palette"
                 >
                   <span>⌘K</span>
@@ -3724,7 +3607,7 @@ This will replace current season data and save an undo snapshot.`,
                   <button
                     type="button"
                     onClick={shareSeason}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-black text-white shadow-sm backdrop-blur hover:bg-white/15"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm shadow-black/10 backdrop-blur hover:bg-white/15"
                     aria-label="Copy share URL for this season"
                   >
                     Share
@@ -3744,7 +3627,7 @@ This will replace current season data and save an undo snapshot.`,
                 <button
                   type="button"
                   onClick={toggleTheme}
-                  className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/10 p-2 text-xs font-black text-white shadow-sm backdrop-blur hover:bg-white/15"
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 p-3 text-sm font-black text-white shadow-sm shadow-black/10 backdrop-blur hover:bg-white/15"
                   aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                   title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                 >
@@ -3756,7 +3639,7 @@ This will replace current season data and save an undo snapshot.`,
             <div
               role="tablist"
               aria-label="Main views"
-              className="-mx-2 flex gap-1 overflow-x-auto rounded-2xl bg-white/10 p-1 ring-1 ring-white/15 backdrop-blur sm:mx-0 sm:w-fit sm:gap-2 sm:overflow-visible"
+              className="-mx-2 flex gap-1 overflow-x-auto rounded-[1.75rem] bg-white/10 p-1.5 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur sm:mx-0 sm:gap-2 sm:overflow-visible"
             >
               {VIEW_ORDER.map((view) => (
                 <button
@@ -3798,9 +3681,7 @@ This will replace current season data and save an undo snapshot.`,
             />
           ) : activeView === "standings" ? (
             <StandingsView
-              seasonLabel={settings.seasonLabel}
               currentLeader={currentLeader}
-              teamsCount={teams.length}
               finalCount={finalCount}
               totalGames={totalGamesCount}
               goldCutoff={goldCutoff}
@@ -4247,9 +4128,7 @@ function TeamStatsView({
 }
 
 function StandingsView({
-  seasonLabel,
   currentLeader,
-  teamsCount,
   finalCount,
   totalGames,
   goldCutoff,
@@ -4267,9 +4146,7 @@ function StandingsView({
   formatGoldMargin,
   onSelectTeam,
 }: {
-  seasonLabel: string;
   currentLeader: TeamWithProjection | undefined;
-  teamsCount: number;
   finalCount: number;
   totalGames: number;
   goldCutoff: number;
@@ -4289,14 +4166,6 @@ function StandingsView({
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
-      <SiteVisualHero
-        activeView="standings"
-        seasonLabel={seasonLabel}
-        teamsCount={teamsCount}
-        finalCount={finalCount}
-        totalGames={totalGames}
-        goldCutoff={goldCutoff}
-      />
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
