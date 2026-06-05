@@ -307,10 +307,18 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   teamStats: "Team Stats",
   games: "Schedule",
   model: "Season Predictor",
+  display: "Display",
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "teamStats", "games", "model", "settings"];
+const VIEW_ORDER: ActiveView[] = [
+  "standings",
+  "teamStats",
+  "games",
+  "model",
+  "display",
+  "settings",
+];
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
 type TiebreakerSelectValue = TiebreakerFactor | "none";
 
@@ -2514,7 +2522,8 @@ export default function App() {
           importedLogs,
           teams,
           matchups,
-          (teamId) => importedTeamNameById.get(teamId) ?? displayName(teamId)
+          (teamId) => importedTeamNameById.get(teamId) ?? displayName(teamId),
+          logs
         );
         const verificationMessage = importedScoreCount
           ? `\n\n${importedScoreCount} imported scored game${importedScoreCount === 1 ? "" : "s"} will load into the Scoreboard as pending verification. Review each score and use Verify Final before standings or prediction work counts it.`
@@ -2648,7 +2657,8 @@ This will replace the current season data and save an undo snapshot.`,
           nextLogs,
           teams,
           matchups,
-          (teamId) => backupTeamNameById.get(teamId) ?? displayName(teamId)
+          (teamId) => backupTeamNameById.get(teamId) ?? displayName(teamId),
+          logs
         );
         const confirmed = await requestConfirmation({
           title: "Import backup JSON?",
@@ -3087,6 +3097,7 @@ This will replace current season data and save an undo snapshot.`,
     teamStats: null,
     games: null,
     model: null,
+    display: null,
     settings: null,
   });
 
@@ -3582,6 +3593,23 @@ This will replace current season data and save an undo snapshot.`,
               clinchingPaths={clinchingPaths}
               cutLineSnapshot={cutLineSnapshot}
               timelineEntries={timelineEntries}
+            />
+          ) : activeView === "display" ? (
+            <DisplayView
+              seasonLabel={settings.seasonLabel}
+              currentLeader={currentLeader}
+              finalCount={finalCount}
+              totalGames={totalGamesCount}
+              latestCompletedDate={latestCompletedDate}
+              goldCutoff={goldCutoff}
+              modelRows={modelRows}
+              bubbleMovementRows={bubbleMovementRows}
+              scheduleDifficultyForTeam={scheduleDifficultyForTeam}
+              gamesThatMatterMost={gamesThatMatterMost}
+              timelineEntries={timelineEntries}
+              bracketProjection={bracketProjection}
+              formatGoldPct={formatGoldPct}
+              formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
             />
           ) : activeView === "settings" ? (
             <SettingsView
@@ -4890,6 +4918,254 @@ function ModelView(props: {
       <SeasonTimelinePanel entries={timelineEntries} />
 
       <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
+    </section>
+  );
+}
+
+function DisplayView({
+  seasonLabel,
+  currentLeader,
+  finalCount,
+  totalGames,
+  latestCompletedDate,
+  goldCutoff,
+  modelRows,
+  bubbleMovementRows,
+  scheduleDifficultyForTeam,
+  gamesThatMatterMost,
+  timelineEntries,
+  bracketProjection,
+  formatGoldPct,
+  formatGoldMargin,
+}: {
+  seasonLabel: string;
+  currentLeader: TeamWithProjection | undefined;
+  finalCount: number;
+  totalGames: number;
+  latestCompletedDate: string;
+  goldCutoff: number;
+  modelRows: TeamWithProjection[];
+  bubbleMovementRows: {
+    team: TeamWithProjection;
+    tier: string;
+    sos: { label: string; opponents: string };
+    control: string;
+  }[];
+  scheduleDifficultyForTeam: (id: string) => { label: string; rating: number; opponents: string };
+  gamesThatMatterMost: { rank: number; label: string; reason: string; date: string }[];
+  timelineEntries: SeasonTimelineEntry[];
+  bracketProjection: ReturnType<typeof buildBracketProjection>;
+  formatGoldPct: (team: TeamWithProjection) => string;
+  formatGoldMargin: (team: TeamWithProjection) => string;
+}) {
+  const standings = modelRows.slice(0, Math.max(goldCutoff + 2, 8));
+  const difficultyLeaders = modelRows
+    .map((team) => ({ team, sos: scheduleDifficultyForTeam(team.id) }))
+    .sort((a, b) => b.sos.rating - a.sos.rating)
+    .slice(0, 4);
+  const champion = bracketProjection.champion;
+
+  return (
+    <section className="space-y-6" aria-label="Commissioner display mode">
+      <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-xl ring-1 ring-slate-800">
+        <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-amber-900 px-6 py-8 sm:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-amber-200">
+                Commissioner Display
+              </div>
+              <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-6xl">{seasonLabel}</h2>
+              <p className="mt-3 text-sm font-bold text-slate-300">
+                Read-only board for standings, bubble watch, key games, and bracket projections.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4 lg:min-w-[520px]">
+              <DisplayMetric
+                label="Leader"
+                value={currentLeader ? displayName(currentLeader.name) : "—"}
+              />
+              <DisplayMetric label="Finals" value={`${finalCount}/${totalGames}`} />
+              <DisplayMetric label="Gold Cut" value={`Top ${goldCutoff}`} />
+              <DisplayMetric label="Updated" value={latestCompletedDate} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <section className={`${card} overflow-hidden`}>
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+            <h3 className="text-xl font-black tracking-tight">TV Standings Board</h3>
+            <span className={pill("amber")}>Gold line after #{goldCutoff}</span>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {standings.map((team) => {
+              const inGold = (team.projectedRank ?? 99) <= goldCutoff;
+              return (
+                <div
+                  key={`display-standings-${team.id}`}
+                  className="grid grid-cols-[48px_1fr_auto] items-center gap-4 px-5 py-4 sm:grid-cols-[64px_1fr_140px_120px]"
+                >
+                  <div
+                    className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-black ${
+                      inGold
+                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                        : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    }`}
+                  >
+                    #{team.projectedRank}
+                  </div>
+                  <div>
+                    <div className="text-lg font-black text-slate-950 dark:text-slate-100">
+                      {displayName(team.name)}
+                    </div>
+                    <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      Now #{team.rank} · {team.projectedRecord} projected · {formatGoldMargin(team)}
+                    </div>
+                  </div>
+                  <div className="hidden text-right sm:block">
+                    <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      Gold
+                    </div>
+                    <div className="text-lg font-black text-slate-950 dark:text-slate-100">
+                      {formatGoldPct(team)}
+                    </div>
+                  </div>
+                  <div className="text-right text-xs font-black text-slate-500 dark:text-slate-400">
+                    RD {team.projectedRunDiff >= 0 ? "+" : ""}
+                    {team.projectedRunDiff}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="space-y-6">
+          <section className={`${card} p-5`}>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-black tracking-tight">Bubble Watch</h3>
+              <span className={pill("blue")}>Live Board</span>
+            </div>
+            <div className="space-y-3">
+              {bubbleMovementRows.slice(0, 5).map(({ team, tier, sos }) => (
+                <div
+                  key={`display-bubble-${team.id}`}
+                  className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-950 dark:text-slate-100">
+                        {displayName(team.name)}
+                      </div>
+                      <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                        #{team.rank} now · #{team.projectedRank} proj · {sos.label} SOS
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                      {tier}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className={`${card} p-5`}>
+            <h3 className="mb-4 text-lg font-black tracking-tight">Projected Gold Champion</h3>
+            <div className="rounded-3xl bg-amber-50 p-5 text-center ring-1 ring-amber-200 dark:bg-amber-950/20 dark:ring-amber-900/70">
+              <div className="text-3xl font-black text-slate-950 dark:text-slate-100">
+                {champion ? displayName(champion.name) : "TBD"}
+              </div>
+              <div className="mt-2 text-xs font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                {champion
+                  ? `Seed #${champion.bracketSeed} · ${bracketProjection.championSource}`
+                  : "Need entrants"}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <DisplayList
+          title="Key Games"
+          items={gamesThatMatterMost.slice(0, 5).map((game) => ({
+            title: game.label,
+            detail: `${game.date} · ${game.reason}`,
+            badge: `#${game.rank}`,
+          }))}
+        />
+        <DisplayList
+          title="Hardest Remaining Roads"
+          items={difficultyLeaders.map(({ team, sos }) => ({
+            title: displayName(team.name),
+            detail: sos.opponents,
+            badge: sos.label,
+          }))}
+        />
+        <DisplayList
+          title="Recent Finals"
+          items={timelineEntries.slice(0, 5).map((entry) => ({
+            title: `${entry.label} · ${entry.score}`,
+            detail: entry.cutLineImpact,
+            badge: entry.date,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function DisplayMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/15">
+      <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">{label}</div>
+      <div className="mt-1 truncate text-lg font-black text-white">{value}</div>
+    </div>
+  );
+}
+
+function DisplayList({
+  title,
+  items,
+}: {
+  title: string;
+  items: { title: string; detail: string; badge: string }[];
+}) {
+  return (
+    <section className={`${card} p-5`}>
+      <h3 className="mb-4 text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+        {title}
+      </h3>
+      {items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm font-bold text-slate-500 dark:border-slate-700">
+          Nothing to show yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <div
+              key={`${title}-${item.title}-${item.badge}`}
+              className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-black text-slate-950 dark:text-slate-100">
+                    {item.title}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    {item.detail}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+                  {item.badge}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
