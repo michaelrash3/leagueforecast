@@ -559,6 +559,41 @@ function SiteVisualHero({
   );
 }
 
+type RaceTone = "clinched" | "safe" | "inside" | "bubble" | "chasing" | "out";
+
+const raceToneForTeam = (team: TeamWithProjection, goldCutoff: number): RaceTone => {
+  if (team.goldStatus === "Clinched") return "clinched";
+  if (team.goldStatus === "Eliminated") return "out";
+  if ((team.rank ?? 99) <= goldCutoff) {
+    if (team.goldPct >= 75) return "safe";
+    return "inside";
+  }
+  if (team.goldPct >= 25 || (team.projectedRank ?? 99) <= goldCutoff) return "bubble";
+  return "chasing";
+};
+
+const raceRowToneClasses: Record<RaceTone, string> = {
+  clinched:
+    "bg-gradient-to-r from-slate-950/8 via-slate-900/4 to-transparent ring-slate-900/20 dark:from-white/10 dark:via-white/5 dark:ring-white/15",
+  safe: "bg-gradient-to-r from-emerald-500/14 via-emerald-400/7 to-transparent ring-emerald-300/50 dark:from-emerald-500/18 dark:via-emerald-400/8 dark:ring-emerald-800/70",
+  inside:
+    "bg-gradient-to-r from-blue-500/14 via-sky-400/7 to-transparent ring-blue-300/50 dark:from-blue-500/18 dark:via-sky-400/8 dark:ring-blue-800/70",
+  bubble:
+    "bg-gradient-to-r from-amber-500/18 via-yellow-400/8 to-transparent ring-amber-300/60 dark:from-amber-500/22 dark:via-yellow-400/10 dark:ring-amber-800/70",
+  chasing:
+    "bg-gradient-to-r from-orange-500/14 via-orange-400/7 to-transparent ring-orange-300/50 dark:from-orange-500/18 dark:via-orange-400/8 dark:ring-orange-800/70",
+  out: "bg-gradient-to-r from-red-500/14 via-rose-400/7 to-transparent ring-red-300/50 dark:from-red-500/18 dark:via-rose-400/8 dark:ring-red-800/70",
+};
+
+const raceSeedBadgeClasses: Record<RaceTone, string> = {
+  clinched: "bg-slate-950 text-white dark:bg-white dark:text-slate-950",
+  safe: "bg-emerald-600 text-white dark:bg-emerald-400 dark:text-emerald-950",
+  inside: "bg-blue-600 text-white dark:bg-blue-400 dark:text-blue-950",
+  bubble: "bg-amber-500 text-slate-950 dark:bg-amber-300 dark:text-amber-950",
+  chasing: "bg-orange-500 text-white dark:bg-orange-300 dark:text-orange-950",
+  out: "bg-red-600 text-white dark:bg-red-400 dark:text-red-950",
+};
+
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
 type TiebreakerSelectValue = TiebreakerFactor | "none";
 
@@ -2541,12 +2576,15 @@ export default function App() {
 
   const statusClass = (team: TeamWithProjection) => {
     const label = statusLabel(team);
-    if (label === "Clinched") return "bg-slate-950 text-white";
-    if (label === "Firmly In") return "bg-emerald-100 text-emerald-700";
-    if (label === "In") return "bg-blue-100 text-blue-700";
-    if (label === "Alive") return "bg-amber-100 text-amber-700";
-    if (label === "Work To Do") return "bg-orange-100 text-orange-700";
-    return "bg-red-100 text-red-700";
+    if (label === "Clinched") return "bg-slate-950 text-white dark:bg-white dark:text-slate-950";
+    if (label === "Firmly In")
+      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300";
+    if (label === "In") return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300";
+    if (label === "Alive")
+      return "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300";
+    if (label === "Work To Do")
+      return "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300";
+    return "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300";
   };
 
   const titleRaceBadgeForTeam = useCallback(
@@ -3748,16 +3786,6 @@ This will replace current season data and save an undo snapshot.`,
           role="tabpanel"
           aria-labelledby={`tab-${activeView}`}
         >
-          {teams.length > 0 && (
-            <SiteVisualHero
-              activeView={activeView}
-              seasonLabel={settings.seasonLabel}
-              teamsCount={teams.length}
-              finalCount={finalCount}
-              totalGames={totalGamesCount}
-              goldCutoff={goldCutoff}
-            />
-          )}
           {teams.length === 0 ? (
             <EmptyState
               importCSV={importCSV}
@@ -3770,7 +3798,9 @@ This will replace current season data and save an undo snapshot.`,
             />
           ) : activeView === "standings" ? (
             <StandingsView
+              seasonLabel={settings.seasonLabel}
               currentLeader={currentLeader}
+              teamsCount={teams.length}
               finalCount={finalCount}
               totalGames={totalGamesCount}
               goldCutoff={goldCutoff}
@@ -4173,7 +4203,7 @@ function TeamStatsView({
     <div className="grid grid-cols-1 gap-6">
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+          <div className="rounded-2xl bg-gradient-to-br from-blue-500/12 via-white to-white p-4 shadow-sm ring-1 ring-blue-100 dark:from-blue-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-blue-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg Sample
             </div>
@@ -4184,7 +4214,7 @@ function TeamStatsView({
               games played
             </div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+          <div className="rounded-2xl bg-gradient-to-br from-emerald-500/12 via-white to-white p-4 shadow-sm ring-1 ring-emerald-100 dark:from-emerald-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-emerald-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg R/G
             </div>
@@ -4192,7 +4222,7 @@ function TeamStatsView({
               {perGame(leagueAverageStats.runs, leagueAverageStats.games)}
             </div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+          <div className="rounded-2xl bg-gradient-to-br from-amber-500/14 via-white to-white p-4 shadow-sm ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg H/G
             </div>
@@ -4200,7 +4230,7 @@ function TeamStatsView({
               {perGame(leagueAverageStats.hits, leagueAverageStats.games)}
             </div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-900">
+          <div className="rounded-2xl bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg K/G
             </div>
@@ -4217,7 +4247,9 @@ function TeamStatsView({
 }
 
 function StandingsView({
+  seasonLabel,
   currentLeader,
+  teamsCount,
   finalCount,
   totalGames,
   goldCutoff,
@@ -4235,7 +4267,9 @@ function StandingsView({
   formatGoldMargin,
   onSelectTeam,
 }: {
+  seasonLabel: string;
   currentLeader: TeamWithProjection | undefined;
+  teamsCount: number;
   finalCount: number;
   totalGames: number;
   goldCutoff: number;
@@ -4255,6 +4289,14 @@ function StandingsView({
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
+      <SiteVisualHero
+        activeView="standings"
+        seasonLabel={seasonLabel}
+        teamsCount={teamsCount}
+        finalCount={finalCount}
+        totalGames={totalGames}
+        goldCutoff={goldCutoff}
+      />
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
@@ -4355,6 +4397,29 @@ function StandingsView({
           </div>
         )}
 
+        <div className="border-b border-slate-200 bg-white/80 px-5 py-3 dark:border-slate-700 dark:bg-slate-900/70">
+          <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wide">
+            <span className="rounded-full bg-slate-950 px-3 py-1 text-white dark:bg-white dark:text-slate-950">
+              Clinched
+            </span>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+              Safe
+            </span>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+              Inside Cut
+            </span>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+              Bubble
+            </span>
+            <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
+              Chasing
+            </span>
+            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700 dark:bg-red-950/50 dark:text-red-300">
+              Out
+            </span>
+          </div>
+        </div>
+
         {dashboardRows.length === 0 ? (
           <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
             No final results yet. Mark a game Final in the Schedule tab to populate standings.
@@ -4380,6 +4445,7 @@ function StandingsView({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {dashboardRows.map((team, index) => {
+                    const raceTone = raceToneForTeam(team, goldCutoff);
                     return (
                       <React.Fragment key={team.id}>
                         {index === goldCutoff && (
@@ -4397,9 +4463,15 @@ function StandingsView({
                             </td>
                           </tr>
                         )}
-                        <tr className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70">
-                          <td className="px-5 py-4 font-black text-slate-500 dark:text-slate-400">
-                            #{team.rank}
+                        <tr
+                          className={`text-slate-800 ring-1 ring-inset transition hover:brightness-[0.98] dark:text-slate-100 dark:hover:brightness-110 ${raceRowToneClasses[raceTone]}`}
+                        >
+                          <td className="px-5 py-4 font-black">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs ${raceSeedBadgeClasses[raceTone]}`}
+                            >
+                              #{team.rank}
+                            </span>
                           </td>
                           <td className="px-5 py-4">
                             <a
@@ -4411,7 +4483,9 @@ function StandingsView({
                               className="-m-1 flex items-center gap-3 rounded-2xl p-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                               aria-label={`View stats for ${displayName(team.name)}`}
                             >
-                              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                              <span
+                                className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black shadow-sm ${raceSeedBadgeClasses[raceTone]}`}
+                              >
                                 {teamAbbr(team.name)}
                               </span>
                               <span
@@ -4492,8 +4566,9 @@ function StandingsView({
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
               {dashboardRows.map((team, index) => {
                 const isLastInside = index + 1 === goldCutoff;
+                const raceTone = raceToneForTeam(team, goldCutoff);
                 return (
-                  <li key={team.id}>
+                  <li key={team.id} className={`ring-1 ring-inset ${raceRowToneClasses[raceTone]}`}>
                     <div className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
                       <a
                         href={buildTeamDataHref(team.id)}
@@ -4504,10 +4579,14 @@ function StandingsView({
                         className="flex min-w-0 items-center gap-3 rounded-2xl text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
-                        <span className="w-7 text-right text-xs font-black text-slate-500 dark:text-slate-400">
+                        <span
+                          className={`rounded-full px-2 py-1 text-right text-xs font-black ${raceSeedBadgeClasses[raceTone]}`}
+                        >
                           #{team.rank}
                         </span>
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-[10px] font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[10px] font-black shadow-sm ${raceSeedBadgeClasses[raceTone]}`}
+                        >
                           {teamAbbr(team.name)}
                         </span>
                         <span className="min-w-0">
