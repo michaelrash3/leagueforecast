@@ -81,38 +81,46 @@ export const clinchingPathForTeam = ({
   const insideProjected = projectedSeed <= cutoff;
   const bubbleDistance = Math.min(Math.abs(seed - cutoff), Math.abs(projectedSeed - cutoff));
   const notes: string[] = [];
+  let effectiveStatus = team.goldStatus;
 
   if (team.goldStatus === "Clinched") {
     notes.push("Gold spot clinched; remaining games are for seeding and tiebreak cushion.");
   } else if (team.goldStatus === "Eliminated") {
     notes.push("Eliminated from Gold Bracket contention; can only play spoiler.");
   } else if (remaining.length <= exactLimit) {
-    const magic = magicForGold(team.id, teams, remaining, cutoff, settings);
     const elimination = eliminationNumberForGold(team.id, teams, remaining, cutoff, settings);
 
-    if (magic.type === "clinched") {
-      notes.push("Gold spot clinched; remaining games are for seeding and tiebreak cushion.");
-    } else if (magic.type === "magic" && magic.ownWinsNeeded > 0) {
-      if (magic.ownWinsNeeded >= teamRemaining.length) {
-        notes.push("Controls a Gold spot by winning out.");
-      } else {
-        notes.push(`Clinches with ${plural(magic.ownWinsNeeded, "win")}.`);
-      }
-    } else if (insideNow && insideProjected) {
-      notes.push("Controls the Gold spot if the current pace holds.");
-    } else if (!insideNow) {
-      notes.push(firstCutLineHelp(team, teams, remaining, cutoff));
-    }
+    if (elimination.type === "elimination" && elimination.opponentLossesNeeded === 0) {
+      effectiveStatus = "Eliminated";
+      notes.push("Eliminated from Gold Bracket contention; can only play spoiler.");
+    } else {
+      const magic = magicForGold(team.id, teams, remaining, cutoff, settings);
 
-    if (elimination.type === "elimination" && elimination.opponentLossesNeeded > 0) {
-      const nextOwnGame = teamRemaining[0];
-      if (elimination.opponentLossesNeeded === 1 && nextOwnGame) {
-        const opponentName = opponentFor(team.id, nextOwnGame, teamsById);
-        notes.push(`Eliminated if ${opponentName} beat them next.`);
-      } else {
-        notes.push(
-          `Eliminated with ${plural(elimination.opponentLossesNeeded, "loss", "losses")}.`
-        );
+      if (magic.type === "clinched") {
+        effectiveStatus = "Clinched";
+        notes.push("Gold spot clinched; remaining games are for seeding and tiebreak cushion.");
+      } else if (magic.type === "magic" && magic.ownWinsNeeded > 0) {
+        if (magic.ownWinsNeeded >= teamRemaining.length) {
+          notes.push("Controls a Gold spot by winning out.");
+        } else {
+          notes.push(`Clinches with ${plural(magic.ownWinsNeeded, "win")}.`);
+        }
+      } else if (insideNow && insideProjected) {
+        notes.push("Controls the Gold spot if the current pace holds.");
+      } else if (!insideNow) {
+        notes.push(firstCutLineHelp(team, teams, remaining, cutoff));
+      }
+
+      if (elimination.type === "elimination" && elimination.opponentLossesNeeded > 0) {
+        const nextOwnGame = teamRemaining[0];
+        if (elimination.opponentLossesNeeded === 1 && nextOwnGame) {
+          const opponentName = opponentFor(team.id, nextOwnGame, teamsById);
+          notes.push(`Eliminated if ${opponentName} beat them next.`);
+        } else {
+          notes.push(
+            `Eliminated with ${plural(elimination.opponentLossesNeeded, "loss", "losses")}.`
+          );
+        }
       }
     }
   } else if (insideNow && insideProjected) {
@@ -127,21 +135,23 @@ export const clinchingPathForTeam = ({
     notes.push("Currently above the line, but the projected path is fragile.");
   }
 
-  swings.slice(0, 2).forEach((swing) => {
-    if (swing.winSeed <= cutoff && swing.lossSeed > cutoff) {
-      notes.push(
-        `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win projects inside Gold (#${swing.winSeed}); loss falls outside (#${swing.lossSeed}).`
-      );
-    } else if (swing.winSeed <= cutoff && swing.lossSeed <= cutoff && bubbleDistance <= 2) {
-      notes.push(
-        `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win protects the path (#${swing.winSeed}); loss still projects #${swing.lossSeed}.`
-      );
-    } else if (swing.winSeed > cutoff && !insideNow && bubbleDistance <= 3) {
-      notes.push(
-        `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win projects #${swing.winSeed}; extra help is still needed.`
-      );
-    }
-  });
+  if (effectiveStatus !== "Clinched" && effectiveStatus !== "Eliminated") {
+    swings.slice(0, 2).forEach((swing) => {
+      if (swing.winSeed <= cutoff && swing.lossSeed > cutoff) {
+        notes.push(
+          `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win projects inside Gold (#${swing.winSeed}); loss falls outside (#${swing.lossSeed}).`
+        );
+      } else if (swing.winSeed <= cutoff && swing.lossSeed <= cutoff && bubbleDistance <= 2) {
+        notes.push(
+          `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win protects the path (#${swing.winSeed}); loss still projects #${swing.lossSeed}.`
+        );
+      } else if (swing.winSeed > cutoff && !insideNow && bubbleDistance <= 3) {
+        notes.push(
+          `${swing.teamIsAway ? "At" : "Vs"} ${swing.opponentName}: win projects #${swing.winSeed}; extra help is still needed.`
+        );
+      }
+    });
+  }
 
   if (notes.length === 0) {
     notes.push(
@@ -152,7 +162,7 @@ export const clinchingPathForTeam = ({
   }
 
   const uniqueNotes = [...new Set(notes)].slice(0, 3);
-  const statusWeight = team.goldStatus === "Alive" || team.goldStatus === "In" ? 30 : 0;
+  const statusWeight = effectiveStatus === "Alive" || effectiveStatus === "In" ? 30 : 0;
   const cutLineWeight = Math.max(0, 16 - bubbleDistance * 4);
   const projectionWeight = insideNow !== insideProjected ? 15 : 0;
   const oddsWeight = Math.min(
@@ -166,7 +176,7 @@ export const clinchingPathForTeam = ({
     seed,
     projectedSeed,
     goldPct,
-    status: team.goldStatus,
+    status: effectiveStatus,
     priority: statusWeight + cutLineWeight + projectionWeight + oddsWeight,
     notes: uniqueNotes,
   };
@@ -188,6 +198,7 @@ export const clinchingPathsForTeams = (
   });
 
   return ordered
+    .filter((team) => team.goldStatus !== "Clinched" && team.goldStatus !== "Eliminated")
     .map((team) =>
       clinchingPathForTeam({
         team,
@@ -199,6 +210,7 @@ export const clinchingPathsForTeams = (
         exactLimit: options.exactLimit,
       })
     )
+    .filter((path) => path.status !== "Clinched" && path.status !== "Eliminated")
     .sort((a, b) => b.priority - a.priority || a.seed - b.seed)
     .slice(0, limit);
 };
