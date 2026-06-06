@@ -166,16 +166,16 @@ describe("standingsPoints + rankTeams", () => {
   });
 
   it("ranks GameChanger-style standings points before winning percentage", () => {
-    const strongerPct = {
-      ...emptyTeam({ id: "A", name: "9-3 Team" }),
-      w: 9,
-      l: 3,
+    const higherWinTotal = {
+      ...emptyTeam({ id: "A", name: "10-4 Team" }),
+      w: 10,
+      l: 4,
       t: 0,
-      games: 12,
-      pct: 9 / 12,
+      games: 14,
+      pct: 10 / 14,
       tpi: 1,
     };
-    const morePoints = {
+    const tieHeavy = {
       ...emptyTeam({ id: "B", name: "8-2-3 Team" }),
       w: 8,
       l: 2,
@@ -185,12 +185,38 @@ describe("standingsPoints + rankTeams", () => {
       tpi: 0,
     };
 
-    const ranked = rankTeams([strongerPct, morePoints], { winPoints: 1, tiePoints: 0.5 });
+    const ranked = rankTeams([higherWinTotal, tieHeavy], { winPoints: 1, tiePoints: 1 });
 
     expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
-    expect(standingsPoints(morePoints, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
-      standingsPoints(strongerPct, { winPoints: 1, tiePoints: 0.5 })
+    expect(standingsPoints(tieHeavy, { winPoints: 1, tiePoints: 1 })).toBeGreaterThan(
+      standingsPoints(higherWinTotal, { winPoints: 1, tiePoints: 1 })
     );
+  });
+
+  it("uses winning percentage after equal standings points", () => {
+    const chaos = {
+      ...emptyTeam({ id: "A", name: "10-2-1 Team" }),
+      w: 10,
+      l: 2,
+      t: 1,
+      games: 13,
+      pct: (10 + 1 * 0.5) / 13,
+    };
+    const trashPandas = {
+      ...emptyTeam({ id: "B", name: "8-2-3 Team" }),
+      w: 8,
+      l: 2,
+      t: 3,
+      games: 13,
+      pct: (8 + 3 * 0.5) / 13,
+    };
+
+    const ranked = rankTeams([trashPandas, chaos], { winPoints: 1, tiePoints: 1 });
+
+    expect(standingsPoints(chaos, { winPoints: 1, tiePoints: 1 })).toBe(
+      standingsPoints(trashPandas, { winPoints: 1, tiePoints: 1 })
+    );
+    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
   });
 
   it("skips run-diff tier when disabled", () => {

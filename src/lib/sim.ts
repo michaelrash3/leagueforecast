@@ -178,7 +178,7 @@ export const rankTeams = (teams: Team[], options: RankOptions) => {
   const tiebreakerOrder = resolvedTiebreakerOrder(options);
   const pointsSettings = {
     winPoints: options.winPoints ?? 1,
-    tiePoints: options.tiePoints ?? 0.5,
+    tiePoints: options.tiePoints ?? 1,
   };
   const sorted = [...teams].sort((a, b) => {
     const pointsDiff = standingsPoints(b, pointsSettings) - standingsPoints(a, pointsSettings);
@@ -459,7 +459,6 @@ export const predictGame = (
       confidence: "Low",
     };
   }
-
 
   let awayScore = (away.rsg * home.rag) / Math.max(leagueRuns, 1);
   let homeScore = (home.rsg * away.rag) / Math.max(leagueRuns, 1);

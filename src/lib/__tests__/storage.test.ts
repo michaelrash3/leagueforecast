@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadLogs, loadMatchups, loadSettings, loadTeams } from "../storage";
+import { DEFAULT_SETTINGS } from "../types";
 
 const backing = new Map<string, string>();
 
@@ -27,6 +28,12 @@ describe("storage hardening", () => {
     const settings = loadSettings();
     expect(settings.goldCutoff).toBe(1);
     expect(settings.maxScoreCap).toBe(35);
+  });
+
+  it("migrates the old half-point tie default to the GameChanger-style tie value", () => {
+    backing.set("league_settings_v1", JSON.stringify({ winPoints: 1, tiePoints: 0.5 }));
+    const settings = loadSettings();
+    expect(settings.tiePoints).toBe(DEFAULT_SETTINGS.tiePoints);
   });
 
   it("drops duplicate teams, invalid matchups, and orphan logs", () => {

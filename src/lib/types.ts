@@ -149,7 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   seasonLabel: DEFAULT_SEASON_LABEL,
   regularSeasonGamesPerTeam: 0,
   winPoints: 1,
-  tiePoints: 0.5,
+  tiePoints: 1,
   runDiffTiebreaker: true,
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: RUN_SCORE_CAP,

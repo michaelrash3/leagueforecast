@@ -16,6 +16,7 @@ import { normalizeDateInput } from "./date";
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
 const TIEBREAKER_VALUES: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
+const LEGACY_DEFAULT_TIE_POINTS = 0.5;
 
 export const isString = (v: unknown): v is string => typeof v === "string";
 export const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -170,6 +171,17 @@ export const coerceSettings = (raw: unknown): Settings => {
     ? raw.runDiffTiebreaker
     : DEFAULT_SETTINGS.runDiffTiebreaker;
 
+  const winPoints = isNumber(raw.winPoints)
+    ? Math.min(10, Math.max(0, raw.winPoints))
+    : DEFAULT_SETTINGS.winPoints;
+  const rawTiePoints = isNumber(raw.tiePoints)
+    ? Math.min(10, Math.max(0, raw.tiePoints))
+    : DEFAULT_SETTINGS.tiePoints;
+  const tiePoints =
+    winPoints === DEFAULT_SETTINGS.winPoints && rawTiePoints === LEGACY_DEFAULT_TIE_POINTS
+      ? DEFAULT_SETTINGS.tiePoints
+      : rawTiePoints;
+
   return {
     goldCutoff: isNumber(raw.goldCutoff)
       ? Math.min(64, Math.max(1, Math.round(raw.goldCutoff)))
@@ -180,12 +192,8 @@ export const coerceSettings = (raw: unknown): Settings => {
     regularSeasonGamesPerTeam: isNumber(raw.regularSeasonGamesPerTeam)
       ? Math.min(200, Math.max(0, Math.round(raw.regularSeasonGamesPerTeam)))
       : DEFAULT_SETTINGS.regularSeasonGamesPerTeam,
-    winPoints: isNumber(raw.winPoints)
-      ? Math.min(10, Math.max(0, raw.winPoints))
-      : DEFAULT_SETTINGS.winPoints,
-    tiePoints: isNumber(raw.tiePoints)
-      ? Math.min(10, Math.max(0, raw.tiePoints))
-      : DEFAULT_SETTINGS.tiePoints,
+    winPoints,
+    tiePoints,
     runDiffTiebreaker,
     tiebreakerOrder: coerceTiebreakerOrder(raw.tiebreakerOrder, runDiffTiebreaker),
     maxScoreCap: RUN_SCORE_CAP,
