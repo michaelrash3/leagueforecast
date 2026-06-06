@@ -23,6 +23,7 @@ const team = (overrides: Partial<InsightTeam>): InsightTeam => ({
   rag: 2.5,
   hpg: 8,
   kpg: 2,
+  oppKpg: 0,
   tpi: 3.2,
   baseTpi: 2.5,
   sos: 0.4,

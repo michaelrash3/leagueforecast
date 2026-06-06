@@ -18,6 +18,7 @@ const team = (overrides: Partial<TeamWithProjection>): TeamWithProjection =>
     rag: 4.5,
     hpg: 9,
     kpg: 2,
+    oppKpg: 0,
     tpi: 12,
     baseTpi: 12,
     sos: 0,

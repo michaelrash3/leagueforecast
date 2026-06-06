@@ -24,6 +24,7 @@ const team = (
   rag,
   hpg: 0,
   kpg: 0,
+  oppKpg: 0,
   tpi: rsg - rag,
   baseTpi: rsg - rag,
   sos: 0,

@@ -123,10 +123,12 @@ describe("calculateTeams", () => {
     expect(byId.get("A")!.rsg).toBe(8);
     expect(byId.get("A")!.hpg).toBe(10);
     expect(byId.get("A")!.kpg).toBe(3);
+    expect(byId.get("A")!.oppKpg).toBe(5);
     expect(byId.get("C")!.games).toBe(0);
     expect(byId.get("C")!.rsg).toBe(0);
     expect(byId.get("C")!.hpg).toBe(0);
     expect(byId.get("C")!.kpg).toBe(0);
+    expect(byId.get("C")!.oppKpg).toBe(0);
   });
 
   it("weights recent form more heavily in momentum", () => {

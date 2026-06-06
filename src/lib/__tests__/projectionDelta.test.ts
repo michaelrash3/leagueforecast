@@ -23,6 +23,7 @@ const team = (overrides: Partial<Team> & Pick<Team, "id">): Team => ({
   rag: overrides.rag ?? 0,
   hpg: overrides.hpg ?? 0,
   kpg: overrides.kpg ?? 0,
+  oppKpg: overrides.oppKpg ?? 0,
   tpi: overrides.tpi ?? 0,
   baseTpi: overrides.baseTpi ?? 0,
   sos: overrides.sos ?? 0,

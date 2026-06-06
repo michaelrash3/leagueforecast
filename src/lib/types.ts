@@ -24,6 +24,7 @@ export type Team = TeamBase & {
   rag: number;
   hpg: number;
   kpg: number;
+  oppKpg: number;
   tpi: number;
   baseTpi: number;
   sos: number;

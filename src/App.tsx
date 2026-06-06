@@ -644,6 +644,11 @@ const buildTeamStatRankings = (
         entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
       },
       {
+        key: "opponent-strikeouts",
+        label: "Ks Against/G",
+        entries: rankedEntries((line) => line.defense.strikeouts, "desc"),
+      },
+      {
         key: "runs-allowed",
         label: "RA/G",
         entries: rankedEntries((line) => line.defense.runs, "asc"),
@@ -832,7 +837,7 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
         {rankings.metrics.map((metric) => (
           <div
             key={metric.key}
@@ -1334,6 +1339,7 @@ function TeamDrawer({
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
+          <DrawerMetric label="Ks Against/Game" value={team.oppKpg.toFixed(1)} />
           <DrawerMetric
             label="Lg Avg R/G"
             value={perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}

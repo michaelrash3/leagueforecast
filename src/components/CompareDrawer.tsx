@@ -18,8 +18,7 @@ type Props = {
 
 type StatRow = { label: string; left: string; right: string; better?: "left" | "right" | "tie" };
 
-const fmt = (n: number, digits = 1) =>
-  Number.isFinite(n) ? n.toFixed(digits) : "—";
+const fmt = (n: number, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) : "—");
 
 export function CompareDrawer({
   left,
@@ -80,9 +79,7 @@ export function CompareDrawer({
       if (game.home === right.id) rightOpps.add(game.away);
     });
     const common = [...leftOpps].filter((id) => rightOpps.has(id));
-    return common
-      .map((id) => allTeams.find((t) => t.id === id)?.name || id)
-      .map(displayName);
+    return common.map((id) => allTeams.find((t) => t.id === id)?.name || id).map(displayName);
   }, [matchups, logs, left.id, right.id, allTeams]);
 
   const rows: StatRow[] = useMemo(() => {
@@ -128,6 +125,12 @@ export function CompareDrawer({
         left: fmt(left.kpg),
         right: fmt(right.kpg),
         better: compare(left.kpg, right.kpg, false),
+      },
+      {
+        label: "Ks Against/Game",
+        left: fmt(left.oppKpg),
+        right: fmt(right.oppKpg),
+        better: compare(left.oppKpg, right.oppKpg),
       },
       {
         label: "TPI",
@@ -189,7 +192,8 @@ export function CompareDrawer({
               id={titleId}
               className="mt-1 text-xl font-black leading-tight tracking-tight text-slate-950 sm:text-2xl dark:text-slate-100"
             >
-              {displayName(left.name)} <span className="text-slate-400">vs</span> {displayName(right.name)}
+              {displayName(left.name)} <span className="text-slate-400">vs</span>{" "}
+              {displayName(right.name)}
             </h2>
           </div>
           <button
@@ -225,7 +229,6 @@ export function CompareDrawer({
           </select>
         </div>
 
-
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -241,8 +244,12 @@ export function CompareDrawer({
                   <td className="px-2 py-2 font-bold text-slate-600 sm:px-4 dark:text-slate-300">
                     {row.label}
                   </td>
-                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "left")}`}>{row.left}</td>
-                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "right")}`}>{row.right}</td>
+                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "left")}`}>
+                    {row.left}
+                  </td>
+                  <td className={`px-2 py-2 text-right sm:px-4 ${tone(row.better, "right")}`}>
+                    {row.right}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -296,9 +303,7 @@ export function CompareDrawer({
             Common Opponents Played
           </h3>
           <p className="mt-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-            {commonOpponents.length === 0
-              ? "No shared opponents yet."
-              : commonOpponents.join(", ")}
+            {commonOpponents.length === 0 ? "No shared opponents yet." : commonOpponents.join(", ")}
           </p>
         </section>
       </aside>

@@ -23,6 +23,7 @@ const team = (
   rag: 0,
   hpg: 0,
   kpg: 0,
+  oppKpg: 0,
   tpi: 0,
   baseTpi: 0,
   sos: 0,

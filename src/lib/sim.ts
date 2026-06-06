@@ -25,6 +25,7 @@ export const emptyTeam = (base: TeamBase): Team => ({
   rag: 0,
   hpg: 0,
   kpg: 0,
+  oppKpg: 0,
   tpi: 0,
   baseTpi: 0,
   sos: 0,
@@ -222,6 +223,7 @@ type InternalTeam = Team & {
   homeInns: number;
   battingHits: number;
   battingKs: number;
+  opponentKs: number;
   oppTpiSum: number;
   machineDiffSum: number;
   machineDiffCount: number;
@@ -241,6 +243,7 @@ export const calculateTeams = (
     homeInns: 0,
     battingHits: 0,
     battingKs: 0,
+    opponentKs: 0,
     oppTpiSum: 0,
     machineDiffSum: 0,
     machineDiffCount: 0,
@@ -284,6 +287,8 @@ export const calculateTeams = (
       home.battingHits += homeHits;
       away.battingKs += awayK;
       home.battingKs += homeK;
+      away.opponentKs += homeK;
+      home.opponentKs += awayK;
 
       leagueKs += awayK + homeK;
       leagueInnings += innings * 2;
@@ -314,6 +319,7 @@ export const calculateTeams = (
     team.rag = team.games ? team.ra / team.games : 0;
     team.hpg = team.games ? team.battingHits / team.games : 0;
     team.kpg = team.games ? team.battingKs / team.games : 0;
+    team.oppKpg = team.games ? team.opponentKs / team.games : 0;
 
     const innings = team.awayInns + team.homeInns;
     const k6 = innings ? ((team.awayKs + team.homeKs) / innings) * 6 : null;
@@ -390,6 +396,7 @@ export const calculateTeams = (
       homeInns: _hi,
       battingHits: _bh,
       battingKs: _bk,
+      opponentKs: _ok,
       oppTpiSum: _ot,
       machineDiffSum: _md,
       machineDiffCount: _mc,
@@ -546,7 +553,7 @@ export const applyResult = (
     team.runDiff = team.rs - team.ra;
     // Keep per-game production rates anchored to finalized games only. Projected
     // results can update standings and run-differential tiebreakers, but they
-    // should not dilute displayed R/G, H/G, or K/G with model-generated games.
+    // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;

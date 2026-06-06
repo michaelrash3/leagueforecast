@@ -17,6 +17,7 @@ const team = (id: string, rank: number, tpi: number): Team => ({
   rag: 7,
   hpg: 9,
   kpg: 4,
+  oppKpg: 0,
   tpi,
   baseTpi: tpi,
   sos: 0,
