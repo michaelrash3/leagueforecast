@@ -1,6 +1,6 @@
-import { predictGame } from "./sim";
+import { hashSeed, predictGame } from "./sim";
 import type { GameLog, Matchup, Prediction, Settings, Team } from "./types";
-import { isFinal, parseNumber } from "./util";
+import { clamp, isFinal, parseNumber } from "./util";
 
 export type BracketEntrant = Team & { bracketSeed: number };
 
@@ -52,6 +52,51 @@ const roundName = (roundIndex: number, totalRounds: number) => {
   if (remaining === 2) return "Semifinals";
   if (remaining === 3) return "Quarterfinals";
   return `Round ${roundIndex + 1}`;
+};
+
+const bracketPickRoll = (gameId: string, topTeamId: string, bottomTeamId: string) =>
+  (hashSeed(`${gameId}:${topTeamId}:${bottomTeamId}:bracket-volatility`) % 10_000) / 10_000;
+
+const getTeamWinPct = (prediction: Prediction, matchup: Matchup, teamId: string) => {
+  if (teamId === matchup.away) return prediction.awayWinPct;
+  if (teamId === matchup.home) return 1 - prediction.awayWinPct;
+  return 0;
+};
+
+const pickBracketWinner = (
+  id: string,
+  roundIndex: number,
+  top: BracketSlot,
+  bottom: BracketSlot,
+  matchup: Matchup,
+  prediction: Prediction
+) => {
+  const topTeam = top.team;
+  const bottomTeam = bottom.team;
+  if (!topTeam || !bottomTeam) return prediction.winnerId;
+
+  const topWinPct = getTeamWinPct(prediction, matchup, topTeam.id);
+  const bottomWinPct = getTeamWinPct(prediction, matchup, bottomTeam.id);
+  const favorite = topWinPct >= bottomWinPct ? topTeam : bottomTeam;
+  const underdog = favorite.id === topTeam.id ? bottomTeam : topTeam;
+  const favoritePct = Math.max(topWinPct, bottomWinPct);
+  const underdogPct = Math.min(topWinPct, bottomWinPct);
+
+  // The single-game bracket predictor should not be a chalk-only advancement tool.
+  // In close matchups where the model favorite is the better seed, apply a small,
+  // deterministic upset lane so a plausible lower-seed run can appear without
+  // making the bracket reshuffle randomly on each render.
+  const favoriteIsHigherSeed = favorite.bracketSeed < underdog.bracketSeed;
+  if (!favoriteIsHigherSeed || favoritePct > 0.66) return favorite.id;
+
+  const seedGap = Math.max(0, underdog.bracketSeed - favorite.bracketSeed);
+  const closeness = clamp((0.66 - favoritePct) / 0.16, 0, 1);
+  const seedGapBoost = clamp(seedGap / 8, 0, 0.25);
+  const roundDecay = Math.max(0.65, 1 - roundIndex * 0.12);
+  const upsetChance = clamp(underdogPct * (0.6 + seedGapBoost) * closeness * roundDecay, 0, 0.28);
+  const roll = bracketPickRoll(id, topTeam.id, bottomTeam.id);
+
+  return roll < upsetChance ? underdog.id : favorite.id;
 };
 
 const winnerFromFinalScore = (log: GameLog, topTeamId: string, bottomTeamId: string) => {
@@ -131,7 +176,10 @@ export const buildBracketProjection = ({
         top.team && bottom.team ? winnerFromFinalScore(log, top.team.id, bottom.team.id) : null;
       const byeWinnerId =
         top.team && !bottom.team ? top.team.id : bottom.team && !top.team ? bottom.team.id : null;
-      const predictedWinnerId = prediction?.winnerId ?? null;
+      const predictedWinnerId =
+        matchup && prediction
+          ? pickBracketWinner(id, roundIndex, top, bottom, matchup, prediction)
+          : null;
       const winnerId = actualWinnerId ?? byeWinnerId ?? predictedWinnerId;
       const winnerSource: BracketGameProjection["winnerSource"] = actualWinnerId
         ? "actual"

@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildBracketProjection } from "../bracket";
 import { DEFAULT_SETTINGS, type GameLog, type Team } from "../types";
 
-const team = (id: string, rank: number, tpi: number): Team => ({
+const team = (id: string, rank: number, tpi: number, games = 0): Team => ({
   id,
   name: id,
   w: 0,
   l: 0,
   t: 0,
-  rs: 0,
-  ra: 0,
-  games: 0,
+  rs: games * 7,
+  ra: games * 7,
+  games,
   pct: 0.5,
   runDiff: 0,
   rsg: 7,
@@ -73,6 +73,21 @@ describe("buildBracketProjection", () => {
     expect(projection.rounds[0]?.[0]?.winnerSource).toBe("actual");
     expect(projection.champion?.id).toBe("B");
     expect(projection.championSource).toBe("actual");
+  });
+
+  it("allows deterministic lower-seed bracket picks in close projected games", () => {
+    const projection = buildBracketProjection({
+      teams: [team("C", 1, 0.2, 6), team("B", 2, 4, 6), team("A", 3, 3, 6), team("D", 4, 0, 6)],
+      cutoff: 4,
+      logs: {},
+      settings: DEFAULT_SETTINGS,
+    });
+
+    const closeGame = projection.rounds[0]?.[0];
+
+    expect(closeGame?.prediction?.winnerId).toBe("C");
+    expect(closeGame?.predictedWinnerId).toBe("D");
+    expect(closeGame?.winnerId).toBe("D");
   });
 
   it("can build a Silver-style bracket from teams below the Gold cutoff", () => {

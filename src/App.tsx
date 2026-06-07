@@ -1072,11 +1072,12 @@ function BracketGameCard({
         : game.winnerSource === "projected"
           ? "Model pick"
           : "Pending";
-  const pickPct = game.prediction
-    ? game.prediction.winnerId === game.matchup?.away
-      ? game.prediction.awayWinPct
-      : 1 - game.prediction.awayWinPct
-    : null;
+  const pickPct =
+    game.prediction && game.predictedWinnerId
+      ? game.predictedWinnerId === game.matchup?.away
+        ? game.prediction.awayWinPct
+        : 1 - game.prediction.awayWinPct
+      : null;
   const hasPlayableTeams = !!game.top.team && !!game.bottom.team;
 
   return (
@@ -1121,7 +1122,7 @@ function BracketGameCard({
       {game.prediction && pickPct !== null && (
         <div className="mt-3 rounded-xl bg-white p-3 text-xs font-bold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
           Model score: {game.prediction.awayScore}-{game.prediction.homeScore} ·{" "}
-          {Math.round(pickPct * 100)}% confidence on the pick
+          {Math.round(pickPct * 100)}% win chance for the bracket pick
         </div>
       )}
     </article>
