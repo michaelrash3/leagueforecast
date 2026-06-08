@@ -119,15 +119,40 @@ type ConfirmState = {
   cancelLabel?: string;
 };
 
-type SaveStatus =
-  | { state: "saved"; label: string; timestamp: number }
-  | { state: "error"; label: string; timestamp: number };
-
 type LastImpact = {
   title: string;
   scores: string[];
   messages: string[];
   recapItems: RecapItem[];
+};
+
+type TeamTrendGame = {
+  id: string;
+  date: string;
+  label: string;
+  runsFor: number;
+  hitsFor: number;
+  runsAgainst: number;
+  hitsAgainst: number;
+};
+
+type TeamTrendMetric = {
+  key: string;
+  label: string;
+  shortLabel: string;
+  season: number | null;
+  recent: number | null;
+  delta: number | null;
+  direction: "higher" | "lower";
+  status: "Hot" | "Cold" | "Steady" | "No data";
+  values: number[];
+};
+
+type TeamTrendSummary = {
+  games: TeamTrendGame[];
+  recentWindow: number;
+  metrics: TeamTrendMetric[];
+  headline: string;
 };
 
 type TeamSplitLine = {
@@ -290,6 +315,31 @@ function DesignFlowPanel({
         ))}
       </div>
     </section>
+  );
+}
+
+function HeaderStatCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-4 shadow-xl shadow-black/10 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:bg-white/15">
+      <div
+        className={`absolute inset-x-4 top-0 h-1 rounded-full bg-gradient-to-r ${accent} opacity-80`}
+      />
+      <div className="text-[10px] font-black uppercase tracking-[0.28em] text-slate-300">
+        {label}
+      </div>
+      <div className="mt-2 break-words text-xl font-black leading-tight tracking-tight text-white sm:text-2xl">
+        {value}
+      </div>
+      <div className="absolute -right-7 -top-7 h-20 w-20 rounded-full bg-white/10 blur-2xl transition duration-300 group-hover:bg-white/20" />
+    </div>
   );
 }
 
@@ -574,6 +624,129 @@ const buildTeamSplitSummary = (
   return summary;
 };
 
+const gameSortValue = (game: Matchup) => parseDateValue(game.date);
+
+const averageRecent = (values: number[], window: number) => {
+  if (!values.length) return null;
+  const sample = values.slice(-window);
+  return sample.reduce((sum, value) => sum + value, 0) / sample.length;
+};
+
+const trendStatusFor = (
+  delta: number | null,
+  direction: TeamTrendMetric["direction"],
+  threshold: number
+): TeamTrendMetric["status"] => {
+  if (delta === null) return "No data";
+  if (Math.abs(delta) < threshold) return "Steady";
+  const isBetter = direction === "higher" ? delta > 0 : delta < 0;
+  return isBetter ? "Hot" : "Cold";
+};
+
+const buildTeamTrendSummary = (
+  teamId: string,
+  matchups: Matchup[],
+  logs: Record<string, GameLog>
+): TeamTrendSummary => {
+  const games = matchups
+    .filter((game) => game.away === teamId || game.home === teamId)
+    .filter((game) => isFinal(logs[game.id]))
+    .sort((a, b) => {
+      const dateDiff = gameSortValue(a) - gameSortValue(b);
+      return dateDiff === 0 ? a.id.localeCompare(b.id) : dateDiff;
+    })
+    .map<TeamTrendGame>((game, index) => {
+      const log = logs[game.id] ?? blankLog();
+      const isAway = game.away === teamId;
+      const date = game.date ? formatGameDate(game.date) : `Game ${index + 1}`;
+
+      return {
+        id: game.id,
+        date: game.date,
+        label: date,
+        runsFor: parseNumber(isAway ? log.awayRuns : log.homeRuns),
+        hitsFor: parseNumber(isAway ? log.awayHits : log.homeHits),
+        runsAgainst: parseNumber(isAway ? log.homeRuns : log.awayRuns),
+        hitsAgainst: parseNumber(isAway ? log.homeHits : log.awayHits),
+      };
+    });
+
+  const recentWindow = Math.min(3, games.length);
+  const metricConfigs: Array<{
+    key: string;
+    label: string;
+    shortLabel: string;
+    direction: TeamTrendMetric["direction"];
+    threshold: number;
+    value: (game: TeamTrendGame) => number;
+  }> = [
+    {
+      key: "runs-for",
+      label: "Runs scored",
+      shortLabel: "R/G",
+      direction: "higher",
+      threshold: 0.5,
+      value: (game) => game.runsFor,
+    },
+    {
+      key: "hits-for",
+      label: "Hits",
+      shortLabel: "H/G",
+      direction: "higher",
+      threshold: 0.75,
+      value: (game) => game.hitsFor,
+    },
+    {
+      key: "runs-against",
+      label: "Runs allowed",
+      shortLabel: "RA/G",
+      direction: "lower",
+      threshold: 0.5,
+      value: (game) => game.runsAgainst,
+    },
+    {
+      key: "hits-against",
+      label: "Hits allowed",
+      shortLabel: "HA/G",
+      direction: "lower",
+      threshold: 0.75,
+      value: (game) => game.hitsAgainst,
+    },
+  ];
+
+  const metrics = metricConfigs.map<TeamTrendMetric>((config) => {
+    const values = games.map(config.value);
+    const season = averageRecent(values, values.length);
+    const recent = recentWindow ? averageRecent(values, recentWindow) : null;
+    const delta = season === null || recent === null ? null : recent - season;
+
+    return {
+      key: config.key,
+      label: config.label,
+      shortLabel: config.shortLabel,
+      direction: config.direction,
+      season,
+      recent,
+      delta,
+      status: trendStatusFor(delta, config.direction, config.threshold),
+      values,
+    };
+  });
+
+  const hotCount = metrics.filter((metric) => metric.status === "Hot").length;
+  const coldCount = metrics.filter((metric) => metric.status === "Cold").length;
+  const headline =
+    games.length < 2
+      ? "Need more finals for a real trend."
+      : hotCount > coldCount
+        ? "Heating up"
+        : coldCount > hotCount
+          ? "Cooling off"
+          : "Holding steady";
+
+  return { games, recentWindow, metrics, headline };
+};
+
 const buildLeagueAverageStats = (
   matchups: Matchup[],
   logs: Record<string, GameLog>
@@ -848,6 +1021,137 @@ function SplitStatsTable({
   );
 }
 
+function TeamStatTrendSparkline({
+  values,
+  lowerIsBetter,
+}: {
+  values: number[];
+  lowerIsBetter: boolean;
+}) {
+  if (!values.length) return <span className="text-slate-500">—</span>;
+
+  const width = 130;
+  const height = 34;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = Math.max(max - min, 1);
+  const seed = values[0] ?? 0;
+  const data = values.length === 1 ? [seed, seed] : values;
+  const points = data
+    .map((value, index) => {
+      const x = (index / Math.max(data.length - 1, 1)) * width;
+      const y = height - ((value - min) / spread) * height;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const first = data[0] ?? 0;
+  const last = data[data.length - 1] ?? 0;
+  const improved = lowerIsBetter ? last < first : last > first;
+  const tone = improved
+    ? "stroke-emerald-500"
+    : last === first
+      ? "stroke-slate-500"
+      : "stroke-amber-500";
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="overflow-visible"
+      role="img"
+      aria-label={`Trend from ${first.toFixed(1)} to ${last.toFixed(1)}.`}
+    >
+      <title>{`Game-by-game trend: ${first.toFixed(1)} to ${last.toFixed(1)}.`}</title>
+      <polyline
+        points={points}
+        fill="none"
+        className={tone}
+        strokeWidth="2.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx={width}
+        cy={height - ((last - min) / spread) * height}
+        r="3.5"
+        className={tone.replace("stroke", "fill")}
+      />
+    </svg>
+  );
+}
+
+function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
+  const formatDelta = (metric: TeamTrendMetric) => {
+    if (metric.delta === null) return "—";
+    const value = Math.abs(metric.delta).toFixed(1);
+    if (Math.abs(metric.delta) < 0.05) return "even";
+    const better = metric.direction === "higher" ? metric.delta > 0 : metric.delta < 0;
+    return `${better ? "+" : "−"}${value} ${better ? "better" : "worse"}`;
+  };
+
+  const statusClass = (status: TeamTrendMetric["status"]) =>
+    status === "Hot"
+      ? "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800"
+      : status === "Cold"
+        ? "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-800"
+        : "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700";
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 text-white shadow-sm dark:border-slate-700">
+      <div className="relative isolate p-4">
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.25),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_42%)]" />
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-200">
+              Current Form
+            </div>
+            <h3 className="text-xl font-black tracking-tight">{trend.headline}</h3>
+          </div>
+          <div className="text-xs font-black uppercase tracking-wide text-slate-300">
+            Last {trend.recentWindow || 0} vs season
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 bg-white p-3 text-slate-950 dark:bg-slate-900 dark:text-slate-100">
+        {trend.metrics.map((metric) => (
+          <article
+            key={metric.key}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-black tracking-tight">{metric.label}</div>
+                <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                  Season {metric.season?.toFixed(1) ?? "—"} {metric.shortLabel} · Recent{" "}
+                  {metric.recent?.toFixed(1) ?? "—"}
+                </div>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ring-1 ${statusClass(
+                  metric.status
+                )}`}
+              >
+                {metric.status}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <TeamStatTrendSparkline
+                values={metric.values}
+                lowerIsBetter={metric.direction === "lower"}
+              />
+              <div className="text-right text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {formatDelta(metric)}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
   const averageSeparator = (metric: StatRankingMetric) => (
     <li
@@ -929,7 +1233,9 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                     </li>
                   </React.Fragment>
                 ))}
-                {averageInsertIndex(metric) === metric.entries.length ? averageSeparator(metric) : null}
+                {averageInsertIndex(metric) === metric.entries.length
+                  ? averageSeparator(metric)
+                  : null}
               </ol>
             ) : (
               <div className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -1308,6 +1614,7 @@ function TeamDrawer({
   magicForGold,
   eliminationNumber,
   splitSummary,
+  trendSummary,
   onCompare,
   leagueAverageStats,
 }: {
@@ -1325,6 +1632,7 @@ function TeamDrawer({
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   splitSummary: TeamSplitSummary;
+  trendSummary: TeamTrendSummary;
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
 }) {
@@ -1416,6 +1724,8 @@ function TeamDrawer({
           <DrawerMetric label="Remaining SOS" value={sos.label} />
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
         </div>
+
+        <TeamTrendPanel trend={trendSummary} />
 
         <section className="mt-6 space-y-3">
           <div>
@@ -1536,7 +1846,6 @@ export default function App() {
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false
   );
-  const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const [updateApp, setUpdateApp] = useState<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -1561,9 +1870,7 @@ export default function App() {
   const undoRef = useRef<UndoSnapshot | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const recordSaveResult = useCallback(
-    (ok: boolean, label: string, errorMessage: string) => {
-      const timestamp = Date.now();
-      setSaveStatus({ state: ok ? "saved" : "error", label, timestamp });
+    (ok: boolean, _label: string, errorMessage: string) => {
       if (!ok) showToast(errorMessage, { tone: "error" });
     },
     [showToast]
@@ -2693,7 +3000,6 @@ export default function App() {
     };
     undoRef.current = snapshot;
     if (!saveUndoSnapshot(snapshot)) {
-      setSaveStatus({ state: "error", label: "undo snapshot", timestamp: Date.now() });
       showToast("Could not save undo snapshot (storage full).", { tone: "error" });
     }
   };
@@ -3348,6 +3654,13 @@ This will replace current season data and save an undo snapshot.`,
           },
     [selectedTeam, matchups, logs]
   );
+  const selectedTeamTrendSummary = useMemo(
+    () =>
+      selectedTeam
+        ? buildTeamTrendSummary(selectedTeam.id, matchups, logs)
+        : buildTeamTrendSummary("", [], {}),
+    [selectedTeam, matchups, logs]
+  );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
   const currentLeader = dashboardRows[0];
 
@@ -3630,35 +3943,31 @@ This will replace current season data and save an undo snapshot.`,
           browser.
         </div>
       )}
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.16),_transparent_34%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] text-slate-950 dark:bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.26),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)] dark:text-slate-100">
-        <header className="relative isolate overflow-hidden border-b border-white/10 bg-[linear-gradient(90deg,#020617_0%,#0b1f4d_46%,#263064_66%,#9a3f06_100%)] text-white shadow-2xl shadow-slate-950/20">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_22%_18%,rgba(30,64,175,0.42),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.28),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[length:auto,auto,18px_18px]" />
-          <div className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-black/25 to-transparent" />
+      <div className="min-h-screen bg-[radial-gradient(circle_at_12%_8%,_rgba(245,158,11,0.18),_transparent_28%),radial-gradient(circle_at_88%_2%,_rgba(37,99,235,0.18),_transparent_30%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_58%,_#cbd5e1_100%)] text-slate-950 dark:bg-[radial-gradient(circle_at_12%_8%,_rgba(245,158,11,0.18),_transparent_30%),radial-gradient(circle_at_86%_4%,_rgba(37,99,235,0.26),_transparent_34%),linear-gradient(180deg,_#020617_0%,_#0f172a_62%,_#111827_100%)] dark:text-slate-100">
+        <header className="relative isolate overflow-hidden border-b border-white/10 bg-[linear-gradient(120deg,#020617_0%,#0b1f4d_42%,#2d3368_64%,#9a3f06_100%)] text-white shadow-2xl shadow-slate-950/20">
+          <div className="stadium-grid absolute inset-0 -z-20 opacity-80" />
+          <div className="hero-orb absolute -left-24 top-8 -z-10 h-72 w-72 rounded-full bg-blue-500/30 blur-3xl" />
+          <div className="hero-orb hero-orb-delay absolute -right-20 top-0 -z-10 h-80 w-80 rounded-full bg-amber-400/25 blur-3xl" />
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_22%_18%,rgba(59,130,246,0.42),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.32),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[length:auto,auto,18px_18px]" />
+          <div className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-black/30 to-transparent" />
+          <div
+            className="absolute right-8 top-28 hidden h-28 w-28 rotate-12 rounded-full border-4 border-white/20 bg-white/10 shadow-2xl shadow-black/20 before:absolute before:inset-y-3 before:left-1/2 before:w-1 before:-translate-x-1/2 before:rounded-full before:bg-red-300/70 after:absolute after:inset-x-3 after:top-1/2 after:h-1 after:-translate-y-1/2 after:rounded-full after:bg-red-300/70 lg:block"
+            aria-hidden="true"
+          />
           <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-7 sm:px-6 sm:py-9 lg:px-8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="text-xs font-black uppercase tracking-[0.42em] text-amber-200 drop-shadow">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.34em] text-amber-200 ring-1 ring-white/15 backdrop-blur">
+                  <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.9)]" />
                   League Command Center
                 </div>
-                <h1 className="mt-4 text-4xl font-black tracking-tight text-white drop-shadow-sm sm:text-6xl">
+                <h1 className="mt-5 text-5xl font-black tracking-[-0.06em] text-white drop-shadow-sm sm:text-7xl">
                   NKB Season Tracker
                 </h1>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-5 flex flex-wrap gap-2">
                   <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur">
                     {settings.seasonLabel}
                   </div>
-                  {saveStatus && (
-                    <div
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
-                        saveStatus.state === "saved"
-                          ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30 shadow-inner shadow-emerald-100/10"
-                          : "bg-red-400/15 text-red-100 ring-1 ring-red-300/30 shadow-inner shadow-red-100/10"
-                      }`}
-                      title={`${saveStatus.label} ${new Date(saveStatus.timestamp).toLocaleTimeString()}`}
-                    >
-                      {saveStatus.state === "saved" ? "Saved" : "Save failed"} · {saveStatus.label}
-                    </div>
-                  )}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3702,6 +4011,24 @@ This will replace current season data and save an undo snapshot.`,
                   {theme === "dark" ? "☀" : "☾"}
                 </button>
               </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3" aria-label="League pulse summary">
+              <HeaderStatCard
+                label="Games"
+                value={`${finalCount}/${totalGamesCount}`}
+                accent="from-emerald-300 via-cyan-300 to-blue-400"
+              />
+              <HeaderStatCard
+                label="Leader"
+                value={currentLeader ? currentLeader.name : "—"}
+                accent="from-amber-200 via-orange-300 to-red-400"
+              />
+              <HeaderStatCard
+                label="Gold"
+                value={`Top ${goldCutoff}`}
+                accent="from-fuchsia-300 via-red-300 to-amber-300"
+              />
             </div>
 
             <div
@@ -3894,6 +4221,7 @@ This will replace current season data and save an undo snapshot.`,
               }
             }
             splitSummary={selectedTeamSplitSummary}
+            trendSummary={selectedTeamTrendSummary}
             leagueAverageStats={leagueAverageStats}
             onClose={closeTeamData}
             onCompare={() => {
@@ -5263,72 +5591,8 @@ function SettingsView({
     });
   };
 
-  const settingsFlow: DesignFlowStep[] = [
-    {
-      eyebrow: "Rules",
-      title: "Set the season contract",
-      body: "Tune the label, gold cutoff, points, season length, model aggression, and tie-break order before results get messy.",
-      meta: `${teamsCount} teams · Top ${Math.min(settings.goldCutoff, Math.max(1, teamsCount))} gold line`,
-      tone: "blue",
-    },
-    {
-      eyebrow: "Data",
-      title: "Move season files safely",
-      body: "Import CSVs or backups, then export the same source of truth when you need to hand off records.",
-      meta: "CSV for schedules · JSON for full backups",
-      tone: "amber",
-      actions: [
-        {
-          label: "Import CSV",
-          tone: "primary",
-          file: {
-            accept: ".csv,text/csv",
-            ariaLabel: "Import schedule CSV",
-            onChange: importCSV,
-          },
-        },
-        {
-          label: "Import Backup",
-          file: {
-            accept: ".json,application/json",
-            ariaLabel: "Import backup JSON",
-            onChange: importBackup,
-          },
-        },
-      ],
-    },
-    {
-      eyebrow: "Publish",
-      title: "Package the league room",
-      body: "Export clean score sheets or a restorable backup before sending updates to coaches and parents.",
-      meta: "Designed for weekly league updates",
-      tone: "emerald",
-      actions: [
-        { label: "Export CSV", tone: "dark", onClick: exportCSV },
-        { label: "Backup JSON", onClick: exportBackup },
-      ],
-    },
-    {
-      eyebrow: "Reset",
-      title: "Rehearse or restart",
-      body: "Load demo data for walkthroughs, or reset only when you are ready to clear the active season.",
-      meta: "Reset stays behind confirmation",
-      tone: "red",
-      actions: [
-        { label: "Load Demo", onClick: loadDemoSeason },
-        { label: "Reset Season", onClick: resetSeason },
-      ],
-    },
-  ];
-
   return (
     <section className="grid grid-cols-1 gap-6">
-      <DesignFlowPanel
-        title="League operating flow"
-        subtitle="The settings screen now reads like a control room: define the rules, move data, publish a clean snapshot, and rehearse safely without hunting through separate panels."
-        steps={settingsFlow}
-      />
-
       <div className={`${card} p-6`}>
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
           Settings
