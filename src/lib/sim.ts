@@ -621,6 +621,41 @@ export const applyResult = (
   return next;
 };
 
+export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
+
+export const isSeedingLocked = (
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings,
+  maxRemainingGames = DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT
+) => {
+  const baseline = rankTeams(teams, rankOptionsFromSettings(settings));
+  const baselineRanks = new Map(baseline.map((team) => [team.id, team.rank ?? 99]));
+
+  if (remaining.length === 0) return baseline.length > 0;
+  if (remaining.length > maxRemainingGames) return false;
+
+  const ranksMatchBaseline = (candidate: Team[]) => {
+    const rankedCandidate = rankTeams(candidate, rankOptionsFromSettings(settings));
+    return rankedCandidate.every((team) => (team.rank ?? 99) === baselineRanks.get(team.id));
+  };
+
+  const testOutcomeTree = (index: number, currentTeams: Team[]): boolean => {
+    if (index >= remaining.length) return ranksMatchBaseline(currentTeams);
+
+    const game = remaining[index];
+    if (!game) return testOutcomeTree(index + 1, currentTeams);
+
+    const awayWins = applyResult(currentTeams, game, game.away, currentTeams, settings);
+    if (!testOutcomeTree(index + 1, awayWins)) return false;
+
+    const homeWins = applyResult(currentTeams, game, game.home, currentTeams, settings);
+    return testOutcomeTree(index + 1, homeWins);
+  };
+
+  return testOutcomeTree(0, baseline);
+};
+
 export const projectStandings = (teams: Team[], games: Matchup[], settings: Settings) => {
   let projected = teams.map((team) => ({ ...team }));
   games.forEach((game) => {

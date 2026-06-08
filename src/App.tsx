@@ -62,6 +62,7 @@ import {
   createTeamId,
   getMathGoldStatus,
   getRemainingCounts,
+  isSeedingLocked,
   predictGame,
   projectStandings,
   rankOptionsFromSettings,
@@ -2160,6 +2161,11 @@ export default function App() {
     [modelRows, goldCutoff, bracketLogs, settings]
   );
 
+  const bracketSeedingLocked = useMemo(
+    () => isSeedingLocked(ranked, remainingGames, settings),
+    [ranked, remainingGames, settings]
+  );
+
   const currentSosRanks = useMemo(() => {
     const ordered = [...dashboardRows].sort((a, b) => b.sos - a.sos);
     const map: Record<string, number> = {};
@@ -2857,26 +2863,65 @@ export default function App() {
 
   const gameForecasts = useMemo(() => {
     if (activeView !== "model") return [];
-    return [...remainingGames]
-      .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
-      .map((game) => {
-        const prediction = predictGame(game, liveTeams, settings, liveById);
-        const winner = teamBaseById.get(prediction.winnerId);
-        const away = teamBaseById.get(game.away);
-        const home = teamBaseById.get(game.home);
-        const winnerPct =
-          prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
-        const impact = getGameScenarioImpactMap.get(game.id);
-        return {
-          game,
-          prediction,
-          awayName: displayName(away?.name || game.away),
-          homeName: displayName(home?.name || game.home),
-          winnerName: displayName(winner?.name || prediction.winnerId),
-          winnerPct,
-          impact,
-        };
-      });
+
+    const regularSeasonForecasts = [...remainingGames].map((game) => {
+      const prediction = predictGame(game, liveTeams, settings, liveById);
+      const winner = teamBaseById.get(prediction.winnerId);
+      const away = teamBaseById.get(game.away);
+      const home = teamBaseById.get(game.home);
+      const winnerPct =
+        prediction.winnerId === game.away ? prediction.awayWinPct : 1 - prediction.awayWinPct;
+      const impact = getGameScenarioImpactMap.get(game.id);
+      return {
+        game,
+        prediction,
+        awayName: displayName(away?.name || game.away),
+        homeName: displayName(home?.name || game.home),
+        winnerName: displayName(winner?.name || prediction.winnerId),
+        winnerPct,
+        impact,
+        sourceLabel: "Regular Season",
+        sortValue: parseDateValue(game.date),
+      };
+    });
+
+    const bracketForecasts = bracketSeedingLocked
+      ? [
+          ...bracketProjection.rounds.flatMap((round) =>
+            round.map((game) => ({ game, bracketLabel: "Gold Bracket" }))
+          ),
+          ...silverBracketProjection.rounds.flatMap((round) =>
+            round.map((game) => ({ game, bracketLabel: "Silver Bracket" }))
+          ),
+        ]
+          .filter(({ game }) => game.matchup && game.prediction && !isFinal(game.log))
+          .map(({ game, bracketLabel }) => {
+            const matchup = game.matchup!;
+            const prediction = game.prediction!;
+            const winner = teamBaseById.get(prediction.winnerId);
+            const away = teamBaseById.get(matchup.away);
+            const home = teamBaseById.get(matchup.home);
+            const winnerPct =
+              prediction.winnerId === matchup.away
+                ? prediction.awayWinPct
+                : 1 - prediction.awayWinPct;
+            return {
+              game: matchup,
+              prediction,
+              awayName: displayName(away?.name || matchup.away),
+              homeName: displayName(home?.name || matchup.home),
+              winnerName: displayName(winner?.name || prediction.winnerId),
+              winnerPct,
+              impact: undefined,
+              sourceLabel: `${bracketLabel} · ${game.roundName}`,
+              sortValue: Number.POSITIVE_INFINITY,
+            };
+          })
+      : [];
+
+    return [...regularSeasonForecasts, ...bracketForecasts].sort(
+      (a, b) => a.sortValue - b.sortValue || a.game.id.localeCompare(b.game.id)
+    );
   }, [
     activeView,
     remainingGames,
@@ -2885,6 +2930,9 @@ export default function App() {
     liveById,
     teamBaseById,
     getGameScenarioImpactMap,
+    bracketSeedingLocked,
+    bracketProjection,
+    silverBracketProjection,
   ]);
 
   const scoreboardGames = useMemo(() => {
@@ -4954,6 +5002,7 @@ function ModelView(props: {
     winnerName: string;
     winnerPct: number;
     impact: ReturnType<Map<string, { impactLabel: "High" | "Medium" | "Low" }>["get"]>;
+    sourceLabel: string;
   }[];
   byId: Map<string, Team>;
   gameStatusClasses: (s: string) => string;
@@ -5446,7 +5495,7 @@ function ModelView(props: {
             Game Forecasts
           </h3>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {gameForecasts.length} Remaining
+            {gameForecasts.length} Forecasts
           </span>
         </div>
         {gameForecasts.length === 0 ? (
@@ -5467,7 +5516,9 @@ function ModelView(props: {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        {formatGameDate(item.game.date)}
+                        {item.game.date
+                          ? `${item.sourceLabel} · ${formatGameDate(item.game.date)}`
+                          : item.sourceLabel}
                       </div>
                       <div className="mt-1 text-base font-black tracking-tight text-slate-950 dark:text-slate-100">
                         {item.awayName} at {item.homeName}

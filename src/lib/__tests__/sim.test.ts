@@ -3,6 +3,7 @@ import {
   applyResult,
   calculateTeams,
   emptyTeam,
+  isSeedingLocked,
   predictGame,
   projectStandings,
   rankTeams,
@@ -415,6 +416,46 @@ describe("applyResult", () => {
     expect(after.rag).toBe(before.rag);
     expect(after.hpg).toBe(before.hpg);
     expect(after.kpg).toBe(before.kpg);
+  });
+});
+
+describe("isSeedingLocked", () => {
+  const seededTeam = (id: string, wins: number, losses: number, runDiff: number): Team => {
+    const team = emptyTeam({ id, name: id });
+    team.w = wins;
+    team.l = losses;
+    team.games = wins + losses;
+    team.pct = team.games ? wins / team.games : 0;
+    team.rs = wins * 8 + losses * 3;
+    team.ra = team.rs - runDiff;
+    team.runDiff = runDiff;
+    team.rsg = team.games ? team.rs / team.games : 0;
+    team.rag = team.games ? team.ra / team.games : 0;
+    team.baseTpi = team.pct * 2 + runDiff / Math.max(1, team.games);
+    team.tpi = team.baseTpi;
+    return team;
+  };
+
+  it("reports locked seeding when every remaining winner leaves ranks unchanged", () => {
+    const lockedTeams = [
+      seededTeam("A", 6, 0, 36),
+      seededTeam("B", 3, 3, 4),
+      seededTeam("C", 0, 6, -40),
+    ];
+    const lockedRemaining: Matchup[] = [{ id: "locked", date: "5/9", away: "B", home: "C" }];
+
+    expect(isSeedingLocked(lockedTeams, lockedRemaining, settings)).toBe(true);
+  });
+
+  it("reports open seeding when a remaining result can move a team", () => {
+    const openTeams = [
+      seededTeam("A", 6, 0, 36),
+      seededTeam("B", 2, 4, 1),
+      seededTeam("C", 2, 4, -1),
+    ];
+    const openRemaining: Matchup[] = [{ id: "open", date: "5/9", away: "B", home: "C" }];
+
+    expect(isSeedingLocked(openTeams, openRemaining, settings)).toBe(false);
   });
 });
 
