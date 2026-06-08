@@ -154,6 +154,8 @@ type LeagueAverageStats = {
 type StatRankingMetric = {
   key: string;
   label: string;
+  direction: "asc" | "desc";
+  average: number | null;
   entries: StatRankingEntry[];
 };
 
@@ -623,6 +625,20 @@ const buildTeamStatRankings = (
       })
       .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
+  const averageFor = (valueForLine: (line: TeamSplitLine) => number): number | null => {
+    const totals = summaries.reduce(
+      (acc, { line }) => {
+        if (line.games === 0) return acc;
+        acc.value += valueForLine(line);
+        acc.games += line.games;
+        return acc;
+      },
+      { value: 0, games: 0 }
+    );
+
+    return totals.games > 0 ? totals.value / totals.games : null;
+  };
+
   const sampleGames = matchups.filter((game) => isFinal(logs[game.id])).length;
 
   return {
@@ -631,31 +647,43 @@ const buildTeamStatRankings = (
       {
         key: "runs-scored",
         label: "R/G",
+        direction: "desc",
+        average: averageFor((line) => line.offense.runs),
         entries: rankedEntries((line) => line.offense.runs, "desc"),
       },
       {
         key: "hits",
         label: "H/G",
+        direction: "desc",
+        average: averageFor((line) => line.offense.hits),
         entries: rankedEntries((line) => line.offense.hits, "desc"),
       },
       {
         key: "least-strikeouts",
         label: "K/G",
+        direction: "asc",
+        average: averageFor((line) => line.offense.strikeouts),
         entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
       },
       {
         key: "opponent-strikeouts",
         label: "Ks Against/G",
+        direction: "desc",
+        average: averageFor((line) => line.defense.strikeouts),
         entries: rankedEntries((line) => line.defense.strikeouts, "desc"),
       },
       {
         key: "runs-allowed",
         label: "RA/G",
+        direction: "asc",
+        average: averageFor((line) => line.defense.runs),
         entries: rankedEntries((line) => line.defense.runs, "asc"),
       },
       {
         key: "hits-allowed",
         label: "HA/G",
+        direction: "asc",
+        average: averageFor((line) => line.defense.hits),
         entries: rankedEntries((line) => line.defense.hits, "asc"),
       },
     ],
@@ -821,6 +849,36 @@ function SplitStatsTable({
 }
 
 function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
+  const averageSeparator = (metric: StatRankingMetric) => (
+    <li
+      key={`${metric.key}-league-average`}
+      aria-label={`League average for ${metric.label}`}
+      className="flex items-center gap-3 bg-slate-200/80 px-4 py-2 text-slate-700 dark:bg-slate-700/80 dark:text-slate-200"
+    >
+      <div className="h-px flex-1 bg-slate-400/70 dark:bg-slate-500/80" />
+      <div className="flex shrink-0 items-center gap-2 rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wide shadow-sm ring-1 ring-slate-300 dark:bg-slate-900 dark:ring-slate-600">
+        <span>League Avg</span>
+        <span className="tabular-nums">{metric.average?.toFixed(1)}</span>
+      </div>
+      <div className="h-px flex-1 bg-slate-400/70 dark:bg-slate-500/80" />
+    </li>
+  );
+
+  const averageInsertIndex = (metric: StatRankingMetric) => {
+    if (metric.average === null) return -1;
+
+    const nullIndex = metric.entries.findIndex((entry) => entry.value === null);
+    const fallbackIndex = nullIndex === -1 ? metric.entries.length : nullIndex;
+    const worseIndex = metric.entries.findIndex((entry) => {
+      if (entry.value === null || metric.average === null) return false;
+      return metric.direction === "asc"
+        ? entry.value > metric.average
+        : entry.value < metric.average;
+    });
+
+    return worseIndex === -1 ? fallbackIndex : worseIndex;
+  };
+
   return (
     <section className="bg-white p-5 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -850,27 +908,28 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
             </div>
             {metric.entries.length > 0 ? (
               <ol className="divide-y divide-slate-200 dark:divide-slate-700">
-                {metric.entries.map((entry) => (
-                  <li
-                    key={`${metric.key}-${entry.teamId}`}
-                    className="flex items-center gap-3 px-4 py-3"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white dark:bg-white dark:text-slate-950">
-                      {entry.rank}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
-                        {displayName(entry.teamName)}
+                {metric.entries.map((entry, index) => (
+                  <React.Fragment key={`${metric.key}-${entry.teamId}`}>
+                    {averageInsertIndex(metric) === index ? averageSeparator(metric) : null}
+                    <li className="flex items-center gap-3 px-4 py-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white dark:bg-white dark:text-slate-950">
+                        {entry.rank}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
+                          {displayName(entry.teamName)}
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          {entry.games} games
+                        </div>
                       </div>
-                      <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                        {entry.games} games
+                      <div className="text-lg font-black tabular-nums text-slate-950 dark:text-slate-100">
+                        {entry.value === null ? "—" : entry.value.toFixed(1)}
                       </div>
-                    </div>
-                    <div className="text-lg font-black tabular-nums text-slate-950 dark:text-slate-100">
-                      {entry.value === null ? "—" : entry.value.toFixed(1)}
-                    </div>
-                  </li>
+                    </li>
+                  </React.Fragment>
                 ))}
+                {averageInsertIndex(metric) === metric.entries.length ? averageSeparator(metric) : null}
               </ol>
             ) : (
               <div className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
