@@ -415,6 +415,61 @@ const buildByIdMap = (teams: Team[]) => {
 };
 
 const logit = (p: number) => Math.log(p / (1 - p));
+const logistic = (value: number) => 1 / (1 + Math.exp(-value));
+
+const headToHeadEdge = (team: Team, opponentId: string) => {
+  const record = team.headToHead?.[opponentId];
+  if (!record) return 0;
+
+  const games = record.wins + record.losses + record.ties;
+  if (games <= 0) return 0;
+
+  const pct = (record.wins + record.ties * 0.5) / games;
+  const sampleWeight = clamp(games / 4, 0.25, 1);
+  return clamp((pct - 0.5) * 2 * sampleWeight, -1, 1);
+};
+
+type MatchupEdgeInput = {
+  away: Team;
+  home: Team;
+  leagueK6: number;
+  rawMargin: number;
+  aggression: number;
+};
+
+const matchupWinEdge = ({ away, home, leagueK6, rawMargin, aggression }: MatchupEdgeInput) => {
+  const awayDiffPerGame = away.games ? away.runDiff / away.games : 0;
+  const homeDiffPerGame = home.games ? home.runDiff / home.games : 0;
+  const awayContact = (leagueK6 - (away.totalK6 ?? leagueK6)) * 0.18 + away.hpg * 0.08;
+  const homeContact = (leagueK6 - (home.totalK6 ?? leagueK6)) * 0.18 + home.hpg * 0.08;
+  const sampleReliability = clamp((away.games + home.games) / 14, 0.35, 1);
+
+  const marginEdge = clamp(rawMargin / 8, -1.35, 1.35);
+  const tpiEdge = clamp((away.tpi - home.tpi) / 7, -1.25, 1.25);
+  const scoringEdge = clamp((away.rsg - home.rsg + (home.rag - away.rag) * 0.7) / 9, -1.1, 1.1);
+  const pctEdge = clamp((away.pct - home.pct) * 1.35, -1, 1);
+  const runDiffEdge = clamp((awayDiffPerGame - homeDiffPerGame) / 7, -1, 1);
+  const momentumEdge = clamp((away.momentum - home.momentum) / 7, -0.85, 0.85);
+  const contactEdge = clamp((awayContact - homeContact) / 2.5, -0.75, 0.75);
+  const sosEdge = clamp((away.sos - home.sos) / 8, -0.55, 0.55);
+  const h2hEdge = headToHeadEdge(away, home.id);
+  const homeFieldEdge = -0.06;
+
+  const weightedEdge =
+    marginEdge * 0.34 +
+    tpiEdge * 0.28 +
+    scoringEdge * 0.2 +
+    pctEdge * 0.15 +
+    runDiffEdge * 0.13 +
+    momentumEdge * 0.1 +
+    h2hEdge * 0.08 +
+    contactEdge * 0.07 +
+    sosEdge * 0.05 +
+    homeFieldEdge;
+
+  const aggressionInfluence = clamp(0.95 + aggression * 0.18, 0.95, 1.25);
+  return weightedEdge * sampleReliability * aggressionInfluence;
+};
 
 export const calibrateAwayWinPct = (
   rawPct: number,
@@ -441,7 +496,9 @@ export const predictGame = (
   const home = lookup.get(game.home);
   const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
   const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const totalStrikeouts = teams.reduce((sum, team) => sum + team.kpg * team.games, 0);
   const leagueRuns = totalGames ? totalRuns / totalGames : 7;
+  const leagueK6 = totalGames ? totalStrikeouts / totalGames : 4.5;
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
@@ -489,9 +546,10 @@ export const predictGame = (
   const rawMargin = safeAway - safeHome;
   const roundedAway = Math.round(safeAway);
   const roundedHome = Math.round(safeHome);
-  const rawAwayWinPct = 1 / (1 + Math.exp(-rawMargin / 4));
+  const edge = matchupWinEdge({ away, home, leagueK6, rawMargin, aggression });
+  const rawAwayWinPct = logistic(edge);
   const awayWinPct = calibrateAwayWinPct(rawAwayWinPct, away.games, home.games, aggression);
-  const winnerId = rawMargin >= 0 ? game.away : game.home;
+  const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
   const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
   const margin = Math.abs(rawMargin);
 

@@ -16,6 +16,7 @@ import {
   type GameLog,
   type Matchup,
   type Settings,
+  type Team,
   type TeamBase,
 } from "../types";
 
@@ -319,6 +320,56 @@ describe("predictGame", () => {
       conservative.awayScore === aggressive.awayScore &&
       conservative.homeScore === aggressive.homeScore;
     expect(sameScore).toBe(false);
+  });
+
+  it("blends quality, form, contact, and head-to-head signals into the winner pick", () => {
+    const away: Team = {
+      ...emptyTeam({ id: "A", name: "Aces" }),
+      w: 8,
+      l: 2,
+      games: 10,
+      pct: 0.8,
+      rs: 46,
+      ra: 36,
+      runDiff: 10,
+      rsg: 4.6,
+      rag: 3.6,
+      hpg: 8.5,
+      kpg: 2.2,
+      totalK6: 2.2,
+      tpi: 4.4,
+      sos: 1.2,
+      momentum: 2.8,
+      headToHead: { B: { wins: 2, losses: 0, ties: 0 } },
+    };
+    const home: Team = {
+      ...emptyTeam({ id: "B", name: "Bears" }),
+      w: 4,
+      l: 6,
+      games: 10,
+      pct: 0.4,
+      rs: 52,
+      ra: 60,
+      runDiff: -8,
+      rsg: 5.2,
+      rag: 6,
+      hpg: 5.1,
+      kpg: 6.4,
+      totalK6: 6.4,
+      tpi: -1.5,
+      sos: -0.5,
+      momentum: -1.4,
+      headToHead: { A: { wins: 0, losses: 2, ties: 0 } },
+    };
+
+    const prediction = predictGame(
+      { id: "future", date: "5/9", away: "A", home: "B" },
+      [away, home],
+      settings
+    );
+
+    expect(prediction.winnerId).toBe("A");
+    expect(prediction.awayWinPct).toBeGreaterThan(0.6);
   });
 
   it("calibrates probabilities away from overconfident extremes", () => {
