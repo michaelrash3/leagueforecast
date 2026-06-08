@@ -306,7 +306,9 @@ function HeaderStatCard({
       <div className="text-[10px] font-black uppercase tracking-[0.28em] text-slate-300">
         {label}
       </div>
-      <div className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">{value}</div>
+      <div className="mt-2 break-words text-xl font-black leading-tight tracking-tight text-white sm:text-2xl">
+        {value}
+      </div>
       <div className="absolute -right-7 -top-7 h-20 w-20 rounded-full bg-white/10 blur-2xl transition duration-300 group-hover:bg-white/20" />
     </div>
   );
@@ -3725,7 +3727,7 @@ This will replace current season data and save an undo snapshot.`,
               />
               <HeaderStatCard
                 label="Leader"
-                value={currentLeader ? teamAbbr(currentLeader.name) : "—"}
+                value={currentLeader ? currentLeader.name : "—"}
                 accent="from-amber-200 via-orange-300 to-red-400"
               />
               <HeaderStatCard
@@ -5294,72 +5296,8 @@ function SettingsView({
     });
   };
 
-  const settingsFlow: DesignFlowStep[] = [
-    {
-      eyebrow: "Rules",
-      title: "Set the season contract",
-      body: "Tune the label, gold cutoff, points, season length, model aggression, and tie-break order before results get messy.",
-      meta: `${teamsCount} teams · Top ${Math.min(settings.goldCutoff, Math.max(1, teamsCount))} gold line`,
-      tone: "blue",
-    },
-    {
-      eyebrow: "Data",
-      title: "Move season files safely",
-      body: "Import CSVs or backups, then export the same source of truth when you need to hand off records.",
-      meta: "CSV for schedules · JSON for full backups",
-      tone: "amber",
-      actions: [
-        {
-          label: "Import CSV",
-          tone: "primary",
-          file: {
-            accept: ".csv,text/csv",
-            ariaLabel: "Import schedule CSV",
-            onChange: importCSV,
-          },
-        },
-        {
-          label: "Import Backup",
-          file: {
-            accept: ".json,application/json",
-            ariaLabel: "Import backup JSON",
-            onChange: importBackup,
-          },
-        },
-      ],
-    },
-    {
-      eyebrow: "Publish",
-      title: "Package the league room",
-      body: "Export clean score sheets or a restorable backup before sending updates to coaches and parents.",
-      meta: "Designed for weekly league updates",
-      tone: "emerald",
-      actions: [
-        { label: "Export CSV", tone: "dark", onClick: exportCSV },
-        { label: "Backup JSON", onClick: exportBackup },
-      ],
-    },
-    {
-      eyebrow: "Reset",
-      title: "Rehearse or restart",
-      body: "Load demo data for walkthroughs, or reset only when you are ready to clear the active season.",
-      meta: "Reset stays behind confirmation",
-      tone: "red",
-      actions: [
-        { label: "Load Demo", onClick: loadDemoSeason },
-        { label: "Reset Season", onClick: resetSeason },
-      ],
-    },
-  ];
-
   return (
     <section className="grid grid-cols-1 gap-6">
-      <DesignFlowPanel
-        title="League operating flow"
-        subtitle="The settings screen now reads like a control room: define the rules, move data, publish a clean snapshot, and rehearse safely without hunting through separate panels."
-        steps={settingsFlow}
-      />
-
       <div className={`${card} p-6`}>
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
           Settings
