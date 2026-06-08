@@ -293,6 +293,32 @@ function DesignFlowPanel({
   );
 }
 
+function HeaderStatCard({
+  label,
+  value,
+  detail,
+  accent,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  accent: string;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-4 shadow-xl shadow-black/10 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:bg-white/15">
+      <div
+        className={`absolute inset-x-4 top-0 h-1 rounded-full bg-gradient-to-r ${accent} opacity-80`}
+      />
+      <div className="text-[10px] font-black uppercase tracking-[0.28em] text-slate-300">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">{value}</div>
+      <div className="mt-1 text-xs font-bold leading-5 text-slate-300">{detail}</div>
+      <div className="absolute -right-7 -top-7 h-20 w-20 rounded-full bg-white/10 blur-2xl transition duration-300 group-hover:bg-white/20" />
+    </div>
+  );
+}
+
 type RankSnapshotEntry = Team & {
   rank: number;
   projectedRank: number;
@@ -929,7 +955,9 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                     </li>
                   </React.Fragment>
                 ))}
-                {averageInsertIndex(metric) === metric.entries.length ? averageSeparator(metric) : null}
+                {averageInsertIndex(metric) === metric.entries.length
+                  ? averageSeparator(metric)
+                  : null}
               </ol>
             ) : (
               <div className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -3630,20 +3658,32 @@ This will replace current season data and save an undo snapshot.`,
           browser.
         </div>
       )}
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.16),_transparent_34%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] text-slate-950 dark:bg-[radial-gradient(circle_at_top_left,_rgba(30,64,175,0.26),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)] dark:text-slate-100">
-        <header className="relative isolate overflow-hidden border-b border-white/10 bg-[linear-gradient(90deg,#020617_0%,#0b1f4d_46%,#263064_66%,#9a3f06_100%)] text-white shadow-2xl shadow-slate-950/20">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_22%_18%,rgba(30,64,175,0.42),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.28),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[length:auto,auto,18px_18px]" />
-          <div className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-black/25 to-transparent" />
+      <div className="min-h-screen bg-[radial-gradient(circle_at_12%_8%,_rgba(245,158,11,0.18),_transparent_28%),radial-gradient(circle_at_88%_2%,_rgba(37,99,235,0.18),_transparent_30%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_58%,_#cbd5e1_100%)] text-slate-950 dark:bg-[radial-gradient(circle_at_12%_8%,_rgba(245,158,11,0.18),_transparent_30%),radial-gradient(circle_at_86%_4%,_rgba(37,99,235,0.26),_transparent_34%),linear-gradient(180deg,_#020617_0%,_#0f172a_62%,_#111827_100%)] dark:text-slate-100">
+        <header className="relative isolate overflow-hidden border-b border-white/10 bg-[linear-gradient(120deg,#020617_0%,#0b1f4d_42%,#2d3368_64%,#9a3f06_100%)] text-white shadow-2xl shadow-slate-950/20">
+          <div className="stadium-grid absolute inset-0 -z-20 opacity-80" />
+          <div className="hero-orb absolute -left-24 top-8 -z-10 h-72 w-72 rounded-full bg-blue-500/30 blur-3xl" />
+          <div className="hero-orb hero-orb-delay absolute -right-20 top-0 -z-10 h-80 w-80 rounded-full bg-amber-400/25 blur-3xl" />
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_22%_18%,rgba(59,130,246,0.42),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.32),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[length:auto,auto,18px_18px]" />
+          <div className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-black/30 to-transparent" />
+          <div
+            className="absolute right-8 top-28 hidden h-28 w-28 rotate-12 rounded-full border-4 border-white/20 bg-white/10 shadow-2xl shadow-black/20 before:absolute before:inset-y-3 before:left-1/2 before:w-1 before:-translate-x-1/2 before:rounded-full before:bg-red-300/70 after:absolute after:inset-x-3 after:top-1/2 after:h-1 after:-translate-y-1/2 after:rounded-full after:bg-red-300/70 lg:block"
+            aria-hidden="true"
+          />
           <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-7 sm:px-6 sm:py-9 lg:px-8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="text-xs font-black uppercase tracking-[0.42em] text-amber-200 drop-shadow">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.34em] text-amber-200 ring-1 ring-white/15 backdrop-blur">
+                  <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.9)]" />
                   League Command Center
                 </div>
-                <h1 className="mt-4 text-4xl font-black tracking-tight text-white drop-shadow-sm sm:text-6xl">
+                <h1 className="mt-5 text-5xl font-black tracking-[-0.06em] text-white drop-shadow-sm sm:text-7xl">
                   NKB Season Tracker
                 </h1>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <p className="mt-4 max-w-2xl text-base font-bold leading-7 text-slate-200 sm:text-lg">
+                  A bolder race-day dashboard for standings, playoff odds, score entry, and weekly
+                  storylines.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
                   <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur">
                     {settings.seasonLabel}
                   </div>
@@ -3702,6 +3742,31 @@ This will replace current season data and save an undo snapshot.`,
                   {theme === "dark" ? "☀" : "☾"}
                 </button>
               </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3" aria-label="League pulse summary">
+              <HeaderStatCard
+                label="Season pulse"
+                value={`${finalCount}/${totalGamesCount}`}
+                detail={totalGamesCount > 0 ? "final games logged" : "build or import a schedule"}
+                accent="from-emerald-300 via-cyan-300 to-blue-400"
+              />
+              <HeaderStatCard
+                label="Top seed"
+                value={currentLeader ? teamAbbr(currentLeader.name) : "—"}
+                detail={
+                  currentLeader
+                    ? `${displayName(currentLeader.name)} · ${recordText(currentLeader)}`
+                    : "waiting for league data"
+                }
+                accent="from-amber-200 via-orange-300 to-red-400"
+              />
+              <HeaderStatCard
+                label="Gold line"
+                value={`Top ${goldCutoff}`}
+                detail="live playoff cut with projections"
+                accent="from-fuchsia-300 via-red-300 to-amber-300"
+              />
             </div>
 
             <div
