@@ -119,10 +119,6 @@ type ConfirmState = {
   cancelLabel?: string;
 };
 
-type SaveStatus =
-  | { state: "saved"; label: string; timestamp: number }
-  | { state: "error"; label: string; timestamp: number };
-
 type LastImpact = {
   title: string;
   scores: string[];
@@ -296,12 +292,10 @@ function DesignFlowPanel({
 function HeaderStatCard({
   label,
   value,
-  detail,
   accent,
 }: {
   label: string;
   value: string;
-  detail: string;
   accent: string;
 }) {
   return (
@@ -313,7 +307,6 @@ function HeaderStatCard({
         {label}
       </div>
       <div className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">{value}</div>
-      <div className="mt-1 text-xs font-bold leading-5 text-slate-300">{detail}</div>
       <div className="absolute -right-7 -top-7 h-20 w-20 rounded-full bg-white/10 blur-2xl transition duration-300 group-hover:bg-white/20" />
     </div>
   );
@@ -1564,7 +1557,6 @@ export default function App() {
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false
   );
-  const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const [updateApp, setUpdateApp] = useState<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -1589,9 +1581,7 @@ export default function App() {
   const undoRef = useRef<UndoSnapshot | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const recordSaveResult = useCallback(
-    (ok: boolean, label: string, errorMessage: string) => {
-      const timestamp = Date.now();
-      setSaveStatus({ state: ok ? "saved" : "error", label, timestamp });
+    (ok: boolean, _label: string, errorMessage: string) => {
       if (!ok) showToast(errorMessage, { tone: "error" });
     },
     [showToast]
@@ -2721,7 +2711,6 @@ export default function App() {
     };
     undoRef.current = snapshot;
     if (!saveUndoSnapshot(snapshot)) {
-      setSaveStatus({ state: "error", label: "undo snapshot", timestamp: Date.now() });
       showToast("Could not save undo snapshot (storage full).", { tone: "error" });
     }
   };
@@ -3679,26 +3668,10 @@ This will replace current season data and save an undo snapshot.`,
                 <h1 className="mt-5 text-5xl font-black tracking-[-0.06em] text-white drop-shadow-sm sm:text-7xl">
                   NKB Season Tracker
                 </h1>
-                <p className="mt-4 max-w-2xl text-base font-bold leading-7 text-slate-200 sm:text-lg">
-                  A bolder race-day dashboard for standings, playoff odds, score entry, and weekly
-                  storylines.
-                </p>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur">
                     {settings.seasonLabel}
                   </div>
-                  {saveStatus && (
-                    <div
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
-                        saveStatus.state === "saved"
-                          ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30 shadow-inner shadow-emerald-100/10"
-                          : "bg-red-400/15 text-red-100 ring-1 ring-red-300/30 shadow-inner shadow-red-100/10"
-                      }`}
-                      title={`${saveStatus.label} ${new Date(saveStatus.timestamp).toLocaleTimeString()}`}
-                    >
-                      {saveStatus.state === "saved" ? "Saved" : "Save failed"} · {saveStatus.label}
-                    </div>
-                  )}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3746,25 +3719,18 @@ This will replace current season data and save an undo snapshot.`,
 
             <div className="grid gap-3 md:grid-cols-3" aria-label="League pulse summary">
               <HeaderStatCard
-                label="Season pulse"
+                label="Games"
                 value={`${finalCount}/${totalGamesCount}`}
-                detail={totalGamesCount > 0 ? "final games logged" : "build or import a schedule"}
                 accent="from-emerald-300 via-cyan-300 to-blue-400"
               />
               <HeaderStatCard
-                label="Top seed"
+                label="Leader"
                 value={currentLeader ? teamAbbr(currentLeader.name) : "—"}
-                detail={
-                  currentLeader
-                    ? `${displayName(currentLeader.name)} · ${recordText(currentLeader)}`
-                    : "waiting for league data"
-                }
                 accent="from-amber-200 via-orange-300 to-red-400"
               />
               <HeaderStatCard
-                label="Gold line"
+                label="Gold"
                 value={`Top ${goldCutoff}`}
-                detail="live playoff cut with projections"
                 accent="from-fuchsia-300 via-red-300 to-amber-300"
               />
             </div>
