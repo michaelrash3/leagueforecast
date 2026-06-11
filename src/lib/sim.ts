@@ -1,6 +1,7 @@
 import { parseDateValue } from "./date";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
+  DEFAULT_TIEBREAKER_ORDER,
   MODEL_AGGRESSION,
   type GameLog,
   type Matchup,
@@ -145,7 +146,7 @@ export const rankOptionsFromSettings = (
 
 const resolvedTiebreakerOrder = (options: RankOptions) => {
   if (options.tiebreakerOrder) return options.tiebreakerOrder;
-  return options.runDiffTiebreaker ? (["runDifferential"] satisfies TiebreakerFactor[]) : [];
+  return options.runDiffTiebreaker ? DEFAULT_TIEBREAKER_ORDER : [];
 };
 
 const headToHeadPct = (team: Team, opponentId: string) => {
@@ -156,47 +157,68 @@ const headToHeadPct = (team: Team, opponentId: string) => {
   return (record.wins + record.ties * 0.5) / games;
 };
 
-const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor) => {
+const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor, tiedGroupSize: number) => {
   switch (factor) {
     case "headToHead": {
+      if (tiedGroupSize !== 2) return 0;
       const aPct = headToHeadPct(a, b.id);
       const bPct = headToHeadPct(b, a.id);
       if (aPct === null || bPct === null || Math.abs(aPct - bPct) <= 0.0001) return 0;
       return bPct - aPct;
     }
+    case "runDifferential":
+      if (a.runDiff !== b.runDiff) return b.runDiff - a.runDiff;
+      return 0;
     case "runsAgainst":
       if (a.ra !== b.ra) return a.ra - b.ra;
       return 0;
-    case "runDifferential":
-      if (a.runDiff !== b.runDiff) return b.runDiff - a.runDiff;
+    case "runsFor":
+      if (a.rs !== b.rs) return b.rs - a.rs;
       return 0;
     default:
       return 0;
   }
 };
 
-export const rankTeams = (teams: Team[], options: RankOptions) => {
-  const tiebreakerOrder = resolvedTiebreakerOrder(options);
-  const pointsSettings = {
-    winPoints: options.winPoints ?? 1,
-    tiePoints: options.tiePoints ?? 0.5,
-  };
-  const sorted = [...teams].sort((a, b) => {
-    // GameChanger's PCT column treats ties as half a win and sorts standings
-    // by that percentage before applying secondary tiebreakers.
-    if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
-
-    const pointsDiff = standingsPoints(b, pointsSettings) - standingsPoints(a, pointsSettings);
-    if (Math.abs(pointsDiff) > 0.0001) return pointsDiff;
-
+const compareTiedTeams = (tiebreakerOrder: TiebreakerFactor[], tiedGroupSize: number) => {
+  return (a: Team, b: Team) => {
     for (const factor of tiebreakerOrder) {
-      const diff = compareByTiebreaker(a, b, factor);
+      const diff = compareByTiebreaker(a, b, factor, tiedGroupSize);
       if (diff !== 0) return diff;
     }
 
     if (Math.abs(b.tpi - a.tpi) > 0.0001) return b.tpi - a.tpi;
     return a.id.localeCompare(b.id);
+  };
+};
+
+export const rankTeams = (teams: Team[], options: RankOptions) => {
+  const tiebreakerOrder = resolvedTiebreakerOrder(options);
+  const sortedByPct = [...teams].sort((a, b) => {
+    // GameChanger's PCT column treats ties as half a win and sorts standings
+    // by that percentage before applying secondary tiebreakers.
+    if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
+    return a.id.localeCompare(b.id);
   });
+
+  const sorted: Team[] = [];
+  for (let index = 0; index < sortedByPct.length; ) {
+    const first = sortedByPct[index];
+    if (!first) break;
+
+    const tiedGroup = [first];
+    let nextIndex = index + 1;
+    while (nextIndex < sortedByPct.length) {
+      const candidate = sortedByPct[nextIndex];
+      if (!candidate || Math.abs(candidate.pct - first.pct) > 0.0001) break;
+      tiedGroup.push(candidate);
+      nextIndex += 1;
+    }
+
+    sorted.push(...tiedGroup.sort(compareTiedTeams(tiebreakerOrder, tiedGroup.length)));
+    index = nextIndex;
+  }
+
   return sorted.map((team, index) => ({ ...team, rank: index + 1 }));
 };
 

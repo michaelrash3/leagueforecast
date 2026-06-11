@@ -9,7 +9,7 @@ export type HeadToHeadRecord = {
   ties: number;
 };
 
-export type TiebreakerFactor = "headToHead" | "runsAgainst" | "runDifferential";
+export type TiebreakerFactor = "headToHead" | "runDifferential" | "runsAgainst" | "runsFor";
 
 export type Team = TeamBase & {
   w: number;
@@ -95,14 +95,16 @@ export type RecapGrouping = "game" | "date" | "week";
 
 export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {
   headToHead: "Head to Head",
-  runsAgainst: "Runs Against",
   runDifferential: "Run Differential",
+  runsAgainst: "Runs Allowed",
+  runsFor: "Runs Scored",
 };
 
 export const DEFAULT_TIEBREAKER_ORDER: TiebreakerFactor[] = [
   "headToHead",
   "runDifferential",
   "runsAgainst",
+  "runsFor",
 ];
 
 export type Settings = {

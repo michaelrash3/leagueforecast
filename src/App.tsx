@@ -529,7 +529,12 @@ const raceSeedBadgeClasses: Record<RaceTone, string> = {
   out: "bg-red-600 text-white dark:bg-red-400 dark:text-red-950",
 };
 
-const TIEBREAKER_FACTORS: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
+const TIEBREAKER_FACTORS: TiebreakerFactor[] = [
+  "headToHead",
+  "runDifferential",
+  "runsAgainst",
+  "runsFor",
+];
 type TiebreakerSelectValue = TiebreakerFactor | "none";
 
 // ---------- Helpers that depend on app-shape but no state ----------
@@ -5766,8 +5771,12 @@ function SettingsView({
             <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700">
               League Tiebreaker Order
             </legend>
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-              {[0, 1, 2].map((index) => (
+            <p className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
+              Winning percentage is always applied first. Head-to-head is only applied to two-team
+              ties.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+              {[0, 1, 2, 3].map((index) => (
                 <label key={index} className="block">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-500">
                     Tie-break {index + 1}

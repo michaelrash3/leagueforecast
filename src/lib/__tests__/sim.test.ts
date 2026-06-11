@@ -198,13 +198,14 @@ describe("standingsPoints + rankTeams", () => {
     );
   });
 
-  it("uses standings points after equal winning percentage", () => {
+  it("uses tournament tiebreakers after equal winning percentage instead of standings points", () => {
     const shortUndefeated = {
       ...emptyTeam({ id: "A", name: "1-0 Team" }),
       w: 1,
       l: 0,
       games: 1,
       pct: 1,
+      runDiff: 1,
     };
     const longerUndefeated = {
       ...emptyTeam({ id: "B", name: "10-0 Team" }),
@@ -212,14 +213,19 @@ describe("standingsPoints + rankTeams", () => {
       l: 0,
       games: 10,
       pct: 1,
+      runDiff: 0,
     };
 
     const ranked = rankTeams([shortUndefeated, longerUndefeated], {
+      tiebreakerOrder: ["runDifferential"],
       winPoints: 1,
       tiePoints: 0.5,
     });
 
-    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
+    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
+    expect(standingsPoints(longerUndefeated, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
+      standingsPoints(shortUndefeated, { winPoints: 1, tiePoints: 0.5 })
+    );
   });
 
   it("skips run-diff tier when disabled", () => {
@@ -234,7 +240,38 @@ describe("standingsPoints + rankTeams", () => {
     expect(withDiff.map((t) => t.id).sort()).toEqual(withoutDiff.map((t) => t.id).sort());
   });
 
-  it("applies configurable head-to-head before run differential", () => {
+  it("applies configurable head-to-head before run differential for two-team ties", () => {
+    const a = {
+      ...emptyTeam({ id: "A", name: "Aces" }),
+      w: 1,
+      l: 1,
+      games: 2,
+      pct: 0.5,
+      runDiff: -9,
+      headToHead: { B: { wins: 1, losses: 0, ties: 0 } },
+    };
+    const b = {
+      ...emptyTeam({ id: "B", name: "Bears" }),
+      w: 1,
+      l: 1,
+      games: 2,
+      pct: 0.5,
+      runDiff: 6,
+      headToHead: { A: { wins: 0, losses: 1, ties: 0 } },
+    };
+
+    const headToHeadFirst = rankTeams([a, b], {
+      tiebreakerOrder: ["headToHead", "runDifferential"],
+    }).map((team) => team.id);
+    const runDifferentialFirst = rankTeams([a, b], {
+      tiebreakerOrder: ["runDifferential", "headToHead"],
+    }).map((team) => team.id);
+
+    expect(headToHeadFirst).toEqual(["A", "B"]);
+    expect(runDifferentialFirst).toEqual(["B", "A"]);
+  });
+
+  it("skips head-to-head for ties with more than two teams", () => {
     const leagueTeams: TeamBase[] = [
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears" },
@@ -251,15 +288,38 @@ describe("standingsPoints + rankTeams", () => {
       h3: finalLog({ awayRuns: "10", homeRuns: "0" }),
     });
 
-    const headToHeadFirst = rankTeams(live, {
-      tiebreakerOrder: ["headToHead", "runDifferential"],
-    }).map((team) => team.id);
-    const runDifferentialFirst = rankTeams(live, {
-      tiebreakerOrder: ["runDifferential", "headToHead"],
-    }).map((team) => team.id);
+    expect(
+      rankTeams(live, { tiebreakerOrder: ["headToHead", "runDifferential"] }).map((team) => team.id)
+    ).toEqual(["B", "C", "A"]);
+  });
 
-    expect(headToHeadFirst.indexOf("A")).toBeLessThan(headToHeadFirst.indexOf("B"));
-    expect(runDifferentialFirst.indexOf("B")).toBeLessThan(runDifferentialFirst.indexOf("A"));
+  it("uses runs scored after run differential and runs allowed remain tied", () => {
+    const a = {
+      ...emptyTeam({ id: "A", name: "Aces" }),
+      w: 1,
+      l: 1,
+      games: 2,
+      pct: 0.5,
+      rs: 12,
+      ra: 10,
+      runDiff: 2,
+    };
+    const b = {
+      ...emptyTeam({ id: "B", name: "Bears" }),
+      w: 1,
+      l: 1,
+      games: 2,
+      pct: 0.5,
+      rs: 14,
+      ra: 10,
+      runDiff: 2,
+    };
+
+    expect(
+      rankTeams([a, b], { tiebreakerOrder: ["runDifferential", "runsAgainst", "runsFor"] }).map(
+        (team) => team.id
+      )
+    ).toEqual(["B", "A"]);
   });
 
   it("honors runs-against and run-differential tiebreaker order", () => {

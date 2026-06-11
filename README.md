@@ -84,14 +84,14 @@ src/
 
 ## Settings
 
-| Setting             | Effect                                  |
-| ------------------- | --------------------------------------- |
-| Season label        | Header/export label.                    |
-| Gold cutoff         | Number of teams in Gold Bracket.        |
-| Win / Tie points    | Standings and math calculations.        |
-| Run-diff tiebreaker | Tie ordering behavior.                  |
-| Recap grouping      | Builds stories per game, date, or week. |
-| Model aggression    | Prediction weighting profile.           |
+| Setting          | Effect                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Season label     | Header/export label.                                                                                             |
+| Gold cutoff      | Number of teams in Gold Bracket.                                                                                 |
+| Win / Tie points | Math calculations and Gold status.                                                                               |
+| Tiebreaker order | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored. |
+| Recap grouping   | Builds stories per game, date, or week.                                                                          |
+| Model aggression | Prediction weighting profile.                                                                                    |
 
 ## Data + persistence
 

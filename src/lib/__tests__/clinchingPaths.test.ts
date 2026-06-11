@@ -4,7 +4,6 @@ import {
   clinchingPathsForTeams,
   goldCutLineSnapshot,
 } from "../clinchingPaths";
-import { rankTeams } from "../sim";
 import { DEFAULT_SETTINGS, type Matchup, type SwingGame, type TeamWithProjection } from "../types";
 
 const team = (
@@ -98,15 +97,12 @@ describe("clinchingPathForTeam", () => {
   });
 
   it("points outside bubble teams toward help from nearby rivals", () => {
-    const teams = rankTeams(
-      [
-        team({ id: "A", name: "Aces", w: 0, rank: 3, projectedRank: 3 }),
-        team({ id: "B", name: "Bears", w: 1, rank: 2, projectedRank: 2 }),
-        team({ id: "C", name: "Comets", w: 2, rank: 1, projectedRank: 1 }),
-        team({ id: "D", name: "Ducks", w: 0, rank: 4, projectedRank: 4 }),
-      ],
-      { runDiffTiebreaker: false, tiebreakerOrder: [] }
-    ) as TeamWithProjection[];
+    const teams: TeamWithProjection[] = [
+      team({ id: "A", name: "Aces", rank: 3, projectedRank: 3 }),
+      team({ id: "B", name: "Bears", rank: 2, projectedRank: 2 }),
+      team({ id: "C", name: "Comets", rank: 1, projectedRank: 1 }),
+      team({ id: "D", name: "Ducks", rank: 4, projectedRank: 4 }),
+    ];
     const remaining: Matchup[] = [{ id: "g2", date: "5/2", away: "B", home: "D" }];
 
     const note = clinchingPathForTeam({

@@ -29,6 +29,20 @@ describe("storage hardening", () => {
     expect(settings.maxScoreCap).toBe(35);
   });
 
+  it("migrates the legacy default tiebreaker order to include runs scored", () => {
+    backing.set(
+      "league_settings_v1",
+      JSON.stringify({ tiebreakerOrder: ["headToHead", "runDifferential", "runsAgainst"] })
+    );
+
+    expect(loadSettings().tiebreakerOrder).toEqual([
+      "headToHead",
+      "runDifferential",
+      "runsAgainst",
+      "runsFor",
+    ]);
+  });
+
   it("drops duplicate teams, invalid matchups, and orphan logs", () => {
     backing.set(
       "league_teams_v1",

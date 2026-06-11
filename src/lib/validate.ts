@@ -15,7 +15,12 @@ import { normalizeDateInput } from "./date";
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
-const TIEBREAKER_VALUES: TiebreakerFactor[] = ["headToHead", "runsAgainst", "runDifferential"];
+const TIEBREAKER_VALUES: TiebreakerFactor[] = [
+  "headToHead",
+  "runDifferential",
+  "runsAgainst",
+  "runsFor",
+];
 
 export const isString = (v: unknown): v is string => typeof v === "string";
 export const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -139,7 +144,9 @@ export const coerceLogs = (
 
 const coerceTiebreakerOrder = (raw: unknown, runDiffTiebreaker: boolean): TiebreakerFactor[] => {
   if (!Array.isArray(raw)) {
-    return runDiffTiebreaker ? [...DEFAULT_TIEBREAKER_ORDER] : ["headToHead", "runsAgainst"];
+    return runDiffTiebreaker
+      ? [...DEFAULT_TIEBREAKER_ORDER]
+      : ["headToHead", "runsAgainst", "runsFor"];
   }
 
   const order: TiebreakerFactor[] = [];
@@ -150,7 +157,13 @@ const coerceTiebreakerOrder = (raw: unknown, runDiffTiebreaker: boolean): Tiebre
     order.push(factor);
   });
 
-  return order.length ? order : [...DEFAULT_TIEBREAKER_ORDER];
+  if (!order.length) return [...DEFAULT_TIEBREAKER_ORDER];
+
+  const oldDefaultOrder: TiebreakerFactor[] = ["headToHead", "runDifferential", "runsAgainst"];
+  const isLegacyDefaultOrder =
+    order.length === oldDefaultOrder.length &&
+    oldDefaultOrder.every((factor, index) => order[index] === factor);
+  return isLegacyDefaultOrder ? [...DEFAULT_TIEBREAKER_ORDER] : order;
 };
 
 export const coerceSettings = (raw: unknown): Settings => {
