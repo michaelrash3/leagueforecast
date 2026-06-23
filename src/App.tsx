@@ -95,6 +95,7 @@ import {
   type GameLog,
   type Matchup,
   type ModelAggression,
+  type PitchMode,
   type Prediction,
   type RecapGrouping,
   type Settings,
@@ -1260,16 +1261,22 @@ type ScoreRowProps = {
   prefix: "away" | "home";
   log: GameLog;
   onChange: (field: keyof GameLog, value: string) => void;
+  pitchMode: PitchMode;
 };
 
-const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange }: ScoreRowProps) {
+const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange, pitchMode }: ScoreRowProps) {
   const fields = useMemo(
     () => [
       { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
       { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
-      { key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" },
+      ...(pitchMode === "player"
+        ? [
+            { key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" },
+            { key: `${prefix}WalksAllowed` as keyof GameLog, label: "BB", aria: "BB Allowed" },
+          ]
+        : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
     ],
-    [prefix]
+    [pitchMode, prefix]
   );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
@@ -1340,7 +1347,8 @@ function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
   return (
     previous.teamName === next.teamName &&
     previous.prefix === next.prefix &&
-    previous.log === next.log
+    previous.log === next.log &&
+    previous.pitchMode === next.pitchMode
   );
 }
 
@@ -3145,42 +3153,77 @@ This will replace the current season data and save an undo snapshot.`,
   };
 
   const exportCSV = () => {
-    const headers = [
-      "Game ID",
-      "Date",
-      "Away Team",
-      "Innings",
-      "Away Runs",
-      "Away Hits",
-      "Away K",
-      "Away BIP",
-      "Home Team",
-      "Home Runs",
-      "Home Hits",
-      "Home K",
-      "Home BIP",
-    ];
+    const headers =
+      settings.pitchMode === "player"
+        ? [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away E",
+            "Away BB Allowed",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home E",
+            "Home BB Allowed",
+          ]
+        : [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away K",
+            "Away BIP",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home K",
+            "Home BIP",
+          ];
     const rows = matchups.map((game) => {
       const log = logs[game.id] || EMPTY_GAME_LOG;
       const away = teamBaseById.get(game.away)?.name || game.away;
       const home = teamBaseById.get(game.home)?.name || game.home;
       const awayBip = calcBip(log.awayHits, log.awayRuns, log.awayK, log.innings);
       const homeBip = calcBip(log.homeHits, log.homeRuns, log.homeK, log.innings);
-      return [
-        game.id,
-        formatGameDate(game.date),
-        away,
-        log.innings,
-        log.awayRuns,
-        log.awayHits,
-        log.awayK,
-        awayBip,
-        home,
-        log.homeRuns,
-        log.homeHits,
-        log.homeK,
-        homeBip,
-      ]
+      const values =
+        settings.pitchMode === "player"
+          ? [
+              game.id,
+              formatGameDate(game.date),
+              away,
+              log.innings,
+              log.awayRuns,
+              log.awayHits,
+              log.awayErrors ?? "",
+              log.awayWalksAllowed ?? "",
+              home,
+              log.homeRuns,
+              log.homeHits,
+              log.homeErrors ?? "",
+              log.homeWalksAllowed ?? "",
+            ]
+          : [
+              game.id,
+              formatGameDate(game.date),
+              away,
+              log.innings,
+              log.awayRuns,
+              log.awayHits,
+              log.awayK,
+              awayBip,
+              home,
+              log.homeRuns,
+              log.homeHits,
+              log.homeK,
+              homeBip,
+            ];
+      return values
         .map(csvEscape)
         .join(",");
     });
@@ -3638,25 +3681,46 @@ This will replace current season data and save an undo snapshot.`,
   const downloadRoundRobinCSV = () => {
     const built = buildRoundRobinSeason();
     if (!built) return;
-    const headers = [
-      "Game ID",
-      "Date",
-      "Away Team",
-      "Innings",
-      "Away Runs",
-      "Away Hits",
-      "Away K",
-      "Away BIP",
-      "Home Team",
-      "Home Runs",
-      "Home Hits",
-      "Home K",
-      "Home BIP",
-    ];
+    const headers =
+      settings.pitchMode === "player"
+        ? [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away E",
+            "Away BB Allowed",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home E",
+            "Home BB Allowed",
+          ]
+        : [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away K",
+            "Away BIP",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home K",
+            "Home BIP",
+          ];
     const rows = built.builtMatchups.map((game) => {
       const away = built.builtTeams.find((team) => team.id === game.away)?.name || game.away;
       const home = built.builtTeams.find((team) => team.id === game.home)?.name || game.home;
-      return [game.id, "", away, "6", "", "", "", "N/A", home, "", "", "", "N/A"]
+      const values =
+        settings.pitchMode === "player"
+          ? [game.id, "", away, "6", "", "", "", "", home, "", "", "", ""]
+          : [game.id, "", away, "6", "", "", "", "N/A", home, "", "", "", "N/A"];
+      return values
         .map(csvEscape)
         .join(",");
     });
@@ -4220,6 +4284,7 @@ This will replace current season data and save an undo snapshot.`,
               scoreboardGames={scoreboardGames}
               scoreboardPredictions={scoreboardPredictions}
               scoreboardTeamFilter={scoreboardTeamFilter}
+              pitchMode={settings.pitchMode}
               setScoreboardTeamFilter={setScoreboardTeamFilter}
               newDate={newDate}
               setNewDate={setNewDate}
@@ -5635,6 +5700,7 @@ function SettingsView({
   const winId = useId();
   const tieId = useId();
   const regularSeasonGamesId = useId();
+  const pitchModeId = useId();
   const aggrId = useId();
   const recapId = useId();
   const tiebreakerId = useId();
@@ -5731,6 +5797,24 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
+          </label>
+
+          <label htmlFor={pitchModeId} className="block">
+            <span className="text-sm font-black text-slate-700">Pitch Mode</span>
+            <select
+              id={pitchModeId}
+              value={settings.pitchMode}
+              onChange={(event) =>
+                setSettings((prev) => ({ ...prev, pitchMode: event.target.value as PitchMode }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            >
+              <option value="machine">Machine Pitch</option>
+              <option value="player">Player Pitch</option>
+            </select>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Machine pitch uses R/H/K. Player pitch uses R/H/E/BB Allowed; BB Allowed means walks issued by that team&apos;s pitchers.
+            </p>
           </label>
 
           <label htmlFor={aggrId} className="block">
@@ -5875,6 +5959,7 @@ function GamesView({
   scoreboardGames,
   scoreboardPredictions,
   scoreboardTeamFilter,
+  pitchMode,
   setScoreboardTeamFilter,
   newDate,
   setNewDate,
@@ -5911,6 +5996,7 @@ function GamesView({
     }
   >;
   scoreboardTeamFilter: string;
+  pitchMode: PitchMode;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
   setNewDate: (v: string) => void;
@@ -6224,12 +6310,14 @@ function GamesView({
                     prefix="away"
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
+                    pitchMode={pitchMode}
                   />
                   <ScoreRow
                     teamName={home?.name || game.home}
                     prefix="home"
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
+                    pitchMode={pitchMode}
                   />
                   <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:text-slate-400">
                     <label className="flex items-center gap-2">
@@ -6367,12 +6455,14 @@ function GamesView({
                       prefix="away"
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
+                      pitchMode={pitchMode}
                     />
                     <ScoreRow
                       teamName={home?.name || matchup.home}
                       prefix="home"
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
+                      pitchMode={pitchMode}
                     />
                     <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       <span>

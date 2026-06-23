@@ -28,11 +28,16 @@ export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => 
   const inningsIndex = index("Innings");
   const awayRunsIndex = index("Away Runs");
   const awayHitsIndex = index("Away Hits");
+  const firstIndex = (...names: string[]) => names.map(index).find((i) => i >= 0) ?? -1;
   const awayKIndex = index("Away K");
+  const awayErrorsIndex = firstIndex("Away E", "Away Errors");
+  const awayWalksAllowedIndex = firstIndex("Away BB", "Away BB Allowed");
   const homeTeamIndex = index("Home Team");
   const homeRunsIndex = index("Home Runs");
   const homeHitsIndex = index("Home Hits");
   const homeKIndex = index("Home K");
+  const homeErrorsIndex = firstIndex("Home E", "Home Errors");
+  const homeWalksAllowedIndex = firstIndex("Home BB", "Home BB Allowed");
 
   if (gameIdIndex < 0 || dateIndex < 0 || awayTeamIndex < 0 || homeTeamIndex < 0) {
     throw new Error("Missing required columns");
@@ -93,6 +98,10 @@ export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => 
     const hasFinalScore = scoreMakesFinal(awayRuns, homeRuns);
     const awayK = awayKIndex >= 0 ? (row[awayKIndex]?.trim() ?? "") : "";
     const homeK = homeKIndex >= 0 ? (row[homeKIndex]?.trim() ?? "") : "";
+    const awayErrors = awayErrorsIndex >= 0 ? (row[awayErrorsIndex]?.trim() ?? "") : "";
+    const homeErrors = homeErrorsIndex >= 0 ? (row[homeErrorsIndex]?.trim() ?? "") : "";
+    const awayWalksAllowed = awayWalksAllowedIndex >= 0 ? (row[awayWalksAllowedIndex]?.trim() ?? "") : "";
+    const homeWalksAllowed = homeWalksAllowedIndex >= 0 ? (row[homeWalksAllowedIndex]?.trim() ?? "") : "";
 
     matchups.push({
       id,
@@ -109,6 +118,10 @@ export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => 
       homeRuns,
       homeHits: homeHitsIndex >= 0 ? (row[homeHitsIndex]?.trim() ?? "") : "",
       homeK: hasFinalScore ? homeK || "0" : homeK,
+      awayErrors,
+      homeErrors,
+      awayWalksAllowed,
+      homeWalksAllowed,
       isFinal: hasFinalScore,
     };
   });

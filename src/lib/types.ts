@@ -12,6 +12,12 @@ export type HeadToHeadRecord = {
 export type TiebreakerFactor = "headToHead" | "runDifferential" | "runsAgainst" | "runsFor";
 
 export type Team = TeamBase & {
+  errorsPerGame?: number;
+  walksAllowedPerGame?: number;
+  walksReceivedPerGame?: number;
+  hitDiff?: number;
+  errorDiff?: number;
+  walkDiff?: number;
   w: number;
   l: number;
   t: number;
@@ -44,6 +50,10 @@ export type GameLog = {
   homeRuns: string;
   homeHits: string;
   homeK: string;
+  awayErrors?: string;
+  homeErrors?: string;
+  awayWalksAllowed?: string;
+  homeWalksAllowed?: string;
   innings: string;
   isFinal?: boolean;
 };
@@ -90,6 +100,7 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
+export type PitchMode = "machine" | "player";
 export type ActiveShareView = "standings" | "teamStats" | "games" | "model" | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
@@ -117,6 +128,7 @@ export type Settings = {
   tiebreakerOrder: TiebreakerFactor[];
   maxScoreCap: number;
   modelAggression: ModelAggression;
+  pitchMode: PitchMode;
   recapGrouping: RecapGrouping;
 };
 
@@ -157,6 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: RUN_SCORE_CAP,
   modelAggression: "Balanced",
+  pitchMode: "machine",
   recapGrouping: "date",
 };
 

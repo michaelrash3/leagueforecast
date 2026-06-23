@@ -17,6 +17,10 @@ export const blankLog = (): GameLog => ({
   homeRuns: "",
   homeHits: "",
   homeK: "",
+  awayErrors: "",
+  homeErrors: "",
+  awayWalksAllowed: "",
+  homeWalksAllowed: "",
   innings: "6",
   isFinal: false,
 });

@@ -6,6 +6,7 @@ import {
   type GameLog,
   type Matchup,
   type ModelAggression,
+  type PitchMode,
   type RecapGrouping,
   type Settings,
   type TeamBase,
@@ -14,6 +15,7 @@ import {
 import { normalizeDateInput } from "./date";
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
+const PITCH_MODE_VALUES: PitchMode[] = ["machine", "player"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
 const TIEBREAKER_VALUES: TiebreakerFactor[] = [
   "headToHead",
@@ -115,7 +117,7 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
 export const coerceLogs = (
   raw: unknown,
   matchups: Matchup[] = [],
-  _settings: Pick<Settings, "maxScoreCap"> = DEFAULT_SETTINGS
+  settings: Pick<Settings, "maxScoreCap" | "pitchMode"> = DEFAULT_SETTINGS
 ): Record<string, GameLog> => {
   if (!isRecord(raw)) return {};
   const matchupIds = new Set(matchups.map((matchup) => matchup.id));
@@ -134,9 +136,16 @@ export const coerceLogs = (
       innings: clampInningsText(value.innings),
       isFinal: isBoolean(value.isFinal) ? value.isFinal : undefined,
     };
+    if (value.awayErrors !== undefined) log.awayErrors = clampGameStatText(value.awayErrors);
+    if (value.homeErrors !== undefined) log.homeErrors = clampGameStatText(value.homeErrors);
+    if (value.awayWalksAllowed !== undefined)
+      log.awayWalksAllowed = clampGameStatText(value.awayWalksAllowed);
+    if (value.homeWalksAllowed !== undefined)
+      log.homeWalksAllowed = clampGameStatText(value.homeWalksAllowed);
     const hasScore = log.awayRuns !== "" && log.homeRuns !== "";
     const hasKs = log.awayK !== "" && log.homeK !== "";
-    log.isFinal = Boolean(log.isFinal && hasScore && hasKs);
+    const hasRequiredStats = settings.pitchMode === "player" ? hasScore : hasKs;
+    log.isFinal = Boolean(log.isFinal && hasScore && hasRequiredStats);
     out[key] = log;
   });
   return out;
@@ -179,6 +188,12 @@ export const coerceSettings = (raw: unknown): Settings => {
       ? (recapGroupingRaw as RecapGrouping)
       : DEFAULT_SETTINGS.recapGrouping;
 
+  const pitchModeRaw = raw.pitchMode;
+  const pitchMode: PitchMode =
+    isString(pitchModeRaw) && PITCH_MODE_VALUES.includes(pitchModeRaw as PitchMode)
+      ? (pitchModeRaw as PitchMode)
+      : DEFAULT_SETTINGS.pitchMode;
+
   const runDiffTiebreaker = isBoolean(raw.runDiffTiebreaker)
     ? raw.runDiffTiebreaker
     : DEFAULT_SETTINGS.runDiffTiebreaker;
@@ -203,6 +218,7 @@ export const coerceSettings = (raw: unknown): Settings => {
     tiebreakerOrder: coerceTiebreakerOrder(raw.tiebreakerOrder, runDiffTiebreaker),
     maxScoreCap: RUN_SCORE_CAP,
     modelAggression,
+    pitchMode,
     recapGrouping,
   };
 };
