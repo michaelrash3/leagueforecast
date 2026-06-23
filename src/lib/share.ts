@@ -36,6 +36,10 @@ type CompactSnapshot = {
 };
 
 const SHARE_VIEWS = new Set<ActiveShareView>([
+  "dashboard",
+  "predictions",
+  "matchup",
+  "power",
   "standings",
   "teamStats",
   "games",
