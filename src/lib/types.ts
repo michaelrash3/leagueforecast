@@ -171,7 +171,7 @@ export const DEFAULT_SETTINGS: Settings = {
   runDiffTiebreaker: true,
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: RUN_SCORE_CAP,
-  maxRunDifferential: RUN_SCORE_CAP,
+  maxRunDifferential: 8,
   modelAggression: "Balanced",
   pitchMode: "machine",
   recapGrouping: "date",

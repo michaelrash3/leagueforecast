@@ -5940,9 +5940,9 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
-              {[5, 10, 15, 20, 35].map((runs) => (
+              {[8, 10].map((runs) => (
                 <option key={runs} value={runs}>
-                  {runs === 35 ? "No cap" : `${runs} runs`}
+                  {runs} runs
                 </option>
               ))}
             </select>

@@ -656,6 +656,10 @@ it("player-pitch predictions are affected by walks and errors", () => {
   expect(messyPrediction.awayWinPct).toBeLessThan(cleanPrediction.awayWinPct);
 });
 
+it("defaults max run differential to the typical 8-run cap", () => {
+  expect(DEFAULT_SETTINGS.maxRunDifferential).toBe(8);
+});
+
 it("caps per-game run differential when configured", () => {
   const capped = calculateTeams(
     teams,
