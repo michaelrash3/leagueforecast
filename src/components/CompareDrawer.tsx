@@ -179,7 +179,7 @@ export function CompareDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >

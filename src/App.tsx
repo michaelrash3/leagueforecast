@@ -253,8 +253,12 @@ function DesignFlowPanel({
         <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
           Launch checklist
         </div>
-        <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">{title}</h2>
-        <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">{subtitle}</p>
+        <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
+          {title}
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+          {subtitle}
+        </p>
       </div>
       <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
         {steps.map((step, index) => (
@@ -486,8 +490,6 @@ const replaceTeamDataUrl = (teamId: string | null) => {
 
 const VIEW_LABELS: Record<ActiveView, string> = {
   dashboard: "Dashboard",
-  predictions: "Predictions",
-  matchup: "Matchup Analyzer",
   power: "Power Ratings",
   standings: "Standings",
   teamStats: "Teams",
@@ -498,8 +500,6 @@ const VIEW_LABELS: Record<ActiveView, string> = {
 
 const VIEW_ORDER: ActiveView[] = [
   "dashboard",
-  "predictions",
-  "matchup",
   "power",
   "games",
   "standings",
@@ -1171,7 +1171,7 @@ function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
         : "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700";
 
   return (
-    <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 text-white shadow-sm dark:border-slate-700">
+    <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 text-white shadow-sm dark:border-slate-700">
       <div className="relative isolate p-4">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.25),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_42%)]" />
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -1754,7 +1754,7 @@ function TeamDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -3864,8 +3864,6 @@ This will replace current season data and save an undo snapshot.`,
 
   const tabRefs = useRef<Record<ActiveView, HTMLButtonElement | null>>({
     dashboard: null,
-    predictions: null,
-    matchup: null,
     power: null,
     standings: null,
     teamStats: null,
@@ -4199,7 +4197,7 @@ This will replace current season data and save an undo snapshot.`,
                 </div>
                 <div>
                   <div className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                    Prediction command center
+                    League management
                   </div>
                   <h1 className="text-2xl font-black tracking-[-0.04em] text-slate-950 dark:text-white sm:text-3xl">
                     League Forecast
@@ -4264,7 +4262,7 @@ This will replace current season data and save an undo snapshot.`,
                 accent="from-blue-500 via-indigo-500 to-slate-900"
               />
               <HeaderStatCard
-                label="Forecast field"
+                label="Gold cutoff"
                 value={`Top ${goldCutoff}`}
                 accent="from-amber-400 via-orange-500 to-red-500"
               />
@@ -4314,20 +4312,11 @@ This will replace current season data and save an undo snapshot.`,
               loadDemoSeason={loadDemoSeason}
             />
           ) : activeView === "dashboard" ? (
-            <ForecastDashboard
+            <DashboardView
               engine={predictionEngine}
               teamsById={liveById}
               matchups={matchups}
               setActiveView={setActiveView}
-            />
-          ) : activeView === "predictions" ? (
-            <PredictionsView engine={predictionEngine} teamsById={liveById} matchups={matchups} />
-          ) : activeView === "matchup" ? (
-            <MatchupAnalyzer
-              engine={predictionEngine}
-              teams={liveTeams}
-              teamsById={liveById}
-              matchups={matchups}
             />
           ) : activeView === "power" ? (
             <PowerRatingsView engine={predictionEngine} />
@@ -4536,7 +4525,7 @@ This will replace current season data and save an undo snapshot.`,
               role="dialog"
               aria-modal="true"
               aria-label={confirmState.title}
-              className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900"
             >
               <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
                 {confirmState.title}
@@ -4594,7 +4583,7 @@ function PredictionCard({
   const aPct = Math.round(prediction.winProbability.teamA * 100);
   const bPct = Math.round(prediction.winProbability.teamB * 100);
   return (
-    <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">
@@ -4612,7 +4601,7 @@ function PredictionCard({
         </span>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs font-black uppercase tracking-wide text-slate-500">
             Projected Winner
           </p>
@@ -4621,7 +4610,7 @@ function PredictionCard({
             {prediction.projectedMargin !== null ? ` by ${prediction.projectedMargin}` : ""}
           </p>
         </div>
-        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs font-black uppercase tracking-wide text-slate-500">
             Win Probability
           </p>
@@ -4629,7 +4618,7 @@ function PredictionCard({
             {aPct}% / {bPct}%
           </p>
         </div>
-        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs font-black uppercase tracking-wide text-slate-500">
             Expected Score
           </p>
@@ -4640,7 +4629,7 @@ function PredictionCard({
           </p>
         </div>
       </div>
-      <div className="mt-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+      <div className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">Model Read</p>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
           {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
@@ -4655,7 +4644,7 @@ function PredictionCard({
   );
 }
 
-function ForecastDashboard({
+function DashboardView({
   engine,
   teamsById,
   matchups,
@@ -4674,21 +4663,16 @@ function ForecastDashboard({
     : 0;
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-cyan-200">
-          Prediction Dashboard
+      <section className="rounded-2xl bg-slate-950 p-5 text-white shadow-lg">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan-200">Dashboard</p>
+        <h2 className="mt-2 text-3xl font-black tracking-tight">Dashboard</h2>
+        <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
+          Review completed games, scheduled games, league strength, and the model status from one
+          place.
         </p>
-        <h2 className="mt-3 text-4xl font-black tracking-tight">League Forecast command center</h2>
-        <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
-          Enter league results and schedules. The system learns from the season and predicts
-          winners, margins, confidence, and why.
-        </p>
-        <div className="mt-5 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-3">
           <button className={buttonClasses.primary} onClick={() => setActiveView("games")}>
             Add Game
-          </button>
-          <button className={buttonClasses.ghost} onClick={() => setActiveView("predictions")}>
-            View Predictions
           </button>
         </div>
       </section>
@@ -4708,7 +4692,7 @@ function ForecastDashboard({
         ].map(([label, value]) => (
           <div
             key={label}
-            className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
           >
             <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
             <p className="mt-2 text-2xl font-black">{value}</p>
@@ -4718,9 +4702,9 @@ function ForecastDashboard({
       <section className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-black">Upcoming Predictions</h2>
-            <button className={buttonClasses.ghost} onClick={() => setActiveView("predictions")}>
-              Open forecast center
+            <h2 className="text-2xl font-black">Upcoming Game Predictions</h2>
+            <button className={buttonClasses.ghost} onClick={() => setActiveView("games")}>
+              Open Schedule
             </button>
           </div>
           {engine.predictions.slice(0, 3).map((p) => (
@@ -4747,7 +4731,7 @@ function ForecastDashboard({
 
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
       <h3 className="text-xl font-black">{title}</h3>
       <p className="mt-2 text-sm font-semibold text-slate-500">{body}</p>
     </div>
@@ -4755,7 +4739,7 @@ function EmptyPanel({ title, body }: { title: string; body: string }) {
 }
 function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
   return (
-    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">Data Quality</p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
       <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -4768,75 +4752,6 @@ function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictio
     </aside>
   );
 }
-function PredictionsView({
-  engine,
-  teamsById,
-  matchups,
-}: {
-  engine: ReturnType<typeof buildPredictionEngine>;
-  teamsById: Map<string, Team>;
-  matchups: Matchup[];
-}) {
-  return (
-    <div className="space-y-5">
-      <h2 className="text-3xl font-black">Game Predictions</h2>
-      {engine.predictions.length ? (
-        engine.predictions.map((p) => (
-          <PredictionCard key={p.gameId} prediction={p} teamsById={teamsById} matchups={matchups} />
-        ))
-      ) : (
-        <EmptyPanel
-          title="No upcoming predictions"
-          body="Add future scheduled games and completed scores to unlock the forecast center."
-        />
-      )}
-    </div>
-  );
-}
-function MatchupAnalyzer({
-  engine,
-  teams,
-  teamsById,
-  matchups,
-}: {
-  engine: ReturnType<typeof buildPredictionEngine>;
-  teams: Team[];
-  teamsById: Map<string, Team>;
-  matchups: Matchup[];
-}) {
-  const first = engine.predictions[0];
-  return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <h2 className="text-2xl font-black">Matchup Analyzer</h2>
-        <p className="mt-2 text-sm font-semibold text-slate-500">
-          Select any scheduled game from the forecast list to inspect projected winner, margin,
-          probability, confidence, key factors, and risk factors.
-        </p>
-        <div className="mt-5 space-y-2">
-          {teams.slice(0, 8).map((t) => (
-            <div
-              key={t.id}
-              className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-black dark:bg-slate-800"
-            >
-              {t.name}
-            </div>
-          ))}
-        </div>
-      </section>
-      <section>
-        {first ? (
-          <PredictionCard prediction={first} teamsById={teamsById} matchups={matchups} />
-        ) : (
-          <EmptyPanel
-            title="Matchup analysis unavailable"
-            body="Add a future scheduled game to analyze a matchup."
-          />
-        )}
-      </section>
-    </div>
-  );
-}
 function PowerRatingsView({
   engine,
   compact = false,
@@ -4845,7 +4760,7 @@ function PowerRatingsView({
   compact?: boolean;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-black">Power Ratings</h2>
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">
@@ -4942,7 +4857,7 @@ function EmptyState({
     },
     {
       eyebrow: "Review",
-      title: "Check the command center",
+      title: "Review season data",
       body: "Use standings, team stats, and the schedule board to confirm the season looks right.",
       meta: "Validates teams, games, and scores",
       tone: "emerald",
@@ -4966,7 +4881,7 @@ function EmptyState({
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
             Start a Season
           </h2>
@@ -5038,7 +4953,7 @@ function EmptyState({
             </div>
           </div>
         </div>
-        <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Team List
           </h3>
@@ -5069,7 +4984,16 @@ function TeamStatsView({
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className={`${card} p-5`}>
+        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+          Teams
+        </h2>
+        <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+          Compare league-wide scoring, hitting, pitching, and fielding rates.
+        </p>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="rounded-2xl bg-gradient-to-br from-blue-500/12 via-white to-white p-4 shadow-sm ring-1 ring-blue-100 dark:from-blue-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-blue-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -5165,7 +5089,16 @@ function StandingsView({
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className={`${card} p-5`}>
+        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+          Standings
+        </h2>
+        <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+          Track the live table, cut line, recent movement, and team status.
+        </p>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
           <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
@@ -5612,7 +5545,7 @@ function ModelView(props: {
       <div className={`${card} p-6`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Season Predictor
+            Model Accuracy
           </h2>
           <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
@@ -5691,10 +5624,10 @@ function ModelView(props: {
         onClearScores={clearBracketScores}
       />
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Forecast Board
+            Projected Standings
           </h3>
         </div>
         {modelRows.length === 0 ? (
@@ -6047,10 +5980,10 @@ function ModelView(props: {
       <section className={`${card} p-5`}>
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Game Forecasts
+            Game Projections
           </h3>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {gameForecasts.length} Forecasts
+            {gameForecasts.length} Projections
           </span>
         </div>
         {gameForecasts.length === 0 ? (
@@ -6630,6 +6563,15 @@ function GamesView({
   return (
     <section className="space-y-6">
       <div className={`${card} p-5`}>
+        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+          Schedule
+        </h2>
+        <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+          Add games, enter scores, filter the scoreboard, and verify finals.
+        </p>
+      </div>
+
+      <div className={`${card} p-5`}>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_1fr_auto]">
           <div>
             <label htmlFor={dateId} className="sr-only">
@@ -6743,7 +6685,7 @@ function GamesView({
       </div>
 
       {visibleGames.length === 0 && tournamentGames.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
         </div>
       ) : null}
@@ -6761,7 +6703,7 @@ function GamesView({
               <article
                 key={game.id}
                 id={`game-card-${game.id}`}
-                className={`overflow-hidden rounded-3xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
+                className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
                   final
                     ? "border-slate-200 opacity-80 dark:border-slate-700"
                     : "border-slate-200 dark:border-slate-700"
@@ -6942,7 +6884,7 @@ function GamesView({
               return (
                 <article
                   key={game.id}
-                  className={`overflow-hidden rounded-3xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
+                  className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
                     final
                       ? "border-slate-200 opacity-80 dark:border-slate-700"
                       : "border-slate-200 dark:border-slate-700"

@@ -14,7 +14,7 @@ export function ClinchingPathsPanel({
   onSelectTeam: (id: string) => void;
 }) {
   return (
-    <section className="rounded-3xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+    <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">

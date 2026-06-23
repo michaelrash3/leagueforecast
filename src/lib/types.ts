@@ -103,8 +103,6 @@ export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 export type PitchMode = "machine" | "player";
 export type ActiveShareView =
   | "dashboard"
-  | "predictions"
-  | "matchup"
   | "power"
   | "standings"
   | "teamStats"

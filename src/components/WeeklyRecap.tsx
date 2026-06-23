@@ -17,7 +17,7 @@ export function WeeklyRecapCard({
   return (
     <section
       aria-label={scopeLabel}
-      className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
+      className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
