@@ -95,6 +95,7 @@ import {
   type GameLog,
   type Matchup,
   type ModelAggression,
+  type PitchMode,
   type Prediction,
   type RecapGrouping,
   type Settings,
@@ -159,8 +160,8 @@ type TeamTrendSummary = {
 type TeamSplitLine = {
   label: string;
   games: number;
-  offense: { runs: number; hits: number; strikeouts: number };
-  defense: { runs: number; hits: number; strikeouts: number };
+  offense: { runs: number; hits: number; strikeouts: number; walks: number };
+  defense: { runs: number; hits: number; strikeouts: number; errors: number; walks: number };
 };
 
 type TeamSplitSummary = {
@@ -175,6 +176,8 @@ type LeagueAverageStats = {
   runs: number;
   hits: number;
   strikeouts: number;
+  errors: number;
+  walks: number;
 };
 
 type StatRankingMetric = {
@@ -565,22 +568,25 @@ const calcBip = (hits: string, runs: string, strikeouts: string, innings: string
 const emptySplitLine = (label: string): TeamSplitLine => ({
   label,
   games: 0,
-  offense: { runs: 0, hits: 0, strikeouts: 0 },
-  defense: { runs: 0, hits: 0, strikeouts: 0 },
+  offense: { runs: 0, hits: 0, strikeouts: 0, walks: 0 },
+  defense: { runs: 0, hits: 0, strikeouts: 0, errors: 0, walks: 0 },
 });
 
 const addSplitGame = (
   line: TeamSplitLine,
-  offense: { runs: number; hits: number; strikeouts: number },
-  defense: { runs: number; hits: number; strikeouts: number }
+  offense: { runs: number; hits: number; strikeouts: number; walks: number },
+  defense: { runs: number; hits: number; strikeouts: number; errors: number; walks: number }
 ) => {
   line.games += 1;
   line.offense.runs += offense.runs;
   line.offense.hits += offense.hits;
   line.offense.strikeouts += offense.strikeouts;
+  line.offense.walks += offense.walks;
   line.defense.runs += defense.runs;
   line.defense.hits += defense.hits;
   line.defense.strikeouts += defense.strikeouts;
+  line.defense.errors += defense.errors;
+  line.defense.walks += defense.walks;
 };
 
 const buildTeamSplitSummary = (
@@ -605,22 +611,28 @@ const buildTeamSplitSummary = (
           runs: parseNumber(log.awayRuns),
           hits: parseNumber(log.awayHits),
           strikeouts: parseNumber(log.awayK),
+          walks: parseNumber(log.homeWalksAllowed ?? ""),
         }
       : {
           runs: parseNumber(log.homeRuns),
           hits: parseNumber(log.homeHits),
           strikeouts: parseNumber(log.homeK),
+          walks: parseNumber(log.awayWalksAllowed ?? ""),
         };
     const defense = isAway
       ? {
           runs: parseNumber(log.homeRuns),
           hits: parseNumber(log.homeHits),
           strikeouts: parseNumber(log.homeK),
+          errors: parseNumber(log.awayErrors ?? ""),
+          walks: parseNumber(log.awayWalksAllowed ?? ""),
         }
       : {
           runs: parseNumber(log.awayRuns),
           hits: parseNumber(log.awayHits),
           strikeouts: parseNumber(log.awayK),
+          errors: parseNumber(log.homeErrors ?? ""),
+          walks: parseNumber(log.homeWalksAllowed ?? ""),
         };
 
     addSplitGame(summary.all, offense, defense);
@@ -767,16 +779,19 @@ const buildLeagueAverageStats = (
       totals.runs += parseNumber(log.awayRuns) + parseNumber(log.homeRuns);
       totals.hits += parseNumber(log.awayHits) + parseNumber(log.homeHits);
       totals.strikeouts += parseNumber(log.awayK) + parseNumber(log.homeK);
+      totals.errors += parseNumber(log.awayErrors ?? "") + parseNumber(log.homeErrors ?? "");
+      totals.walks += parseNumber(log.awayWalksAllowed ?? "") + parseNumber(log.homeWalksAllowed ?? "");
       return totals;
     },
-    { completedGames: 0, teamGames: 0, runs: 0, hits: 0, strikeouts: 0 }
+    { completedGames: 0, teamGames: 0, runs: 0, hits: 0, strikeouts: 0, errors: 0, walks: 0 }
   );
 };
 
 const buildTeamStatRankings = (
   teams: TeamBase[],
   matchups: Matchup[],
-  logs: Record<string, GameLog>
+  logs: Record<string, GameLog>,
+  pitchMode: PitchMode
 ): StatRankings => {
   const summaries = teams.map((team) => ({
     team,
@@ -820,37 +835,63 @@ const buildTeamStatRankings = (
 
   const sampleGames = matchups.filter((game) => isFinal(logs[game.id])).length;
 
+  const baseMetrics: StatRankingMetric[] = [
+    {
+      key: "runs-scored",
+      label: "R/G",
+      direction: "desc",
+      average: averageFor((line) => line.offense.runs),
+      entries: rankedEntries((line) => line.offense.runs, "desc"),
+    },
+    {
+      key: "hits",
+      label: "H/G",
+      direction: "desc",
+      average: averageFor((line) => line.offense.hits),
+      entries: rankedEntries((line) => line.offense.hits, "desc"),
+    },
+  ];
+
+  const modeMetrics: StatRankingMetric[] =
+    pitchMode === "player"
+      ? [
+          {
+            key: "walks-drawn",
+            label: "BB/G",
+            direction: "desc",
+            average: averageFor((line) => line.offense.walks),
+            entries: rankedEntries((line) => line.offense.walks, "desc"),
+          },
+          {
+            key: "errors",
+            label: "E/G",
+            direction: "asc",
+            average: averageFor((line) => line.defense.errors),
+            entries: rankedEntries((line) => line.defense.errors, "asc"),
+          },
+        ]
+      : [
+          {
+            key: "least-strikeouts",
+            label: "K/G",
+            direction: "asc",
+            average: averageFor((line) => line.offense.strikeouts),
+            entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
+          },
+          {
+            key: "opponent-strikeouts",
+            label: "Ks Against/G",
+            direction: "desc",
+            average: averageFor((line) => line.defense.strikeouts),
+            entries: rankedEntries((line) => line.defense.strikeouts, "desc"),
+          },
+        ];
+
   return {
     sampleGames,
     metrics: [
-      {
-        key: "runs-scored",
-        label: "R/G",
-        direction: "desc",
-        average: averageFor((line) => line.offense.runs),
-        entries: rankedEntries((line) => line.offense.runs, "desc"),
-      },
-      {
-        key: "hits",
-        label: "H/G",
-        direction: "desc",
-        average: averageFor((line) => line.offense.hits),
-        entries: rankedEntries((line) => line.offense.hits, "desc"),
-      },
-      {
-        key: "least-strikeouts",
-        label: "K/G",
-        direction: "asc",
-        average: averageFor((line) => line.offense.strikeouts),
-        entries: rankedEntries((line) => line.offense.strikeouts, "asc"),
-      },
-      {
-        key: "opponent-strikeouts",
-        label: "Ks Against/G",
-        direction: "desc",
-        average: averageFor((line) => line.defense.strikeouts),
-        entries: rankedEntries((line) => line.defense.strikeouts, "desc"),
-      },
+      ...baseMetrics,
+      ...modeMetrics,
       {
         key: "runs-allowed",
         label: "RA/G",
@@ -859,11 +900,16 @@ const buildTeamStatRankings = (
         entries: rankedEntries((line) => line.defense.runs, "asc"),
       },
       {
-        key: "hits-allowed",
-        label: "HA/G",
+        key: pitchMode === "player" ? "walks-allowed" : "hits-allowed",
+        label: pitchMode === "player" ? "BB Allowed/G" : "HA/G",
         direction: "asc",
-        average: averageFor((line) => line.defense.hits),
-        entries: rankedEntries((line) => line.defense.hits, "asc"),
+        average: averageFor((line) =>
+          pitchMode === "player" ? line.defense.walks : line.defense.hits
+        ),
+        entries: rankedEntries(
+          (line) => (pitchMode === "player" ? line.defense.walks : line.defense.hits),
+          "asc"
+        ),
       },
     ],
   };
@@ -981,10 +1027,12 @@ function SplitStatsTable({
   title,
   lines,
   side,
+  pitchMode,
 }: {
   title: string;
   lines: TeamSplitLine[];
   side: "offense" | "defense";
+  pitchMode: PitchMode;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -1001,7 +1049,7 @@ function SplitStatsTable({
               <th className="px-3 py-2 text-center">G</th>
               <th className="px-3 py-2 text-center">R/G</th>
               <th className="px-3 py-2 text-center">H/G</th>
-              <th className="px-3 py-2 text-center">K/G</th>
+              <th className="px-3 py-2 text-center">{pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-800 dark:divide-slate-800 dark:text-slate-100">
@@ -1016,7 +1064,9 @@ function SplitStatsTable({
                   {perGame(line[side].hits, line.games)}
                 </td>
                 <td className="px-3 py-3 text-center font-bold">
-                  {perGame(line[side].strikeouts, line.games)}
+                  {pitchMode === "player"
+                    ? perGame(side === "offense" ? line.offense.walks : line.defense.errors, line.games)
+                    : perGame(line[side].strikeouts, line.games)}
                 </td>
               </tr>
             ))}
@@ -1260,16 +1310,22 @@ type ScoreRowProps = {
   prefix: "away" | "home";
   log: GameLog;
   onChange: (field: keyof GameLog, value: string) => void;
+  pitchMode: PitchMode;
 };
 
-const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange }: ScoreRowProps) {
+const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange, pitchMode }: ScoreRowProps) {
   const fields = useMemo(
     () => [
       { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
       { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
-      { key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" },
+      ...(pitchMode === "player"
+        ? [
+            { key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" },
+            { key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog, label: "BB", aria: "Walks" },
+          ]
+        : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
     ],
-    [prefix]
+    [pitchMode, prefix]
   );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
@@ -1340,7 +1396,8 @@ function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
   return (
     previous.teamName === next.teamName &&
     previous.prefix === next.prefix &&
-    previous.log === next.log
+    previous.log === next.log &&
+    previous.pitchMode === next.pitchMode
   );
 }
 
@@ -1623,6 +1680,7 @@ function TeamDrawer({
   trendSummary,
   onCompare,
   leagueAverageStats,
+  pitchMode,
 }: {
   team: TeamWithProjection;
   range: { best: number; worst: number; baseline: number };
@@ -1641,6 +1699,7 @@ function TeamDrawer({
   trendSummary: TeamTrendSummary;
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
+  pitchMode: PitchMode;
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -1712,8 +1771,17 @@ function TeamDrawer({
           <DrawerMetric label="Bubble" value={bubble} />
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
-          <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
-          <DrawerMetric label="Ks Against/Game" value={team.oppKpg.toFixed(1)} />
+          {pitchMode === "player" ? (
+            <>
+              <DrawerMetric label="Errors/Game" value={(team.errorsPerGame ?? 0).toFixed(1)} />
+              <DrawerMetric label="BB/Game" value={(team.walksReceivedPerGame ?? 0).toFixed(1)} />
+            </>
+          ) : (
+            <>
+              <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
+              <DrawerMetric label="Ks Against/Game" value={team.oppKpg.toFixed(1)} />
+            </>
+          )}
           <DrawerMetric
             label="Lg Avg R/G"
             value={perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
@@ -1723,8 +1791,12 @@ function TeamDrawer({
             value={perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
           />
           <DrawerMetric
-            label="Lg Avg K/G"
-            value={perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
+            label={pitchMode === "player" ? "Lg Avg E/G" : "Lg Avg K/G"}
+            value={
+              pitchMode === "player"
+                ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
+                : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)
+            }
           />
           <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
@@ -1743,11 +1815,13 @@ function TeamDrawer({
             title="Offensive Splits"
             side="offense"
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
+            pitchMode={pitchMode}
           />
           <SplitStatsTable
             title="Defensive Splits"
             side="defense"
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
+            pitchMode={pitchMode}
           />
         </section>
 
@@ -2018,8 +2092,8 @@ export default function App() {
     [matchups, deferredLogs]
   );
   const statRankings = useMemo(
-    () => buildTeamStatRankings(teams, matchups, deferredLogs),
-    [teams, matchups, deferredLogs]
+    () => buildTeamStatRankings(teams, matchups, deferredLogs, settings.pitchMode),
+    [teams, matchups, deferredLogs, settings.pitchMode]
   );
   const remainingCounts = useMemo(
     () =>
@@ -3145,42 +3219,77 @@ This will replace the current season data and save an undo snapshot.`,
   };
 
   const exportCSV = () => {
-    const headers = [
-      "Game ID",
-      "Date",
-      "Away Team",
-      "Innings",
-      "Away Runs",
-      "Away Hits",
-      "Away K",
-      "Away BIP",
-      "Home Team",
-      "Home Runs",
-      "Home Hits",
-      "Home K",
-      "Home BIP",
-    ];
+    const headers =
+      settings.pitchMode === "player"
+        ? [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away E",
+            "Away BB",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home E",
+            "Home BB",
+          ]
+        : [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away K",
+            "Away BIP",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home K",
+            "Home BIP",
+          ];
     const rows = matchups.map((game) => {
       const log = logs[game.id] || EMPTY_GAME_LOG;
       const away = teamBaseById.get(game.away)?.name || game.away;
       const home = teamBaseById.get(game.home)?.name || game.home;
       const awayBip = calcBip(log.awayHits, log.awayRuns, log.awayK, log.innings);
       const homeBip = calcBip(log.homeHits, log.homeRuns, log.homeK, log.innings);
-      return [
-        game.id,
-        formatGameDate(game.date),
-        away,
-        log.innings,
-        log.awayRuns,
-        log.awayHits,
-        log.awayK,
-        awayBip,
-        home,
-        log.homeRuns,
-        log.homeHits,
-        log.homeK,
-        homeBip,
-      ]
+      const values =
+        settings.pitchMode === "player"
+          ? [
+              game.id,
+              formatGameDate(game.date),
+              away,
+              log.innings,
+              log.awayRuns,
+              log.awayHits,
+              log.awayErrors ?? "",
+              log.homeWalksAllowed ?? "",
+              home,
+              log.homeRuns,
+              log.homeHits,
+              log.homeErrors ?? "",
+              log.awayWalksAllowed ?? "",
+            ]
+          : [
+              game.id,
+              formatGameDate(game.date),
+              away,
+              log.innings,
+              log.awayRuns,
+              log.awayHits,
+              log.awayK,
+              awayBip,
+              home,
+              log.homeRuns,
+              log.homeHits,
+              log.homeK,
+              homeBip,
+            ];
+      return values
         .map(csvEscape)
         .join(",");
     });
@@ -3327,7 +3436,7 @@ This will replace current season data and save an undo snapshot.`,
 
   const toggleFinal = (gameId: string) => {
     setLogs((prev) => {
-      const current = prev[gameId] || blankLog();
+      const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
       const isMarkingFinal = !current.isFinal;
       const game = matchups.find((item) => item.id === gameId);
       const nextLogs = { ...prev, [gameId]: { ...current, isFinal: !current.isFinal } };
@@ -3428,16 +3537,19 @@ This will replace current season data and save an undo snapshot.`,
     });
   };
 
-  const updateLog = useCallback((gameId: string, field: keyof GameLog, value: string | boolean) => {
-    setLogs((prev) => {
-      const current = prev[gameId] || blankLog();
-      if (current[field] === value) return prev;
-      return {
-        ...prev,
-        [gameId]: { ...current, [field]: value },
-      };
-    });
-  }, []);
+  const updateLog = useCallback(
+    (gameId: string, field: keyof GameLog, value: string | boolean) => {
+      setLogs((prev) => {
+        const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
+        if (current[field] === value) return prev;
+        return {
+          ...prev,
+          [gameId]: { ...current, [field]: value },
+        };
+      });
+    },
+    [settings.defaultGameInnings]
+  );
 
   const updateBracketLog = useCallback(
     (gameId: string, field: keyof GameLog, value: string | boolean) => {
@@ -3495,7 +3607,7 @@ This will replace current season data and save an undo snapshot.`,
       ...prev,
       { id, date: normalizeDateInput(newDate), away: newAway, home: newHome },
     ]);
-    setLogs((prev) => ({ ...prev, [id]: blankLog() }));
+    setLogs((prev) => ({ ...prev, [id]: blankLog(String(settings.defaultGameInnings)) }));
     setNewDate("");
   };
 
@@ -3604,7 +3716,7 @@ This will replace current season data and save an undo snapshot.`,
         const gameNumber = builtMatchups.length + 1;
         const id = `game_${String(gameNumber).padStart(3, "0")}_${away.id}_${home.id}`;
         builtMatchups.push({ id, date: "", away: away.id, home: home.id });
-        builtLogs[id] = blankLog();
+        builtLogs[id] = blankLog(String(settings.defaultGameInnings));
       }
     }
     return { builtTeams, builtMatchups, builtLogs };
@@ -3638,25 +3750,60 @@ This will replace current season data and save an undo snapshot.`,
   const downloadRoundRobinCSV = () => {
     const built = buildRoundRobinSeason();
     if (!built) return;
-    const headers = [
-      "Game ID",
-      "Date",
-      "Away Team",
-      "Innings",
-      "Away Runs",
-      "Away Hits",
-      "Away K",
-      "Away BIP",
-      "Home Team",
-      "Home Runs",
-      "Home Hits",
-      "Home K",
-      "Home BIP",
-    ];
+    const headers =
+      settings.pitchMode === "player"
+        ? [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away E",
+            "Away BB",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home E",
+            "Home BB",
+          ]
+        : [
+            "Game ID",
+            "Date",
+            "Away Team",
+            "Innings",
+            "Away Runs",
+            "Away Hits",
+            "Away K",
+            "Away BIP",
+            "Home Team",
+            "Home Runs",
+            "Home Hits",
+            "Home K",
+            "Home BIP",
+          ];
     const rows = built.builtMatchups.map((game) => {
       const away = built.builtTeams.find((team) => team.id === game.away)?.name || game.away;
       const home = built.builtTeams.find((team) => team.id === game.home)?.name || game.home;
-      return [game.id, "", away, "6", "", "", "", "N/A", home, "", "", "", "N/A"]
+      const values =
+        settings.pitchMode === "player"
+          ? [game.id, "", away, String(settings.defaultGameInnings), "", "", "", "", home, "", "", "", ""]
+          : [
+              game.id,
+              "",
+              away,
+              String(settings.defaultGameInnings),
+              "",
+              "",
+              "",
+              "N/A",
+              home,
+              "",
+              "",
+              "",
+              "N/A",
+            ];
+      return values
         .map(csvEscape)
         .join(",");
     });
@@ -4166,7 +4313,11 @@ This will replace current season data and save an undo snapshot.`,
               onSelectTeam={openTeamData}
             />
           ) : activeView === "teamStats" ? (
-            <TeamStatsView leagueAverageStats={leagueAverageStats} statRankings={statRankings} />
+            <TeamStatsView
+              leagueAverageStats={leagueAverageStats}
+              statRankings={statRankings}
+              pitchMode={settings.pitchMode}
+            />
           ) : activeView === "model" ? (
             <ModelView
               goldCutoff={goldCutoff}
@@ -4220,6 +4371,7 @@ This will replace current season data and save an undo snapshot.`,
               scoreboardGames={scoreboardGames}
               scoreboardPredictions={scoreboardPredictions}
               scoreboardTeamFilter={scoreboardTeamFilter}
+              pitchMode={settings.pitchMode}
               setScoreboardTeamFilter={setScoreboardTeamFilter}
               newDate={newDate}
               setNewDate={setNewDate}
@@ -4281,6 +4433,7 @@ This will replace current season data and save an undo snapshot.`,
             splitSummary={selectedTeamSplitSummary}
             trendSummary={selectedTeamTrendSummary}
             leagueAverageStats={leagueAverageStats}
+            pitchMode={settings.pitchMode}
             onClose={closeTeamData}
             onCompare={() => {
               const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
@@ -4530,9 +4683,11 @@ function EmptyState({
 function TeamStatsView({
   leagueAverageStats,
   statRankings,
+  pitchMode,
 }: {
   leagueAverageStats: LeagueAverageStats;
   statRankings: StatRankings;
+  pitchMode: PitchMode;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -4565,12 +4720,24 @@ function TeamStatsView({
               {perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
             </div>
           </div>
+          {pitchMode === "player" && (
+            <div className="rounded-2xl bg-gradient-to-br from-violet-500/12 via-white to-white p-4 shadow-sm ring-1 ring-violet-100 dark:from-violet-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-violet-900/50">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                League Avg BB/G
+              </div>
+              <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+                {perGame(leagueAverageStats.walks, leagueAverageStats.teamGames)}
+              </div>
+            </div>
+          )}
           <div className="rounded-2xl bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              League Avg K/G
+              {pitchMode === "player" ? "League Avg E/G" : "League Avg K/G"}
             </div>
             <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
+              {pitchMode === "player"
+                ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
+                : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
             </div>
           </div>
         </div>
@@ -5635,6 +5802,8 @@ function SettingsView({
   const winId = useId();
   const tieId = useId();
   const regularSeasonGamesId = useId();
+  const defaultInningsId = useId();
+  const pitchModeId = useId();
   const aggrId = useId();
   const recapId = useId();
   const tiebreakerId = useId();
@@ -5731,6 +5900,48 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
+          </label>
+
+          <label htmlFor={defaultInningsId} className="block">
+            <span className="text-sm font-black text-slate-700">Default Innings / Game</span>
+            <select
+              id={defaultInningsId}
+              value={settings.defaultGameInnings}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  defaultGameInnings: Number(event.target.value),
+                }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            >
+              {[5, 6, 7].map((innings) => (
+                <option key={innings} value={innings}>
+                  {innings} innings
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              New games and blank round-robin schedules use this innings value by default.
+            </p>
+          </label>
+
+          <label htmlFor={pitchModeId} className="block">
+            <span className="text-sm font-black text-slate-700">Pitch Mode</span>
+            <select
+              id={pitchModeId}
+              value={settings.pitchMode}
+              onChange={(event) =>
+                setSettings((prev) => ({ ...prev, pitchMode: event.target.value as PitchMode }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            >
+              <option value="machine">Machine Pitch</option>
+              <option value="player">Player Pitch</option>
+            </select>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Machine pitch uses R/H/K. Player pitch uses R/H/E/BB; BB means walks drawn by that team&apos;s hitters.
+            </p>
           </label>
 
           <label htmlFor={aggrId} className="block">
@@ -5875,6 +6086,7 @@ function GamesView({
   scoreboardGames,
   scoreboardPredictions,
   scoreboardTeamFilter,
+  pitchMode,
   setScoreboardTeamFilter,
   newDate,
   setNewDate,
@@ -5911,6 +6123,7 @@ function GamesView({
     }
   >;
   scoreboardTeamFilter: string;
+  pitchMode: PitchMode;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
   setNewDate: (v: string) => void;
@@ -6224,12 +6437,14 @@ function GamesView({
                     prefix="away"
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
+                    pitchMode={pitchMode}
                   />
                   <ScoreRow
                     teamName={home?.name || game.home}
                     prefix="home"
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
+                    pitchMode={pitchMode}
                   />
                   <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:text-slate-400">
                     <label className="flex items-center gap-2">
@@ -6367,12 +6582,14 @@ function GamesView({
                       prefix="away"
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
+                      pitchMode={pitchMode}
                     />
                     <ScoreRow
                       teamName={home?.name || matchup.home}
                       prefix="home"
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
+                      pitchMode={pitchMode}
                     />
                     <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       <span>

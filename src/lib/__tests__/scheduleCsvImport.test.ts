@@ -51,3 +51,36 @@ describe("parseScheduleCsvImport", () => {
     expect(result.issues).toEqual([{ kind: "duplicate-id", rowNumber: 3, detail: "g1" }]);
   });
 });
+
+
+it("imports player-pitch box-score BB as walks drawn by that team", () => {
+  const csv = [
+    "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away Errors,Away BB,Home Team,Home Runs,Home Hits,Home E,Home BB",
+    "g1,2026-09-05,Aces,6,7,9,2,4,Bruins,5,6,1,3",
+  ].join("\n");
+
+  const result = parseScheduleCsvImport(csv);
+
+  expect(result.logs.g1).toMatchObject({
+    awayErrors: "2",
+    awayWalksAllowed: "3",
+    homeErrors: "1",
+    homeWalksAllowed: "4",
+  });
+});
+
+it("imports explicit BB allowed aliases without switching them", () => {
+  const csv = [
+    "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away E,Away BB Allowed,Home Team,Home Runs,Home Hits,Home Errors,Home BB Allowed",
+    "g1,2026-09-05,Aces,6,7,9,2,5,Bruins,4,6,1,2",
+  ].join("\n");
+
+  const result = parseScheduleCsvImport(csv);
+
+  expect(result.logs.g1).toMatchObject({
+    awayErrors: "2",
+    awayWalksAllowed: "5",
+    homeErrors: "1",
+    homeWalksAllowed: "2",
+  });
+});

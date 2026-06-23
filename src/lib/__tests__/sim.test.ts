@@ -627,3 +627,31 @@ describe("simulationSeed", () => {
     expect(simulationSeed(matchups, logsA, "x")).toBe(simulationSeed(matchups, logsB, "x"));
   });
 });
+
+it("defaults pitch mode to machine", () => {
+  expect(DEFAULT_SETTINGS.pitchMode).toBe("machine");
+});
+
+it("player-pitch predictions are affected by walks and errors", () => {
+  const cleanLogs = {
+    g1: finalLog({ awayRuns: "6", awayHits: "8", homeRuns: "4", homeHits: "6", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
+    g2: finalLog({ awayRuns: "5", awayHits: "7", homeRuns: "3", homeHits: "5", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
+    g3: finalLog({ awayRuns: "4", awayHits: "7", homeRuns: "6", homeHits: "8", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
+  };
+  const messyLogs = {
+    ...cleanLogs,
+    g3: finalLog({ awayRuns: "4", awayHits: "7", homeRuns: "6", homeHits: "8", awayErrors: "8", homeErrors: "0", awayWalksAllowed: "9", homeWalksAllowed: "1" }),
+  };
+
+  const playerGame: Matchup = { id: "future-player", date: "5/9", away: "A", home: "B" };
+  const cleanPrediction = predictGame(playerGame, calculateTeams(teams, matchups, cleanLogs), {
+    ...settings,
+    pitchMode: "player",
+  });
+  const messyPrediction = predictGame(playerGame, calculateTeams(teams, matchups, messyLogs), {
+    ...settings,
+    pitchMode: "player",
+  });
+
+  expect(messyPrediction.awayWinPct).toBeLessThan(cleanPrediction.awayWinPct);
+});

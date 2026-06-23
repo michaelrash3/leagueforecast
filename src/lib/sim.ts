@@ -27,6 +27,12 @@ export const emptyTeam = (base: TeamBase): Team => ({
   hpg: 0,
   kpg: 0,
   oppKpg: 0,
+  errorsPerGame: 0,
+  walksAllowedPerGame: 0,
+  walksReceivedPerGame: 0,
+  hitDiff: 0,
+  errorDiff: 0,
+  walkDiff: 0,
   tpi: 0,
   baseTpi: 0,
   sos: 0,
@@ -248,6 +254,11 @@ type InternalTeam = Team & {
   battingHits: number;
   battingKs: number;
   opponentKs: number;
+  errors: number;
+  opponentErrors: number;
+  walksAllowed: number;
+  walksReceived: number;
+  hitsAllowed: number;
   oppTpiSum: number;
   machineDiffSum: number;
   machineDiffCount: number;
@@ -268,6 +279,11 @@ export const calculateTeams = (
     battingHits: 0,
     battingKs: 0,
     opponentKs: 0,
+    errors: 0,
+    opponentErrors: 0,
+    walksAllowed: 0,
+    walksReceived: 0,
+    hitsAllowed: 0,
     oppTpiSum: 0,
     machineDiffSum: 0,
     machineDiffCount: 0,
@@ -295,6 +311,10 @@ export const calculateTeams = (
       const homeK = parseNumber(log.homeK);
       const awayHits = parseNumber(log.awayHits);
       const homeHits = parseNumber(log.homeHits);
+      const awayErrors = parseNumber(log.awayErrors ?? "");
+      const homeErrors = parseNumber(log.homeErrors ?? "");
+      const awayWalksAllowed = parseNumber(log.awayWalksAllowed ?? "");
+      const homeWalksAllowed = parseNumber(log.homeWalksAllowed ?? "");
 
       away.games += 1;
       home.games += 1;
@@ -313,6 +333,16 @@ export const calculateTeams = (
       home.battingKs += homeK;
       away.opponentKs += homeK;
       home.opponentKs += awayK;
+      away.errors += awayErrors;
+      home.errors += homeErrors;
+      away.opponentErrors += homeErrors;
+      home.opponentErrors += awayErrors;
+      away.walksAllowed += awayWalksAllowed;
+      home.walksAllowed += homeWalksAllowed;
+      away.walksReceived += homeWalksAllowed;
+      home.walksReceived += awayWalksAllowed;
+      away.hitsAllowed += homeHits;
+      home.hitsAllowed += awayHits;
 
       leagueKs += awayK + homeK;
       leagueInnings += innings * 2;
@@ -344,6 +374,12 @@ export const calculateTeams = (
     team.hpg = team.games ? team.battingHits / team.games : 0;
     team.kpg = team.games ? team.battingKs / team.games : 0;
     team.oppKpg = team.games ? team.opponentKs / team.games : 0;
+    team.errorsPerGame = team.games ? team.errors / team.games : 0;
+    team.walksAllowedPerGame = team.games ? team.walksAllowed / team.games : 0;
+    team.walksReceivedPerGame = team.games ? team.walksReceived / team.games : 0;
+    team.hitDiff = team.battingHits - team.hitsAllowed;
+    team.errorDiff = team.opponentErrors - team.errors;
+    team.walkDiff = team.walksReceived - team.walksAllowed;
 
     const innings = team.awayInns + team.homeInns;
     const k6 = innings ? ((team.awayKs + team.homeKs) / innings) * 6 : null;
@@ -421,6 +457,11 @@ export const calculateTeams = (
       battingHits: _bh,
       battingKs: _bk,
       opponentKs: _ok,
+      errors: _e,
+      opponentErrors: _oe,
+      walksAllowed: _wa,
+      walksReceived: _wr,
+      hitsAllowed: _ha,
       oppTpiSum: _ot,
       machineDiffSum: _md,
       machineDiffCount: _mc,
@@ -507,7 +548,72 @@ export const calibrateAwayWinPct = (
   const calibrated = 1 / (1 + Math.exp(-logit(clipped) * shrink * aggressionInfluence));
   return clamp(calibrated, 0.04, 0.96);
 };
-export const predictGame = (
+
+const playerPitchEdge = (away: Team, home: Team) => {
+  const awayDiffPerGame = away.games ? away.runDiff / away.games : 0;
+  const homeDiffPerGame = home.games ? home.runDiff / home.games : 0;
+  const runDiffEdge = clamp((awayDiffPerGame - homeDiffPerGame) / 8, -1, 1);
+  const scoringEdge = clamp((away.rsg - home.rsg + (home.rag - away.rag)) / 10, -1, 1);
+  const walkEdge = clamp(((away.walkDiff ?? 0) / Math.max(away.games, 1) - (home.walkDiff ?? 0) / Math.max(home.games, 1)) / 5, -1, 1);
+  const hitEdge = clamp(((away.hitDiff ?? 0) / Math.max(away.games, 1) - (home.hitDiff ?? 0) / Math.max(home.games, 1)) / 7, -1, 1);
+  const errorEdge = clamp(((away.errorDiff ?? 0) / Math.max(away.games, 1) - (home.errorDiff ?? 0) / Math.max(home.games, 1)) / 4, -1, 1);
+  const sosEdge = clamp((away.sos - home.sos) / 8, -1, 1);
+  const momentumEdge = clamp((away.momentum - home.momentum) / 7, -1, 1);
+  const h2hEdge = headToHeadEdge(away, home.id) * 0.05;
+
+  return (
+    runDiffEdge * 0.3 +
+    scoringEdge * 0.25 +
+    walkEdge * 0.15 +
+    hitEdge * 0.1 +
+    errorEdge * 0.1 +
+    sosEdge * 0.05 +
+    momentumEdge * 0.05 +
+    h2hEdge -
+    0.04
+  );
+};
+
+export const predictPlayerPitchGame = (
+  game: Matchup,
+  teams: Team[],
+  settings: Pick<Settings, "modelAggression">,
+  byId?: Map<string, Team>
+): Prediction => {
+  const lookup = byId ?? buildByIdMap(teams);
+  const away = lookup.get(game.away);
+  const home = lookup.get(game.home);
+  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const leagueRuns = totalGames ? totalRuns / totalGames : 7;
+  const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
+
+  if (!away || !home) {
+    return { awayScore: Math.round(leagueRuns), homeScore: Math.round(leagueRuns), awayWinPct: 0.5, winnerId: game.away, confidence: "Low" };
+  }
+
+  if (away.games < 2 || home.games < 2) {
+    const awayPrior = away.games ? away.pct : 0.5;
+    const homePrior = home.games ? home.pct : 0.5;
+    const awayWinPct = calibrateAwayWinPct(0.5 + clamp((awayPrior - homePrior) * 0.16, -0.08, 0.08), away.games, home.games, aggression);
+    const spread = clamp((awayWinPct - 0.5) * 6, -1, 1);
+    return { awayScore: Math.max(1, Math.round(leagueRuns + spread)), homeScore: Math.max(1, Math.round(leagueRuns - spread)), awayWinPct, winnerId: awayWinPct >= 0.5 ? game.away : game.home, confidence: "Low" };
+  }
+
+  const awayCommandPressure = (home.walksAllowedPerGame ?? 0) * 0.28 - (away.errorsPerGame ?? 0) * 0.18;
+  const homeCommandPressure = (away.walksAllowedPerGame ?? 0) * 0.28 - (home.errorsPerGame ?? 0) * 0.18;
+  const awayScore = Math.max(1, (away.rsg * home.rag) / Math.max(leagueRuns, 1) + awayCommandPressure + away.momentum * 0.08);
+  const homeScore = Math.max(1, (home.rsg * away.rag) / Math.max(leagueRuns, 1) + homeCommandPressure + home.momentum * 0.08);
+  const edge = playerPitchEdge(away, home) * clamp(0.95 + aggression * 0.16, 0.95, 1.25);
+  const awayWinPct = calibrateAwayWinPct(logistic(edge), away.games, home.games, aggression);
+  const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
+  const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
+  const margin = Math.abs(awayScore - homeScore);
+  const confidence: Prediction["confidence"] = away.games >= 6 && home.games >= 6 && margin >= 5 && winnerPct >= 0.76 ? "High" : away.games >= 4 && home.games >= 4 && margin >= 2.5 && winnerPct >= 0.63 ? "Medium" : "Low";
+  return { awayScore: Math.round(awayScore), homeScore: Math.round(homeScore), awayWinPct, winnerId, confidence };
+};
+
+export const predictMachinePitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
@@ -589,6 +695,16 @@ export const predictGame = (
     winnerId,
     confidence,
   };
+};
+
+export const predictGame = (
+  game: Matchup,
+  teams: Team[],
+  settings: Pick<Settings, "modelAggression" | "pitchMode">,
+  byId?: Map<string, Team>
+): Prediction => {
+  if (settings.pitchMode === "player") return predictPlayerPitchGame(game, teams, settings, byId);
+  return predictMachinePitchGame(game, teams, settings, byId);
 };
 
 export const applyResult = (

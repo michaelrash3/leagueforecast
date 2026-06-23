@@ -94,3 +94,21 @@ describe("buildShareUrl + readSharedFromHash", () => {
     expect(() => buildShareUrl("https://example.com", largeSnapshot)).toThrow();
   });
 });
+
+it("round-trips player-pitch fields and pitch mode", () => {
+  const playerSnapshot: SharedSnapshot = {
+    ...snapshot,
+    logs: {
+      g1: {
+        ...snapshot.logs.g1!,
+        awayErrors: "2",
+        homeErrors: "1",
+        awayWalksAllowed: "4",
+        homeWalksAllowed: "3",
+      },
+    },
+    settings: { ...DEFAULT_SETTINGS, pitchMode: "player" },
+  };
+
+  expect(decodeSnapshot(encodeSnapshot(playerSnapshot))).toEqual(playerSnapshot);
+});
