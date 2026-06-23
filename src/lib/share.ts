@@ -22,6 +22,10 @@ type CompactGameLog = [
   homeK: string,
   innings: string,
   isFinal?: 1,
+  awayErrors?: string,
+  homeErrors?: string,
+  awayWalksAllowed?: string,
+  homeWalksAllowed?: string,
 ];
 type CompactSnapshot = {
   v: 2;
@@ -78,6 +82,10 @@ const compactSnapshot = (snapshot: SharedSnapshot): CompactSnapshot => ({
         log.homeK,
         log.innings,
         log.isFinal ? 1 : undefined,
+        log.awayErrors,
+        log.homeErrors,
+        log.awayWalksAllowed,
+        log.homeWalksAllowed,
       ].filter((value, index) => index < 7 || value !== undefined) as CompactGameLog,
     ])
   ),
@@ -99,19 +107,21 @@ const expandCompactSnapshot = (parsed: CompactSnapshot): SharedSnapshot | null =
   const logs = Object.fromEntries(
     Object.entries(parsed.l).map(([id, value]) => {
       const log = Array.isArray(value) ? value : [];
-      return [
-        id,
-        {
-          awayRuns: String(log[0] ?? ""),
-          awayHits: String(log[1] ?? ""),
-          awayK: String(log[2] ?? ""),
-          homeRuns: String(log[3] ?? ""),
-          homeHits: String(log[4] ?? ""),
-          homeK: String(log[5] ?? ""),
-          innings: String(log[6] ?? "6"),
-          isFinal: log[7] === 1,
-        },
-      ];
+      const expanded: GameLog = {
+        awayRuns: String(log[0] ?? ""),
+        awayHits: String(log[1] ?? ""),
+        awayK: String(log[2] ?? ""),
+        homeRuns: String(log[3] ?? ""),
+        homeHits: String(log[4] ?? ""),
+        homeK: String(log[5] ?? ""),
+        innings: String(log[6] ?? "6"),
+        isFinal: log[7] === 1,
+      };
+      if (log.length > 8) expanded.awayErrors = String(log[8] ?? "");
+      if (log.length > 9) expanded.homeErrors = String(log[9] ?? "");
+      if (log.length > 10) expanded.awayWalksAllowed = String(log[10] ?? "");
+      if (log.length > 11) expanded.homeWalksAllowed = String(log[11] ?? "");
+      return [id, expanded];
     })
   );
   const settings = coerceSettings(parsed.s);

@@ -12,6 +12,12 @@ export type HeadToHeadRecord = {
 export type TiebreakerFactor = "headToHead" | "runDifferential" | "runsAgainst" | "runsFor";
 
 export type Team = TeamBase & {
+  errorsPerGame?: number;
+  walksAllowedPerGame?: number;
+  walksReceivedPerGame?: number;
+  hitDiff?: number;
+  errorDiff?: number;
+  walkDiff?: number;
   w: number;
   l: number;
   t: number;
@@ -44,6 +50,10 @@ export type GameLog = {
   homeRuns: string;
   homeHits: string;
   homeK: string;
+  awayErrors?: string;
+  homeErrors?: string;
+  awayWalksAllowed?: string;
+  homeWalksAllowed?: string;
   innings: string;
   isFinal?: boolean;
 };
@@ -90,6 +100,7 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
+export type PitchMode = "machine" | "player";
 export type ActiveShareView = "standings" | "teamStats" | "games" | "model" | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
@@ -111,12 +122,15 @@ export type Settings = {
   goldCutoff: number;
   seasonLabel: string;
   regularSeasonGamesPerTeam: number;
+  defaultGameInnings: number;
   winPoints: number;
   tiePoints: number;
   runDiffTiebreaker: boolean;
   tiebreakerOrder: TiebreakerFactor[];
   maxScoreCap: number;
+  maxRunDifferential: number;
   modelAggression: ModelAggression;
+  pitchMode: PitchMode;
   recapGrouping: RecapGrouping;
 };
 
@@ -151,12 +165,15 @@ export const DEFAULT_SETTINGS: Settings = {
   goldCutoff: DEFAULT_GOLD_CUTOFF,
   seasonLabel: DEFAULT_SEASON_LABEL,
   regularSeasonGamesPerTeam: 0,
+  defaultGameInnings: 6,
   winPoints: 1,
   tiePoints: 0.5,
   runDiffTiebreaker: true,
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: RUN_SCORE_CAP,
+  maxRunDifferential: 8,
   modelAggression: "Balanced",
+  pitchMode: "machine",
   recapGrouping: "date",
 };
 
