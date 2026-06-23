@@ -30,7 +30,7 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
 
         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
           {backtestResult.sampleSize === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+            <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
               No calibration yet.
             </div>
           ) : (

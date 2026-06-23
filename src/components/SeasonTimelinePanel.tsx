@@ -2,7 +2,7 @@ import type { SeasonTimelineEntry } from "../lib/seasonTimeline";
 
 export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[] }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <section className="rounded-none border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -14,7 +14,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
         </span>
       </div>
       {entries.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+        <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
           No final results yet.
         </div>
       ) : (
@@ -22,7 +22,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
           {entries.map((entry) => (
             <li
               key={entry.id}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+              className="rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>

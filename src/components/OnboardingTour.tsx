@@ -67,7 +67,7 @@ export function OnboardingTour({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/30 p-3 sm:items-center">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+      <div className="w-full max-w-md rounded-none bg-white p-5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
         <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <span>
             Step {step + 1} / {STEPS.length}

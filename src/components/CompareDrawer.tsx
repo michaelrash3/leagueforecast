@@ -179,7 +179,7 @@ export function CompareDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-none bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -229,7 +229,7 @@ export function CompareDrawer({
           </select>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="mt-6 overflow-hidden rounded-none border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               <tr>
@@ -256,7 +256,7 @@ export function CompareDrawer({
           </table>
         </div>
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+        <section className="mt-6 rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Head-to-Head
           </h3>
@@ -298,7 +298,7 @@ export function CompareDrawer({
           )}
         </section>
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Common Opponents Played
           </h3>

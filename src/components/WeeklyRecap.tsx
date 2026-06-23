@@ -17,7 +17,7 @@ export function WeeklyRecapCard({
   return (
     <section
       aria-label={scopeLabel}
-      className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
+      className="rounded-none border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
@@ -49,7 +49,7 @@ export function WeeklyRecapCard({
         {items.map((item) => (
           <li
             key={item.text}
-            className={`rounded-2xl px-3 py-2 text-sm font-bold ${
+            className={`rounded-none px-3 py-2 text-sm font-bold ${
               item.kind === "clinched"
                 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                 : item.kind === "eliminated"

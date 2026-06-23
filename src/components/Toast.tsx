@@ -22,7 +22,7 @@ export function ToastView({
       className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4"
     >
       <div
-        className={`pointer-events-auto flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-bold shadow-lg ring-1 ring-black/10 ${
+        className={`pointer-events-auto flex items-center gap-3 rounded-none px-5 py-3 text-sm font-bold shadow-lg ring-1 ring-black/10 ${
           toneClasses[toast.tone]
         }`}
       >

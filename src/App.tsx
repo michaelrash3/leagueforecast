@@ -264,7 +264,7 @@ function DesignFlowPanel({
         {steps.map((step, index) => (
           <article
             key={step.title}
-            className={`rounded-2xl bg-gradient-to-br ${flowToneClasses[step.tone]} p-4 ring-1`}
+            className={`rounded-none bg-gradient-to-br ${flowToneClasses[step.tone]} p-4 ring-1`}
           >
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-sm font-black text-slate-950 shadow-sm ring-1 ring-white/70 dark:bg-slate-950 dark:text-white dark:ring-white/10">
@@ -336,7 +336,7 @@ function HeaderStatCard({
   accent: string;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/70 dark:border-slate-800 dark:bg-slate-950 dark:hover:shadow-black/20">
+    <div className="group relative overflow-hidden rounded-none border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/70 dark:border-slate-800 dark:bg-slate-950 dark:hover:shadow-black/20">
       <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${accent} opacity-90`} />
       <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
         {label}
@@ -1026,7 +1026,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function DrawerMetric({ label, value }: { label: React.ReactNode; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
@@ -1047,7 +1047,7 @@ function SplitStatsTable({
   pitchMode: PitchMode;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <h4 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">
           {title}
@@ -1171,7 +1171,7 @@ function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
         : "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700";
 
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 text-white shadow-sm dark:border-slate-700">
+    <section className="mt-6 overflow-hidden rounded-none border border-slate-200 bg-slate-950 text-white shadow-sm dark:border-slate-700">
       <div className="relative isolate p-4">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.25),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_42%)]" />
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -1191,7 +1191,7 @@ function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
         {trend.metrics.map((metric) => (
           <article
             key={metric.key}
-            className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800"
+            className="rounded-none border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1276,7 +1276,7 @@ function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
         {rankings.metrics.map((metric) => (
           <div
             key={metric.key}
-            className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-800/60"
+            className="overflow-hidden rounded-none border border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-800/60"
           >
             <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
               <h3 className="text-sm font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -1536,7 +1536,7 @@ function BracketGameCard({
   const hasPlayableTeams = !!game.top.team && !!game.bottom.team;
 
   return (
-    <article className="min-w-[260px] rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <article className="min-w-[260px] rounded-none border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1640,12 +1640,12 @@ function BracketPredictionPanel({
       </div>
 
       {projection.rounds.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+        <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
           {emptyMessage}
         </div>
       ) : (
         <>
-          <div className="mb-4 rounded-2xl bg-slate-950 p-4 text-white">
+          <div className="mb-4 rounded-none bg-slate-950 p-4 text-white">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">
               {championLabel}
             </div>
@@ -1754,7 +1754,7 @@ function TeamDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-none bg-white p-6 shadow-2xl outline-none dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -1852,7 +1852,7 @@ function TeamDrawer({
           />
         </section>
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Magic Numbers
           </h3>
@@ -1872,7 +1872,7 @@ function TeamDrawer({
           </ul>
         </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+        <section className="mt-6 rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Clinch Scenarios
           </h3>
@@ -1892,14 +1892,14 @@ function TeamDrawer({
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Next Two</h3>
           <div className="mt-3 space-y-3">
             {swings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
+              <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
                 No remaining games for this team.
               </div>
             ) : (
               swings.map((swing) => (
                 <div
                   key={swing.game.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+                  className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-black text-slate-950 dark:text-slate-100">
@@ -4192,7 +4192,7 @@ This will replace current season data and save an undo snapshot.`,
           <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-black text-white shadow-lg shadow-slate-300/60 dark:bg-white dark:text-slate-950 dark:shadow-black/30">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-none bg-slate-950 text-sm font-black text-white shadow-lg shadow-slate-300/60 dark:bg-white dark:text-slate-950 dark:shadow-black/30">
                   LF
                 </div>
                 <div>
@@ -4271,7 +4271,7 @@ This will replace current season data and save an undo snapshot.`,
             <div
               role="tablist"
               aria-label="Main views"
-              className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-inner dark:border-slate-800 dark:bg-slate-900"
+              className="flex gap-1 overflow-x-auto rounded-none border border-slate-200 bg-slate-50 p-1 shadow-inner dark:border-slate-800 dark:bg-slate-900"
             >
               {VIEW_ORDER.map((view) => (
                 <button
@@ -4525,7 +4525,7 @@ This will replace current season data and save an undo snapshot.`,
               role="dialog"
               aria-modal="true"
               aria-label={confirmState.title}
-              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+              className="w-full max-w-lg rounded-none bg-white p-6 shadow-2xl dark:bg-slate-900"
             >
               <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
                 {confirmState.title}
@@ -4583,7 +4583,7 @@ function PredictionCard({
   const aPct = Math.round(prediction.winProbability.teamA * 100);
   const bPct = Math.round(prediction.winProbability.teamB * 100);
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
+    <article className="rounded-none border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">
@@ -4663,7 +4663,7 @@ function DashboardView({
     : 0;
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl bg-slate-950 p-5 text-white shadow-lg">
+      <section className="rounded-none bg-slate-950 p-5 text-white shadow-lg">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan-200">Dashboard</p>
         <h2 className="mt-2 text-3xl font-black tracking-tight">Dashboard</h2>
         <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
@@ -4692,7 +4692,7 @@ function DashboardView({
         ].map(([label, value]) => (
           <div
             key={label}
-            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
           >
             <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
             <p className="mt-2 text-2xl font-black">{value}</p>
@@ -4731,7 +4731,7 @@ function DashboardView({
 
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+    <div className="rounded-none border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
       <h3 className="text-xl font-black">{title}</h3>
       <p className="mt-2 text-sm font-semibold text-slate-500">{body}</p>
     </div>
@@ -4739,7 +4739,7 @@ function EmptyPanel({ title, body }: { title: string; body: string }) {
 }
 function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
   return (
-    <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <aside className="rounded-none border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">Data Quality</p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
       <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -4760,7 +4760,7 @@ function PowerRatingsView({
   compact?: boolean;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-none border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-black">Power Ratings</h2>
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">
@@ -4881,7 +4881,7 @@ function EmptyState({
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_420px]">
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="rounded-none border border-dashed border-slate-300 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
             Start a Season
           </h2>
@@ -4911,7 +4911,7 @@ function EmptyState({
             </button>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800/60">
+          <div className="mt-8 rounded-none border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800/60">
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
               New Season Builder
             </h3>
@@ -4927,7 +4927,7 @@ function EmptyState({
                   ? teams.map((team) => displayName(team.name)).join("\n")
                   : "Falcons\nWolves\nComets"
               }
-              className="mt-4 h-44 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-4 h-44 w-full resize-none rounded-none border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
             <div className="mt-4 flex flex-wrap gap-3">
               <button
@@ -4953,7 +4953,7 @@ function EmptyState({
             </div>
           </div>
         </div>
-        <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <aside className="rounded-none border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Team List
           </h3>
@@ -4965,7 +4965,7 @@ function EmptyState({
             value={seasonBuilderText}
             onChange={(event) => setSeasonBuilderText(event.target.value)}
             placeholder={"Falcons\nWolves\nComets\nChaos"}
-            className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            className="mt-4 h-64 w-full resize-none rounded-none border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
           />
         </aside>
       </div>
@@ -4993,9 +4993,9 @@ function TeamStatsView({
         </p>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800/40">
-          <div className="rounded-2xl bg-gradient-to-br from-blue-500/12 via-white to-white p-4 shadow-sm ring-1 ring-blue-100 dark:from-blue-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-blue-900/50">
+          <div className="rounded-none bg-gradient-to-br from-blue-500/12 via-white to-white p-4 shadow-sm ring-1 ring-blue-100 dark:from-blue-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-blue-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg Sample
             </div>
@@ -5006,7 +5006,7 @@ function TeamStatsView({
               games played
             </div>
           </div>
-          <div className="rounded-2xl bg-gradient-to-br from-emerald-500/12 via-white to-white p-4 shadow-sm ring-1 ring-emerald-100 dark:from-emerald-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-emerald-900/50">
+          <div className="rounded-none bg-gradient-to-br from-emerald-500/12 via-white to-white p-4 shadow-sm ring-1 ring-emerald-100 dark:from-emerald-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-emerald-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg R/G
             </div>
@@ -5014,7 +5014,7 @@ function TeamStatsView({
               {perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
             </div>
           </div>
-          <div className="rounded-2xl bg-gradient-to-br from-amber-500/14 via-white to-white p-4 shadow-sm ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
+          <div className="rounded-none bg-gradient-to-br from-amber-500/14 via-white to-white p-4 shadow-sm ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               League Avg H/G
             </div>
@@ -5023,7 +5023,7 @@ function TeamStatsView({
             </div>
           </div>
           {pitchMode === "player" && (
-            <div className="rounded-2xl bg-gradient-to-br from-violet-500/12 via-white to-white p-4 shadow-sm ring-1 ring-violet-100 dark:from-violet-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-violet-900/50">
+            <div className="rounded-none bg-gradient-to-br from-violet-500/12 via-white to-white p-4 shadow-sm ring-1 ring-violet-100 dark:from-violet-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-violet-900/50">
               <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 League Avg BB/G
               </div>
@@ -5032,7 +5032,7 @@ function TeamStatsView({
               </div>
             </div>
           )}
-          <div className="rounded-2xl bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
+          <div className="rounded-none bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {pitchMode === "player" ? "League Avg E/G" : "League Avg K/G"}
             </div>
@@ -5098,7 +5098,7 @@ function StandingsView({
         </p>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
           <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
@@ -5146,7 +5146,7 @@ function StandingsView({
               </div>
             </div>
             {lastImpact.scores.length > 0 && (
-              <div className="mb-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+              <div className="mb-3 rounded-none bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
                 <div className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Final Scores
                 </div>
@@ -5165,7 +5165,7 @@ function StandingsView({
             {lastImpact.recapItems.length > 0 ? (
               <>
                 {weeklyStory && (
-                  <div className="mb-3 whitespace-pre-line rounded-2xl bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                  <div className="mb-3 whitespace-pre-line rounded-none bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                     <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       League Story
                     </div>
@@ -5176,7 +5176,7 @@ function StandingsView({
                   {lastImpact.recapItems.map((item) => (
                     <li
                       key={item.text}
-                      className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700"
+                      className="rounded-none bg-white px-3 py-2 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700"
                     >
                       <span>{item.text}</span>
                     </li>
@@ -5281,7 +5281,7 @@ function StandingsView({
                                 event.preventDefault();
                                 onSelectTeam(team.id);
                               }}
-                              className="-m-1 flex items-center gap-3 rounded-2xl p-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                              className="-m-1 flex items-center gap-3 rounded-none p-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                               aria-label={`View stats for ${displayName(team.name)}`}
                             >
                               <span
@@ -5377,7 +5377,7 @@ function StandingsView({
                           event.preventDefault();
                           onSelectTeam(team.id);
                         }}
-                        className="flex min-w-0 items-center gap-3 rounded-2xl text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                        className="flex min-w-0 items-center gap-3 rounded-none text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
                         <span
@@ -5547,7 +5547,7 @@ function ModelView(props: {
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
             Model Accuracy
           </h2>
-          <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
+          <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
           </div>
         </div>
@@ -5588,7 +5588,7 @@ function ModelView(props: {
                 type="button"
                 key={`sos-heat-${team.id}`}
                 onClick={() => onSelectTeam(team.id)}
-                className={`rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+                className={`rounded-none border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
                 aria-label={`${displayName(team.name)} remaining schedule difficulty: ${sos.label}`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -5624,7 +5624,7 @@ function ModelView(props: {
         onClearScores={clearBracketScores}
       />
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Projected Standings
@@ -5828,7 +5828,7 @@ function ModelView(props: {
           </span>
         </div>
         {gamesThatMatterMost.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
+          <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
             No remaining games.
           </div>
         ) : (
@@ -5836,7 +5836,7 @@ function ModelView(props: {
             {gamesThatMatterMost.map((item) => (
               <div
                 key={`matter-${item.game.id}`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+                className="rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -5876,7 +5876,7 @@ function ModelView(props: {
               return (
                 <div
                   key={`bubble-${team.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+                  className="rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -5931,7 +5931,7 @@ function ModelView(props: {
               return (
                 <div
                   key={`model-swing-${team.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+                  className="rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="font-black text-slate-950 dark:text-slate-100">
@@ -5987,7 +5987,7 @@ function ModelView(props: {
           </span>
         </div>
         {gameForecasts.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500">
+          <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500">
             No remaining games to project.
           </div>
         ) : (
@@ -5999,7 +5999,7 @@ function ModelView(props: {
               return (
                 <article
                   key={`game-forecast-${item.game.id}`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+                  className="rounded-none border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -6012,7 +6012,7 @@ function ModelView(props: {
                         {item.awayName} at {item.homeName}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                    <div className="rounded-none bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
                       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Pick
                       </div>
@@ -6149,7 +6149,7 @@ function SettingsView({
                 setSettings((prev) => ({ ...prev, seasonLabel: event.target.value }))
               }
               placeholder="Spring 26"
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={cutoffId} className="block">
@@ -6166,7 +6166,7 @@ function SettingsView({
                   goldCutoff: Number(event.target.value),
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={winId} className="block">
@@ -6180,7 +6180,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, winPoints: Number(event.target.value) }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={tieId} className="block">
@@ -6194,7 +6194,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, tiePoints: Number(event.target.value) }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
           <label htmlFor={regularSeasonGamesId} className="block">
@@ -6210,7 +6210,7 @@ function SettingsView({
                   regularSeasonGamesPerTeam: Number(event.target.value),
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
 
@@ -6225,7 +6225,7 @@ function SettingsView({
                   defaultGameInnings: Number(event.target.value),
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               {[5, 6, 7].map((innings) => (
                 <option key={innings} value={innings}>
@@ -6249,7 +6249,7 @@ function SettingsView({
                   maxRunDifferential: Number(event.target.value),
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               {[8, 10].map((runs) => (
                 <option key={runs} value={runs}>
@@ -6272,7 +6272,7 @@ function SettingsView({
               onChange={(event) =>
                 setSettings((prev) => ({ ...prev, pitchMode: event.target.value as PitchMode }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="machine">Machine Pitch</option>
               <option value="player">Player Pitch</option>
@@ -6294,7 +6294,7 @@ function SettingsView({
                   modelAggression: event.target.value as ModelAggression,
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="Conservative">Conservative</option>
               <option value="Balanced">Balanced</option>
@@ -6312,7 +6312,7 @@ function SettingsView({
                   recapGrouping: event.target.value as RecapGrouping,
                 }))
               }
-              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
               <option value="game">Per Game</option>
               <option value="date">Per Date</option>
@@ -6320,7 +6320,7 @@ function SettingsView({
             </select>
           </label>
           <fieldset
-            className="rounded-2xl border border-slate-300 p-4 dark:border-slate-600 md:col-span-2"
+            className="rounded-none border border-slate-300 p-4 dark:border-slate-600 md:col-span-2"
             aria-labelledby={tiebreakerId}
           >
             <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700">
@@ -6341,7 +6341,7 @@ function SettingsView({
                     onChange={(event) =>
                       updateTiebreaker(index, event.target.value as TiebreakerSelectValue)
                     }
-                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+                    className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
                     aria-label={`Tie-break ${index + 1}`}
                   >
                     <option value="none">None</option>
@@ -6357,7 +6357,7 @@ function SettingsView({
           </fieldset>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+        <div className="mt-8 rounded-none border border-slate-200 bg-slate-50 p-5">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Data
           </h3>
@@ -6685,7 +6685,7 @@ function GamesView({
       </div>
 
       {visibleGames.length === 0 && tournamentGames.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <div className="rounded-none border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
         </div>
       ) : null}
@@ -6703,7 +6703,7 @@ function GamesView({
               <article
                 key={game.id}
                 id={`game-card-${game.id}`}
-                className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
+                className={`overflow-hidden rounded-none border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
                   final
                     ? "border-slate-200 opacity-80 dark:border-slate-700"
                     : "border-slate-200 dark:border-slate-700"
@@ -6756,7 +6756,7 @@ function GamesView({
 
                 <div className="space-y-4 p-4">
                   {!final && prediction ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-none border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-sm ring-1 ring-slate-200">
                           Spread: {prediction.spread}
@@ -6775,7 +6775,7 @@ function GamesView({
                       </span>
                     </div>
                   ) : !final ? (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                    <div className="rounded-none border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                       Prediction queued in the background — score entry and final verification are
                       ready now.
                     </div>
@@ -6884,7 +6884,7 @@ function GamesView({
               return (
                 <article
                   key={game.id}
-                  className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
+                  className={`overflow-hidden rounded-none border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 ${
                     final
                       ? "border-slate-200 opacity-80 dark:border-slate-700"
                       : "border-slate-200 dark:border-slate-700"
@@ -6916,7 +6916,7 @@ function GamesView({
                   </div>
                   <div className="space-y-4 p-4">
                     {!final && game.prediction && pickPct !== null && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black dark:border-slate-700 dark:bg-slate-800/50">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-none border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black dark:border-slate-700 dark:bg-slate-800/50">
                         <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                           Model score: {game.prediction.awayScore}-{game.prediction.homeScore}
                         </span>

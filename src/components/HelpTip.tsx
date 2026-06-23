@@ -17,7 +17,7 @@ export function HelpTip({ title, children }: HelpTipProps) {
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-7 z-40 hidden w-64 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs font-semibold normal-case leading-5 tracking-normal text-slate-600 shadow-xl group-focus-within:block group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+        className="pointer-events-none absolute left-1/2 top-7 z-40 hidden w-64 -translate-x-1/2 rounded-none border border-slate-200 bg-white p-3 text-left text-xs font-semibold normal-case leading-5 tracking-normal text-slate-600 shadow-xl group-focus-within:block group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
       >
         <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-900 dark:text-slate-100">
           {title}

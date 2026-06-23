@@ -22,7 +22,7 @@ export const pill = (tone: PillTone = "neutral") =>
   `rounded-lg px-3 py-1 text-xs font-black uppercase tracking-wide shadow-sm ${pillTones[tone]}`;
 
 export const card =
-  "rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/70 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:ring-slate-900";
+  "rounded-none border border-slate-200 bg-white shadow-sm shadow-slate-200/70 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:ring-slate-900";
 
 export const tab = (active: boolean) =>
   `whitespace-nowrap rounded-xl px-4 py-2 text-sm font-black transition sm:px-5 sm:py-2.5 ${
