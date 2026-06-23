@@ -101,7 +101,16 @@ export type SwingGame = {
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 export type PitchMode = "machine" | "player";
-export type ActiveShareView = "standings" | "teamStats" | "games" | "model" | "settings";
+export type ActiveShareView =
+  | "dashboard"
+  | "predictions"
+  | "matchup"
+  | "power"
+  | "standings"
+  | "teamStats"
+  | "games"
+  | "model"
+  | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
 export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {
@@ -153,7 +162,7 @@ export type UndoSnapshot = {
 };
 
 export const DEFAULT_GOLD_CUTOFF = 7;
-export const DEFAULT_SEASON_LABEL = "Spring 26";
+export const DEFAULT_SEASON_LABEL = "Current Season";
 export const DEFAULT_SEASON_YEAR = 2026;
 export const SIM_ITERATIONS = 220;
 export const TREND_STATES = 8;

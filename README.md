@@ -1,6 +1,6 @@
-# NKB Season Tracker
+# League Forecast
 
-A browser-only web app for NKB standings, projections, and Gold Bracket odds.
+A browser-only web app for league predictions, power ratings, matchup analysis, and forecast accuracy.
 
 ## Stack
 

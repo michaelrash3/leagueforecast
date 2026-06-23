@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "nkb_onboarded_v1";
+const STORAGE_KEY = "league_forecast_onboarded_v1";
 
 const STEPS = [
   {
-    title: "Welcome to the NKB Season Tracker",
+    title: "Welcome to League Forecast",
   },
   {
-    title: "Start a season",
+    title: "Create your league",
   },
   {
-    title: "Enter scores in Schedule",
+    title: "Enter results and schedule future games",
   },
   {
     title: "Get around fast",

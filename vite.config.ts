@@ -10,10 +10,10 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.svg", "icon-maskable.svg"],
       manifest: {
-        name: "NKB Season Tracker",
-        short_name: "NKB",
+        name: "League Forecast",
+        short_name: "Forecast",
         description:
-          "Standings, projections, and Gold Bracket odds for the NKB season.",
+          "Prediction dashboard, power ratings, matchup analysis, and forecast accuracy for any league.",
         theme_color: "#0f172a",
         background_color: "#0f172a",
         display: "standalone",

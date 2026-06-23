@@ -49,6 +49,7 @@ import {
 } from "./lib/insights";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
+import { buildPredictionEngine, type LeaguePrediction } from "./lib/predictionEngine";
 import { buildBracketProjection, type BracketGameProjection } from "./lib/bracket";
 import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildShareUrl } from "./lib/share";
@@ -452,7 +453,7 @@ const buildDemoSeason = () => {
     logs: demoLogs,
     settings: {
       ...DEFAULT_SETTINGS,
-      seasonLabel: "Demo Gold Chase",
+      seasonLabel: "Demo League Forecast",
       goldCutoff: 4,
       regularSeasonGamesPerTeam: demoTeams.length - 1,
     },
@@ -488,14 +489,28 @@ const replaceTeamDataUrl = (teamId: string | null) => {
 };
 
 const VIEW_LABELS: Record<ActiveView, string> = {
+  dashboard: "Dashboard",
+  predictions: "Predictions",
+  matchup: "Matchup Analyzer",
+  power: "Power Ratings",
   standings: "Standings",
-  teamStats: "Team Stats",
+  teamStats: "Teams",
   games: "Schedule",
-  model: "Season Predictor",
+  model: "Model Accuracy",
   settings: "Settings",
 };
 
-const VIEW_ORDER: ActiveView[] = ["standings", "games", "teamStats", "model", "settings"];
+const VIEW_ORDER: ActiveView[] = [
+  "dashboard",
+  "predictions",
+  "matchup",
+  "power",
+  "games",
+  "standings",
+  "teamStats",
+  "model",
+  "settings",
+];
 
 type RaceTone = "clinched" | "safe" | "inside" | "bubble" | "chasing" | "out";
 
@@ -1922,7 +1937,7 @@ function TeamDrawer({
 // ---------- Main app ----------
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ActiveView>("standings");
+  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
   const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
   const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
@@ -2197,6 +2212,11 @@ export default function App() {
   const backtestResult = useMemo(
     () => backtestPredictions(teams, matchups, deferredLogs, settings),
     [teams, matchups, deferredLogs, settings]
+  );
+
+  const predictionEngine = useMemo(
+    () => buildPredictionEngine(liveTeams, matchups, deferredLogs),
+    [liveTeams, matchups, deferredLogs]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -3847,6 +3867,10 @@ This will replace current season data and save an undo snapshot.`,
   // ---------- Header / selection ----------
 
   const tabRefs = useRef<Record<ActiveView, HTMLButtonElement | null>>({
+    dashboard: null,
+    predictions: null,
+    matchup: null,
+    power: null,
     standings: null,
     teamStats: null,
     games: null,
@@ -4185,10 +4209,10 @@ This will replace current season data and save an undo snapshot.`,
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.34em] text-amber-200 ring-1 ring-white/15 backdrop-blur">
                   <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.9)]" />
-                  League Command Center
+                  Forecast Command Center
                 </div>
                 <h1 className="mt-5 text-5xl font-black tracking-[-0.06em] text-white drop-shadow-sm sm:text-7xl">
-                  NKB Season Tracker
+                  League Forecast
                 </h1>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100 ring-1 ring-white/15 shadow-inner shadow-white/5 backdrop-blur">
@@ -4246,13 +4270,13 @@ This will replace current season data and save an undo snapshot.`,
                 accent="from-emerald-300 via-cyan-300 to-blue-400"
               />
               <HeaderStatCard
-                label="Leader"
-                value={currentLeader ? currentLeader.name : "—"}
+                label="Top-rated team"
+                value={predictionEngine.powerRatings[0]?.teamName ?? currentLeader?.name ?? "—"}
                 accent="from-amber-200 via-orange-300 to-red-400"
               />
               <HeaderStatCard
-                label="Gold"
-                value={`Top ${goldCutoff}`}
+                label="Forecasts"
+                value={`${predictionEngine.predictions.length}`}
                 accent="from-fuchsia-300 via-red-300 to-amber-300"
               />
             </div>
@@ -4300,6 +4324,24 @@ This will replace current season data and save an undo snapshot.`,
               teams={teams}
               loadDemoSeason={loadDemoSeason}
             />
+          ) : activeView === "dashboard" ? (
+            <ForecastDashboard
+              engine={predictionEngine}
+              teamsById={liveById}
+              matchups={matchups}
+              setActiveView={setActiveView}
+            />
+          ) : activeView === "predictions" ? (
+            <PredictionsView engine={predictionEngine} teamsById={liveById} matchups={matchups} />
+          ) : activeView === "matchup" ? (
+            <MatchupAnalyzer
+              engine={predictionEngine}
+              teams={liveTeams}
+              teamsById={liveById}
+              matchups={matchups}
+            />
+          ) : activeView === "power" ? (
+            <PowerRatingsView engine={predictionEngine} />
           ) : activeView === "standings" ? (
             <StandingsView
               currentLeader={currentLeader}
@@ -4541,6 +4583,327 @@ This will replace current season data and save an undo snapshot.`,
 
 // ---------- View partials ----------
 
+function teamNameFor(map: Map<string, Team>, id: string) {
+  return map.get(id)?.name ?? id;
+}
+
+function PredictionCard({
+  prediction,
+  teamsById,
+  matchups,
+}: {
+  prediction: LeaguePrediction;
+  teamsById: Map<string, Team>;
+  matchups: Matchup[];
+}) {
+  const game = matchups.find((item) => item.id === prediction.gameId);
+  const a = teamNameFor(teamsById, prediction.teamAId);
+  const b = teamNameFor(teamsById, prediction.teamBId);
+  const winner = prediction.predictedWinnerId
+    ? teamNameFor(teamsById, prediction.predictedWinnerId)
+    : "Pending data";
+  const aPct = Math.round(prediction.winProbability.teamA * 100);
+  const bPct = Math.round(prediction.winProbability.teamB * 100);
+  return (
+    <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">
+            Upcoming prediction
+          </p>
+          <h3 className="mt-2 text-xl font-black tracking-tight text-slate-950 dark:text-white">
+            {a} vs {b}
+          </h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {game?.date ? formatGameDate(game.date) : "Date TBD"}
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black uppercase text-white dark:bg-white dark:text-slate-950">
+          {prediction.confidence.tier}
+        </span>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Projected Winner
+          </p>
+          <p className="mt-1 text-lg font-black">
+            {winner}
+            {prediction.projectedMargin !== null ? ` by ${prediction.projectedMargin}` : ""}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Win Probability
+          </p>
+          <p className="mt-1 text-lg font-black">
+            {aPct}% / {bPct}%
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Expected Score
+          </p>
+          <p className="mt-1 text-lg font-black">
+            {prediction.expectedScore
+              ? `${prediction.expectedScore.teamA}-${prediction.expectedScore.teamB}`
+              : "Needs scores"}
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">Model Read</p>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
+          {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
+        </p>
+      </div>
+      {prediction.riskFactors.length > 0 && (
+        <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-300">
+          Risk: {prediction.riskFactors[0]}
+        </p>
+      )}
+    </article>
+  );
+}
+
+function ForecastDashboard({
+  engine,
+  teamsById,
+  matchups,
+  setActiveView,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  teamsById: Map<string, Team>;
+  matchups: Matchup[];
+  setActiveView: (view: ActiveView) => void;
+}) {
+  const avgConfidence = engine.predictions.length
+    ? Math.round(
+        engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
+          engine.predictions.length
+      )
+    : 0;
+  return (
+    <div className="space-y-6">
+      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl">
+        <p className="text-xs font-black uppercase tracking-[0.28em] text-cyan-200">
+          Prediction Dashboard
+        </p>
+        <h2 className="mt-3 text-4xl font-black tracking-tight">League Forecast command center</h2>
+        <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
+          Enter league results and schedules. The system learns from the season and predicts
+          winners, margins, confidence, and why.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button className={buttonClasses.primary} onClick={() => setActiveView("games")}>
+            Add Game
+          </button>
+          <button className={buttonClasses.ghost} onClick={() => setActiveView("predictions")}>
+            View Predictions
+          </button>
+        </div>
+      </section>
+      <section className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        {[
+          ["Completed games", String(engine.accuracy.gamesEvaluated)],
+          ["Future games forecasted", String(engine.predictions.length)],
+          ["Avg confidence", avgConfidence ? `${avgConfidence}%` : "—"],
+          ["Top-rated team", engine.powerRatings[0]?.teamName ?? "—"],
+          ["Data quality", engine.dataQuality.tier],
+          [
+            "Prediction accuracy",
+            engine.accuracy.winnerAccuracy == null
+              ? "Tracking ready"
+              : `${Math.round(engine.accuracy.winnerAccuracy * 100)}%`,
+          ],
+        ].map(([label, value]) => (
+          <div
+            key={label}
+            className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
+            <p className="mt-2 text-2xl font-black">{value}</p>
+          </div>
+        ))}
+      </section>
+      <section className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-black">Upcoming Predictions</h2>
+            <button className={buttonClasses.ghost} onClick={() => setActiveView("predictions")}>
+              Open forecast center
+            </button>
+          </div>
+          {engine.predictions.slice(0, 3).map((p) => (
+            <PredictionCard
+              key={p.gameId}
+              prediction={p}
+              teamsById={teamsById}
+              matchups={matchups}
+            />
+          ))}
+          {engine.predictions.length === 0 && (
+            <EmptyPanel
+              title="No predictions yet"
+              body="Add completed scores and upcoming games to generate forecasts."
+            />
+          )}
+        </div>
+        <DataQualityPanel engine={engine} />
+      </section>
+      <PowerRatingsView engine={engine} compact />
+    </div>
+  );
+}
+
+function EmptyPanel({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+      <h3 className="text-xl font-black">{title}</h3>
+      <p className="mt-2 text-sm font-semibold text-slate-500">{body}</p>
+    </div>
+  );
+}
+function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
+  return (
+    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Data Quality</p>
+      <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
+      <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+        {[...engine.dataQuality.warnings, ...engine.dataQuality.recommendedActions]
+          .slice(0, 6)
+          .map((item) => (
+            <li key={item}>• {item}</li>
+          ))}
+      </ul>
+    </aside>
+  );
+}
+function PredictionsView({
+  engine,
+  teamsById,
+  matchups,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  teamsById: Map<string, Team>;
+  matchups: Matchup[];
+}) {
+  return (
+    <div className="space-y-5">
+      <h2 className="text-3xl font-black">Game Predictions</h2>
+      {engine.predictions.length ? (
+        engine.predictions.map((p) => (
+          <PredictionCard key={p.gameId} prediction={p} teamsById={teamsById} matchups={matchups} />
+        ))
+      ) : (
+        <EmptyPanel
+          title="No upcoming predictions"
+          body="Add future scheduled games and completed scores to unlock the forecast center."
+        />
+      )}
+    </div>
+  );
+}
+function MatchupAnalyzer({
+  engine,
+  teams,
+  teamsById,
+  matchups,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  teams: Team[];
+  teamsById: Map<string, Team>;
+  matchups: Matchup[];
+}) {
+  const first = engine.predictions[0];
+  return (
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-2xl font-black">Matchup Analyzer</h2>
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          Select any scheduled game from the forecast list to inspect projected winner, margin,
+          probability, confidence, key factors, and risk factors.
+        </p>
+        <div className="mt-5 space-y-2">
+          {teams.slice(0, 8).map((t) => (
+            <div
+              key={t.id}
+              className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-black dark:bg-slate-800"
+            >
+              {t.name}
+            </div>
+          ))}
+        </div>
+      </section>
+      <section>
+        {first ? (
+          <PredictionCard prediction={first} teamsById={teamsById} matchups={matchups} />
+        ) : (
+          <EmptyPanel
+            title="Matchup analysis unavailable"
+            body="Add a future scheduled game to analyze a matchup."
+          />
+        )}
+      </section>
+    </div>
+  );
+}
+function PowerRatingsView({
+  engine,
+  compact = false,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  compact?: boolean;
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-black">Power Ratings</h2>
+        <span className="text-xs font-black uppercase tracking-wide text-slate-500">
+          Team strength
+        </span>
+      </div>
+      {engine.powerRatings.length ? (
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs font-black uppercase tracking-wide text-slate-500">
+                <th className="py-2">Rank</th>
+                <th>Team</th>
+                <th>Rating</th>
+                <th>Record</th>
+                <th>Adj Net</th>
+                <th>Recent</th>
+                <th>SOS</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {engine.powerRatings.slice(0, compact ? 6 : undefined).map((r) => (
+                <tr key={r.teamId} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-3 font-black">#{r.rank}</td>
+                  <td className="font-black">{r.teamName}</td>
+                  <td>{r.rating.toFixed(1)}</td>
+                  <td>{r.record}</td>
+                  <td>{r.adjustedNetRating.toFixed(1)}</td>
+                  <td>{r.recentForm.toFixed(1)}</td>
+                  <td>{r.strengthOfSchedule.toFixed(1)}</td>
+                  <td>{r.trend}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyPanel
+          title="Power ratings unavailable"
+          body="Power ratings will appear once teams have completed games."
+        />
+      )}
+    </section>
+  );
+}
+
 function EmptyState({
   importCSV,
   createSeasonFromTeamList,
@@ -4658,7 +5021,7 @@ function EmptyState({
               placeholder={
                 teams.length
                   ? teams.map((team) => displayName(team.name)).join("\n")
-                  : "Stallions\nGriddy\nTrash Pandas"
+                  : "Falcons\nWolves\nComets"
               }
               className="mt-4 h-44 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
@@ -4697,7 +5060,7 @@ function EmptyState({
             id="team-list-textarea"
             value={seasonBuilderText}
             onChange={(event) => setSeasonBuilderText(event.target.value)}
-            placeholder={"Stallions\nGriddy\nTrash Pandas\nChaos"}
+            placeholder={"Falcons\nWolves\nComets\nChaos"}
             className="mt-4 h-64 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
           />
         </aside>
