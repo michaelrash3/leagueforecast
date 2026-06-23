@@ -32,7 +32,7 @@ body {
 
 
 @layer utilities {
-  .cardless-ui :is(section, article, aside, div):not([role="tablist"]) {
+  .cardless-ui :is(section, article, aside, div):not([role="tablist"]):not([role="dialog"]) {
     background: transparent !important;
     border-color: transparent !important;
     box-shadow: none !important;
@@ -44,10 +44,24 @@ body {
     backdrop-filter: none !important;
   }
 
-  .cardless-ui :is(section, article, aside, div):not([role="tablist"]) > :is(div, header, footer) {
+  .cardless-ui
+    :is(section, article, aside, div):not([role="tablist"]):not([role="dialog"])
+    > :is(div, header, footer) {
     background: transparent !important;
     border-color: transparent !important;
     box-shadow: none !important;
+  }
+
+  .cardless-ui [role="dialog"] {
+    background: rgb(255 255 255) !important;
+    border: 2px solid rgb(15 23 42) !important;
+    box-shadow: 0 24px 60px -20px rgb(15 23 42 / 0.55) !important;
+  }
+
+  .dark .cardless-ui [role="dialog"] {
+    background: rgb(15 23 42) !important;
+    border-color: rgb(226 232 240) !important;
+    box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.85) !important;
   }
 }
 
