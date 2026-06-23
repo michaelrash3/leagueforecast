@@ -780,7 +780,8 @@ const buildLeagueAverageStats = (
       totals.hits += parseNumber(log.awayHits) + parseNumber(log.homeHits);
       totals.strikeouts += parseNumber(log.awayK) + parseNumber(log.homeK);
       totals.errors += parseNumber(log.awayErrors ?? "") + parseNumber(log.homeErrors ?? "");
-      totals.walks += parseNumber(log.awayWalksAllowed ?? "") + parseNumber(log.homeWalksAllowed ?? "");
+      totals.walks +=
+        parseNumber(log.awayWalksAllowed ?? "") + parseNumber(log.homeWalksAllowed ?? "");
       return totals;
     },
     { completedGames: 0, teamGames: 0, runs: 0, hits: 0, strikeouts: 0, errors: 0, walks: 0 }
@@ -1049,7 +1050,9 @@ function SplitStatsTable({
               <th className="px-3 py-2 text-center">G</th>
               <th className="px-3 py-2 text-center">R/G</th>
               <th className="px-3 py-2 text-center">H/G</th>
-              <th className="px-3 py-2 text-center">{pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}</th>
+              <th className="px-3 py-2 text-center">
+                {pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-800 dark:divide-slate-800 dark:text-slate-100">
@@ -1065,7 +1068,10 @@ function SplitStatsTable({
                 </td>
                 <td className="px-3 py-3 text-center font-bold">
                   {pitchMode === "player"
-                    ? perGame(side === "offense" ? line.offense.walks : line.defense.errors, line.games)
+                    ? perGame(
+                        side === "offense" ? line.offense.walks : line.defense.errors,
+                        line.games
+                      )
                     : perGame(line[side].strikeouts, line.games)}
                 </td>
               </tr>
@@ -1313,7 +1319,13 @@ type ScoreRowProps = {
   pitchMode: PitchMode;
 };
 
-const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange, pitchMode }: ScoreRowProps) {
+const ScoreRow = React.memo(function ScoreRow({
+  teamName,
+  prefix,
+  log,
+  onChange,
+  pitchMode,
+}: ScoreRowProps) {
   const fields = useMemo(
     () => [
       { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
@@ -1321,7 +1333,11 @@ const ScoreRow = React.memo(function ScoreRow({ teamName, prefix, log, onChange,
       ...(pitchMode === "player"
         ? [
             { key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" },
-            { key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog, label: "BB", aria: "Walks" },
+            {
+              key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog,
+              label: "BB",
+              aria: "Walks",
+            },
           ]
         : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
     ],
@@ -3289,9 +3305,7 @@ This will replace the current season data and save an undo snapshot.`,
               log.homeK,
               homeBip,
             ];
-      return values
-        .map(csvEscape)
-        .join(",");
+      return values.map(csvEscape).join(",");
     });
     const blob = new Blob([[headers.join(","), ...rows].join("\n")], {
       type: "text/csv",
@@ -3787,7 +3801,21 @@ This will replace current season data and save an undo snapshot.`,
       const home = built.builtTeams.find((team) => team.id === game.home)?.name || game.home;
       const values =
         settings.pitchMode === "player"
-          ? [game.id, "", away, String(settings.defaultGameInnings), "", "", "", "", home, "", "", "", ""]
+          ? [
+              game.id,
+              "",
+              away,
+              String(settings.defaultGameInnings),
+              "",
+              "",
+              "",
+              "",
+              home,
+              "",
+              "",
+              "",
+              "",
+            ]
           : [
               game.id,
               "",
@@ -3803,9 +3831,7 @@ This will replace current season data and save an undo snapshot.`,
               "",
               "N/A",
             ];
-      return values
-        .map(csvEscape)
-        .join(",");
+      return values.map(csvEscape).join(",");
     });
     const blob = new Blob([[headers.join(","), ...rows].join("\n")], {
       type: "text/csv;charset=utf-8",
@@ -5945,9 +5971,11 @@ function SettingsView({
                   {runs} runs
                 </option>
               ))}
+              <option value={0}>No cap</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Standings and projections cap each game&apos;s run-differential credit at this amount.
+              Standings and projections cap each game&apos;s run-differential credit at this amount,
+              or use no cap when selected.
             </p>
           </label>
 
@@ -5965,7 +5993,8 @@ function SettingsView({
               <option value="player">Player Pitch</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Machine pitch uses R/H/K. Player pitch uses R/H/E/BB; BB means walks drawn by that team&apos;s hitters.
+              Machine pitch uses R/H/K. Player pitch uses R/H/E/BB; BB means walks drawn by that
+              team&apos;s hitters.
             </p>
           </label>
 

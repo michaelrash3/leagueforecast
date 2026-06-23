@@ -634,13 +634,49 @@ it("defaults pitch mode to machine", () => {
 
 it("player-pitch predictions are affected by walks and errors", () => {
   const cleanLogs = {
-    g1: finalLog({ awayRuns: "6", awayHits: "8", homeRuns: "4", homeHits: "6", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
-    g2: finalLog({ awayRuns: "5", awayHits: "7", homeRuns: "3", homeHits: "5", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
-    g3: finalLog({ awayRuns: "4", awayHits: "7", homeRuns: "6", homeHits: "8", awayErrors: "0", homeErrors: "0", awayWalksAllowed: "1", homeWalksAllowed: "1" }),
+    g1: finalLog({
+      awayRuns: "6",
+      awayHits: "8",
+      homeRuns: "4",
+      homeHits: "6",
+      awayErrors: "0",
+      homeErrors: "0",
+      awayWalksAllowed: "1",
+      homeWalksAllowed: "1",
+    }),
+    g2: finalLog({
+      awayRuns: "5",
+      awayHits: "7",
+      homeRuns: "3",
+      homeHits: "5",
+      awayErrors: "0",
+      homeErrors: "0",
+      awayWalksAllowed: "1",
+      homeWalksAllowed: "1",
+    }),
+    g3: finalLog({
+      awayRuns: "4",
+      awayHits: "7",
+      homeRuns: "6",
+      homeHits: "8",
+      awayErrors: "0",
+      homeErrors: "0",
+      awayWalksAllowed: "1",
+      homeWalksAllowed: "1",
+    }),
   };
   const messyLogs = {
     ...cleanLogs,
-    g3: finalLog({ awayRuns: "4", awayHits: "7", homeRuns: "6", homeHits: "8", awayErrors: "8", homeErrors: "0", awayWalksAllowed: "9", homeWalksAllowed: "1" }),
+    g3: finalLog({
+      awayRuns: "4",
+      awayHits: "7",
+      homeRuns: "6",
+      homeHits: "8",
+      awayErrors: "8",
+      homeErrors: "0",
+      awayWalksAllowed: "9",
+      homeWalksAllowed: "1",
+    }),
   };
 
   const playerGame: Matchup = { id: "future-player", date: "5/9", away: "A", home: "B" };
@@ -670,4 +706,16 @@ it("caps per-game run differential when configured", () => {
 
   expect(capped.find((team) => team.id === "A")?.runDiff).toBe(10);
   expect(capped.find((team) => team.id === "B")?.runDiff).toBe(-10);
+});
+
+it("allows run differential to be uncapped when configured", () => {
+  const uncapped = calculateTeams(
+    teams,
+    [{ id: "uncapped-game", date: "5/1", away: "A", home: "B" }],
+    { "uncapped-game": finalLog({ awayRuns: "18", homeRuns: "2" }) },
+    { maxRunDifferential: 0 }
+  );
+
+  expect(uncapped.find((team) => team.id === "A")?.runDiff).toBe(16);
+  expect(uncapped.find((team) => team.id === "B")?.runDiff).toBe(-16);
 });
