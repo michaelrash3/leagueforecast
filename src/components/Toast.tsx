@@ -34,7 +34,7 @@ export function ToastView({
               toast.onAction?.();
               onDismiss();
             }}
-            className="rounded-none bg-white/15 px-3 py-1 text-xs font-black uppercase tracking-wide hover:bg-white/25"
+            className="rounded-lg bg-white/15 px-3 py-1 text-xs font-black uppercase tracking-wide hover:bg-white/25"
           >
             {toast.actionLabel}
           </button>
@@ -43,7 +43,7 @@ export function ToastView({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className="rounded-none px-2 py-1 text-xs font-black uppercase tracking-wide text-white/70 hover:text-white"
+          className="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide text-white/70 hover:text-white"
         >
           ×
         </button>

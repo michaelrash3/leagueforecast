@@ -75,7 +75,7 @@ export function OnboardingTour({
           <button
             type="button"
             onClick={dismiss}
-            className="rounded-none px-2 py-0.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            className="rounded px-2 py-0.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           >
             Skip
           </button>
@@ -88,7 +88,7 @@ export function OnboardingTour({
             type="button"
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
-            className="rounded-none border border-slate-300 px-3 py-1.5 text-sm font-black text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
+            className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-black text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
           >
             Back
           </button>
@@ -96,7 +96,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="rounded-none bg-slate-950 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              className="rounded-xl bg-slate-950 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               Next
             </button>
@@ -104,7 +104,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={dismiss}
-              className="rounded-none bg-red-600 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-red-700"
+              className="rounded-xl bg-red-600 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-red-700"
             >
               Get Started
             </button>

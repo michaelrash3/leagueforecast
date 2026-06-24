@@ -2,14 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  *,
-  ::before,
-  ::after {
-    border-radius: 0 !important;
-  }
-}
-
 html,
 body,
 #root {
@@ -28,41 +20,6 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-
-@layer utilities {
-  .cardless-ui :is(section, article, aside, div):not([role="tablist"]):not([role="dialog"]) {
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-    --tw-ring-color: transparent !important;
-    --tw-ring-offset-shadow: 0 0 #0000 !important;
-    --tw-ring-shadow: 0 0 #0000 !important;
-    --tw-shadow: 0 0 #0000 !important;
-    --tw-shadow-colored: 0 0 #0000 !important;
-    backdrop-filter: none !important;
-  }
-
-  .cardless-ui
-    :is(section, article, aside, div):not([role="tablist"]):not([role="dialog"])
-    > :is(div, header, footer) {
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-  }
-
-  .cardless-ui [role="dialog"] {
-    background: rgb(255 255 255) !important;
-    border: 2px solid rgb(15 23 42) !important;
-    box-shadow: 0 24px 60px -20px rgb(15 23 42 / 0.55) !important;
-  }
-
-  .dark .cardless-ui [role="dialog"] {
-    background: rgb(15 23 42) !important;
-    border-color: rgb(226 232 240) !important;
-    box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.85) !important;
-  }
 }
 
 @layer utilities {

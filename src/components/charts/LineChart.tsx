@@ -246,7 +246,7 @@ export function LineChart({
               <span key={`lg-${s.id}`} className="inline-flex items-center gap-2">
                 <span
                   aria-hidden
-                  className={`inline-block h-2 w-3 rounded-none ${TONE_FILL[tone].replace("fill", "bg")}`}
+                  className={`inline-block h-2 w-3 rounded ${TONE_FILL[tone].replace("fill", "bg")}`}
                 />
                 {s.label}
               </span>

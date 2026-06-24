@@ -199,7 +199,7 @@ export function CompareDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-none border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
           >
             Close
           </button>
@@ -216,7 +216,7 @@ export function CompareDrawer({
             id={compareSelectId}
             value={right.id}
             onChange={(event) => onPickRight(event.target.value)}
-            className="rounded-none border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             aria-label="Compare with another team"
           >
             {allTeams

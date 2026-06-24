@@ -17,7 +17,7 @@ function ProjectionExplanationView({ explanations }: ProjectionExplanationProps)
         {items.map((item) => (
           <li key={item} className="flex gap-2">
             <span
-              className="mt-2 h-1 w-1 shrink-0 rounded-none bg-slate-300 dark:bg-slate-600"
+              className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600"
               aria-hidden="true"
             />
             <span className="min-w-0 flex-1 break-words">{item}</span>

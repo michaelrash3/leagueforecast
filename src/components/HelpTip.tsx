@@ -10,7 +10,7 @@ export function HelpTip({ title, children }: HelpTipProps) {
     <span className="group relative inline-flex align-middle">
       <button
         type="button"
-        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-none border border-slate-300 bg-white text-[11px] font-black leading-none text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white"
+        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-black leading-none text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white"
         aria-label={`Help: ${title}`}
       >
         ?

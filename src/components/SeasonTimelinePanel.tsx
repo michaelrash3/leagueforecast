@@ -9,7 +9,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
             Season Timeline
           </h3>
         </div>
-        <span className="rounded-none bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {entries.length} recent finals
         </span>
       </div>
@@ -36,7 +36,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
                     Winner: {entry.winnerName}
                   </div>
                 </div>
-                <div className="rounded-none bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+                <div className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
                   {entry.cutLineImpact}
                 </div>
               </div>
@@ -45,7 +45,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
                   {entry.movement.map((item) => (
                     <span
                       key={item}
-                      className="rounded-none bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
+                      className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
                     >
                       {item}
                     </span>

@@ -49,7 +49,7 @@ export function ShortcutsHelp({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-none px-2 py-1 text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            className="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             Close
           </button>
@@ -67,7 +67,7 @@ export function ShortcutsHelp({
                     className="flex items-center justify-between gap-3 text-sm font-bold text-slate-700 dark:text-slate-200"
                   >
                     <span>{entry.description}</span>
-                    <kbd className="rounded-none border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    <kbd className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                       {entry.combo}
                     </kbd>
                   </li>

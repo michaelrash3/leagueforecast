@@ -32,14 +32,14 @@ export function WeeklyRecapCard({
           <button
             type="button"
             onClick={onCopy}
-            className="rounded-none bg-slate-950 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+            className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950"
           >
             Copy
           </button>
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-none bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-slate-950 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700 dark:hover:text-white"
+            className="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-slate-950 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700 dark:hover:text-white"
           >
             Dismiss
           </button>

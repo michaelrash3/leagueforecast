@@ -140,7 +140,7 @@ export function CommandPalette({
               >
                 <span className="flex items-center gap-3">
                   {cmd.group && (
-                    <span className="rounded-none bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {cmd.group}
                     </span>
                   )}

@@ -48,7 +48,7 @@ export function HeadToHeadMatrix({
                 return (
                   <td
                     key={`c-${row.id}-${col.id}`}
-                    className={`h-6 w-6 rounded-none ${tone(c)}`}
+                    className={`h-6 w-6 rounded-sm ${tone(c)}`}
                     title={`${displayName(row.name)} vs ${displayName(col.name)}: ${c}`}
                     aria-label={`${displayName(row.name)} vs ${displayName(col.name)} — ${c}`}
                   />

@@ -17,11 +17,11 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
             </h3>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-black text-slate-600 dark:text-slate-300">
-            <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-800">
+            <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
               {backtestResult.sampleSize} samples
             </span>
             {backtestResult.sampleSize > 0 && (
-              <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-800">
+              <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
                 Brier {backtestResult.brierScore.toFixed(3)}
               </span>
             )}
@@ -59,9 +59,9 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                         {Math.round(bucket.actual * 100)}%
                       </span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-none bg-slate-100 dark:bg-slate-800">
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
-                        className="h-full rounded-none bg-slate-400 dark:bg-slate-500"
+                        className="h-full rounded-full bg-slate-400 dark:bg-slate-500"
                         style={{ width: `${Math.round(bucket.actual * 100)}%` }}
                       />
                     </div>
@@ -78,7 +78,7 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
 
 function Metric({ label, value }: { label: ReactNode; value: string }) {
   return (
-    <div className="rounded-none bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
