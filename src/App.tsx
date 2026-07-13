@@ -14,6 +14,10 @@ import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
+import { HelpTip } from "./components/HelpTip";
+import { ProjectionExplanation } from "./components/ProjectionExplanation";
+import { GoldOddsTrendChart } from "./components/charts/GoldOddsTrendChart";
+import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { ToastView } from "./components/Toast";
@@ -55,6 +59,12 @@ import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./l
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import { projectionConfidenceForTeam } from "./lib/projectionConfidence";
+import {
+  buildProjectionSnapshot,
+  diffProjectionSnapshots,
+  type ProjectionRelevantSettings,
+} from "./lib/projectionDelta";
+import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./lib/validate";
 import {
@@ -122,11 +132,18 @@ type ConfirmState = {
   cancelLabel?: string;
 };
 
+type ProjectionExplanationEntry = {
+  teamId: string;
+  teamName: string;
+  items: string[];
+};
+
 type LastImpact = {
   title: string;
   scores: string[];
   messages: string[];
   recapItems: RecapItem[];
+  projectionExplanations?: ProjectionExplanationEntry[];
 };
 
 type TeamTrendGame = {
@@ -1708,6 +1725,7 @@ function TeamDrawer({
   onCompare,
   leagueAverageStats,
   pitchMode,
+  projectionExplanations,
 }: {
   team: TeamWithProjection;
   range: { best: number; worst: number; baseline: number };
@@ -1727,6 +1745,7 @@ function TeamDrawer({
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
   pitchMode: PitchMode;
+  projectionExplanations: string[];
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -1772,6 +1791,14 @@ function TeamDrawer({
             <div className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
               Current #{team.rank} · Projected #{team.projectedRank} · Top {cutoff} Gold Bracket
             </div>
+            {projectionExplanations.length > 0 && (
+              <div className="mt-3 rounded-none border-l-2 border-blue-400 bg-blue-50 py-1 pl-3 pr-2 dark:border-blue-500 dark:bg-blue-950/30">
+                <div className="text-[10px] font-black uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                  Since the last update
+                </div>
+                <ProjectionExplanation explanations={projectionExplanations} />
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <button
@@ -1855,6 +1882,12 @@ function TeamDrawer({
         <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Magic Numbers
+            <HelpTip title="Magic & Elimination Numbers">
+              <strong>Magic number (M)</strong> is the combined total of wins by this team plus
+              losses by rivals that guarantees a Gold Bracket spot. <strong>Elimination number
+              (E)</strong> is the combined total of losses and rival wins that would end its Gold
+              chances. Reaching either clinches or eliminates regardless of other results.
+            </HelpTip>
           </h3>
           <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
             <li>
@@ -2247,6 +2280,25 @@ export default function App() {
       return (a.rank ?? 99) - (b.rank ?? 99);
     });
   }, [dashboardRows]);
+
+  // ---------- Head-to-head matrix (league-wide) ----------
+  const headToHeadMatrixTeams = useMemo(
+    () => ranked.map((team) => ({ id: team.id, name: team.name })),
+    [ranked]
+  );
+  const headToHeadCell = useCallback(
+    (rowId: string, colId: string): H2HCell => {
+      if (rowId === colId) return "self";
+      const record = liveById.get(rowId)?.headToHead?.[colId];
+      if (!record) return "none";
+      const { wins, losses } = record;
+      if (wins === 0 && losses === 0 && record.ties === 0) return "none";
+      if (wins > losses) return "win";
+      if (losses > wins) return "loss";
+      return "tie";
+    },
+    [liveById]
+  );
 
   const bracketProjection = useMemo(
     () =>
@@ -3464,6 +3516,47 @@ This will replace current season data and save an undo snapshot.`,
     return Array.from(new Set(messages)).slice(0, 10);
   };
 
+  const projectionSettingsForDelta = (): ProjectionRelevantSettings => ({
+    goldCutoff: settings.goldCutoff,
+    regularSeasonGamesPerTeam: settings.regularSeasonGamesPerTeam,
+    winPoints: settings.winPoints,
+    tiePoints: settings.tiePoints,
+    runDiffTiebreaker: settings.runDiffTiebreaker,
+    tiebreakerOrder: settings.tiebreakerOrder,
+    maxScoreCap: settings.maxScoreCap,
+    modelAggression: settings.modelAggression,
+  });
+
+  // Plain-English "why the projection moved" bullets per team, derived from the same
+  // before/after rank snapshots the recap already builds (lib/projectionExplanation.ts).
+  const buildProjectionExplanationsForUpdate = (
+    before: RankSnapshotEntry[],
+    after: RankSnapshotEntry[]
+  ): ProjectionExplanationEntry[] => {
+    const toSnapshotTeam = (entry: RankSnapshotEntry) => ({
+      id: entry.id,
+      w: entry.w,
+      t: entry.t,
+      rs: entry.rs,
+      ra: entry.ra,
+      runDiff: entry.runDiff,
+      rank: entry.rank,
+      projectedRank: entry.projectedRank,
+    });
+    const projectionSettings = projectionSettingsForDelta();
+    const delta = diffProjectionSnapshots(
+      buildProjectionSnapshot({ teams: before.map(toSnapshotTeam), settings: projectionSettings }),
+      buildProjectionSnapshot({ teams: after.map(toSnapshotTeam), settings: projectionSettings })
+    );
+    return delta.teams
+      .map((teamDelta) => ({
+        teamId: teamDelta.teamId,
+        teamName: displayName(teamBaseById.get(teamDelta.teamId)?.name ?? teamDelta.teamId),
+        items: buildProjectionExplanations(teamDelta, { maxItems: 2 }),
+      }))
+      .filter((entry) => entry.items.length > 0);
+  };
+
   const toggleFinal = (gameId: string) => {
     setLogs((prev) => {
       const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
@@ -3543,6 +3636,7 @@ This will replace current season data and save an undo snapshot.`,
           finalsSinceLast,
           cutoff: goldCutoff,
         });
+        const projectionExplanations = buildProjectionExplanationsForUpdate(before, after);
         setLastImpact({
           title:
             settings.recapGrouping === "game"
@@ -3559,6 +3653,7 @@ This will replace current season data and save an undo snapshot.`,
             ? messages
             : ["This update was recorded; no standings-impact detail to summarize."],
           recapItems,
+          projectionExplanations,
         });
       } else {
         setLastImpact(null);
@@ -4152,7 +4247,7 @@ This will replace current season data and save an undo snapshot.`,
       },
       {
         combo: "g m",
-        description: "Go to Season Predictor",
+        description: "Go to Model Accuracy",
         group: "Navigate",
         handler: () => setActiveView("model"),
       },
@@ -4314,6 +4409,7 @@ This will replace current season data and save an undo snapshot.`,
           ) : activeView === "dashboard" ? (
             <DashboardView
               engine={predictionEngine}
+              backtestResult={backtestResult}
               teamsById={liveById}
               matchups={matchups}
               setActiveView={setActiveView}
@@ -4363,6 +4459,8 @@ This will replace current season data and save an undo snapshot.`,
               leagueAverageStats={leagueAverageStats}
               statRankings={statRankings}
               pitchMode={settings.pitchMode}
+              matrixTeams={headToHeadMatrixTeams}
+              headToHeadCell={headToHeadCell}
             />
           ) : activeView === "model" ? (
             <ModelView
@@ -4480,6 +4578,10 @@ This will replace current season data and save an undo snapshot.`,
             trendSummary={selectedTeamTrendSummary}
             leagueAverageStats={leagueAverageStats}
             pitchMode={settings.pitchMode}
+            projectionExplanations={
+              lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)?.items ??
+              []
+            }
             onClose={closeTeamData}
             onCompare={() => {
               const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
@@ -4646,11 +4748,13 @@ function PredictionCard({
 
 function DashboardView({
   engine,
+  backtestResult,
   teamsById,
   matchups,
   setActiveView,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
+  backtestResult: ReturnType<typeof backtestPredictions>;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   setActiveView: (view: ActiveView) => void;
@@ -4685,9 +4789,9 @@ function DashboardView({
           ["Data quality", engine.dataQuality.tier],
           [
             "Prediction accuracy",
-            engine.accuracy.winnerAccuracy == null
+            backtestResult.winnerAccuracy == null
               ? "Tracking ready"
-              : `${Math.round(engine.accuracy.winnerAccuracy * 100)}%`,
+              : `${Math.round(backtestResult.winnerAccuracy * 100)}%`,
           ],
         ].map(([label, value]) => (
           <div
@@ -4762,7 +4866,15 @@ function PowerRatingsView({
   return (
     <section className="rounded-none border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-black">Power Ratings</h2>
+        <h2 className="text-2xl font-black">
+          Power Ratings
+          <HelpTip title="Power Ratings">
+            <strong>Rating</strong> blends win %, average margin, schedule-adjusted net runs, an
+            Elo score, and recent form into one strength number. <strong>Adj Net</strong> is net
+            runs per game after correcting for opponent strength. <strong>SOS</strong> is
+            strength of schedule — how tough the opponents faced have been.
+          </HelpTip>
+        </h2>
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">
           Team strength
         </span>
@@ -4977,10 +5089,14 @@ function TeamStatsView({
   leagueAverageStats,
   statRankings,
   pitchMode,
+  matrixTeams,
+  headToHeadCell,
 }: {
   leagueAverageStats: LeagueAverageStats;
   statRankings: StatRankings;
   pitchMode: PitchMode;
+  matrixTeams: { id: string; name: string }[];
+  headToHeadCell: (rowId: string, colId: string) => H2HCell;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -5046,6 +5162,36 @@ function TeamStatsView({
 
         <StatRankingsPanel rankings={statRankings} />
       </section>
+
+      {matrixTeams.length >= 2 && (
+        <section className={`${card} p-5`} aria-label="Head-to-head matrix">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+                Head-to-Head Matrix
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Each row shows how that team has fared against every opponent this season.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wide">
+              <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                <span className="h-3 w-3 rounded-sm bg-emerald-500" /> Won series
+              </span>
+              <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                <span className="h-3 w-3 rounded-sm bg-red-500" /> Lost series
+              </span>
+              <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                <span className="h-3 w-3 rounded-sm bg-amber-400" /> Split
+              </span>
+              <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                <span className="h-3 w-3 rounded-sm bg-slate-100 dark:bg-slate-800" /> Not played
+              </span>
+            </div>
+          </div>
+          <HeadToHeadMatrix teams={matrixTeams} cellFor={headToHeadCell} />
+        </section>
+      )}
     </div>
   );
 }
@@ -5092,6 +5238,12 @@ function StandingsView({
       <section className={`${card} p-5`}>
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
           Standings
+          <HelpTip title="Reading the table">
+            <strong>Gold %</strong> is the simulated chance of finishing in the top {goldCutoff}{" "}
+            (the Gold Bracket), from thousands of season simulations. <strong>SOS</strong> is
+            strength of schedule — a lower rank means tougher opponents. <strong>Diff</strong> is
+            run differential (runs scored minus runs allowed).
+          </HelpTip>
         </h2>
         <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
           Track the live table, cut line, recent movement, and team status.
@@ -5193,6 +5345,23 @@ function StandingsView({
                     {change}
                   </span>
                 ))}
+              </div>
+            )}
+            {lastImpact.projectionExplanations && lastImpact.projectionExplanations.length > 0 && (
+              <div className="mt-3 rounded-none bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+                <div className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Why projections moved
+                </div>
+                <div className="space-y-2">
+                  {lastImpact.projectionExplanations.slice(0, 5).map((entry) => (
+                    <div key={entry.teamId}>
+                      <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+                        {entry.teamName}
+                      </div>
+                      <ProjectionExplanation explanations={entry.items} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -5560,6 +5729,25 @@ function ModelView(props: {
         pointsGap={cutLineSnapshot.pointsGap}
         onSelectTeam={onSelectTeam}
       />
+
+      {modelRows.some((team) => team.goldTrend.length >= 2) && (
+        <section className={`${card} p-5`} aria-label="Gold odds trend">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+                Gold Odds Over Recent Games
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Simulated Gold Bracket odds for the top teams after each of the latest results.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              Top 5
+            </span>
+          </div>
+          <GoldOddsTrendChart rows={modelRows} />
+        </section>
+      )}
 
       <section className={`${card} p-5`} aria-label="Schedule difficulty heatmap">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

@@ -5,15 +5,19 @@ const STORAGE_KEY = "league_forecast_onboarded_v1";
 const STEPS = [
   {
     title: "Welcome to League Forecast",
+    body: "Forecast your season entirely in the browser — no account, no setup. Enter games as they happen and the model projects standings, Gold Bracket odds, and clinch scenarios in real time.",
   },
   {
     title: "Create your league",
+    body: "Start from the empty screen: import a schedule CSV, generate a blank round-robin, paste a team list into the season builder, or load the demo season to explore with sample data.",
   },
   {
     title: "Enter results and schedule future games",
+    body: "On the Schedule tab, add matchups and type each final's runs, hits, and strikeouts. Marking a game Final updates standings, simulated odds, and the “why projections moved” recap instantly.",
   },
   {
     title: "Get around fast",
+    body: "Press ⌘K (Ctrl+K) for the command palette to jump to any view or team. Use g then s / t / g / m / e to navigate, d to toggle dark mode, and Share to send the whole season as a link.",
   },
 ];
 
@@ -83,6 +87,9 @@ export function OnboardingTour({
         <h2 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
           {current.title}
         </h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
+          {current.body}
+        </p>
         <div className="mt-5 flex items-center justify-between">
           <button
             type="button"
