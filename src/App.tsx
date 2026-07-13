@@ -82,18 +82,26 @@ import {
   standingsPoints,
 } from "./lib/sim";
 import {
+  createSeason,
+  deleteSeason,
+  duplicateSeason,
+  getActiveSeasonId,
+  listSeasons,
   loadBracketLogs,
   loadLogs,
   loadMatchups,
   loadSettings,
   loadTeams,
   readUndoSnapshot,
+  renameSeason,
   saveBracketLogs,
   saveLogs,
   saveMatchups,
   saveSettings,
   saveTeams,
   saveUndoSnapshot,
+  setActiveSeason,
+  type SeasonMeta,
 } from "./lib/storage";
 import {
   DEFAULT_GOLD_CUTOFF,
@@ -1973,6 +1981,8 @@ export default function App() {
   const deferredLogs = useDeferredValue(logs);
   const [bracketLogs, setBracketLogs] = useState<Record<string, GameLog>>(() => loadBracketLogs());
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [seasons, setSeasons] = useState<SeasonMeta[]>(() => listSeasons());
+  const [activeSeasonId, setActiveSeasonIdState] = useState<string>(() => getActiveSeasonId());
 
   const [newDate, setNewDate] = useState("");
   const [newAway, setNewAway] = useState("");
@@ -3227,6 +3237,87 @@ export default function App() {
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
   };
 
+  // ---------- Seasons ----------
+
+  // Pull the active season's stored data into React state and clear transient/undo UI.
+  const reloadActiveSeason = useCallback(() => {
+    setTeams(loadTeams());
+    setMatchups(loadMatchups());
+    setLogs(loadLogs());
+    setBracketLogs(loadBracketLogs());
+    setSettings(loadSettings());
+    setSeasons(listSeasons());
+    setActiveSeasonIdState(getActiveSeasonId());
+    setSelectedTeamId(null);
+    setCompareTeamId(null);
+    setLastImpact(null);
+    undoRef.current = null;
+  }, []);
+
+  const switchSeason = useCallback(
+    (id: string) => {
+      if (id === getActiveSeasonId()) return;
+      if (!setActiveSeason(id)) return;
+      reloadActiveSeason();
+      const name = listSeasons().find((season) => season.id === id)?.name ?? "season";
+      showToast(`Switched to ${name}.`, { tone: "info" });
+    },
+    [reloadActiveSeason, showToast]
+  );
+
+  const handleCreateSeason = useCallback(
+    (name: string) => {
+      const meta = createSeason(name);
+      setSeasons(listSeasons());
+      showToast(`Created ${meta.name}. Switch to it when ready.`, { tone: "success" });
+    },
+    [showToast]
+  );
+
+  const handleDuplicateSeason = useCallback(
+    (id: string, name: string) => {
+      const meta = duplicateSeason(id, name);
+      if (!meta) return;
+      setSeasons(listSeasons());
+      showToast(`Duplicated into ${meta.name}.`, { tone: "success" });
+    },
+    [showToast]
+  );
+
+  // Keep the active season's index name in sync with its editable season label, so the header
+  // switcher and season manager always show the same name the user typed under "Season label".
+  useEffect(() => {
+    const label = settings.seasonLabel.trim();
+    if (!label) return;
+    const current = seasons.find((season) => season.id === activeSeasonId);
+    if (current && current.name !== label && renameSeason(activeSeasonId, label)) {
+      setSeasons(listSeasons());
+    }
+  }, [settings.seasonLabel, activeSeasonId, seasons]);
+
+  const handleDeleteSeason = useCallback(
+    async (id: string) => {
+      const target = listSeasons().find((season) => season.id === id);
+      if (!target) return;
+      const confirmed = await requestConfirmation({
+        title: `Delete ${target.name}?`,
+        message:
+          "This permanently removes that season's teams, games, scores, and settings from this browser. It cannot be undone.",
+        confirmLabel: "Delete season",
+      });
+      if (!confirmed) return;
+      const wasActive = getActiveSeasonId() === id;
+      if (!deleteSeason(id)) {
+        showToast("Cannot delete the only season.", { tone: "error" });
+        return;
+      }
+      if (wasActive) reloadActiveSeason();
+      else setSeasons(listSeasons());
+      showToast(`Deleted ${target.name}.`, { tone: "success" });
+    },
+    [reloadActiveSeason, requestConfirmation, showToast]
+  );
+
   // ---------- Mutations ----------
 
   const importCSV = (file: File) => {
@@ -4300,9 +4391,23 @@ This will replace current season data and save an undo snapshot.`,
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                  {settings.seasonLabel}
-                </div>
+                <label className="sr-only" htmlFor="season-switcher">
+                  Active season
+                </label>
+                <select
+                  id="season-switcher"
+                  value={activeSeasonId}
+                  onChange={(event) => switchSeason(event.target.value)}
+                  className="inline-flex rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                  aria-label="Active season"
+                  title="Switch season"
+                >
+                  {seasons.map((season) => (
+                    <option key={season.id} value={season.id}>
+                      {season.name}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   onClick={() => setShowCommandPalette(true)}
@@ -4496,17 +4601,27 @@ This will replace current season data and save an undo snapshot.`,
               timelineEntries={timelineEntries}
             />
           ) : activeView === "settings" ? (
-            <SettingsView
-              settings={settings}
-              setSettings={setSettings}
-              teamsCount={teams.length}
-              importCSV={importCSV}
-              importBackup={importBackup}
-              exportCSV={exportCSV}
-              exportBackup={exportBackup}
-              resetSeason={resetSeason}
-              loadDemoSeason={loadDemoSeason}
-            />
+            <div className="space-y-6">
+              <SeasonManager
+                seasons={seasons}
+                activeSeasonId={activeSeasonId}
+                onSwitch={switchSeason}
+                onCreate={handleCreateSeason}
+                onDuplicate={handleDuplicateSeason}
+                onDelete={handleDeleteSeason}
+              />
+              <SettingsView
+                settings={settings}
+                setSettings={setSettings}
+                teamsCount={teams.length}
+                importCSV={importCSV}
+                importBackup={importBackup}
+                exportCSV={exportCSV}
+                exportBackup={exportBackup}
+                resetSeason={resetSeason}
+                loadDemoSeason={loadDemoSeason}
+              />
+            </div>
           ) : (
             <GamesView
               teams={teams}
@@ -6271,6 +6386,114 @@ function ModelView(props: {
       <SeasonTimelinePanel entries={timelineEntries} />
 
       <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
+    </section>
+  );
+}
+
+function SeasonManager({
+  seasons,
+  activeSeasonId,
+  onSwitch,
+  onCreate,
+  onDuplicate,
+  onDelete,
+}: {
+  seasons: SeasonMeta[];
+  activeSeasonId: string;
+  onSwitch: (id: string) => void;
+  onCreate: (name: string) => void;
+  onDuplicate: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [newName, setNewName] = useState("");
+  const chip =
+    "rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800";
+  const createNew = () => {
+    if (!newName.trim()) return;
+    onCreate(newName.trim());
+    setNewName("");
+  };
+  return (
+    <section className={`${card} p-5`} aria-label="Seasons">
+      <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
+        Seasons
+      </h2>
+      <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+        Run several seasons side by side. Each keeps its own teams, games, scores, and settings —
+        switching is instant and nothing is overwritten. Rename the active season with the “Season
+        label” field below.
+      </p>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={newName}
+          onChange={(event) => setNewName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") createNew();
+          }}
+          placeholder="New season name"
+          aria-label="New season name"
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 shadow-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 sm:max-w-xs"
+        />
+        <button
+          type="button"
+          onClick={createNew}
+          disabled={!newName.trim()}
+          className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800 disabled:opacity-40 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+        >
+          New Season
+        </button>
+      </div>
+
+      <ul className="mt-4 space-y-2">
+        {seasons.map((season) => {
+          const isActive = season.id === activeSeasonId;
+          return (
+            <li
+              key={season.id}
+              className={`flex flex-col gap-2 rounded-none border p-3 sm:flex-row sm:items-center sm:justify-between ${
+                isActive
+                  ? "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                {isActive && (
+                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                    Active
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm font-black text-slate-900 dark:text-slate-100">
+                  {season.name}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {!isActive && (
+                  <button type="button" className={chip} onClick={() => onSwitch(season.id)}>
+                    Switch
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={chip}
+                  onClick={() => onDuplicate(season.id, `${season.name} copy`)}
+                >
+                  Duplicate
+                </button>
+                {seasons.length > 1 && (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-200 px-3 py-1.5 text-xs font-black text-red-600 hover:bg-red-50 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/30"
+                    onClick={() => onDelete(season.id)}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
