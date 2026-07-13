@@ -1,5 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadLogs, loadMatchups, loadSettings, loadTeams } from "../storage";
+import {
+  createSeason,
+  deleteSeason,
+  duplicateSeason,
+  getActiveSeasonId,
+  listSeasons,
+  loadLogs,
+  loadMatchups,
+  loadSettings,
+  loadTeams,
+  renameSeason,
+  saveTeams,
+  setActiveSeason,
+} from "../storage";
 
 const backing = new Map<string, string>();
 
@@ -104,5 +117,77 @@ describe("storage hardening", () => {
         isFinal: true,
       },
     });
+  });
+});
+
+describe("multi-season storage", () => {
+  it("migrates legacy flat data into a default season", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    backing.set("league_settings_v1", JSON.stringify({ seasonLabel: "Spring 2026" }));
+
+    const seasons = listSeasons();
+    expect(seasons).toHaveLength(1);
+    expect(seasons[0]!.name).toBe("Spring 2026");
+    expect(getActiveSeasonId()).toBe(seasons[0]!.id);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    // Flat key is moved, not left behind.
+    expect(backing.get("league_teams_v1")).toBeUndefined();
+  });
+
+  it("keeps each season's data isolated when switching", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+
+    const second = createSeason("Fall 2026");
+    expect(listSeasons()).toHaveLength(2);
+
+    setActiveSeason(second.id);
+    expect(getActiveSeasonId()).toBe(second.id);
+    // A brand-new season starts empty.
+    expect(loadTeams()).toEqual([]);
+    saveTeams([{ id: "B", name: "Bears" }]);
+    expect(loadTeams()).toEqual([{ id: "B", name: "Bears" }]);
+
+    // The original season is untouched.
+    setActiveSeason(first.id);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+  });
+
+  it("duplicates a season's data into a new independent copy", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+
+    const copy = duplicateSeason(first.id, "Copy");
+    expect(copy).not.toBeNull();
+    setActiveSeason(copy!.id);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+
+    // Editing the copy does not affect the original.
+    saveTeams([{ id: "A", name: "Aces" }, { id: "B", name: "Bears" }]);
+    setActiveSeason(first.id);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+  });
+
+  it("renames seasons and refuses to delete the last one", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+
+    expect(renameSeason(first.id, "Renamed")).toBe(true);
+    expect(listSeasons()[0]!.name).toBe("Renamed");
+    expect(deleteSeason(first.id)).toBe(false);
+
+    const second = createSeason("Second");
+    expect(deleteSeason(second.id)).toBe(true);
+    expect(listSeasons()).toHaveLength(1);
+  });
+
+  it("reassigns the active season after deleting the active one", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+    const second = createSeason("Second");
+    setActiveSeason(second.id);
+
+    expect(deleteSeason(second.id)).toBe(true);
+    expect(getActiveSeasonId()).toBe(first.id);
   });
 });

@@ -37,11 +37,10 @@ export type PredictionEngineResult = {
   powerRatings: PowerRating[];
   predictions: LeaguePrediction[];
   dataQuality: LeaguePrediction["dataQuality"];
+  // Realized forecast accuracy is measured by the walk-forward backtest (see lib/backtest.ts),
+  // which replays each finalized game; the engine only reports how many games it has to learn from.
   accuracy: {
     gamesEvaluated: number;
-    winnerAccuracy: number | null;
-    averageMarginError: number | null;
-    highConfidenceAccuracy: number | null;
   };
 };
 
@@ -311,9 +310,6 @@ export const buildPredictionEngine = (
     dataQuality,
     accuracy: {
       gamesEvaluated: completedGames.length,
-      winnerAccuracy: null,
-      averageMarginError: null,
-      highConfidenceAccuracy: null,
     },
   };
 };

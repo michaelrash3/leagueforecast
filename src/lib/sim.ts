@@ -923,3 +923,128 @@ export const simulateGoldOdds = (
   });
   return odds;
 };
+
+// Standard single-elimination bracket helpers (kept local to avoid a cycle with bracket.ts,
+// which already imports predictGame/hashSeed from this module).
+const bracketNextPowerOfTwo = (value: number) => {
+  let size = 1;
+  while (size < value) size *= 2;
+  return size;
+};
+
+const bracketSeedOrder = (size: number): number[] => {
+  if (size <= 1) return [1];
+  const previous = bracketSeedOrder(size / 2);
+  return previous.flatMap((seed) => [seed, size + 1 - seed]);
+};
+
+export type BracketOddsResult = {
+  /** Per team, the probability (0–100) of finishing at each final seed (index 0 = seed 1). */
+  seedDistribution: Record<string, number[]>;
+  /** Per team, the probability (0–100) of winning the Gold Bracket. */
+  championOdds: Record<string, number>;
+  /** Per team, the probability (0–100) of reaching the Gold Bracket final. */
+  finalsOdds: Record<string, number>;
+  iterations: number;
+};
+
+// Play out a single seeded bracket among `entrants` (already in seed order), drawing each game
+// from the model's win probability with the shared PRNG. Returns the champion and both finalists.
+const simulateBracketRun = (
+  entrants: Team[],
+  allTeams: Team[],
+  settings: Settings,
+  random: () => number
+): { championId: string | null; finalistIds: string[] } => {
+  if (entrants.length < 2) {
+    const only = entrants[0]?.id ?? null;
+    return { championId: only, finalistIds: only ? [only] : [] };
+  }
+
+  const size = bracketNextPowerOfTwo(entrants.length);
+  const totalRounds = Math.log2(size);
+  const byId = buildByIdMap(allTeams);
+  let slots: (string | null)[] = bracketSeedOrder(size).map((seed) => entrants[seed - 1]?.id ?? null);
+  let finalistIds: string[] = [];
+
+  for (let round = 0; round < totalRounds; round += 1) {
+    if (round === totalRounds - 1) {
+      finalistIds = slots.filter((slot): slot is string => Boolean(slot));
+    }
+    const next: (string | null)[] = [];
+    for (let game = 0; game < slots.length; game += 2) {
+      const top = slots[game] ?? null;
+      const bottom = slots[game + 1] ?? null;
+      if (top && bottom) {
+        const matchup: Matchup = { id: `sim-r${round}-g${game}`, date: "", away: top, home: bottom };
+        const prediction = predictGame(matchup, allTeams, settings, byId);
+        next.push(random() < prediction.awayWinPct ? top : bottom);
+      } else {
+        next.push(top ?? bottom);
+      }
+    }
+    slots = next;
+  }
+
+  return { championId: slots[0] ?? null, finalistIds };
+};
+
+export const simulateBracketOdds = (
+  teams: Team[],
+  remaining: Matchup[],
+  iterations: number,
+  seedText: string,
+  cutoff: number,
+  settings: Settings
+): BracketOddsResult => {
+  const teamCount = teams.length;
+  const seedCounts: Record<string, number[]> = {};
+  const championCounts: Record<string, number> = {};
+  const finalsCounts: Record<string, number> = {};
+  teams.forEach((team) => {
+    seedCounts[team.id] = new Array(teamCount).fill(0);
+    championCounts[team.id] = 0;
+    finalsCounts[team.id] = 0;
+  });
+
+  const random = makeRandom(hashSeed(`${seedText}::bracket`));
+  const rankOptions = rankOptionsFromSettings(settings);
+  const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
+
+  for (let i = 0; i < iterations; i += 1) {
+    let simTeams = teams.map((team) => ({ ...team }));
+    remaining.forEach((game) => {
+      const simById = buildByIdMap(simTeams);
+      const prediction = predictGame(game, simTeams, settings, simById);
+      const winner = random() < prediction.awayWinPct ? game.away : game.home;
+      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
+    });
+
+    const finalRanking = rankTeams(simTeams, rankOptions);
+    finalRanking.forEach((team, index) => {
+      const distribution = seedCounts[team.id];
+      if (distribution && index >= 0 && index < distribution.length) {
+        distribution[index] = (distribution[index] ?? 0) + 1;
+      }
+    });
+
+    const entrants = finalRanking.slice(0, bracketCutoff);
+    const { championId, finalistIds } = simulateBracketRun(entrants, simTeams, settings, random);
+    if (championId) championCounts[championId] = (championCounts[championId] ?? 0) + 1;
+    finalistIds.forEach((id) => {
+      finalsCounts[id] = (finalsCounts[id] ?? 0) + 1;
+    });
+  }
+
+  const denominator = Math.max(1, iterations);
+  const seedDistribution: Record<string, number[]> = {};
+  const championOdds: Record<string, number> = {};
+  const finalsOdds: Record<string, number> = {};
+  teams.forEach((team) => {
+    seedDistribution[team.id] = (seedCounts[team.id] ?? []).map((count) => (count / denominator) * 100);
+    championOdds[team.id] = ((championCounts[team.id] ?? 0) / denominator) * 100;
+    finalsOdds[team.id] = ((finalsCounts[team.id] ?? 0) / denominator) * 100;
+  });
+
+  return { seedDistribution, championOdds, finalsOdds, iterations: denominator };
+};

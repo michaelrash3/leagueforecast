@@ -25,6 +25,11 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                 Brier {backtestResult.brierScore.toFixed(3)}
               </span>
             )}
+            {backtestResult.winnerAccuracy != null && (
+              <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
+                {Math.round(backtestResult.winnerAccuracy * 100)}% winners
+              </span>
+            )}
           </div>
         </summary>
 
@@ -36,6 +41,30 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
               <div className="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
+                <Metric
+                  label="Winner accuracy"
+                  value={
+                    backtestResult.winnerAccuracy == null
+                      ? "—"
+                      : `${Math.round(backtestResult.winnerAccuracy * 100)}%`
+                  }
+                />
+                <Metric
+                  label="Margin error"
+                  value={
+                    backtestResult.averageMarginError == null
+                      ? "—"
+                      : `±${backtestResult.averageMarginError.toFixed(1)}`
+                  }
+                />
+                <Metric
+                  label={`High-conf (${backtestResult.highConfidenceSamples})`}
+                  value={
+                    backtestResult.highConfidenceAccuracy == null
+                      ? "—"
+                      : `${Math.round(backtestResult.highConfidenceAccuracy * 100)}%`
+                  }
+                />
                 <Metric
                   label="Brier"
                   value={backtestResult.brierScore.toFixed(3)}
