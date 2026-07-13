@@ -16,6 +16,7 @@ import { ModelHealthPanel } from "./components/ModelHealthPanel";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { HelpTip } from "./components/HelpTip";
 import { ProjectionExplanation } from "./components/ProjectionExplanation";
+import { SeedOddsPanel } from "./components/SeedOddsPanel";
 import { GoldOddsTrendChart } from "./components/charts/GoldOddsTrendChart";
 import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
@@ -26,7 +27,11 @@ import { useFocusTrap } from "./hooks/useFocusTrap";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
-import { useSimulationOdds, useSimulationTrend } from "./hooks/useSimulationWorker";
+import {
+  useSimulationBracket,
+  useSimulationOdds,
+  useSimulationTrend,
+} from "./hooks/useSimulationWorker";
 import {
   clinchingPathsForTeams,
   goldCutLineSnapshot,
@@ -80,6 +85,7 @@ import {
   rankTeams,
   simulationSeed,
   standingsPoints,
+  type BracketOddsResult,
 } from "./lib/sim";
 import {
   createSeason,
@@ -2247,6 +2253,20 @@ export default function App() {
     return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
   }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings]);
   const trendMap = useSimulationTrend(trendInput);
+
+  const bracketInput = useMemo(
+    () => ({
+      teams: liveTeams,
+      remaining: remainingGames,
+      iterations: SIM_ITERATIONS,
+      seedText: oddsSeed,
+      cutoff: goldCutoff,
+      settings,
+      enabled: activeView === "model",
+    }),
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView]
+  );
+  const { bracketOdds } = useSimulationBracket(bracketInput);
 
   const backtestResult = useMemo(
     () => backtestPredictions(teams, matchups, deferredLogs, settings),
@@ -4596,6 +4616,7 @@ This will replace current season data and save an undo snapshot.`,
               liveTeams={liveTeams}
               remainingGames={remainingGames}
               backtestResult={backtestResult}
+              bracketOdds={bracketOdds}
               clinchingPaths={clinchingPaths}
               cutLineSnapshot={cutLineSnapshot}
               timelineEntries={timelineEntries}
@@ -5787,6 +5808,7 @@ function ModelView(props: {
   liveTeams: Team[];
   remainingGames: Matchup[];
   backtestResult: ReturnType<typeof backtestPredictions>;
+  bracketOdds: BracketOddsResult;
   clinchingPaths: ClinchingPathNote[];
   cutLineSnapshot: ReturnType<typeof goldCutLineSnapshot>;
   timelineEntries: SeasonTimelineEntry[];
@@ -5819,6 +5841,7 @@ function ModelView(props: {
     liveTeams: _liveTeams,
     remainingGames: _remainingGames,
     backtestResult,
+    bracketOdds,
     clinchingPaths,
     cutLineSnapshot,
     timelineEntries,
@@ -5925,6 +5948,13 @@ function ModelView(props: {
         onScoreChange={updateBracketLog}
         onToggleFinal={toggleBracketFinal}
         onClearScores={clearBracketScores}
+      />
+
+      <SeedOddsPanel
+        teams={modelRows.map((team) => ({ id: team.id, name: team.name }))}
+        bracketOdds={bracketOdds}
+        cutoff={goldCutoff}
+        cardClassName={card}
       />
 
       <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

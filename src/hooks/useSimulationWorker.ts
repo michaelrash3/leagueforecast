@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { simulateGoldOdds } from "../lib/sim";
+import { simulateBracketOdds, simulateGoldOdds, type BracketOddsResult } from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
 import type { WorkerRequest, WorkerResponse } from "../workers/sim.worker";
 
@@ -18,6 +18,24 @@ type TrendInput = {
   iterations: number;
   cutoff: number;
   settings: Settings;
+};
+
+type BracketInput = {
+  teams: Team[];
+  remaining: Matchup[];
+  iterations: number;
+  seedText: string;
+  cutoff: number;
+  settings: Settings;
+  /** When false, the sim is skipped entirely (e.g. the bracket view isn't visible). */
+  enabled: boolean;
+};
+
+const EMPTY_BRACKET: BracketOddsResult = {
+  seedDistribution: {},
+  championOdds: {},
+  finalsOdds: {},
+  iterations: 0,
 };
 
 type WorkerHandle = {
@@ -307,4 +325,149 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
 
   void workerError;
   return trend;
+}
+
+export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
+  const [result, setResult] = useState<BracketOddsResult>(EMPTY_BRACKET);
+  const [pending, setPending] = useState(false);
+  const [workerError, setWorkerError] = useState<string | null>(null);
+  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
+  const latestIdRef = useRef(0);
+
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (!handle.worker) handle.worker = createWorker();
+    return () => {
+      handle.worker?.terminate();
+      handle.worker = null;
+    };
+  }, []);
+
+  const key = useMemo(
+    () =>
+      JSON.stringify([
+        input.enabled,
+        input.teams.length,
+        input.remaining.length,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings,
+      ]),
+    [
+      input.enabled,
+      input.teams.length,
+      input.remaining.length,
+      input.iterations,
+      input.seedText,
+      input.cutoff,
+      input.settings,
+    ]
+  );
+
+  useEffect(() => {
+    if (!input.enabled || !input.teams.length || input.cutoff < 2) {
+      setResult(EMPTY_BRACKET);
+      setPending(false);
+      return;
+    }
+    const handle = handleRef.current;
+    const id = handle.nextId + 1;
+    handle.nextId = id;
+    latestIdRef.current = id;
+    setPending(true);
+    let removeWorkerListeners: (() => void) | null = null;
+
+    const timer = window.setTimeout(() => {
+      if (latestIdRef.current !== id) return;
+
+      const runInline = () => {
+        const inline = simulateBracketOdds(
+          input.teams,
+          input.remaining,
+          input.iterations,
+          input.seedText,
+          input.cutoff,
+          input.settings
+        );
+        if (latestIdRef.current === id) {
+          setResult(inline);
+          setPending(false);
+        }
+      };
+
+      if (handle.worker) {
+        const onMessage = (event: MessageEvent<WorkerResponse>) => {
+          if (event.data.kind === "runtime-stats" && event.data.id === id) {
+            console.debug(`[sim-worker] bracket ${event.data.elapsedMs.toFixed(1)}ms`);
+            return;
+          }
+          if (event.data.kind !== "bracket" || event.data.id !== id) return;
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
+          if (latestIdRef.current === id) {
+            setWorkerError(null);
+            setResult(event.data.result);
+            setPending(false);
+          }
+        };
+        const onError = (event: Event) => {
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
+          setWorkerError(event.type);
+          runInline();
+        };
+        handle.worker.addEventListener("message", onMessage);
+        handle.worker.addEventListener("error", onError);
+        handle.worker.addEventListener("messageerror", onError);
+        removeWorkerListeners = () => {
+          handle.worker?.removeEventListener("message", onMessage);
+          handle.worker?.removeEventListener("error", onError);
+          handle.worker?.removeEventListener("messageerror", onError);
+        };
+        const req: WorkerRequest = {
+          kind: "bracket",
+          id,
+          teams: input.teams,
+          remaining: input.remaining,
+          iterations: input.iterations,
+          seedText: input.seedText,
+          cutoff: input.cutoff,
+          settings: input.settings,
+        };
+        try {
+          handle.worker.postMessage(req);
+        } catch (err) {
+          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
+          runInline();
+        }
+      } else {
+        runInline();
+      }
+    }, debounceMs);
+
+    return () => {
+      window.clearTimeout(timer);
+      removeWorkerListeners?.();
+      removeWorkerListeners = null;
+      try {
+        handle.worker?.postMessage({ kind: "cancel", id });
+      } catch {
+        // Worker may already be terminating; stale responses are ignored by id.
+      }
+    };
+  }, [
+    key,
+    debounceMs,
+    input.enabled,
+    input.teams,
+    input.remaining,
+    input.iterations,
+    input.seedText,
+    input.cutoff,
+    input.settings,
+  ]);
+
+  void workerError;
+  return { bracketOdds: result, pending };
 }
