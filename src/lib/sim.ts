@@ -6,6 +6,7 @@ import {
   RUN_SCORE_CAP,
   type GameLog,
   type Matchup,
+  type PitchMode,
   type Prediction,
   type Settings,
   type Team,
@@ -173,15 +174,26 @@ const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor, tiedGro
       if (aPct === null || bPct === null || Math.abs(aPct - bPct) <= 0.0001) return 0;
       return bPct - aPct;
     }
-    case "runDifferential":
-      if (a.runDiff !== b.runDiff) return b.runDiff - a.runDiff;
+    case "runDifferential": {
+      // USSSA seeds on AVG run differential (with the run diff already capped upstream).
+      const aAvg = a.games ? a.runDiff / a.games : 0;
+      const bAvg = b.games ? b.runDiff / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return bAvg - aAvg;
       return 0;
-    case "runsAgainst":
-      if (a.ra !== b.ra) return a.ra - b.ra;
+    }
+    case "runsAgainst": {
+      // USSSA seeds on AVG runs allowed, ascending (fewer is better).
+      const aAvg = a.games ? a.ra / a.games : 0;
+      const bAvg = b.games ? b.ra / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return aAvg - bAvg;
       return 0;
-    case "runsFor":
-      if (a.rs !== b.rs) return b.rs - a.rs;
+    }
+    case "runsFor": {
+      const aAvg = a.games ? a.rs / a.games : 0;
+      const bAvg = b.games ? b.rs / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return bAvg - aAvg;
       return 0;
+    }
     default:
       return 0;
   }
@@ -273,12 +285,30 @@ const cappedRunDiff = (runsFor: number, runsAgainst: number, maxRunDifferential 
   return clamp(rawDiff, -cap, cap);
 };
 
+/**
+ * Resolve the effective per-game run-differential cap. When autoRunDiffCap is on, the cap follows
+ * the pitch format — 8 for machine/coach pitch (which carry a per-inning run limit and earlier
+ * mercy) and 12 for player pitch (9U+ has no run limit) — otherwise the manual maxRunDifferential.
+ */
+export const resolveMaxRunDifferential = (settings: {
+  maxRunDifferential: number;
+  pitchMode?: PitchMode;
+  autoRunDiffCap?: boolean;
+}): number => {
+  if (settings.autoRunDiffCap) return settings.pitchMode === "player" ? 12 : 8;
+  return settings.maxRunDifferential;
+};
+
 export const calculateTeams = (
   teamBases: TeamBase[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
-  settings: Pick<Settings, "maxRunDifferential"> = { maxRunDifferential: RUN_SCORE_CAP }
+  settings: Pick<Settings, "maxRunDifferential"> &
+    Partial<Pick<Settings, "pitchMode" | "autoRunDiffCap">> = {
+    maxRunDifferential: RUN_SCORE_CAP,
+  }
 ): Team[] => {
+  const runDiffCap = resolveMaxRunDifferential(settings);
   const teams: InternalTeam[] = teamBases.map((base) => ({
     ...emptyTeam(base),
     awayKs: 0,
@@ -331,8 +361,8 @@ export const calculateTeams = (
       away.ra += homeRuns;
       home.rs += homeRuns;
       home.ra += awayRuns;
-      away.runDiff += cappedRunDiff(awayRuns, homeRuns, settings.maxRunDifferential);
-      home.runDiff += cappedRunDiff(homeRuns, awayRuns, settings.maxRunDifferential);
+      away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
+      home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
       away.awayKs += awayK;
       away.awayInns += innings;

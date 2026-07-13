@@ -2274,8 +2274,8 @@ export default function App() {
   );
 
   const predictionEngine = useMemo(
-    () => buildPredictionEngine(liveTeams, matchups, deferredLogs),
-    [liveTeams, matchups, deferredLogs]
+    () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings),
+    [liveTeams, matchups, deferredLogs, settings]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -4992,6 +4992,14 @@ function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictio
     </aside>
   );
 }
+
+// Format a run-denominated rating value with an explicit sign, e.g. "+2.3", "0.0", "-1.0".
+const signedRuns = (value: number) => {
+  const rounded = Number(value.toFixed(1));
+  const safe = Object.is(rounded, -0) ? 0 : rounded;
+  return `${safe > 0 ? "+" : ""}${safe.toFixed(1)}`;
+};
+
 function PowerRatingsView({
   engine,
   compact = false,
@@ -5004,11 +5012,15 @@ function PowerRatingsView({
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-black">
           Power Ratings
-          <HelpTip title="Power Ratings">
-            <strong>Rating</strong> blends win %, average margin, schedule-adjusted net runs, an
-            Elo score, and recent form into one strength number. <strong>Adj Net</strong> is net
-            runs per game after correcting for opponent strength. <strong>SOS</strong> is
-            strength of schedule — how tough the opponents faced have been.
+          <HelpTip title="How the rating works">
+            <strong>Rating</strong> is an opponent-adjusted run margin (a Massey rating): it fits
+            every team so that rating difference ≈ expected run margin, using run differential
+            capped per game and regressed toward the league average so short seasons stay stable.
+            It reads in runs: <strong>+2.0</strong> means about two runs better than an average
+            team. <strong>Net R/G</strong> is your own capped run margin per game before
+            adjustment; <strong>Sched</strong> is how much accounting for opponent strength moved
+            you (Rating = Net R/G + Sched); <strong>SOS</strong> is the average rating of the
+            opponents faced.
           </HelpTip>
         </h2>
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">
@@ -5024,8 +5036,8 @@ function PowerRatingsView({
                 <th>Team</th>
                 <th>Rating</th>
                 <th>Record</th>
-                <th>Adj Net</th>
-                <th>Recent</th>
+                <th>Net R/G</th>
+                <th>Sched</th>
                 <th>SOS</th>
                 <th>Trend</th>
               </tr>
@@ -5035,11 +5047,11 @@ function PowerRatingsView({
                 <tr key={r.teamId} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="py-3 font-black">#{r.rank}</td>
                   <td className="font-black">{r.teamName}</td>
-                  <td>{r.rating.toFixed(1)}</td>
+                  <td className="font-black">{signedRuns(r.rating)}</td>
                   <td>{r.record}</td>
-                  <td>{r.adjustedNetRating.toFixed(1)}</td>
-                  <td>{r.recentForm.toFixed(1)}</td>
-                  <td>{r.strengthOfSchedule.toFixed(1)}</td>
+                  <td>{signedRuns(r.rawMargin)}</td>
+                  <td>{signedRuns(r.rating - r.rawMargin)}</td>
+                  <td>{signedRuns(r.strengthOfSchedule)}</td>
                   <td>{r.trend}</td>
                 </tr>
               ))}
@@ -6683,25 +6695,33 @@ function SettingsView({
             <span className="text-sm font-black text-slate-700">Max Run Differential</span>
             <select
               id={maxRunDifferentialId}
-              value={settings.maxRunDifferential}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  maxRunDifferential: Number(event.target.value),
-                }))
-              }
+              value={settings.autoRunDiffCap ? "auto" : String(settings.maxRunDifferential)}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "auto") {
+                  setSettings((prev) => ({ ...prev, autoRunDiffCap: true }));
+                } else {
+                  setSettings((prev) => ({
+                    ...prev,
+                    autoRunDiffCap: false,
+                    maxRunDifferential: Number(value),
+                  }));
+                }
+              }}
               className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
+              <option value="auto">Auto (by format)</option>
               {[8, 10].map((runs) => (
-                <option key={runs} value={runs}>
+                <option key={runs} value={String(runs)}>
                   {runs} runs
                 </option>
               ))}
-              <option value={0}>No cap</option>
+              <option value="0">No cap</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Standings and projections cap each game&apos;s run-differential credit at this amount,
-              or use no cap when selected.
+              Standings, ratings, and projections cap each game&apos;s run-differential credit at this
+              amount. <strong>Auto</strong> uses 8 runs for machine/coach pitch (per-inning run limit)
+              and 12 for player pitch (9U+ has no run limit).
             </p>
           </label>
 
@@ -6794,6 +6814,27 @@ function SettingsView({
                   </select>
                 </label>
               ))}
+            </div>
+            <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Match USSSA pool-play seeding: Win % → Head-to-head → Avg Runs Allowed → Avg Run
+                Differential (capped at 8).
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    tiebreakerOrder: ["headToHead", "runsAgainst", "runDifferential"],
+                    maxRunDifferential: 8,
+                    autoRunDiffCap: false,
+                    runDiffTiebreaker: true,
+                  }))
+                }
+                className="shrink-0 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black uppercase tracking-wide text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              >
+                Use USSSA preset
+              </button>
             </div>
           </fieldset>
         </div>

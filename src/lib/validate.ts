@@ -223,6 +223,10 @@ export const coerceSettings = (raw: unknown): Settings => {
     maxRunDifferential: isNumber(raw.maxRunDifferential)
       ? Math.min(RUN_SCORE_CAP, Math.max(0, Math.round(raw.maxRunDifferential)))
       : DEFAULT_SETTINGS.maxRunDifferential,
+    autoRunDiffCap:
+      typeof raw.autoRunDiffCap === "boolean"
+        ? raw.autoRunDiffCap
+        : DEFAULT_SETTINGS.autoRunDiffCap,
     modelAggression,
     pitchMode,
     recapGrouping,
