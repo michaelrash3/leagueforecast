@@ -15,7 +15,7 @@ import {
 import { normalizeDateInput } from "./date";
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
-const PITCH_MODE_VALUES: PitchMode[] = ["machine", "player"];
+const PITCH_MODE_VALUES: PitchMode[] = ["machine", "coach", "player"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
 const TIEBREAKER_VALUES: TiebreakerFactor[] = [
   "headToHead",

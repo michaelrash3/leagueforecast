@@ -100,7 +100,8 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
-export type PitchMode = "machine" | "player";
+// "machine" and "coach" both use R/H/K (no walks/errors); only "player" (Kid Pitch) tracks BB/E.
+export type PitchMode = "machine" | "coach" | "player";
 export type ActiveShareView =
   | "dashboard"
   | "power"

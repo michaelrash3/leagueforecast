@@ -6740,12 +6740,13 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
-              <option value="machine">Machine / Coach Pitch</option>
+              <option value="machine">Machine Pitch</option>
+              <option value="coach">Coach Pitch</option>
               <option value="player">Kid Pitch</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Machine &amp; Coach Pitch use R/H/K. Kid Pitch uses R/H/E/BB; BB means walks drawn by
-              that team&apos;s hitters.
+              Machine Pitch and Coach Pitch use R/H/K. Kid Pitch uses R/H/E/BB; BB means walks drawn
+              by that team&apos;s hitters.
             </p>
           </label>
 
