@@ -923,7 +923,7 @@ const buildTeamStatRankings = (
           },
           {
             key: "opponent-strikeouts",
-            label: "Ks Against/G",
+            label: "Opp K/G",
             direction: "desc",
             average: averageFor((line) => line.defense.strikeouts),
             entries: rankedEntries((line) => line.defense.strikeouts, "desc"),
@@ -1847,7 +1847,7 @@ function TeamDrawer({
           ) : (
             <>
               <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
-              <DrawerMetric label="Ks Against/Game" value={team.oppKpg.toFixed(1)} />
+              <DrawerMetric label="Opp K/Game" value={team.oppKpg.toFixed(1)} />
             </>
           )}
           <DrawerMetric
@@ -1936,7 +1936,7 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Next Two</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Next Two Games</h3>
           <div className="mt-3 space-y-3">
             {swings.length === 0 ? (
               <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -2540,7 +2540,7 @@ export default function App() {
         if (team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") {
           result.set(team.id, team.goldStatus);
         } else if ((team.rank ?? 99) <= goldCutoff) {
-          result.set(team.id, "Controls Spot");
+          result.set(team.id, "In Control");
         } else {
           result.set(team.id, "Needs Help");
         }
@@ -2576,13 +2576,13 @@ export default function App() {
       const lossRisk = swings.some((swing) => swing.lossSeed > goldCutoff);
 
       if (winOutSeed <= goldCutoff && (row.rank ?? 99) > goldCutoff) {
-        result.set(team.id, "Controls Path");
+        result.set(team.id, "Controls Own Fate");
       } else if (winOutSeed > goldCutoff) {
         result.set(team.id, "Needs Help");
       } else if ((row.rank ?? 99) <= goldCutoff && lossRisk) {
         result.set(team.id, "At Risk");
       } else {
-        result.set(team.id, "Controls Spot");
+        result.set(team.id, "In Control");
       }
     });
     return result;
@@ -2600,7 +2600,7 @@ export default function App() {
   ]);
 
   const controlLevelForTeam = useCallback(
-    (team: TeamWithProjection) => controlLevelMap.get(team.id) ?? "Controls Spot",
+    (team: TeamWithProjection) => controlLevelMap.get(team.id) ?? "In Control",
     [controlLevelMap]
   );
 
@@ -3025,8 +3025,8 @@ export default function App() {
     if (projectedSeed <= goldCutoff && team.goldPct >= 15) return "Alive";
     if (team.goldPct >= 25 && seedDistance <= 3) return "Alive";
     if (projectedNearCut && team.goldPct >= 12) return "Alive";
-    if (canStillReachCutLine) return "Work To Do";
-    return "Work To Do";
+    if (canStillReachCutLine) return "Longshot";
+    return "Longshot";
   };
 
   const statusClass = (team: TeamWithProjection) => {
@@ -3037,7 +3037,7 @@ export default function App() {
     if (label === "In") return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300";
     if (label === "Alive")
       return "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300";
-    if (label === "Work To Do")
+    if (label === "Longshot")
       return "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300";
     return "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300";
   };
@@ -5017,9 +5017,9 @@ function PowerRatingsView({
             every team so that rating difference ≈ expected run margin, using run differential
             capped per game and regressed toward the league average so short seasons stay stable.
             It reads in runs: <strong>+2.0</strong> means about two runs better than an average
-            team. <strong>Net R/G</strong> is your own capped run margin per game before
-            adjustment; <strong>Sched</strong> is how much accounting for opponent strength moved
-            you (Rating = Net R/G + Sched); <strong>SOS</strong> is the average rating of the
+            team. <strong>Run Diff/G</strong> is your own capped run differential per game before
+            adjustment; <strong>SOS Adj</strong> is how much accounting for opponent strength moved
+            you (Rating = Run Diff/G + SOS Adj); <strong>SOS</strong> is the average rating of the
             opponents faced.
           </HelpTip>
         </h2>
@@ -5036,8 +5036,8 @@ function PowerRatingsView({
                 <th>Team</th>
                 <th>Rating</th>
                 <th>Record</th>
-                <th>Net R/G</th>
-                <th>Sched</th>
+                <th>Run Diff/G</th>
+                <th>SOS Adj</th>
                 <th>SOS</th>
                 <th>Trend</th>
               </tr>
@@ -5973,6 +5973,11 @@ function ModelView(props: {
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Projected Standings
+            <HelpTip title="Power Index">
+              The Power Index is the model&apos;s overall team-strength score, combining run
+              differential, record, and strength of schedule. Higher is stronger; it drives the
+              projected finish shown here.
+            </HelpTip>
           </h3>
         </div>
         {modelRows.length === 0 ? (
@@ -5993,7 +5998,7 @@ function ModelView(props: {
                     <th className="px-4 py-3 text-center">Projected Record</th>
                     <th className="px-4 py-3 text-center">Gold Odds</th>
                     <th className="px-4 py-3 text-center">Run Diff</th>
-                    <th className="px-5 py-3 text-right">TPI</th>
+                    <th className="px-5 py-3 text-right">Power Index</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -6130,7 +6135,7 @@ function ModelView(props: {
                         · #{range.best}–#{range.worst} · {team.projectedRecord}
                       </div>
                       <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                        TPI {team.tpi > 0 ? "+" : ""}
+                        Power Index {team.tpi > 0 ? "+" : ""}
                         {team.tpi.toFixed(2)} · Diff{" "}
                         <span
                           className={
@@ -6726,7 +6731,7 @@ function SettingsView({
           </label>
 
           <label htmlFor={pitchModeId} className="block">
-            <span className="text-sm font-black text-slate-700">Pitch Mode</span>
+            <span className="text-sm font-black text-slate-700">Pitch Format</span>
             <select
               id={pitchModeId}
               value={settings.pitchMode}
@@ -6735,12 +6740,12 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
-              <option value="machine">Machine Pitch</option>
-              <option value="player">Player Pitch</option>
+              <option value="machine">Machine / Coach Pitch</option>
+              <option value="player">Kid Pitch</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Machine pitch uses R/H/K. Player pitch uses R/H/E/BB; BB means walks drawn by that
-              team&apos;s hitters.
+              Machine &amp; Coach Pitch use R/H/K. Kid Pitch uses R/H/E/BB; BB means walks drawn by
+              that team&apos;s hitters.
             </p>
           </label>
 

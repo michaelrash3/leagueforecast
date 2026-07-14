@@ -13,7 +13,7 @@ const STEPS = [
   },
   {
     title: "Enter results and schedule future games",
-    body: "On the Schedule tab, add matchups and type each final's runs, hits, and strikeouts. Marking a game Final updates standings, simulated odds, and the “why projections moved” recap instantly.",
+    body: "On the Schedule tab, add games and type each final's runs, hits, and strikeouts. Marking a game Final updates standings, simulated odds, and the “why projections moved” recap instantly.",
   },
   {
     title: "Get around fast",

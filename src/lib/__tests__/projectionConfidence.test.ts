@@ -45,9 +45,9 @@ describe("projectionConfidenceForTeam", () => {
     expect(projectionConfidenceForTeam(team({})).label).toBe("Stable");
   });
 
-  it("labels near-cut projections as too close", () => {
+  it("labels near-cut projections as a toss-up", () => {
     expect(projectionConfidenceForTeam(team({ goldPct: 52, goldPctMargin: 5 })).label).toBe(
-      "Too close"
+      "Toss-up"
     );
   });
 
