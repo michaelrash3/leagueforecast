@@ -133,12 +133,6 @@ export function CompareDrawer({
         better: compare(left.oppKpg, right.oppKpg),
       },
       {
-        label: "Power Index",
-        left: (left.tpi > 0 ? "+" : "") + fmt(left.tpi, 2),
-        right: (right.tpi > 0 ? "+" : "") + fmt(right.tpi, 2),
-        better: compare(left.tpi, right.tpi),
-      },
-      {
         label: "Gold Odds",
         left: `${Math.round(left.goldPct)}%`,
         right: `${Math.round(right.goldPct)}%`,
