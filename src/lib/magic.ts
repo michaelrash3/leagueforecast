@@ -162,8 +162,8 @@ export const magicForGold = (
           opponentLossesNeeded: lossesNeeded,
           description:
             lossesNeeded === 0
-              ? `${winsNeeded} more win${winsNeeded === 1 ? "" : "s"} clinches a top-${cutoff} spot.`
-              : `${winsNeeded} win${winsNeeded === 1 ? "" : "s"} + ${lossesNeeded} additional own-opponent loss${lossesNeeded === 1 ? "" : "es"} clinches a top-${cutoff} spot.`,
+              ? `${winsNeeded} more win${winsNeeded === 1 ? "" : "s"} clinches a Gold Bracket spot.`
+              : `${winsNeeded} win${winsNeeded === 1 ? "" : "s"}, even with ${lossesNeeded} more loss${lossesNeeded === 1 ? "" : "es"}, still clinches a Gold Bracket spot.`,
         };
       }
     }
@@ -173,7 +173,7 @@ export const magicForGold = (
     type: "impossible",
     ownWinsNeeded: 0,
     opponentLossesNeeded: 0,
-    description: `Cannot mathematically clinch a top-${cutoff} spot.`,
+    description: `Cannot mathematically clinch a Gold Bracket spot.`,
   };
 };
 
@@ -206,8 +206,8 @@ export const eliminationNumberForGold = (
         opponentLossesNeeded: losses,
         description:
           losses === 0
-            ? `Already eliminated from top-${cutoff}.`
-            : `${losses} more loss${losses === 1 ? "" : "es"} would eliminate the team from top-${cutoff}.`,
+            ? `Already eliminated from the Gold Bracket.`
+            : `${losses} more loss${losses === 1 ? "" : "es"} would eliminate the team from the Gold Bracket.`,
       };
     }
   }
@@ -216,6 +216,6 @@ export const eliminationNumberForGold = (
     type: "magic",
     ownWinsNeeded: 0,
     opponentLossesNeeded: 0,
-    description: `Cannot be eliminated from top-${cutoff} this season.`,
+    description: `Cannot be eliminated from the Gold Bracket this season.`,
   };
 };

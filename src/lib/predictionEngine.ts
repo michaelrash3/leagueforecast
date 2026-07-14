@@ -1,5 +1,7 @@
-import type { GameLog, Matchup, Team, TeamBase } from "./types";
+import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
+import { buildOpponentAdjustedRatings } from "./powerRating";
+import { resolveMaxRunDifferential } from "./sim";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
 export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
@@ -8,11 +10,14 @@ export type PowerRating = {
   teamId: string;
   teamName: string;
   rank: number;
+  /** Opponent-adjusted power rating in run units (expected margin vs a league-average team). */
   rating: number;
   elo: number;
   record: string;
   games: number;
-  adjustedNetRating: number;
+  /** Own capped net runs per game, before opponent adjustment. */
+  rawMargin: number;
+  /** Run-denominated strength of schedule: the average rating of opponents faced. */
   strengthOfSchedule: number;
   recentForm: number;
   volatility: number;
@@ -110,7 +115,8 @@ const confidenceTier = (score: number): ConfidenceTier =>
 export const buildPredictionEngine = (
   teams: Team[],
   matchups: Matchup[],
-  logs: Record<string, GameLog>
+  logs: Record<string, GameLog>,
+  settings?: Pick<Settings, "maxRunDifferential" | "pitchMode" | "autoRunDiffCap">
 ): PredictionEngineResult => {
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
@@ -121,22 +127,19 @@ export const buildPredictionEngine = (
       (completedGames.length * 2)
     : 0;
 
-  const baseStrength = new Map(
-    teams.map((team) => [team.id, team.games ? team.runDiff / team.games : 0])
+  // NET-in-spirit power ratings: opponent-adjusted, capped run margin with small-sample shrinkage.
+  const runDiffCap = settings
+    ? resolveMaxRunDifferential(settings)
+    : 8;
+  const adjusted = buildOpponentAdjustedRatings(
+    teams.map((team) => team.id),
+    completedGames.map((game) => ({
+      home: game.home,
+      away: game.away,
+      homeMargin: game.homeScore - game.awayScore,
+    })),
+    { cap: runDiffCap }
   );
-  const sos = new Map(teams.map((team) => [team.id, 0]));
-  teams.forEach((team) => {
-    const opponents = completedGames.flatMap((game) =>
-      game.away === team.id ? [game.home] : game.home === team.id ? [game.away] : []
-    );
-    sos.set(
-      team.id,
-      opponents.length
-        ? opponents.reduce((sum, opponent) => sum + (baseStrength.get(opponent) ?? 0), 0) /
-            opponents.length
-        : 0
-    );
-  });
 
   const elo = new Map(teams.map((team) => [team.id, 1500]));
   completedGames
@@ -156,13 +159,12 @@ export const buildPredictionEngine = (
 
   const powerRatings = teams
     .map((team): PowerRating => {
-      const sample = clamp(team.games / 5, 0, 1);
       const recentGames = completedGames
         .filter((game) => game.away === team.id || game.home === team.id)
         .slice(-5);
       const weightedRecent = recentGames.reduce((sum, game, index) => {
-        const rawMargin = game.away === team.id ? game.margin : -game.margin;
-        return sum + rawMargin * ((index + 1) / recentGames.length);
+        const gameMargin = game.away === team.id ? game.margin : -game.margin;
+        return sum + gameMargin * ((index + 1) / recentGames.length);
       }, 0);
       const recentForm = recentGames.length ? weightedRecent / recentGames.length : 0;
       const margins = completedGames
@@ -174,12 +176,8 @@ export const buildPredictionEngine = (
             margins.reduce((sum, margin) => sum + (margin - avgMargin) ** 2, 0) / margins.length
           )
         : 0;
-      const adjustedNetRating = (team.rsg - team.rag) * 0.7 + (sos.get(team.id) ?? 0) * 0.3;
-      const rating =
-        ((team.pct - 0.5) * 18 + avgMargin * 2.1) * (0.35 + sample * 0.65) +
-        adjustedNetRating * 2.4 +
-        ((elo.get(team.id) ?? 1500) - 1500) / 14 +
-        recentForm * 0.9;
+      const rating = adjusted.ratings.get(team.id) ?? 0;
+      const rawMargin = adjusted.rawMargin.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
@@ -188,8 +186,8 @@ export const buildPredictionEngine = (
         elo: elo.get(team.id) ?? 1500,
         record: `${team.w}-${team.l}${team.t ? `-${team.t}` : ""}`,
         games: team.games,
-        adjustedNetRating,
-        strengthOfSchedule: sos.get(team.id) ?? 0,
+        rawMargin,
+        strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
         recentForm,
         volatility,
         trend:
@@ -202,7 +200,10 @@ export const buildPredictionEngine = (
                 : "Stable",
       };
     })
-    .sort((a, b) => b.rating - a.rating)
+    .sort(
+      (a, b) =>
+        b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
+    )
     .map((row, index) => ({ ...row, rank: index + 1 }));
   const powerById = new Map(powerRatings.map((rating) => [rating.teamId, rating]));
 
@@ -230,15 +231,11 @@ export const buildPredictionEngine = (
       };
     }
     const headToHead = a.headToHead?.[b.id];
-    const h2hEdge = headToHead ? (headToHead.wins - headToHead.losses) * 1.2 : 0;
-    const margin = clamp(
-      (ar.rating - br.rating) / 3.8 +
-        (ar.adjustedNetRating - br.adjustedNetRating) * 0.45 +
-        h2hEdge,
-      -24,
-      24
-    );
-    const probA = clamp(1 / (1 + Math.exp(-margin / 7.2)), 0.08, 0.92);
+    // Ratings are opponent-adjusted expected margins (runs), so their difference IS the projected
+    // margin; the home team gets the estimated home-field bump, plus a small head-to-head nudge.
+    const h2hEdge = headToHead ? clamp((headToHead.wins - headToHead.losses) * 0.4, -1.5, 1.5) : 0;
+    const margin = clamp((ar.rating - br.rating) - adjusted.homeAdvantage + h2hEdge, -14, 14);
+    const probA = clamp(1 / (1 + Math.exp(-margin / 2.8)), 0.08, 0.92);
     const projectedWinnerId = margin >= 0 ? a.id : b.id;
     const samplePenalty = Math.max(0, 3 - Math.min(a.games, b.games)) * 13;
     const volatilityPenalty = clamp((ar.volatility + br.volatility) * 1.1, 0, 20);
@@ -250,7 +247,7 @@ export const buildPredictionEngine = (
       Excellent: 14,
     }[dataQuality.tier];
     const confidenceScore = clamp(
-      42 + Math.abs(margin) * 3.1 + qualityBonus - samplePenalty - volatilityPenalty,
+      42 + Math.abs(margin) * 4.0 + qualityBonus - samplePenalty - volatilityPenalty,
       5,
       94
     );
@@ -271,9 +268,10 @@ export const buildPredictionEngine = (
     const favRating = projectedWinnerId === a.id ? ar : br;
     const underRating = projectedWinnerId === a.id ? br : ar;
     const keyFactors = [
-      `${favorite.name} owns the stronger blended power rating (${favRating.rating.toFixed(1)} vs ${underRating.rating.toFixed(1)}).`,
-      `${favorite.name} has an adjusted net rating edge after opponent-strength correction.`,
+      `${favorite.name} holds the stronger opponent-adjusted rating (${favRating.rating >= 0 ? "+" : ""}${favRating.rating.toFixed(1)} vs ${underRating.rating >= 0 ? "+" : ""}${underRating.rating.toFixed(1)} runs).`,
     ];
+    if (favRating.strengthOfSchedule - underRating.strengthOfSchedule >= 0.5)
+      keyFactors.push(`${favorite.name} has also faced the tougher schedule.`);
     if (Math.abs(favRating.recentForm - underRating.recentForm) >= 1)
       keyFactors.push("Recent form supports the projected winner.");
     if (headToHead && headToHead.wins + headToHead.losses + headToHead.ties > 0)

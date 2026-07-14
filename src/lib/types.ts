@@ -100,7 +100,8 @@ export type SwingGame = {
 };
 
 export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
-export type PitchMode = "machine" | "player";
+// "machine" and "coach" both use R/H/K (no walks/errors); only "player" (Kid Pitch) tracks BB/E.
+export type PitchMode = "machine" | "coach" | "player";
 export type ActiveShareView =
   | "dashboard"
   | "power"
@@ -136,6 +137,8 @@ export type Settings = {
   tiebreakerOrder: TiebreakerFactor[];
   maxScoreCap: number;
   maxRunDifferential: number;
+  /** When true, the run-differential cap follows the pitch format (machine 8 / player 12) instead of maxRunDifferential. */
+  autoRunDiffCap: boolean;
   modelAggression: ModelAggression;
   pitchMode: PitchMode;
   recapGrouping: RecapGrouping;
@@ -179,6 +182,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tiebreakerOrder: DEFAULT_TIEBREAKER_ORDER,
   maxScoreCap: RUN_SCORE_CAP,
   maxRunDifferential: 8,
+  autoRunDiffCap: false,
   modelAggression: "Balanced",
   pitchMode: "machine",
   recapGrouping: "date",

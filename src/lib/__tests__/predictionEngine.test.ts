@@ -62,7 +62,7 @@ const logs: Record<string, GameLog> = {
 describe("buildPredictionEngine", () => {
   it("produces explainable future-game forecasts with margin, probability, confidence, and power ratings", () => {
     const live = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
-    const result = buildPredictionEngine(live, matchups, logs);
+    const result = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
 
     expect(result.dataQuality.tier).not.toBe("Insufficient");
     expect(result.powerRatings[0]?.teamName).toBe("Falcons");
@@ -77,7 +77,7 @@ describe("buildPredictionEngine", () => {
   it("shows low-confidence insufficient states when no completed scores exist", () => {
     const blankLogs: Record<string, GameLog> = { "4": logs["4"]! };
     const live = calculateTeams(teams, [matchups[3]!], blankLogs, DEFAULT_SETTINGS);
-    const result = buildPredictionEngine(live, [matchups[3]!], blankLogs);
+    const result = buildPredictionEngine(live, [matchups[3]!], blankLogs, DEFAULT_SETTINGS);
 
     expect(result.dataQuality.tier).toBe("Insufficient");
     expect(result.predictions[0]?.predictedWinnerId).toBeNull();

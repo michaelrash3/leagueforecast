@@ -32,7 +32,7 @@ export const pathSummary = (
   const goldPct = Math.round(team.goldPct);
 
   if (team.goldStatus === "Clinched") {
-    return `${name} have clinched a Gold Bracket ticket at #${seed}; now it's all about sharpening their blade for seeding battles.`;
+    return `${name} have clinched a Gold Bracket spot at #${seed}; now it's all about locking up the best possible seed.`;
   }
   if (team.goldStatus === "Eliminated") {
     return `${name} are mathematically eliminated from the Gold race, but they still get to play spoiler and reshape everyone else's path.`;
@@ -52,10 +52,10 @@ export const pathSummary = (
     return `${name} are holding firm at #${seed} with a projection of #${projected} and ${goldPct}% Gold odds — safely above the line for now. Next two pressure points: ${swingLine}.`;
   }
   if (insideNow && !insideProjected) {
-    return `${name} currently own #${seed}, but the model sees a slide to #${projected} as the stretch run unfolds (${goldPct}% Gold). ${swingLine ? "They need to defend that cushion immediately: " + swingLine + "." : "Every remaining loss is gasoline on the fire."}`;
+    return `${name} currently own #${seed}, but the model sees a slide to #${projected} as the stretch run unfolds (${goldPct}% Gold). ${swingLine ? "They need to defend that cushion immediately: " + swingLine + "." : "Every remaining loss digs the hole deeper."}`;
   }
   if (!insideNow && insideProjected) {
-    return `${name} are sitting at #${seed} today but are projected to rise to #${projected} (${goldPct}% Gold). The door is cracked open if these next two tilt their way: ${swingLine}.`;
+    return `${name} are sitting at #${seed} today but are projected to rise to #${projected} (${goldPct}% Gold). They climb back into the picture if these next two break their way: ${swingLine}.`;
   }
   if (goldPct >= 15) {
     return `${name} are #${seed} now and project to #${projected} — still outside the line, but ${goldPct}% means they're alive and dangerous.${context.leaderName ? ` ${context.leaderName} currently set the pace up top.` : ""}${swingLine ? ` Swing games to circle: ${swingLine}.` : ""}`;
@@ -183,7 +183,7 @@ export const weeklyRecap = ({
       text:
         finalsSinceLast.length === 1
           ? `1 game finalized: ${finalsSinceLast[0]?.awayName} ${finalsSinceLast[0]?.awayScore}, ${finalsSinceLast[0]?.homeName} ${finalsSinceLast[0]?.homeScore}.`
-          : `${finalsSinceLast.length} finals dropped: ${finalsSinceLast
+          : `${finalsSinceLast.length} games went final: ${finalsSinceLast
               .map((f) => `${f.awayName} ${f.awayScore}–${f.homeName} ${f.homeScore}`)
               .join("; ")}.`,
     });
@@ -198,7 +198,7 @@ export const weeklyRecap = ({
       const movedList = Array.from(movedNames).slice(0, 6).join(", ");
       items.push({
         kind: "dependency-chain",
-        text: `Dependency chain: those finals tugged the standings for ${movedList}.`,
+        text: `Ripple effect: those results moved the standings for ${movedList}.`,
         why: [
           "Finalized results changed standings order for multiple teams.",
           "Cut-line pressure can move teams through opponent and competitor results, not just their own games.",
@@ -285,11 +285,11 @@ export const weeklyRecap = ({
       const reasons: string[] = [];
       if (attr?.ownResult) {
         if (attr.ownResult.didWin) {
-          const upsetTag = attr.ownResult.wasUpset ? " in an upset special" : "";
+          const upsetTag = attr.ownResult.wasUpset ? " in an upset" : "";
           reasons.push(`they took care of business vs ${attr.ownResult.opponentName}${upsetTag}`);
         } else {
           const upsetTag = attr.ownResult.wasUpset ? " in an upset" : "";
-          reasons.push(`they got clipped by ${attr.ownResult.opponentName}${upsetTag}`);
+          reasons.push(`they lost to ${attr.ownResult.opponentName}${upsetTag}`);
         }
       }
       const competitor = attr?.competitorResults.find(
