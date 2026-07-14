@@ -10,7 +10,7 @@ export type PowerRating = {
   teamId: string;
   teamName: string;
   rank: number;
-  /** Opponent-adjusted power rating in run units (expected margin vs a league-average team). */
+  /** NET-style power rating in run units: opponent-adjusted expected margin vs an average team. */
   rating: number;
   elo: number;
   record: string;
@@ -19,6 +19,8 @@ export type PowerRating = {
   rawMargin: number;
   /** Run-denominated strength of schedule: the average rating of opponents faced. */
   strengthOfSchedule: number;
+  /** Schedule-toughness rank among all teams (1 = toughest schedule faced). */
+  sosRank: number;
   recentForm: number;
   volatility: number;
   trend: "Up" | "Down" | "Stable" | "New";
@@ -188,6 +190,7 @@ export const buildPredictionEngine = (
         games: team.games,
         rawMargin,
         strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
+        sosRank: 0,
         recentForm,
         volatility,
         trend:
@@ -205,6 +208,16 @@ export const buildPredictionEngine = (
         b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
     )
     .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  // Schedule-toughness rank: 1 = faced the strongest opponents (highest average opponent rating).
+  const teamsPlayed = powerRatings.filter((row) => row.games > 0);
+  const sosOrder = [...teamsPlayed].sort(
+    (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName)
+  );
+  const sosRankById = new Map(sosOrder.map((row, index) => [row.teamId, index + 1]));
+  powerRatings.forEach((row) => {
+    row.sosRank = sosRankById.get(row.teamId) ?? 0;
+  });
   const powerById = new Map(powerRatings.map((rating) => [rating.teamId, rating]));
 
   const predictionFor = (game: Matchup): LeaguePrediction => {

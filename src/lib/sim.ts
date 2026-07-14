@@ -773,8 +773,9 @@ export const applyResult = (
   away.ra += homeRuns;
   home.rs += homeRuns;
   home.ra += awayRuns;
-  away.runDiff += cappedRunDiff(awayRuns, homeRuns, settings.maxRunDifferential);
-  home.runDiff += cappedRunDiff(homeRuns, awayRuns, settings.maxRunDifferential);
+  const runDiffCap = resolveMaxRunDifferential(settings);
+  away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
+  home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
   addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
   addHeadToHeadResult(home, away.id, homeRuns - awayRuns);

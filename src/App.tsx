@@ -523,9 +523,9 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   dashboard: "Dashboard",
   power: "Power Ratings",
   standings: "Standings",
-  teamStats: "Teams",
+  teamStats: "League Stats",
   games: "Schedule",
-  model: "Model Accuracy",
+  model: "Forecast",
   settings: "Settings",
 };
 
@@ -4346,7 +4346,7 @@ This will replace current season data and save an undo snapshot.`,
       },
       {
         combo: "g t",
-        description: "Go to Team Stats",
+        description: "Go to League Stats",
         group: "Navigate",
         handler: () => setActiveView("teamStats"),
       },
@@ -4358,7 +4358,7 @@ This will replace current season data and save an undo snapshot.`,
       },
       {
         combo: "g m",
-        description: "Go to Model Accuracy",
+        description: "Go to Forecast",
         group: "Navigate",
         handler: () => setActiveView("model"),
       },
@@ -4477,7 +4477,7 @@ This will replace current season data and save an undo snapshot.`,
                 accent="from-emerald-400 via-cyan-400 to-blue-500"
               />
               <HeaderStatCard
-                label="Top rated"
+                label="Current leader"
                 value={currentLeader ? currentLeader.name : "—"}
                 accent="from-blue-500 via-indigo-500 to-slate-900"
               />
@@ -5013,18 +5013,18 @@ function PowerRatingsView({
         <h2 className="text-2xl font-black">
           Power Ratings
           <HelpTip title="How the rating works">
-            <strong>Rating</strong> is an opponent-adjusted run margin (a Massey rating): it fits
-            every team so that rating difference ≈ expected run margin, using run differential
-            capped per game and regressed toward the league average so short seasons stay stable.
-            It reads in runs: <strong>+2.0</strong> means about two runs better than an average
-            team. <strong>Run Diff/G</strong> is your own capped run differential per game before
-            adjustment; <strong>SOS Adj</strong> is how much accounting for opponent strength moved
-            you (Rating = Run Diff/G + SOS Adj); <strong>SOS</strong> is the average rating of the
-            opponents faced.
+            <strong>Rating</strong> is an opponent-adjusted run margin (a Massey rating, the same
+            idea as the NCAA&apos;s NET): it fits every team so rating difference ≈ expected run
+            margin, using per-game-capped run differential regressed toward league average so short
+            seasons stay stable. It reads in runs — <strong>+2.0</strong> means about two runs
+            better than an average team. <strong>Run Diff/G</strong> is your own capped run
+            differential per game; <strong>SOS</strong> ranks how tough a schedule you&apos;ve faced
+            (#1 = toughest). Because it adjusts for opponents, this is <em>not</em> the standings —
+            an undefeated team that beat weak opponents can rank below a strong-schedule team.
           </HelpTip>
         </h2>
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">
-          Team strength
+          Opponent-adjusted
         </span>
       </div>
       {engine.powerRatings.length ? (
@@ -5037,7 +5037,6 @@ function PowerRatingsView({
                 <th>Rating</th>
                 <th>Record</th>
                 <th>Run Diff/G</th>
-                <th>SOS Adj</th>
                 <th>SOS</th>
                 <th>Trend</th>
               </tr>
@@ -5050,13 +5049,19 @@ function PowerRatingsView({
                   <td className="font-black">{signedRuns(r.rating)}</td>
                   <td>{r.record}</td>
                   <td>{signedRuns(r.rawMargin)}</td>
-                  <td>{signedRuns(r.rating - r.rawMargin)}</td>
-                  <td>{signedRuns(r.strengthOfSchedule)}</td>
+                  <td>{r.sosRank > 0 ? `#${r.sosRank}` : "—"}</td>
                   <td>{r.trend}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {!compact && (
+            <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">
+              Opponent-adjusted, so it can differ from the standings on purpose — a team that beat a
+              weak schedule can rank below a team that played tougher competition. SOS is a schedule
+              rank (#1 = toughest faced).
+            </p>
+          )}
         </div>
       ) : (
         <EmptyPanel
@@ -5250,7 +5255,7 @@ function TeamStatsView({
     <div className="grid grid-cols-1 gap-6">
       <section className={`${card} p-5`}>
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Teams
+          League Stats
         </h2>
         <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
           Compare league-wide scoring, hitting, pitching, and fielding rates.
@@ -5864,7 +5869,7 @@ function ModelView(props: {
       <div className={`${card} p-6`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Model Accuracy
+            Forecast
           </h2>
           <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
@@ -5973,11 +5978,6 @@ function ModelView(props: {
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Projected Standings
-            <HelpTip title="Power Index">
-              The Power Index is the model&apos;s overall team-strength score, combining run
-              differential, record, and strength of schedule. Higher is stronger; it drives the
-              projected finish shown here.
-            </HelpTip>
           </h3>
         </div>
         {modelRows.length === 0 ? (
@@ -5992,13 +5992,12 @@ function ModelView(props: {
                 <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
                     <th className="px-5 py-3">Team</th>
-                    <th className="px-4 py-3 text-center">Now</th>
-                    <th className="px-4 py-3 text-center">Projected</th>
+                    <th className="px-4 py-3 text-center">Current Seed</th>
+                    <th className="px-4 py-3 text-center">Projected Seed</th>
                     <th className="px-4 py-3 text-center">Range</th>
                     <th className="px-4 py-3 text-center">Projected Record</th>
                     <th className="px-4 py-3 text-center">Gold Odds</th>
                     <th className="px-4 py-3 text-center">Run Diff</th>
-                    <th className="px-5 py-3 text-right">Power Index</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -6077,10 +6076,6 @@ function ModelView(props: {
                           {team.projectedRunDiff > 0 ? "+" : ""}
                           {team.projectedRunDiff}
                         </td>
-                        <td className="px-5 py-4 text-right font-black">
-                          {team.tpi > 0 ? "+" : ""}
-                          {team.tpi.toFixed(2)}
-                        </td>
                       </tr>
                     );
                   })}
@@ -6135,8 +6130,7 @@ function ModelView(props: {
                         · #{range.best}–#{range.worst} · {team.projectedRecord}
                       </div>
                       <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                        Power Index {team.tpi > 0 ? "+" : ""}
-                        {team.tpi.toFixed(2)} · Diff{" "}
+                        Diff{" "}
                         <span
                           className={
                             team.projectedRunDiff > 0
@@ -6599,7 +6593,7 @@ function SettingsView({
         </h2>
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
           <label htmlFor={seasonId} className="block">
-            <span className="text-sm font-black text-slate-700">Season</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Season</span>
             <input
               id={seasonId}
               value={settings.seasonLabel}
@@ -6611,7 +6605,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={cutoffId} className="block">
-            <span className="text-sm font-black text-slate-700">Gold Cutoff</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Gold Cutoff</span>
             <input
               id={cutoffId}
               type="number"
@@ -6628,7 +6622,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={winId} className="block">
-            <span className="text-sm font-black text-slate-700">Win Points</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Win Points</span>
             <input
               id={winId}
               type="number"
@@ -6642,7 +6636,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={tieId} className="block">
-            <span className="text-sm font-black text-slate-700">Tie Points</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Tie Points</span>
             <input
               id={tieId}
               type="number"
@@ -6656,7 +6650,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={regularSeasonGamesId} className="block">
-            <span className="text-sm font-black text-slate-700">Regular Season Games / Team</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Regular Season Games / Team</span>
             <input
               id={regularSeasonGamesId}
               type="number"
@@ -6673,7 +6667,7 @@ function SettingsView({
           </label>
 
           <label htmlFor={defaultInningsId} className="block">
-            <span className="text-sm font-black text-slate-700">Default Innings / Game</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Default Innings / Game</span>
             <select
               id={defaultInningsId}
               value={settings.defaultGameInnings}
@@ -6697,7 +6691,7 @@ function SettingsView({
           </label>
 
           <label htmlFor={maxRunDifferentialId} className="block">
-            <span className="text-sm font-black text-slate-700">Max Run Differential</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Max Run Differential</span>
             <select
               id={maxRunDifferentialId}
               value={settings.autoRunDiffCap ? "auto" : String(settings.maxRunDifferential)}
@@ -6731,7 +6725,7 @@ function SettingsView({
           </label>
 
           <label htmlFor={pitchModeId} className="block">
-            <span className="text-sm font-black text-slate-700">Pitch Format</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Pitch Format</span>
             <select
               id={pitchModeId}
               value={settings.pitchMode}
@@ -6751,7 +6745,7 @@ function SettingsView({
           </label>
 
           <label htmlFor={aggrId} className="block">
-            <span className="text-sm font-black text-slate-700">Model Aggression</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Model Aggression</span>
             <select
               id={aggrId}
               value={settings.modelAggression}
@@ -6769,7 +6763,7 @@ function SettingsView({
             </select>
           </label>
           <label htmlFor={recapId} className="block">
-            <span className="text-sm font-black text-slate-700">Recap Grouping</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Recap Grouping</span>
             <select
               id={recapId}
               value={settings.recapGrouping}
@@ -6790,7 +6784,7 @@ function SettingsView({
             className="rounded-none border border-slate-300 p-4 dark:border-slate-600 md:col-span-2"
             aria-labelledby={tiebreakerId}
           >
-            <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700">
+            <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700 dark:text-slate-200">
               League Tiebreaker Order
             </legend>
             <p className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -7122,7 +7116,7 @@ function GamesView({
 
       <div className={`${card} p-4`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <label htmlFor={filterId} className="text-sm font-black text-slate-700">
+          <label htmlFor={filterId} className="text-sm font-black text-slate-700 dark:text-slate-200">
             Scoreboard Filter
           </label>
           <select
