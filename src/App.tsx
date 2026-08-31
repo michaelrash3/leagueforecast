@@ -25,6 +25,7 @@ import { ToastView } from "./components/Toast";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
+import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
 import { useUrlSnapshot } from "./hooks/useUrlState";
 import {
@@ -56,6 +57,7 @@ import {
   weeklyRecap,
   type RecapItem,
 } from "./lib/insights";
+import { buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine, type LeaguePrediction } from "./lib/predictionEngine";
@@ -4189,6 +4191,34 @@ This will replace current season data and save an undo snapshot.`,
     return recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
   }, [lastImpact, settings.seasonLabel]);
 
+  // Gemini rewrite of the same facts. The request is null until there is real
+  // movement to describe, so the endpoint is only called when the story changes.
+  const leagueSummaryRequest = useMemo(() => {
+    if (!lastImpact || lastImpact.recapItems.length === 0) return null;
+    return buildLeagueSummaryRequest({
+      seasonLabel: settings.seasonLabel,
+      cutoff: goldCutoff,
+      updateTitle: lastImpact.title,
+      finalScores: lastImpact.scores,
+      recapItems: lastImpact.recapItems,
+      standings: dashboardRows.map((team) => ({
+        rank: team.rank,
+        name: team.name,
+        w: team.w,
+        l: team.l,
+        t: team.t,
+        goldPct: team.goldPct,
+        status: statusLabel(team),
+      })),
+      fallback: weeklyStory,
+    });
+    // `statusLabel` is a render-scoped helper over these same inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastImpact, settings.seasonLabel, goldCutoff, dashboardRows, weeklyStory]);
+
+  const aiStory = useLeagueSummary(leagueSummaryRequest);
+  const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
+
   // ---------- Share + URL snapshot ----------
 
   const sharedHandledRef = useRef(false);
@@ -4562,7 +4592,8 @@ This will replace current season data and save an undo snapshot.`,
               }}
               copyStory={async () => {
                 if (!lastImpact) return;
-                const story = recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+                const story =
+                  storyText || recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
                 try {
                   await navigator.clipboard.writeText(story);
                   showToast("League story copied.", { tone: "success" });
@@ -4571,7 +4602,11 @@ This will replace current season data and save an undo snapshot.`,
                 }
               }}
               dashboardRows={dashboardRows}
-              weeklyStory={weeklyStory}
+              storyText={storyText}
+              storySource={aiStory.status === "ready" ? "gemini" : "local"}
+              storyModel={aiStory.model}
+              storyLoading={aiStory.status === "loading"}
+              retryStory={aiStory.retry}
               currentSosRanks={currentSosRanks}
               statusClass={statusClass}
               statusLabel={statusLabel}
@@ -5360,7 +5395,11 @@ function StandingsView({
   copyRecap,
   copyStory,
   dashboardRows,
-  weeklyStory,
+  storyText,
+  storySource,
+  storyModel,
+  storyLoading,
+  retryStory,
   currentSosRanks,
   statusClass,
   statusLabel,
@@ -5378,7 +5417,12 @@ function StandingsView({
   copyRecap: () => void;
   copyStory: () => void;
   dashboardRows: TeamWithProjection[];
-  weeklyStory: string;
+  /** Gemini story when one arrived, otherwise the deterministic one. */
+  storyText: string;
+  storySource: "gemini" | "local";
+  storyModel: string;
+  storyLoading: boolean;
+  retryStory: () => void;
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
@@ -5469,12 +5513,34 @@ function StandingsView({
             )}
             {lastImpact.recapItems.length > 0 ? (
               <>
-                {weeklyStory && (
+                {storyText && (
                   <div className="mb-3 whitespace-pre-line rounded-none bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                    <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      League Story
+                    <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <span>League Story</span>
+                      {storySource === "gemini" && (
+                        <span
+                          className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                          title={`Written by Gemini (${storyModel})`}
+                        >
+                          AI
+                        </span>
+                      )}
+                      {storyLoading && (
+                        <span className="font-bold normal-case tracking-normal text-slate-400">
+                          Writing AI recap…
+                        </span>
+                      )}
+                      {storySource === "gemini" && (
+                        <button
+                          type="button"
+                          onClick={retryStory}
+                          className="ml-auto rounded-full px-2 py-0.5 font-black uppercase tracking-wide text-slate-500 underline decoration-dotted hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-100"
+                        >
+                          Rewrite
+                        </button>
+                      )}
                     </div>
-                    {weeklyStory}
+                    {storyText}
                   </div>
                 )}
                 <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">

@@ -1,12 +1,13 @@
 # League Forecast
 
-A browser-only web app for league predictions, power ratings, matchup analysis, and forecast accuracy.
+A browser-first web app for league predictions, power ratings, matchup analysis, and forecast accuracy. All league data stays in the browser; the only server-side piece is one optional serverless function that writes the AI league story.
 
 ## Stack
 
 - Vite 5.4 latest-line + React 18.3 + TypeScript 5.9
 - Tailwind CSS 3.4 latest-line
 - Web Worker-based Monte Carlo simulation
+- One Vercel Serverless Function (`api/league-summary.ts`) for the Gemini-written league story
 - Vitest
 - ESLint + Prettier
 
@@ -30,7 +31,7 @@ Node `>=24` (see `.nvmrc`) for the latest available LTS/current runtime baseline
 
 | Area                 | Highlights                                                                             |
 | -------------------- | -------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, deterministic league story, weekly recap.       |
+| **Standings**        | Records, cut-line status, SOS, trends, AI or deterministic league story, weekly recap. |
 | **Games**            | R/H/K entry, predictions, final toggle, filters, auto re-projection.                   |
 | **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.            |
 | **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.        |
@@ -43,6 +44,8 @@ Node `>=24` (see `.nvmrc`) for the latest available LTS/current runtime baseline
 ## Architecture
 
 ```
+api/
+  league-summary.ts     # Vercel function: Gemini recap of standings movement
 src/
   App.tsx
   main.tsx
@@ -55,12 +58,16 @@ src/
     csv.ts
     sim.ts
     magic.ts
-    insights.ts       # deterministic recap + league-story generation
+    insights.ts           # deterministic recap + league-story generation
+    geminiModels.ts       # Gemini model discovery + newest-first ranking
+    leagueSummary.ts      # shared request contract + prompt building
+    leagueSummaryClient.ts # browser client for /api/league-summary
     share.ts
     storage.ts
     backtest.ts
   hooks/
     useSimulationWorker.ts
+    useLeagueSummary.ts
     useToast.ts
     useDarkMode.ts
     useShortcuts.ts
@@ -97,9 +104,65 @@ src/
 
 - `league_teams_v1`, `league_matchups_v1`, `league_logs_v1`, `league_settings_v1`
 - `league_undo_snapshot_v1`
-- League stories are generated locally from standings facts; no API key or AI service is required.
+- League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
+
+## AI league story
+
+The Standings panel writes a "League Story" paragraph after every update. It is
+generated deterministically from standings facts, and — when a Gemini key is
+configured — rewritten by Gemini into a beat-writer summary. **The deterministic
+story is always the fallback**, so the app behaves identically without a key.
+
+### Configuration
+
+| Environment variable | Required | Effect                                                                        |
+| -------------------- | -------- | ----------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`     | No       | Enables the AI story. Server-side only — never exposed to the browser.        |
+| `GEMINI_MODEL`       | No       | Pins one model id (e.g. `gemini-2.5-flash`). Tried first, then the auto list. |
+
+Set these in Vercel under **Project → Settings → Environment Variables**. Do
+_not_ prefix them with `VITE_`: any `VITE_*` variable is inlined into the client
+bundle and would publish the key to every visitor. The browser posts recap facts
+to `/api/league-summary` and the function calls Gemini with the key.
+
+### Model selection
+
+The app is not pinned to a Gemini version. On each cold start it calls
+`GET /v1beta/models` with the configured key, keeps the models that support
+`generateContent`, and orders them so the newest is attempted first:
+
+1. Highest generation number — `gemini-4` before `gemini-3` before `gemini-2.5`.
+   A `*-latest` alias inherits the newest generation in the list.
+2. Tier: `flash`, then `pro`, then `flash-lite`. Flash leads because the story is
+   a short summarization task with the most generous rate limits.
+3. Stable before `preview` before `-exp`, within one generation.
+4. Rolling ids before dated snapshots (`gemini-2.5-flash` before
+   `gemini-2.5-flash-preview-09-2025`).
+
+The request walks down that list (up to four models) and returns the first
+success, so a missing, retired, or rate-limited model degrades to the next best
+one. A newly released Gemini is picked up automatically, with no code change.
+If listing models fails, a hand-maintained fallback list in
+`src/lib/geminiModels.ts` is used instead. The list is cached for 30 minutes per
+warm instance.
+
+### Failure behavior
+
+Every failure path returns a non-200 with a machine-readable `reason`
+(`unconfigured`, `rate-limited`, `upstream-error`, `no-model`,
+`invalid-request`), and the UI keeps showing the deterministic story. No key, an
+undeployed function, a 404, a Gemini outage, and a rate limit are all silent to
+the reader. The endpoint is throttled per IP (best effort, in-memory) and only
+receives values the model already computed — recap lines, ranks, and odds, never
+raw game logs.
+
+### Local development
+
+`npm run dev` serves the Vite app only, so `/api/league-summary` returns 404 and
+the deterministic story is shown. To exercise the AI path locally, run
+`vercel dev` with `GEMINI_API_KEY` in a local `.env` file (git-ignored).
 
 ## Performance notes
 
@@ -135,4 +198,7 @@ This project tracks the newest dependency/runtime baseline that can be installed
 
 ## Deploy
 
-Vercel deploys the Vite app. CI runs lint, typecheck, tests, and build.
+Vercel deploys the Vite app plus the `api/` serverless function. CI runs lint,
+typecheck, tests, and build. Set `GEMINI_API_KEY` in the Vercel project to turn
+on the AI league story; without it the deploy still works and uses the local
+story generator.
