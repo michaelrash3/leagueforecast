@@ -218,8 +218,14 @@ in-memory).
 
 ### Diagnosing it
 
-`GET /api/league-summary` is a health check you can open in a browser — no
-console needed:
+When a write-up is unavailable, the panel header shows a **Why?** button. It
+asks the endpoint what is actually wrong and prints the answer in place — which
+model the key can reach, or that the key is not reaching the function, or that
+nothing is serving the endpoint at all. It runs as a `fetch`, so a stale service
+worker cannot answer it with the cached app shell.
+
+The same check is available directly at `GET /api/league-summary` — no console
+needed:
 
 ```
 https://<your-site>/api/league-summary

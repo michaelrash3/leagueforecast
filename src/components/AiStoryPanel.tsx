@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 import type { LeagueSummaryErrorReason } from "../lib/leagueSummary";
+import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../lib/leagueSummaryClient";
 
 /**
  * Short, non-alarming labels. The AI write-up is an enhancement, not a
@@ -48,6 +51,22 @@ export function AiStoryPanel({
   errorMessage,
   onRetry,
 }: AiStoryPanelProps) {
+  const [diagnosis, setDiagnosis] = useState("");
+  const [checking, setChecking] = useState(false);
+
+  // Asks the endpoint what is actually wrong. This runs as a fetch, so a stale
+  // service worker cannot answer it with the cached app shell the way it would
+  // if the URL were opened in the address bar.
+  const runDiagnosis = async () => {
+    setChecking(true);
+    setDiagnosis("");
+    try {
+      setDiagnosis(describeLeagueSummaryHealth(await fetchLeagueSummaryHealth()));
+    } finally {
+      setChecking(false);
+    }
+  };
+
   if (!text) return null;
 
   return (
@@ -75,6 +94,16 @@ export function AiStoryPanel({
             {aiStoryUnavailableLabel(unavailableReason)}
           </span>
         )}
+        {!loading && unavailableReason && (
+          <button
+            type="button"
+            onClick={runDiagnosis}
+            disabled={checking}
+            className="rounded-full px-2 py-0.5 font-black uppercase tracking-wide text-slate-500 underline decoration-dotted hover:text-slate-950 disabled:opacity-50 dark:text-slate-400 dark:hover:text-slate-100"
+          >
+            {checking ? "Checking…" : "Why?"}
+          </button>
+        )}
         {!loading && (source === "gemini" || unavailableReason) && (
           <button
             type="button"
@@ -85,6 +114,11 @@ export function AiStoryPanel({
           </button>
         )}
       </div>
+      {diagnosis && (
+        <p className="mb-2 rounded-none bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
+          {diagnosis}
+        </p>
+      )}
       {text}
     </div>
   );

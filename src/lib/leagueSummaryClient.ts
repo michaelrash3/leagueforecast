@@ -286,3 +286,108 @@ export const requestLeagueSummary = async (
     };
   }
 };
+
+/** Shape of the `GET /api/league-summary` health payload. */
+export type LeagueSummaryHealth = {
+  endpoint?: string;
+  functionDeployed?: boolean;
+  keyConfigured?: boolean;
+  keyLength?: number;
+  keyHadSurroundingWhitespace?: boolean;
+  pinnedModel?: string | null;
+  vercelEnv?: string | null;
+  commit?: string | null;
+  probe?: unknown;
+};
+
+export type LeagueSummaryHealthOutcome =
+  | { ok: true; health: LeagueSummaryHealth }
+  | { ok: false; reason: "endpoint-missing" | "unreachable"; message: string };
+
+/**
+ * Runs the health check from inside the app.
+ *
+ * This is a `fetch`, not a navigation, so a stale service worker cannot answer
+ * it from the cached app shell the way it does when the URL is typed into the
+ * address bar. That makes this the reliable way to find out why the AI write-up
+ * is off, without needing a private window or a fresh worker.
+ */
+export const fetchLeagueSummaryHealth = async ({
+  probe = true,
+  fetchImpl = fetch,
+  endpoint = LEAGUE_SUMMARY_ENDPOINT,
+  signal,
+}: {
+  probe?: boolean;
+  fetchImpl?: typeof fetch;
+  endpoint?: string;
+  signal?: AbortSignal;
+} = {}): Promise<LeagueSummaryHealthOutcome> => {
+  try {
+    const response = await fetchImpl(probe ? `${endpoint}?probe=1` : endpoint, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal,
+    });
+
+    const health = (await response.json().catch(() => null)) as LeagueSummaryHealth | null;
+
+    // A 404, or a 200 that is not JSON (the app shell), both mean nothing is
+    // serving the endpoint.
+    if (response.status === 404 || !health || typeof health !== "object") {
+      return {
+        ok: false,
+        reason: "endpoint-missing",
+        message: `No JSON from ${endpoint} (HTTP ${response.status}).`,
+      };
+    }
+
+    return { ok: true, health };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "unreachable",
+      message: error instanceof Error ? error.message : "Request failed.",
+    };
+  }
+};
+
+type HealthProbe = { ok?: boolean; modelCount?: number; candidates?: string[]; note?: string };
+
+/** Turns a health result into one sentence a person can act on. */
+export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
+  if (!outcome.ok) {
+    return outcome.reason === "endpoint-missing"
+      ? "Nothing is serving /api/league-summary, so the function is not deployed. That is a build or routing problem, not the API key."
+      : `Could not reach /api/league-summary: ${outcome.message}`;
+  }
+
+  const { health } = outcome;
+  const where = [
+    health.vercelEnv ? `env ${health.vercelEnv}` : "",
+    health.commit ? `build ${health.commit}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const suffix = where ? ` (${where})` : "";
+
+  if (!health.keyConfigured) {
+    return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the variable for this environment and redeploy — Vercel scopes variables per environment and does not apply a new one until the next build.`;
+  }
+
+  const whitespace = health.keyHadSurroundingWhitespace
+    ? " The stored key has stray whitespace around it, which is worth removing."
+    : "";
+  const probe = (health.probe ?? {}) as HealthProbe;
+
+  if (probe.ok === true) {
+    const first = probe.candidates?.[0];
+    return `Working: the function is deployed${suffix}, the key lists ${probe.modelCount ?? 0} usable models${first ? `, and ${first} is first in line` : ""}.${whitespace}`;
+  }
+
+  if (probe.ok === false) {
+    return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters), but Gemini would not accept it. ${probe.note ?? "Check that it is a Generative Language API key and is not restricted."}${whitespace}`;
+  }
+
+  return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters).${whitespace}`;
+};
