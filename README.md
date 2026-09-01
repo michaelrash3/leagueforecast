@@ -89,12 +89,29 @@ src/
   styles/tokens.ts
 ```
 
+## Postseason format
+
+Not every league has a playoff cut line, so the season's ending is a setting:
+
+| Format            | What it means                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cut line`        | The top `Gold cutoff` teams make the Gold Bracket. The default, and the only format with Gold odds, playoff status, a bubble, clinching and magic numbers. |
+| `Bracket, no cut` | Every team is seeded into the bracket by final standings. The bracket stays; there is nothing to be inside or outside of, so Gold odds and the bubble go.  |
+| `No postseason`   | Regular season only. No bracket, no Gold odds, no clinching.                                                                                               |
+
+Turning the cut line off is not just cosmetic: clinching, elimination, cut-line
+crossings and the bubble are all _defined_ relative to a cut, so without one
+they are dropped from the standings table, the recap, and the AI write-ups
+rather than reported against a cutoff that stands for nothing. The AI is told
+explicitly that no cut line exists and to cover the race for the top instead.
+
 ## Settings
 
 | Setting          | Effect                                                                                                           |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Season label     | Header/export label.                                                                                             |
-| Gold cutoff      | Number of teams in Gold Bracket.                                                                                 |
+| Postseason       | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.          |
+| Gold cutoff      | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                      |
 | Win / Tie points | Math calculations and Gold status.                                                                               |
 | Tiebreaker order | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored. |
 | Recap grouping   | Builds stories per game, date, or week.                                                                          |

@@ -437,3 +437,60 @@ describe("leagueSummarySignature", () => {
     expect(leagueSummarySignature(b)).not.toBe(leagueSummarySignature(a));
   });
 });
+
+describe("prompts for a league with no cut line", () => {
+  it("tells the model there is nothing to qualify for", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      hasCutLine: false,
+      facts: [{ kind: "rank-change", text: "Wolves climbed to #2." }],
+      standings: [{ rank: 1, name: "Stallions", record: "10-2", goldPct: 0, status: "" }],
+    }) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain("no playoff cut line");
+    expect(prompt).toContain("Cover the race for the top of the table instead.");
+    expect(prompt).not.toContain("teams qualify");
+  });
+
+  it("leaves Gold odds and cut-line sides out of the table", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      hasCutLine: false,
+      facts: [{ text: "moved" }],
+      standings: [
+        { rank: 1, name: "Stallions", record: "10-2", goldPct: 92, status: "In", insideCut: true },
+      ],
+    }) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    const row = prompt.split("\n").find((line) => line.includes("#1 Stallions")) ?? "";
+    expect(row).toBe("- #1 Stallions (10-2)");
+    expect(prompt).not.toContain("Gold odds");
+  });
+
+  it("leaves them out of the projection too", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      kind: "forecast",
+      hasCutLine: false,
+      facts: [],
+      projections: [
+        {
+          projectedRank: 1,
+          name: "Stallions",
+          projectedRecord: "14-4",
+          goldPct: 92,
+          insideCut: true,
+        },
+      ],
+    }) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    const row = prompt.split("\n").find((line) => line.includes("#1 Stallions")) ?? "";
+    expect(row).toBe("- #1 Stallions — projected 14-4");
+    expect(prompt).not.toContain("Gold odds");
+  });
+
+  it("defaults to having a cut line when the flag is absent", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      facts: [{ text: "moved" }],
+    }) as LeagueSummaryRequest;
+    expect(request.hasCutLine).toBe(true);
+    expect(buildLeagueSummaryPrompt(request)).toContain("teams qualify");
+  });
+});

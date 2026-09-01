@@ -3,10 +3,12 @@ import {
   GAME_STAT_CAP,
   RUN_SCORE_CAP,
   DEFAULT_TIEBREAKER_ORDER,
+  POSTSEASON_FORMAT_VALUES,
   type GameLog,
   type Matchup,
   type ModelAggression,
   type PitchMode,
+  type PostseasonFormat,
   type RecapGrouping,
   type Settings,
   type TeamBase,
@@ -188,6 +190,12 @@ export const coerceSettings = (raw: unknown): Settings => {
       ? (recapGroupingRaw as RecapGrouping)
       : DEFAULT_SETTINGS.recapGrouping;
 
+  const postseasonRaw = raw.postseasonFormat;
+  const postseasonFormat: PostseasonFormat =
+    isString(postseasonRaw) && POSTSEASON_FORMAT_VALUES.includes(postseasonRaw as PostseasonFormat)
+      ? (postseasonRaw as PostseasonFormat)
+      : DEFAULT_SETTINGS.postseasonFormat;
+
   const pitchModeRaw = raw.pitchMode;
   const pitchMode: PitchMode =
     isString(pitchModeRaw) && PITCH_MODE_VALUES.includes(pitchModeRaw as PitchMode)
@@ -199,6 +207,7 @@ export const coerceSettings = (raw: unknown): Settings => {
     : DEFAULT_SETTINGS.runDiffTiebreaker;
 
   return {
+    postseasonFormat,
     goldCutoff: isNumber(raw.goldCutoff)
       ? Math.min(64, Math.max(1, Math.round(raw.goldCutoff)))
       : DEFAULT_SETTINGS.goldCutoff,

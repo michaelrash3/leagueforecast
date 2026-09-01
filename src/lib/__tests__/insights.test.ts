@@ -164,3 +164,41 @@ describe("recapToMarkdown / summarizeStandings", () => {
     expect(text).toContain("  #5 Diggers");
   });
 });
+
+describe("weeklyRecap without a cut line", () => {
+  const before = [
+    { id: "A", rank: 1, goldPct: 90, goldStatus: "In" as const },
+    { id: "B", rank: 2, goldPct: 40, goldStatus: "Alive" as const },
+  ];
+  const after = [
+    { id: "A", rank: 2, goldPct: 60, goldStatus: "Alive" as const, name: "Aces" },
+    { id: "B", rank: 1, goldPct: 95, goldStatus: "Clinched" as const, name: "Bears" },
+  ];
+
+  it("drops clinching, elimination, cut-line crossings and the bubble", () => {
+    const items = weeklyRecap({ before, after, finalsSinceLast: [], cutoff: 1, hasCutLine: false });
+    const kinds = items.map((item) => item.kind);
+    expect(kinds).not.toContain("clinched");
+    expect(kinds).not.toContain("eliminated");
+    expect(kinds).not.toContain("crossed-cut-up");
+    expect(kinds).not.toContain("crossed-cut-down");
+    expect(kinds).not.toContain("bubble-watch");
+  });
+
+  it("still reports the movement that does not depend on a cut line", () => {
+    const items = weeklyRecap({ before, after, finalsSinceLast: [], cutoff: 1, hasCutLine: false });
+    expect(items.some((item) => item.kind === "rank-change")).toBe(true);
+  });
+
+  it("keeps reporting them when a cut line exists", () => {
+    const items = weeklyRecap({ before, after, finalsSinceLast: [], cutoff: 1, hasCutLine: true });
+    const kinds = items.map((item) => item.kind);
+    expect(kinds).toContain("clinched");
+    expect(kinds.some((kind) => kind.startsWith("crossed-cut"))).toBe(true);
+  });
+
+  it("defaults to having a cut line when the flag is omitted", () => {
+    const items = weeklyRecap({ before, after, finalsSinceLast: [], cutoff: 1 });
+    expect(items.some((item) => item.kind === "clinched")).toBe(true);
+  });
+});

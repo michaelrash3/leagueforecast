@@ -126,8 +126,20 @@ export const DEFAULT_TIEBREAKER_ORDER: TiebreakerFactor[] = [
   "runsFor",
 ];
 
+/**
+ * How the season ends.
+ *
+ * - `cut`  — the top `goldCutoff` teams make the Gold Bracket (the default).
+ * - `all`  — every team makes the bracket, seeded by final standings, so there
+ *            is a postseason but nothing to be inside or outside of.
+ * - `none` — regular season only; no bracket, no cut line, no Gold odds.
+ */
+export type PostseasonFormat = "cut" | "all" | "none";
+
 export type Settings = {
   goldCutoff: number;
+  /** Whether a cut line exists at all, and whether there is a postseason. */
+  postseasonFormat: PostseasonFormat;
   seasonLabel: string;
   regularSeasonGamesPerTeam: number;
   defaultGameInnings: number;
@@ -171,8 +183,11 @@ export const STORAGE_VERSION = 1;
 export const RUN_SCORE_CAP = 35;
 export const GAME_STAT_CAP = 99;
 
+export const POSTSEASON_FORMAT_VALUES: PostseasonFormat[] = ["cut", "all", "none"];
+
 export const DEFAULT_SETTINGS: Settings = {
   goldCutoff: DEFAULT_GOLD_CUTOFF,
+  postseasonFormat: "cut",
   seasonLabel: DEFAULT_SEASON_LABEL,
   regularSeasonGamesPerTeam: 0,
   defaultGameInnings: 6,
@@ -184,7 +199,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxRunDifferential: 8,
   autoRunDiffCap: false,
   modelAggression: "Balanced",
-  pitchMode: "machine",
+  pitchMode: "player",
   recapGrouping: "date",
 };
 

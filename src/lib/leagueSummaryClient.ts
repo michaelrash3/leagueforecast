@@ -64,6 +64,7 @@ export type LeagueSummaryStatMetricInput = {
 export const buildLeagueSummaryRequest = ({
   seasonLabel,
   cutoff,
+  hasCutLine = true,
   updateTitle,
   finalScores = [],
   recapItems,
@@ -75,6 +76,7 @@ export const buildLeagueSummaryRequest = ({
 }: {
   seasonLabel: string;
   cutoff: number;
+  hasCutLine?: boolean;
   updateTitle?: string;
   finalScores?: string[];
   recapItems: RecapItem[];
@@ -92,7 +94,7 @@ export const buildLeagueSummaryRequest = ({
       record: recordText(team),
       goldPct: team.goldPct ?? 0,
       status: team.status ?? "",
-      insideCut: rank <= cutoff,
+      insideCut: hasCutLine && rank <= cutoff,
       projectedRank: team.projectedRank,
       runDiff: team.runDiff,
     };
@@ -132,6 +134,7 @@ export const buildLeagueSummaryRequest = ({
     kind: "league-story",
     seasonLabel,
     cutoff,
+    hasCutLine,
     updateTitle,
     finalScores,
     facts: recapItems.map((item) => ({
@@ -176,6 +179,7 @@ export type ForecastGameInput = {
 export const buildForecastSummaryRequest = ({
   seasonLabel,
   cutoff,
+  hasCutLine = true,
   projections,
   gameForecasts = [],
   keyGames = [],
@@ -184,6 +188,7 @@ export const buildForecastSummaryRequest = ({
 }: {
   seasonLabel: string;
   cutoff: number;
+  hasCutLine?: boolean;
   projections: ForecastProjectionInput[];
   gameForecasts?: ForecastGameInput[];
   keyGames?: LeagueSummaryKeyGame[];
@@ -199,7 +204,7 @@ export const buildForecastSummaryRequest = ({
     goldMargin: row.goldMargin,
     bestSeed: row.bestSeed,
     worstSeed: row.worstSeed,
-    insideCut: row.projectedRank <= cutoff,
+    insideCut: hasCutLine && row.projectedRank <= cutoff,
   }));
 
   const games: LeagueSummaryGameForecast[] = gameForecasts.map((game) => ({
@@ -214,6 +219,7 @@ export const buildForecastSummaryRequest = ({
     kind: "forecast",
     seasonLabel,
     cutoff,
+    hasCutLine,
     facts: [],
     projections: rows,
     gameForecasts: games,
