@@ -181,9 +181,10 @@ const generateWithModel = async (
           generationConfig: {
             temperature: 0.4,
             topP: 0.9,
-            // Generous cap: reasoning models spend part of this budget on
-            // thinking tokens, and a truncated answer is treated as a failure.
-            maxOutputTokens: 1024,
+            // Generous cap: the analysis runs several paragraphs, and reasoning
+            // models spend part of this budget on thinking tokens. A truncated
+            // answer is treated as a failure and falls through to the next model.
+            maxOutputTokens: 2048,
           },
         }),
       }
