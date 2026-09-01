@@ -379,7 +379,7 @@ const explainGeminiRejection = (error: HealthProbeError): string => {
     return "That key is restricted to HTTP referrers, which only works from a browser — a server has no referrer, so Google blocks it. Remove the referrer restriction, or make a second unrestricted key for the server.";
   }
   if (combined.includes("api key not valid") || combined.includes("api_key_invalid")) {
-    return "Google says the key itself is not valid. Check it was copied whole and belongs to this project.";
+    return "Google says the key itself is not valid. Check that GEMINI_API_KEY holds the right key — not another project's, and not a partial paste.";
   }
   if (combined.includes("has not been used") || combined.includes("is disabled")) {
     return "The Generative Language API is not enabled for this key's Google Cloud project. Enable it, then retry.";

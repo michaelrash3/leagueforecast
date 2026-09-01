@@ -434,6 +434,21 @@ describe("describeLeagueSummaryHealth", () => {
     expect(text).toContain("a server has no referrer");
   });
 
+  it("points at the stored variable when the key is simply the wrong one", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        probe: {
+          ok: false,
+          listError: { message: "API key not valid. Please pass a valid API key." },
+        },
+      },
+    });
+    expect(text).toContain("GEMINI_API_KEY holds the right key");
+  });
+
   it("points at enabling the API when Google says it is disabled", () => {
     const text = describeLeagueSummaryHealth({
       ok: true,
