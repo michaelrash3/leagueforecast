@@ -15,6 +15,7 @@ import {
   type LeagueSummaryErrorReason,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
+  type LeagueSummarySeasonContext,
 } from "./leagueSummary";
 
 export type LeagueSummaryOutcome =
@@ -29,13 +30,32 @@ export type LeagueSummaryStandingsInput = {
   t: number;
   goldPct?: number;
   status?: string;
+  projectedRank?: number;
+  runDiff?: number;
+};
+
+export type LeagueSummaryPowerInput = {
+  rank: number;
+  teamName: string;
+  rating: number;
+  record: string;
+  trend: string;
+  recentForm: number;
+  sosRank: number;
+};
+
+export type LeagueSummaryStatMetricInput = {
+  label: string;
+  direction: "asc" | "desc";
+  average: number | null;
+  entries: { teamName: string; value: number | null }[];
 };
 
 /**
- * Packs the deterministic recap into the request body. Only derived values
- * (recap lines, ranks, odds) are sent — never raw game logs — and the standings
- * table is trimmed to the teams around the cut line plus the top of the table,
- * which is the context the story actually needs.
+ * Packs everything the manager has entered into the request body: the recap
+ * facts, the full standings table, the model's power ratings, and the stat
+ * leaderboards. Only derived values are sent — ranks, odds, ratings, per-game
+ * averages — never raw game logs.
  */
 export const buildLeagueSummaryRequest = ({
   seasonLabel,
@@ -44,6 +64,9 @@ export const buildLeagueSummaryRequest = ({
   finalScores = [],
   recapItems,
   standings = [],
+  powerRatings = [],
+  statMetrics = [],
+  season,
   fallback,
 }: {
   seasonLabel: string;
@@ -52,21 +75,54 @@ export const buildLeagueSummaryRequest = ({
   finalScores?: string[];
   recapItems: RecapItem[];
   standings?: LeagueSummaryStandingsInput[];
+  powerRatings?: LeagueSummaryPowerInput[];
+  statMetrics?: LeagueSummaryStatMetricInput[];
+  season?: LeagueSummarySeasonContext;
   fallback?: string;
 }): LeagueSummaryRequest => {
-  const rows = standings
-    .map((team, index) => {
-      const rank = team.rank ?? index + 1;
-      return {
-        rank,
-        name: displayName(team.name),
-        record: recordText(team),
-        goldPct: team.goldPct ?? 0,
-        status: team.status ?? "",
-        insideCut: rank <= cutoff,
-      };
-    })
-    .filter((row) => row.rank <= cutoff + 3 || row.rank <= 5);
+  const rows = standings.map((team, index) => {
+    const rank = team.rank ?? index + 1;
+    return {
+      rank,
+      name: displayName(team.name),
+      record: recordText(team),
+      goldPct: team.goldPct ?? 0,
+      status: team.status ?? "",
+      insideCut: rank <= cutoff,
+      projectedRank: team.projectedRank,
+      runDiff: team.runDiff,
+    };
+  });
+
+  const power = powerRatings.map((row) => ({
+    rank: row.rank,
+    name: displayName(row.teamName),
+    rating: row.rating,
+    record: row.record,
+    trend: row.trend,
+    recentForm: row.recentForm,
+    sosRank: row.sosRank,
+  }));
+
+  // One leader (plus the runner-up for context) per metric; metrics with no
+  // finalized games yet have null values and are dropped rather than sent as 0.
+  const statLeaders = statMetrics.flatMap((metric) => {
+    const ranked = metric.entries.filter((entry) => entry.value !== null);
+    const leader = ranked[0];
+    if (!leader || leader.value === null) return [];
+    const runnerUp = ranked[1];
+    return [
+      {
+        metric: metric.label,
+        leaderName: displayName(leader.teamName),
+        leaderValue: leader.value,
+        runnerUpName: runnerUp ? displayName(runnerUp.teamName) : undefined,
+        runnerUpValue: runnerUp?.value ?? undefined,
+        leagueAverage: metric.average,
+        direction: metric.direction,
+      },
+    ];
+  });
 
   return {
     seasonLabel,
@@ -79,6 +135,9 @@ export const buildLeagueSummaryRequest = ({
       impactScore: item.impactScore,
     })),
     standings: rows,
+    powerRatings: power,
+    statLeaders,
+    season,
     fallback,
   };
 };

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { LeagueSummaryRequest } from "../lib/leagueSummary";
+import type { LeagueSummaryErrorReason, LeagueSummaryRequest } from "../lib/leagueSummary";
 import { requestLeagueSummary } from "../lib/leagueSummaryClient";
 
 export type LeagueSummaryStatus = "idle" | "loading" | "ready" | "unavailable" | "error";
@@ -10,10 +10,18 @@ export type LeagueSummaryState = {
   summary: string;
   model: string;
   message: string;
+  /** Why the AI story is unavailable, so the UI can say so instead of failing silently. */
+  reason: LeagueSummaryErrorReason | null;
   retry: () => void;
 };
 
-const IDLE_STATE = { status: "idle" as LeagueSummaryStatus, summary: "", model: "", message: "" };
+const IDLE_STATE = {
+  status: "idle" as LeagueSummaryStatus,
+  summary: "",
+  model: "",
+  message: "",
+  reason: null as LeagueSummaryErrorReason | null,
+};
 
 /**
  * Requests the Gemini-written league story for the current standings movement.
@@ -55,7 +63,7 @@ export const useLeagueSummary = (
     // `retry` clears the latch before bumping `attempt`, so a manual retry
     // still reaches the endpoint.
     if (unconfiguredRef.current) {
-      setState({ ...IDLE_STATE, status: "unavailable" });
+      setState({ ...IDLE_STATE, status: "unavailable", reason: "unconfigured" });
       return;
     }
 
@@ -73,15 +81,26 @@ export const useLeagueSummary = (
             summary: outcome.summary,
             model: outcome.model,
             message: "",
+            reason: null,
           });
           return;
         }
         if (outcome.reason === "unconfigured") {
           unconfiguredRef.current = true;
-          setState({ ...IDLE_STATE, status: "unavailable", message: outcome.message });
+          setState({
+            ...IDLE_STATE,
+            status: "unavailable",
+            message: outcome.message,
+            reason: outcome.reason,
+          });
           return;
         }
-        setState({ ...IDLE_STATE, status: "error", message: outcome.message });
+        setState({
+          ...IDLE_STATE,
+          status: "error",
+          message: outcome.message,
+          reason: outcome.reason,
+        });
       }
     );
 

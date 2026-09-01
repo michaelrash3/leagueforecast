@@ -31,7 +31,7 @@ Node `>=24` (see `.nvmrc`) for the latest available LTS/current runtime baseline
 
 | Area                 | Highlights                                                                             |
 | -------------------- | -------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI or deterministic league story, weekly recap. |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.      |
 | **Games**            | R/H/K entry, predictions, final toggle, filters, auto re-projection.                   |
 | **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.            |
 | **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.        |
@@ -110,10 +110,26 @@ src/
 
 ## AI league story
 
-The Standings panel writes a "League Story" paragraph after every update. It is
-generated deterministically from standings facts, and — when a Gemini key is
-configured — rewritten by Gemini into a beat-writer summary. **The deterministic
-story is always the fallback**, so the app behaves identically without a key.
+The Standings panel writes a "League Story" after every update. It is generated
+deterministically from standings facts, and — when a Gemini key is configured —
+replaced by a Gemini analysis written in a beat-writer voice. **The
+deterministic story is always the fallback**, so the app behaves identically
+without a key.
+
+The AI analysis is given everything the manager has entered, not just the
+cut-line movement:
+
+| Sent to the model    | Why                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
+| Final scores         | What actually happened in this update.                                                                  |
+| Standings movement   | Rank changes, clinches, eliminations, cut-line crossings, ranked by impact.                             |
+| Full standings table | Record, Gold odds, status, projected finish, run differential.                                          |
+| Power ratings        | Opponent-adjusted rating, recent form, trend, SOS rank — where the model disagrees with the raw record. |
+| Stat leaders         | Leader, runner-up, and league average for each metric, with which direction is good.                    |
+| Season context       | Games finalized vs scheduled, so the model can flag a thin sample instead of overreaching.              |
+
+Only derived values are sent — ranks, odds, ratings, per-game averages. Raw game
+logs never leave the browser.
 
 ### Configuration
 
@@ -152,11 +168,23 @@ warm instance.
 
 Every failure path returns a non-200 with a machine-readable `reason`
 (`unconfigured`, `rate-limited`, `upstream-error`, `no-model`,
-`invalid-request`), and the UI keeps showing the deterministic story. No key, an
-undeployed function, a 404, a Gemini outage, and a rate limit are all silent to
-the reader. The endpoint is throttled per IP (best effort, in-memory) and only
-receives values the model already computed — recap lines, ranks, and odds, never
-raw game logs.
+`invalid-request`), and the UI keeps showing the deterministic story rather than
+an error.
+
+The League Story header says which state it is in, so a misconfiguration is
+diagnosable at a glance instead of looking like "the AI just isn't running":
+
+| Header shows            | Meaning                                                       |
+| ----------------------- | ------------------------------------------------------------- |
+| `AI` badge              | Gemini wrote this. The tooltip names the model that answered. |
+| `AI off — no API key`   | `GEMINI_API_KEY` is not readable by the function (or a 404).  |
+| `AI limit reached`      | Gemini rate limit; try again shortly.                         |
+| `No AI model available` | The key listed no usable model.                               |
+| `AI unavailable`        | Something else upstream. The tooltip carries the message.     |
+
+A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
+analysis that already succeeded. The endpoint is throttled per IP (best effort,
+in-memory).
 
 ### Local development
 

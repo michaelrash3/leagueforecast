@@ -57,6 +57,7 @@ import {
   weeklyRecap,
   type RecapItem,
 } from "./lib/insights";
+import type { LeagueSummaryErrorReason } from "./lib/leagueSummary";
 import { buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
@@ -1900,9 +1901,10 @@ function TeamDrawer({
             Magic Numbers
             <HelpTip title="Magic & Elimination Numbers">
               <strong>Magic number (M)</strong> is the combined total of wins by this team plus
-              losses by rivals that guarantees a Gold Bracket spot. <strong>Elimination number
-              (E)</strong> is the combined total of losses and rival wins that would end its Gold
-              chances. Reaching either clinches or eliminates regardless of other results.
+              losses by rivals that guarantees a Gold Bracket spot.{" "}
+              <strong>Elimination number (E)</strong> is the combined total of losses and rival wins
+              that would end its Gold chances. Reaching either clinches or eliminates regardless of
+              other results.
             </HelpTip>
           </h3>
           <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
@@ -1938,7 +1940,9 @@ function TeamDrawer({
         </section>
 
         <section className="mt-6">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">Next Two Games</h3>
+          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+            Next Two Games
+          </h3>
           <div className="mt-3 space-y-3">
             {swings.length === 0 ? (
               <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-5 text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -4209,12 +4213,50 @@ This will replace current season data and save an undo snapshot.`,
         t: team.t,
         goldPct: team.goldPct,
         status: statusLabel(team),
+        projectedRank: team.projectedRank,
+        runDiff: team.runDiff,
       })),
+      powerRatings: predictionEngine.powerRatings.map((row) => ({
+        rank: row.rank,
+        teamName: row.teamName,
+        rating: row.rating,
+        record: row.record,
+        trend: row.trend,
+        recentForm: row.recentForm,
+        sosRank: row.sosRank,
+      })),
+      statMetrics: statRankings.metrics.map((metric) => ({
+        label: metric.label,
+        direction: metric.direction,
+        average: metric.average,
+        entries: metric.entries.map((entry) => ({
+          teamName: entry.teamName,
+          value: entry.value,
+        })),
+      })),
+      season: {
+        finalGames: completedGames.length,
+        totalGames: matchups.length,
+        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
+        gamesPerTeam: settings.regularSeasonGamesPerTeam,
+      },
       fallback: weeklyStory,
     });
     // `statusLabel` is a render-scoped helper over these same inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastImpact, settings.seasonLabel, goldCutoff, dashboardRows, weeklyStory]);
+  }, [
+    lastImpact,
+    settings.seasonLabel,
+    settings.regularSeasonGamesPerTeam,
+    goldCutoff,
+    dashboardRows,
+    predictionEngine,
+    statRankings,
+    completedGames,
+    matchups,
+    currentLeader,
+    weeklyStory,
+  ]);
 
   const aiStory = useLeagueSummary(leagueSummaryRequest);
   const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
@@ -4606,6 +4648,12 @@ This will replace current season data and save an undo snapshot.`,
               storySource={aiStory.status === "ready" ? "gemini" : "local"}
               storyModel={aiStory.model}
               storyLoading={aiStory.status === "loading"}
+              storyUnavailableReason={
+                aiStory.status === "unavailable" || aiStory.status === "error"
+                  ? (aiStory.reason ?? "upstream-error")
+                  : null
+              }
+              storyErrorMessage={aiStory.message}
               retryStory={aiStory.retry}
               currentSosRanks={currentSosRanks}
               statusClass={statusClass}
@@ -4750,8 +4798,8 @@ This will replace current season data and save an undo snapshot.`,
             leagueAverageStats={leagueAverageStats}
             pitchMode={settings.pitchMode}
             projectionExplanations={
-              lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)?.items ??
-              []
+              lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
+                ?.items ?? []
             }
             onClose={closeTeamData}
             onCompare={() => {
@@ -5384,6 +5432,19 @@ function TeamStatsView({
   );
 }
 
+const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): string => {
+  switch (reason) {
+    case "unconfigured":
+      return "AI off — no API key";
+    case "rate-limited":
+      return "AI limit reached";
+    case "no-model":
+      return "No AI model available";
+    default:
+      return "AI unavailable";
+  }
+};
+
 function StandingsView({
   currentLeader,
   finalCount,
@@ -5399,6 +5460,8 @@ function StandingsView({
   storySource,
   storyModel,
   storyLoading,
+  storyUnavailableReason,
+  storyErrorMessage,
   retryStory,
   currentSosRanks,
   statusClass,
@@ -5422,6 +5485,8 @@ function StandingsView({
   storySource: "gemini" | "local";
   storyModel: string;
   storyLoading: boolean;
+  storyUnavailableReason: LeagueSummaryErrorReason | null;
+  storyErrorMessage: string;
   retryStory: () => void;
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
@@ -5527,16 +5592,27 @@ function StandingsView({
                       )}
                       {storyLoading && (
                         <span className="font-bold normal-case tracking-normal text-slate-400">
-                          Writing AI recap…
+                          Writing AI analysis…
                         </span>
                       )}
-                      {storySource === "gemini" && (
+                      {!storyLoading && storyUnavailableReason && (
+                        <span
+                          className="rounded-full bg-slate-100 px-2 py-0.5 font-bold normal-case tracking-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                          title={
+                            storyErrorMessage ||
+                            "The AI league story is unavailable; showing the built-in story."
+                          }
+                        >
+                          {aiStoryUnavailableLabel(storyUnavailableReason)}
+                        </span>
+                      )}
+                      {!storyLoading && (storySource === "gemini" || storyUnavailableReason) && (
                         <button
                           type="button"
                           onClick={retryStory}
                           className="ml-auto rounded-full px-2 py-0.5 font-black uppercase tracking-wide text-slate-500 underline decoration-dotted hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-100"
                         >
-                          Rewrite
+                          {storySource === "gemini" ? "Rewrite" : "Retry"}
                         </button>
                       )}
                     </div>
@@ -6671,7 +6747,9 @@ function SettingsView({
             />
           </label>
           <label htmlFor={cutoffId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Gold Cutoff</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Gold Cutoff
+            </span>
             <input
               id={cutoffId}
               type="number"
@@ -6688,7 +6766,9 @@ function SettingsView({
             />
           </label>
           <label htmlFor={winId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Win Points</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Win Points
+            </span>
             <input
               id={winId}
               type="number"
@@ -6702,7 +6782,9 @@ function SettingsView({
             />
           </label>
           <label htmlFor={tieId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Tie Points</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Tie Points
+            </span>
             <input
               id={tieId}
               type="number"
@@ -6716,7 +6798,9 @@ function SettingsView({
             />
           </label>
           <label htmlFor={regularSeasonGamesId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Regular Season Games / Team</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Regular Season Games / Team
+            </span>
             <input
               id={regularSeasonGamesId}
               type="number"
@@ -6733,7 +6817,9 @@ function SettingsView({
           </label>
 
           <label htmlFor={defaultInningsId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Default Innings / Game</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Default Innings / Game
+            </span>
             <select
               id={defaultInningsId}
               value={settings.defaultGameInnings}
@@ -6757,7 +6843,9 @@ function SettingsView({
           </label>
 
           <label htmlFor={maxRunDifferentialId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Max Run Differential</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Max Run Differential
+            </span>
             <select
               id={maxRunDifferentialId}
               value={settings.autoRunDiffCap ? "auto" : String(settings.maxRunDifferential)}
@@ -6784,14 +6872,16 @@ function SettingsView({
               <option value="0">No cap</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Standings, ratings, and projections cap each game&apos;s run-differential credit at this
-              amount. <strong>Auto</strong> uses 8 runs for machine/coach pitch (per-inning run limit)
-              and 12 for player pitch (9U+ has no run limit).
+              Standings, ratings, and projections cap each game&apos;s run-differential credit at
+              this amount. <strong>Auto</strong> uses 8 runs for machine/coach pitch (per-inning run
+              limit) and 12 for player pitch (9U+ has no run limit).
             </p>
           </label>
 
           <label htmlFor={pitchModeId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Pitch Format</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Pitch Format
+            </span>
             <select
               id={pitchModeId}
               value={settings.pitchMode}
@@ -6811,7 +6901,9 @@ function SettingsView({
           </label>
 
           <label htmlFor={aggrId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Model Aggression</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Model Aggression
+            </span>
             <select
               id={aggrId}
               value={settings.modelAggression}
@@ -6829,7 +6921,9 @@ function SettingsView({
             </select>
           </label>
           <label htmlFor={recapId} className="block">
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200">Recap Grouping</span>
+            <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+              Recap Grouping
+            </span>
             <select
               id={recapId}
               value={settings.recapGrouping}
@@ -6850,7 +6944,10 @@ function SettingsView({
             className="rounded-none border border-slate-300 p-4 dark:border-slate-600 md:col-span-2"
             aria-labelledby={tiebreakerId}
           >
-            <legend id={tiebreakerId} className="px-1 text-sm font-black text-slate-700 dark:text-slate-200">
+            <legend
+              id={tiebreakerId}
+              className="px-1 text-sm font-black text-slate-700 dark:text-slate-200"
+            >
               League Tiebreaker Order
             </legend>
             <p className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -7182,7 +7279,10 @@ function GamesView({
 
       <div className={`${card} p-4`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <label htmlFor={filterId} className="text-sm font-black text-slate-700 dark:text-slate-200">
+          <label
+            htmlFor={filterId}
+            className="text-sm font-black text-slate-700 dark:text-slate-200"
+          >
             Scoreboard Filter
           </label>
           <select

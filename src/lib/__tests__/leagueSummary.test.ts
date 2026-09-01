@@ -27,6 +27,45 @@ const validBody = () => ({
     },
     { rank: 9, name: "Wolves", record: "6-6", goldPct: 21.2, status: "Alive", insideCut: false },
   ],
+  powerRatings: [
+    {
+      rank: 1,
+      name: "Stallions",
+      rating: 4.2,
+      record: "10-2",
+      trend: "Up",
+      recentForm: 2.1,
+      sosRank: 3,
+    },
+    {
+      rank: 2,
+      name: "Wolves",
+      rating: -0.8,
+      record: "6-6",
+      trend: "Down",
+      recentForm: -1.4,
+      sosRank: 1,
+    },
+  ],
+  statLeaders: [
+    {
+      metric: "Runs per game",
+      leaderName: "Stallions",
+      leaderValue: 8.4,
+      runnerUpName: "Wolves",
+      runnerUpValue: 6.1,
+      leagueAverage: 5.2,
+      direction: "desc",
+    },
+    {
+      metric: "Runs allowed per game",
+      leaderName: "Wolves",
+      leaderValue: 3.2,
+      leagueAverage: 5.2,
+      direction: "asc",
+    },
+  ],
+  season: { finalGames: 12, totalGames: 36, leaderName: "Stallions", gamesPerTeam: 12 },
   fallback: "Deterministic story.",
 });
 
@@ -56,6 +95,32 @@ describe("sanitizeLeagueSummaryRequest", () => {
     expect(request?.facts).toHaveLength(LEAGUE_SUMMARY_LIMITS.facts);
     expect(request?.standings).toHaveLength(LEAGUE_SUMMARY_LIMITS.standings);
     expect(request?.finalScores).toHaveLength(LEAGUE_SUMMARY_LIMITS.finalScores);
+  });
+
+  it("clamps the power rating and stat leader lists too", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      facts: [{ text: "movement" }],
+      powerRatings: Array.from({ length: 60 }, (_, i) => ({ rank: i + 1, name: `Team ${i}` })),
+      statLeaders: Array.from({ length: 60 }, (_, i) => ({
+        metric: `Metric ${i}`,
+        leaderName: "Team",
+      })),
+    });
+    expect(request?.powerRatings).toHaveLength(LEAGUE_SUMMARY_LIMITS.powerRatings);
+    expect(request?.statLeaders).toHaveLength(LEAGUE_SUMMARY_LIMITS.statLeaders);
+  });
+
+  it("drops stat leaders that name no metric or no leader", () => {
+    const request = sanitizeLeagueSummaryRequest({
+      facts: [{ text: "movement" }],
+      statLeaders: [
+        { metric: "", leaderName: "Wolves" },
+        { metric: "Runs per game", leaderName: "" },
+        { metric: "Hits per game", leaderName: "Wolves", leaderValue: 9.2, direction: "desc" },
+      ],
+    });
+    expect(request?.statLeaders?.map((row) => row.metric)).toEqual(["Hits per game"]);
+    expect(request?.statLeaders?.[0]?.leaderValue).toBe(9.2);
   });
 
   it("truncates long strings and collapses whitespace", () => {
@@ -115,10 +180,35 @@ describe("buildLeagueSummaryPrompt", () => {
     expect(prompt.indexOf("high impact")).toBeLessThan(prompt.indexOf("low impact"));
   });
 
+  it("includes power ratings with the opponent-adjusted framing", () => {
+    const request = sanitizeLeagueSummaryRequest(validBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain("Power ratings");
+    expect(prompt).toContain("#1 Stallions (10-2) — rating +4.2 runs");
+    expect(prompt).toContain("recent form -1.4, trending Down, SOS rank 1");
+  });
+
+  it("includes stat leaders with direction, runner-up, and league average", () => {
+    const request = sanitizeLeagueSummaryRequest(validBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain(
+      "Runs per game (higher is better): Stallions at 8.4; next is Wolves at 6.1; league average 5.2"
+    );
+    expect(prompt).toContain("Runs allowed per game (lower is better): Wolves at 3.2");
+  });
+
+  it("includes season context so the model knows how thin the sample is", () => {
+    const request = sanitizeLeagueSummaryRequest(validBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain("Games finalized so far: 12 of 36.");
+    expect(prompt).toContain("Regular season is 12 games per team.");
+    expect(prompt).toContain("Current leader: Stallions.");
+  });
+
   it("passes the deterministic story to the model as reference material", () => {
     const request = sanitizeLeagueSummaryRequest(validBody()) as LeagueSummaryRequest;
     const prompt = buildLeagueSummaryPrompt(request);
-    expect(prompt).toContain("Reference summary of these same facts");
+    expect(prompt).toContain("Reference summary of the standings movement");
     expect(prompt).toContain("Deterministic story.");
   });
 
@@ -128,8 +218,10 @@ describe("buildLeagueSummaryPrompt", () => {
     }) as LeagueSummaryRequest;
     const prompt = buildLeagueSummaryPrompt(request);
     expect(prompt).not.toContain("Final scores");
-    expect(prompt).not.toContain("Current table");
+    expect(prompt).not.toContain("Current standings");
     expect(prompt).not.toContain("Reference summary");
+    expect(prompt).not.toContain("Power ratings");
+    expect(prompt).not.toContain("Stat leaders");
   });
 });
 
@@ -142,7 +234,14 @@ describe("normalizeSummaryText", () => {
 
   it("strips markdown the model was told not to use", () => {
     const raw = "## Recap\n\n- **Stallions** clinched.\n- Wolves *slipped* to #9.";
-    expect(normalizeSummaryText(raw)).toBe("Recap Stallions clinched. Wolves slipped to #9.");
+    expect(normalizeSummaryText(raw)).toBe("Recap\n\nStallions clinched.\nWolves slipped to #9.");
+  });
+
+  it("keeps paragraph breaks so a multi-paragraph analysis stays readable", () => {
+    const raw = "The Stallions clinched.\nIt was never close.\n\nThe Wolves fell out.";
+    expect(normalizeSummaryText(raw)).toBe(
+      "The Stallions clinched. It was never close.\n\nThe Wolves fell out."
+    );
   });
 
   it("removes code fences, numbered lists, and wrapping quotes", () => {
@@ -151,7 +250,9 @@ describe("normalizeSummaryText", () => {
   });
 
   it("caps runaway output", () => {
-    expect(normalizeSummaryText("x".repeat(5000))).toHaveLength(1200);
+    expect(normalizeSummaryText("x".repeat(9000))).toHaveLength(
+      LEAGUE_SUMMARY_LIMITS.summaryLength
+    );
   });
 
   it("returns an empty string for blank output", () => {

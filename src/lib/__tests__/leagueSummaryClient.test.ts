@@ -31,15 +31,111 @@ describe("buildLeagueSummaryRequest", () => {
     ]);
   });
 
-  it("keeps the top of the table and the teams around the cut line", () => {
+  it("sends the whole table and marks which rows are inside the cut line", () => {
     const request = buildLeagueSummaryRequest({
       seasonLabel: "2026 Spring",
       cutoff: 8,
       recapItems,
       standings,
     });
-    expect(request.standings?.map((row) => row.rank)).toEqual([1, 8, 9]);
-    expect(request.standings?.map((row) => row.insideCut)).toEqual([true, true, false]);
+    expect(request.standings?.map((row) => row.rank)).toEqual([1, 8, 9, 14]);
+    expect(request.standings?.map((row) => row.insideCut)).toEqual([true, true, false, false]);
+  });
+
+  it("carries power ratings through with display names", () => {
+    const request = buildLeagueSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 8,
+      recapItems,
+      powerRatings: [
+        {
+          rank: 1,
+          teamName: "NKB Stallions 8u",
+          rating: 4.23,
+          record: "10-2",
+          trend: "Up",
+          recentForm: 2.1,
+          sosRank: 3,
+        },
+      ],
+    });
+    expect(request.powerRatings).toEqual([
+      {
+        rank: 1,
+        name: "Stallions",
+        rating: 4.23,
+        record: "10-2",
+        trend: "Up",
+        recentForm: 2.1,
+        sosRank: 3,
+      },
+    ]);
+  });
+
+  it("reduces each stat metric to its leader and runner-up", () => {
+    const request = buildLeagueSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 8,
+      recapItems,
+      statMetrics: [
+        {
+          label: "Runs per game",
+          direction: "desc",
+          average: 5.2,
+          entries: [
+            { teamName: "Stallions", value: 8.4 },
+            { teamName: "Wolves", value: 6.1 },
+            { teamName: "Comets", value: 2.0 },
+          ],
+        },
+      ],
+    });
+    expect(request.statLeaders).toEqual([
+      {
+        metric: "Runs per game",
+        leaderName: "Stallions",
+        leaderValue: 8.4,
+        runnerUpName: "Wolves",
+        runnerUpValue: 6.1,
+        leagueAverage: 5.2,
+        direction: "desc",
+      },
+    ]);
+  });
+
+  it("drops metrics with no finalized games rather than reporting a zero leader", () => {
+    const request = buildLeagueSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 8,
+      recapItems,
+      statMetrics: [
+        {
+          label: "Strikeouts per game",
+          direction: "desc",
+          average: null,
+          entries: [
+            { teamName: "Stallions", value: null },
+            { teamName: "Wolves", value: null },
+          ],
+        },
+      ],
+    });
+    expect(request.statLeaders).toEqual([]);
+  });
+
+  it("passes season context so the model can judge the sample size", () => {
+    const request = buildLeagueSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 8,
+      recapItems,
+      season: { finalGames: 4, totalGames: 36, leaderName: "Stallions", gamesPerTeam: 12 },
+    });
+    expect(request.season).toEqual({
+      finalGames: 4,
+      totalGames: 36,
+      leaderName: "Stallions",
+      gamesPerTeam: 12,
+    });
   });
 
   it("formats records and cleans up display names", () => {
