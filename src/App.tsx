@@ -5436,6 +5436,8 @@ const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): string => {
   switch (reason) {
     case "unconfigured":
       return "AI off — no API key";
+    case "endpoint-missing":
+      return "AI off — endpoint not deployed";
     case "rate-limited":
       return "AI limit reached";
     case "no-model":

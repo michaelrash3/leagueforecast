@@ -160,18 +160,35 @@ export const requestLeagueSummary = async (
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as LeagueSummaryError | null;
-      // A 404 means the function is not deployed at all (for example `vite dev`
-      // without `vercel dev`), which is the same situation as a missing key.
+      // A 404 means the function is not deployed or not routed (for example
+      // `vite dev` without `vercel dev`). That is a different problem from a
+      // deployed function that cannot see the key, so it gets its own reason —
+      // reporting it as "no API key" sends you looking in the wrong place.
       const reason =
-        payload?.reason ?? (response.status === 404 ? "unconfigured" : "upstream-error");
+        payload?.reason ?? (response.status === 404 ? "endpoint-missing" : "upstream-error");
       return {
         ok: false,
         reason,
-        message: payload?.error ?? `Summary request failed (${response.status}).`,
+        message:
+          payload?.error ??
+          (response.status === 404
+            ? "No function is deployed at /api/league-summary."
+            : `Summary request failed (${response.status}).`),
       };
     }
 
-    const payload = (await response.json()) as Partial<LeagueSummaryResponse>;
+    // A 200 that is not JSON means an SPA/static fallback answered instead of
+    // the function, which is the same "no endpoint here" situation as a 404.
+    const payload = (await response
+      .json()
+      .catch(() => null)) as Partial<LeagueSummaryResponse> | null;
+    if (!payload) {
+      return {
+        ok: false,
+        reason: "endpoint-missing",
+        message: "/api/league-summary did not return JSON; the function is probably not deployed.",
+      };
+    }
     const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
     if (!summary) {
       return { ok: false, reason: "upstream-error", message: "Gemini returned an empty summary." };

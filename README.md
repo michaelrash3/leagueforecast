@@ -138,7 +138,8 @@ logs never leave the browser.
 | `GEMINI_API_KEY`     | No       | Enables the AI story. Server-side only — never exposed to the browser.        |
 | `GEMINI_MODEL`       | No       | Pins one model id (e.g. `gemini-2.5-flash`). Tried first, then the auto list. |
 
-Set these in Vercel under **Project → Settings → Environment Variables**. Do
+Set these in Vercel under **Project → Settings → Environment Variables**, for
+every environment you want the AI story in, then redeploy. Do
 _not_ prefix them with `VITE_`: any `VITE_*` variable is inlined into the client
 bundle and would publish the key to every visitor. The browser posts recap facts
 to `/api/league-summary` and the function calls Gemini with the key.
@@ -174,17 +175,47 @@ an error.
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
 
-| Header shows            | Meaning                                                       |
-| ----------------------- | ------------------------------------------------------------- |
-| `AI` badge              | Gemini wrote this. The tooltip names the model that answered. |
-| `AI off — no API key`   | `GEMINI_API_KEY` is not readable by the function (or a 404).  |
-| `AI limit reached`      | Gemini rate limit; try again shortly.                         |
-| `No AI model available` | The key listed no usable model.                               |
-| `AI unavailable`        | Something else upstream. The tooltip carries the message.     |
+| Header shows                     | Meaning                                                       |
+| -------------------------------- | ------------------------------------------------------------- |
+| `AI` badge                       | Gemini wrote this. The tooltip names the model that answered. |
+| `AI off — no API key`            | The function ran but `GEMINI_API_KEY` is not readable by it.  |
+| `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                     |
+| `AI limit reached`               | Gemini rate limit; try again shortly.                         |
+| `No AI model available`          | The key listed no usable model.                               |
+| `AI unavailable`                 | Something else upstream. The tooltip carries the message.     |
 
 A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
 analysis that already succeeded. The endpoint is throttled per IP (best effort,
 in-memory).
+
+### Diagnosing it
+
+`GET /api/league-summary` is a health check you can open in a browser — no
+console needed:
+
+```
+https://<your-site>/api/league-summary
+https://<your-site>/api/league-summary?probe=1
+```
+
+| Result                              | Meaning                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- |
+| **404**                             | The function is not deployed or not routed. The app shows `AI off — endpoint not deployed`. |
+| `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                           |
+| `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                        |
+| `keyLength`                         | Length only, never the value — catches a truncated paste.                                   |
+| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.           |
+| `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.               |
+| `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                |
+| `?probe=1` → `ok: false`            | The key cannot list models: wrong key type, or API restrictions.                            |
+
+Two Vercel behaviors cause most of the confusion: environment variables are
+**scoped per environment** (a Production-only variable is invisible to preview
+deploys), and a variable added after the last build **is not picked up until you
+redeploy**.
+
+The probe is rate limited like the summary endpoint and reports no secret
+material.
 
 ### Local development
 

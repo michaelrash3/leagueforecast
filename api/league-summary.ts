@@ -46,6 +46,7 @@ declare const process: { env: Record<string, string | undefined> };
  */
 type ApiRequest = {
   method?: string;
+  url?: string;
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
   socket?: { remoteAddress?: string };
@@ -296,9 +297,74 @@ const generateSummary = async (
       });
 };
 
+/**
+ * GET handler: a health check you can open in a phone browser.
+ *
+ * The POST path deliberately fails quietly, which makes a misconfigured deploy
+ * hard to tell apart from a missing endpoint. Opening this URL answers both at
+ * once: a 404 means the function was never deployed, and a JSON body means it
+ * was, with `keyConfigured` saying whether the Gemini key actually reaches the
+ * runtime. `?probe=1` additionally asks Gemini which models the key can use.
+ *
+ * It reports no secret material: booleans, a key length (to catch a truncated
+ * paste), the deployed commit, and the Vercel environment.
+ */
+const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
+  const rawKey = process.env.GEMINI_API_KEY;
+  const apiKey = rawKey?.trim();
+  const url = typeof req.url === "string" ? req.url : "";
+  const wantsProbe = /[?&]probe=1(&|$)/.test(url);
+
+  const health: Record<string, unknown> = {
+    endpoint: "league-summary",
+    functionDeployed: true,
+    keyConfigured: Boolean(apiKey),
+    // Length only, never the value: catches a truncated or whitespace-padded paste.
+    keyLength: apiKey?.length ?? 0,
+    keyHadSurroundingWhitespace: Boolean(rawKey && rawKey !== rawKey.trim()),
+    pinnedModel: process.env.GEMINI_MODEL?.trim() || null,
+    vercelEnv: process.env.VERCEL_ENV ?? null,
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+    probe: wantsProbe ? "requested" : "add ?probe=1 to test the key against Gemini",
+  };
+
+  if (wantsProbe && apiKey) {
+    if (isRateLimited(clientKey(req))) {
+      health.probe = { ok: false, error: "Rate limited; try again in a minute." };
+    } else {
+      const discovered = await discoverGeminiModels(apiKey, {
+        signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+      });
+      health.probe = {
+        ok: discovered.length > 0,
+        modelCount: discovered.length,
+        candidates: buildModelCandidates({
+          pinned: process.env.GEMINI_MODEL?.trim() || null,
+          discovered,
+          limit: MAX_MODEL_ATTEMPTS,
+        }),
+        note:
+          discovered.length > 0
+            ? "The key can list models; the newest is attempted first."
+            : "The key could not list any usable model. Check that it is a Generative Language API key and is not restricted.",
+      };
+    }
+  } else if (wantsProbe) {
+    health.probe = { ok: false, error: "No API key configured, so there is nothing to probe." };
+  }
+
+  res.setHeader("cache-control", "no-store");
+  res.status(200).json(health);
+};
+
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  if (req.method === "GET") {
+    await sendHealth(req, res);
+    return;
+  }
+
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", "GET, POST");
     sendError(res, 405, { error: "Use POST.", reason: "invalid-request" });
     return;
   }

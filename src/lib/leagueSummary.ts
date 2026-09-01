@@ -92,6 +92,8 @@ export type LeagueSummaryResponse = {
 
 export type LeagueSummaryErrorReason =
   | "unconfigured"
+  /** The function itself is not deployed or not routed — distinct from a missing key. */
+  | "endpoint-missing"
   | "invalid-request"
   | "rate-limited"
   | "upstream-error"

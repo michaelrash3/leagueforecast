@@ -38,7 +38,9 @@ export const useLeagueSummary = (
 ): LeagueSummaryState => {
   const [state, setState] = useState(IDLE_STATE);
   const [attempt, setAttempt] = useState(0);
+  /** Latches when the endpoint says it can never answer (no key, or not deployed). */
   const unconfiguredRef = useRef(false);
+  const latchedReasonRef = useRef<LeagueSummaryErrorReason | null>(null);
   const requestRef = useRef(request);
   requestRef.current = request;
   // Held in a ref so an inline override does not retrigger the effect.
@@ -63,7 +65,11 @@ export const useLeagueSummary = (
     // `retry` clears the latch before bumping `attempt`, so a manual retry
     // still reaches the endpoint.
     if (unconfiguredRef.current) {
-      setState({ ...IDLE_STATE, status: "unavailable", reason: "unconfigured" });
+      setState({
+        ...IDLE_STATE,
+        status: "unavailable",
+        reason: latchedReasonRef.current ?? "unconfigured",
+      });
       return;
     }
 
@@ -76,6 +82,7 @@ export const useLeagueSummary = (
         if (!active) return;
         if (outcome.ok) {
           unconfiguredRef.current = false;
+          latchedReasonRef.current = null;
           setState({
             status: "ready",
             summary: outcome.summary,
@@ -85,8 +92,9 @@ export const useLeagueSummary = (
           });
           return;
         }
-        if (outcome.reason === "unconfigured") {
+        if (outcome.reason === "unconfigured" || outcome.reason === "endpoint-missing") {
           unconfiguredRef.current = true;
+          latchedReasonRef.current = outcome.reason;
           setState({
             ...IDLE_STATE,
             status: "unavailable",
@@ -112,6 +120,7 @@ export const useLeagueSummary = (
 
   const retry = useCallback(() => {
     unconfiguredRef.current = false;
+    latchedReasonRef.current = null;
     setAttempt((value) => value + 1);
   }, []);
 

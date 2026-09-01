@@ -193,7 +193,7 @@ describe("requestLeagueSummary", () => {
     });
   });
 
-  it("treats a missing endpoint as unconfigured rather than an error", async () => {
+  it("reports a 404 as a missing endpoint, not a missing API key", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: false,
       status: 404,
@@ -201,6 +201,29 @@ describe("requestLeagueSummary", () => {
         throw new Error("not json");
       },
     })) as unknown as typeof fetch;
+
+    const outcome = await requestLeagueSummary(request, { fetchImpl });
+    expect(outcome).toMatchObject({ ok: false, reason: "endpoint-missing" });
+  });
+
+  it("treats a non-JSON 200 as a missing endpoint, not a summary", async () => {
+    // An SPA/static fallback answering instead of the function.
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("<!doctype html>");
+      },
+    })) as unknown as typeof fetch;
+
+    const outcome = await requestLeagueSummary(request, { fetchImpl });
+    expect(outcome).toMatchObject({ ok: false, reason: "endpoint-missing" });
+  });
+
+  it("still reports the server's own reason when it sends one", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(503, { error: "GEMINI_API_KEY is not configured.", reason: "unconfigured" })
+    ) as unknown as typeof fetch;
 
     const outcome = await requestLeagueSummary(request, { fetchImpl });
     expect(outcome).toMatchObject({ ok: false, reason: "unconfigured" });
