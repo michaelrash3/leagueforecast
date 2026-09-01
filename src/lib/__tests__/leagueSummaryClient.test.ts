@@ -398,6 +398,24 @@ describe("describeLeagueSummaryHealth", () => {
     expect(text).toContain("gemini-3-flash is first in line");
   });
 
+  it("blames the app's own throttle, not Gemini, when the probe never ran", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        probe: {
+          ok: false,
+          error:
+            "The key was not tested: this browser used all 6 health checks allowed in a minute.",
+        },
+      },
+    });
+    expect(text).not.toContain("would not accept it");
+    expect(text).toContain("not tested");
+    expect(text).toContain("6 health checks");
+  });
+
   it("quotes Google's own rejection message", () => {
     const text = describeLeagueSummaryHealth({
       ok: true,

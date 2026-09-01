@@ -72,6 +72,12 @@ const MAX_MODEL_ATTEMPTS = 4;
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 12;
+/**
+ * The health probe gets its own, smaller budget under its own key. It shares
+ * the summary limiter's window but not its bucket, so a burst of retries can
+ * never starve the diagnostic that explains why they are failing.
+ */
+const PROBE_RATE_LIMIT_MAX_REQUESTS = 6;
 
 type ModelCache = { ids: string[]; expiresAt: number };
 let modelCache: ModelCache | null = null;
@@ -90,10 +96,10 @@ const clientKey = (req: ApiRequest): string => {
   return first || req.socket?.remoteAddress || "unknown";
 };
 
-const isRateLimited = (key: string): boolean => {
+const isRateLimited = (key: string, max: number = RATE_LIMIT_MAX_REQUESTS): boolean => {
   const now = Date.now();
   const recent = (requestLog.get(key) ?? []).filter((at) => now - at < RATE_LIMIT_WINDOW_MS);
-  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+  if (recent.length >= max) {
     requestLog.set(key, recent);
     return true;
   }
@@ -294,7 +300,7 @@ const generateSummary = async (
   console.error("[league-summary] all Gemini candidates failed:", failures.join(" | "));
   return sawRateLimit
     ? summaryFailure(429, {
-        error: "Gemini rate limit reached. Try again shortly.",
+        error: `Gemini rate-limited every model tried (${candidates.join(", ")}). Try again shortly.`,
         reason: "rate-limited",
       })
     : summaryFailure(502, {
@@ -335,8 +341,11 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
   };
 
   if (wantsProbe && apiKey) {
-    if (isRateLimited(clientKey(req))) {
-      health.probe = { ok: false, error: "Rate limited; try again in a minute." };
+    if (isRateLimited(`probe:${clientKey(req)}`, PROBE_RATE_LIMIT_MAX_REQUESTS)) {
+      health.probe = {
+        ok: false,
+        error: `The key was not tested: this browser used all ${PROBE_RATE_LIMIT_MAX_REQUESTS} health checks allowed in a minute. That is this app's own limit, not Gemini's. Wait a minute and check again.`,
+      };
     } else {
       const pinned = process.env.GEMINI_MODEL?.trim() || null;
       const discovery = await discoverGeminiModelsDetailed(apiKey, {
@@ -407,8 +416,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     return;
   }
 
+  // This app's own throttle, not Gemini's, and it fires before any model is
+  // attempted — so it gets its own reason rather than reading as a Gemini quota.
   if (isRateLimited(clientKey(req))) {
-    sendError(res, 429, { error: "Too many summary requests.", reason: "rate-limited" });
+    sendError(res, 429, {
+      error: `Too many summary requests from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit, and no Gemini model was attempted. Wait a minute and retry.`,
+      reason: "throttled",
+    });
     return;
   }
 

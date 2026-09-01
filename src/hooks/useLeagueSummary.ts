@@ -19,6 +19,15 @@ export type LeagueSummaryState = {
   retry: () => void;
 };
 
+/**
+ * Entering a day's results moves the standings on every saved score, and each
+ * move is a different story to write. Letting the standings settle first
+ * collapses that burst into one request, which is what keeps ordinary
+ * scorekeeping under both this app's own per-browser throttle and Gemini's
+ * quota. A manual retry skips the wait.
+ */
+const SETTLE_DELAY_MS = 1_500;
+
 const IDLE_STATE = {
   status: "idle" as LeagueSummaryStatus,
   summary: "",
@@ -50,6 +59,8 @@ export const useLeagueSummary = (
   // Held in a ref so an inline override does not retrigger the effect.
   const fetchRef = useRef(fetchImpl);
   fetchRef.current = fetchImpl;
+  /** Set by `retry`, so a deliberate request does not wait out the settle delay. */
+  const immediateRef = useRef(false);
 
   // Content signature, so unrelated re-renders in the parent do not refetch.
   // Empty means there is nothing worth writing about, and no request is made.
@@ -76,8 +87,11 @@ export const useLeagueSummary = (
     let active = true;
     setState({ ...IDLE_STATE, status: "loading" });
 
-    requestLeagueSummary(current, { signal: controller.signal, fetchImpl: fetchRef.current }).then(
-      (outcome) => {
+    const send = () => {
+      requestLeagueSummary(current, {
+        signal: controller.signal,
+        fetchImpl: fetchRef.current,
+      }).then((outcome) => {
         if (!active) return;
         if (outcome.ok) {
           unconfiguredRef.current = false;
@@ -108,11 +122,17 @@ export const useLeagueSummary = (
           message: outcome.message,
           reason: outcome.reason,
         });
-      }
-    );
+      });
+    };
+
+    const immediate = immediateRef.current;
+    immediateRef.current = false;
+    const timer = immediate ? null : setTimeout(send, SETTLE_DELAY_MS);
+    if (immediate) send();
 
     return () => {
       active = false;
+      if (timer !== null) clearTimeout(timer);
       controller.abort();
     };
   }, [signature, enabled, attempt]);
@@ -120,6 +140,7 @@ export const useLeagueSummary = (
   const retry = useCallback(() => {
     unconfiguredRef.current = false;
     latchedReasonRef.current = null;
+    immediateRef.current = true;
     setAttempt((value) => value + 1);
   }, []);
 
