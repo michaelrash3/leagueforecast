@@ -36,6 +36,11 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: "/index.html",
+        // Without this, the service worker answers *every* navigation with the
+        // cached app shell — including /api/*, so opening an API URL in the
+        // browser shows the dashboard instead of the server's response and the
+        // endpoint looks broken when it is not.
+        navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {

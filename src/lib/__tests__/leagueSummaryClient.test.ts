@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RecapItem } from "../insights";
 import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
-import { buildLeagueSummaryRequest, requestLeagueSummary } from "../leagueSummaryClient";
+import {
+  describeLeagueSummaryHealth,
+  fetchLeagueSummaryHealth,
+  buildForecastSummaryRequest,
+  buildLeagueSummaryRequest,
+  requestLeagueSummary,
+} from "../leagueSummaryClient";
 
 const recapItems: RecapItem[] = [
   { kind: "clinched", text: "Stallions clinched a Gold Bracket spot.", impactScore: 95 },
@@ -193,7 +199,7 @@ describe("requestLeagueSummary", () => {
     });
   });
 
-  it("treats a missing endpoint as unconfigured rather than an error", async () => {
+  it("reports a 404 as a missing endpoint, not a missing API key", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: false,
       status: 404,
@@ -201,6 +207,29 @@ describe("requestLeagueSummary", () => {
         throw new Error("not json");
       },
     })) as unknown as typeof fetch;
+
+    const outcome = await requestLeagueSummary(request, { fetchImpl });
+    expect(outcome).toMatchObject({ ok: false, reason: "endpoint-missing" });
+  });
+
+  it("treats a non-JSON 200 as a missing endpoint, not a summary", async () => {
+    // An SPA/static fallback answering instead of the function.
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("<!doctype html>");
+      },
+    })) as unknown as typeof fetch;
+
+    const outcome = await requestLeagueSummary(request, { fetchImpl });
+    expect(outcome).toMatchObject({ ok: false, reason: "endpoint-missing" });
+  });
+
+  it("still reports the server's own reason when it sends one", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(503, { error: "GEMINI_API_KEY is not configured.", reason: "unconfigured" })
+    ) as unknown as typeof fetch;
 
     const outcome = await requestLeagueSummary(request, { fetchImpl });
     expect(outcome).toMatchObject({ ok: false, reason: "unconfigured" });
@@ -227,5 +256,171 @@ describe("requestLeagueSummary", () => {
       reason: "upstream-error",
       message: "offline",
     });
+  });
+});
+
+describe("buildForecastSummaryRequest", () => {
+  it("marks the request as a forecast and sends no recap facts", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [
+        {
+          name: "NKB Stallions 8u",
+          projectedRank: 1,
+          currentRank: 3,
+          projectedRecord: "14-4",
+          goldPct: 92.4,
+        },
+      ],
+    });
+    expect(request.kind).toBe("forecast");
+    expect(request.facts).toEqual([]);
+    expect(request.projections?.[0]?.name).toBe("Stallions");
+  });
+
+  it("derives insideCut from the projected rank against the cutoff", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [
+        { name: "Stallions", projectedRank: 7, projectedRecord: "12-6", goldPct: 70 },
+        { name: "Wolves", projectedRank: 8, projectedRecord: "9-9", goldPct: 40 },
+      ],
+    });
+    expect(request.projections?.map((row) => row.insideCut)).toEqual([true, false]);
+  });
+
+  it("formats matchups as away at home with display names", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [],
+      gameForecasts: [
+        {
+          awayName: "NKB Wolves 8u",
+          homeName: "NKB Stallions 8u",
+          favoriteName: "NKB Stallions 8u",
+          winPct: 63,
+          impact: "High",
+          date: "9/20",
+        },
+      ],
+    });
+    expect(request.gameForecasts).toEqual([
+      {
+        matchup: "Wolves at Stallions",
+        favorite: "Stallions",
+        winPct: 63,
+        impact: "High",
+        date: "9/20",
+      },
+    ]);
+  });
+});
+
+describe("fetchLeagueSummaryHealth", () => {
+  it("asks for the probe by default", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { functionDeployed: true, keyConfigured: true })
+    ) as unknown as typeof fetch;
+    await fetchLeagueSummaryHealth({ fetchImpl });
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    expect(String(call[0])).toContain("probe=1");
+    expect(call[1]?.method).toBe("GET");
+  });
+
+  it("reports a 404 as a missing endpoint", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      status: 404,
+      json: async () => {
+        throw new Error("not json");
+      },
+    })) as unknown as typeof fetch;
+    await expect(fetchLeagueSummaryHealth({ fetchImpl })).resolves.toMatchObject({
+      ok: false,
+      reason: "endpoint-missing",
+    });
+  });
+
+  it("treats the app shell answering with HTML as a missing endpoint", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      status: 200,
+      json: async () => {
+        throw new Error("<!doctype html>");
+      },
+    })) as unknown as typeof fetch;
+    await expect(fetchLeagueSummaryHealth({ fetchImpl })).resolves.toMatchObject({
+      ok: false,
+      reason: "endpoint-missing",
+    });
+  });
+});
+
+describe("describeLeagueSummaryHealth", () => {
+  it("points at the deploy, not the key, when nothing is serving the endpoint", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: false,
+      reason: "endpoint-missing",
+      message: "HTTP 404",
+    });
+    expect(text).toContain("not deployed");
+    expect(text).toContain("not the API key");
+  });
+
+  it("names the environment and build when the key is missing", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        functionDeployed: true,
+        keyConfigured: false,
+        vercelEnv: "production",
+        commit: "abc1234",
+      },
+    });
+    expect(text).toContain("env production");
+    expect(text).toContain("build abc1234");
+    expect(text).toContain("redeploy");
+  });
+
+  it("reports success with the model that would be tried first", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        vercelEnv: "production",
+        probe: { ok: true, modelCount: 5, candidates: ["gemini-3-flash", "gemini-3-pro"] },
+      },
+    });
+    expect(text).toContain("Working");
+    expect(text).toContain("5 usable models");
+    expect(text).toContain("gemini-3-flash is first in line");
+  });
+
+  it("relays why Gemini rejected the key", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        probe: { ok: false, note: "The key is restricted." },
+      },
+    });
+    expect(text).toContain("would not accept it");
+    expect(text).toContain("The key is restricted.");
+  });
+
+  it("flags a key pasted with stray whitespace", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        keyHadSurroundingWhitespace: true,
+        probe: { ok: true, modelCount: 3, candidates: ["gemini-3-flash"] },
+      },
+    });
+    expect(text).toContain("stray whitespace");
   });
 });

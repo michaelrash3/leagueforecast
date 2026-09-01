@@ -108,7 +108,14 @@ src/
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
-## AI league story
+## AI write-ups
+
+Two panels are written by Gemini when a key is configured: the **League Story**
+on Standings (what just happened) and the **Forecast Write-up** on Forecast
+(what the model expects next). Both use the same endpoint, model selection, and
+failure handling; the request names which one it wants.
+
+### League Story
 
 The Standings panel writes a "League Story" after every update. It is generated
 deterministically from standings facts, and — when a Gemini key is configured —
@@ -131,6 +138,27 @@ cut-line movement:
 Only derived values are sent — ranks, odds, ratings, per-game averages. Raw game
 logs never leave the browser.
 
+### Forecast Write-up
+
+The Forecast panel explains the projection rather than restating the table: the
+headline projected finish, the Gold Bracket race and how thin the cut line is,
+the upcoming games that swing the most, where the projection is least certain,
+and how much to trust it given the model's measured accuracy.
+
+| Sent to the model | Why                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range.                                      |
+| Game predictions  | Favorite and win probability for each upcoming game, with its impact tier.                                            |
+| Games that matter | The high-leverage games the app flags, and the reason each one matters.                                               |
+| Model accuracy    | Backtested hit rate, Brier score, and upset capture, so the write-up can say how much weight the projection deserves. |
+
+The prompt requires the model to treat projections as projections, and to
+describe a near-coin-flip as one rather than as a expectation.
+
+It is requested only while the Forecast view is open, and re-requested when the
+results actually change — not on every simulation tick, whose odds jitter by a
+point or two between runs.
+
 ### Configuration
 
 | Environment variable | Required | Effect                                                                        |
@@ -138,7 +166,8 @@ logs never leave the browser.
 | `GEMINI_API_KEY`     | No       | Enables the AI story. Server-side only — never exposed to the browser.        |
 | `GEMINI_MODEL`       | No       | Pins one model id (e.g. `gemini-2.5-flash`). Tried first, then the auto list. |
 
-Set these in Vercel under **Project → Settings → Environment Variables**. Do
+Set these in Vercel under **Project → Settings → Environment Variables**, for
+every environment you want the AI story in, then redeploy. Do
 _not_ prefix them with `VITE_`: any `VITE_*` variable is inlined into the client
 bundle and would publish the key to every visitor. The browser posts recap facts
 to `/api/league-summary` and the function calls Gemini with the key.
@@ -174,17 +203,53 @@ an error.
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
 
-| Header shows            | Meaning                                                       |
-| ----------------------- | ------------------------------------------------------------- |
-| `AI` badge              | Gemini wrote this. The tooltip names the model that answered. |
-| `AI off — no API key`   | `GEMINI_API_KEY` is not readable by the function (or a 404).  |
-| `AI limit reached`      | Gemini rate limit; try again shortly.                         |
-| `No AI model available` | The key listed no usable model.                               |
-| `AI unavailable`        | Something else upstream. The tooltip carries the message.     |
+| Header shows                     | Meaning                                                       |
+| -------------------------------- | ------------------------------------------------------------- |
+| `AI` badge                       | Gemini wrote this. The tooltip names the model that answered. |
+| `AI off — no API key`            | The function ran but `GEMINI_API_KEY` is not readable by it.  |
+| `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                     |
+| `AI limit reached`               | Gemini rate limit; try again shortly.                         |
+| `No AI model available`          | The key listed no usable model.                               |
+| `AI unavailable`                 | Something else upstream. The tooltip carries the message.     |
 
 A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
 analysis that already succeeded. The endpoint is throttled per IP (best effort,
 in-memory).
+
+### Diagnosing it
+
+When a write-up is unavailable, the panel header shows a **Why?** button. It
+asks the endpoint what is actually wrong and prints the answer in place — which
+model the key can reach, or that the key is not reaching the function, or that
+nothing is serving the endpoint at all. It runs as a `fetch`, so a stale service
+worker cannot answer it with the cached app shell.
+
+The same check is available directly at `GET /api/league-summary` — no console
+needed:
+
+```
+https://<your-site>/api/league-summary
+https://<your-site>/api/league-summary?probe=1
+```
+
+| Result                              | Meaning                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- |
+| **404**                             | The function is not deployed or not routed. The app shows `AI off — endpoint not deployed`. |
+| `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                           |
+| `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                        |
+| `keyLength`                         | Length only, never the value — catches a truncated paste.                                   |
+| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.           |
+| `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.               |
+| `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                |
+| `?probe=1` → `ok: false`            | The key cannot list models: wrong key type, or API restrictions.                            |
+
+Two Vercel behaviors cause most of the confusion: environment variables are
+**scoped per environment** (a Production-only variable is invisible to preview
+deploys), and a variable added after the last build **is not picked up until you
+redeploy**.
+
+The probe is rate limited like the summary endpoint and reports no secret
+material.
 
 ### Local development
 

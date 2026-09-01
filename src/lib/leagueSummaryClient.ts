@@ -13,6 +13,10 @@ import {
   LEAGUE_SUMMARY_ENDPOINT,
   type LeagueSummaryError,
   type LeagueSummaryErrorReason,
+  type LeagueSummaryGameForecast,
+  type LeagueSummaryKeyGame,
+  type LeagueSummaryModelAccuracy,
+  type LeagueSummaryProjectionRow,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
   type LeagueSummarySeasonContext,
@@ -125,6 +129,7 @@ export const buildLeagueSummaryRequest = ({
   });
 
   return {
+    kind: "league-story",
     seasonLabel,
     cutoff,
     updateTitle,
@@ -139,6 +144,82 @@ export const buildLeagueSummaryRequest = ({
     statLeaders,
     season,
     fallback,
+  };
+};
+
+export type ForecastProjectionInput = {
+  name: string;
+  projectedRank: number;
+  currentRank?: number;
+  projectedRecord: string;
+  goldPct: number;
+  goldMargin?: number;
+  bestSeed?: number;
+  worstSeed?: number;
+};
+
+export type ForecastGameInput = {
+  awayName: string;
+  homeName: string;
+  favoriteName: string;
+  winPct: number;
+  impact?: string;
+  date?: string;
+};
+
+/**
+ * Packs the Forecast board into a request: the projected finish for every team,
+ * the model's upcoming game predictions, the games the app flags as highest
+ * leverage, and the backtested accuracy so the write-up can say how much weight
+ * the projection deserves.
+ */
+export const buildForecastSummaryRequest = ({
+  seasonLabel,
+  cutoff,
+  projections,
+  gameForecasts = [],
+  keyGames = [],
+  modelAccuracy,
+  season,
+}: {
+  seasonLabel: string;
+  cutoff: number;
+  projections: ForecastProjectionInput[];
+  gameForecasts?: ForecastGameInput[];
+  keyGames?: LeagueSummaryKeyGame[];
+  modelAccuracy?: LeagueSummaryModelAccuracy;
+  season?: LeagueSummarySeasonContext;
+}): LeagueSummaryRequest => {
+  const rows: LeagueSummaryProjectionRow[] = projections.map((row) => ({
+    projectedRank: row.projectedRank,
+    name: displayName(row.name),
+    currentRank: row.currentRank,
+    projectedRecord: row.projectedRecord,
+    goldPct: row.goldPct,
+    goldMargin: row.goldMargin,
+    bestSeed: row.bestSeed,
+    worstSeed: row.worstSeed,
+    insideCut: row.projectedRank <= cutoff,
+  }));
+
+  const games: LeagueSummaryGameForecast[] = gameForecasts.map((game) => ({
+    matchup: `${displayName(game.awayName)} at ${displayName(game.homeName)}`,
+    favorite: displayName(game.favoriteName),
+    winPct: game.winPct,
+    impact: game.impact,
+    date: game.date,
+  }));
+
+  return {
+    kind: "forecast",
+    seasonLabel,
+    cutoff,
+    facts: [],
+    projections: rows,
+    gameForecasts: games,
+    keyGames,
+    modelAccuracy,
+    season,
   };
 };
 
@@ -160,18 +241,35 @@ export const requestLeagueSummary = async (
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as LeagueSummaryError | null;
-      // A 404 means the function is not deployed at all (for example `vite dev`
-      // without `vercel dev`), which is the same situation as a missing key.
+      // A 404 means the function is not deployed or not routed (for example
+      // `vite dev` without `vercel dev`). That is a different problem from a
+      // deployed function that cannot see the key, so it gets its own reason —
+      // reporting it as "no API key" sends you looking in the wrong place.
       const reason =
-        payload?.reason ?? (response.status === 404 ? "unconfigured" : "upstream-error");
+        payload?.reason ?? (response.status === 404 ? "endpoint-missing" : "upstream-error");
       return {
         ok: false,
         reason,
-        message: payload?.error ?? `Summary request failed (${response.status}).`,
+        message:
+          payload?.error ??
+          (response.status === 404
+            ? "No function is deployed at /api/league-summary."
+            : `Summary request failed (${response.status}).`),
       };
     }
 
-    const payload = (await response.json()) as Partial<LeagueSummaryResponse>;
+    // A 200 that is not JSON means an SPA/static fallback answered instead of
+    // the function, which is the same "no endpoint here" situation as a 404.
+    const payload = (await response
+      .json()
+      .catch(() => null)) as Partial<LeagueSummaryResponse> | null;
+    if (!payload) {
+      return {
+        ok: false,
+        reason: "endpoint-missing",
+        message: "/api/league-summary did not return JSON; the function is probably not deployed.",
+      };
+    }
     const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
     if (!summary) {
       return { ok: false, reason: "upstream-error", message: "Gemini returned an empty summary." };
@@ -187,4 +285,109 @@ export const requestLeagueSummary = async (
       message: error instanceof Error ? error.message : "Summary request failed.",
     };
   }
+};
+
+/** Shape of the `GET /api/league-summary` health payload. */
+export type LeagueSummaryHealth = {
+  endpoint?: string;
+  functionDeployed?: boolean;
+  keyConfigured?: boolean;
+  keyLength?: number;
+  keyHadSurroundingWhitespace?: boolean;
+  pinnedModel?: string | null;
+  vercelEnv?: string | null;
+  commit?: string | null;
+  probe?: unknown;
+};
+
+export type LeagueSummaryHealthOutcome =
+  | { ok: true; health: LeagueSummaryHealth }
+  | { ok: false; reason: "endpoint-missing" | "unreachable"; message: string };
+
+/**
+ * Runs the health check from inside the app.
+ *
+ * This is a `fetch`, not a navigation, so a stale service worker cannot answer
+ * it from the cached app shell the way it does when the URL is typed into the
+ * address bar. That makes this the reliable way to find out why the AI write-up
+ * is off, without needing a private window or a fresh worker.
+ */
+export const fetchLeagueSummaryHealth = async ({
+  probe = true,
+  fetchImpl = fetch,
+  endpoint = LEAGUE_SUMMARY_ENDPOINT,
+  signal,
+}: {
+  probe?: boolean;
+  fetchImpl?: typeof fetch;
+  endpoint?: string;
+  signal?: AbortSignal;
+} = {}): Promise<LeagueSummaryHealthOutcome> => {
+  try {
+    const response = await fetchImpl(probe ? `${endpoint}?probe=1` : endpoint, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal,
+    });
+
+    const health = (await response.json().catch(() => null)) as LeagueSummaryHealth | null;
+
+    // A 404, or a 200 that is not JSON (the app shell), both mean nothing is
+    // serving the endpoint.
+    if (response.status === 404 || !health || typeof health !== "object") {
+      return {
+        ok: false,
+        reason: "endpoint-missing",
+        message: `No JSON from ${endpoint} (HTTP ${response.status}).`,
+      };
+    }
+
+    return { ok: true, health };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "unreachable",
+      message: error instanceof Error ? error.message : "Request failed.",
+    };
+  }
+};
+
+type HealthProbe = { ok?: boolean; modelCount?: number; candidates?: string[]; note?: string };
+
+/** Turns a health result into one sentence a person can act on. */
+export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
+  if (!outcome.ok) {
+    return outcome.reason === "endpoint-missing"
+      ? "Nothing is serving /api/league-summary, so the function is not deployed. That is a build or routing problem, not the API key."
+      : `Could not reach /api/league-summary: ${outcome.message}`;
+  }
+
+  const { health } = outcome;
+  const where = [
+    health.vercelEnv ? `env ${health.vercelEnv}` : "",
+    health.commit ? `build ${health.commit}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const suffix = where ? ` (${where})` : "";
+
+  if (!health.keyConfigured) {
+    return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the variable for this environment and redeploy — Vercel scopes variables per environment and does not apply a new one until the next build.`;
+  }
+
+  const whitespace = health.keyHadSurroundingWhitespace
+    ? " The stored key has stray whitespace around it, which is worth removing."
+    : "";
+  const probe = (health.probe ?? {}) as HealthProbe;
+
+  if (probe.ok === true) {
+    const first = probe.candidates?.[0];
+    return `Working: the function is deployed${suffix}, the key lists ${probe.modelCount ?? 0} usable models${first ? `, and ${first} is first in line` : ""}.${whitespace}`;
+  }
+
+  if (probe.ok === false) {
+    return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters), but Gemini would not accept it. ${probe.note ?? "Check that it is a Generative Language API key and is not restricted."}${whitespace}`;
+  }
+
+  return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters).${whitespace}`;
 };

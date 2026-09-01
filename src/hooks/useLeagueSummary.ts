@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { LeagueSummaryErrorReason, LeagueSummaryRequest } from "../lib/leagueSummary";
+import {
+  leagueSummarySignature,
+  type LeagueSummaryErrorReason,
+  type LeagueSummaryRequest,
+} from "../lib/leagueSummary";
 import { requestLeagueSummary } from "../lib/leagueSummaryClient";
 
 export type LeagueSummaryStatus = "idle" | "loading" | "ready" | "unavailable" | "error";
@@ -38,7 +42,9 @@ export const useLeagueSummary = (
 ): LeagueSummaryState => {
   const [state, setState] = useState(IDLE_STATE);
   const [attempt, setAttempt] = useState(0);
+  /** Latches when the endpoint says it can never answer (no key, or not deployed). */
   const unconfiguredRef = useRef(false);
+  const latchedReasonRef = useRef<LeagueSummaryErrorReason | null>(null);
   const requestRef = useRef(request);
   requestRef.current = request;
   // Held in a ref so an inline override does not retrigger the effect.
@@ -46,13 +52,8 @@ export const useLeagueSummary = (
   fetchRef.current = fetchImpl;
 
   // Content signature, so unrelated re-renders in the parent do not refetch.
-  const signature = useMemo(
-    () =>
-      request && request.facts.length > 0
-        ? JSON.stringify([request.seasonLabel, request.cutoff, request.updateTitle, request.facts])
-        : "",
-    [request]
-  );
+  // Empty means there is nothing worth writing about, and no request is made.
+  const signature = useMemo(() => leagueSummarySignature(request), [request]);
 
   useEffect(() => {
     const current = requestRef.current;
@@ -63,7 +64,11 @@ export const useLeagueSummary = (
     // `retry` clears the latch before bumping `attempt`, so a manual retry
     // still reaches the endpoint.
     if (unconfiguredRef.current) {
-      setState({ ...IDLE_STATE, status: "unavailable", reason: "unconfigured" });
+      setState({
+        ...IDLE_STATE,
+        status: "unavailable",
+        reason: latchedReasonRef.current ?? "unconfigured",
+      });
       return;
     }
 
@@ -76,6 +81,7 @@ export const useLeagueSummary = (
         if (!active) return;
         if (outcome.ok) {
           unconfiguredRef.current = false;
+          latchedReasonRef.current = null;
           setState({
             status: "ready",
             summary: outcome.summary,
@@ -85,8 +91,9 @@ export const useLeagueSummary = (
           });
           return;
         }
-        if (outcome.reason === "unconfigured") {
+        if (outcome.reason === "unconfigured" || outcome.reason === "endpoint-missing") {
           unconfiguredRef.current = true;
+          latchedReasonRef.current = outcome.reason;
           setState({
             ...IDLE_STATE,
             status: "unavailable",
@@ -112,6 +119,7 @@ export const useLeagueSummary = (
 
   const retry = useCallback(() => {
     unconfiguredRef.current = false;
+    latchedReasonRef.current = null;
     setAttempt((value) => value + 1);
   }, []);
 
