@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { LeagueSummaryErrorReason, LeagueSummaryRequest } from "../lib/leagueSummary";
+import {
+  leagueSummarySignature,
+  type LeagueSummaryErrorReason,
+  type LeagueSummaryRequest,
+} from "../lib/leagueSummary";
 import { requestLeagueSummary } from "../lib/leagueSummaryClient";
 
 export type LeagueSummaryStatus = "idle" | "loading" | "ready" | "unavailable" | "error";
@@ -48,13 +52,8 @@ export const useLeagueSummary = (
   fetchRef.current = fetchImpl;
 
   // Content signature, so unrelated re-renders in the parent do not refetch.
-  const signature = useMemo(
-    () =>
-      request && request.facts.length > 0
-        ? JSON.stringify([request.seasonLabel, request.cutoff, request.updateTitle, request.facts])
-        : "",
-    [request]
-  );
+  // Empty means there is nothing worth writing about, and no request is made.
+  const signature = useMemo(() => leagueSummarySignature(request), [request]);
 
   useEffect(() => {
     const current = requestRef.current;

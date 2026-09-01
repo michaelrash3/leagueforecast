@@ -108,7 +108,14 @@ src/
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
-## AI league story
+## AI write-ups
+
+Two panels are written by Gemini when a key is configured: the **League Story**
+on Standings (what just happened) and the **Forecast Write-up** on Forecast
+(what the model expects next). Both use the same endpoint, model selection, and
+failure handling; the request names which one it wants.
+
+### League Story
 
 The Standings panel writes a "League Story" after every update. It is generated
 deterministically from standings facts, and — when a Gemini key is configured —
@@ -130,6 +137,27 @@ cut-line movement:
 
 Only derived values are sent — ranks, odds, ratings, per-game averages. Raw game
 logs never leave the browser.
+
+### Forecast Write-up
+
+The Forecast panel explains the projection rather than restating the table: the
+headline projected finish, the Gold Bracket race and how thin the cut line is,
+the upcoming games that swing the most, where the projection is least certain,
+and how much to trust it given the model's measured accuracy.
+
+| Sent to the model | Why                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Projected finish  | Projected rank and record, Gold odds with margin of error, realistic seed range.                                      |
+| Game predictions  | Favorite and win probability for each upcoming game, with its impact tier.                                            |
+| Games that matter | The high-leverage games the app flags, and the reason each one matters.                                               |
+| Model accuracy    | Backtested hit rate, Brier score, and upset capture, so the write-up can say how much weight the projection deserves. |
+
+The prompt requires the model to treat projections as projections, and to
+describe a near-coin-flip as one rather than as a expectation.
+
+It is requested only while the Forecast view is open, and re-requested when the
+results actually change — not on every simulation tick, whose odds jitter by a
+point or two between runs.
 
 ### Configuration
 

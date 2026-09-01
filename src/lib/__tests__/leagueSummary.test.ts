@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLeagueSummaryPrompt,
+  leagueSummarySignature,
+  systemInstructionForKind,
+  LEAGUE_FORECAST_SYSTEM_INSTRUCTION,
+  LEAGUE_SUMMARY_SYSTEM_INSTRUCTION,
   LEAGUE_SUMMARY_LIMITS,
   normalizeSummaryText,
   sanitizeLeagueSummaryRequest,
@@ -257,5 +261,179 @@ describe("normalizeSummaryText", () => {
 
   it("returns an empty string for blank output", () => {
     expect(normalizeSummaryText("   \n\n  ")).toBe("");
+  });
+});
+
+const forecastBody = () => ({
+  kind: "forecast",
+  seasonLabel: "2026 Spring",
+  cutoff: 7,
+  facts: [],
+  projections: [
+    {
+      projectedRank: 1,
+      name: "Stallions",
+      currentRank: 3,
+      projectedRecord: "14-4",
+      goldPct: 92.4,
+      goldMargin: 5,
+      bestSeed: 1,
+      worstSeed: 4,
+      insideCut: true,
+    },
+    {
+      projectedRank: 8,
+      name: "Wolves",
+      currentRank: 6,
+      projectedRecord: "9-9",
+      goldPct: 41.2,
+      goldMargin: 6,
+      bestSeed: 4,
+      worstSeed: 12,
+      insideCut: false,
+    },
+  ],
+  gameForecasts: [
+    {
+      matchup: "Wolves at Stallions",
+      favorite: "Stallions",
+      winPct: 63,
+      impact: "High",
+      date: "9/20",
+    },
+  ],
+  keyGames: [
+    { label: "Wolves at Bandits", reason: "Winner takes the final Gold slot.", date: "9/21" },
+  ],
+  modelAccuracy: { gamesEvaluated: 40, brierScore: 0.183, hitRate: 71.5, upsetCaptureRate: 33.3 },
+});
+
+describe("forecast write-up", () => {
+  it("uses the forecast system instruction, not the recap one", () => {
+    expect(systemInstructionForKind("forecast")).toBe(LEAGUE_FORECAST_SYSTEM_INSTRUCTION);
+    expect(systemInstructionForKind("league-story")).toBe(LEAGUE_SUMMARY_SYSTEM_INSTRUCTION);
+  });
+
+  it("tells the model to respect uncertainty and never state a projection as fact", () => {
+    expect(LEAGUE_FORECAST_SYSTEM_INSTRUCTION).toContain("close to a coin flip");
+    expect(LEAGUE_FORECAST_SYSTEM_INSTRUCTION).toContain("These are projections, never outcomes.");
+  });
+
+  it("accepts a forecast with no recap facts", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody());
+    expect(request?.kind).toBe("forecast");
+    expect(request?.facts).toEqual([]);
+    expect(request?.projections).toHaveLength(2);
+  });
+
+  it("still rejects a body with nothing to write about", () => {
+    expect(
+      sanitizeLeagueSummaryRequest({ kind: "forecast", facts: [], projections: [] })
+    ).toBeNull();
+  });
+
+  it("defaults an unknown kind to the league story", () => {
+    const request = sanitizeLeagueSummaryRequest({ kind: "nonsense", facts: [{ text: "moved" }] });
+    expect(request?.kind).toBe("league-story");
+  });
+
+  it("renders projections with seed range, margin of error, and cut-line side", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain(
+      "#1 Stallions (currently #3) — projected 14-4, 92% ±5 Gold odds, projects inside the cut line, realistic seed range #1–#4"
+    );
+    expect(prompt).toContain("#8 Wolves (currently #6)");
+    expect(prompt).toContain("projects outside the cut line");
+  });
+
+  it("renders game predictions and the games that matter most", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain("9/20: Wolves at Stallions — Stallions favored at 63%, high impact");
+    expect(prompt).toContain("9/21: Wolves at Bandits — Winner takes the final Gold slot.");
+  });
+
+  it("explains the accuracy numbers rather than dumping them", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    const prompt = buildLeagueSummaryPrompt(request);
+    expect(prompt).toContain("measured over 40 finished games");
+    expect(prompt).toContain("72% of picks correct");
+    expect(prompt).toContain("Brier score 0.183 (0 is perfect, 0.25 is a coin flip)");
+    expect(prompt).toContain("33% of upsets called");
+  });
+
+  it("closes with the forecast instruction instead of the recap one", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    expect(buildLeagueSummaryPrompt(request)).toContain(
+      "Write the forecast write-up for the rest of the season"
+    );
+  });
+
+  it("omits the standings-movement section when there are no facts", () => {
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    expect(buildLeagueSummaryPrompt(request)).not.toContain("Standings movement");
+  });
+});
+
+describe("leagueSummarySignature", () => {
+  it("is empty when there is nothing to write about, so no request is made", () => {
+    expect(leagueSummarySignature(null)).toBe("");
+    expect(
+      leagueSummarySignature(
+        sanitizeLeagueSummaryRequest({ facts: [{ text: "moved" }] }) as LeagueSummaryRequest
+      )
+    ).not.toBe("");
+  });
+
+  it("keys a forecast on its projections even though it carries no recap facts", () => {
+    // Regression: the signature used to require facts, so the Forecast write-up
+    // was never requested at all.
+    const request = sanitizeLeagueSummaryRequest(forecastBody()) as LeagueSummaryRequest;
+    expect(leagueSummarySignature(request)).not.toBe("");
+  });
+
+  it("ignores simulation jitter in a forecast", () => {
+    const base = forecastBody();
+    const jittered = {
+      ...base,
+      projections: base.projections.map((row) => ({ ...row, goldPct: row.goldPct + 1.4 })),
+      gameForecasts: base.gameForecasts.map((game) => ({ ...game, winPct: game.winPct + 2 })),
+    };
+    const a = sanitizeLeagueSummaryRequest(base) as LeagueSummaryRequest;
+    const b = sanitizeLeagueSummaryRequest(jittered) as LeagueSummaryRequest;
+    expect(leagueSummarySignature(b)).toBe(leagueSummarySignature(a));
+  });
+
+  it("changes when the projected order changes", () => {
+    const base = forecastBody();
+    const reordered = {
+      ...base,
+      projections: [
+        { ...base.projections[0], projectedRank: 2 },
+        { ...base.projections[1], projectedRank: 1 },
+      ],
+    };
+    const a = sanitizeLeagueSummaryRequest(base) as LeagueSummaryRequest;
+    const b = sanitizeLeagueSummaryRequest(reordered) as LeagueSummaryRequest;
+    expect(leagueSummarySignature(b)).not.toBe(leagueSummarySignature(a));
+  });
+
+  it("changes when another game goes final", () => {
+    const a = sanitizeLeagueSummaryRequest({
+      ...forecastBody(),
+      season: { finalGames: 4, totalGames: 36 },
+    }) as LeagueSummaryRequest;
+    const b = sanitizeLeagueSummaryRequest({
+      ...forecastBody(),
+      season: { finalGames: 5, totalGames: 36 },
+    }) as LeagueSummaryRequest;
+    expect(leagueSummarySignature(b)).not.toBe(leagueSummarySignature(a));
+  });
+
+  it("changes when the recap facts change", () => {
+    const a = sanitizeLeagueSummaryRequest({ facts: [{ text: "one" }] }) as LeagueSummaryRequest;
+    const b = sanitizeLeagueSummaryRequest({ facts: [{ text: "two" }] }) as LeagueSummaryRequest;
+    expect(leagueSummarySignature(b)).not.toBe(leagueSummarySignature(a));
   });
 });

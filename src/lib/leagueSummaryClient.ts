@@ -13,6 +13,10 @@ import {
   LEAGUE_SUMMARY_ENDPOINT,
   type LeagueSummaryError,
   type LeagueSummaryErrorReason,
+  type LeagueSummaryGameForecast,
+  type LeagueSummaryKeyGame,
+  type LeagueSummaryModelAccuracy,
+  type LeagueSummaryProjectionRow,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
   type LeagueSummarySeasonContext,
@@ -125,6 +129,7 @@ export const buildLeagueSummaryRequest = ({
   });
 
   return {
+    kind: "league-story",
     seasonLabel,
     cutoff,
     updateTitle,
@@ -139,6 +144,82 @@ export const buildLeagueSummaryRequest = ({
     statLeaders,
     season,
     fallback,
+  };
+};
+
+export type ForecastProjectionInput = {
+  name: string;
+  projectedRank: number;
+  currentRank?: number;
+  projectedRecord: string;
+  goldPct: number;
+  goldMargin?: number;
+  bestSeed?: number;
+  worstSeed?: number;
+};
+
+export type ForecastGameInput = {
+  awayName: string;
+  homeName: string;
+  favoriteName: string;
+  winPct: number;
+  impact?: string;
+  date?: string;
+};
+
+/**
+ * Packs the Forecast board into a request: the projected finish for every team,
+ * the model's upcoming game predictions, the games the app flags as highest
+ * leverage, and the backtested accuracy so the write-up can say how much weight
+ * the projection deserves.
+ */
+export const buildForecastSummaryRequest = ({
+  seasonLabel,
+  cutoff,
+  projections,
+  gameForecasts = [],
+  keyGames = [],
+  modelAccuracy,
+  season,
+}: {
+  seasonLabel: string;
+  cutoff: number;
+  projections: ForecastProjectionInput[];
+  gameForecasts?: ForecastGameInput[];
+  keyGames?: LeagueSummaryKeyGame[];
+  modelAccuracy?: LeagueSummaryModelAccuracy;
+  season?: LeagueSummarySeasonContext;
+}): LeagueSummaryRequest => {
+  const rows: LeagueSummaryProjectionRow[] = projections.map((row) => ({
+    projectedRank: row.projectedRank,
+    name: displayName(row.name),
+    currentRank: row.currentRank,
+    projectedRecord: row.projectedRecord,
+    goldPct: row.goldPct,
+    goldMargin: row.goldMargin,
+    bestSeed: row.bestSeed,
+    worstSeed: row.worstSeed,
+    insideCut: row.projectedRank <= cutoff,
+  }));
+
+  const games: LeagueSummaryGameForecast[] = gameForecasts.map((game) => ({
+    matchup: `${displayName(game.awayName)} at ${displayName(game.homeName)}`,
+    favorite: displayName(game.favoriteName),
+    winPct: game.winPct,
+    impact: game.impact,
+    date: game.date,
+  }));
+
+  return {
+    kind: "forecast",
+    seasonLabel,
+    cutoff,
+    facts: [],
+    projections: rows,
+    gameForecasts: games,
+    keyGames,
+    modelAccuracy,
+    season,
   };
 };
 

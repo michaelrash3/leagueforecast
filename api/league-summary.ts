@@ -20,7 +20,7 @@ import {
   normalizeSummaryText,
   sanitizeLeagueSummaryRequest,
   LEAGUE_SUMMARY_LIMITS,
-  LEAGUE_SUMMARY_SYSTEM_INSTRUCTION,
+  systemInstructionForKind,
   type LeagueSummaryError,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
@@ -167,6 +167,7 @@ const generateWithModel = async (
   apiKey: string,
   model: string,
   prompt: string,
+  systemInstruction: string,
   timeoutMs: number
 ): Promise<AttemptResult> => {
   try {
@@ -178,7 +179,7 @@ const generateWithModel = async (
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: LEAGUE_SUMMARY_SYSTEM_INSTRUCTION }] },
+          systemInstruction: { parts: [{ text: systemInstruction }] },
           generationConfig: {
             temperature: 0.4,
             topP: 0.9,
@@ -255,6 +256,7 @@ const generateSummary = async (
   }
 
   const prompt = buildLeagueSummaryPrompt(request);
+  const systemInstruction = systemInstructionForKind(request.kind);
   const failures: string[] = [];
   let sawRateLimit = false;
 
@@ -266,6 +268,7 @@ const generateSummary = async (
       apiKey,
       model,
       prompt,
+      systemInstruction,
       Math.min(PER_ATTEMPT_TIMEOUT_MS, remaining)
     );
     if (attempt.ok) {
@@ -388,7 +391,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const request = sanitizeLeagueSummaryRequest(readBody(req));
   if (!request) {
     sendError(res, 400, {
-      error: "Request must include at least one standings-movement fact.",
+      error: "Request must include standings movement, projections, or game forecasts.",
       reason: "invalid-request",
     });
     return;

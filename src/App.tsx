@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import { CommandPalette, type Command } from "./components/CommandPalette";
+import { AiStoryPanel } from "./components/AiStoryPanel";
 import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { ModelHealthPanel } from "./components/ModelHealthPanel";
@@ -58,7 +59,7 @@ import {
   type RecapItem,
 } from "./lib/insights";
 import type { LeagueSummaryErrorReason } from "./lib/leagueSummary";
-import { buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
+import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine, type LeaguePrediction } from "./lib/predictionEngine";
@@ -4261,6 +4262,75 @@ This will replace current season data and save an undo snapshot.`,
   const aiStory = useLeagueSummary(leagueSummaryRequest);
   const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
 
+  // Forecast write-up: the projected finish, the model's upcoming picks, the
+  // games that swing most, and how accurate the model has actually been. Only
+  // requested while the Forecast view is open, so it costs nothing elsewhere.
+  const forecastSummaryRequest = useMemo(() => {
+    if (activeView !== "model" || modelRows.length === 0) return null;
+    return buildForecastSummaryRequest({
+      seasonLabel: settings.seasonLabel,
+      cutoff: goldCutoff,
+      projections: modelRows.map((team) => {
+        const range = seedRangeForTeam(team.id);
+        return {
+          name: team.name,
+          projectedRank: team.projectedRank,
+          currentRank: team.rank,
+          projectedRecord: team.projectedRecord,
+          goldPct: team.goldPct,
+          goldMargin: team.goldPctMargin,
+          bestSeed: range.best,
+          worstSeed: range.worst,
+        };
+      }),
+      gameForecasts: gameForecasts.slice(0, 18).map((item) => ({
+        awayName: item.awayName,
+        homeName: item.homeName,
+        favoriteName: item.winnerName,
+        winPct: item.winnerPct,
+        impact: item.impact?.impactLabel,
+        date: item.game.date,
+      })),
+      keyGames: gamesThatMatterMost.slice(0, 10).map((item) => ({
+        label: item.label,
+        reason: item.reason,
+        date: item.date,
+      })),
+      modelAccuracy: {
+        gamesEvaluated: backtestResult.sampleSize,
+        brierScore: backtestResult.brierScore ?? undefined,
+        hitRate:
+          backtestResult.winnerAccuracy === null ? undefined : backtestResult.winnerAccuracy * 100,
+        upsetCaptureRate:
+          backtestResult.upsetCaptureRate === null
+            ? undefined
+            : backtestResult.upsetCaptureRate * 100,
+      },
+      season: {
+        finalGames: completedGames.length,
+        totalGames: matchups.length,
+        leaderName: currentLeader ? displayName(currentLeader.name) : undefined,
+        gamesPerTeam: settings.regularSeasonGamesPerTeam,
+      },
+    });
+    // `seedRangeForTeam` is a render-scoped helper over these same inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeView,
+    modelRows,
+    gameForecasts,
+    gamesThatMatterMost,
+    backtestResult,
+    goldCutoff,
+    settings.seasonLabel,
+    settings.regularSeasonGamesPerTeam,
+    completedGames,
+    matchups,
+    currentLeader,
+  ]);
+
+  const forecastStory = useLeagueSummary(forecastSummaryRequest);
+
   // ---------- Share + URL snapshot ----------
 
   const sharedHandledRef = useRef(false);
@@ -4703,6 +4773,16 @@ This will replace current season data and save an undo snapshot.`,
               clinchingPaths={clinchingPaths}
               cutLineSnapshot={cutLineSnapshot}
               timelineEntries={timelineEntries}
+              forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
+              forecastStoryModel={forecastStory.model}
+              forecastStoryLoading={forecastStory.status === "loading"}
+              forecastStoryUnavailableReason={
+                forecastStory.status === "unavailable" || forecastStory.status === "error"
+                  ? (forecastStory.reason ?? "upstream-error")
+                  : null
+              }
+              forecastStoryErrorMessage={forecastStory.message}
+              retryForecastStory={forecastStory.retry}
             />
           ) : activeView === "settings" ? (
             <div className="space-y-6">
@@ -5432,21 +5512,6 @@ function TeamStatsView({
   );
 }
 
-const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): string => {
-  switch (reason) {
-    case "unconfigured":
-      return "AI off — no API key";
-    case "endpoint-missing":
-      return "AI off — endpoint not deployed";
-    case "rate-limited":
-      return "AI limit reached";
-    case "no-model":
-      return "No AI model available";
-    default:
-      return "AI unavailable";
-  }
-};
-
 function StandingsView({
   currentLeader,
   finalCount,
@@ -5580,47 +5645,16 @@ function StandingsView({
             )}
             {lastImpact.recapItems.length > 0 ? (
               <>
-                {storyText && (
-                  <div className="mb-3 whitespace-pre-line rounded-none bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                    <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      <span>League Story</span>
-                      {storySource === "gemini" && (
-                        <span
-                          className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
-                          title={`Written by Gemini (${storyModel})`}
-                        >
-                          AI
-                        </span>
-                      )}
-                      {storyLoading && (
-                        <span className="font-bold normal-case tracking-normal text-slate-400">
-                          Writing AI analysis…
-                        </span>
-                      )}
-                      {!storyLoading && storyUnavailableReason && (
-                        <span
-                          className="rounded-full bg-slate-100 px-2 py-0.5 font-bold normal-case tracking-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                          title={
-                            storyErrorMessage ||
-                            "The AI league story is unavailable; showing the built-in story."
-                          }
-                        >
-                          {aiStoryUnavailableLabel(storyUnavailableReason)}
-                        </span>
-                      )}
-                      {!storyLoading && (storySource === "gemini" || storyUnavailableReason) && (
-                        <button
-                          type="button"
-                          onClick={retryStory}
-                          className="ml-auto rounded-full px-2 py-0.5 font-black uppercase tracking-wide text-slate-500 underline decoration-dotted hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-100"
-                        >
-                          {storySource === "gemini" ? "Rewrite" : "Retry"}
-                        </button>
-                      )}
-                    </div>
-                    {storyText}
-                  </div>
-                )}
+                <AiStoryPanel
+                  title="League Story"
+                  text={storyText}
+                  source={storySource}
+                  model={storyModel}
+                  loading={storyLoading}
+                  unavailableReason={storyUnavailableReason}
+                  errorMessage={storyErrorMessage}
+                  onRetry={retryStory}
+                />
                 <ul className="space-y-2 text-xs font-black text-blue-800 dark:text-blue-300">
                   {lastImpact.recapItems.map((item) => (
                     <li
@@ -5973,6 +6007,13 @@ function ModelView(props: {
   clinchingPaths: ClinchingPathNote[];
   cutLineSnapshot: ReturnType<typeof goldCutLineSnapshot>;
   timelineEntries: SeasonTimelineEntry[];
+  /** Gemini write-up of the projection; empty when the AI story is unavailable. */
+  forecastStoryText: string;
+  forecastStoryModel: string;
+  forecastStoryLoading: boolean;
+  forecastStoryUnavailableReason: LeagueSummaryErrorReason | null;
+  forecastStoryErrorMessage: string;
+  retryForecastStory: () => void;
 }) {
   const {
     goldCutoff,
@@ -6006,7 +6047,23 @@ function ModelView(props: {
     clinchingPaths,
     cutLineSnapshot,
     timelineEntries,
+    forecastStoryText,
+    forecastStoryModel,
+    forecastStoryLoading,
+    forecastStoryUnavailableReason,
+    forecastStoryErrorMessage,
+    retryForecastStory,
   } = props;
+
+  // The panel needs text to render; while the AI is loading or unavailable,
+  // show the same line the header would otherwise have nothing to sit above.
+  const forecastPanelText =
+    forecastStoryText ||
+    (forecastStoryLoading
+      ? "Reading the projection…"
+      : forecastStoryUnavailableReason
+        ? "The written forecast is unavailable. The projected table and game picks below are unaffected."
+        : "");
 
   return (
     <section className="space-y-6">
@@ -6018,6 +6075,19 @@ function ModelView(props: {
           <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
             Gold Cutoff: Top {goldCutoff}
           </div>
+        </div>
+        <div className="mt-4">
+          <AiStoryPanel
+            title="Forecast Write-up"
+            text={forecastPanelText}
+            source={forecastStoryText ? "gemini" : "local"}
+            model={forecastStoryModel}
+            loading={forecastStoryLoading}
+            loadingLabel="Reading the projection…"
+            unavailableReason={forecastStoryUnavailableReason}
+            errorMessage={forecastStoryErrorMessage}
+            onRetry={retryForecastStory}
+          />
         </div>
       </div>
 

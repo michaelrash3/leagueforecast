@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RecapItem } from "../insights";
 import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
-import { buildLeagueSummaryRequest, requestLeagueSummary } from "../leagueSummaryClient";
+import {
+  buildForecastSummaryRequest,
+  buildLeagueSummaryRequest,
+  requestLeagueSummary,
+} from "../leagueSummaryClient";
 
 const recapItems: RecapItem[] = [
   { kind: "clinched", text: "Stallions clinched a Gold Bracket spot.", impactScore: 95 },
@@ -250,5 +254,65 @@ describe("requestLeagueSummary", () => {
       reason: "upstream-error",
       message: "offline",
     });
+  });
+});
+
+describe("buildForecastSummaryRequest", () => {
+  it("marks the request as a forecast and sends no recap facts", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [
+        {
+          name: "NKB Stallions 8u",
+          projectedRank: 1,
+          currentRank: 3,
+          projectedRecord: "14-4",
+          goldPct: 92.4,
+        },
+      ],
+    });
+    expect(request.kind).toBe("forecast");
+    expect(request.facts).toEqual([]);
+    expect(request.projections?.[0]?.name).toBe("Stallions");
+  });
+
+  it("derives insideCut from the projected rank against the cutoff", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [
+        { name: "Stallions", projectedRank: 7, projectedRecord: "12-6", goldPct: 70 },
+        { name: "Wolves", projectedRank: 8, projectedRecord: "9-9", goldPct: 40 },
+      ],
+    });
+    expect(request.projections?.map((row) => row.insideCut)).toEqual([true, false]);
+  });
+
+  it("formats matchups as away at home with display names", () => {
+    const request = buildForecastSummaryRequest({
+      seasonLabel: "2026 Spring",
+      cutoff: 7,
+      projections: [],
+      gameForecasts: [
+        {
+          awayName: "NKB Wolves 8u",
+          homeName: "NKB Stallions 8u",
+          favoriteName: "NKB Stallions 8u",
+          winPct: 63,
+          impact: "High",
+          date: "9/20",
+        },
+      ],
+    });
+    expect(request.gameForecasts).toEqual([
+      {
+        matchup: "Wolves at Stallions",
+        favorite: "Stallions",
+        winPct: 63,
+        impact: "High",
+        date: "9/20",
+      },
+    ]);
   });
 });
