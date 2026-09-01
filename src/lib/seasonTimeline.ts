@@ -54,6 +54,7 @@ export const buildSeasonTimeline = (
   settings: Settings,
   limit = 8
 ): SeasonTimelineEntry[] => {
+  const hasCutLine = settings.postseasonFormat === "cut";
   const finals = [...matchups]
     .filter((game) => isFinal(logs[game.id]))
     .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id));
@@ -81,7 +82,10 @@ export const buildSeasonTimeline = (
       rankLine(home?.name ?? game.home, beforeById.get(game.home), home),
     ].filter((item): item is string => Boolean(item));
 
-    const cutLineMessages = after
+    // Every one of these describes movement relative to a cut line, so a league
+    // without one gets no cut-line commentary rather than commentary about a
+    // line that stands for nothing.
+    const cutLineMessages = (hasCutLine ? after : [])
       .map((team) => {
         const prev = beforeById.get(team.id);
         if (!prev) return null;
@@ -108,7 +112,9 @@ export const buildSeasonTimeline = (
       score: `${awayRuns}-${homeRuns}`,
       winnerName,
       movement: movements.slice(0, 3),
-      cutLineImpact: cutLineMessages[0] ?? `Gold cut line held after ${formatGameDate(game.date)}.`,
+      cutLineImpact: hasCutLine
+        ? (cutLineMessages[0] ?? `Gold cut line held after ${formatGameDate(game.date)}.`)
+        : "",
     });
   });
 

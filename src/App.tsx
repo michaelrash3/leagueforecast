@@ -1763,6 +1763,7 @@ function TeamDrawer({
   leagueAverageStats,
   pitchMode,
   trackErrors,
+  hasCutLine,
   projectionExplanations,
 }: {
   team: TeamWithProjection;
@@ -1784,6 +1785,7 @@ function TeamDrawer({
   leagueAverageStats: LeagueAverageStats;
   pitchMode: PitchMode;
   trackErrors: boolean;
+  hasCutLine: boolean;
   projectionExplanations: string[];
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -1828,7 +1830,8 @@ function TeamDrawer({
               {displayName(team.name)}
             </h2>
             <div className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
-              Current #{team.rank} · Projected #{team.projectedRank} · Top {cutoff} Gold Bracket
+              Current #{team.rank} · Projected #{team.projectedRank}
+              {hasCutLine ? ` · Top ${cutoff} Gold Bracket` : ""}
             </div>
             {projectionExplanations.length > 0 && (
               <div className="mt-3 rounded-none border-l-2 border-blue-400 bg-blue-50 py-1 pl-3 pr-2 dark:border-blue-500 dark:bg-blue-950/30">
@@ -1859,9 +1862,9 @@ function TeamDrawer({
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <DrawerMetric label="Record" value={recordText(team)} />
-          <DrawerMetric label="Gold %" value={goldPctLabel} />
+          {hasCutLine && <DrawerMetric label="Gold %" value={goldPctLabel} />}
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
-          <DrawerMetric label="Bubble" value={bubble} />
+          {hasCutLine && <DrawerMetric label="Bubble" value={bubble} />}
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           {pitchMode === "player" ? (
@@ -1924,48 +1927,54 @@ function TeamDrawer({
           />
         </section>
 
-        <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Magic Numbers
-            <HelpTip title="Magic & Elimination Numbers">
-              <strong>Magic number (M)</strong> is the combined total of wins by this team plus
-              losses by rivals that guarantees a Gold Bracket spot.{" "}
-              <strong>Elimination number (E)</strong> is the combined total of losses and rival wins
-              that would end its Gold chances. Reaching either clinches or eliminates regardless of
-              other results.
-            </HelpTip>
-          </h3>
-          <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-            <li>
-              <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                M (Gold clinch)
-              </span>
-              <div className="text-sm font-bold leading-snug">{magicForGold.description}</div>
-            </li>
-            <li>
-              <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                E (Gold elimination)
-              </span>
-              <div className="text-sm font-bold leading-snug">{eliminationNumber.description}</div>
-            </li>
-          </ul>
-        </section>
+        {hasCutLine && (
+          <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Magic Numbers
+              <HelpTip title="Magic & Elimination Numbers">
+                <strong>Magic number (M)</strong> is the combined total of wins by this team plus
+                losses by rivals that guarantees a Gold Bracket spot.{" "}
+                <strong>Elimination number (E)</strong> is the combined total of losses and rival
+                wins that would end its Gold chances. Reaching either clinches or eliminates
+                regardless of other results.
+              </HelpTip>
+            </h3>
+            <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+              <li>
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  M (Gold clinch)
+                </span>
+                <div className="text-sm font-bold leading-snug">{magicForGold.description}</div>
+              </li>
+              <li>
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  E (Gold elimination)
+                </span>
+                <div className="text-sm font-bold leading-snug">
+                  {eliminationNumber.description}
+                </div>
+              </li>
+            </ul>
+          </section>
+        )}
 
-        <section className="mt-6 rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-          <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Clinch Scenarios
-          </h3>
-          <div className="mt-3 space-y-2">
-            {clinchScenarios.map((scenario) => (
-              <div
-                key={scenario}
-                className="rounded-xl bg-white p-3 text-sm font-bold leading-6 text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
-              >
-                {scenario}
-              </div>
-            ))}
-          </div>
-        </section>
+        {hasCutLine && (
+          <section className="mt-6 rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+            <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Clinch Scenarios
+            </h3>
+            <div className="mt-3 space-y-2">
+              {clinchScenarios.map((scenario) => (
+                <div
+                  key={scenario}
+                  className="rounded-xl bg-white p-3 text-sm font-bold leading-6 text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
+                >
+                  {scenario}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="mt-6">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -2915,9 +2924,13 @@ export default function App() {
     const scenarioBadges = gameScenarioBadgesForGame(game);
     if (scenarioBadges.length > 0) return scenarioBadges[0] ?? "Clinch Scenario";
 
-    const nearCutLine = teamsInGame.some((team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1);
+    // "Bubble" only means something relative to a cut line; without one, a
+    // tight game is just a high-leverage seeding game.
+    const nearCutLine =
+      hasCutLine && teamsInGame.some((team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1);
     if (impact && impact.seedImpact >= 2) return "High Impact";
-    if (nearCutLine || (impact && impact.seedImpact >= 1)) return "Bubble Game";
+    if (nearCutLine) return "Bubble Game";
+    if (impact && impact.seedImpact >= 1) return "Seeding Game";
     return "Low Impact";
   };
 
@@ -2929,7 +2942,7 @@ export default function App() {
     if (label.startsWith("Elimination Game-")) return "bg-red-100 text-red-700";
     if (label.startsWith("Elimination Scenario:")) return "bg-red-100 text-red-700";
     if (label === "High Impact") return "bg-amber-100 text-amber-700";
-    if (label === "Bubble Game") return "bg-blue-100 text-blue-700";
+    if (label === "Bubble Game" || label === "Seeding Game") return "bg-blue-100 text-blue-700";
     return "bg-slate-200 text-slate-600";
   };
 
@@ -4943,6 +4956,7 @@ This will replace current season data and save an undo snapshot.`,
             leagueAverageStats={leagueAverageStats}
             pitchMode={settings.pitchMode}
             trackErrors={settings.trackErrors}
+            hasCutLine={hasCutLine}
             projectionExplanations={
               lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
                 ?.items ?? []
@@ -6275,7 +6289,7 @@ function ModelView(props: {
 
       {hasPostseason && (
         <BracketPredictionPanel
-          title="Gold Bracket Predictor"
+          title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
           emptyMessage="Not enough teams for a bracket."
           championLabel="Projected Champion"
           projection={bracketProjection}

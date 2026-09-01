@@ -93,16 +93,21 @@ src/
 
 Not every league has a playoff cut line, so the season's ending is a setting:
 
-| Format            | What it means                                                                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Cut line`        | The top `Gold cutoff` teams make the Gold Bracket. The default, and the only format with Gold odds, playoff status, a bubble, clinching and magic numbers. |
-| `Bracket, no cut` | Every team is seeded into the bracket by final standings. The bracket stays; there is nothing to be inside or outside of, so Gold odds and the bubble go.  |
-| `No postseason`   | Regular season only. No bracket, no Gold odds, no clinching.                                                                                               |
+| Format            | What it means                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Cut line`        | The top `Gold cutoff` teams make the Gold Bracket. The default, and the only format with Gold odds, playoff status, a bubble, clinching and magic numbers.                                                                                                                                 |
+| `Bracket, no cut` | Every team is seeded into the bracket by final standings. The bracket stays, but nothing is inside or outside a line, so every cut-line concept goes: Gold odds, playoff status, the bubble, clinching, magic and elimination numbers, and the cut-line commentary in the season timeline. |
+| `No postseason`   | Regular season only. No bracket, no Gold odds, no clinching.                                                                                                                                                                                                                               |
 
 With `No postseason`, everything that only exists to describe a bracket is
 removed as well: the header cut-off card, the Standings postseason tile, Gold
 Odds Over Recent Games, Projected Cut Line Games, and the Gold Odds column in
 the Forecast projected standings.
+
+Both cut-less formats are swept the same way — the difference between them is
+only whether a bracket is played. A grep of every view in `Bracket, no cut`
+mode turns up no mention of Gold, a cut line, the bubble, clinching or
+elimination.
 
 Turning the cut line off is not just cosmetic: clinching, elimination, cut-line
 crossings and the bubble are all _defined_ relative to a cut, so without one
