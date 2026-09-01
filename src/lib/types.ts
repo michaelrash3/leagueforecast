@@ -153,6 +153,12 @@ export type Settings = {
   autoRunDiffCap: boolean;
   modelAggression: ModelAggression;
   pitchMode: PitchMode;
+  /**
+   * Whether kid-pitch games record fielding errors. Plenty of leagues do not
+   * score them, and an always-blank E column is worse than no column. Ignored
+   * outside kid pitch, which tracks strikeouts instead.
+   */
+  trackErrors: boolean;
   recapGrouping: RecapGrouping;
 };
 
@@ -200,6 +206,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRunDiffCap: false,
   modelAggression: "Balanced",
   pitchMode: "player",
+  trackErrors: true,
   recapGrouping: "date",
 };
 

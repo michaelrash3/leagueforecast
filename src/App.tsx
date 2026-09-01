@@ -839,7 +839,8 @@ const buildTeamStatRankings = (
   teams: TeamBase[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
-  pitchMode: PitchMode
+  pitchMode: PitchMode,
+  trackErrors: boolean
 ): StatRankings => {
   const summaries = teams.map((team) => ({
     team,
@@ -910,13 +911,17 @@ const buildTeamStatRankings = (
             average: averageFor((line) => line.offense.walks),
             entries: rankedEntries((line) => line.offense.walks, "desc"),
           },
-          {
-            key: "errors",
-            label: "E/G",
-            direction: "asc",
-            average: averageFor((line) => line.defense.errors),
-            entries: rankedEntries((line) => line.defense.errors, "asc"),
-          },
+          ...(trackErrors
+            ? [
+                {
+                  key: "errors",
+                  label: "E/G",
+                  direction: "asc" as const,
+                  average: averageFor((line) => line.defense.errors),
+                  entries: rankedEntries((line) => line.defense.errors, "asc"),
+                },
+              ]
+            : []),
         ]
       : [
           {
@@ -1076,12 +1081,17 @@ function SplitStatsTable({
   lines,
   side,
   pitchMode,
+  trackErrors,
 }: {
   title: string;
   lines: TeamSplitLine[];
   side: "offense" | "defense";
   pitchMode: PitchMode;
+  trackErrors: boolean;
 }) {
+  // The kid-pitch defensive column is E/G, which is empty when errors are not scored.
+  const showModeColumn = !(pitchMode === "player" && side === "defense" && !trackErrors);
+
   return (
     <div className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
@@ -1097,9 +1107,11 @@ function SplitStatsTable({
               <th className="px-3 py-2 text-center">G</th>
               <th className="px-3 py-2 text-center">R/G</th>
               <th className="px-3 py-2 text-center">H/G</th>
-              <th className="px-3 py-2 text-center">
-                {pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}
-              </th>
+              {showModeColumn && (
+                <th className="px-3 py-2 text-center">
+                  {pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-800 dark:divide-slate-800 dark:text-slate-100">
@@ -1113,14 +1125,16 @@ function SplitStatsTable({
                 <td className="px-3 py-3 text-center font-bold">
                   {perGame(line[side].hits, line.games)}
                 </td>
-                <td className="px-3 py-3 text-center font-bold">
-                  {pitchMode === "player"
-                    ? perGame(
-                        side === "offense" ? line.offense.walks : line.defense.errors,
-                        line.games
-                      )
-                    : perGame(line[side].strikeouts, line.games)}
-                </td>
+                {showModeColumn && (
+                  <td className="px-3 py-3 text-center font-bold">
+                    {pitchMode === "player"
+                      ? perGame(
+                          side === "offense" ? line.offense.walks : line.defense.errors,
+                          line.games
+                        )
+                      : perGame(line[side].strikeouts, line.games)}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -1364,6 +1378,7 @@ type ScoreRowProps = {
   log: GameLog;
   onChange: (field: keyof GameLog, value: string) => void;
   pitchMode: PitchMode;
+  trackErrors: boolean;
 };
 
 const ScoreRow = React.memo(function ScoreRow({
@@ -1372,6 +1387,7 @@ const ScoreRow = React.memo(function ScoreRow({
   log,
   onChange,
   pitchMode,
+  trackErrors,
 }: ScoreRowProps) {
   const fields = useMemo(
     () => [
@@ -1379,7 +1395,9 @@ const ScoreRow = React.memo(function ScoreRow({
       { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
       ...(pitchMode === "player"
         ? [
-            { key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" },
+            ...(trackErrors
+              ? [{ key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" }]
+              : []),
             {
               key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog,
               label: "BB",
@@ -1388,7 +1406,7 @@ const ScoreRow = React.memo(function ScoreRow({
           ]
         : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
     ],
-    [pitchMode, prefix]
+    [pitchMode, prefix, trackErrors]
   );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
@@ -1744,6 +1762,7 @@ function TeamDrawer({
   onCompare,
   leagueAverageStats,
   pitchMode,
+  trackErrors,
   projectionExplanations,
 }: {
   team: TeamWithProjection;
@@ -1764,6 +1783,7 @@ function TeamDrawer({
   onCompare: () => void;
   leagueAverageStats: LeagueAverageStats;
   pitchMode: PitchMode;
+  trackErrors: boolean;
   projectionExplanations: string[];
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -1846,7 +1866,9 @@ function TeamDrawer({
           <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
           {pitchMode === "player" ? (
             <>
-              <DrawerMetric label="Errors/Game" value={(team.errorsPerGame ?? 0).toFixed(1)} />
+              {trackErrors && (
+                <DrawerMetric label="Errors/Game" value={(team.errorsPerGame ?? 0).toFixed(1)} />
+              )}
               <DrawerMetric label="BB/Game" value={(team.walksReceivedPerGame ?? 0).toFixed(1)} />
             </>
           ) : (
@@ -1863,14 +1885,16 @@ function TeamDrawer({
             label="Lg Avg H/G"
             value={perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
           />
-          <DrawerMetric
-            label={pitchMode === "player" ? "Lg Avg E/G" : "Lg Avg K/G"}
-            value={
-              pitchMode === "player"
-                ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
-                : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)
-            }
-          />
+          {(pitchMode !== "player" || trackErrors) && (
+            <DrawerMetric
+              label={pitchMode === "player" ? "Lg Avg E/G" : "Lg Avg K/G"}
+              value={
+                pitchMode === "player"
+                  ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
+                  : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)
+              }
+            />
+          )}
           <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
           {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
@@ -1887,12 +1911,14 @@ function TeamDrawer({
           <SplitStatsTable
             title="Offensive Splits"
             side="offense"
+            trackErrors={trackErrors}
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
             pitchMode={pitchMode}
           />
           <SplitStatsTable
             title="Defensive Splits"
             side="defense"
+            trackErrors={trackErrors}
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
             pitchMode={pitchMode}
           />
@@ -2194,8 +2220,15 @@ export default function App() {
     [matchups, deferredLogs]
   );
   const statRankings = useMemo(
-    () => buildTeamStatRankings(teams, matchups, deferredLogs, settings.pitchMode),
-    [teams, matchups, deferredLogs, settings.pitchMode]
+    () =>
+      buildTeamStatRankings(
+        teams,
+        matchups,
+        deferredLogs,
+        settings.pitchMode,
+        settings.trackErrors
+      ),
+    [teams, matchups, deferredLogs, settings.pitchMode, settings.trackErrors]
   );
   const remainingCounts = useMemo(
     () =>
@@ -4647,17 +4680,13 @@ This will replace current season data and save an undo snapshot.`,
                 value={currentLeader ? currentLeader.name : "—"}
                 accent="from-blue-500 via-indigo-500 to-slate-900"
               />
-              <HeaderStatCard
-                label={hasCutLine ? "Gold cutoff" : "Postseason"}
-                value={
-                  hasCutLine
-                    ? `Top ${goldCutoff}`
-                    : postseasonFormat === "all"
-                      ? "All teams"
-                      : "None"
-                }
-                accent="from-amber-400 via-orange-500 to-red-500"
-              />
+              {hasPostseason && (
+                <HeaderStatCard
+                  label={hasCutLine ? "Gold cutoff" : "Postseason"}
+                  value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
+                  accent="from-amber-400 via-orange-500 to-red-500"
+                />
+              )}
             </div>
 
             <div
@@ -4769,6 +4798,7 @@ This will replace current season data and save an undo snapshot.`,
               leagueAverageStats={leagueAverageStats}
               statRankings={statRankings}
               pitchMode={settings.pitchMode}
+              trackErrors={settings.trackErrors}
               matrixTeams={headToHeadMatrixTeams}
               headToHeadCell={headToHeadCell}
             />
@@ -4807,7 +4837,6 @@ This will replace current season data and save an undo snapshot.`,
               timelineEntries={timelineEntries}
               hasCutLine={hasCutLine}
               hasPostseason={hasPostseason}
-              postseasonFormat={postseasonFormat}
               forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
               forecastStoryModel={forecastStory.model}
               forecastStoryLoading={forecastStory.status === "loading"}
@@ -4850,6 +4879,7 @@ This will replace current season data and save an undo snapshot.`,
               scoreboardPredictions={scoreboardPredictions}
               scoreboardTeamFilter={scoreboardTeamFilter}
               pitchMode={settings.pitchMode}
+              trackErrors={settings.trackErrors}
               setScoreboardTeamFilter={setScoreboardTeamFilter}
               newDate={newDate}
               setNewDate={setNewDate}
@@ -4912,6 +4942,7 @@ This will replace current season data and save an undo snapshot.`,
             trendSummary={selectedTeamTrendSummary}
             leagueAverageStats={leagueAverageStats}
             pitchMode={settings.pitchMode}
+            trackErrors={settings.trackErrors}
             projectionExplanations={
               lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
                 ?.items ?? []
@@ -5440,12 +5471,14 @@ function TeamStatsView({
   leagueAverageStats,
   statRankings,
   pitchMode,
+  trackErrors,
   matrixTeams,
   headToHeadCell,
 }: {
   leagueAverageStats: LeagueAverageStats;
   statRankings: StatRankings;
   pitchMode: PitchMode;
+  trackErrors: boolean;
   matrixTeams: { id: string; name: string }[];
   headToHeadCell: (rowId: string, colId: string) => H2HCell;
 }) {
@@ -5499,16 +5532,18 @@ function TeamStatsView({
               </div>
             </div>
           )}
-          <div className="rounded-none bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
-            <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {pitchMode === "player" ? "League Avg E/G" : "League Avg K/G"}
+          {(pitchMode !== "player" || trackErrors) && (
+            <div className="rounded-none bg-gradient-to-br from-red-500/12 via-white to-white p-4 shadow-sm ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {pitchMode === "player" ? "League Avg E/G" : "League Avg K/G"}
+              </div>
+              <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+                {pitchMode === "player"
+                  ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
+                  : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
+              </div>
             </div>
-            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {pitchMode === "player"
-                ? perGame(leagueAverageStats.errors, leagueAverageStats.teamGames)
-                : perGame(leagueAverageStats.strikeouts, leagueAverageStats.teamGames)}
-            </div>
-          </div>
+          )}
         </div>
 
         <StatRankingsPanel rankings={statRankings} />
@@ -5626,15 +5661,19 @@ function StandingsView({
       </section>
 
       <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
+        <div
+          className={`grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white dark:divide-slate-700 dark:border-slate-700 ${
+            postseasonFormat === "none" ? "md:grid-cols-3" : "md:grid-cols-4"
+          }`}
+        >
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
           <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
-          <Metric
-            label={hasCutLine ? "Cut Line" : "Postseason"}
-            value={
-              hasCutLine ? `Top ${goldCutoff}` : postseasonFormat === "all" ? "All teams" : "None"
-            }
-          />
+          {postseasonFormat !== "none" && (
+            <Metric
+              label={hasCutLine ? "Cut Line" : "Postseason"}
+              value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
+            />
+          )}
           <Metric label="Updated Through" value={latestCompletedDate} />
         </div>
 
@@ -6074,7 +6113,6 @@ function ModelView(props: {
   hasCutLine: boolean;
   /** False when the league plays no bracket at all. */
   hasPostseason: boolean;
-  postseasonFormat: PostseasonFormat;
   /** Gemini write-up of the projection; empty when the AI story is unavailable. */
   forecastStoryText: string;
   forecastStoryModel: string;
@@ -6117,7 +6155,6 @@ function ModelView(props: {
     timelineEntries,
     hasCutLine,
     hasPostseason,
-    postseasonFormat,
     forecastStoryText,
     forecastStoryModel,
     forecastStoryLoading,
@@ -6143,13 +6180,11 @@ function ModelView(props: {
           <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
             Forecast
           </h2>
-          <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
-            {hasCutLine
-              ? `Gold Cutoff: Top ${goldCutoff}`
-              : postseasonFormat === "all"
-                ? "Bracket: all teams"
-                : "No postseason"}
-          </div>
+          {hasPostseason && (
+            <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
+              {hasCutLine ? `Gold Cutoff: Top ${goldCutoff}` : "Bracket: all teams"}
+            </div>
+          )}
         </div>
         <div className="mt-4">
           <AiStoryPanel
@@ -6176,7 +6211,7 @@ function ModelView(props: {
         />
       )}
 
-      {modelRows.some((team) => team.goldTrend.length >= 2) && (
+      {hasCutLine && modelRows.some((team) => team.goldTrend.length >= 2) && (
         <section className={`${card} p-5`} aria-label="Gold odds trend">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -6293,7 +6328,7 @@ function ModelView(props: {
                     <th className="px-4 py-3 text-center">Projected Seed</th>
                     <th className="px-4 py-3 text-center">Range</th>
                     <th className="px-4 py-3 text-center">Projected Record</th>
-                    <th className="px-4 py-3 text-center">Gold Odds</th>
+                    {hasCutLine && <th className="px-4 py-3 text-center">Gold Odds</th>}
                     <th className="px-4 py-3 text-center">Run Diff</th>
                   </tr>
                 </thead>
@@ -6349,18 +6384,20 @@ function ModelView(props: {
                           #{range.best}–#{range.worst}
                         </td>
                         <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
-                        <td className="px-4 py-4 text-center font-black">
-                          <div>{formatGoldPct(team)}</div>
-                          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                            {formatGoldMargin(team)}
-                          </div>
-                          <span
-                            className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${confidenceClass}`}
-                            title={confidence.detail}
-                          >
-                            {confidence.label}
-                          </span>
-                        </td>
+                        {hasCutLine && (
+                          <td className="px-4 py-4 text-center font-black">
+                            <div>{formatGoldPct(team)}</div>
+                            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                              {formatGoldMargin(team)}
+                            </div>
+                            <span
+                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${confidenceClass}`}
+                              title={confidence.detail}
+                            >
+                              {confidence.label}
+                            </span>
+                          </td>
+                        )}
                         <td
                           className={`px-4 py-4 text-center font-black ${
                             team.projectedRunDiff > 0
@@ -6555,7 +6592,7 @@ function ModelView(props: {
         </section>
       )}
 
-      {projectedCutLineTeams.length > 0 && (
+      {hasCutLine && projectedCutLineTeams.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -6860,6 +6897,7 @@ function SettingsView({
   const seasonId = useId();
   const cutoffId = useId();
   const postseasonId = useId();
+  const trackErrorsId = useId();
   const winId = useId();
   const tieId = useId();
   const regularSeasonGamesId = useId();
@@ -7085,6 +7123,29 @@ function SettingsView({
             </p>
           </label>
 
+          {settings.pitchMode === "player" && (
+            <label htmlFor={trackErrorsId} className="block">
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+                Score Errors
+              </span>
+              <select
+                id={trackErrorsId}
+                value={settings.trackErrors ? "yes" : "no"}
+                onChange={(event) =>
+                  setSettings((prev) => ({ ...prev, trackErrors: event.target.value === "yes" }))
+                }
+                className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              >
+                <option value="yes">Yes — track fielding errors</option>
+                <option value="no">No — do not score errors</option>
+              </select>
+              <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                Turn this off if your league does not record errors. The E box disappears from score
+                entry and E/G drops out of the stat pages; already-entered errors are kept.
+              </p>
+            </label>
+          )}
+
           <label htmlFor={aggrId} className="block">
             <span className="text-sm font-black text-slate-700 dark:text-slate-200">
               Model Aggression
@@ -7256,6 +7317,7 @@ function GamesView({
   scoreboardPredictions,
   scoreboardTeamFilter,
   pitchMode,
+  trackErrors,
   setScoreboardTeamFilter,
   newDate,
   setNewDate,
@@ -7293,6 +7355,7 @@ function GamesView({
   >;
   scoreboardTeamFilter: string;
   pitchMode: PitchMode;
+  trackErrors: boolean;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
   setNewDate: (v: string) => void;
@@ -7619,6 +7682,7 @@ function GamesView({
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
                     pitchMode={pitchMode}
+                    trackErrors={trackErrors}
                   />
                   <ScoreRow
                     teamName={home?.name || game.home}
@@ -7626,6 +7690,7 @@ function GamesView({
                     log={log}
                     onChange={(field, value) => updateLog(game.id, field, value)}
                     pitchMode={pitchMode}
+                    trackErrors={trackErrors}
                   />
                   <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:text-slate-400">
                     <label className="flex items-center gap-2">
@@ -7764,6 +7829,7 @@ function GamesView({
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
                       pitchMode={pitchMode}
+                      trackErrors={trackErrors}
                     />
                     <ScoreRow
                       teamName={home?.name || matchup.home}
@@ -7771,6 +7837,7 @@ function GamesView({
                       log={game.log}
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
                       pitchMode={pitchMode}
+                      trackErrors={trackErrors}
                     />
                     <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       <span>

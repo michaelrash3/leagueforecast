@@ -99,6 +99,11 @@ Not every league has a playoff cut line, so the season's ending is a setting:
 | `Bracket, no cut` | Every team is seeded into the bracket by final standings. The bracket stays; there is nothing to be inside or outside of, so Gold odds and the bubble go.  |
 | `No postseason`   | Regular season only. No bracket, no Gold odds, no clinching.                                                                                               |
 
+With `No postseason`, everything that only exists to describe a bracket is
+removed as well: the header cut-off card, the Standings postseason tile, Gold
+Odds Over Recent Games, Projected Cut Line Games, and the Gold Odds column in
+the Forecast projected standings.
+
 Turning the cut line off is not just cosmetic: clinching, elimination, cut-line
 crossings and the bubble are all _defined_ relative to a cut, so without one
 they are dropped from the standings table, the recap, and the AI write-ups
@@ -112,6 +117,7 @@ explicitly that no cut line exists and to cover the race for the top instead.
 | Season label     | Header/export label.                                                                                             |
 | Postseason       | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.          |
 | Gold cutoff      | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                      |
+| Score errors     | Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                |
 | Win / Tie points | Math calculations and Gold status.                                                                               |
 | Tiebreaker order | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored. |
 | Recap grouping   | Builds stories per game, date, or week.                                                                          |

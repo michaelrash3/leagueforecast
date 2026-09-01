@@ -727,3 +727,7 @@ it("allows run differential to be uncapped when configured", () => {
   expect(uncapped.find((team) => team.id === "A")?.runDiff).toBe(16);
   expect(uncapped.find((team) => team.id === "B")?.runDiff).toBe(-16);
 });
+
+it("defaults to scoring errors", () => {
+  expect(DEFAULT_SETTINGS.trackErrors).toBe(true);
+});
