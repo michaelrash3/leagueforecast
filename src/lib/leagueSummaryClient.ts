@@ -365,6 +365,8 @@ type HealthProbe = {
   modelCount?: number;
   candidates?: string[];
   note?: string;
+  /** Set when the probe never reached Gemini at all (the app's own throttle). */
+  error?: string;
   listError?: HealthProbeError;
   generation?: { ok?: boolean; model?: string; error?: HealthProbeError } | null;
 };
@@ -437,6 +439,13 @@ export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome)
 
   if (probe.ok === false) {
     const error = probe.generation?.error ?? probe.listError ?? null;
+    // The probe can fail before Gemini is ever contacted — this app's own
+    // throttle is the usual reason. Saying "Gemini would not accept it" there
+    // sends people to check a key that was never tried, so report our own
+    // reason in our own words instead.
+    if (!error && probe.error) {
+      return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters). ${probe.error}${whitespace}`;
+    }
     const google = error?.message ? ` Google said: "${error.message}"` : "";
     const advice = explainGeminiRejection(error);
     return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters), but Gemini would not accept it.${google}${advice ? ` ${advice}` : ""}${whitespace}`;

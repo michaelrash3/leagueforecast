@@ -224,9 +224,14 @@ warm instance.
 ### Failure behavior
 
 Every failure path returns a non-200 with a machine-readable `reason`
-(`unconfigured`, `rate-limited`, `upstream-error`, `no-model`,
+(`unconfigured`, `throttled`, `rate-limited`, `upstream-error`, `no-model`,
 `invalid-request`), and the UI keeps showing the deterministic story rather than
 an error.
+
+`throttled` and `rate-limited` are deliberately separate. `throttled` is this
+app's own per-browser limit, refused before any model is contacted — so nothing
+was asked of Gemini and walking the model list would not have helped.
+`rate-limited` means Gemini itself refused every model that was tried.
 
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
@@ -236,7 +241,8 @@ diagnosable at a glance instead of looking like "the AI just isn't running":
 | `AI` badge                       | Gemini wrote this. The tooltip names the model that answered. |
 | `AI off — no API key`            | The function ran but `GEMINI_API_KEY` is not readable by it.  |
 | `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                     |
-| `AI limit reached`               | Gemini rate limit; try again shortly.                         |
+| `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.     |
+| `Gemini limit reached`           | Gemini's own quota refused every model tried.                 |
 | `No AI model available`          | The key listed no usable model.                               |
 | `AI unavailable`                 | Something else upstream. The tooltip carries the message.     |
 
@@ -288,8 +294,11 @@ Even when listing fails, the app still reaches the newest model: the fallback
 list leads with the `gemini-flash-latest` and `gemini-pro-latest` aliases, which
 always resolve to Google's current release for their tier.
 
-The probe is rate limited like the summary endpoint and reports no secret
-material.
+The probe is rate limited under its own smaller budget, kept separate from the
+summary endpoint's so a burst of retries cannot starve the diagnostic that
+explains them, and it reports no secret material. When the probe is the thing
+being throttled it says so, rather than reporting a key Gemini never saw as one
+Gemini rejected.
 
 ### Local development
 

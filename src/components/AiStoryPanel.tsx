@@ -14,8 +14,10 @@ export const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): strin
       return "AI off — no API key";
     case "endpoint-missing":
       return "AI off — endpoint not deployed";
+    case "throttled":
+      return "Paused — too many retries";
     case "rate-limited":
-      return "AI limit reached";
+      return "Gemini limit reached";
     case "no-model":
       return "No AI model available";
     default:
@@ -114,6 +116,18 @@ export function AiStoryPanel({
           </button>
         )}
       </div>
+      {/*
+        A limit is the one unavailable state the reader can fix by waiting, and
+        the chip alone does not say for how long or whose limit it is. The
+        tooltip carries that sentence but a phone has no hover, so show it.
+      */}
+      {!diagnosis &&
+        errorMessage &&
+        (unavailableReason === "throttled" || unavailableReason === "rate-limited") && (
+          <p className="mb-2 rounded-none bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
+            {errorMessage}
+          </p>
+        )}
       {diagnosis && (
         <p className="mb-2 rounded-none bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
           {diagnosis}

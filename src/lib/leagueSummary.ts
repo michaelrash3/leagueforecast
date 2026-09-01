@@ -143,6 +143,9 @@ export type LeagueSummaryErrorReason =
   /** The function itself is not deployed or not routed — distinct from a missing key. */
   | "endpoint-missing"
   | "invalid-request"
+  /** The app's own per-browser throttle, refused before Gemini is contacted. */
+  | "throttled"
+  /** Gemini's own quota, reported after a model actually rejected the request. */
   | "rate-limited"
   | "upstream-error"
   | "no-model";
