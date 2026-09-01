@@ -241,12 +241,24 @@ https://<your-site>/api/league-summary?probe=1
 | `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.           |
 | `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.               |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                |
-| `?probe=1` → `ok: false`            | The key cannot list models: wrong key type, or API restrictions.                            |
+| `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.          |
+| `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                 |
+| `?probe=1` → `generation`           | Result of one tiny `generateContent` call — a key can be able to generate but not list.     |
 
 Two Vercel behaviors cause most of the confusion: environment variables are
 **scoped per environment** (a Production-only variable is invisible to preview
 deploys), and a variable added after the last build **is not picked up until you
 redeploy**.
+
+A key **restricted to HTTP referrers** is the trap worth knowing about: it works
+from a browser and fails from a server, because a server sends no referrer. That
+reads as "the key is fine, the server is broken" when it is the other way round.
+The probe names this case explicitly, along with a disabled Generative Language
+API, an IP-restricted key, and an over-quota key.
+
+Even when listing fails, the app still reaches the newest model: the fallback
+list leads with the `gemini-flash-latest` and `gemini-pro-latest` aliases, which
+always resolve to Google's current release for their tier.
 
 The probe is rate limited like the summary endpoint and reports no secret
 material.

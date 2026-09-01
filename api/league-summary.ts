@@ -28,7 +28,10 @@ import {
 import {
   buildModelCandidates,
   discoverGeminiModels,
+  discoverGeminiModelsDetailed,
+  probeGeminiGeneration,
   GEMINI_API_BASE,
+  GEMINI_FALLBACK_MODEL_IDS,
 } from "../src/lib/geminiModels.js";
 
 /**
@@ -335,21 +338,42 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
     if (isRateLimited(clientKey(req))) {
       health.probe = { ok: false, error: "Rate limited; try again in a minute." };
     } else {
-      const discovered = await discoverGeminiModels(apiKey, {
+      const pinned = process.env.GEMINI_MODEL?.trim() || null;
+      const discovery = await discoverGeminiModelsDetailed(apiKey, {
         signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
       });
+      const candidates = buildModelCandidates({
+        pinned,
+        discovered: discovery.ids,
+        limit: MAX_MODEL_ATTEMPTS,
+      });
+
+      // Listing and generating can fail independently, so when listing fails,
+      // try one tiny generation too: the app falls back to a static model list
+      // and may work anyway, and the two errors point at different fixes.
+      const generation =
+        discovery.ids.length === 0
+          ? await probeGeminiGeneration(apiKey, pinned ?? GEMINI_FALLBACK_MODEL_IDS[0] ?? "", {
+              signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+            })
+          : null;
+
       health.probe = {
-        ok: discovered.length > 0,
-        modelCount: discovered.length,
-        candidates: buildModelCandidates({
-          pinned: process.env.GEMINI_MODEL?.trim() || null,
-          discovered,
-          limit: MAX_MODEL_ATTEMPTS,
-        }),
+        ok: discovery.ids.length > 0 || generation?.ok === true,
+        modelCount: discovery.ids.length,
+        candidates,
+        // Google's own words, so a restricted key or a disabled API is named
+        // rather than guessed at.
+        listError: discovery.error ?? null,
+        generation: generation
+          ? { ok: generation.ok, model: generation.model, error: generation.error ?? null }
+          : null,
         note:
-          discovered.length > 0
+          discovery.ids.length > 0
             ? "The key can list models; the newest is attempted first."
-            : "The key could not list any usable model. Check that it is a Generative Language API key and is not restricted.",
+            : generation?.ok
+              ? "The key cannot list models but can generate, so the app still works using its built-in model list."
+              : "The key could not list models or generate.",
       };
     }
   } else if (wantsProbe) {

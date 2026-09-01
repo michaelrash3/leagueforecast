@@ -352,7 +352,46 @@ export const fetchLeagueSummaryHealth = async ({
   }
 };
 
-type HealthProbe = { ok?: boolean; modelCount?: number; candidates?: string[]; note?: string };
+type HealthProbeError = { status?: number; code?: string; message?: string } | null;
+
+type HealthProbe = {
+  ok?: boolean;
+  modelCount?: number;
+  candidates?: string[];
+  note?: string;
+  listError?: HealthProbeError;
+  generation?: { ok?: boolean; model?: string; error?: HealthProbeError } | null;
+};
+
+/**
+ * Turns Google's rejection into the specific thing to change.
+ *
+ * A key restricted to HTTP referrers is the one that catches people out: it
+ * works from a browser and fails from a server, which reads as "the key is
+ * fine, the server is broken" when the opposite is true.
+ */
+const explainGeminiRejection = (error: HealthProbeError): string => {
+  const message = error?.message ?? "";
+  const code = error?.code ?? "";
+  const combined = `${code} ${message}`.toLowerCase();
+
+  if (combined.includes("referer") || combined.includes("referrer")) {
+    return "That key is restricted to HTTP referrers, which only works from a browser — a server has no referrer, so Google blocks it. Remove the referrer restriction, or make a second unrestricted key for the server.";
+  }
+  if (combined.includes("api key not valid") || combined.includes("api_key_invalid")) {
+    return "Google says the key itself is not valid. Check it was copied whole and belongs to this project.";
+  }
+  if (combined.includes("has not been used") || combined.includes("is disabled")) {
+    return "The Generative Language API is not enabled for this key's Google Cloud project. Enable it, then retry.";
+  }
+  if (combined.includes("ip") && combined.includes("blocked")) {
+    return "That key is restricted by IP address, and serverless functions do not have a fixed one. Remove the IP restriction, or use a separate unrestricted key for the server.";
+  }
+  if (combined.includes("quota") || combined.includes("resource_exhausted")) {
+    return "The key is over its quota rather than misconfigured. It should work again once the quota resets.";
+  }
+  return "";
+};
 
 /** Turns a health result into one sentence a person can act on. */
 export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
@@ -382,11 +421,19 @@ export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome)
 
   if (probe.ok === true) {
     const first = probe.candidates?.[0];
+    // Generation can work while listing does not; the app falls back to its
+    // built-in model list, so that is still a working setup.
+    if ((probe.modelCount ?? 0) === 0 && probe.generation?.ok) {
+      return `Working, with a caveat: the function is deployed${suffix} and the key can generate, but it cannot list models, so the app uses its built-in model list instead of picking up new Gemini releases automatically.${whitespace}`;
+    }
     return `Working: the function is deployed${suffix}, the key lists ${probe.modelCount ?? 0} usable models${first ? `, and ${first} is first in line` : ""}.${whitespace}`;
   }
 
   if (probe.ok === false) {
-    return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters), but Gemini would not accept it. ${probe.note ?? "Check that it is a Generative Language API key and is not restricted."}${whitespace}`;
+    const error = probe.generation?.error ?? probe.listError ?? null;
+    const google = error?.message ? ` Google said: "${error.message}"` : "";
+    const advice = explainGeminiRejection(error);
+    return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters), but Gemini would not accept it.${google}${advice ? ` ${advice}` : ""}${whitespace}`;
   }
 
   return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters).${whitespace}`;
