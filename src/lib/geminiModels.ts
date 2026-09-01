@@ -224,28 +224,133 @@ export const buildModelCandidates = ({
   return ordered.slice(0, Math.max(1, limit));
 };
 
+/** Why a model listing failed, kept so the health check can report it verbatim. */
+export type GeminiDiscoveryError = {
+  status?: number;
+  /** Google's own status code, e.g. PERMISSION_DENIED. */
+  code?: string;
+  message: string;
+};
+
+export type GeminiDiscoveryResult = {
+  ids: string[];
+  error?: GeminiDiscoveryError;
+};
+
+type GeminiErrorResponse = {
+  error?: { message?: string; status?: string; code?: number };
+};
+
+export type DiscoverOptions = {
+  fetchImpl?: typeof fetch;
+  baseUrl?: string;
+  signal?: AbortSignal;
+};
+
 /**
- * Fetches the model list for a key. Returns `[]` (rather than throwing) so a
- * discovery failure just falls through to `GEMINI_FALLBACK_MODEL_IDS`.
+ * Fetches the model list and, on failure, keeps Google's own status and
+ * message. The generation path does not care why listing failed — it falls
+ * through to `GEMINI_FALLBACK_MODEL_IDS` — but the health check does: "the key
+ * is restricted to HTTP referrers" and "the API is not enabled" need different
+ * fixes, and neither is guessable from an empty list.
  */
-export const discoverGeminiModels = async (
+export const discoverGeminiModelsDetailed = async (
   apiKey: string,
-  {
-    fetchImpl = fetch,
-    baseUrl = GEMINI_API_BASE,
-    signal,
-  }: { fetchImpl?: typeof fetch; baseUrl?: string; signal?: AbortSignal } = {}
-): Promise<string[]> => {
+  { fetchImpl = fetch, baseUrl = GEMINI_API_BASE, signal }: DiscoverOptions = {}
+): Promise<GeminiDiscoveryResult> => {
   try {
     const response = await fetchImpl(`${baseUrl}/models?pageSize=200`, {
       method: "GET",
       headers: { "x-goog-api-key": apiKey },
       signal,
     });
-    if (!response.ok) return [];
-    const payload = (await response.json()) as GeminiModelListResponse;
-    return rankGeminiModels(payload.models ?? []);
-  } catch {
-    return [];
+
+    const payload = (await response.json().catch(() => ({}))) as GeminiModelListResponse &
+      GeminiErrorResponse;
+
+    if (!response.ok) {
+      return {
+        ids: [],
+        error: {
+          status: response.status,
+          code: payload.error?.status,
+          message: payload.error?.message ?? `HTTP ${response.status}`,
+        },
+      };
+    }
+
+    const ids = rankGeminiModels(payload.models ?? []);
+    if (ids.length === 0) {
+      return {
+        ids,
+        error: {
+          status: response.status,
+          message: "The key listed no model that supports generateContent.",
+        },
+      };
+    }
+    return { ids };
+  } catch (error) {
+    return {
+      ids: [],
+      error: { message: error instanceof Error ? error.message : "Model listing failed." },
+    };
+  }
+};
+
+/**
+ * Model ids only. Returns `[]` (rather than throwing) so a discovery failure
+ * just falls through to `GEMINI_FALLBACK_MODEL_IDS` and generation is still
+ * attempted.
+ */
+export const discoverGeminiModels = async (
+  apiKey: string,
+  options: DiscoverOptions = {}
+): Promise<string[]> => (await discoverGeminiModelsDetailed(apiKey, options)).ids;
+
+/**
+ * Smallest possible generateContent call, used only by the health check.
+ *
+ * Listing and generating can fail independently, so knowing that one works
+ * tells you which half of the setup is wrong.
+ */
+export const probeGeminiGeneration = async (
+  apiKey: string,
+  model: string,
+  { fetchImpl = fetch, baseUrl = GEMINI_API_BASE, signal }: DiscoverOptions = {}
+): Promise<{ ok: boolean; model: string; error?: GeminiDiscoveryError }> => {
+  try {
+    const response = await fetchImpl(
+      `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+        signal,
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "Reply with the single word OK." }] }],
+          generationConfig: { maxOutputTokens: 16, temperature: 0 },
+        }),
+      }
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as GeminiErrorResponse;
+    if (!response.ok) {
+      return {
+        ok: false,
+        model,
+        error: {
+          status: response.status,
+          code: payload.error?.status,
+          message: payload.error?.message ?? `HTTP ${response.status}`,
+        },
+      };
+    }
+    return { ok: true, model };
+  } catch (error) {
+    return {
+      ok: false,
+      model,
+      error: { message: error instanceof Error ? error.message : "Generation probe failed." },
+    };
   }
 };

@@ -369,10 +369,12 @@ describe("predictGame", () => {
   it("aggression scales the predicted scores", () => {
     const conservative = predictGame(game, live, {
       ...settings,
+      pitchMode: "machine",
       modelAggression: "Conservative",
     });
     const aggressive = predictGame(game, live, {
       ...settings,
+      pitchMode: "machine",
       modelAggression: "Aggressive",
     });
     // The two aggressions should not produce identical scores when there is a
@@ -423,10 +425,14 @@ describe("predictGame", () => {
       headToHead: { A: { wins: 0, losses: 2, ties: 0 } },
     };
 
+    // Contact/strikeout/tpi signals drive the machine-pitch model specifically.
     const prediction = predictGame(
       { id: "future", date: "5/9", away: "A", home: "B" },
       [away, home],
-      settings
+      {
+        ...settings,
+        pitchMode: "machine",
+      }
     );
 
     expect(prediction.winnerId).toBe("A");
@@ -628,8 +634,10 @@ describe("simulationSeed", () => {
   });
 });
 
-it("defaults pitch mode to machine", () => {
-  expect(DEFAULT_SETTINGS.pitchMode).toBe("machine");
+it("defaults pitch mode to kid pitch", () => {
+  // Kid pitch (`player`) is the common format, so it is the default for a new
+  // league. The machine-pitch model stays available via Settings.
+  expect(DEFAULT_SETTINGS.pitchMode).toBe("player");
 });
 
 it("player-pitch predictions are affected by walks and errors", () => {

@@ -74,6 +74,13 @@ export type RecapInput = {
     homeName: string;
   }[];
   cutoff: number;
+  /**
+   * False for a league with no cut line. Clinching, elimination, cut-line
+   * crossings and the bubble are all defined relative to a cut, so without one
+   * they are not just uninteresting — they are meaningless, and are dropped
+   * rather than reported against a cutoff that stands for nothing.
+   */
+  hasCutLine?: boolean;
 };
 
 export type RecapItem = {
@@ -124,6 +131,7 @@ export const weeklyRecap = ({
   after,
   finalsSinceLast,
   cutoff,
+  hasCutLine = true,
 }: RecapInput): RecapItem[] => {
   const items: RecapItem[] = [];
   const beforeById = new Map(before.map((b) => [b.id, b]));
@@ -207,9 +215,11 @@ export const weeklyRecap = ({
     }
   }
 
-  const bubbleTeams = after
-    .filter((team) => team.rank >= Math.max(1, cutoff - 1) && team.rank <= cutoff + 2)
-    .sort((a, b) => a.rank - b.rank);
+  const bubbleTeams = !hasCutLine
+    ? []
+    : after
+        .filter((team) => team.rank >= Math.max(1, cutoff - 1) && team.rank <= cutoff + 2)
+        .sort((a, b) => a.rank - b.rank);
   const finalGold = bubbleTeams.find((team) => team.rank === cutoff);
   const firstOut = bubbleTeams.find((team) => team.rank === cutoff + 1);
   if (bubbleTeams.length >= 2 && finalGold && firstOut) {
@@ -224,7 +234,9 @@ export const weeklyRecap = ({
   }
 
   // Pass 1: clinch / elimination / cut-line crossings (highest signal first).
+  // All four are cut-line concepts, so a league without one skips the pass.
   after.forEach((team) => {
+    if (!hasCutLine) return;
     const prev = beforeById.get(team.id);
     if (!prev) return;
     if (prev.goldStatus !== "Clinched" && team.goldStatus === "Clinched") {

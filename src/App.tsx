@@ -125,6 +125,7 @@ import {
   type Matchup,
   type ModelAggression,
   type PitchMode,
+  type PostseasonFormat,
   type Prediction,
   type RecapGrouping,
   type Settings,
@@ -2097,11 +2098,29 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [confirmState, resolveConfirmation]);
 
-  const goldCutoff = clamp(
-    Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
-    1,
-    Math.max(1, teams.length || DEFAULT_GOLD_CUTOFF)
-  );
+  const postseasonFormat = settings.postseasonFormat;
+  /** Only a "cut" league has a line to be inside or outside of. */
+  const hasCutLine = postseasonFormat === "cut";
+  const hasPostseason = postseasonFormat !== "none";
+
+  /**
+   * Effective cutoff driving the simulation and seeding.
+   *
+   * The model is written around "how many teams qualify", so rather than
+   * special-casing it everywhere, each format is expressed as a number: a cut
+   * league uses its setting, an all-in league qualifies everyone, and a league
+   * with no postseason qualifies nobody. Displays that only make sense with a
+   * real cut line are gated on `hasCutLine` instead.
+   */
+  const goldCutoff = hasCutLine
+    ? clamp(
+        Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
+        1,
+        Math.max(1, teams.length || DEFAULT_GOLD_CUTOFF)
+      )
+    : postseasonFormat === "all"
+      ? Math.max(1, teams.length)
+      : 0;
 
   // ---------- Persisted state ----------
 
@@ -3753,6 +3772,7 @@ This will replace current season data and save an undo snapshot.`,
           })),
           finalsSinceLast,
           cutoff: goldCutoff,
+          hasCutLine,
         });
         const projectionExplanations = buildProjectionExplanationsForUpdate(before, after);
         setLastImpact({
@@ -4203,6 +4223,7 @@ This will replace current season data and save an undo snapshot.`,
     return buildLeagueSummaryRequest({
       seasonLabel: settings.seasonLabel,
       cutoff: goldCutoff,
+      hasCutLine,
       updateTitle: lastImpact.title,
       finalScores: lastImpact.scores,
       recapItems: lastImpact.recapItems,
@@ -4250,6 +4271,7 @@ This will replace current season data and save an undo snapshot.`,
     settings.seasonLabel,
     settings.regularSeasonGamesPerTeam,
     goldCutoff,
+    hasCutLine,
     dashboardRows,
     predictionEngine,
     statRankings,
@@ -4270,6 +4292,7 @@ This will replace current season data and save an undo snapshot.`,
     return buildForecastSummaryRequest({
       seasonLabel: settings.seasonLabel,
       cutoff: goldCutoff,
+      hasCutLine,
       projections: modelRows.map((team) => {
         const range = seedRangeForTeam(team.id);
         return {
@@ -4322,6 +4345,7 @@ This will replace current season data and save an undo snapshot.`,
     gamesThatMatterMost,
     backtestResult,
     goldCutoff,
+    hasCutLine,
     settings.seasonLabel,
     settings.regularSeasonGamesPerTeam,
     completedGames,
@@ -4624,8 +4648,14 @@ This will replace current season data and save an undo snapshot.`,
                 accent="from-blue-500 via-indigo-500 to-slate-900"
               />
               <HeaderStatCard
-                label="Gold cutoff"
-                value={`Top ${goldCutoff}`}
+                label={hasCutLine ? "Gold cutoff" : "Postseason"}
+                value={
+                  hasCutLine
+                    ? `Top ${goldCutoff}`
+                    : postseasonFormat === "all"
+                      ? "All teams"
+                      : "None"
+                }
                 accent="from-amber-400 via-orange-500 to-red-500"
               />
             </div>
@@ -4714,6 +4744,8 @@ This will replace current season data and save an undo snapshot.`,
                 }
               }}
               dashboardRows={dashboardRows}
+              hasCutLine={hasCutLine}
+              postseasonFormat={postseasonFormat}
               storyText={storyText}
               storySource={aiStory.status === "ready" ? "gemini" : "local"}
               storyModel={aiStory.model}
@@ -4773,6 +4805,9 @@ This will replace current season data and save an undo snapshot.`,
               clinchingPaths={clinchingPaths}
               cutLineSnapshot={cutLineSnapshot}
               timelineEntries={timelineEntries}
+              hasCutLine={hasCutLine}
+              hasPostseason={hasPostseason}
+              postseasonFormat={postseasonFormat}
               forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
               forecastStoryModel={forecastStory.model}
               forecastStoryLoading={forecastStory.status === "loading"}
@@ -5523,6 +5558,8 @@ function StandingsView({
   copyRecap,
   copyStory,
   dashboardRows,
+  hasCutLine,
+  postseasonFormat,
   storyText,
   storySource,
   storyModel,
@@ -5547,6 +5584,9 @@ function StandingsView({
   copyRecap: () => void;
   copyStory: () => void;
   dashboardRows: TeamWithProjection[];
+  /** False when the league has no cut line, so Gold odds and status are meaningless. */
+  hasCutLine: boolean;
+  postseasonFormat: PostseasonFormat;
   /** Gemini story when one arrived, otherwise the deterministic one. */
   storyText: string;
   storySource: "gemini" | "local";
@@ -5568,14 +5608,20 @@ function StandingsView({
         <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
           Standings
           <HelpTip title="Reading the table">
-            <strong>Gold %</strong> is the simulated chance of finishing in the top {goldCutoff}{" "}
-            (the Gold Bracket), from thousands of season simulations. <strong>SOS</strong> is
-            strength of schedule — a lower rank means tougher opponents. <strong>Diff</strong> is
-            run differential (runs scored minus runs allowed).
+            {hasCutLine && (
+              <>
+                <strong>Gold %</strong> is the simulated chance of finishing in the top {goldCutoff}{" "}
+                (the Gold Bracket), from thousands of season simulations.{" "}
+              </>
+            )}
+            <strong>SOS</strong> is strength of schedule — a lower rank means tougher opponents.{" "}
+            <strong>Diff</strong> is run differential (runs scored minus runs allowed).
           </HelpTip>
         </h2>
         <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Track the live table, cut line, recent movement, and team status.
+          {hasCutLine
+            ? "Track the live table, cut line, recent movement, and team status."
+            : "Track the live table, recent movement, and team form."}
         </p>
       </section>
 
@@ -5583,7 +5629,12 @@ function StandingsView({
         <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 bg-slate-950 text-white md:grid-cols-4 dark:divide-slate-700 dark:border-slate-700">
           <Metric label="Leader" value={currentLeader ? displayName(currentLeader.name) : "—"} />
           <Metric label="Finals" value={`${finalCount}/${totalGames}`} />
-          <Metric label="Cut Line" value={`Top ${goldCutoff}`} />
+          <Metric
+            label={hasCutLine ? "Cut Line" : "Postseason"}
+            value={
+              hasCutLine ? `Top ${goldCutoff}` : postseasonFormat === "all" ? "All teams" : "None"
+            }
+          />
           <Metric label="Updated Through" value={latestCompletedDate} />
         </div>
 
@@ -5698,28 +5749,30 @@ function StandingsView({
           </div>
         )}
 
-        <div className="border-b border-slate-200 bg-white/80 px-5 py-3 dark:border-slate-700 dark:bg-slate-900/70">
-          <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wide">
-            <span className="rounded-full bg-slate-950 px-3 py-1 text-white dark:bg-white dark:text-slate-950">
-              Clinched
-            </span>
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-              Safe
-            </span>
-            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-              Inside Cut
-            </span>
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-              Bubble
-            </span>
-            <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
-              Chasing
-            </span>
-            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700 dark:bg-red-950/50 dark:text-red-300">
-              Out
-            </span>
+        {hasCutLine && (
+          <div className="border-b border-slate-200 bg-white/80 px-5 py-3 dark:border-slate-700 dark:bg-slate-900/70">
+            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wide">
+              <span className="rounded-full bg-slate-950 px-3 py-1 text-white dark:bg-white dark:text-slate-950">
+                Clinched
+              </span>
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                Safe
+              </span>
+              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+                Inside Cut
+              </span>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                Bubble
+              </span>
+              <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
+                Chasing
+              </span>
+              <span className="rounded-full bg-red-100 px-3 py-1 text-red-700 dark:bg-red-950/50 dark:text-red-300">
+                Out
+              </span>
+            </div>
           </div>
-        </div>
+        )}
 
         {dashboardRows.length === 0 ? (
           <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
@@ -5737,11 +5790,15 @@ function StandingsView({
                     <th className="px-4 py-3 text-center">Record</th>
                     <th className="px-4 py-3 text-center">Diff</th>
                     <th className="px-4 py-3 text-center">SOS</th>
-                    <th className="px-4 py-3 text-center">Gold %</th>
-                    <th className="px-4 py-3 text-center">Playoff Status</th>
-                    <th className="px-4 py-3 text-center" title="Gold % trend.">
-                      Trend (Gold %)
-                    </th>
+                    {hasCutLine && (
+                      <>
+                        <th className="px-4 py-3 text-center">Gold %</th>
+                        <th className="px-4 py-3 text-center">Playoff Status</th>
+                        <th className="px-4 py-3 text-center" title="Gold % trend.">
+                          Trend (Gold %)
+                        </th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -5749,7 +5806,7 @@ function StandingsView({
                     const raceTone = raceToneForTeam(team, goldCutoff);
                     return (
                       <React.Fragment key={team.id}>
-                        {index === goldCutoff && (
+                        {hasCutLine && index === goldCutoff && (
                           <tr
                             key="cut-line"
                             // eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role
@@ -5820,40 +5877,44 @@ function StandingsView({
                               #{currentSosRanks[team.id] || "—"}
                             </span>
                           </td>
-                          <td className="px-4 py-4 text-center">
-                            <span
-                              className={
-                                team.goldPct >= 75
-                                  ? pill("emerald")
-                                  : team.goldPct >= 40
-                                    ? pill("blue")
-                                    : pill("neutral")
-                              }
-                            >
-                              {formatGoldPct(team)}
-                            </span>
-                            <div className="mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                              {formatGoldMargin(team)} sim. error
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-center">
-                            <span
-                              title={
-                                team.goldStatus === "Eliminated"
-                                  ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
-                                  : team.goldStatus === "Clinched"
-                                    ? `${displayName(team.name)} have mathematically secured a Top ${goldCutoff} spot even if they lose out.`
-                                    : `${displayName(team.name)} are still mathematically live for the Top ${goldCutoff}.`
-                              }
-                              aria-label={`Playoff status: ${statusLabel(team)}`}
-                              className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
-                            >
-                              {statusLabel(team)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-center">
-                            <Sparkline values={team.goldTrend} />
-                          </td>
+                          {hasCutLine && (
+                            <>
+                              <td className="px-4 py-4 text-center">
+                                <span
+                                  className={
+                                    team.goldPct >= 75
+                                      ? pill("emerald")
+                                      : team.goldPct >= 40
+                                        ? pill("blue")
+                                        : pill("neutral")
+                                  }
+                                >
+                                  {formatGoldPct(team)}
+                                </span>
+                                <div className="mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                  {formatGoldMargin(team)} sim. error
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <span
+                                  title={
+                                    team.goldStatus === "Eliminated"
+                                      ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
+                                      : team.goldStatus === "Clinched"
+                                        ? `${displayName(team.name)} have mathematically secured a Top ${goldCutoff} spot even if they lose out.`
+                                        : `${displayName(team.name)} are still mathematically live for the Top ${goldCutoff}.`
+                                  }
+                                  aria-label={`Playoff status: ${statusLabel(team)}`}
+                                  className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(team)}`}
+                                >
+                                  {statusLabel(team)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <Sparkline values={team.goldTrend} />
+                              </td>
+                            </>
+                          )}
                         </tr>
                       </React.Fragment>
                     );
@@ -5866,7 +5927,7 @@ function StandingsView({
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
               {dashboardRows.map((team, index) => {
-                const isLastInside = index + 1 === goldCutoff;
+                const isLastInside = hasCutLine && index + 1 === goldCutoff;
                 const raceTone = raceToneForTeam(team, goldCutoff);
                 return (
                   <li key={team.id} className={`ring-1 ring-inset ${raceRowToneClasses[raceTone]}`}>
@@ -5912,28 +5973,30 @@ function StandingsView({
                           </span>
                         </span>
                       </a>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <span
-                          className={
-                            team.goldPct >= 75
-                              ? pill("emerald")
-                              : team.goldPct >= 40
-                                ? pill("blue")
-                                : pill("neutral")
-                          }
-                        >
-                          {formatGoldPct(team)}
-                        </span>
-                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                          {formatGoldMargin(team)}
-                        </span>
-                        <span
-                          aria-label={`Playoff status: ${statusLabel(team)}`}
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusClass(team)}`}
-                        >
-                          {statusLabel(team)}
-                        </span>
-                      </div>
+                      {hasCutLine && (
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <span
+                            className={
+                              team.goldPct >= 75
+                                ? pill("emerald")
+                                : team.goldPct >= 40
+                                  ? pill("blue")
+                                  : pill("neutral")
+                            }
+                          >
+                            {formatGoldPct(team)}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                            {formatGoldMargin(team)}
+                          </span>
+                          <span
+                            aria-label={`Playoff status: ${statusLabel(team)}`}
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusClass(team)}`}
+                          >
+                            {statusLabel(team)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {isLastInside && (
                       <div
@@ -6007,6 +6070,11 @@ function ModelView(props: {
   clinchingPaths: ClinchingPathNote[];
   cutLineSnapshot: ReturnType<typeof goldCutLineSnapshot>;
   timelineEntries: SeasonTimelineEntry[];
+  /** False when the league has no cut line: no Gold odds, no bubble, no clinching. */
+  hasCutLine: boolean;
+  /** False when the league plays no bracket at all. */
+  hasPostseason: boolean;
+  postseasonFormat: PostseasonFormat;
   /** Gemini write-up of the projection; empty when the AI story is unavailable. */
   forecastStoryText: string;
   forecastStoryModel: string;
@@ -6047,6 +6115,9 @@ function ModelView(props: {
     clinchingPaths,
     cutLineSnapshot,
     timelineEntries,
+    hasCutLine,
+    hasPostseason,
+    postseasonFormat,
     forecastStoryText,
     forecastStoryModel,
     forecastStoryLoading,
@@ -6073,7 +6144,11 @@ function ModelView(props: {
             Forecast
           </h2>
           <div className="rounded-none bg-slate-950 px-4 py-3 text-sm font-black text-white">
-            Gold Cutoff: Top {goldCutoff}
+            {hasCutLine
+              ? `Gold Cutoff: Top ${goldCutoff}`
+              : postseasonFormat === "all"
+                ? "Bracket: all teams"
+                : "No postseason"}
           </div>
         </div>
         <div className="mt-4">
@@ -6091,13 +6166,15 @@ function ModelView(props: {
         </div>
       </div>
 
-      <ClinchingPathsPanel
-        paths={clinchingPaths}
-        lastInName={cutLineSnapshot.lastInName}
-        firstOutName={cutLineSnapshot.firstOutName}
-        pointsGap={cutLineSnapshot.pointsGap}
-        onSelectTeam={onSelectTeam}
-      />
+      {hasCutLine && (
+        <ClinchingPathsPanel
+          paths={clinchingPaths}
+          lastInName={cutLineSnapshot.lastInName}
+          firstOutName={cutLineSnapshot.firstOutName}
+          pointsGap={cutLineSnapshot.pointsGap}
+          onSelectTeam={onSelectTeam}
+        />
+      )}
 
       {modelRows.some((team) => team.goldTrend.length >= 2) && (
         <section className={`${card} p-5`} aria-label="Gold odds trend">
@@ -6161,32 +6238,38 @@ function ModelView(props: {
         </div>
       </section>
 
-      <BracketPredictionPanel
-        title="Gold Bracket Predictor"
-        emptyMessage="Not enough Gold teams."
-        championLabel="Projected Gold Champion"
-        projection={bracketProjection}
-        onScoreChange={updateBracketLog}
-        onToggleFinal={toggleBracketFinal}
-        onClearScores={clearBracketScores}
-      />
+      {hasPostseason && (
+        <BracketPredictionPanel
+          title="Gold Bracket Predictor"
+          emptyMessage="Not enough teams for a bracket."
+          championLabel="Projected Champion"
+          projection={bracketProjection}
+          onScoreChange={updateBracketLog}
+          onToggleFinal={toggleBracketFinal}
+          onClearScores={clearBracketScores}
+        />
+      )}
 
-      <BracketPredictionPanel
-        title="Silver Bracket Predictor"
-        emptyMessage="Not enough Silver teams."
-        championLabel="Projected Silver Champion"
-        projection={silverBracketProjection}
-        onScoreChange={updateBracketLog}
-        onToggleFinal={toggleBracketFinal}
-        onClearScores={clearBracketScores}
-      />
+      {hasCutLine && (
+        <BracketPredictionPanel
+          title="Silver Bracket Predictor"
+          emptyMessage="Not enough Silver teams."
+          championLabel="Projected Silver Champion"
+          projection={silverBracketProjection}
+          onScoreChange={updateBracketLog}
+          onToggleFinal={toggleBracketFinal}
+          onClearScores={clearBracketScores}
+        />
+      )}
 
-      <SeedOddsPanel
-        teams={modelRows.map((team) => ({ id: team.id, name: team.name }))}
-        bracketOdds={bracketOdds}
-        cutoff={goldCutoff}
-        cardClassName={card}
-      />
+      {hasCutLine && (
+        <SeedOddsPanel
+          teams={modelRows.map((team) => ({ id: team.id, name: team.name }))}
+          bracketOdds={bracketOdds}
+          cutoff={goldCutoff}
+          cardClassName={card}
+        />
+      )}
 
       <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
@@ -6417,7 +6500,7 @@ function ModelView(props: {
         )}
       </section>
 
-      {bubbleMovementRows.length > 0 && (
+      {hasCutLine && bubbleMovementRows.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -6776,6 +6859,7 @@ function SettingsView({
 }) {
   const seasonId = useId();
   const cutoffId = useId();
+  const postseasonId = useId();
   const winId = useId();
   const tieId = useId();
   const regularSeasonGamesId = useId();
@@ -6818,25 +6902,54 @@ function SettingsView({
               className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             />
           </label>
-          <label htmlFor={cutoffId} className="block">
+          <label htmlFor={postseasonId} className="block">
             <span className="text-sm font-black text-slate-700 dark:text-slate-200">
-              Gold Cutoff
+              Postseason
             </span>
-            <input
-              id={cutoffId}
-              type="number"
-              min={1}
-              max={Math.max(1, teamsCount)}
-              value={settings.goldCutoff}
+            <select
+              id={postseasonId}
+              value={settings.postseasonFormat}
               onChange={(event) =>
                 setSettings((prev) => ({
                   ...prev,
-                  goldCutoff: Number(event.target.value),
+                  postseasonFormat: event.target.value as PostseasonFormat,
                 }))
               }
               className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-            />
+            >
+              <option value="cut">Cut line — top teams make the bracket</option>
+              <option value="all">Bracket, no cut — every team qualifies</option>
+              <option value="none">No postseason — regular season only</option>
+            </select>
+            <span className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {settings.postseasonFormat === "cut"
+                ? "Standings show Gold odds, playoff status and the cut line."
+                : settings.postseasonFormat === "all"
+                  ? "Everyone is seeded into the bracket, so there are no Gold odds or bubble."
+                  : "Standings only. No bracket, Gold odds, clinching or magic numbers."}
+            </span>
           </label>
+          {settings.postseasonFormat === "cut" && (
+            <label htmlFor={cutoffId} className="block">
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+                Gold Cutoff
+              </span>
+              <input
+                id={cutoffId}
+                type="number"
+                min={1}
+                max={Math.max(1, teamsCount)}
+                value={settings.goldCutoff}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    goldCutoff: Number(event.target.value),
+                  }))
+                }
+                className="mt-2 w-full rounded-none border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+              />
+            </label>
+          )}
           <label htmlFor={winId} className="block">
             <span className="text-sm font-black text-slate-700 dark:text-slate-200">
               Win Points

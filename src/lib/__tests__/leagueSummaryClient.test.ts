@@ -398,17 +398,115 @@ describe("describeLeagueSummaryHealth", () => {
     expect(text).toContain("gemini-3-flash is first in line");
   });
 
-  it("relays why Gemini rejected the key", () => {
+  it("quotes Google's own rejection message", () => {
     const text = describeLeagueSummaryHealth({
       ok: true,
       health: {
         keyConfigured: true,
         keyLength: 39,
-        probe: { ok: false, note: "The key is restricted." },
+        probe: {
+          ok: false,
+          listError: { status: 403, code: "PERMISSION_DENIED", message: "Something went wrong." },
+        },
       },
     });
     expect(text).toContain("would not accept it");
-    expect(text).toContain("The key is restricted.");
+    expect(text).toContain('Google said: "Something went wrong."');
+  });
+
+  it("names the referrer restriction, which fails only from a server", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        probe: {
+          ok: false,
+          listError: {
+            status: 403,
+            code: "PERMISSION_DENIED",
+            message: "Requests from referer <empty> are blocked.",
+          },
+        },
+      },
+    });
+    expect(text).toContain("restricted to HTTP referrers");
+    expect(text).toContain("a server has no referrer");
+  });
+
+  it("points at the stored variable when the key is simply the wrong one", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        keyLength: 39,
+        probe: {
+          ok: false,
+          listError: { message: "API key not valid. Please pass a valid API key." },
+        },
+      },
+    });
+    expect(text).toContain("GEMINI_API_KEY holds the right key");
+  });
+
+  it("points at enabling the API when Google says it is disabled", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        probe: {
+          ok: false,
+          listError: { message: "Generative Language API has not been used in project 123 before" },
+        },
+      },
+    });
+    expect(text).toContain("not enabled");
+  });
+
+  it("separates an over-quota key from a misconfigured one", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        probe: { ok: false, listError: { code: "RESOURCE_EXHAUSTED", message: "Quota exceeded." } },
+      },
+    });
+    expect(text).toContain("over its quota");
+  });
+
+  it("prefers the generation error over the listing one when both failed", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        probe: {
+          ok: false,
+          listError: { message: "listing failed" },
+          generation: {
+            ok: false,
+            model: "gemini-flash-latest",
+            error: { message: "generating failed" },
+          },
+        },
+      },
+    });
+    expect(text).toContain("generating failed");
+  });
+
+  it("calls a key that can generate but not list a working setup", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: true,
+        probe: {
+          ok: true,
+          modelCount: 0,
+          generation: { ok: true, model: "gemini-flash-latest" },
+        },
+      },
+    });
+    expect(text).toContain("Working, with a caveat");
+    expect(text).toContain("built-in model list");
   });
 
   it("flags a key pasted with stray whitespace", () => {

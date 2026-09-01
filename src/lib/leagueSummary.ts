@@ -115,6 +115,8 @@ export type LeagueSummaryRequest = {
   kind: LeagueSummaryKind;
   seasonLabel: string;
   cutoff: number;
+  /** False for a league with no cut line, so the write-up never invents one. */
+  hasCutLine: boolean;
   updateTitle?: string;
   finalScores?: string[];
   facts: LeagueSummaryFact[];
@@ -341,6 +343,8 @@ export const sanitizeLeagueSummaryRequest = (body: unknown): LeagueSummaryReques
 
   return {
     kind: raw.kind === "forecast" ? "forecast" : "league-story",
+    // Defaults to true so an older client that omits it keeps cut-line framing.
+    hasCutLine: raw.hasCutLine !== false,
     seasonLabel: clampText(raw.seasonLabel, LEAGUE_SUMMARY_LIMITS.labelLength) || "Season",
     cutoff: Math.round(clampNumber(raw.cutoff, 1, 999, 8)),
     updateTitle: clampText(raw.updateTitle, LEAGUE_SUMMARY_LIMITS.labelLength) || undefined,
@@ -420,7 +424,11 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
   const lines: string[] = ["DATA", `Season: ${request.seasonLabel}`];
 
   if (request.updateTitle) lines.push(`Update: ${request.updateTitle}`);
-  lines.push(`Gold Bracket cut line: top ${request.cutoff} teams qualify.`);
+  lines.push(
+    request.hasCutLine
+      ? `Gold Bracket cut line: top ${request.cutoff} teams qualify.`
+      : "This league has no playoff cut line: there is nothing to qualify for, so do not write about a cut line, a bubble, clinching or elimination. Cover the race for the top of the table instead."
+  );
 
   if (request.season) {
     const { finalGames, totalGames, leaderName, gamesPerTeam } = request.season;
@@ -442,9 +450,18 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
   }
 
   if (request.standings?.length) {
-    lines.push("", "Current standings (rank, record, Gold odds, status):");
+    lines.push(
+      "",
+      request.hasCutLine
+        ? "Current standings (rank, record, Gold odds, status):"
+        : "Current standings (rank, record):"
+    );
     request.standings.forEach((row) => {
-      const cutMark = row.insideCut ? "inside the cut line" : "outside the cut line";
+      const cutMark = !request.hasCutLine
+        ? ""
+        : row.insideCut
+          ? ", inside the cut line"
+          : ", outside the cut line";
       const projected =
         row.projectedRank && row.projectedRank !== row.rank
           ? `, projected to finish #${row.projectedRank}`
@@ -454,7 +471,7 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
           ? ""
           : `, run differential ${row.runDiff > 0 ? "+" : ""}${row.runDiff}`;
       lines.push(
-        `- #${row.rank} ${row.name} (${row.record}) — ${Math.round(row.goldPct)}% Gold odds, ${row.status}, ${cutMark}${projected}${diff}`
+        `- #${row.rank} ${row.name} (${row.record})${request.hasCutLine ? ` — ${Math.round(row.goldPct)}% Gold odds, ${row.status}` : ""}${cutMark}${projected}${diff}`
       );
     });
   }
@@ -491,7 +508,12 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
   }
 
   if (request.projections?.length) {
-    lines.push("", "Projected final standings (simulated over the remaining schedule):");
+    lines.push(
+      "",
+      request.hasCutLine
+        ? "Projected final standings (simulated over the remaining schedule):"
+        : "Projected final finishing order (simulated over the remaining schedule):"
+    );
     request.projections.forEach((row) => {
       const moved =
         row.currentRank && row.currentRank !== row.projectedRank
@@ -502,11 +524,13 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
         row.bestSeed !== undefined && row.worstSeed !== undefined
           ? `, realistic seed range #${row.bestSeed}–#${row.worstSeed}`
           : "";
-      const cutMark = row.insideCut
-        ? "projects inside the cut line"
-        : "projects outside the cut line";
+      const cutMark = !request.hasCutLine
+        ? ""
+        : row.insideCut
+          ? ", projects inside the cut line"
+          : ", projects outside the cut line";
       lines.push(
-        `- #${row.projectedRank} ${row.name}${moved} — projected ${row.projectedRecord}, ${Math.round(row.goldPct)}%${margin} Gold odds, ${cutMark}${range}`
+        `- #${row.projectedRank} ${row.name}${moved} — projected ${row.projectedRecord}${request.hasCutLine ? `, ${Math.round(row.goldPct)}%${margin} Gold odds` : ""}${cutMark}${range}`
       );
     });
   }

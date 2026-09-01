@@ -89,12 +89,29 @@ src/
   styles/tokens.ts
 ```
 
+## Postseason format
+
+Not every league has a playoff cut line, so the season's ending is a setting:
+
+| Format            | What it means                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cut line`        | The top `Gold cutoff` teams make the Gold Bracket. The default, and the only format with Gold odds, playoff status, a bubble, clinching and magic numbers. |
+| `Bracket, no cut` | Every team is seeded into the bracket by final standings. The bracket stays; there is nothing to be inside or outside of, so Gold odds and the bubble go.  |
+| `No postseason`   | Regular season only. No bracket, no Gold odds, no clinching.                                                                                               |
+
+Turning the cut line off is not just cosmetic: clinching, elimination, cut-line
+crossings and the bubble are all _defined_ relative to a cut, so without one
+they are dropped from the standings table, the recap, and the AI write-ups
+rather than reported against a cutoff that stands for nothing. The AI is told
+explicitly that no cut line exists and to cover the race for the top instead.
+
 ## Settings
 
 | Setting          | Effect                                                                                                           |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Season label     | Header/export label.                                                                                             |
-| Gold cutoff      | Number of teams in Gold Bracket.                                                                                 |
+| Postseason       | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.          |
+| Gold cutoff      | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                      |
 | Win / Tie points | Math calculations and Gold status.                                                                               |
 | Tiebreaker order | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored. |
 | Recap grouping   | Builds stories per game, date, or week.                                                                          |
@@ -241,12 +258,24 @@ https://<your-site>/api/league-summary?probe=1
 | `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.           |
 | `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.               |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                |
-| `?probe=1` → `ok: false`            | The key cannot list models: wrong key type, or API restrictions.                            |
+| `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.          |
+| `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                 |
+| `?probe=1` → `generation`           | Result of one tiny `generateContent` call — a key can be able to generate but not list.     |
 
 Two Vercel behaviors cause most of the confusion: environment variables are
 **scoped per environment** (a Production-only variable is invisible to preview
 deploys), and a variable added after the last build **is not picked up until you
 redeploy**.
+
+A key **restricted to HTTP referrers** is the trap worth knowing about: it works
+from a browser and fails from a server, because a server sends no referrer. That
+reads as "the key is fine, the server is broken" when it is the other way round.
+The probe names this case explicitly, along with a disabled Generative Language
+API, an IP-restricted key, and an over-quota key.
+
+Even when listing fails, the app still reaches the newest model: the fallback
+list leads with the `gemini-flash-latest` and `gemini-pro-latest` aliases, which
+always resolve to Google's current release for their tier.
 
 The probe is rate limited like the summary endpoint and reports no secret
 material.
