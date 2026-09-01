@@ -238,6 +238,7 @@ export const coerceSettings = (raw: unknown): Settings => {
         : DEFAULT_SETTINGS.autoRunDiffCap,
     modelAggression,
     pitchMode,
+    trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,
     recapGrouping,
   };
 };

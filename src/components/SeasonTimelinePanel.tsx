@@ -36,9 +36,11 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
                     Winner: {entry.winnerName}
                   </div>
                 </div>
-                <div className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
-                  {entry.cutLineImpact}
-                </div>
+                {entry.cutLineImpact && (
+                  <div className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+                    {entry.cutLineImpact}
+                  </div>
+                )}
               </div>
               {entry.movement.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
