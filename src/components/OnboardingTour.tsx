@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "league_forecast_onboarded_v1";
-
 const STEPS = [
   {
     title: "Welcome to League Forecast",
@@ -24,11 +22,9 @@ const STEPS = [
 export function OnboardingTour({
   open,
   onClose,
-  autoOpenWhenEmpty,
 }: {
   open: boolean;
   onClose: () => void;
-  autoOpenWhenEmpty: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -43,36 +39,19 @@ export function OnboardingTour({
     }
   }, [open]);
 
-  // First-run auto-open: only when teams list is empty and the user hasn't dismissed before.
-  useEffect(() => {
-    if (!autoOpenWhenEmpty) return;
-    try {
-      if (localStorage.getItem(STORAGE_KEY) === "1") return;
-    } catch {
-      /* ignore */
-    }
-    setStep(0);
-    setVisible(true);
-  }, [autoOpenWhenEmpty]);
-
   if (!visible) return null;
   const current = STEPS[step];
   if (!current) return null;
 
   const dismiss = () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, "1");
-    } catch {
-      /* ignore */
-    }
     setVisible(false);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/30 p-3 sm:items-center">
-      <div className="w-full max-w-md rounded-none bg-white p-5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-        <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <span>
             Step {step + 1} / {STEPS.length}
           </span>
@@ -95,7 +74,7 @@ export function OnboardingTour({
             type="button"
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
-            className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-black text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
           >
             Back
           </button>
@@ -103,7 +82,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="rounded-xl bg-slate-950 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               Next
             </button>
@@ -111,7 +90,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={dismiss}
-              className="rounded-xl bg-red-600 px-4 py-1.5 text-sm font-black text-white shadow-sm hover:bg-red-700"
+              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               Get Started
             </button>
