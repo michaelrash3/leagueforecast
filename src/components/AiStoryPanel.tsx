@@ -69,11 +69,11 @@ export function AiStoryPanel({
     }
   };
 
-  if (!text) return null;
+  if (!text && !loading) return null;
 
   return (
-    <div className="mb-3 whitespace-pre-line rounded-none bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <div className="mb-3 whitespace-pre-line rounded-lg bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <span>{title}</span>
         {source === "gemini" && (
           <span
@@ -124,12 +124,12 @@ export function AiStoryPanel({
       {!diagnosis &&
         errorMessage &&
         (unavailableReason === "throttled" || unavailableReason === "rate-limited") && (
-          <p className="mb-2 rounded-none bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
+          <p className="mb-2 rounded-lg bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
             {errorMessage}
           </p>
         )}
       {diagnosis && (
-        <p className="mb-2 rounded-none bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
+        <p className="mb-2 rounded-lg bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
           {diagnosis}
         </p>
       )}

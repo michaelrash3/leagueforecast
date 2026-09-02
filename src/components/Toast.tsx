@@ -19,10 +19,10 @@ export function ToastView({
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4"
+      className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4 sm:justify-end sm:px-6"
     >
       <div
-        className={`pointer-events-auto flex items-center gap-3 rounded-none px-5 py-3 text-sm font-bold shadow-lg ring-1 ring-black/10 ${
+        className={`pointer-events-auto flex items-center gap-3 rounded-lg px-5 py-3 text-sm font-bold shadow-lg ring-1 ring-black/10 ${
           toneClasses[toast.tone]
         }`}
       >
@@ -34,7 +34,7 @@ export function ToastView({
               toast.onAction?.();
               onDismiss();
             }}
-            className="rounded-lg bg-white/15 px-3 py-1 text-xs font-black uppercase tracking-wide hover:bg-white/25"
+            className="rounded-lg bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide hover:bg-white/25"
           >
             {toast.actionLabel}
           </button>
@@ -43,7 +43,7 @@ export function ToastView({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide text-white/70 hover:text-white"
+          className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 hover:text-white"
         >
           ×
         </button>

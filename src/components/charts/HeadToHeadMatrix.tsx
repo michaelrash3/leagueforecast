@@ -18,7 +18,7 @@ export function HeadToHeadMatrix({
   };
   return (
     <div className="overflow-x-auto">
-      <table className="border-separate border-spacing-1 text-[10px] font-black uppercase tracking-wide">
+      <table className="border-separate border-spacing-1 text-[10px] font-semibold uppercase tracking-wide">
         <thead>
           <tr>
             <th className="p-1" aria-hidden />

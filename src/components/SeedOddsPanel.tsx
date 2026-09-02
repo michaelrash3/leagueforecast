@@ -56,13 +56,13 @@ export function SeedOddsPanel({
 
       {championRows.length > 0 && (
         <div className="mb-6">
-          <div className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Title odds
           </div>
           <ul className="space-y-2">
             {championRows.map((row) => (
               <li key={row.team.id} className="flex items-center gap-3">
-                <span className="w-28 shrink-0 truncate text-sm font-black text-slate-800 dark:text-slate-200">
+                <span className="w-28 shrink-0 truncate text-sm font-bold text-slate-800 dark:text-slate-200">
                   {displayName(row.team.name)}
                 </span>
                 <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -73,7 +73,7 @@ export function SeedOddsPanel({
                     }}
                   />
                 </div>
-                <span className="w-12 shrink-0 text-right text-sm font-black text-slate-900 dark:text-slate-100">
+                <span className="w-12 shrink-0 text-right text-sm font-bold text-slate-900 dark:text-slate-100">
                   {pct(row.champion)}
                 </span>
                 <span className="w-20 shrink-0 text-right text-[11px] font-bold text-slate-500 dark:text-slate-400">
@@ -86,11 +86,11 @@ export function SeedOddsPanel({
       )}
 
       <div>
-        <div className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Projected seeding
         </div>
         <div className="overflow-x-auto">
-          <table className="border-separate border-spacing-1 text-[10px] font-black">
+          <table className="border-separate border-spacing-1 text-[10px] font-semibold">
             <thead>
               <tr>
                 <th className="p-1 text-left text-slate-500 dark:text-slate-400" aria-hidden />

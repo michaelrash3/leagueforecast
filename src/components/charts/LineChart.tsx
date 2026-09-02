@@ -143,7 +143,7 @@ export function LineChart({
                 x={padding.left + innerW - 4}
                 y={yFor(cutLine.value) - 4}
                 textAnchor="end"
-                className="fill-red-500 text-[10px] font-black uppercase tracking-wide"
+                className="fill-red-500 text-[10px] font-semibold uppercase tracking-wide"
               >
                 {cutLine.label}
               </text>
@@ -214,7 +214,7 @@ export function LineChart({
                 <text
                   x={8}
                   y={14}
-                  className="fill-slate-500 dark:fill-slate-400 text-[10px] font-black uppercase tracking-wide"
+                  className="fill-slate-500 dark:fill-slate-400 text-[10px] font-semibold uppercase tracking-wide"
                 >
                   {xLabels[hover.index]}
                 </text>

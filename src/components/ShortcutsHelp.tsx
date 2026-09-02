@@ -38,7 +38,7 @@ export function ShortcutsHelp({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-md overflow-hidden rounded-none bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+        className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -49,7 +49,7 @@ export function ShortcutsHelp({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             Close
           </button>
@@ -57,7 +57,7 @@ export function ShortcutsHelp({
         <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
           {Object.entries(grouped).map(([group, entries]) => (
             <section key={group} className="mb-4">
-              <h3 className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 {group}
               </h3>
               <ul className="space-y-1.5">
