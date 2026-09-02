@@ -4640,15 +4640,6 @@ This will replace current season data and save an undo snapshot.`,
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => setShowCommandPalette(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-                  aria-label="Open command palette"
-                >
-                  <span>⌘K</span>
-                  <span className="hidden sm:inline">Quick actions</span>
-                </button>
                 {teams.length > 0 && (
                   <button
                     type="button"
