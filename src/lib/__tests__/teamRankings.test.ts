@@ -155,7 +155,7 @@ describe("deriveLeagueScoutGames", () => {
     },
   };
 
-  it("only converts completed (final) games, resolving league team names into the scout pool", () => {
+  it("carries over the whole schedule — a completed game gets its score, an unfinished one comes across as scheduled", () => {
     const unfinished: LeagueSeasonSnapshot = {
       seasonId: "fall2026",
       teams: fallSeason.teams,
@@ -175,13 +175,20 @@ describe("deriveLeagueScoutGames", () => {
     };
 
     const result = deriveLeagueScoutGames("ag1", [fallSeason, unfinished], []);
-    expect(result.games).toHaveLength(1);
+    expect(result.games).toHaveLength(2);
     expect(result.teams.map((t) => t.name).sort()).toEqual(["Ice Cats", "Rockets"]);
 
-    const derived = result.games[0]!;
-    expect(derived.ageGroupId).toBe("ag1");
-    expect(derived.teamAScore).toBe(5);
-    expect(derived.teamBScore).toBe(2);
+    const finished = result.games.find((g) => g.id === "league_fall2026_g1")!;
+    expect(finished.ageGroupId).toBe("ag1");
+    expect(finished.teamAScore).toBe(5);
+    expect(finished.teamBScore).toBe(2);
+    expect(isScoutGamePlayed(finished)).toBe(true);
+
+    const scheduled = result.games.find((g) => g.id === "league_fall2026_g3")!;
+    expect(scheduled.ageGroupId).toBe("ag1");
+    expect(scheduled.teamAScore).toBeUndefined();
+    expect(scheduled.teamBScore).toBeUndefined();
+    expect(isScoutGamePlayed(scheduled)).toBe(false);
   });
 
   it("merges multiple seasons in the same age group and resolves the same team name to one id across them", () => {

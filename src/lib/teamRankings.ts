@@ -119,12 +119,16 @@ export type LeagueSeasonSnapshot = {
 };
 
 /**
- * Convert every League Standings season in an age group's completed games into scout-style games
- * tagged with that age group, resolving each league team name into the given global scout pool
- * (creating entries the first time a league team name is seen — a team that plays across two
- * seasons in the same age group, e.g. Fall and Spring, resolves to the same scout team both times).
- * Pure — the caller is responsible for loading each season's data and for persisting any
- * newly-created scout teams.
+ * Convert every League Standings season in an age group's *entire schedule* — not just completed
+ * games — into scout-style games tagged with that age group, resolving each league team name into
+ * the given global scout pool (creating entries the first time a league team name is seen — a team
+ * that plays across two seasons in the same age group, e.g. Fall and Spring, resolves to the same
+ * scout team both times). A not-yet-final league game comes across as a scheduled entry (no score,
+ * same as a manually-logged future game), so its opponent already shows up in the age group ahead
+ * of time; a completed one carries its score. Since this runs fresh from live League Standings data
+ * on every call, a game that gets finalized there is picked up here as a real result automatically
+ * the next time this runs — no separate sync step. Pure — the caller is responsible for loading
+ * each season's data and for persisting any newly-created scout teams.
  */
 export const deriveLeagueScoutGames = (
   ageGroupId: string,
@@ -150,21 +154,21 @@ export const deriveLeagueScoutGames = (
       };
 
       leagueMatchups.forEach((matchup) => {
-        const log = leagueLogs[matchup.id];
-        if (!isFinal(log)) return;
-        const awayScore = scoreFor(log, "away");
-        const homeScore = scoreFor(log, "home");
-        if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return;
         const teamAId = resolveLeagueTeam(matchup.away);
         const teamBId = resolveLeagueTeam(matchup.home);
         if (!teamAId || !teamBId) return;
+
+        const log = leagueLogs[matchup.id];
+        const awayScore = scoreFor(log, "away");
+        const homeScore = scoreFor(log, "home");
+        const played = isFinal(log) && Number.isFinite(awayScore) && Number.isFinite(homeScore);
+
         games.push({
           id: `league_${seasonId}_${matchup.id}`,
           teamAId,
           teamBId,
-          teamAScore: awayScore,
-          teamBScore: homeScore,
           ageGroupId,
+          ...(played ? { teamAScore: awayScore, teamBScore: homeScore } : {}),
           date: matchup.date,
         });
       });

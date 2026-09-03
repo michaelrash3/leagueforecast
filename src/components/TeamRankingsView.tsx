@@ -380,12 +380,14 @@ export function TeamRankingsView({
           Team Rankings
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          A separate pool from League Standings: log any team&apos;s scores as they come up in a
-          tournament or another league, and see how everyone stacks up. An age group&apos;s League
-          Standings results (every season you assign to it — Fall, Spring, whatever your club runs)
-          are folded in automatically — no need to re-enter those. Marking a team &ldquo;mine&rdquo;
-          is just a shortcut for the scouting report and for adding your own schedule ahead of time
-          — it never changes how any team, including yours, is rated.
+          Separate from League Standings: log any team&apos;s scores as they come up in a tournament
+          or another league, and see how everyone stacks up. An age group&apos;s whole League
+          Standings schedule (every season you assign to it — Fall, Spring, whatever your club runs)
+          is folded in automatically, no need to re-enter those — an upcoming league game shows its
+          opponent here right away, and once it&apos;s scored in League Standings it counts here as
+          a final result too. Marking a team &ldquo;mine&rdquo; is just a shortcut for the scouting
+          report and for adding your own schedule ahead of time — it never changes how any team,
+          including yours, is rated.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
@@ -538,7 +540,7 @@ export function TeamRankingsView({
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
         <p className="mt-1 text-xs text-slate-500">
           {ageGroups.length === 0
-            ? "Set up an age group above first — every game needs one to know which pool it belongs to."
+            ? "Set up an age group above first — every game needs one to know which ranking it belongs to."
             : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
         </p>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
@@ -773,8 +775,9 @@ export function TeamRankingsView({
           Logged games{selectedGroupName ? ` (${selectedGroupName})` : ""}
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          Only games you&apos;ve entered here — this age group&apos;s League Standings results
-          appear in the rankings above automatically but aren&apos;t listed here.
+          Only games you&apos;ve entered here — this age group&apos;s League Standings schedule
+          (played and upcoming) appears in the rankings and scouting report above automatically but
+          isn&apos;t listed here.
         </p>
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
           {ageGroupManualGames.map((game) => {
