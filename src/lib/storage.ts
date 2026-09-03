@@ -147,16 +147,37 @@ const activeId = (): string => {
   return readActive() ?? DEFAULT_SEASON_ID;
 };
 
-export const loadTeams = (): TeamBase[] =>
-  coerceTeams(parseJson(safeGet(seasonKey(activeId(), "teams"))));
-export const loadMatchups = (): Matchup[] =>
-  coerceMatchups(parseJson(safeGet(seasonKey(activeId(), "matchups"))), loadTeams());
-export const loadLogs = (): Record<string, GameLog> =>
-  coerceLogs(parseJson(safeGet(seasonKey(activeId(), "logs"))), loadMatchups(), loadSettings());
-export const loadSettings = (): Settings =>
-  coerceSettings(parseJson(safeGet(seasonKey(activeId(), "settings"))));
+// Parameterized internals: the exported no-arg loaders below apply these to the *active* season;
+// the `*ForSeason` exports apply them to any season without disturbing the active pointer.
+const loadSettingsFor = (seasonId: string): Settings =>
+  coerceSettings(parseJson(safeGet(seasonKey(seasonId, "settings"))));
+const loadTeamsFor = (seasonId: string): TeamBase[] =>
+  coerceTeams(parseJson(safeGet(seasonKey(seasonId, "teams"))));
+const loadMatchupsFor = (seasonId: string): Matchup[] =>
+  coerceMatchups(parseJson(safeGet(seasonKey(seasonId, "matchups"))), loadTeamsFor(seasonId));
+const loadLogsFor = (seasonId: string): Record<string, GameLog> =>
+  coerceLogs(
+    parseJson(safeGet(seasonKey(seasonId, "logs"))),
+    loadMatchupsFor(seasonId),
+    loadSettingsFor(seasonId)
+  );
+
+export const loadTeams = (): TeamBase[] => loadTeamsFor(activeId());
+export const loadMatchups = (): Matchup[] => loadMatchupsFor(activeId());
+export const loadLogs = (): Record<string, GameLog> => loadLogsFor(activeId());
+export const loadSettings = (): Settings => loadSettingsFor(activeId());
 export const loadBracketLogs = (): Record<string, GameLog> =>
   coerceLogs(parseJson(safeGet(seasonKey(activeId(), "bracketLogs"))), [], loadSettings());
+
+/**
+ * Read a *specific* season's data without switching the active season. Used by features (e.g.
+ * Team Rankings) that need to pull results from any season, active or not, purely for reading.
+ */
+export const loadTeamsForSeason = (seasonId: string): TeamBase[] => loadTeamsFor(seasonId);
+export const loadMatchupsForSeason = (seasonId: string): Matchup[] => loadMatchupsFor(seasonId);
+export const loadLogsForSeason = (seasonId: string): Record<string, GameLog> =>
+  loadLogsFor(seasonId);
+export const loadSettingsForSeason = (seasonId: string): Settings => loadSettingsFor(seasonId);
 
 export const saveTeams = (teams: TeamBase[]) =>
   safeSet(seasonKey(activeId(), "teams"), JSON.stringify(teams));
