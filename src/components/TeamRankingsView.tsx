@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import {
+  ageGroupChain,
   buildScoutingReport,
   buildTeamRankings,
   deriveLeagueScoutGames,
   findDuplicateGame,
   isScoutGamePlayed,
   resolveOrCreateTeam,
+  teamNameSuggestions,
   teamsInAgeGroup,
   type AgeGroup,
   type LeagueSeasonSnapshot,
@@ -76,6 +78,7 @@ export function TeamRankingsView({
   const [groupSeasonIds, setGroupSeasonIds] = useState<string[]>(() =>
     activeSeasonId ? [activeSeasonId] : []
   );
+  const [groupContinuesFromId, setGroupContinuesFromId] = useState("");
 
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
@@ -123,6 +126,7 @@ export function TeamRankingsView({
     setEditingGroupId(group.id);
     setGroupNameInput(group.name);
     setGroupSeasonIds(group.seasonIds);
+    setGroupContinuesFromId(group.continuesFromId ?? "");
     setManageOpen(true);
   };
 
@@ -130,6 +134,7 @@ export function TeamRankingsView({
     setEditingGroupId(null);
     setGroupNameInput("");
     setGroupSeasonIds(activeSeasonId ? [activeSeasonId] : []);
+    setGroupContinuesFromId("");
   };
 
   const saveAgeGroup = () => {
@@ -138,10 +143,20 @@ export function TeamRankingsView({
       showToast("Give the age group a name.", { tone: "error" });
       return;
     }
+    // Pointing an age group at itself would make the chain meaningless, so drop that choice.
+    const continuesFromId =
+      groupContinuesFromId && groupContinuesFromId !== editingGroupId ? groupContinuesFromId : "";
     if (editingGroupId) {
       persistAgeGroups(
         ageGroups.map((group) =>
-          group.id === editingGroupId ? { ...group, name, seasonIds: groupSeasonIds } : group
+          group.id === editingGroupId
+            ? {
+                ...group,
+                name,
+                seasonIds: groupSeasonIds,
+                ...(continuesFromId ? { continuesFromId } : { continuesFromId: undefined }),
+              }
+            : group
         )
       );
       showToast("Age group updated.", { tone: "success" });
@@ -150,6 +165,7 @@ export function TeamRankingsView({
         id: `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         name,
         seasonIds: groupSeasonIds,
+        ...(continuesFromId ? { continuesFromId } : {}),
       };
       persistAgeGroups([...ageGroups, newGroup]);
       setSelectedAgeGroupId(newGroup.id);
@@ -166,7 +182,11 @@ export function TeamRankingsView({
       confirmLabel: "Delete",
     });
     if (!confirmed) return;
-    const remaining = ageGroups.filter((g) => g.id !== group.id);
+    // Anything that carried on from this group now continues from nothing, rather than pointing
+    // at an age group that no longer exists.
+    const remaining = ageGroups
+      .filter((g) => g.id !== group.id)
+      .map((g) => (g.continuesFromId === group.id ? { ...g, continuesFromId: undefined } : g));
     persistAgeGroups(remaining);
     persistGames(scoutGames.filter((g) => g.ageGroupId !== group.id));
     if (selectedAgeGroupId === group.id) setSelectedAgeGroupId(remaining[0]?.id ?? "");
@@ -175,49 +195,80 @@ export function TeamRankingsView({
 
   // ---------- Ranking data for the selected age group ----------
 
-  // Every League Standings season bundled into the selected age group, read fresh every render —
-  // this view never writes back to League Standings data, only reads it.
-  const leagueSeasons = useMemo<LeagueSeasonSnapshot[]>(() => {
-    const group = ageGroups.find((g) => g.id === selectedAgeGroupId);
-    if (!group) return [];
-    return group.seasonIds.map((seasonId) => ({
-      seasonId,
-      teams: loadTeamsForSeason(seasonId),
-      matchups: loadMatchupsForSeason(seasonId),
-      logs: loadLogsForSeason(seasonId),
-    }));
-  }, [ageGroups, selectedAgeGroupId]);
+  // The selected age group, plus the ones it carries on from (last year's squad, and so on). Only
+  // the selected group is ever ranked; the rest are here so a squad's opponents keep showing up in
+  // the name dropdown as it ages up.
+  const chainGroupIds = useMemo(
+    () => ageGroupChain(selectedAgeGroupId, ageGroups),
+    [selectedAgeGroupId, ageGroups]
+  );
 
-  // The full team pool for this age group: the persisted scout pool, extended (in-memory, not yet
+  // Every League Standings season bundled into any age group on that chain, read fresh every
+  // render — this view never writes back to League Standings data, only reads it.
+  const chainLeagueSeasons = useMemo<{ ageGroupId: string; seasons: LeagueSeasonSnapshot[] }[]>(
+    () =>
+      chainGroupIds.map((ageGroupId) => ({
+        ageGroupId,
+        seasons: (ageGroups.find((g) => g.id === ageGroupId)?.seasonIds ?? []).map((seasonId) => ({
+          seasonId,
+          teams: loadTeamsForSeason(seasonId),
+          matchups: loadMatchupsForSeason(seasonId),
+          logs: loadLogsForSeason(seasonId),
+        })),
+      })),
+    [ageGroups, chainGroupIds]
+  );
+
+  // The team roster this view reads from: the persisted scout roster, extended (in-memory, not yet
   // necessarily saved) with any league team names not already in it. Every read in this view uses
   // this — never the raw `scoutTeams` state directly — so a league team is usable immediately,
-  // before any save has happened.
-  const merged = useMemo(
-    () => deriveLeagueScoutGames(selectedAgeGroupId, leagueSeasons, scoutTeams),
-    [selectedAgeGroupId, leagueSeasons, scoutTeams]
+  // before any save has happened. The roster is threaded through the chain one group at a time so
+  // the same club resolves to the same id whether it was first seen at 9U or at 10U.
+  const merged = useMemo(() => {
+    let teams = scoutTeams;
+    const games: ScoutGame[] = [];
+    chainLeagueSeasons.forEach((entry) => {
+      const derived = deriveLeagueScoutGames(entry.ageGroupId, entry.seasons, teams);
+      teams = derived.teams;
+      games.push(...derived.games);
+    });
+    return { teams, games };
+  }, [chainLeagueSeasons, scoutTeams]);
+
+  // Everything on the chain — used only for name suggestions, never for ratings.
+  const chainGames = useMemo(() => {
+    const onChain = new Set(chainGroupIds);
+    return [...merged.games, ...scoutGames.filter((game) => onChain.has(game.ageGroupId))];
+  }, [merged.games, scoutGames, chainGroupIds]);
+
+  const ageGroupGames = useMemo(
+    () => chainGames.filter((game) => game.ageGroupId === selectedAgeGroupId),
+    [chainGames, selectedAgeGroupId]
   );
 
   const leagueGameTeamIds = useMemo(
-    () => new Set(merged.games.flatMap((game) => [game.teamAId, game.teamBId])),
-    [merged.games]
+    () =>
+      new Set(
+        merged.games
+          .filter((game) => game.ageGroupId === selectedAgeGroupId)
+          .flatMap((game) => [game.teamAId, game.teamBId])
+      ),
+    [merged.games, selectedAgeGroupId]
   );
 
-  const ageGroupGames = useMemo(
-    () => [...merged.games, ...scoutGames.filter((game) => game.ageGroupId === selectedAgeGroupId)],
-    [merged.games, scoutGames, selectedAgeGroupId]
-  );
-
-  // Only teams with a game in this age group are ranked here. The roster itself stays global (so
-  // the name dropdown still offers every team you've ever logged, and picking one links back to
-  // the same entity), but a team logged under a different age group doesn't appear in this ranking.
+  // Only teams with a game in this age group are ranked here. The roster itself is shared across
+  // age groups (so the same club stays one entity as it ages up), but a team logged under a
+  // different age group doesn't appear in this ranking.
   const ageGroupTeams = useMemo(
     () => teamsInAgeGroup(selectedAgeGroupId, merged.teams, ageGroupGames),
     [selectedAgeGroupId, merged.teams, ageGroupGames]
   );
 
+  const myTeamId = ageGroups.find((g) => g.id === selectedAgeGroupId)?.myTeamId;
+
   const rankings = useMemo(
-    () => buildTeamRankings(selectedAgeGroupId, ageGroupTeams, ageGroupGames),
-    [selectedAgeGroupId, ageGroupTeams, ageGroupGames]
+    () => buildTeamRankings(selectedAgeGroupId, ageGroupTeams, ageGroupGames, myTeamId),
+    [selectedAgeGroupId, ageGroupTeams, ageGroupGames, myTeamId]
   );
 
   const teamNameById = useMemo(
@@ -256,12 +307,23 @@ export function TeamRankingsView({
     [scoutGames, selectedAgeGroupId]
   );
 
+  /**
+   * Marks (or unmarks) "our" team *for this age group only* — a club running a 9U and an 11U squad
+   * at the same time needs one of each, and the old global flag could only hold one. The team is
+   * persisted first so the mark survives even if it was only ever a league-derived name.
+   */
   const setMyTeam = (teamId: string) => {
-    const exists = scoutTeams.some((team) => team.id === teamId);
-    const base = exists
-      ? scoutTeams
-      : [...scoutTeams, ...merged.teams.filter((t) => t.id === teamId)];
-    persistTeams(base.map((team) => ({ ...team, isMine: team.id === teamId })));
+    if (!selectedAgeGroupId) return;
+    if (!scoutTeams.some((team) => team.id === teamId)) {
+      persistTeams([...scoutTeams, ...merged.teams.filter((t) => t.id === teamId)]);
+    }
+    persistAgeGroups(
+      ageGroups.map((group) =>
+        group.id === selectedAgeGroupId
+          ? { ...group, myTeamId: group.myTeamId === teamId ? undefined : teamId }
+          : group
+      )
+    );
   };
 
   const removeGame = async (game: ScoutGame) => {
@@ -288,28 +350,48 @@ export function TeamRankingsView({
     });
   };
 
+  /**
+   * Removes a team from *this* age group by dropping the games logged against them here. Their
+   * results in other age groups are left alone — the same club can be a 9U opponent and an 11U
+   * one, and removing a stray 11U entry shouldn't wipe the 9U history. The team record itself only
+   * goes when nothing is left of it anywhere.
+   */
   const removeTeam = async (team: ScoutTeam) => {
+    const isHere = (game: ScoutGame) =>
+      game.ageGroupId === selectedAgeGroupId &&
+      (game.teamAId === team.id || game.teamBId === team.id);
+    const relatedGames = scoutGames.filter(isHere);
+    const playedElsewhere = scoutGames.some(
+      (game) => !isHere(game) && (game.teamAId === team.id || game.teamBId === team.id)
+    );
     const confirmed = await requestConfirmation({
       title: `Remove ${team.name}?`,
-      message:
-        "This also removes every scouted game logged against this team, across all age groups.",
+      message: `This removes the ${relatedGames.length === 1 ? "game" : `${relatedGames.length} games`} logged against them in ${selectedGroupName || "this age group"}.${
+        playedElsewhere ? " Their games in other age groups stay." : ""
+      }`,
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
-    const relatedGames = scoutGames.filter(
-      (game) => game.teamAId === team.id || game.teamBId === team.id
-    );
     lastDeletedTeamRef.current = { team, games: relatedGames };
-    persistTeams(scoutTeams.filter((t) => t.id !== team.id));
-    persistGames(scoutGames.filter((g) => g.teamAId !== team.id && g.teamBId !== team.id));
+    if (!playedElsewhere) persistTeams(scoutTeams.filter((t) => t.id !== team.id));
+    persistGames(scoutGames.filter((game) => !isHere(game)));
+    if (myTeamId === team.id) {
+      persistAgeGroups(
+        ageGroups.map((group) =>
+          group.id === selectedAgeGroupId ? { ...group, myTeamId: undefined } : group
+        )
+      );
+    }
     showToast(`${team.name} removed.`, {
       tone: "undo",
       actionLabel: "Undo",
       onAction: () => {
         const restored = lastDeletedTeamRef.current;
         if (!restored) return;
-        persistTeams([...scoutTeams, restored.team]);
-        persistGames([...scoutGames, ...restored.games]);
+        if (!scoutTeams.some((t) => t.id === restored.team.id)) {
+          persistTeams([...scoutTeams, restored.team]);
+        }
+        persistGames([...scoutGames.filter((game) => !isHere(game)), ...restored.games]);
       },
     });
   };
@@ -399,7 +481,15 @@ export function TeamRankingsView({
     showToast("Score saved.", { tone: "success" });
   };
 
-  const teamNameOptions = useMemo(() => merged.teams.map((team) => team.name), [merged.teams]);
+  // Scoped to this age group and the ones it continues from: a 9U opponent has no business being
+  // suggested while logging an 11U game, even though both squads share one roster store.
+  const teamNameOptions = useMemo(
+    () =>
+      teamNameSuggestions(selectedAgeGroupId, ageGroups, merged.teams, chainGames).map(
+        (team) => team.name
+      ),
+    [selectedAgeGroupId, ageGroups, merged.teams, chainGames]
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -413,9 +503,11 @@ export function TeamRankingsView({
           Standings schedule (every season you assign to it — Fall, Spring, whatever your club runs)
           is folded in automatically, no need to re-enter those — an upcoming league game shows its
           opponent here right away, and once it&apos;s scored in League Standings it counts here as
-          a final result too. Marking a team &ldquo;mine&rdquo; is just a shortcut for the scouting
-          report and for adding your own schedule ahead of time — it never changes how any team,
-          including yours, is rated.
+          a final result too. Each age group keeps to itself, so a 9U opponent never turns up while
+          you&apos;re logging an 11U game; point an age group at last year&apos;s to carry that
+          squad&apos;s opponents forward as it ages up. Marking a team &ldquo;mine&rdquo; is just a
+          shortcut for the scouting report and for adding your own schedule ahead of time — it
+          never changes how any team, including yours, is rated.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
@@ -468,6 +560,12 @@ export function TeamRankingsView({
                               .map((id) => seasons.find((s) => s.id === id)?.name ?? id)
                               .join(", ")
                           : "No seasons assigned yet"}
+                        {group.continuesFromId
+                          ? ` · continues ${
+                              ageGroups.find((g) => g.id === group.continuesFromId)?.name ??
+                              "an age group that no longer exists"
+                            }`
+                          : ""}
                       </span>
                     </span>
                     <span className="flex gap-3">
@@ -516,6 +614,32 @@ export function TeamRankingsView({
                   </label>
                 ))}
               </div>
+              <label
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                htmlFor="scout-continues-from"
+              >
+                Continues from
+              </label>
+              <select
+                id="scout-continues-from"
+                value={groupContinuesFromId}
+                onChange={(event) => setGroupContinuesFromId(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+              >
+                <option value="">Nothing — this is a new squad</option>
+                {ageGroups
+                  .filter((group) => group.id !== editingGroupId)
+                  .map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                Last year&apos;s version of this same squad — a 10U that used to be the 9U. Its
+                opponents keep showing up in the name list here, but its results stay out of these
+                rankings: a 9U score says nothing about a 10U game.
+              </p>
               <div className="flex gap-2">
                 <button type="button" onClick={saveAgeGroup} className={button.primary}>
                   {editingGroupId ? "Save changes" : "Create age group"}

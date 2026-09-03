@@ -88,6 +88,8 @@ const coerceAgeGroups = (raw: unknown): AgeGroup[] => {
       id: entry.id as string,
       name: entry.name as string,
       seasonIds: (entry.seasonIds as unknown[]).filter(isString),
+      ...(isString(entry.continuesFromId) ? { continuesFromId: entry.continuesFromId } : {}),
+      ...(isString(entry.myTeamId) ? { myTeamId: entry.myTeamId } : {}),
     }));
 };
 
