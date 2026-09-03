@@ -5,6 +5,8 @@ import {
   deriveLeagueScoutGames,
   isScoutGamePlayed,
   resolveOrCreateTeam,
+  type AgeGroup,
+  type LeagueSeasonSnapshot,
   type MatchupTier,
   type ScoutGame,
   type ScoutTeam,
@@ -17,8 +19,10 @@ import {
   type SeasonMeta,
 } from "../lib/storage";
 import {
+  loadAgeGroups,
   loadScoutGames,
   loadScoutTeams,
+  saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
@@ -61,7 +65,15 @@ export function TeamRankingsView({
   showToast,
   requestConfirmation,
 }: TeamRankingsViewProps) {
-  const [selectedSeasonId, setSelectedSeasonId] = useState(activeSeasonId);
+  const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
+  const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
+  const [manageOpen, setManageOpen] = useState(() => ageGroups.length === 0);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupNameInput, setGroupNameInput] = useState("");
+  const [groupSeasonIds, setGroupSeasonIds] = useState<string[]>(() =>
+    activeSeasonId ? [activeSeasonId] : []
+  );
+
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
@@ -90,32 +102,96 @@ export function TeamRankingsView({
     if (!saveScoutGames(games))
       showToast("Could not save games (storage full).", { tone: "error" });
   };
+  const persistAgeGroups = (groups: AgeGroup[]) => {
+    setAgeGroups(groups);
+    if (!saveAgeGroups(groups))
+      showToast("Could not save age groups (storage full).", { tone: "error" });
+  };
 
-  // League Standings' completed games for the selected season, read fresh every render — this
-  // view never writes back to League Standings data, only reads it.
-  const leagueSeason = useMemo(
-    () => ({
-      teams: loadTeamsForSeason(selectedSeasonId),
-      matchups: loadMatchupsForSeason(selectedSeasonId),
-      logs: loadLogsForSeason(selectedSeasonId),
-    }),
-    [selectedSeasonId]
-  );
+  // ---------- Age group management ----------
 
-  // The full team pool for this season: the persisted scout pool, extended (in-memory, not yet
+  const toggleGroupSeason = (seasonId: string) => {
+    setGroupSeasonIds((prev) =>
+      prev.includes(seasonId) ? prev.filter((id) => id !== seasonId) : [...prev, seasonId]
+    );
+  };
+
+  const startEditGroup = (group: AgeGroup) => {
+    setEditingGroupId(group.id);
+    setGroupNameInput(group.name);
+    setGroupSeasonIds(group.seasonIds);
+    setManageOpen(true);
+  };
+
+  const resetGroupForm = () => {
+    setEditingGroupId(null);
+    setGroupNameInput("");
+    setGroupSeasonIds(activeSeasonId ? [activeSeasonId] : []);
+  };
+
+  const saveAgeGroup = () => {
+    const name = groupNameInput.trim();
+    if (!name) {
+      showToast("Give the age group a name.", { tone: "error" });
+      return;
+    }
+    if (editingGroupId) {
+      persistAgeGroups(
+        ageGroups.map((group) =>
+          group.id === editingGroupId ? { ...group, name, seasonIds: groupSeasonIds } : group
+        )
+      );
+      showToast("Age group updated.", { tone: "success" });
+    } else {
+      const newGroup: AgeGroup = {
+        id: `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name,
+        seasonIds: groupSeasonIds,
+      };
+      persistAgeGroups([...ageGroups, newGroup]);
+      setSelectedAgeGroupId(newGroup.id);
+      showToast("Age group created.", { tone: "success" });
+    }
+    resetGroupForm();
+  };
+
+  const removeAgeGroup = async (group: AgeGroup) => {
+    const confirmed = await requestConfirmation({
+      title: `Delete "${group.name}"?`,
+      message:
+        "This removes the age group and any games logged here that were tagged to it. League Standings data itself is untouched.",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) return;
+    const remaining = ageGroups.filter((g) => g.id !== group.id);
+    persistAgeGroups(remaining);
+    persistGames(scoutGames.filter((g) => g.ageGroupId !== group.id));
+    if (selectedAgeGroupId === group.id) setSelectedAgeGroupId(remaining[0]?.id ?? "");
+    showToast(`"${group.name}" deleted.`, { tone: "success" });
+  };
+
+  // ---------- Ranking data for the selected age group ----------
+
+  // Every League Standings season bundled into the selected age group, read fresh every render —
+  // this view never writes back to League Standings data, only reads it.
+  const leagueSeasons = useMemo<LeagueSeasonSnapshot[]>(() => {
+    const group = ageGroups.find((g) => g.id === selectedAgeGroupId);
+    if (!group) return [];
+    return group.seasonIds.map((seasonId) => ({
+      seasonId,
+      teams: loadTeamsForSeason(seasonId),
+      matchups: loadMatchupsForSeason(seasonId),
+      logs: loadLogsForSeason(seasonId),
+    }));
+  }, [ageGroups, selectedAgeGroupId]);
+
+  // The full team pool for this age group: the persisted scout pool, extended (in-memory, not yet
   // necessarily saved) with any league team names not already in it. Every read in this view uses
   // this — never the raw `scoutTeams` state directly — so a league team is usable immediately,
   // before any save has happened.
   const merged = useMemo(
-    () =>
-      deriveLeagueScoutGames(
-        selectedSeasonId,
-        leagueSeason.teams,
-        leagueSeason.matchups,
-        leagueSeason.logs,
-        scoutTeams
-      ),
-    [selectedSeasonId, leagueSeason, scoutTeams]
+    () => deriveLeagueScoutGames(selectedAgeGroupId, leagueSeasons, scoutTeams),
+    [selectedAgeGroupId, leagueSeasons, scoutTeams]
   );
 
   const leagueGameTeamIds = useMemo(
@@ -123,14 +199,14 @@ export function TeamRankingsView({
     [merged.games]
   );
 
-  const seasonGames = useMemo(
-    () => [...merged.games, ...scoutGames.filter((game) => game.seasonId === selectedSeasonId)],
-    [merged.games, scoutGames, selectedSeasonId]
+  const ageGroupGames = useMemo(
+    () => [...merged.games, ...scoutGames.filter((game) => game.ageGroupId === selectedAgeGroupId)],
+    [merged.games, scoutGames, selectedAgeGroupId]
   );
 
   const rankings = useMemo(
-    () => buildTeamRankings(selectedSeasonId, merged.teams, seasonGames),
-    [selectedSeasonId, merged.teams, seasonGames]
+    () => buildTeamRankings(selectedAgeGroupId, merged.teams, ageGroupGames),
+    [selectedAgeGroupId, merged.teams, ageGroupGames]
   );
 
   const teamNameById = useMemo(
@@ -147,20 +223,26 @@ export function TeamRankingsView({
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
+  const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
+
   const explanationRequest = useMemo(() => {
     if (!reportRow || reportRow.games === 0) return null;
-    const seasonLabel = seasons.find((s) => s.id === selectedSeasonId)?.name ?? selectedSeasonId;
-    return buildTeamRankExplanationRequest(reportRow, rankings.length, reportRows, seasonLabel);
-  }, [reportRow, rankings.length, reportRows, seasons, selectedSeasonId]);
+    return buildTeamRankExplanationRequest(
+      reportRow,
+      rankings.length,
+      reportRows,
+      selectedGroupName || "this age group"
+    );
+  }, [reportRow, rankings.length, reportRows, selectedGroupName]);
   const explanation = useLeagueSummary(explanationRequest);
 
-  const seasonManualGames = useMemo(
+  const ageGroupManualGames = useMemo(
     () =>
       scoutGames
-        .filter((game) => game.seasonId === selectedSeasonId)
+        .filter((game) => game.ageGroupId === selectedAgeGroupId)
         .slice()
         .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
-    [scoutGames, selectedSeasonId]
+    [scoutGames, selectedAgeGroupId]
   );
 
   const setMyTeam = (teamId: string) => {
@@ -198,7 +280,8 @@ export function TeamRankingsView({
   const removeTeam = async (team: ScoutTeam) => {
     const confirmed = await requestConfirmation({
       title: `Remove ${team.name}?`,
-      message: "This also removes every scouted game logged against this team, across all seasons.",
+      message:
+        "This also removes every scouted game logged against this team, across all age groups.",
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
@@ -231,6 +314,7 @@ export function TeamRankingsView({
     Number.isFinite(Number(teamBScore)) &&
     Number(teamBScore) >= 0;
   const addGameValid =
+    Boolean(selectedAgeGroupId) &&
     teamAName.trim().length > 0 &&
     teamBName.trim().length > 0 &&
     teamAName.trim().toLowerCase() !== teamBName.trim().toLowerCase() &&
@@ -250,7 +334,7 @@ export function TeamRankingsView({
       id: `scout_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       teamAId: a.teamId,
       teamBId: b.teamId,
-      seasonId: selectedSeasonId,
+      ageGroupId: selectedAgeGroupId,
       ...(scoresBothValid
         ? { teamAScore: Number(teamAScore), teamBScore: Number(teamBScore) }
         : {}),
@@ -296,38 +380,133 @@ export function TeamRankingsView({
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           A separate pool from League Standings: log any team&apos;s scores as they come up in a
-          tournament or another league, and see how everyone stacks up. This season&apos;s League
-          Standings results are folded in automatically — no need to re-enter those. Marking a team
-          &ldquo;mine&rdquo; is just a shortcut for the scouting report and for adding your own
-          schedule ahead of time — it never changes how any team, including yours, is rated.
+          tournament or another league, and see how everyone stacks up. An age group&apos;s League
+          Standings results (every season you assign to it — Fall, Spring, whatever your club runs)
+          are folded in automatically — no need to re-enter those. Marking a team &ldquo;mine&rdquo;
+          is just a shortcut for the scouting report and for adding your own schedule ahead of time
+          — it never changes how any team, including yours, is rated.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
             className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-            htmlFor="scout-season"
+            htmlFor="scout-age-group"
           >
             Ranking teams for
           </label>
-          <select
-            id="scout-season"
-            value={selectedSeasonId}
-            onChange={(event) => setSelectedSeasonId(event.target.value)}
-            className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+          {ageGroups.length > 0 && (
+            <select
+              id="scout-age-group"
+              value={selectedAgeGroupId}
+              onChange={(event) => setSelectedAgeGroupId(event.target.value)}
+              className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+            >
+              {ageGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setManageOpen((v) => !v)}
+            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
           >
-            {seasons.map((season) => (
-              <option key={season.id} value={season.id}>
-                {season.name}
-              </option>
-            ))}
-          </select>
+            {manageOpen
+              ? "Hide age groups"
+              : ageGroups.length === 0
+                ? "Set up an age group"
+                : "Manage age groups"}
+          </button>
         </div>
+
+        {manageOpen && (
+          <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            {ageGroups.length > 0 && (
+              <ul className="mb-3 divide-y divide-slate-100 dark:divide-slate-800">
+                {ageGroups.map((group) => (
+                  <li
+                    key={group.id}
+                    className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                  >
+                    <span>
+                      <span className="font-bold text-slate-950 dark:text-white">{group.name}</span>{" "}
+                      <span className="text-slate-500">
+                        {group.seasonIds.length
+                          ? group.seasonIds
+                              .map((id) => seasons.find((s) => s.id === id)?.name ?? id)
+                              .join(", ")
+                          : "No seasons assigned yet"}
+                      </span>
+                    </span>
+                    <span className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => startEditGroup(group)}
+                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removeAgeGroup(group)}
+                        className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {editingGroupId ? "Edit age group" : "New age group"}
+            </p>
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={groupNameInput}
+                onChange={(event) => setGroupNameInput(event.target.value)}
+                placeholder="e.g. 2027, 10U"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+              />
+              <div className="flex flex-wrap gap-3">
+                {seasons.map((season) => (
+                  <label
+                    key={season.id}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={groupSeasonIds.includes(season.id)}
+                      onChange={() => toggleGroupSeason(season.id)}
+                    />
+                    {season.name}
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={saveAgeGroup} className={button.primary}>
+                  {editingGroupId ? "Save changes" : "Create age group"}
+                </button>
+                {editingGroupId && (
+                  <button type="button" onClick={resetGroupForm} className={button.ghost}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Top 10</h2>
         {rankings.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            Add a game below to start ranking teams for this season.
+            {ageGroups.length === 0
+              ? "Set up an age group above, then add a game to start ranking teams."
+              : "Add a game below to start ranking teams for this age group."}
           </p>
         ) : (
           <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -357,8 +536,9 @@ export function TeamRankingsView({
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Leave both scores blank to log an upcoming/scheduled game (useful for building out your
-          own team&apos;s future schedule) — come back and fill in the score once it&apos;s played.
+          {ageGroups.length === 0
+            ? "Set up an age group above first — every game needs one to know which pool it belongs to."
+            : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
         </p>
         <datalist id={nameDatalistId}>
           {merged.teams.map((team) => (
@@ -494,7 +674,9 @@ export function TeamRankingsView({
             </tbody>
           </table>
           {rankings.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">No teams yet for this season.</p>
+            <p className="py-6 text-center text-sm text-slate-500">
+              No teams yet for this age group.
+            </p>
           )}
         </div>
         <p className="mt-3 text-xs text-slate-500">
@@ -582,7 +764,7 @@ export function TeamRankingsView({
           </table>
           {reportRows.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500">
-              Add at least two teams to this season to see scouting projections.
+              Add at least two teams to this age group to see scouting projections.
             </p>
           )}
         </div>
@@ -590,14 +772,14 @@ export function TeamRankingsView({
 
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-          Logged games ({seasons.find((s) => s.id === selectedSeasonId)?.name ?? selectedSeasonId})
+          Logged games{selectedGroupName ? ` (${selectedGroupName})` : ""}
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          Only games you&apos;ve entered here — this season&apos;s League Standings results appear
-          in the rankings above automatically but aren&apos;t listed here.
+          Only games you&apos;ve entered here — this age group&apos;s League Standings results
+          appear in the rankings above automatically but aren&apos;t listed here.
         </p>
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-          {seasonManualGames.map((game) => {
+          {ageGroupManualGames.map((game) => {
             const played = isScoutGamePlayed(game);
             return (
               <li
@@ -681,7 +863,7 @@ export function TeamRankingsView({
             );
           })}
         </ul>
-        {seasonManualGames.length === 0 && (
+        {ageGroupManualGames.length === 0 && (
           <p className="py-6 text-center text-sm text-slate-500">No games logged yet.</p>
         )}
       </div>

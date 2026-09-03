@@ -13,7 +13,7 @@ export const buildTeamRankExplanationRequest = (
   team: ScoutRankingRow,
   totalTeams: number,
   opponents: MatchupPreview[],
-  seasonLabel: string
+  ageGroupLabel: string
 ): LeagueSummaryRequest => {
   const facts: LeagueSummaryFact[] = [
     {
@@ -48,7 +48,7 @@ export const buildTeamRankExplanationRequest = (
 
   return {
     kind: "team-rank-explanation",
-    seasonLabel,
+    seasonLabel: ageGroupLabel,
     cutoff: 1,
     hasCutLine: false,
     updateTitle: `${team.teamName} — rank #${team.rank} of ${totalTeams}`,

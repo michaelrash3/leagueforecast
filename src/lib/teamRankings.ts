@@ -4,10 +4,20 @@ import { clamp, isFinal, parseNumber } from "./util";
 import { createTeamId } from "./sim";
 
 /**
- * Team Rankings is a separate, season-scoped-but-globally-rostered ranking pool: teams are a
- * single global list (the same real-world opponent is one entity across seasons/age levels), but
- * a ranking is only ever computed for one season's games at a time (age levels aren't comparable).
+ * Team Rankings is a separate, age-group-scoped-but-globally-rostered ranking pool: teams are a
+ * single global list (the same real-world opponent is one entity across seasons/age levels), but a
+ * ranking is only ever computed for one age group's games at a time (different age levels aren't
+ * comparable). An age group is a user-defined label bundling together whichever League Standings
+ * seasons belong to the same age level — e.g. "2027" might bundle a "Fall 2026" and a "Spring
+ * 2027" season, since a club often runs two (or more) League Standings seasons per age-group year.
  */
+export type AgeGroup = {
+  id: string;
+  name: string;
+  /** League Standings `SeasonMeta.id`s that belong to this age group. */
+  seasonIds: string[];
+};
+
 export type ScoutTeam = {
   id: string;
   name: string;
@@ -31,8 +41,8 @@ export type ScoutGame = {
    */
   teamAScore?: number;
   teamBScore?: number;
-  /** References a League Standings `SeasonMeta.id` — the age/period this result belongs to. */
-  seasonId: string;
+  /** References an `AgeGroup.id` — the age level this result belongs to. */
+  ageGroupId: string;
   date?: string;
   event?: string;
   note?: string;
@@ -47,7 +57,7 @@ export type ScoutRankingRow = {
   teamName: string;
   isMine: boolean;
   rank: number;
-  /** Opponent-adjusted expected margin vs an average team in this season's pool, in runs. */
+  /** Opponent-adjusted expected margin vs an average team in this age group's pool, in runs. */
   rating: number;
   record: string;
   wins: number;
@@ -101,53 +111,65 @@ export const resolveOrCreateTeam = (
 const scoreFor = (log: GameLog | undefined, side: "away" | "home") =>
   parseNumber(side === "away" ? (log?.awayRuns ?? "") : (log?.homeRuns ?? ""), Number.NaN);
 
+export type LeagueSeasonSnapshot = {
+  seasonId: string;
+  teams: TeamBase[];
+  matchups: Matchup[];
+  logs: Record<string, GameLog>;
+};
+
 /**
- * Convert a League Standings season's completed games into scout-style games tagged with that
- * season, resolving each league team name into the given global scout pool (creating entries the
- * first time a league team name is seen). Pure — the caller is responsible for loading the
- * season's data and for persisting any newly-created scout teams.
+ * Convert every League Standings season in an age group's completed games into scout-style games
+ * tagged with that age group, resolving each league team name into the given global scout pool
+ * (creating entries the first time a league team name is seen — a team that plays across two
+ * seasons in the same age group, e.g. Fall and Spring, resolves to the same scout team both times).
+ * Pure — the caller is responsible for loading each season's data and for persisting any
+ * newly-created scout teams.
  */
 export const deriveLeagueScoutGames = (
-  seasonId: string,
-  leagueTeams: TeamBase[],
-  leagueMatchups: Matchup[],
-  leagueLogs: Record<string, GameLog>,
+  ageGroupId: string,
+  seasons: LeagueSeasonSnapshot[],
   scoutTeams: ScoutTeam[]
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
-  const leagueNameById = new Map(leagueTeams.map((team) => [team.id, team.name]));
   let teams = scoutTeams;
-  const resolvedIdByLeagueId = new Map<string, string>();
-  const resolveLeagueTeam = (leagueId: string): string | null => {
-    const cached = resolvedIdByLeagueId.get(leagueId);
-    if (cached) return cached;
-    const name = leagueNameById.get(leagueId);
-    if (!name) return null;
-    const result = resolveOrCreateTeam(name, teams);
-    teams = result.teams;
-    resolvedIdByLeagueId.set(leagueId, result.teamId);
-    return result.teamId;
-  };
-
   const games: ScoutGame[] = [];
-  leagueMatchups.forEach((matchup) => {
-    const log = leagueLogs[matchup.id];
-    if (!isFinal(log)) return;
-    const awayScore = scoreFor(log, "away");
-    const homeScore = scoreFor(log, "home");
-    if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return;
-    const teamAId = resolveLeagueTeam(matchup.away);
-    const teamBId = resolveLeagueTeam(matchup.home);
-    if (!teamAId || !teamBId) return;
-    games.push({
-      id: `league_${seasonId}_${matchup.id}`,
-      teamAId,
-      teamBId,
-      teamAScore: awayScore,
-      teamBScore: homeScore,
-      seasonId,
-      date: matchup.date,
-    });
-  });
+
+  seasons.forEach(
+    ({ seasonId, teams: leagueTeams, matchups: leagueMatchups, logs: leagueLogs }) => {
+      const leagueNameById = new Map(leagueTeams.map((team) => [team.id, team.name]));
+      const resolvedIdByLeagueId = new Map<string, string>();
+      const resolveLeagueTeam = (leagueId: string): string | null => {
+        const cached = resolvedIdByLeagueId.get(leagueId);
+        if (cached) return cached;
+        const name = leagueNameById.get(leagueId);
+        if (!name) return null;
+        const result = resolveOrCreateTeam(name, teams);
+        teams = result.teams;
+        resolvedIdByLeagueId.set(leagueId, result.teamId);
+        return result.teamId;
+      };
+
+      leagueMatchups.forEach((matchup) => {
+        const log = leagueLogs[matchup.id];
+        if (!isFinal(log)) return;
+        const awayScore = scoreFor(log, "away");
+        const homeScore = scoreFor(log, "home");
+        if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return;
+        const teamAId = resolveLeagueTeam(matchup.away);
+        const teamBId = resolveLeagueTeam(matchup.home);
+        if (!teamAId || !teamBId) return;
+        games.push({
+          id: `league_${seasonId}_${matchup.id}`,
+          teamAId,
+          teamBId,
+          teamAScore: awayScore,
+          teamBScore: homeScore,
+          ageGroupId,
+          date: matchup.date,
+        });
+      });
+    }
+  );
 
   return { teams, games };
 };
@@ -168,17 +190,19 @@ const recordFor = (teamId: string, playedGames: ScoutGame[]) => {
 };
 
 /**
- * Ranks the given teams using only *completed* games tagged with `seasonId` (defensive filter —
- * callers should already be passing a season-scoped game list). Scheduled/unplayed games are
+ * Ranks the given teams using only *completed* games tagged with `ageGroupId` (defensive filter —
+ * callers should already be passing an age-group-scoped game list). Scheduled/unplayed games are
  * ignored here entirely; they exist only so a future opponent can be logged ahead of time. Every
  * team is rated by this exact same formula — `isMine` plays no part in the computation.
  */
 export const buildTeamRankings = (
-  seasonId: string,
+  ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[]
 ): ScoutRankingRow[] => {
-  const playedGames = games.filter((game) => game.seasonId === seasonId && isScoutGamePlayed(game));
+  const playedGames = games.filter(
+    (game) => game.ageGroupId === ageGroupId && isScoutGamePlayed(game)
+  );
   const adjusted = buildOpponentAdjustedRatings(
     teams.map((team) => team.id),
     playedGames.map((game) => ({

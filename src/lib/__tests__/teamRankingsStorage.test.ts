@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  loadAgeGroups,
   loadScoutGames,
   loadScoutTeams,
+  saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
 } from "../teamRankingsStorage";
@@ -34,12 +36,12 @@ describe("teamRankingsStorage", () => {
         teamBId: "S-ROCK",
         teamAScore: 5,
         teamBScore: 3,
-        seasonId: "s1",
+        ageGroupId: "ag1",
         date: "2026-04-01",
         event: "Spring Classic",
       },
       // A scheduled game with no score yet.
-      { id: "g2", teamAId: "S-ICEC", teamBId: "S-ROCK", seasonId: "s1" },
+      { id: "g2", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1" },
     ];
 
     expect(saveScoutTeams(teams)).toBe(true);
@@ -49,16 +51,28 @@ describe("teamRankingsStorage", () => {
     expect(loadScoutGames()).toEqual(games);
   });
 
+  it("round-trips age groups", () => {
+    const ageGroups = [
+      { id: "ag1", name: "2027", seasonIds: ["fall2026", "spring2027"] },
+      { id: "ag2", name: "10U", seasonIds: [] },
+    ];
+    expect(saveAgeGroups(ageGroups)).toBe(true);
+    expect(loadAgeGroups()).toEqual(ageGroups);
+  });
+
   it("returns empty arrays when nothing is stored", () => {
     expect(loadScoutTeams()).toEqual([]);
     expect(loadScoutGames()).toEqual([]);
+    expect(loadAgeGroups()).toEqual([]);
   });
 
   it("falls back safely from corrupted json", () => {
     backing.set("league_forecast_scout_teams_v1", "{not json");
     backing.set("league_forecast_scout_games_v1", "[1, 2,");
+    backing.set("league_forecast_scout_age_groups_v1", "not json at all");
     expect(loadScoutTeams()).toEqual([]);
     expect(loadScoutGames()).toEqual([]);
+    expect(loadAgeGroups()).toEqual([]);
   });
 
   it("drops malformed entries but keeps valid ones", () => {
@@ -69,13 +83,22 @@ describe("teamRankingsStorage", () => {
     backing.set(
       "league_forecast_scout_games_v1",
       JSON.stringify([
-        { id: "g1", teamAId: "A", teamBId: "B", seasonId: "s1" },
-        { id: "g2", teamAId: "A", seasonId: "s1" }, // missing teamBId
-        { id: "g3", teamAId: "A", teamBId: "B", teamAScore: "not a number", seasonId: "s1" },
+        { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" },
+        { id: "g2", teamAId: "A", ageGroupId: "ag1" }, // missing teamBId
+        { id: "g3", teamAId: "A", teamBId: "B", teamAScore: "not a number", ageGroupId: "ag1" },
+      ])
+    );
+    backing.set(
+      "league_forecast_scout_age_groups_v1",
+      JSON.stringify([
+        { id: "ag1", name: "2027", seasonIds: ["fall2026"] },
+        { id: "ag2", name: "no seasons array" }, // missing seasonIds
+        { id: "ag3" }, // missing name
       ])
     );
 
     expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
-    expect(loadScoutGames()).toEqual([{ id: "g1", teamAId: "A", teamBId: "B", seasonId: "s1" }]);
+    expect(loadScoutGames()).toEqual([{ id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" }]);
+    expect(loadAgeGroups()).toEqual([{ id: "ag1", name: "2027", seasonIds: ["fall2026"] }]);
   });
 });
