@@ -6,10 +6,14 @@ import {
   getActiveSeasonId,
   listSeasons,
   loadLogs,
+  loadLogsForSeason,
   loadMatchups,
+  loadMatchupsForSeason,
   loadSettings,
   loadTeams,
+  loadTeamsForSeason,
   renameSeason,
+  saveMatchups,
   saveTeams,
   setActiveSeason,
 } from "../storage";
@@ -163,7 +167,10 @@ describe("multi-season storage", () => {
     expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
 
     // Editing the copy does not affect the original.
-    saveTeams([{ id: "A", name: "Aces" }, { id: "B", name: "Bears" }]);
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
     setActiveSeason(first.id);
     expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
   });
@@ -189,5 +196,33 @@ describe("multi-season storage", () => {
 
     expect(deleteSeason(second.id)).toBe(true);
     expect(getActiveSeasonId()).toBe(first.id);
+  });
+
+  it("reads a specific season's data without switching the active season", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+    const second = createSeason("Second");
+
+    setActiveSeason(second.id);
+    saveTeams([
+      { id: "B", name: "Bears" },
+      { id: "C", name: "Cubs" },
+    ]);
+    saveMatchups([{ id: "g1", date: "5/1", away: "B", home: "C" }]);
+    setActiveSeason(first.id);
+
+    // Reading the inactive "second" season by id returns its own data...
+    expect(loadTeamsForSeason(second.id)).toEqual([
+      { id: "B", name: "Bears" },
+      { id: "C", name: "Cubs" },
+    ]);
+    expect(loadMatchupsForSeason(second.id)).toEqual([
+      { id: "g1", date: "5/1", away: "B", home: "C" },
+    ]);
+    expect(loadLogsForSeason(second.id)).toEqual({});
+    // Reading never moves the active pointer, and the active season's own data is untouched.
+    expect(getActiveSeasonId()).toBe(first.id);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadMatchups()).toEqual([]);
   });
 });

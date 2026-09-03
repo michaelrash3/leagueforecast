@@ -22,7 +22,9 @@ import { GoldOddsTrendChart } from "./components/charts/GoldOddsTrendChart";
 import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
+import { TeamRankingsView } from "./components/TeamRankingsView";
 import { ToastView } from "./components/Toast";
+import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
@@ -2077,6 +2079,7 @@ export default function App() {
     [showToast]
   );
   const { theme, toggle: toggleTheme } = useDarkMode();
+  const { appMode, setAppMode } = useAppMode();
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -4543,57 +4546,60 @@ This will replace current season data and save an undo snapshot.`,
   }, [commandHistory, dashboardRows, theme]);
 
   const shortcuts: Shortcut[] = useMemo(
-    () => [
-      {
-        combo: "mod+k",
-        description: "Open command palette",
-        group: "General",
-        handler: () => setShowCommandPalette(true),
-      },
-      {
-        combo: "shift+/",
-        description: "Show shortcuts",
-        group: "General",
-        handler: () => setShowShortcuts(true),
-      },
-      {
-        combo: "g s",
-        description: "Go to Standings",
-        group: "Navigate",
-        handler: () => setActiveView("standings"),
-      },
-      {
-        combo: "g t",
-        description: "Go to League Stats",
-        group: "Navigate",
-        handler: () => setActiveView("teamStats"),
-      },
-      {
-        combo: "g g",
-        description: "Go to Schedule",
-        group: "Navigate",
-        handler: () => setActiveView("games"),
-      },
-      {
-        combo: "g m",
-        description: "Go to Forecast",
-        group: "Navigate",
-        handler: () => setActiveView("model"),
-      },
-      {
-        combo: "g e",
-        description: "Go to Settings",
-        group: "Navigate",
-        handler: () => setActiveView("settings"),
-      },
-      {
-        combo: "d",
-        description: "Toggle dark mode",
-        group: "Action",
-        handler: toggleTheme,
-      },
-    ],
-    [toggleTheme]
+    () =>
+      appMode !== "league"
+        ? []
+        : [
+            {
+              combo: "mod+k",
+              description: "Open command palette",
+              group: "General",
+              handler: () => setShowCommandPalette(true),
+            },
+            {
+              combo: "shift+/",
+              description: "Show shortcuts",
+              group: "General",
+              handler: () => setShowShortcuts(true),
+            },
+            {
+              combo: "g s",
+              description: "Go to Standings",
+              group: "Navigate",
+              handler: () => setActiveView("standings"),
+            },
+            {
+              combo: "g t",
+              description: "Go to League Stats",
+              group: "Navigate",
+              handler: () => setActiveView("teamStats"),
+            },
+            {
+              combo: "g g",
+              description: "Go to Schedule",
+              group: "Navigate",
+              handler: () => setActiveView("games"),
+            },
+            {
+              combo: "g m",
+              description: "Go to Forecast",
+              group: "Navigate",
+              handler: () => setActiveView("model"),
+            },
+            {
+              combo: "g e",
+              description: "Go to Settings",
+              group: "Navigate",
+              handler: () => setActiveView("settings"),
+            },
+            {
+              combo: "d",
+              description: "Toggle dark mode",
+              group: "Action",
+              handler: toggleTheme,
+            },
+          ],
+    [appMode, toggleTheme]
   );
   useShortcuts(shortcuts);
 
@@ -4624,32 +4630,60 @@ This will replace current season data and save an undo snapshot.`,
                 </h1>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="sr-only" htmlFor="season-switcher">
-                  Active season
-                </label>
-                <select
-                  id="season-switcher"
-                  value={activeSeasonId}
-                  onChange={(event) => switchSeason(event.target.value)}
-                  className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                  aria-label="Active season"
-                  title="Switch season"
+                <div
+                  role="tablist"
+                  aria-label="App mode"
+                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
                 >
-                  {seasons.map((season) => (
-                    <option key={season.id} value={season.id}>
-                      {season.name}
-                    </option>
-                  ))}
-                </select>
-                {teams.length > 0 && (
                   <button
                     type="button"
-                    onClick={shareSeason}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-                    aria-label="Copy share URL for this season"
+                    role="tab"
+                    aria-selected={appMode === "league"}
+                    onClick={() => setAppMode("league")}
+                    className={tab(appMode === "league")}
                   >
-                    Share
+                    League Standings
                   </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={appMode === "rankings"}
+                    onClick={() => setAppMode("rankings")}
+                    className={tab(appMode === "rankings")}
+                  >
+                    Team Rankings
+                  </button>
+                </div>
+                {appMode === "league" && (
+                  <>
+                    <label className="sr-only" htmlFor="season-switcher">
+                      Active season
+                    </label>
+                    <select
+                      id="season-switcher"
+                      value={activeSeasonId}
+                      onChange={(event) => switchSeason(event.target.value)}
+                      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                      aria-label="Active season"
+                      title="Switch season"
+                    >
+                      {seasons.map((season) => (
+                        <option key={season.id} value={season.id}>
+                          {season.name}
+                        </option>
+                      ))}
+                    </select>
+                    {teams.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={shareSeason}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                        aria-label="Copy share URL for this season"
+                      >
+                        Share
+                      </button>
+                    )}
+                  </>
                 )}
                 {updateApp && (
                   <button
@@ -4674,244 +4708,263 @@ This will replace current season data and save an undo snapshot.`,
               </div>
             </div>
 
-            <div
-              className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
-                teams.length === 0 ? "hidden" : ""
-              }`}
-              aria-label="League pulse summary"
-            >
-              <HeaderStatCard
-                label="Games analyzed"
-                value={`${finalCount}/${totalGamesCount}`}
-                accent="from-emerald-400 via-cyan-400 to-blue-500"
-              />
-              <HeaderStatCard
-                label="Current leader"
-                value={currentLeader ? currentLeader.name : "—"}
-                accent="from-blue-500 via-indigo-500 to-slate-900"
-              />
-              {hasPostseason && (
+            {appMode === "league" && (
+              <div
+                className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
+                  teams.length === 0 ? "hidden" : ""
+                }`}
+                aria-label="League pulse summary"
+              >
                 <HeaderStatCard
-                  label={hasCutLine ? "Gold cutoff" : "Postseason"}
-                  value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
-                  accent="from-amber-400 via-orange-500 to-red-500"
+                  label="Games analyzed"
+                  value={`${finalCount}/${totalGamesCount}`}
+                  accent="from-emerald-400 via-cyan-400 to-blue-500"
                 />
-              )}
-            </div>
+                <HeaderStatCard
+                  label="Current leader"
+                  value={currentLeader ? currentLeader.name : "—"}
+                  accent="from-blue-500 via-indigo-500 to-slate-900"
+                />
+                {hasPostseason && (
+                  <HeaderStatCard
+                    label={hasCutLine ? "Gold cutoff" : "Postseason"}
+                    value={hasCutLine ? `Top ${goldCutoff}` : "All teams"}
+                    accent="from-amber-400 via-orange-500 to-red-500"
+                  />
+                )}
+              </div>
+            )}
           </div>
         </header>
 
-        <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
-          <div
-            role="tablist"
-            aria-label="Main views"
-            className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
-          >
-            {VIEW_ORDER.map((view) => (
-              <button
-                key={view}
-                ref={(el) => {
-                  tabRefs.current[view] = el;
-                }}
-                role="tab"
-                id={`tab-${view}`}
-                aria-selected={activeView === view}
-                aria-controls={`panel-${view}`}
-                tabIndex={activeView === view ? 0 : -1}
-                onClick={() => setActiveView(view)}
-                onKeyDown={onTabKeyDown}
-                className={tab(activeView === view)}
-              >
-                {VIEW_LABELS[view]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <main
-          className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
-          id={`panel-${activeView}`}
-          role="tabpanel"
-          aria-labelledby={`tab-${activeView}`}
-        >
-          {teams.length === 0 ? (
-            <EmptyState
-              importCSV={importCSV}
-              createSeasonFromTeamList={createSeasonFromTeamList}
-              downloadRoundRobinCSV={downloadRoundRobinCSV}
-              seasonBuilderText={seasonBuilderText}
-              setSeasonBuilderText={setSeasonBuilderText}
-              teams={teams}
-              loadDemoSeason={loadDemoSeason}
-              openTour={() => setShowTour(true)}
-            />
-          ) : activeView === "dashboard" ? (
-            <DashboardView
-              engine={predictionEngine}
-              backtestResult={backtestResult}
-              teamsById={liveById}
-              matchups={matchups}
-              setActiveView={setActiveView}
-            />
-          ) : activeView === "power" ? (
-            <PowerRatingsView engine={predictionEngine} />
-          ) : activeView === "standings" ? (
-            <StandingsView
-              goldCutoff={goldCutoff}
-              latestCompletedDate={latestCompletedDate}
-              lastImpact={lastImpact}
-              dismissImpact={() => setLastImpact(null)}
-              copyRecap={async () => {
-                if (!lastImpact) return;
-                const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
-                try {
-                  await navigator.clipboard.writeText(md);
-                  showToast("Recap copied.", { tone: "success" });
-                } catch {
-                  showToast("Could not copy recap to clipboard.", { tone: "error" });
-                }
-              }}
-              copyStory={async () => {
-                if (!lastImpact) return;
-                const story =
-                  storyText || recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-                try {
-                  await navigator.clipboard.writeText(story);
-                  showToast("League story copied.", { tone: "success" });
-                } catch {
-                  showToast("Could not copy story to clipboard.", { tone: "error" });
-                }
-              }}
-              dashboardRows={dashboardRows}
-              hasCutLine={hasCutLine}
-              storyText={storyText}
-              storySource={aiStory.status === "ready" ? "gemini" : "local"}
-              storyModel={aiStory.model}
-              storyLoading={aiStory.status === "loading"}
-              storyUnavailableReason={
-                aiStory.status === "unavailable" || aiStory.status === "error"
-                  ? (aiStory.reason ?? "upstream-error")
-                  : null
-              }
-              storyErrorMessage={aiStory.message}
-              retryStory={aiStory.retry}
-              currentSosRanks={currentSosRanks}
-              statusClass={statusClass}
-              statusLabel={statusLabel}
-              formatGoldPct={formatGoldPct}
-              formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
-              onSelectTeam={openTeamData}
-            />
-          ) : activeView === "teamStats" ? (
-            <TeamStatsView
-              leagueAverageStats={leagueAverageStats}
-              statRankings={statRankings}
-              pitchMode={settings.pitchMode}
-              trackErrors={settings.trackErrors}
-              matrixTeams={headToHeadMatrixTeams}
-              headToHeadCell={headToHeadCell}
-            />
-          ) : activeView === "model" ? (
-            <ModelView
-              goldCutoff={goldCutoff}
-              modelRows={modelRows}
-              bracketProjection={bracketProjection}
-              silverBracketProjection={silverBracketProjection}
-              updateBracketLog={updateBracketLog}
-              toggleBracketFinal={toggleBracketFinal}
-              clearBracketScores={clearBracketScores}
-              seedRangeForTeam={seedRangeForTeam}
-              gamesThatMatterMost={gamesThatMatterMost}
-              bubbleMovementRows={bubbleMovementRows}
-              scheduleDifficultyForTeam={scheduleDifficultyForTeam}
-              formatGoldPct={formatGoldPct}
-              formatGoldMargin={(team) => formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)}
-              projectedCutLineTeams={projectedCutLineTeams}
-              nextTwoSwingGames={nextTwoSwingGames}
-              gameForecasts={gameForecasts}
-              byId={liveById}
-              gameStatusClasses={gameStatusClasses}
-              teams={teams}
-              matchups={matchups}
-              logs={logs}
-              settings={settings}
-              cutoff={goldCutoff}
-              onSelectTeam={openTeamData}
-              liveTeams={liveTeams}
-              remainingGames={remainingGames}
-              backtestResult={backtestResult}
-              bracketOdds={bracketOdds}
-              clinchingPaths={clinchingPaths}
-              cutLineSnapshot={cutLineSnapshot}
-              timelineEntries={timelineEntries}
-              hasCutLine={hasCutLine}
-              hasPostseason={hasPostseason}
-              forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
-              forecastStoryModel={forecastStory.model}
-              forecastStoryLoading={forecastStory.status === "loading"}
-              forecastStoryUnavailableReason={
-                forecastStory.status === "unavailable" || forecastStory.status === "error"
-                  ? (forecastStory.reason ?? "upstream-error")
-                  : null
-              }
-              forecastStoryErrorMessage={forecastStory.message}
-              retryForecastStory={forecastStory.retry}
-            />
-          ) : activeView === "settings" ? (
-            <div className="space-y-6">
-              <SeasonManager
-                seasons={seasons}
-                activeSeasonId={activeSeasonId}
-                onSwitch={switchSeason}
-                onCreate={handleCreateSeason}
-                onDuplicate={handleDuplicateSeason}
-                onDelete={handleDeleteSeason}
-              />
-              <SettingsView
-                settings={settings}
-                setSettings={setSettings}
-                teamsCount={teams.length}
-                importCSV={importCSV}
-                importBackup={importBackup}
-                exportCSV={exportCSV}
-                exportBackup={exportBackup}
-                resetSeason={resetSeason}
-                loadDemoSeason={loadDemoSeason}
-              />
+        {appMode === "league" && (
+          <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
+            <div
+              role="tablist"
+              aria-label="Main views"
+              className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
+            >
+              {VIEW_ORDER.map((view) => (
+                <button
+                  key={view}
+                  ref={(el) => {
+                    tabRefs.current[view] = el;
+                  }}
+                  role="tab"
+                  id={`tab-${view}`}
+                  aria-selected={activeView === view}
+                  aria-controls={`panel-${view}`}
+                  tabIndex={activeView === view ? 0 : -1}
+                  onClick={() => setActiveView(view)}
+                  onKeyDown={onTabKeyDown}
+                  className={tab(activeView === view)}
+                >
+                  {VIEW_LABELS[view]}
+                </button>
+              ))}
             </div>
-          ) : (
-            <GamesView
-              teams={teams}
-              matchups={matchups}
-              logs={logs}
-              scoreboardGames={scoreboardGames}
-              scoreboardPredictions={scoreboardPredictions}
-              scoreboardTeamFilter={scoreboardTeamFilter}
-              pitchMode={settings.pitchMode}
-              trackErrors={settings.trackErrors}
-              setScoreboardTeamFilter={setScoreboardTeamFilter}
-              newDate={newDate}
-              setNewDate={setNewDate}
-              newAway={newAway}
-              setNewAway={setNewAway}
-              newHome={newHome}
-              setNewHome={setNewHome}
-              addGameValid={addGameValid}
-              addGame={addGame}
-              toggleFinal={toggleFinal}
-              swapGame={swapGame}
-              removeGame={removeGame}
-              updateLog={updateLog}
-              setMatchups={setMatchups}
-              gameStatusClasses={gameStatusClasses}
-              seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
-              bracketProjection={bracketProjection}
-              silverBracketProjection={silverBracketProjection}
-              updateBracketLog={updateBracketLog}
-              toggleBracketFinal={toggleBracketFinal}
+          </div>
+        )}
+
+        {appMode === "rankings" ? (
+          <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <TeamRankingsView
+              seasons={seasons}
+              activeSeasonId={activeSeasonId}
+              showToast={showToast}
+              requestConfirmation={requestConfirmation}
             />
-          )}
-        </main>
+          </main>
+        ) : (
+          <main
+            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            id={`panel-${activeView}`}
+            role="tabpanel"
+            aria-labelledby={`tab-${activeView}`}
+          >
+            {teams.length === 0 ? (
+              <EmptyState
+                importCSV={importCSV}
+                createSeasonFromTeamList={createSeasonFromTeamList}
+                downloadRoundRobinCSV={downloadRoundRobinCSV}
+                seasonBuilderText={seasonBuilderText}
+                setSeasonBuilderText={setSeasonBuilderText}
+                teams={teams}
+                loadDemoSeason={loadDemoSeason}
+                openTour={() => setShowTour(true)}
+              />
+            ) : activeView === "dashboard" ? (
+              <DashboardView
+                engine={predictionEngine}
+                backtestResult={backtestResult}
+                teamsById={liveById}
+                matchups={matchups}
+                setActiveView={setActiveView}
+              />
+            ) : activeView === "power" ? (
+              <PowerRatingsView engine={predictionEngine} />
+            ) : activeView === "standings" ? (
+              <StandingsView
+                goldCutoff={goldCutoff}
+                latestCompletedDate={latestCompletedDate}
+                lastImpact={lastImpact}
+                dismissImpact={() => setLastImpact(null)}
+                copyRecap={async () => {
+                  if (!lastImpact) return;
+                  const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
+                  try {
+                    await navigator.clipboard.writeText(md);
+                    showToast("Recap copied.", { tone: "success" });
+                  } catch {
+                    showToast("Could not copy recap to clipboard.", { tone: "error" });
+                  }
+                }}
+                copyStory={async () => {
+                  if (!lastImpact) return;
+                  const story =
+                    storyText || recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+                  try {
+                    await navigator.clipboard.writeText(story);
+                    showToast("League story copied.", { tone: "success" });
+                  } catch {
+                    showToast("Could not copy story to clipboard.", { tone: "error" });
+                  }
+                }}
+                dashboardRows={dashboardRows}
+                hasCutLine={hasCutLine}
+                storyText={storyText}
+                storySource={aiStory.status === "ready" ? "gemini" : "local"}
+                storyModel={aiStory.model}
+                storyLoading={aiStory.status === "loading"}
+                storyUnavailableReason={
+                  aiStory.status === "unavailable" || aiStory.status === "error"
+                    ? (aiStory.reason ?? "upstream-error")
+                    : null
+                }
+                storyErrorMessage={aiStory.message}
+                retryStory={aiStory.retry}
+                currentSosRanks={currentSosRanks}
+                statusClass={statusClass}
+                statusLabel={statusLabel}
+                formatGoldPct={formatGoldPct}
+                formatGoldMargin={(team) =>
+                  formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                }
+                onSelectTeam={openTeamData}
+              />
+            ) : activeView === "teamStats" ? (
+              <TeamStatsView
+                leagueAverageStats={leagueAverageStats}
+                statRankings={statRankings}
+                pitchMode={settings.pitchMode}
+                trackErrors={settings.trackErrors}
+                matrixTeams={headToHeadMatrixTeams}
+                headToHeadCell={headToHeadCell}
+              />
+            ) : activeView === "model" ? (
+              <ModelView
+                goldCutoff={goldCutoff}
+                modelRows={modelRows}
+                bracketProjection={bracketProjection}
+                silverBracketProjection={silverBracketProjection}
+                updateBracketLog={updateBracketLog}
+                toggleBracketFinal={toggleBracketFinal}
+                clearBracketScores={clearBracketScores}
+                seedRangeForTeam={seedRangeForTeam}
+                gamesThatMatterMost={gamesThatMatterMost}
+                bubbleMovementRows={bubbleMovementRows}
+                scheduleDifficultyForTeam={scheduleDifficultyForTeam}
+                formatGoldPct={formatGoldPct}
+                formatGoldMargin={(team) =>
+                  formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                }
+                projectedCutLineTeams={projectedCutLineTeams}
+                nextTwoSwingGames={nextTwoSwingGames}
+                gameForecasts={gameForecasts}
+                byId={liveById}
+                gameStatusClasses={gameStatusClasses}
+                teams={teams}
+                matchups={matchups}
+                logs={logs}
+                settings={settings}
+                cutoff={goldCutoff}
+                onSelectTeam={openTeamData}
+                liveTeams={liveTeams}
+                remainingGames={remainingGames}
+                backtestResult={backtestResult}
+                bracketOdds={bracketOdds}
+                clinchingPaths={clinchingPaths}
+                cutLineSnapshot={cutLineSnapshot}
+                timelineEntries={timelineEntries}
+                hasCutLine={hasCutLine}
+                hasPostseason={hasPostseason}
+                forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
+                forecastStoryModel={forecastStory.model}
+                forecastStoryLoading={forecastStory.status === "loading"}
+                forecastStoryUnavailableReason={
+                  forecastStory.status === "unavailable" || forecastStory.status === "error"
+                    ? (forecastStory.reason ?? "upstream-error")
+                    : null
+                }
+                forecastStoryErrorMessage={forecastStory.message}
+                retryForecastStory={forecastStory.retry}
+              />
+            ) : activeView === "settings" ? (
+              <div className="space-y-6">
+                <SeasonManager
+                  seasons={seasons}
+                  activeSeasonId={activeSeasonId}
+                  onSwitch={switchSeason}
+                  onCreate={handleCreateSeason}
+                  onDuplicate={handleDuplicateSeason}
+                  onDelete={handleDeleteSeason}
+                />
+                <SettingsView
+                  settings={settings}
+                  setSettings={setSettings}
+                  teamsCount={teams.length}
+                  importCSV={importCSV}
+                  importBackup={importBackup}
+                  exportCSV={exportCSV}
+                  exportBackup={exportBackup}
+                  resetSeason={resetSeason}
+                  loadDemoSeason={loadDemoSeason}
+                />
+              </div>
+            ) : (
+              <GamesView
+                teams={teams}
+                matchups={matchups}
+                logs={logs}
+                scoreboardGames={scoreboardGames}
+                scoreboardPredictions={scoreboardPredictions}
+                scoreboardTeamFilter={scoreboardTeamFilter}
+                pitchMode={settings.pitchMode}
+                trackErrors={settings.trackErrors}
+                setScoreboardTeamFilter={setScoreboardTeamFilter}
+                newDate={newDate}
+                setNewDate={setNewDate}
+                newAway={newAway}
+                setNewAway={setNewAway}
+                newHome={newHome}
+                setNewHome={setNewHome}
+                addGameValid={addGameValid}
+                addGame={addGame}
+                toggleFinal={toggleFinal}
+                swapGame={swapGame}
+                removeGame={removeGame}
+                updateLog={updateLog}
+                setMatchups={setMatchups}
+                gameStatusClasses={gameStatusClasses}
+                seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
+                bracketProjection={bracketProjection}
+                silverBracketProjection={silverBracketProjection}
+                updateBracketLog={updateBracketLog}
+                toggleBracketFinal={toggleBracketFinal}
+              />
+            )}
+          </main>
+        )}
 
         {selectedTeam && (
           <TeamDrawer
@@ -4977,20 +5030,21 @@ This will replace current season data and save an undo snapshot.`,
           />
         )}
 
-        <CommandPalette
-          open={showCommandPalette}
-          commands={commands}
-          onClose={() => setShowCommandPalette(false)}
-        />
-        <ShortcutsHelp
-          open={showShortcuts}
-          shortcuts={shortcutEntries}
-          onClose={() => setShowShortcuts(false)}
-        />
-        <OnboardingTour
-          open={showTour}
-          onClose={() => setShowTour(false)}
-        />
+        {appMode === "league" && (
+          <>
+            <CommandPalette
+              open={showCommandPalette}
+              commands={commands}
+              onClose={() => setShowCommandPalette(false)}
+            />
+            <ShortcutsHelp
+              open={showShortcuts}
+              shortcuts={shortcutEntries}
+              onClose={() => setShowShortcuts(false)}
+            />
+            <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />
+          </>
+        )}
         {confirmState && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
@@ -5263,10 +5317,14 @@ function FinalGameRow({
   const homeWon = home > away;
   const side = (name: string, runs: string, won: boolean) => (
     <div className="flex items-baseline justify-between gap-3">
-      <span className={`truncate ${won ? "font-black text-slate-950 dark:text-white" : "font-semibold text-slate-500 dark:text-slate-400"}`}>
+      <span
+        className={`truncate ${won ? "font-black text-slate-950 dark:text-white" : "font-semibold text-slate-500 dark:text-slate-400"}`}
+      >
         {displayName(name)}
       </span>
-      <span className={`tabular-nums ${won ? "font-black text-slate-950 dark:text-white" : "font-bold text-slate-500 dark:text-slate-400"}`}>
+      <span
+        className={`tabular-nums ${won ? "font-black text-slate-950 dark:text-white" : "font-bold text-slate-500 dark:text-slate-400"}`}
+      >
         {runs === "" ? "—" : runs}
       </span>
     </div>
@@ -5301,9 +5359,7 @@ function FinalGameRow({
  */
 function TrendCell({ trend }: { trend: "Up" | "Down" | "Stable" | "New" }) {
   if (trend === "Up") {
-    return (
-      <span className="font-bold text-emerald-600 dark:text-emerald-400">↑ Up</span>
-    );
+    return <span className="font-bold text-emerald-600 dark:text-emerald-400">↑ Up</span>;
   }
   if (trend === "Down") {
     return <span className="font-bold text-red-600 dark:text-red-400">↓ Down</span>;
@@ -5481,50 +5537,50 @@ function EmptyState({
       />
 
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <div>
-            <h2 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              New Season Builder
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              One team per line. Step 2 above turns this list into a round-robin schedule.
-            </p>
-            <label className="sr-only" htmlFor="season-builder-textarea">
-              Team list
-            </label>
-            <textarea
-              id="season-builder-textarea"
-              value={seasonBuilderText}
-              onChange={(event) => setSeasonBuilderText(event.target.value)}
-              placeholder={
-                teams.length
-                  ? teams.map((team) => displayName(team.name)).join("\n")
-                  : "Falcons\nWolves\nComets"
+        <div>
+          <h2 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            New Season Builder
+          </h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+            One team per line. Step 2 above turns this list into a round-robin schedule.
+          </p>
+          <label className="sr-only" htmlFor="season-builder-textarea">
+            Team list
+          </label>
+          <textarea
+            id="season-builder-textarea"
+            value={seasonBuilderText}
+            onChange={(event) => setSeasonBuilderText(event.target.value)}
+            placeholder={
+              teams.length
+                ? teams.map((team) => displayName(team.name)).join("\n")
+                : "Falcons\nWolves\nComets"
+            }
+            className="mt-4 h-44 w-full resize-none rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+          />
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={createSeasonFromTeamList}
+              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+            >
+              Create Schedule
+            </button>
+            <button
+              onClick={downloadRoundRobinCSV}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            >
+              Download Blank CSV
+            </button>
+            <button
+              onClick={() =>
+                setSeasonBuilderText(teams.map((team) => displayName(team.name)).join("\n"))
               }
-              className="mt-4 h-44 w-full resize-none rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
-            />
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                onClick={createSeasonFromTeamList}
-                className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
-              >
-                Create Schedule
-              </button>
-              <button
-                onClick={downloadRoundRobinCSV}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-              >
-                Download Blank CSV
-              </button>
-              <button
-                onClick={() =>
-                  setSeasonBuilderText(teams.map((team) => displayName(team.name)).join("\n"))
-                }
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-              >
-                Use Current Teams
-              </button>
-            </div>
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            >
+              Use Current Teams
+            </button>
           </div>
+        </div>
       </div>
     </div>
   );
@@ -6971,9 +7027,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={postseasonId} className="block">
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              Postseason
-            </span>
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Postseason</span>
             <select
               id={postseasonId}
               value={settings.postseasonFormat}
@@ -7019,9 +7073,7 @@ function SettingsView({
             </label>
           )}
           <label htmlFor={winId} className="block">
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              Win Points
-            </span>
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Win Points</span>
             <input
               id={winId}
               type="number"
@@ -7035,9 +7087,7 @@ function SettingsView({
             />
           </label>
           <label htmlFor={tieId} className="block">
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              Tie Points
-            </span>
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Tie Points</span>
             <input
               id={tieId}
               type="number"
