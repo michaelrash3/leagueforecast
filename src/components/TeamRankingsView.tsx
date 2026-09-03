@@ -27,6 +27,7 @@ import {
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
 import { AiStoryPanel } from "./AiStoryPanel";
+import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -370,7 +371,7 @@ export function TeamRankingsView({
     showToast("Score saved.", { tone: "success" });
   };
 
-  const nameDatalistId = "team-rankings-name-options";
+  const teamNameOptions = useMemo(() => merged.teams.map((team) => team.name), [merged.teams]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -540,21 +541,18 @@ export function TeamRankingsView({
             ? "Set up an age group above first — every game needs one to know which pool it belongs to."
             : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
         </p>
-        <datalist id={nameDatalistId}>
-          {merged.teams.map((team) => (
-            <option key={team.id} value={team.name} />
-          ))}
-        </datalist>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
           <div className="flex items-center gap-2">
-            <input
-              type="text"
-              list={nameDatalistId}
-              value={teamAName}
-              onChange={(event) => setTeamAName(event.target.value)}
-              placeholder="Team name"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
+            <div className="min-w-0 flex-1">
+              <TeamNameCombobox
+                id="scout-team-a-name"
+                value={teamAName}
+                onChange={setTeamAName}
+                options={teamNameOptions}
+                placeholder="Team name"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
             {myTeamName && (
               <button
                 type="button"
@@ -574,13 +572,13 @@ export function TeamRankingsView({
             placeholder="Score"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
           />
-          <input
-            type="text"
-            list={nameDatalistId}
+          <TeamNameCombobox
+            id="scout-team-b-name"
             value={teamBName}
-            onChange={(event) => setTeamBName(event.target.value)}
+            onChange={setTeamBName}
+            options={teamNameOptions}
             placeholder="Opponent name"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
           />
           <input
             type="number"
