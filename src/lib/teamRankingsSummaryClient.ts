@@ -25,7 +25,7 @@ export const buildTeamRankExplanationRequest = (
     },
     {
       kind: "rating",
-      text: `Opponent-adjusted rating: ${team.rating >= 0 ? "+" : ""}${team.rating.toFixed(1)} runs vs an average team in this pool.`,
+      text: `Opponent-adjusted rating: ${team.rating >= 0 ? "+" : ""}${team.rating.toFixed(1)} runs vs an average team in this age group.`,
       impactScore: 90,
     },
     {
