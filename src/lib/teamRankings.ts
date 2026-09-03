@@ -86,26 +86,59 @@ const RATING_CAP = 8;
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
 
-const normalizeName = (name: string) => name.trim().toLowerCase();
+/** "9U", "9u", "12 U", "U10" — an age level, anywhere in the name. */
+const AGE_LABEL = /\b(?:\d{1,2}\s*[uU]|[uU]\s*\d{1,2})\b/g;
 
-/** Case-insensitive/trimmed name match against the pool; creates a new team if none matches. */
+/**
+ * Drops the age label from a team name: an age level describes *this year's* squad, not the club,
+ * and the same club plays up a level every year ("South Lexington Red 9u" becomes "…10u"). Keeping
+ * the label would fragment one real-world team into a new entity every season, which is exactly
+ * what the age-group scoping already handles. Handles labels anywhere in the name, so
+ * "NV Stars 9u Scout" becomes "NV Stars Scout".
+ */
+export const stripAgeLabel = (name: string): string => {
+  const stripped = name
+    .replace(AGE_LABEL, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s\-–—,]+|[\s\-–—,]+$/g, "");
+  // A name that is *only* an age label still has to be called something.
+  return stripped || name.trim();
+};
+
+const normalizeName = (name: string) => stripAgeLabel(name).toLowerCase();
+
+/**
+ * Case-insensitive, age-label-insensitive name match against the pool; creates a new team if none
+ * matches. A team stored before age labels were stripped ("Velocirabbits 9U") is healed in place on
+ * its next match, so old entries converge without a migration.
+ */
 export const resolveOrCreateTeam = (
   name: string,
   teams: ScoutTeam[]
 ): { teams: ScoutTeam[]; teamId: string } => {
-  const trimmed = name.trim();
-  const existing = teams.find((team) => normalizeName(team.name) === normalizeName(trimmed));
-  if (existing) return { teams, teamId: existing.id };
+  const display = stripAgeLabel(name);
+  const key = normalizeName(name);
+  const existingIndex = teams.findIndex((team) => normalizeName(team.name) === key);
+
+  if (existingIndex >= 0) {
+    const existing = teams[existingIndex]!;
+    // Clean the *stored* name rather than adopting the incoming one, so its capitalization stands.
+    const cleaned = stripAgeLabel(existing.name);
+    if (cleaned === existing.name) return { teams, teamId: existing.id };
+    const next = teams.slice();
+    next[existingIndex] = { ...existing, name: cleaned };
+    return { teams: next, teamId: existing.id };
+  }
 
   const existingIds = new Set(teams.map((team) => team.id));
-  const id = `${SCOUT_ID_PREFIX}${createTeamId(trimmed, new Set())}`;
+  const id = `${SCOUT_ID_PREFIX}${createTeamId(display, new Set())}`;
   let uniqueId = id;
   let counter = 2;
   while (existingIds.has(uniqueId)) {
     uniqueId = `${id}${counter}`;
     counter += 1;
   }
-  return { teams: [...teams, { id: uniqueId, name: trimmed }], teamId: uniqueId };
+  return { teams: [...teams, { id: uniqueId, name: display }], teamId: uniqueId };
 };
 
 const scoreFor = (log: GameLog | undefined, side: "away" | "home") =>
@@ -176,6 +209,51 @@ export const deriveLeagueScoutGames = (
   );
 
   return { teams, games };
+};
+
+/**
+ * The teams that actually belong to one age group: those with at least one game tagged to it,
+ * played or scheduled. The stored roster stays global — the same club resolves to one entity as it
+ * ages up — but a team only *ranks* where it has games, so logging a 10U opponent never drops that
+ * team into the 12U ranking, where its results say nothing.
+ */
+export const teamsInAgeGroup = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[]
+): ScoutTeam[] => {
+  const active = new Set<string>();
+  games.forEach((game) => {
+    if (game.ageGroupId !== ageGroupId) return;
+    active.add(game.teamAId);
+    active.add(game.teamBId);
+  });
+  return teams.filter((team) => active.has(team.id));
+};
+
+const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
+  game.teamAId === teamId ? game.teamAScore : game.teamBScore;
+
+/**
+ * Finds an existing game that looks like the same game as `candidate` — same two teams (in either
+ * order), same date, same score. That is the shape a double-entry takes, whether it came from
+ * typing a game twice, importing a screenshot twice, or re-entering one the league schedule
+ * already supplied. Two scoreless scheduled games on the same date count as a match too, since
+ * "no score yet" is the same on both sides.
+ */
+export const findDuplicateGame = (candidate: ScoutGame, games: ScoutGame[]): ScoutGame | null => {
+  const pairKey = [candidate.teamAId, candidate.teamBId].slice().sort().join("|");
+  const found = games.find((game) => {
+    if (game.id === candidate.id) return false;
+    if (game.ageGroupId !== candidate.ageGroupId) return false;
+    if ([game.teamAId, game.teamBId].slice().sort().join("|") !== pairKey) return false;
+    if ((game.date ?? "") !== (candidate.date ?? "")) return false;
+    return (
+      scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
+      scoreOf(game, candidate.teamBId) === candidate.teamBScore
+    );
+  });
+  return found ?? null;
 };
 
 const recordFor = (teamId: string, playedGames: ScoutGame[]) => {

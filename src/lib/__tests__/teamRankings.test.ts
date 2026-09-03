@@ -3,9 +3,12 @@ import {
   buildScoutingReport,
   buildTeamRankings,
   deriveLeagueScoutGames,
+  findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
   resolveOrCreateTeam,
+  stripAgeLabel,
+  teamsInAgeGroup,
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
@@ -32,6 +35,88 @@ const game = (
   ...(teamBScore !== undefined ? { teamBScore } : {}),
 });
 
+describe("stripAgeLabel", () => {
+  it("drops an age label wherever it appears", () => {
+    expect(stripAgeLabel("South Lexington Red 9u")).toBe("South Lexington Red");
+    expect(stripAgeLabel("Velocirabbits 9U")).toBe("Velocirabbits");
+    expect(stripAgeLabel("NV Stars 9u Scout")).toBe("NV Stars Scout");
+    expect(stripAgeLabel("12U Thunder")).toBe("Thunder");
+    expect(stripAgeLabel("U10 Rockets")).toBe("Rockets");
+    expect(stripAgeLabel("Thunder - 9U")).toBe("Thunder");
+  });
+
+  it("leaves names that only look like an age label alone", () => {
+    expect(stripAgeLabel("The 9ers")).toBe("The 9ers");
+    // "12 U" here is the start of "United", not an age level.
+    expect(stripAgeLabel("Lexington 12 United")).toBe("Lexington 12 United");
+  });
+
+  it("keeps something when the name is nothing but an age label", () => {
+    expect(stripAgeLabel("9U")).toBe("9U");
+  });
+});
+
+describe("teamsInAgeGroup", () => {
+  it("keeps a team out of an age group it has no games in", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [game("A", "B", 5, 2, "ag1"), game("C", "A", 3, 4, "ag2")];
+
+    const inAg1 = teamsInAgeGroup("ag1", teams, games).map((t) => t.id);
+    expect(inAg1.sort()).toEqual(["A", "B"]);
+    // "Cubs" was only ever logged under ag2, so it does not appear in ag1's ranking.
+    expect(inAg1).not.toContain("C");
+  });
+
+  it("counts a scheduled game as belonging to the age group", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const games = [game("A", "B", undefined, undefined, "ag1")];
+    expect(teamsInAgeGroup("ag1", teams, games)).toHaveLength(2);
+  });
+});
+
+describe("findDuplicateGame", () => {
+  const existing: ScoutGame = {
+    id: "g1",
+    teamAId: "A",
+    teamBId: "B",
+    teamAScore: 7,
+    teamBScore: 3,
+    ageGroupId: "ag1",
+    date: "2026-08-22",
+  };
+
+  it("matches the same game entered again, in either team order", () => {
+    const sameOrder: ScoutGame = { ...existing, id: "g2" };
+    expect(findDuplicateGame(sameOrder, [existing])).toBe(existing);
+
+    const swapped: ScoutGame = {
+      id: "g3",
+      teamAId: "B",
+      teamBId: "A",
+      teamAScore: 3,
+      teamBScore: 7,
+      ageGroupId: "ag1",
+      date: "2026-08-22",
+    };
+    expect(findDuplicateGame(swapped, [existing])).toBe(existing);
+  });
+
+  it("does not match a different date, score, or age group", () => {
+    expect(findDuplicateGame({ ...existing, id: "g2", date: "2026-08-23" }, [existing])).toBeNull();
+    expect(findDuplicateGame({ ...existing, id: "g2", teamAScore: 6 }, [existing])).toBeNull();
+    expect(findDuplicateGame({ ...existing, id: "g2", ageGroupId: "ag2" }, [existing])).toBeNull();
+  });
+
+  it("matches two scoreless scheduled games on the same date", () => {
+    const scheduled: ScoutGame = { id: "s1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" };
+    expect(findDuplicateGame({ ...scheduled, id: "s2" }, [scheduled])).toBe(scheduled);
+  });
+
+  it("never matches a game against itself", () => {
+    expect(findDuplicateGame(existing, [existing])).toBeNull();
+  });
+});
+
 describe("resolveOrCreateTeam", () => {
   it("matches an existing team case-insensitively and trims whitespace", () => {
     const teams = [team("S-ICEC", "Ice Cats")];
@@ -52,6 +137,25 @@ describe("resolveOrCreateTeam", () => {
     const second = resolveOrCreateTeam("Ice Castles", first.teams);
     expect(second.teamId).not.toBe(first.teamId);
     expect(second.teams).toHaveLength(2);
+  });
+
+  it("stores a new team without its age label", () => {
+    const result = resolveOrCreateTeam("South Lexington Red 9u", []);
+    expect(result.teams[0]!.name).toBe("South Lexington Red");
+  });
+
+  it("treats the same club at different age levels as one team", () => {
+    const first = resolveOrCreateTeam("Velocirabbits 9U", []);
+    const nextYear = resolveOrCreateTeam("Velocirabbits 10U", first.teams);
+    expect(nextYear.teamId).toBe(first.teamId);
+    expect(nextYear.teams).toHaveLength(1);
+  });
+
+  it("heals a name stored before age labels were stripped, keeping its capitalization", () => {
+    const stored = [team("S-VELO", "VelociRabbits 9U")];
+    const result = resolveOrCreateTeam("velocirabbits", stored);
+    expect(result.teamId).toBe("S-VELO");
+    expect(result.teams[0]!.name).toBe("VelociRabbits");
   });
 });
 

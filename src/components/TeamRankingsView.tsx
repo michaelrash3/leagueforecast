@@ -3,8 +3,10 @@ import {
   buildScoutingReport,
   buildTeamRankings,
   deriveLeagueScoutGames,
+  findDuplicateGame,
   isScoutGamePlayed,
   resolveOrCreateTeam,
+  teamsInAgeGroup,
   type AgeGroup,
   type LeagueSeasonSnapshot,
   type MatchupTier,
@@ -205,9 +207,17 @@ export function TeamRankingsView({
     [merged.games, scoutGames, selectedAgeGroupId]
   );
 
-  const rankings = useMemo(
-    () => buildTeamRankings(selectedAgeGroupId, merged.teams, ageGroupGames),
+  // Only teams with a game in this age group are ranked here. The roster itself stays global (so
+  // the name dropdown still offers every team you've ever logged, and picking one links back to
+  // the same entity), but a team logged under a different age group doesn't appear in this ranking.
+  const ageGroupTeams = useMemo(
+    () => teamsInAgeGroup(selectedAgeGroupId, merged.teams, ageGroupGames),
     [selectedAgeGroupId, merged.teams, ageGroupGames]
+  );
+
+  const rankings = useMemo(
+    () => buildTeamRankings(selectedAgeGroupId, ageGroupTeams, ageGroupGames),
+    [selectedAgeGroupId, ageGroupTeams, ageGroupGames]
   );
 
   const teamNameById = useMemo(
@@ -321,7 +331,7 @@ export function TeamRankingsView({
     teamAName.trim().toLowerCase() !== teamBName.trim().toLowerCase() &&
     (scoresBothBlank || scoresBothValid);
 
-  const addGame = () => {
+  const addGame = async () => {
     if (!addGameValid) {
       showToast("Enter both team names, and either both scores or neither.", { tone: "error" });
       return;
@@ -342,6 +352,24 @@ export function TeamRankingsView({
       ...(gameDate ? { date: gameDate } : {}),
       ...(gameEvent.trim() ? { event: gameEvent.trim() } : {}),
     };
+
+    // Same teams, same date, same score as something already here (logged by hand, imported, or
+    // pulled from the league schedule) — check before double-counting it into the rating.
+    const duplicate = findDuplicateGame(newGame, ageGroupGames);
+    if (duplicate) {
+      const nameOf = (id: string) =>
+        teams.find((team) => team.id === id)?.name ?? teamNameById.get(id) ?? "?";
+      const scoreLine = isScoutGamePlayed(duplicate)
+        ? `${nameOf(duplicate.teamAId)} ${duplicate.teamAScore} – ${nameOf(duplicate.teamBId)} ${duplicate.teamBScore}`
+        : `${nameOf(duplicate.teamAId)} vs ${nameOf(duplicate.teamBId)} (scheduled, no score yet)`;
+      const confirmed = await requestConfirmation({
+        title: "Already logged?",
+        message: `${scoreLine}${duplicate.date ? ` on ${duplicate.date}` : ""} is already in this age group with the same date and score.\n\nAdding it again counts it twice in the rankings.`,
+        confirmLabel: "Add anyway",
+      });
+      if (!confirmed) return;
+    }
+
     persistTeams(teams);
     persistGames([...scoutGames, newGame]);
     setTeamAName("");
@@ -609,7 +637,7 @@ export function TeamRankingsView({
         </div>
         <button
           type="button"
-          onClick={addGame}
+          onClick={() => void addGame()}
           disabled={!addGameValid}
           className={`${button.primary} mt-3`}
         >
