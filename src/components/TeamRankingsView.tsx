@@ -31,6 +31,7 @@ import {
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
 import { AiStoryPanel } from "./AiStoryPanel";
+import { ScheduleImportPanel } from "./ScheduleImportPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import type { ToastTone } from "../hooks/useToast";
@@ -90,6 +91,8 @@ export function TeamRankingsView({
   const [teamBScore, setTeamBScore] = useState("");
   const [gameDate, setGameDate] = useState("");
   const [gameEvent, setGameEvent] = useState("");
+
+  const [importOpen, setImportOpen] = useState(false);
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
@@ -463,6 +466,23 @@ export function TeamRankingsView({
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
   };
 
+  /**
+   * Commits a reviewed batch from a schedule screenshot. The panel has already resolved names
+   * through `resolveOrCreateTeam` (so they arrive age-free and linked to existing teams) and has
+   * dropped anything already logged here, so this just saves and offers an undo for the lot.
+   */
+  const importGames = (nextTeams: ScoutTeam[], newGames: ScoutGame[]) => {
+    const before = scoutGames;
+    persistTeams(nextTeams);
+    persistGames([...scoutGames, ...newGames]);
+    setImportOpen(false);
+    showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => persistGames(before),
+    });
+  };
+
   const saveGameScore = (gameId: string) => {
     const a = Number(editScoreA);
     const b = Number(editScoreB);
@@ -483,12 +503,13 @@ export function TeamRankingsView({
 
   // Scoped to this age group and the ones it continues from: a 9U opponent has no business being
   // suggested while logging an 11U game, even though both squads share one roster store.
-  const teamNameOptions = useMemo(
-    () =>
-      teamNameSuggestions(selectedAgeGroupId, ageGroups, merged.teams, chainGames).map(
-        (team) => team.name
-      ),
+  const suggestedTeams = useMemo(
+    () => teamNameSuggestions(selectedAgeGroupId, ageGroups, merged.teams, chainGames),
     [selectedAgeGroupId, ageGroups, merged.teams, chainGames]
+  );
+  const teamNameOptions = useMemo(
+    () => suggestedTeams.map((team) => team.name),
+    [suggestedTeams]
   );
 
   return (
@@ -688,8 +709,33 @@ export function TeamRankingsView({
         )}
       </div>
 
+      {importOpen && selectedAgeGroupId && (
+        <ScheduleImportPanel
+          ageGroupId={selectedAgeGroupId}
+          ageGroupName={selectedGroupName}
+          teams={merged.teams}
+          suggestedTeams={suggestedTeams}
+          existingGames={ageGroupGames}
+          defaultSubjectTeam={myTeamName}
+          onImport={importGames}
+          onClose={() => setImportOpen(false)}
+          showToast={showToast}
+        />
+      )}
+
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
+          {selectedAgeGroupId && !importOpen && (
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Import from screenshot
+            </button>
+          )}
+        </div>
         <p className="mt-1 text-xs text-slate-500">
           {ageGroups.length === 0
             ? "Set up an age group above first — every game needs one to know which ranking it belongs to."

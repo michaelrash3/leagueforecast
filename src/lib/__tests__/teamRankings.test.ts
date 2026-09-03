@@ -8,6 +8,7 @@ import {
   isScoutGamePlayed,
   predictMatchup,
   resolveOrCreateTeam,
+  resolveTruncatedName,
   stripAgeLabel,
   teamNameSuggestions,
   teamsInAgeGroup,
@@ -82,6 +83,38 @@ const ageGroup = (id: string, continuesFromId?: string): AgeGroup => ({
   name: id.toUpperCase(),
   seasonIds: [],
   ...(continuesFromId ? { continuesFromId } : {}),
+});
+
+describe("resolveTruncatedName", () => {
+  const teams = [team("A", "South Lexington Red"), team("B", "Velocirabbits")];
+
+  it("completes a header cut off by the screenshot", () => {
+    expect(resolveTruncatedName("South Lexington Re…", teams)).toBe("South Lexington Red");
+    expect(resolveTruncatedName("South Lexington Re...", teams)).toBe("South Lexington Red");
+  });
+
+  it("returns the stored spelling for a name that is already complete", () => {
+    expect(resolveTruncatedName("south lexington red 9u", teams)).toBe("South Lexington Red");
+  });
+
+  it("refuses to guess when the stem fits more than one team", () => {
+    const ambiguous = [...teams, team("C", "South Lexington Blue")];
+    expect(resolveTruncatedName("South Lexington …", ambiguous)).toBeNull();
+  });
+
+  it("refuses to guess when nothing matches", () => {
+    expect(resolveTruncatedName("Northside Rai…", teams)).toBeNull();
+  });
+
+  it("does not treat an untruncated unknown name as a prefix to complete", () => {
+    // No ellipsis means the model read the whole name; "South Lexington" is its own team.
+    expect(resolveTruncatedName("South Lexington", teams)).toBeNull();
+  });
+
+  it("has nothing to say about an empty header", () => {
+    expect(resolveTruncatedName("   ", teams)).toBeNull();
+    expect(resolveTruncatedName("…", teams)).toBeNull();
+  });
 });
 
 describe("ageGroupChain", () => {
