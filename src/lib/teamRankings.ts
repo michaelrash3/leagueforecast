@@ -249,29 +249,6 @@ export const teamsInAgeGroup = (
 };
 
 /**
- * Screenshot headers are usually truncated — "South Lexington Re…" for South Lexington Red. Matches
- * such a stem against the teams already known so an import lands on the real team instead of
- * quietly creating a near-duplicate of it.
- *
- * Returns the full stored name only when exactly one team matches; `null` when none or several do,
- * because a wrong guess splits one club into two and there is no way to notice afterwards. The
- * caller is expected to ask rather than guess in that case.
- */
-export const resolveTruncatedName = (name: string, teams: ScoutTeam[]): string | null => {
-  const trimmed = name.trim();
-  if (!trimmed) return null;
-  const key = teamNameKey(trimmed);
-  const exact = teams.find((team) => teamNameKey(team.name) === key);
-  if (exact) return exact.name;
-
-  if (!/(?:…|\.{3})\s*$/.test(trimmed)) return null;
-  const stem = teamNameKey(trimmed.replace(/(?:…|\.{3})\s*$/, ""));
-  if (!stem) return null;
-  const matches = teams.filter((team) => teamNameKey(team.name).startsWith(stem));
-  return matches.length === 1 ? (matches[0]?.name ?? null) : null;
-};
-
-/**
  * The age groups whose rosters belong together, nearest first: this one, then whatever it
  * continues from, and so on back through the chain. A squad keeps its opponents as it ages up —
  * last year's 9U schedule is a good guess at this year's 10U one — but two age groups running at

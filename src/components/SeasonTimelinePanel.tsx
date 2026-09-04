@@ -2,7 +2,7 @@ import type { SeasonTimelineEntry } from "../lib/seasonTimeline";
 
 export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[] }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-700 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -37,7 +37,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
                   </div>
                 </div>
                 {entry.cutLineImpact && (
-                  <div className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+                  <div className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
                     {entry.cutLineImpact}
                   </div>
                 )}

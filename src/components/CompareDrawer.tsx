@@ -162,18 +162,18 @@ export function CompareDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-[55] flex justify-end bg-slate-950/40 p-3"
+      className="fixed inset-0 z-55 flex justify-end bg-slate-950/40 p-3"
       role="presentation"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <aside
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-5 shadow-2xl outline-hidden sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -210,7 +210,7 @@ export function CompareDrawer({
             id={compareSelectId}
             value={right.id}
             onChange={(event) => onPickRight(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-hidden dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             aria-label="Compare with another team"
           >
             {allTeams
@@ -292,7 +292,7 @@ export function CompareDrawer({
           )}
         </section>
 
-        <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Common Opponents Played
           </h3>

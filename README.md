@@ -4,8 +4,8 @@ A browser-first web app for league predictions, power ratings, matchup analysis,
 
 ## Stack
 
-- Vite 5.4 latest-line + React 18.3 + TypeScript 5.9
-- Tailwind CSS 3.4 latest-line
+- Vite 7 + React 19 + TypeScript 6
+- Tailwind CSS 4 (configured in CSS; there is no tailwind.config.js)
 - Web Worker-based Monte Carlo simulation
 - One Vercel Serverless Function (`api/league-summary.ts`) for the Gemini-written league story
 - Vitest
@@ -68,6 +68,7 @@ src/
     insights.ts           # deterministic recap + league-story generation
     geminiModels.ts       # Gemini model discovery + newest-first ranking
     leagueSummary.ts      # shared request contract + prompt building
+    scheduleText.ts       # reads pasted text / CSV into games, entirely on the device
     leagueSummaryClient.ts # browser client for /api/league-summary
     share.ts
     storage.ts
