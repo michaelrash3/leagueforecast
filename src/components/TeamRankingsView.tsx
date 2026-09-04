@@ -732,7 +732,7 @@ export function TeamRankingsView({
               onClick={() => setImportOpen(true)}
               className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
             >
-              Import from screenshot
+              Import games
             </button>
           )}
         </div>

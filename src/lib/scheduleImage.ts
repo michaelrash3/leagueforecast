@@ -103,17 +103,28 @@ export const SCHEDULE_IMAGE_PROMPT =
   "Read every game from this schedule screenshot and return them as JSON.";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 const clampText = (value: unknown, max: number): string =>
   typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 
+/** Shared with the pasted-text importer, so both routes accept exactly the same names. */
+export const clampScheduleName = (value: unknown): string =>
+  clampText(value, SCHEDULE_IMAGE_LIMITS.nameLength);
+
 /** A score is only kept when it is a whole, non-negative, plausible number of runs. */
-const score = (value: unknown): number | undefined => {
+export const clampScheduleScore = (value: unknown): number | undefined => {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric)) return undefined;
   const rounded = Math.round(numeric);
   if (rounded < 0 || rounded > SCHEDULE_IMAGE_LIMITS.maxScore) return undefined;
   return rounded;
+};
+
+const score = clampScheduleScore;
+
+/** An ISO `YYYY-MM-DD` day, or nothing — shared so both importers date games identically. */
+export const clampScheduleDate = (value: unknown): string | undefined => {
+  const date = clampText(value, 10);
+  return ISO_DATE.test(date) ? date : undefined;
 };
 
 /**
