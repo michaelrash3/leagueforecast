@@ -7,6 +7,7 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   resolveOrCreateTeam,
+  renameScoutTeam,
   teamNameSuggestions,
   teamsInAgeGroup,
   type AgeGroup,
@@ -32,6 +33,7 @@ import {
 } from "../lib/teamRankingsStorage";
 import { AiStoryPanel } from "./AiStoryPanel";
 import { ScheduleImportPanel } from "./ScheduleImportPanel";
+import { TeamDetailPanel } from "./TeamDetailPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import type { ToastTone } from "../hooks/useToast";
@@ -57,6 +59,8 @@ type TeamRankingsViewProps = {
     }
   ) => void;
   requestConfirmation: (options: ConfirmOptions) => Promise<boolean>;
+  /** Called after anything here is saved, so the league side knows to re-read it. */
+  onDataChange?: () => void;
 };
 
 const tierTone = (tier: MatchupTier) =>
@@ -70,6 +74,7 @@ export function TeamRankingsView({
   activeSeasonId,
   showToast,
   requestConfirmation,
+  onDataChange,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
@@ -93,6 +98,7 @@ export function TeamRankingsView({
   const [gameEvent, setGameEvent] = useState("");
 
   const [importOpen, setImportOpen] = useState(false);
+  const [openTeamId, setOpenTeamId] = useState<string | null>(null);
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
@@ -105,16 +111,19 @@ export function TeamRankingsView({
     setScoutTeams(teams);
     if (!saveScoutTeams(teams))
       showToast("Could not save teams (storage full).", { tone: "error" });
+    onDataChange?.();
   };
   const persistGames = (games: ScoutGame[]) => {
     setScoutGames(games);
     if (!saveScoutGames(games))
       showToast("Could not save games (storage full).", { tone: "error" });
+    onDataChange?.();
   };
   const persistAgeGroups = (groups: AgeGroup[]) => {
     setAgeGroups(groups);
     if (!saveAgeGroups(groups))
       showToast("Could not save age groups (storage full).", { tone: "error" });
+    onDataChange?.();
   };
 
   // ---------- Age group management ----------
@@ -399,6 +408,48 @@ export function TeamRankingsView({
     });
   };
 
+  const openTeam = openTeamId ? (merged.teams.find((t) => t.id === openTeamId) ?? null) : null;
+
+  /**
+   * Renaming onto a name that already exists merges the two teams, so a placeholder or a
+   * misspelling can be routed to the real team rather than leaving its games stranded.
+   */
+  const renameTeam = async (teamId: string, nextName: string) => {
+    const preview = renameScoutTeam(teamId, nextName, merged.teams, scoutGames);
+    if (preview.mergedInto) {
+      const moved = scoutGames.filter(
+        (game) => game.teamAId === teamId || game.teamBId === teamId
+      ).length;
+      const confirmed = await requestConfirmation({
+        title: `Merge into ${preview.mergedInto.name}?`,
+        message: `${moved} game${moved === 1 ? "" : "s"} will move to ${preview.mergedInto.name}, and this team will be removed.${
+          preview.droppedGames > 0
+            ? `\n\n${preview.droppedGames} game${preview.droppedGames === 1 ? " is" : "s are"} between these two teams and will be dropped — a team cannot play itself.`
+            : ""
+        }`,
+        confirmLabel: "Merge",
+      });
+      if (!confirmed) return;
+    }
+
+    persistTeams(preview.teams);
+    persistGames(preview.games);
+    if (preview.mergedInto) {
+      // The merged-away team no longer exists, so follow the games to the one that does.
+      setOpenTeamId(preview.mergedInto.id);
+      if (myTeamId === teamId) {
+        persistAgeGroups(
+          ageGroups.map((group) =>
+            group.id === selectedAgeGroupId ? { ...group, myTeamId: preview.mergedInto!.id } : group
+          )
+        );
+      }
+    }
+    showToast(preview.mergedInto ? `Merged into ${preview.mergedInto.name}.` : "Team renamed.", {
+      tone: "success",
+    });
+  };
+
   const myTeamName = rankings.find((row) => row.isMine)?.teamName ?? "";
 
   const scoresBothBlank = teamAScore.trim() === "" && teamBScore.trim() === "";
@@ -507,10 +558,7 @@ export function TeamRankingsView({
     () => teamNameSuggestions(selectedAgeGroupId, ageGroups, merged.teams, chainGames),
     [selectedAgeGroupId, ageGroups, merged.teams, chainGames]
   );
-  const teamNameOptions = useMemo(
-    () => suggestedTeams.map((team) => team.name),
-    [suggestedTeams]
-  );
+  const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -527,8 +575,8 @@ export function TeamRankingsView({
           a final result too. Each age group keeps to itself, so a 9U opponent never turns up while
           you&apos;re logging an 11U game; point an age group at last year&apos;s to carry that
           squad&apos;s opponents forward as it ages up. Marking a team &ldquo;mine&rdquo; is just a
-          shortcut for the scouting report and for adding your own schedule ahead of time — it
-          never changes how any team, including yours, is rated.
+          shortcut for the scouting report and for adding your own schedule ahead of time — it never
+          changes how any team, including yours, is rated.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
@@ -695,10 +743,14 @@ export function TeamRankingsView({
               >
                 <span className="flex items-center gap-3">
                   <span className={pill(row.rank === 1 ? "amber" : "neutral")}>#{row.rank}</span>
-                  <span className="font-bold text-slate-950 dark:text-white">
+                  <button
+                    type="button"
+                    onClick={() => setOpenTeamId(row.teamId)}
+                    className="text-left font-bold text-slate-950 hover:underline dark:text-white"
+                  >
                     {row.teamName}
                     {row.isMine ? " ★" : ""}
-                  </span>
+                  </button>
                 </span>
                 <span className="text-slate-500">
                   {row.record} · {formatRating(row.rating)}
@@ -708,6 +760,19 @@ export function TeamRankingsView({
           </ol>
         )}
       </div>
+
+      {openTeam && (
+        <TeamDetailPanel
+          team={openTeam}
+          allGames={chainGames}
+          ageGroupId={selectedAgeGroupId}
+          ageGroupName={selectedGroupName}
+          teamNameById={teamNameById}
+          fromLeague={leagueGameTeamIds.has(openTeam.id)}
+          onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
+          onClose={() => setOpenTeamId(null)}
+        />
+      )}
 
       {importOpen && selectedAgeGroupId && (
         <ScheduleImportPanel
@@ -835,7 +900,14 @@ export function TeamRankingsView({
                 <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="py-3 font-black">#{row.rank}</td>
                   <td className="font-bold text-slate-950 dark:text-white">
-                    {row.teamName}
+                    <button
+                      type="button"
+                      onClick={() => setOpenTeamId(row.teamId)}
+                      className="text-left font-bold hover:underline"
+                      title="Every game logged for this team"
+                    >
+                      {row.teamName}
+                    </button>
                     {leagueGameTeamIds.has(row.teamId) && (
                       <span className={`ml-2 ${pill("blue")}`}>League</span>
                     )}

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 
 export type Command = {
@@ -38,12 +38,18 @@ export function CommandPalette({
   useFocusTrap(open, containerRef as React.RefObject<HTMLElement>);
   useEscape(open, onClose);
 
-  useEffect(() => {
+  // Reset as the palette closes. Done while rendering the change rather than in
+  // an effect: React applies it before anything paints, so there is no extra
+  // render pass, and no frame where a reopened palette still shows the last
+  // search. (react.dev: "adjusting state when a prop changes".)
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (!open) {
       setQuery("");
       setActive(0);
     }
-  }, [open]);
+  }
 
   const filtered = useMemo(() => {
     const scored = commands
@@ -109,11 +115,7 @@ export function CommandPalette({
             className="w-full bg-transparent text-base font-bold text-slate-950 outline-hidden placeholder:font-semibold placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
-        <ul
-          role="listbox"
-          aria-label="Commands"
-          className="max-h-80 overflow-y-auto py-1"
-        >
+        <ul role="listbox" aria-label="Commands" className="max-h-80 overflow-y-auto py-1">
           {filtered.length === 0 && (
             <li className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
               No matches.

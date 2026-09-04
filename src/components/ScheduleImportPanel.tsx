@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import {
   findDuplicateGame,
+  findSimilarTeam,
+  isPlaceholderName,
   resolveOrCreateTeam,
   teamNameKey,
   type ScoutGame,
@@ -61,6 +63,41 @@ const isValidScorePair = (a: string, b: string) => {
 };
 
 /**
+ * A one-line flag under a name in the review table: a placeholder that names nobody, or a team
+ * this age group probably already has under a slightly different spelling. The suggestion is a
+ * button rather than an automatic correction, because two real teams can be one character apart.
+ */
+function NameNote({
+  note,
+  onUse,
+}: {
+  note: { kind: "placeholder" } | { kind: "similar"; to: string } | null;
+  onUse: (name: string) => void;
+}) {
+  if (!note) return null;
+  if (note.kind === "placeholder") {
+    return (
+      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-500">
+        Placeholder — set the real team before adding
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-500">
+      Close to{" "}
+      <button
+        type="button"
+        onClick={() => onUse(note.to)}
+        className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+        title="Use this name instead"
+      >
+        {note.to}
+      </button>
+    </span>
+  );
+}
+
+/**
  * Import games in bulk from pasted text or a CSV, then review every row before anything is saved.
  * The review step is the point: a wrong score would quietly skew the ratings, so nothing is
  * committed until it has been looked at, and anything matching a game already in this age group
@@ -96,6 +133,24 @@ export function ScheduleImportPanel({
 
   /** A row's home-side name: its own, or the subject when the source only named an opponent. */
   const nameA = (row: ReviewRow) => row.teamA ?? subjectTeam;
+
+  /**
+   * What is worth a second look about a name before it becomes a team. A placeholder would create
+   * a team that collects games belonging to whoever actually turns up; a near-match is usually the
+   * same club spelled two ways, and left alone it splits one team's record in half.
+   *
+   * Both are shown, never applied: "South Lexington Red" and "South Lexington Blue" are four
+   * characters apart and are two different teams.
+   */
+  const nameNote = (
+    value: string
+  ): { kind: "placeholder" } | { kind: "similar"; to: string } | null => {
+    const name = value.trim();
+    if (!name) return null;
+    if (isPlaceholderName(name)) return { kind: "placeholder" };
+    const close = findSimilarTeam(name, teams);
+    return close ? { kind: "similar", to: close.name } : null;
+  };
   /** True while any row is still waiting on the subject field to know who it played. */
   const needsSubject = rows.some((row) => row.teamA === null);
 
@@ -366,15 +421,21 @@ export function ScheduleImportPanel({
                         />
                       </td>
                       <td>
-                        <input
-                          type="text"
-                          value={nameA(row)}
-                          // Typing here pins the row to a team of its own, so it stops following
-                          // the subject field above.
-                          onChange={(event) => updateRow(row.key, { teamA: event.target.value })}
-                          aria-label="Team"
-                          className={`${inputClass} w-44`}
-                        />
+                        <span className="flex flex-col gap-1">
+                          <input
+                            type="text"
+                            value={nameA(row)}
+                            // Typing here pins the row to a team of its own, so it stops following
+                            // the subject field above.
+                            onChange={(event) => updateRow(row.key, { teamA: event.target.value })}
+                            aria-label="Team"
+                            className={`${inputClass} w-44`}
+                          />
+                          <NameNote
+                            note={nameNote(nameA(row))}
+                            onUse={(name) => updateRow(row.key, { teamA: name })}
+                          />
+                        </span>
                       </td>
                       <td>
                         <input
@@ -388,19 +449,27 @@ export function ScheduleImportPanel({
                         />
                       </td>
                       <td>
-                        <span className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={row.teamB}
-                            aria-label="Opponent"
-                            onChange={(event) => updateRow(row.key, { teamB: event.target.value })}
-                            className={`${inputClass} w-44`}
+                        <span className="flex flex-col gap-1">
+                          <span className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={row.teamB}
+                              aria-label="Opponent"
+                              onChange={(event) =>
+                                updateRow(row.key, { teamB: event.target.value })
+                              }
+                              className={`${inputClass} w-44`}
+                            />
+                            {duplicate && (
+                              <span className={pill("neutral")} title="Already in this age group">
+                                Already logged
+                              </span>
+                            )}
+                          </span>
+                          <NameNote
+                            note={nameNote(row.teamB)}
+                            onUse={(name) => updateRow(row.key, { teamB: name })}
                           />
-                          {duplicate && (
-                            <span className={pill("neutral")} title="Already in this age group">
-                              Already logged
-                            </span>
-                          )}
                         </span>
                       </td>
                       <td>

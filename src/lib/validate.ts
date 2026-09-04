@@ -236,6 +236,10 @@ export const coerceSettings = (raw: unknown): Settings => {
       typeof raw.autoRunDiffCap === "boolean"
         ? raw.autoRunDiffCap
         : DEFAULT_SETTINGS.autoRunDiffCap,
+    useScoutResults:
+      typeof raw.useScoutResults === "boolean"
+        ? raw.useScoutResults
+        : DEFAULT_SETTINGS.useScoutResults,
     modelAggression,
     pitchMode,
     trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,

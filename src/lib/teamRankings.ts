@@ -180,6 +180,9 @@ export type LeagueSeasonSnapshot = {
  * the next time this runs — no separate sync step. Pure — the caller is responsible for loading
  * each season's data and for persisting any newly-created scout teams.
  */
+/** Marks a game carried in from a League Standings schedule rather than logged here. */
+export const LEAGUE_GAME_PREFIX = "league_";
+
 export const deriveLeagueScoutGames = (
   ageGroupId: string,
   seasons: LeagueSeasonSnapshot[],
@@ -214,7 +217,7 @@ export const deriveLeagueScoutGames = (
         const played = isFinal(log) && Number.isFinite(awayScore) && Number.isFinite(homeScore);
 
         games.push({
-          id: `league_${seasonId}_${matchup.id}`,
+          id: `${LEAGUE_GAME_PREFIX}${seasonId}_${matchup.id}`,
           teamAId,
           teamBId,
           ageGroupId,
@@ -433,4 +436,207 @@ export const buildScoutingReport = (
       };
     })
     .sort((a, b) => a.opponentRank - b.opponentRank);
+};
+
+/**
+ * The results this season's league does not already know about: games logged in Team Rankings for
+ * an age group that includes this season, minus the ones that came *from* the league schedule in
+ * the first place. Counting those twice would quietly double the weight of every league game.
+ *
+ * Teams are matched to the league by name, since the two sides keep separate ids for the same club.
+ * An opponent with no league counterpart keeps an id of its own, so the rating model can estimate
+ * how good it was instead of assuming — which is the whole point: a shared tournament opponent is
+ * what lets two league teams that never met be compared.
+ */
+export const externalResultsForSeason = (
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  leagueTeams: { id: string; name: string }[]
+): { home: string; away: string; homeMargin: number }[] => {
+  const linked = new Set(
+    ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
+  );
+  if (linked.size === 0) return [];
+
+  const leagueIdByName = new Map(leagueTeams.map((team) => [teamNameKey(team.name), team.id]));
+  const scoutNameById = new Map(teams.map((team) => [team.id, team.name]));
+
+  // A league team's own id where the name matches; otherwise an id of this opponent's own that
+  // cannot collide with a league one.
+  const ratingId = (scoutTeamId: string): string => {
+    const name = scoutNameById.get(scoutTeamId);
+    const matched = name ? leagueIdByName.get(teamNameKey(name)) : undefined;
+    return matched ?? `${SCOUT_ID_PREFIX}${scoutTeamId}`;
+  };
+
+  return games
+    .filter(
+      (game) =>
+        linked.has(game.ageGroupId) &&
+        !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+        isScoutGamePlayed(game)
+    )
+    .map((game) => ({
+      home: ratingId(game.teamAId),
+      away: ratingId(game.teamBId),
+      // Team Rankings is neutral-site; the pair order carries no home meaning.
+      homeMargin: game.teamAScore! - game.teamBScore!,
+    }));
+};
+
+/**
+ * Renames a team, merging it into an existing one when the new name is already taken.
+ *
+ * The merge is the point. A schedule that listed an opponent as "TBD", or a name typed two ways,
+ * becomes a second team holding a few games that belong to a real one. Renaming it onto that real
+ * name is how those games get routed home, so this repoints them rather than refusing the name.
+ *
+ * A game between the two teams being merged would become a team playing itself, which is not a
+ * result; those are dropped rather than kept as a nonsense row.
+ */
+export const renameScoutTeam = (
+  teamId: string,
+  nextName: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[]
+): {
+  teams: ScoutTeam[];
+  games: ScoutGame[];
+  mergedInto: ScoutTeam | null;
+  droppedGames: number;
+} => {
+  const display = stripAgeLabel(nextName).trim();
+  if (!display) return { teams, games, mergedInto: null, droppedGames: 0 };
+
+  const key = teamNameKey(display);
+  const target = teams.find((team) => team.id !== teamId && teamNameKey(team.name) === key);
+
+  if (!target) {
+    return {
+      teams: teams.map((team) => (team.id === teamId ? { ...team, name: display } : team)),
+      games,
+      mergedInto: null,
+      droppedGames: 0,
+    };
+  }
+
+  const repointed: ScoutGame[] = [];
+  let droppedGames = 0;
+  games.forEach((game) => {
+    const teamAId = game.teamAId === teamId ? target.id : game.teamAId;
+    const teamBId = game.teamBId === teamId ? target.id : game.teamBId;
+    if (teamAId === teamBId) {
+      droppedGames += 1;
+      return;
+    }
+    repointed.push(
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId }
+    );
+  });
+
+  return {
+    teams: teams.filter((team) => team.id !== teamId),
+    games: repointed,
+    mergedInto: target,
+    droppedGames,
+  };
+};
+
+/** Every game this team has, newest first, across every age group. */
+export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
+  games
+    .filter((game) => game.teamAId === teamId || game.teamBId === teamId)
+    .slice()
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
+/**
+ * Names that stand in for a team nobody has decided yet: a bracket slot, a rained-out reschedule,
+ * a blank cell. Worth flagging on import, because logging one creates a "team" that will collect
+ * games belonging to whoever actually turns up.
+ */
+const PLACEHOLDER_NAMES = new Set([
+  "tbd",
+  "tba",
+  "tbc",
+  "bye",
+  "n/a",
+  "na",
+  "none",
+  "unknown",
+  "opponent",
+  "team",
+  "?",
+  "??",
+  "???",
+  "-",
+  "--",
+]);
+
+export const isPlaceholderName = (name: string): boolean => {
+  const raw = name.trim();
+  if (!raw) return true;
+  // A name that is nothing but an age level names no team. `stripAgeLabel` keeps it rather than
+  // returning an empty string, so it has to be recognised here.
+  if (/^(?:\d{1,2}\s*u|u\s*\d{1,2})$/i.test(raw)) return true;
+
+  // Dots go so "T.B.D." reads as "tbd"; they are punctuation in an abbreviation, not a name.
+  const value = stripAgeLabel(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s{2,}/g, " ");
+  if (!value) return true;
+  if (PLACEHOLDER_NAMES.has(value)) return true;
+  // "To be determined", "Winner of Game 3", "Loser of semifinal" — a slot, not a club.
+  return /^(to be (determined|announced)|winner of\b|loser of\b|game \d+|seed \d+)/.test(value);
+};
+
+/** Levenshtein distance, capped short-circuit free — names here are at most a line long. */
+const editDistance = (a: string, b: string): number => {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const row = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i += 1) {
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min((row[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = row[j] ?? 0;
+  }
+  return prev[b.length] ?? 0;
+};
+
+/**
+ * The team this name was probably meant to be, when it is close to one already known but not the
+ * same. Returns nothing for an exact match — that is not a near miss, it is the team.
+ *
+ * Two kinds of "close" matter here, and they are different mistakes. One name containing the other
+ * is usually a suffix nobody agreed on ("NV Stars" against "NV Stars Scout"). A small edit distance
+ * is a typo. Both are offered as a suggestion and never applied automatically, because
+ * "South Lexington Red" and "South Lexington Blue" are two real teams four characters apart.
+ */
+export const findSimilarTeam = (name: string, teams: ScoutTeam[]): ScoutTeam | null => {
+  const key = teamNameKey(name);
+  if (key.length < 4 || isPlaceholderName(name)) return null;
+
+  let best: { team: ScoutTeam; score: number } | null = null;
+  teams.forEach((team) => {
+    const other = teamNameKey(team.name);
+    if (other === key || other.length < 4) return;
+
+    const contains = other.startsWith(key) || key.startsWith(other);
+    const distance = editDistance(key, other);
+    const ratio = 1 - distance / Math.max(key.length, other.length);
+    // A shared prefix is strong evidence; otherwise the names have to be nearly identical.
+    const score = contains ? Math.max(ratio, 0.9) : ratio;
+    // 0.82 admits a two-edit typo in a twelve-character name. It deliberately stops short of
+    // "South Lexington Red" against "…Blue", which lands at 0.80 and is two real teams.
+    if (score < 0.82) return;
+    if (!best || score > best.score) best = { team, score };
+  });
+
+  return best ? (best as { team: ScoutTeam }).team : null;
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const STEPS = [
   {
@@ -19,34 +19,27 @@ const STEPS = [
   },
 ];
 
-export function OnboardingTour({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function OnboardingTour({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [step, setStep] = useState(0);
-  const [visible, setVisible] = useState(false);
 
-  // Sync controlled `open` prop into internal visibility.
-  useEffect(() => {
-    if (open) {
-      setStep(0);
-      setVisible(true);
-    } else {
-      setVisible(false);
-    }
-  }, [open]);
+  // `visible` used to mirror `open` through an effect, which meant one render
+  // showing nothing before the tour appeared. `open` is the answer already, so
+  // the only thing worth tracking is where to restart: step 0, each time it
+  // opens. (react.dev: "adjusting state when a prop changes".)
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (open) setStep(0);
+  }
 
-  if (!visible) return null;
+  if (!open) return null;
   const current = STEPS[step];
   if (!current) return null;
 
-  const dismiss = () => {
-    setVisible(false);
-    onClose();
-  };
+  // The parent owns `open`, so closing is entirely its call — the local
+  // setVisible(false) here was only ever hiding the tour a render before the
+  // prop caught up.
+  const dismiss = onClose;
 
   return (
     <div className="fixed inset-0 z-60 flex items-end justify-center bg-slate-950/30 p-3 sm:items-center">

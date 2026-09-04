@@ -55,12 +55,20 @@ export const useLeagueSummary = (
   const unconfiguredRef = useRef(false);
   const latchedReasonRef = useRef<LeagueSummaryErrorReason | null>(null);
   const requestRef = useRef(request);
-  requestRef.current = request;
   // Held in a ref so an inline override does not retrigger the effect.
   const fetchRef = useRef(fetchImpl);
-  fetchRef.current = fetchImpl;
   /** Set by `retry`, so a deliberate request does not wait out the settle delay. */
   const immediateRef = useRef(false);
+
+  // Both refs carry the newest values into the effect below without being
+  // dependencies of it — a fresh but equivalent `request` object must not
+  // refetch. Assigned here rather than during render because a render can be
+  // discarded, which would leave the ref describing a commit that never
+  // happened. Declared first so it runs before the effect that reads them.
+  useEffect(() => {
+    requestRef.current = request;
+    fetchRef.current = fetchImpl;
+  });
 
   // Content signature, so unrelated re-renders in the parent do not refetch.
   // Empty means there is nothing worth writing about, and no request is made.

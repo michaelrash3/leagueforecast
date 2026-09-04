@@ -31,6 +31,16 @@ type BracketInput = {
   enabled: boolean;
 };
 
+/**
+ * The three hooks below all have an input that is simply not simulatable — no teams yet, no cut
+ * line, the panel switched off. That used to be handled by writing an empty result into state from
+ * inside the effect, which meant a render showing the previous result before the empty one landed.
+ * The empty answer is a fact about the input, not something to store, so it is derived on the way
+ * out instead. These constants keep that derived value referentially stable, so a consumer that
+ * memoises on it does not re-run every render.
+ */
+const EMPTY_ODDS: Record<string, number> = {};
+
 const EMPTY_BRACKET: BracketOddsResult = {
   seedDistribution: {},
   championOdds: {},
@@ -57,7 +67,6 @@ const createWorker = (): Worker | null => {
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   const [odds, setOdds] = useState<Record<string, number>>({});
-  const [pending, setPending] = useState(false);
   const [resultKey, setResultKey] = useState<string | null>(null);
   const [workerError, setWorkerError] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
@@ -93,18 +102,15 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     ]
   );
 
+  // Nothing to simulate; see EMPTY_ODDS above.
+  const idle = input.teams.length === 0;
+
   useEffect(() => {
-    if (!input.teams.length) {
-      setOdds({});
-      setResultKey(key);
-      setPending(false);
-      return;
-    }
+    if (idle) return;
     const handle = handleRef.current;
     const id = handle.nextId + 1;
     handle.nextId = id;
     latestIdRef.current = id;
-    setPending(true);
     let removeWorkerListeners: (() => void) | null = null;
 
     const timer = window.setTimeout(() => {
@@ -123,7 +129,6 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         if (latestIdRef.current === id) {
           setOdds(result);
           setResultKey(key);
-          setPending(false);
           console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
         }
       };
@@ -141,7 +146,6 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
             setWorkerError(null);
             setOdds(event.data.odds);
             setResultKey(key);
-            setPending(false);
           }
         };
         const onError = (event: Event) => {
@@ -189,9 +193,31 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         // Worker may already be terminating; stale responses are ignored by id.
       }
     };
-  }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
+  }, [
+    idle,
+    key,
+    debounceMs,
+    input.teams,
+    input.remaining,
+    input.iterations,
+    input.seedText,
+    input.cutoff,
+    input.settings,
+  ]);
 
-  return { odds, pending, inputKey: key, resultKey, workerError };
+  // `resultKey` matching `inputKey` is how callers know the odds describe the current input, so an
+  // idle pool reports the current key: an empty answer for no teams is up to date, not stale.
+  // `pending` is not a separate fact to track: work is outstanding exactly when the stored result
+  // does not describe the current input. Deriving it removes a whole state whose only job was to
+  // be flipped on either side of the same await, and it is true from the first render rather than
+  // one render late.
+  return {
+    odds: idle ? EMPTY_ODDS : odds,
+    pending: !idle && resultKey !== key,
+    inputKey: key,
+    resultKey: idle ? key : resultKey,
+    workerError,
+  };
 }
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
@@ -221,15 +247,19 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     [input.teamIds, input.states, input.iterations, input.cutoff, input.settings]
   );
 
+  const idle = input.teamIds.length === 0 || input.states.length === 0;
+
+  // One empty series per team, so a chart still has its rows to draw.
+  const idleTrend = useMemo(() => {
+    const empty: Record<string, number[]> = {};
+    input.teamIds.forEach((id) => {
+      empty[id] = [];
+    });
+    return empty;
+  }, [input.teamIds]);
+
   useEffect(() => {
-    if (!input.teamIds.length || !input.states.length) {
-      const empty: Record<string, number[]> = {};
-      input.teamIds.forEach((id) => {
-        empty[id] = [];
-      });
-      setTrend(empty);
-      return;
-    }
+    if (idle) return;
     const handle = handleRef.current;
     const id = handle.nextId + 1;
     handle.nextId = id;
@@ -321,15 +351,25 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
         // Worker may already be terminating; stale responses are ignored by id.
       }
     };
-  }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
+  }, [
+    idle,
+    key,
+    debounceMs,
+    input.teamIds,
+    input.states,
+    input.iterations,
+    input.cutoff,
+    input.settings,
+  ]);
 
   void workerError;
-  return trend;
+  return idle ? idleTrend : trend;
 }
 
 export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
   const [result, setResult] = useState<BracketOddsResult>(EMPTY_BRACKET);
-  const [pending, setPending] = useState(false);
+  /** Which input the stored bracket describes, so `pending` can be derived rather than tracked. */
+  const [resultKey, setResultKey] = useState<string | null>(null);
   const [workerError, setWorkerError] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
   const latestIdRef = useRef(0);
@@ -365,17 +405,15 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
     ]
   );
 
+  // A bracket needs at least two teams inside the cut to mean anything.
+  const idle = !input.enabled || input.teams.length === 0 || input.cutoff < 2;
+
   useEffect(() => {
-    if (!input.enabled || !input.teams.length || input.cutoff < 2) {
-      setResult(EMPTY_BRACKET);
-      setPending(false);
-      return;
-    }
+    if (idle) return;
     const handle = handleRef.current;
     const id = handle.nextId + 1;
     handle.nextId = id;
     latestIdRef.current = id;
-    setPending(true);
     let removeWorkerListeners: (() => void) | null = null;
 
     const timer = window.setTimeout(() => {
@@ -392,7 +430,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         );
         if (latestIdRef.current === id) {
           setResult(inline);
-          setPending(false);
+          setResultKey(key);
         }
       };
 
@@ -408,7 +446,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
           if (latestIdRef.current === id) {
             setWorkerError(null);
             setResult(event.data.result);
-            setPending(false);
+            setResultKey(key);
           }
         };
         const onError = (event: Event) => {
@@ -457,6 +495,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       }
     };
   }, [
+    idle,
     key,
     debounceMs,
     input.enabled,
@@ -469,5 +508,8 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
   ]);
 
   void workerError;
-  return { bracketOdds: result, pending };
+  return {
+    bracketOdds: idle ? EMPTY_BRACKET : result,
+    pending: !idle && resultKey !== key,
+  };
 }

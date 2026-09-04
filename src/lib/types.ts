@@ -103,13 +103,7 @@ export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 // "machine" and "coach" both use R/H/K (no walks/errors); only "player" (Kid Pitch) tracks BB/E.
 export type PitchMode = "machine" | "coach" | "player";
 export type ActiveShareView =
-  | "dashboard"
-  | "power"
-  | "standings"
-  | "teamStats"
-  | "games"
-  | "model"
-  | "settings";
+  "dashboard" | "power" | "standings" | "teamStats" | "games" | "model" | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
 export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {
@@ -151,6 +145,12 @@ export type Settings = {
   maxRunDifferential: number;
   /** When true, the run-differential cap follows the pitch format (machine 8 / player 12) instead of maxRunDifferential. */
   autoRunDiffCap: boolean;
+  /**
+   * Whether tournament results logged in Team Rankings sharpen this league's game forecasts.
+   * League games always flow the other way; this is the direction worth a choice, because a
+   * scrimmage against a travel team is not obviously evidence about a league season.
+   */
+  useScoutResults: boolean;
   modelAggression: ModelAggression;
   pitchMode: PitchMode;
   /**
@@ -204,6 +204,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxScoreCap: RUN_SCORE_CAP,
   maxRunDifferential: 8,
   autoRunDiffCap: false,
+  useScoutResults: true,
   modelAggression: "Balanced",
   pitchMode: "player",
   trackErrors: true,

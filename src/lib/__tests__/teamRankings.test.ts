@@ -7,6 +7,11 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
+  externalResultsForSeason,
+  findSimilarTeam,
+  gamesForTeam,
+  isPlaceholderName,
+  renameScoutTeam,
   resolveOrCreateTeam,
   stripAgeLabel,
   teamNameSuggestions,
@@ -440,5 +445,202 @@ describe("buildScoutingReport", () => {
 
   it("returns an empty list for an unknown team id", () => {
     expect(buildScoutingReport("nope", [])).toEqual([]);
+  });
+});
+
+describe("externalResultsForSeason", () => {
+  const leagueTeams = [
+    { id: "L-ACE", name: "Aces" },
+    { id: "L-BEA", name: "Bears" },
+  ];
+  const groups: AgeGroup[] = [
+    { id: "ag1", name: "2027", seasonIds: ["spring2027"] },
+    { id: "ag2", name: "Other", seasonIds: ["fall2030"] },
+  ];
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("X", "Travel Club")];
+
+  it("maps a team to its league id by name and reports the margin", () => {
+    const games = [game("A", "B", 7, 3, "ag1")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([
+      { home: "L-ACE", away: "L-BEA", homeMargin: 4 },
+    ]);
+  });
+
+  it("never counts a game that came from the league schedule twice", () => {
+    // deriveLeagueScoutGames carries the league's own games into Team Rankings. Feeding them back
+    // would double the weight of every league result in the league's own forecast.
+    const games: ScoutGame[] = [
+      { ...game("A", "B", 7, 3, "ag1"), id: "league_spring2027_m1" },
+      game("A", "B", 5, 4, "ag1"),
+    ];
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    expect(out).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 1 }]);
+  });
+
+  it("keeps an outside opponent under an id of its own", () => {
+    // The point of including these: the model estimates how good the travel club was, rather than
+    // assuming, which is what makes a shared opponent informative.
+    const games = [game("A", "X", 2, 6, "ag1")];
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.home).toBe("L-ACE");
+    expect(out[0]?.away).not.toBe("L-BEA");
+    expect(out[0]?.away).toContain("X");
+    expect(out[0]?.homeMargin).toBe(-4);
+  });
+
+  it("ignores age groups that do not include this season", () => {
+    const games = [game("A", "B", 7, 3, "ag2")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("returns nothing when no age group is linked to the season at all", () => {
+    const games = [game("A", "B", 7, 3, "ag1")];
+    expect(externalResultsForSeason("winter2099", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("skips a scheduled game that has no score yet", () => {
+    const games = [game("A", "B", undefined, undefined, "ag1")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("matches names across age labels, as everything else here does", () => {
+    const aged = [team("A", "Aces 9U"), team("B", "Bears")];
+    const games = [game("A", "B", 7, 3, "ag1")];
+    const out = externalResultsForSeason("spring2027", groups, aged, games, leagueTeams);
+    expect(out[0]?.home).toBe("L-ACE");
+  });
+});
+
+describe("renameScoutTeam", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("T", "TBD")];
+
+  it("renames in place when the name is free", () => {
+    const out = renameScoutTeam("A", "Aces Red", teams, []);
+    expect(out.mergedInto).toBeNull();
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces Red");
+  });
+
+  it("strips an age label from the new name, like every other entry point", () => {
+    const out = renameScoutTeam("A", "Aces 10U", teams, []);
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces");
+  });
+
+  it("merges into the existing team when the name is taken, routing its games over", () => {
+    // This is how a placeholder gets sent to the team it really was.
+    const games = [game("T", "B", 4, 9, "ag1"), game("A", "B", 3, 2, "ag1")];
+    const out = renameScoutTeam("T", "Aces", teams, games);
+
+    expect(out.mergedInto?.id).toBe("A");
+    expect(out.teams.map((t) => t.id).sort()).toEqual(["A", "B"]);
+    expect(out.games).toHaveLength(2);
+    expect(out.games[0]?.teamAId).toBe("A");
+    expect(out.games[0]?.teamBId).toBe("B");
+    // The untouched game keeps its identity, so React does not see a new object for nothing.
+    expect(out.games[1]).toBe(games[1]);
+  });
+
+  it("drops a game between the two teams being merged rather than keeping a self-match", () => {
+    const games = [game("T", "A", 4, 9, "ag1"), game("T", "B", 1, 0, "ag1")];
+    const out = renameScoutTeam("T", "Aces", teams, games);
+    expect(out.droppedGames).toBe(1);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.teamAId).toBe("A");
+  });
+
+  it("refuses a name that is empty once the age label comes off", () => {
+    const out = renameScoutTeam("A", "   ", teams, []);
+    expect(out.teams).toBe(teams);
+    expect(out.mergedInto).toBeNull();
+  });
+
+  it("is a no-op rename when the name only differs by case or age label", () => {
+    const out = renameScoutTeam("A", "aces 9u", teams, []);
+    // Matching itself is not a merge; the stored spelling just updates.
+    expect(out.mergedInto).toBeNull();
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("aces");
+  });
+});
+
+describe("gamesForTeam", () => {
+  it("returns every game the team appears in, newest first, across age groups", () => {
+    const games = [
+      { ...game("A", "B", 1, 2, "ag1"), date: "2026-08-01" },
+      { ...game("C", "A", 3, 4, "ag2"), date: "2026-09-01" },
+      { ...game("B", "C", 5, 6, "ag1"), date: "2026-10-01" },
+    ];
+    const out = gamesForTeam("A", games);
+    expect(out).toHaveLength(2);
+    expect(out[0]?.date).toBe("2026-09-01");
+    expect(out[1]?.date).toBe("2026-08-01");
+  });
+
+  it("has nothing to show for a team with no games", () => {
+    expect(gamesForTeam("Z", [game("A", "B", 1, 2, "ag1")])).toEqual([]);
+  });
+});
+
+describe("isPlaceholderName", () => {
+  it("catches the ways a schedule says nobody has decided yet", () => {
+    [
+      "TBD",
+      "tba",
+      "T.B.D.",
+      "BYE",
+      "?",
+      "--",
+      "To be determined",
+      "Winner of Game 3",
+      "Seed 4",
+    ].forEach((name) => expect(isPlaceholderName(name)).toBe(true));
+  });
+
+  it("treats a blank as a placeholder too", () => {
+    expect(isPlaceholderName("   ")).toBe(true);
+    expect(isPlaceholderName("9U")).toBe(true);
+  });
+
+  it("leaves real team names alone", () => {
+    ["Aces", "NV Stars Scout", "606 Outlaws", "Trash Pandas", "Bye Bye Birdies"].forEach((name) =>
+      expect(isPlaceholderName(name)).toBe(false)
+    );
+  });
+});
+
+describe("findSimilarTeam", () => {
+  const teams = [
+    team("A", "NV Stars"),
+    team("B", "South Lexington Red"),
+    team("C", "South Lexington Blue"),
+    team("D", "Trash Pandas"),
+  ];
+
+  it("suggests the team a longer variant was probably meant to be", () => {
+    expect(findSimilarTeam("NV Stars Scout", teams)?.id).toBe("A");
+  });
+
+  it("catches a typo", () => {
+    expect(findSimilarTeam("Trash Panda", teams)?.id).toBe("D");
+    expect(findSimilarTeam("Trsah Pandas", teams)?.id).toBe("D");
+  });
+
+  it("does not confuse two real teams that share a long prefix", () => {
+    // The whole reason this suggests rather than applies.
+    const withoutBlue = teams.filter((t) => t.id !== "C");
+    expect(findSimilarTeam("South Lexington Blue", withoutBlue)).toBeNull();
+  });
+
+  it("says nothing for an exact match, which is not a near miss", () => {
+    expect(findSimilarTeam("NV Stars", teams)).toBeNull();
+    expect(findSimilarTeam("nv stars 9u", teams)).toBeNull();
+  });
+
+  it("says nothing for a placeholder or a name too short to judge", () => {
+    expect(findSimilarTeam("TBD", teams)).toBeNull();
+    expect(findSimilarTeam("NV", teams)).toBeNull();
+  });
+
+  it("says nothing when nothing is close", () => {
+    expect(findSimilarTeam("Bourbon Bandits", teams)).toBeNull();
   });
 });

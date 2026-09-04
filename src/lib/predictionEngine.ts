@@ -114,11 +114,19 @@ const tierForData = (
 const confidenceTier = (score: number): ConfidenceTier =>
   score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
 
+/**
+ * A result from outside the league schedule — a tournament game logged in Team Rankings.
+ * `home`/`away` are rating ids: a league team's own id where the name matches one, otherwise a
+ * synthetic id for an opponent the league never plays.
+ */
+export type ExternalResult = { home: string; away: string; homeMargin: number };
+
 export const buildPredictionEngine = (
   teams: Team[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
-  settings?: Pick<Settings, "maxRunDifferential" | "pitchMode" | "autoRunDiffCap">
+  settings?: Pick<Settings, "maxRunDifferential" | "pitchMode" | "autoRunDiffCap">,
+  externalResults: ExternalResult[] = []
 ): PredictionEngineResult => {
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
@@ -130,16 +138,30 @@ export const buildPredictionEngine = (
     : 0;
 
   // NET-in-spirit power ratings: opponent-adjusted, capped run margin with small-sample shrinkage.
-  const runDiffCap = settings
-    ? resolveMaxRunDifferential(settings)
-    : 8;
+  const runDiffCap = settings ? resolveMaxRunDifferential(settings) : 8;
+  // Results from outside the league sharpen the ratings, and are worth the most exactly where the
+  // league schedule is weakest: two teams that have not played each other, but have both played
+  // the same tournament opponent, become comparable through it. Those outside opponents are given
+  // ids of their own so the regression can estimate their strength rather than assuming it.
+  //
+  // Only the ratings see them. Records, elo, recent form and strength of schedule below stay
+  // league-only — they describe a team's season in *this* league, and a tournament in March is not
+  // part of that.
+  const ratingIds = new Set(teams.map((team) => team.id));
+  externalResults.forEach((game) => {
+    ratingIds.add(game.home);
+    ratingIds.add(game.away);
+  });
   const adjusted = buildOpponentAdjustedRatings(
-    teams.map((team) => team.id),
-    completedGames.map((game) => ({
-      home: game.home,
-      away: game.away,
-      homeMargin: game.homeScore - game.awayScore,
-    })),
+    [...ratingIds],
+    [
+      ...completedGames.map((game) => ({
+        home: game.home,
+        away: game.away,
+        homeMargin: game.homeScore - game.awayScore,
+      })),
+      ...externalResults,
+    ],
     { cap: runDiffCap }
   );
 
@@ -247,7 +269,7 @@ export const buildPredictionEngine = (
     // Ratings are opponent-adjusted expected margins (runs), so their difference IS the projected
     // margin; the home team gets the estimated home-field bump, plus a small head-to-head nudge.
     const h2hEdge = headToHead ? clamp((headToHead.wins - headToHead.losses) * 0.4, -1.5, 1.5) : 0;
-    const margin = clamp((ar.rating - br.rating) - adjusted.homeAdvantage + h2hEdge, -14, 14);
+    const margin = clamp(ar.rating - br.rating - adjusted.homeAdvantage + h2hEdge, -14, 14);
     const probA = clamp(1 / (1 + Math.exp(-margin / 2.8)), 0.08, 0.92);
     const projectedWinnerId = margin >= 0 ? a.id : b.id;
     const samplePenalty = Math.max(0, 3 - Math.min(a.games, b.games)) * 13;

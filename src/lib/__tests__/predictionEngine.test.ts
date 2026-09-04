@@ -84,3 +84,40 @@ describe("buildPredictionEngine", () => {
     expect(result.predictions[0]?.confidence.tier).toBe("Low");
   });
 });
+
+describe("buildPredictionEngine with results from outside the league", () => {
+  const live = () => calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
+
+  it("changes nothing when there are none, so the default path is untouched", () => {
+    const without = buildPredictionEngine(live(), matchups, logs, DEFAULT_SETTINGS);
+    const withEmpty = buildPredictionEngine(live(), matchups, logs, DEFAULT_SETTINGS, []);
+    expect(withEmpty.powerRatings.map((r) => r.rating)).toEqual(
+      without.powerRatings.map((r) => r.rating)
+    );
+  });
+
+  it("moves a rating when a team is beaten badly outside the league", () => {
+    // Wolves get thumped by a travel club the league never plays. That is real evidence about
+    // Wolves, and the forecast for their next league game should feel it.
+    const without = buildPredictionEngine(live(), matchups, logs, DEFAULT_SETTINGS);
+    const withExtra = buildPredictionEngine(live(), matchups, logs, DEFAULT_SETTINGS, [
+      { home: "S-TRAVEL", away: "WOL", homeMargin: 12 },
+      { home: "S-TRAVEL", away: "WOL", homeMargin: 10 },
+    ]);
+
+    const ratingOf = (result: ReturnType<typeof buildPredictionEngine>, id: string) =>
+      result.powerRatings.find((r) => r.teamId === id)?.rating ?? 0;
+
+    expect(ratingOf(withExtra, "WOL")).toBeLessThan(ratingOf(without, "WOL"));
+  });
+
+  it("still reports records and games played from league play alone", () => {
+    // The outside opponent must not turn up as a league team, and must not inflate anyone's
+    // record — it changes the forecast, not the season.
+    const withExtra = buildPredictionEngine(live(), matchups, logs, DEFAULT_SETTINGS, [
+      { home: "S-TRAVEL", away: "WOL", homeMargin: 12 },
+    ]);
+    expect(withExtra.powerRatings.map((r) => r.teamId).sort()).toEqual(["COM", "FAL", "WOL"]);
+    expect(withExtra.powerRatings.every((r) => r.teamName !== "S-TRAVEL")).toBe(true);
+  });
+});
