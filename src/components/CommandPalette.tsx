@@ -77,11 +77,11 @@ export function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-start justify-center bg-slate-950/40 p-3 pt-24"
+      className="fixed inset-0 z-70 flex items-start justify-center bg-slate-950/40 p-3 pt-24"
       role="presentation"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         ref={containerRef}
         role="dialog"
@@ -106,7 +106,7 @@ export function CommandPalette({
             onKeyDown={onKeyDown}
             placeholder="Type a team name or action…"
             aria-label="Command palette search"
-            className="w-full bg-transparent text-base font-bold text-slate-950 outline-none placeholder:font-semibold placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="w-full bg-transparent text-base font-bold text-slate-950 outline-hidden placeholder:font-semibold placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
         <ul
@@ -140,7 +140,7 @@ export function CommandPalette({
               >
                 <span className="flex items-center gap-3">
                   {cmd.group && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {cmd.group}
                     </span>
                   )}

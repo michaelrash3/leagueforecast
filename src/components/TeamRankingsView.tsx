@@ -467,7 +467,7 @@ export function TeamRankingsView({
   };
 
   /**
-   * Commits a reviewed batch from a schedule screenshot. The panel has already resolved names
+   * Commits a reviewed batch of imported games. The panel has already resolved names
    * through `resolveOrCreateTeam` (so they arrive age-free and linked to existing teams) and has
    * dropped anything already logged here, so this just saves and offers an undo for the lot.
    */
