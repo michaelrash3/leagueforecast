@@ -41,14 +41,6 @@ export default tseslint.config(
 
       "react/prop-types": "off",
 
-      // eslint-plugin-react-hooks 7 folds in the React Compiler's rules. Two of them flag
-      // long-standing patterns here — `set-state-in-effect` (10 sites) and `refs` (2) — and both
-      // want effects restructured, which is a behaviour change to a working app and has no place
-      // inside a dependency upgrade. Off for now, deliberately and visibly, rather than upgraded
-      // by way of a blanket downgrade of the whole plugin. Worth revisiting as its own change.
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/refs": "off",
-
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

@@ -1034,9 +1034,13 @@ function GameDateInput({
 }) {
   const [draft, setDraft] = useState(value || "");
 
-  useEffect(() => {
+  // Follow the value from outside without an effect: React applies a set during render before
+  // painting, so the field never shows the previous date for a frame.
+  const [lastValue, setLastValue] = useState(value);
+  if (lastValue !== value) {
+    setLastValue(value);
     setDraft(value || "");
-  }, [value]);
+  }
 
   const commit = () => {
     const normalized = normalizeDateInput(draft);
@@ -2192,10 +2196,10 @@ export default function App() {
     recordSaveResult(saveSettings(settings), "settings", "Could not save settings (storage full).");
   }, [settings, recordSaveResult]);
 
-  useEffect(() => {
-    if (!newAway && teams[0]) setNewAway(teams[0].id);
-    if (!newHome && teams[1]) setNewHome(teams[1].id);
-  }, [teams, newAway, newHome]);
+  // Default the add-game selects once teams exist. Guarded on the value being unset, so this
+  // settles in one extra render and never fights a choice the user has made.
+  if (!newAway && teams[0]) setNewAway(teams[0].id);
+  if (!newHome && teams[1]) setNewHome(teams[1].id);
 
   // ---------- Derived state ----------
 
@@ -3225,6 +3229,11 @@ export default function App() {
   }, [matchups, logs, scoreboardTeamFilter]);
 
   useEffect(() => {
+    // Clearing first is the point: predictions are filled in incrementally over many chunks, and
+    // without the wipe a stale entry would sit in the map until its game happened to be
+    // recomputed. Deriving it instead would mean carrying a key through every chunk write, which
+    // is more moving parts than the one render this costs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScoreboardPredictions(new Map());
     if (activeView !== "games" || !remainingGames.length) return;
 
@@ -3388,6 +3397,9 @@ export default function App() {
     if (!label) return;
     const current = seasons.find((season) => season.id === activeSeasonId);
     if (current && current.name !== label && renameSeason(activeSeasonId, label)) {
+      // Reflecting localStorage back into React after writing to it. The season index is the
+      // source of truth and is not React state, so re-reading it here is the sync, not a cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSeasons(listSeasons());
     }
   }, [settings.seasonLabel, activeSeasonId, seasons]);
