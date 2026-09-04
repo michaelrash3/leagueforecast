@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  ageGroupChain,
   buildScoutingReport,
   buildTeamRankings,
   deriveLeagueScoutGames,
+  findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
   resolveOrCreateTeam,
+  resolveTruncatedName,
+  stripAgeLabel,
+  teamNameSuggestions,
+  teamsInAgeGroup,
+  type AgeGroup,
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
@@ -32,6 +39,181 @@ const game = (
   ...(teamBScore !== undefined ? { teamBScore } : {}),
 });
 
+describe("stripAgeLabel", () => {
+  it("drops an age label wherever it appears", () => {
+    expect(stripAgeLabel("South Lexington Red 9u")).toBe("South Lexington Red");
+    expect(stripAgeLabel("Velocirabbits 9U")).toBe("Velocirabbits");
+    expect(stripAgeLabel("NV Stars 9u Scout")).toBe("NV Stars Scout");
+    expect(stripAgeLabel("12U Thunder")).toBe("Thunder");
+    expect(stripAgeLabel("U10 Rockets")).toBe("Rockets");
+    expect(stripAgeLabel("Thunder - 9U")).toBe("Thunder");
+  });
+
+  it("leaves names that only look like an age label alone", () => {
+    expect(stripAgeLabel("The 9ers")).toBe("The 9ers");
+    // "12 U" here is the start of "United", not an age level.
+    expect(stripAgeLabel("Lexington 12 United")).toBe("Lexington 12 United");
+  });
+
+  it("keeps something when the name is nothing but an age label", () => {
+    expect(stripAgeLabel("9U")).toBe("9U");
+  });
+});
+
+describe("teamsInAgeGroup", () => {
+  it("keeps a team out of an age group it has no games in", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [game("A", "B", 5, 2, "ag1"), game("C", "A", 3, 4, "ag2")];
+
+    const inAg1 = teamsInAgeGroup("ag1", teams, games).map((t) => t.id);
+    expect(inAg1.sort()).toEqual(["A", "B"]);
+    // "Cubs" was only ever logged under ag2, so it does not appear in ag1's ranking.
+    expect(inAg1).not.toContain("C");
+  });
+
+  it("counts a scheduled game as belonging to the age group", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const games = [game("A", "B", undefined, undefined, "ag1")];
+    expect(teamsInAgeGroup("ag1", teams, games)).toHaveLength(2);
+  });
+});
+
+const ageGroup = (id: string, continuesFromId?: string): AgeGroup => ({
+  id,
+  name: id.toUpperCase(),
+  seasonIds: [],
+  ...(continuesFromId ? { continuesFromId } : {}),
+});
+
+describe("resolveTruncatedName", () => {
+  const teams = [team("A", "South Lexington Red"), team("B", "Velocirabbits")];
+
+  it("completes a header cut off by the screenshot", () => {
+    expect(resolveTruncatedName("South Lexington Re…", teams)).toBe("South Lexington Red");
+    expect(resolveTruncatedName("South Lexington Re...", teams)).toBe("South Lexington Red");
+  });
+
+  it("returns the stored spelling for a name that is already complete", () => {
+    expect(resolveTruncatedName("south lexington red 9u", teams)).toBe("South Lexington Red");
+  });
+
+  it("refuses to guess when the stem fits more than one team", () => {
+    const ambiguous = [...teams, team("C", "South Lexington Blue")];
+    expect(resolveTruncatedName("South Lexington …", ambiguous)).toBeNull();
+  });
+
+  it("refuses to guess when nothing matches", () => {
+    expect(resolveTruncatedName("Northside Rai…", teams)).toBeNull();
+  });
+
+  it("does not treat an untruncated unknown name as a prefix to complete", () => {
+    // No ellipsis means the model read the whole name; "South Lexington" is its own team.
+    expect(resolveTruncatedName("South Lexington", teams)).toBeNull();
+  });
+
+  it("has nothing to say about an empty header", () => {
+    expect(resolveTruncatedName("   ", teams)).toBeNull();
+    expect(resolveTruncatedName("…", teams)).toBeNull();
+  });
+});
+
+describe("ageGroupChain", () => {
+  it("walks back through the groups an age group continues from, nearest first", () => {
+    const groups = [ageGroup("u11", "u10"), ageGroup("u10", "u9"), ageGroup("u9")];
+    expect(ageGroupChain("u11", groups)).toEqual(["u11", "u10", "u9"]);
+  });
+
+  it("is just the group itself when it continues from nothing", () => {
+    expect(ageGroupChain("u9", [ageGroup("u9")])).toEqual(["u9"]);
+  });
+
+  it("does not loop forever when the chain points back at itself", () => {
+    const groups = [ageGroup("a", "b"), ageGroup("b", "a")];
+    expect(ageGroupChain("a", groups)).toEqual(["a", "b"]);
+  });
+
+  it("stops at a group that no longer exists", () => {
+    expect(ageGroupChain("u10", [ageGroup("u10", "deleted")])).toEqual(["u10", "deleted"]);
+  });
+});
+
+describe("teamNameSuggestions", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+
+  it("does not suggest a team from a concurrent age group", () => {
+    // The 9U and 11U squads run at the same time and share a roster store, but play nobody in
+    // common — picking a 9U name while logging an 11U game is always a mistake.
+    const games = [game("A", "B", 5, 2, "u9"), game("A", "C", 3, 4, "u11")];
+    const groups = [ageGroup("u9"), ageGroup("u11")];
+
+    const names = teamNameSuggestions("u11", groups, teams, games).map((t) => t.name);
+    expect(names.sort()).toEqual(["Aces", "Cubs"]);
+    expect(names).not.toContain("Bears");
+  });
+
+  it("carries a squad's opponents forward into the age group that continues from it", () => {
+    const games = [game("A", "B", 5, 2, "u9")];
+    const groups = [ageGroup("u9"), ageGroup("u10", "u9")];
+
+    const names = teamNameSuggestions("u10", groups, teams, games).map((t) => t.name);
+    expect(names.sort()).toEqual(["Aces", "Bears"]);
+  });
+
+  it("does not carry names backwards, from the newer group into the older one", () => {
+    const games = [game("A", "C", 5, 2, "u10")];
+    const groups = [ageGroup("u9"), ageGroup("u10", "u9")];
+    expect(teamNameSuggestions("u9", groups, teams, games)).toEqual([]);
+  });
+
+  it("suggests a scheduled opponent, not just one already played", () => {
+    const games = [game("A", "B", undefined, undefined, "u9")];
+    expect(teamNameSuggestions("u9", [ageGroup("u9")], teams, games)).toHaveLength(2);
+  });
+});
+
+describe("findDuplicateGame", () => {
+  const existing: ScoutGame = {
+    id: "g1",
+    teamAId: "A",
+    teamBId: "B",
+    teamAScore: 7,
+    teamBScore: 3,
+    ageGroupId: "ag1",
+    date: "2026-08-22",
+  };
+
+  it("matches the same game entered again, in either team order", () => {
+    const sameOrder: ScoutGame = { ...existing, id: "g2" };
+    expect(findDuplicateGame(sameOrder, [existing])).toBe(existing);
+
+    const swapped: ScoutGame = {
+      id: "g3",
+      teamAId: "B",
+      teamBId: "A",
+      teamAScore: 3,
+      teamBScore: 7,
+      ageGroupId: "ag1",
+      date: "2026-08-22",
+    };
+    expect(findDuplicateGame(swapped, [existing])).toBe(existing);
+  });
+
+  it("does not match a different date, score, or age group", () => {
+    expect(findDuplicateGame({ ...existing, id: "g2", date: "2026-08-23" }, [existing])).toBeNull();
+    expect(findDuplicateGame({ ...existing, id: "g2", teamAScore: 6 }, [existing])).toBeNull();
+    expect(findDuplicateGame({ ...existing, id: "g2", ageGroupId: "ag2" }, [existing])).toBeNull();
+  });
+
+  it("matches two scoreless scheduled games on the same date", () => {
+    const scheduled: ScoutGame = { id: "s1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" };
+    expect(findDuplicateGame({ ...scheduled, id: "s2" }, [scheduled])).toBe(scheduled);
+  });
+
+  it("never matches a game against itself", () => {
+    expect(findDuplicateGame(existing, [existing])).toBeNull();
+  });
+});
+
 describe("resolveOrCreateTeam", () => {
   it("matches an existing team case-insensitively and trims whitespace", () => {
     const teams = [team("S-ICEC", "Ice Cats")];
@@ -52,6 +234,25 @@ describe("resolveOrCreateTeam", () => {
     const second = resolveOrCreateTeam("Ice Castles", first.teams);
     expect(second.teamId).not.toBe(first.teamId);
     expect(second.teams).toHaveLength(2);
+  });
+
+  it("stores a new team without its age label", () => {
+    const result = resolveOrCreateTeam("South Lexington Red 9u", []);
+    expect(result.teams[0]!.name).toBe("South Lexington Red");
+  });
+
+  it("treats the same club at different age levels as one team", () => {
+    const first = resolveOrCreateTeam("Velocirabbits 9U", []);
+    const nextYear = resolveOrCreateTeam("Velocirabbits 10U", first.teams);
+    expect(nextYear.teamId).toBe(first.teamId);
+    expect(nextYear.teams).toHaveLength(1);
+  });
+
+  it("heals a name stored before age labels were stripped, keeping its capitalization", () => {
+    const stored = [team("S-VELO", "VelociRabbits 9U")];
+    const result = resolveOrCreateTeam("velocirabbits", stored);
+    expect(result.teamId).toBe("S-VELO");
+    expect(result.teams[0]!.name).toBe("VelociRabbits");
   });
 });
 
@@ -101,6 +302,36 @@ describe("buildTeamRankings", () => {
       teams.map((t) => (t.id === "B" ? { ...t, isMine: true } : t)),
       games
     );
+    const withoutMine = buildTeamRankings("ag1", teams, games);
+
+    withMine.forEach((row) => {
+      const other = withoutMine.find((r) => r.teamId === row.teamId)!;
+      expect(row.rating).toBeCloseTo(other.rating, 10);
+      expect(row.rank).toBe(other.rank);
+    });
+  });
+
+  it("flags the age group's own team, not the legacy global one", () => {
+    const teams = [team("A", "Aces", true), team("B", "Bears"), team("C", "Cubs")];
+    const games = [game("A", "B", 6, 2), game("B", "C", 5, 3)];
+
+    const rows = buildTeamRankings("ag1", teams, games, "B");
+    expect(rows.filter((row) => row.isMine).map((row) => row.teamId)).toEqual(["B"]);
+  });
+
+  it("falls back to the legacy isMine flag when the age group has no team of its own", () => {
+    const teams = [team("A", "Aces", true), team("B", "Bears")];
+    const games = [game("A", "B", 6, 2)];
+
+    const rows = buildTeamRankings("ag1", teams, games);
+    expect(rows.find((row) => row.isMine)?.teamId).toBe("A");
+  });
+
+  it("does not let the age group's own team influence the rating either", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [game("A", "B", 6, 2), game("B", "C", 5, 3), game("A", "C", 7, 1)];
+
+    const withMine = buildTeamRankings("ag1", teams, games, "B");
     const withoutMine = buildTeamRankings("ag1", teams, games);
 
     withMine.forEach((row) => {

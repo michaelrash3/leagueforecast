@@ -55,6 +55,8 @@ describe("teamRankingsStorage", () => {
     const ageGroups = [
       { id: "ag1", name: "2027", seasonIds: ["fall2026", "spring2027"] },
       { id: "ag2", name: "10U", seasonIds: [] },
+      // Carries on from ag1 as the squad ages up, with its own "my team".
+      { id: "ag3", name: "11U", seasonIds: [], continuesFromId: "ag1", myTeamId: "S-ICEC" },
     ];
     expect(saveAgeGroups(ageGroups)).toBe(true);
     expect(loadAgeGroups()).toEqual(ageGroups);
