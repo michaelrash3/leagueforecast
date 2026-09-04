@@ -25,7 +25,14 @@ npm run lint
 npm run format
 ```
 
-Node `>=24` (see `.nvmrc`) for the latest available LTS/current runtime baseline used by this project.
+Node `24.x`, pinned in both `package.json` and `.nvmrc` so CI and the deployment always agree.
+Moving to a new major is a deliberate change to those two files, not something that happens on
+its own the day one ships.
+
+Dependency currency is handled by Dependabot (`.github/dependabot.yml`): patch and minor updates
+arrive batched into one pull request a week, which CI builds, type-checks, lints and tests before
+it can merge. Majors are excluded on purpose — each one is a migration and wants its own pull
+request.
 
 ## Features
 
