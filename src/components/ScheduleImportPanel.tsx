@@ -2,20 +2,12 @@ import { useMemo, useRef, useState } from "react";
 import {
   findDuplicateGame,
   resolveOrCreateTeam,
-  resolveTruncatedName,
   teamNameKey,
   type ScoutGame,
   type ScoutTeam,
 } from "../lib/teamRankings";
-import {
-  readImageForUpload,
-  requestScheduleImageParse,
-  type ScheduleImageOutcome,
-} from "../lib/scheduleImageClient";
 import { parseScheduleText, type ParsedGameRow } from "../lib/scheduleText";
-import { aiStoryUnavailableLabel } from "./AiStoryPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
-import type { LeagueSummaryErrorReason } from "../lib/leagueSummary";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
 
@@ -28,7 +20,7 @@ type ScheduleImportPanelProps = {
   suggestedTeams: ScoutTeam[];
   /** Everything already in this age group — manual and league-derived — for duplicate checks. */
   existingGames: ScoutGame[];
-  /** Pre-fills whose schedule this is, for sources that only name the opponent; the "my team" name. */
+  /** Pre-fills whose schedule this is, when rows name only the opponent; the "my team" name. */
   defaultSubjectTeam: string;
   onImport: (teams: ScoutTeam[], games: ScoutGame[]) => void;
   onClose: () => void;
@@ -49,13 +41,7 @@ type ReviewRow = {
   scoreB: string;
 };
 
-type Stage = "picking" | "reading" | "review";
-
-/**
- * Screenshots need Gemini; pasted text does not. Both land in the same review table, so when the
- * key is missing or its quota is spent there is still a way in that always works.
- */
-type Source = "screenshot" | "text";
+type Stage = "picking" | "review";
 
 const SAMPLE_PASTE = `Date,Opponent,Us,Them
 2026-08-22,Velocirabbits,6,5
@@ -64,13 +50,6 @@ const SAMPLE_PASTE = `Date,Opponent,Us,Them
 
 const inputClass =
   "rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm dark:border-slate-800 dark:bg-slate-900";
-
-const sourceTab = (active: boolean) =>
-  `rounded-md px-3 py-1.5 text-xs font-bold ${
-    active
-      ? "bg-white text-slate-950 shadow-sm dark:bg-slate-700 dark:text-white"
-      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-  }`;
 
 const isValidScorePair = (a: string, b: string) => {
   const bothBlank = a.trim() === "" && b.trim() === "";
@@ -82,10 +61,12 @@ const isValidScorePair = (a: string, b: string) => {
 };
 
 /**
- * Import games in bulk — from a schedule screenshot, or from pasted text or a CSV — then review
- * every row before anything is saved. The review step is the point: a misread score would quietly
- * skew the ratings, so nothing is committed until it has been looked at, and anything matching a
- * game already in this age group arrives unchecked.
+ * Import games in bulk from pasted text or a CSV, then review every row before anything is saved.
+ * The review step is the point: a wrong score would quietly skew the ratings, so nothing is
+ * committed until it has been looked at, and anything matching a game already in this age group
+ * arrives unchecked.
+ *
+ * Everything happens on the device — no key, no network call, nothing to run out.
  */
 export function ScheduleImportPanel({
   ageGroupId,
@@ -99,13 +80,8 @@ export function ScheduleImportPanel({
   showToast,
 }: ScheduleImportPanelProps) {
   const [stage, setStage] = useState<Stage>("picking");
-  const [source, setSource] = useState<Source>("screenshot");
   const [pasteText, setPasteText] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
-  const [failure, setFailure] = useState<{
-    reason: LeagueSummaryErrorReason;
-    message: string;
-  } | null>(null);
   const [subjectTeam, setSubjectTeam] = useState(defaultSubjectTeam);
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const rowKey = useRef(0);
@@ -148,21 +124,8 @@ export function ScheduleImportPanel({
     return flagged;
   }, [rows, subjectTeam, idByName, ageGroupId, existingGames]);
 
-  /** Both sources land here, so the review table behaves identically however the rows were read. */
-  const applyGames = (
-    games: ParsedGameRow[],
-    readSubject?: string,
-    { truncated = false }: { truncated?: boolean } = {}
-  ) => {
-    if (readSubject && !defaultSubjectTeam) {
-      // A screenshot header is usually cut off ("South Lexington Re…"), so it is only a hint: take
-      // it only when it lands on a team this age group already knows, rather than saving a
-      // truncated near-duplicate of a real team. A name read from a CSV column is not truncated —
-      // it is exactly what was typed — so it is taken as written.
-      setSubjectTeam(
-        truncated ? (resolveTruncatedName(readSubject, suggestedTeams) ?? "") : readSubject
-      );
-    }
+  const applyGames = (games: ParsedGameRow[], readSubject?: string) => {
+    if (readSubject && !defaultSubjectTeam) setSubjectTeam(readSubject);
     setRows(
       games.map((game) => {
         rowKey.current += 1;
@@ -178,42 +141,7 @@ export function ScheduleImportPanel({
         };
       })
     );
-    setFailure(null);
     setStage("review");
-  };
-
-  const applyOutcome = (outcome: ScheduleImageOutcome) => {
-    if (!outcome.ok) {
-      setFailure({ reason: outcome.reason, message: outcome.message });
-      setStage("picking");
-      return;
-    }
-    setSkipped([]);
-    applyGames(
-      // The image contract is subject-relative: every row names only the opponent.
-      outcome.games.map((game) => ({
-        ...(game.date ? { date: game.date } : {}),
-        teamB: game.opponent,
-        ...(game.teamScore !== undefined && game.opponentScore !== undefined
-          ? { scoreA: game.teamScore, scoreB: game.opponentScore }
-          : {}),
-      })),
-      outcome.subjectTeam,
-      { truncated: true }
-    );
-  };
-
-  const handleImageFile = async (file: File | null) => {
-    if (!file) return;
-    setFailure(null);
-    setStage("reading");
-    const prepared = await readImageForUpload(file);
-    if (!prepared.ok) {
-      setFailure({ reason: "invalid-request", message: prepared.message });
-      setStage("picking");
-      return;
-    }
-    applyOutcome(await requestScheduleImageParse(prepared.payload));
   };
 
   /** Reads pasted text right here in the browser — no key, no quota, no network call. */
@@ -309,124 +237,58 @@ export function ScheduleImportPanel({
 
       {stage !== "review" && (
         <>
-          <div
-            role="tablist"
-            aria-label="Where the games come from"
-            className="mt-3 inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
-          >
+          <p className="mt-1 text-xs text-slate-500">
+            Paste your games below, one per line, or pick a CSV file. Every game is shown for review
+            before anything is saved.
+          </p>
+          <label className="sr-only" htmlFor="scout-import-paste">
+            Games to import
+          </label>
+          <textarea
+            id="scout-import-paste"
+            value={pasteText}
+            onChange={(event) => setPasteText(event.target.value)}
+            rows={6}
+            spellCheck={false}
+            placeholder={SAMPLE_PASTE}
+            className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              role="tab"
-              aria-selected={source === "screenshot"}
-              onClick={() => setSource("screenshot")}
-              className={sourceTab(source === "screenshot")}
+              onClick={() => readPastedText(pasteText)}
+              className={button.primary}
             >
-              Screenshot
+              Read games
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === "text"}
-              onClick={() => setSource("text")}
-              className={sourceTab(source === "text")}
-            >
-              Paste or CSV
-            </button>
-          </div>
-
-          {source === "screenshot" ? (
-            <>
-              <p className="mt-2 text-xs text-slate-500">
-                Take a screenshot of a team&apos;s schedule (the list of games with scores) and pick
-                it here. Every game is shown for review before anything is saved. This one reads the
-                picture with AI, so it can be unavailable when the day&apos;s quota is spent —
-                &ldquo;Paste or CSV&rdquo; never is.
-              </p>
-              <label className="mt-3 inline-block">
-                <span className={`${button.primary} inline-block cursor-pointer`}>
-                  {stage === "reading" ? "Reading screenshot…" : "Choose screenshot"}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={stage === "reading"}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    // Reset so picking the same file again still fires a change.
-                    event.currentTarget.value = "";
-                    void handleImageFile(file);
-                  }}
-                />
-              </label>
-            </>
-          ) : (
-            <>
-              <p className="mt-2 text-xs text-slate-500">
-                Paste your games below, one per line, or pick a CSV file. Read here on your phone —
-                no AI, so this always works.
-              </p>
-              <label className="sr-only" htmlFor="scout-import-paste">
-                Games to import
-              </label>
-              <textarea
-                id="scout-import-paste"
-                value={pasteText}
-                onChange={(event) => setPasteText(event.target.value)}
-                rows={6}
-                spellCheck={false}
-                placeholder={SAMPLE_PASTE}
-                className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
+            <label className="inline-block">
+              <span className={`${button.ghost} inline-block cursor-pointer`}>
+                Choose a CSV file
+              </span>
+              <input
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  handleTextFile(file);
+                }}
               />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => readPastedText(pasteText)}
-                  className={button.primary}
-                >
-                  Read games
-                </button>
-                <label className="inline-block">
-                  <span className={`${button.ghost} inline-block cursor-pointer`}>
-                    Choose a CSV file
-                  </span>
-                  <input
-                    type="file"
-                    accept=".csv,.txt,text/csv,text/plain"
-                    className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null;
-                      event.currentTarget.value = "";
-                      handleTextFile(file);
-                    }}
-                  />
-                </label>
-              </div>
-              <details className="mt-2 text-xs text-slate-500">
-                <summary className="cursor-pointer font-semibold">What can I paste?</summary>
-                <p className="mt-1">
-                  A CSV with headers in any order (<code>date</code>, <code>opponent</code>,{" "}
-                  <code>us</code>/<code>them</code>, or a single <code>score</code> column holding{" "}
-                  <code>6-5</code>), a spreadsheet paste, or schedule lines like{" "}
-                  <code>SAT 22 vs. Velocirabbits W 6-5</code> under an <code>August 2026</code>{" "}
-                  heading. Scores are always read from your team&apos;s side first, so{" "}
-                  <code>L 3-10</code> means you scored 3. Leave both scores blank for a game that
-                  hasn&apos;t been played.
-                </p>
-              </details>
-            </>
-          )}
+            </label>
+          </div>
+          <details className="mt-2 text-xs text-slate-500">
+            <summary className="cursor-pointer font-semibold">What can I paste?</summary>
+            <p className="mt-1">
+              A CSV with headers in any order (<code>date</code>, <code>opponent</code>,{" "}
+              <code>us</code>/<code>them</code>, or a single <code>score</code> column holding{" "}
+              <code>6-5</code>), a spreadsheet paste, or schedule lines like{" "}
+              <code>SAT 22 vs. Velocirabbits W 6-5</code> under an <code>August 2026</code> heading.
+              Scores are always read from your team&apos;s side first, so <code>L 3-10</code> means
+              you scored 3. Leave both scores blank for a game that hasn&apos;t been played.
+            </p>
+          </details>
         </>
-      )}
-
-      {failure && (
-        <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
-          <span className="mr-2 font-black uppercase tracking-wide">
-            {aiStoryUnavailableLabel(failure.reason)}
-          </span>
-          {failure.message} Try &ldquo;Paste or CSV&rdquo; above — it reads games on this device,
-          with no AI involved — or add them by hand.
-        </div>
       )}
 
       {stage === "review" && (
@@ -453,8 +315,7 @@ export function ScheduleImportPanel({
               {subjectMissing && (
                 <p className="mt-1 text-xs font-semibold text-red-600 dark:text-red-400">
                   Needed — these rows name only the opponent, so every score is from this
-                  team&apos;s side. Screenshot headers are usually cut off, so it has to be
-                  confirmed by hand.
+                  team&apos;s side.
                 </p>
               )}
             </>
@@ -570,10 +431,8 @@ export function ScheduleImportPanel({
           )}
 
           <p className="mt-2 text-xs text-slate-500">
-            {source === "screenshot"
-              ? "Scores read off a picture are worth a glance — check them against the screenshot before adding."
-              : "Check the scores against what you pasted before adding."}{" "}
-            Leave both scores blank for a game that hasn&apos;t been played yet.
+            Check the scores against what you pasted before adding. Leave both scores blank for a
+            game that hasn&apos;t been played yet.
             {duplicateKeys.size > 0 &&
               ` ${duplicateKeys.size} row${duplicateKeys.size === 1 ? " is" : "s are"} already in this age group and won't be added again.`}
           </p>

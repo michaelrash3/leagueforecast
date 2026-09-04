@@ -2,16 +2,35 @@
  * Reads games out of pasted text — a CSV exported from a spreadsheet, or schedule lines copied off
  * a league site.
  *
- * This is the offline twin of `scheduleImage.ts`: same output shape, same validation (it finishes
- * by running everything through `sanitizeScheduleImageResponse`), but no network call and no API
- * quota. Screenshot import is the convenient path; this one is the path that always works, which
- * matters when Gemini is rate-limited or the key is missing.
- *
- * Deliberately forgiving about layout and strict about content: a line it can't read is reported as
- * skipped rather than guessed at, since a wrong score is worse than a missing one.
+ * Everything happens on the device: no key, no network call, nothing to run out. Deliberately
+ * forgiving about layout and strict about content — a line it can't read is reported as skipped
+ * rather than guessed at, since a wrong score is worse than a missing one, and a wrong score feeds
+ * straight into the ratings where nobody would notice it.
  */
 
-import { clampScheduleDate, clampScheduleName, clampScheduleScore } from "./scheduleImage";
+/** Runs in a youth game; anything past this is a misread, not a blowout. */
+const MAX_SCORE = 99;
+const MAX_NAME_LENGTH = 80;
+
+const clampText = (value: unknown, max: number): string =>
+  typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+const clampScheduleName = (value: unknown): string => clampText(value, MAX_NAME_LENGTH);
+
+/** A score is only kept when it is a whole, non-negative, plausible number of runs. */
+const clampScheduleScore = (value: unknown): number | undefined => {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  const rounded = Math.round(numeric);
+  if (rounded < 0 || rounded > MAX_SCORE) return undefined;
+  return rounded;
+};
+
+/** An ISO `YYYY-MM-DD` day, or nothing. */
+const clampScheduleDate = (value: unknown): string | undefined => {
+  const date = clampText(value, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+};
 
 /**
  * One game, from nobody's point of view in particular.
