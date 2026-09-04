@@ -68,6 +68,16 @@ const monthOf = (word: string): number | undefined =>
 
 const iso = (year: number, month: number, day: number): string | undefined => {
   if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  // Bounds alone would accept February 31st, which then looks like a real date everywhere
+  // downstream. Round-tripping through the calendar rejects it, leap years included.
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  if (
+    utc.getUTCFullYear() !== year ||
+    utc.getUTCMonth() !== month - 1 ||
+    utc.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
@@ -343,18 +353,35 @@ const rowFromCells = (
   };
 };
 
+/** Trailing status words these sites print after a result: `W 6-5 Final`, `L 3-10 F/6`. */
+const STATUS_SUFFIX = /\s+(?:final|f\/\d+|complete|completed|forfeit(?:ed)?|postponed)\s*$/i;
+
+/**
+ * True when a row read as a table clearly swallowed prose it should not have: its opponent still
+ * holds a `vs.`/`@` marker or a whole score. That is what a comma inside a schedule line does —
+ * `August 22, 2026 vs. X W 6-5` splits into two "cells" that are not cells at all.
+ */
+const looksUnparsed = (row: ParsedGameRow): boolean =>
+  /(?:^|\s)(?:vs\.?|@|at)\s/i.test(row.teamB) || /\d{1,3}\s*[-–—]\s*\d{1,3}/.test(row.teamB);
+
 /** `SAT 22 vs. Velocirabbits 9U W 6-5` and friends — one game per line, no delimiters. */
 const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null => {
   let rest = line.trim();
 
-  // Take the result off the end first: it is the only part with a fixed shape.
+  // Status markers come off first: with "W 6-5 Final" still intact the score regex cannot reach
+  // the numbers, and the whole result would end up inside the opponent's name. Looped because
+  // "F/6 Final" stacks two of them.
+  for (let i = 0; i < 3 && STATUS_SUFFIX.test(rest); i += 1) {
+    rest = rest.replace(STATUS_SUFFIX, "").trim();
+  }
+
+  // Then the result off the end: it is the only part with a fixed shape.
   let scores: { teamScore: number; opponentScore: number } | undefined;
   const trailing = /\s(?:[wlt]\s*)?(\d{1,3}\s*[-–—]\s*\d{1,3})\s*$/i.exec(rest);
   if (trailing) {
     scores = parseScorePair(trailing[1] ?? "");
     if (scores) rest = rest.slice(0, trailing.index).trim();
   }
-  rest = rest.replace(/\s+(final|f\/\d+|complete[d]?)\s*$/i, "").trim();
 
   // Then the date off the front, however it is written.
   let date: string | undefined;
@@ -454,18 +481,36 @@ export const parseScheduleText = (text: string): ParsedScheduleText => {
         map = positionalMap(cells);
       }
       const columns: ColumnMap = map;
-      if (columns.kind === "schedule") {
-        if (columns.subject !== undefined) {
-          const subject = cellAt(cells, columns.subject).trim();
-          if (subject) subjects.add(subject);
+      let row =
+        columns.kind === "schedule"
+          ? rowFromCells(cells, columns, context)
+          : matchupFromCells(cells, columns, context);
+
+      if (columns.kind === "schedule" && row && columns.subject !== undefined) {
+        // A Team column names *this row's* team. Without copying it onto the row, a multi-team
+        // export would reach the review table with no team at all and every game would be
+        // credited to whichever single name was typed into "whose schedule is this?".
+        const subject = cellAt(cells, columns.subject).trim();
+        if (subject) {
+          subjects.add(subject);
+          row = { ...row, teamA: subject };
         }
-        const row = rowFromCells(cells, columns, context);
-        if (row) games.push(row);
-        else skipped.push(line);
+      }
+
+      // A comma inside a schedule line ("August 22, 2026 vs. X W 6-5") splits into things that
+      // look like cells but aren't; the giveaway is an opponent that still holds a marker or a
+      // score. Re-read those as a line rather than importing the prose as a team name.
+      if (row && looksUnparsed(row)) {
+        const asLine = rowFromLine(line, context);
+        if (asLine) {
+          games.push(asLine);
+          return;
+        }
+        skipped.push(line);
         return;
       }
-      const matchup = matchupFromCells(cells, columns, context);
-      if (matchup) games.push(matchup);
+
+      if (row) games.push(row);
       else skipped.push(line);
       return;
     }
