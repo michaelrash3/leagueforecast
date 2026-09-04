@@ -563,6 +563,23 @@ export function TeamRankingsView({
     });
   };
 
+  /**
+   * Keeps a game in the log but out of the maths, or puts it back. Fall tournaments pair a team
+   * against the age above or below depending on who entered; those results are real and worth
+   * having, but they say nothing about how a team stacks up inside its own age group.
+   */
+  const toggleGameExcluded = (game: ScoutGame) => {
+    const excluded = game.excluded !== true;
+    persistGames(
+      scoutGames.map((entry) =>
+        entry.id === game.id
+          ? { ...entry, ...(excluded ? { excluded: true } : { excluded: undefined }) }
+          : entry
+      )
+    );
+    showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
+  };
+
   const saveGameScore = (gameId: string) => {
     const a = Number(editScoreA);
     const b = Number(editScoreB);
@@ -1110,6 +1127,11 @@ export function TeamRankingsView({
                       <span className={`ml-2 ${pill("neutral")}`}>Scheduled</span>
                     </>
                   )}
+                  {game.excluded && (
+                    <span className={`ml-2 ${pill("amber")}`} title="Kept, but not counted">
+                      Not counted
+                    </span>
+                  )}
                   {game.event && <span className="ml-2 text-slate-500">{game.event}</span>}
                   {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
                 </span>
@@ -1154,6 +1176,20 @@ export function TeamRankingsView({
                         Enter score
                       </button>
                     )
+                  )}
+                  {played && (
+                    <button
+                      type="button"
+                      onClick={() => toggleGameExcluded(game)}
+                      className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
+                      title={
+                        game.excluded
+                          ? "Count this game toward the rankings again"
+                          : "Keep this game logged, but leave it out of the rankings"
+                      }
+                    >
+                      {game.excluded ? "Count it" : "Don't count"}
+                    </button>
                   )}
                   <button
                     type="button"

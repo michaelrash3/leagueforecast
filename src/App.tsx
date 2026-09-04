@@ -1753,6 +1753,82 @@ function BracketPredictionPanel({
 
 // ---------- TeamDrawer (a11y modal) ----------
 
+/**
+ * Corrects a team's name in place. Only the label changes: a team's id is fixed at creation and is
+ * what every game, score and standing hangs off, so a typo can be fixed at any point in a season
+ * without disturbing a single result.
+ */
+function TeamNameEditor({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputId = useId();
+
+  // Follow the name from outside while closed, so reopening never shows a stale draft.
+  const [lastName, setLastName] = useState(name);
+  if (lastName !== name) {
+    setLastName(name);
+    setDraft(name);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="mt-1 text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+      >
+        Rename
+      </button>
+    );
+  }
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next && next !== name) onRename(next);
+    setEditing(false);
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <label className="sr-only" htmlFor={inputId}>
+        Team name
+      </label>
+      <input
+        id={inputId}
+        type="text"
+        value={draft}
+        autoFocus
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+          if (event.key === "Escape") {
+            setDraft(name);
+            setEditing(false);
+          }
+        }}
+        className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold dark:border-slate-600 dark:bg-slate-800"
+      />
+      <button
+        type="button"
+        onClick={commit}
+        className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+      >
+        Save
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(name);
+          setEditing(false);
+        }}
+        className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function TeamDrawer({
   team,
   range,
@@ -1775,6 +1851,7 @@ function TeamDrawer({
   trackErrors,
   hasCutLine,
   projectionExplanations,
+  onRename,
 }: {
   team: TeamWithProjection;
   range: { best: number; worst: number; baseline: number };
@@ -1787,6 +1864,8 @@ function TeamDrawer({
   goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
+  /** Correcting a name here changes the label only — the team's id, games and scores are its own. */
+  onRename: (name: string) => void;
   magicForGold: import("./lib/magic").MagicResult;
   eliminationNumber: import("./lib/magic").MagicResult;
   splitSummary: TeamSplitSummary;
@@ -1839,6 +1918,7 @@ function TeamDrawer({
             >
               {displayName(team.name)}
             </h2>
+            <TeamNameEditor name={team.name} onRename={onRename} />
             <div className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
               Current #{team.rank} · Projected #{team.projectedRank}
               {hasCutLine ? ` · Top ${cutoff} Gold Bracket` : ""}
@@ -2133,6 +2213,22 @@ export default function App() {
     setSelectedTeamId(teamId);
     replaceTeamDataUrl(teamId);
   }, []);
+
+  /**
+   * Renames a league team. The id is what every matchup and log refers to, and it is fixed at
+   * creation, so this touches the label alone — a name can be corrected mid-season without moving
+   * a single game or score. Team Rankings matches league teams by name, so a corrected name is
+   * also how a club stops appearing there twice.
+   */
+  const renameLeagueTeam = useCallback(
+    (teamId: string, nextName: string) => {
+      const name = nextName.trim();
+      if (!name) return;
+      setTeams((prev) => prev.map((team) => (team.id === teamId ? { ...team, name } : team)));
+      showToast(`Renamed to ${name}.`, { tone: "success" });
+    },
+    [showToast]
+  );
 
   const closeTeamData = useCallback(() => {
     setSelectedTeamId(null);
@@ -5048,6 +5144,7 @@ This will replace current season data and save an undo snapshot.`,
                 ?.items ?? []
             }
             onClose={closeTeamData}
+            onRename={(name) => renameLeagueTeam(selectedTeam.id, name)}
             onCompare={() => {
               const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
               setCompareTeamId(candidate ? candidate.id : null);
