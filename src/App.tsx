@@ -23,6 +23,8 @@ import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMa
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { TeamRankingsView } from "./components/TeamRankingsView";
+import { externalResultsForSeason } from "./lib/teamRankings";
+import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "./lib/teamRankingsStorage";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -2084,6 +2086,12 @@ export default function App() {
   );
   const { theme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  /**
+   * Bumped whenever Team Rankings saves. That data lives in its own storage keys, so nothing here
+   * would otherwise notice it changed — and the league's forecasts read it.
+   */
+  const [scoutRevision, setScoutRevision] = useState(0);
+  const noteScoutChange = useCallback(() => setScoutRevision((value) => value + 1), []);
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -2350,9 +2358,25 @@ export default function App() {
     [teams, matchups, deferredLogs, settings]
   );
 
+  // Tournament results logged in Team Rankings, for age groups that include this season. Read
+  // from storage rather than held in state: Team Rankings owns them, this view only borrows.
+  const externalResults = useMemo(() => {
+    // Storage is not reactive, so the counter is the signal that it changed. Referenced rather
+    // than merely listed, so it reads as the dependency it is.
+    void scoutRevision;
+    if (!settings.useScoutResults || !activeSeasonId) return [];
+    return externalResultsForSeason(
+      activeSeasonId,
+      loadAgeGroups(),
+      loadScoutTeams(),
+      loadScoutGames(),
+      liveTeams
+    );
+  }, [settings.useScoutResults, activeSeasonId, liveTeams, scoutRevision]);
+
   const predictionEngine = useMemo(
-    () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings),
-    [liveTeams, matchups, deferredLogs, settings]
+    () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings, externalResults),
+    [liveTeams, matchups, deferredLogs, settings, externalResults]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -4785,6 +4809,7 @@ This will replace current season data and save an undo snapshot.`,
               activeSeasonId={activeSeasonId}
               showToast={showToast}
               requestConfirmation={requestConfirmation}
+              onDataChange={noteScoutChange}
             />
           </main>
         ) : (
@@ -7001,6 +7026,7 @@ function SettingsView({
   const regularSeasonGamesId = useId();
   const defaultInningsId = useId();
   const maxRunDifferentialId = useId();
+  const useScoutResultsId = useId();
   const pitchModeId = useId();
   const aggrId = useId();
   const recapId = useId();
@@ -7154,6 +7180,33 @@ function SettingsView({
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
               New games and blank round-robin schedules use this innings value by default.
+            </p>
+          </label>
+
+          <label htmlFor={useScoutResultsId} className="block">
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+              Team Rankings results
+            </span>
+            <select
+              id={useScoutResultsId}
+              value={settings.useScoutResults ? "on" : "off"}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  useScoutResults: event.target.value === "on",
+                }))
+              }
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
+            >
+              <option value="on">Count toward game forecasts</option>
+              <option value="off">League games only</option>
+            </select>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Tournament games logged in Team Rankings, for an age group that includes this season,
+              sharpen this league&apos;s matchup forecasts. They help most where the schedule is
+              thin: two teams who never played each other become comparable through an opponent they
+              both faced elsewhere. Records, standings and strength of schedule are always
+              league-only — this changes forecasts, not results.
             </p>
           </label>
 

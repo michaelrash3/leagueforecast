@@ -180,6 +180,9 @@ export type LeagueSeasonSnapshot = {
  * the next time this runs — no separate sync step. Pure — the caller is responsible for loading
  * each season's data and for persisting any newly-created scout teams.
  */
+/** Marks a game carried in from a League Standings schedule rather than logged here. */
+export const LEAGUE_GAME_PREFIX = "league_";
+
 export const deriveLeagueScoutGames = (
   ageGroupId: string,
   seasons: LeagueSeasonSnapshot[],
@@ -214,7 +217,7 @@ export const deriveLeagueScoutGames = (
         const played = isFinal(log) && Number.isFinite(awayScore) && Number.isFinite(homeScore);
 
         games.push({
-          id: `league_${seasonId}_${matchup.id}`,
+          id: `${LEAGUE_GAME_PREFIX}${seasonId}_${matchup.id}`,
           teamAId,
           teamBId,
           ageGroupId,
@@ -433,4 +436,52 @@ export const buildScoutingReport = (
       };
     })
     .sort((a, b) => a.opponentRank - b.opponentRank);
+};
+
+/**
+ * The results this season's league does not already know about: games logged in Team Rankings for
+ * an age group that includes this season, minus the ones that came *from* the league schedule in
+ * the first place. Counting those twice would quietly double the weight of every league game.
+ *
+ * Teams are matched to the league by name, since the two sides keep separate ids for the same club.
+ * An opponent with no league counterpart keeps an id of its own, so the rating model can estimate
+ * how good it was instead of assuming — which is the whole point: a shared tournament opponent is
+ * what lets two league teams that never met be compared.
+ */
+export const externalResultsForSeason = (
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  leagueTeams: { id: string; name: string }[]
+): { home: string; away: string; homeMargin: number }[] => {
+  const linked = new Set(
+    ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
+  );
+  if (linked.size === 0) return [];
+
+  const leagueIdByName = new Map(leagueTeams.map((team) => [teamNameKey(team.name), team.id]));
+  const scoutNameById = new Map(teams.map((team) => [team.id, team.name]));
+
+  // A league team's own id where the name matches; otherwise an id of this opponent's own that
+  // cannot collide with a league one.
+  const ratingId = (scoutTeamId: string): string => {
+    const name = scoutNameById.get(scoutTeamId);
+    const matched = name ? leagueIdByName.get(teamNameKey(name)) : undefined;
+    return matched ?? `${SCOUT_ID_PREFIX}${scoutTeamId}`;
+  };
+
+  return games
+    .filter(
+      (game) =>
+        linked.has(game.ageGroupId) &&
+        !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+        isScoutGamePlayed(game)
+    )
+    .map((game) => ({
+      home: ratingId(game.teamAId),
+      away: ratingId(game.teamBId),
+      // Team Rankings is neutral-site; the pair order carries no home meaning.
+      homeMargin: game.teamAScore! - game.teamBScore!,
+    }));
 };

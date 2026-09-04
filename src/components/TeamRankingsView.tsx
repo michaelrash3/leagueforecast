@@ -57,6 +57,8 @@ type TeamRankingsViewProps = {
     }
   ) => void;
   requestConfirmation: (options: ConfirmOptions) => Promise<boolean>;
+  /** Called after anything here is saved, so the league side knows to re-read it. */
+  onDataChange?: () => void;
 };
 
 const tierTone = (tier: MatchupTier) =>
@@ -70,6 +72,7 @@ export function TeamRankingsView({
   activeSeasonId,
   showToast,
   requestConfirmation,
+  onDataChange,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
@@ -105,16 +108,19 @@ export function TeamRankingsView({
     setScoutTeams(teams);
     if (!saveScoutTeams(teams))
       showToast("Could not save teams (storage full).", { tone: "error" });
+    onDataChange?.();
   };
   const persistGames = (games: ScoutGame[]) => {
     setScoutGames(games);
     if (!saveScoutGames(games))
       showToast("Could not save games (storage full).", { tone: "error" });
+    onDataChange?.();
   };
   const persistAgeGroups = (groups: AgeGroup[]) => {
     setAgeGroups(groups);
     if (!saveAgeGroups(groups))
       showToast("Could not save age groups (storage full).", { tone: "error" });
+    onDataChange?.();
   };
 
   // ---------- Age group management ----------

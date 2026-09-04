@@ -7,6 +7,7 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
+  externalResultsForSeason,
   resolveOrCreateTeam,
   stripAgeLabel,
   teamNameSuggestions,
@@ -440,5 +441,69 @@ describe("buildScoutingReport", () => {
 
   it("returns an empty list for an unknown team id", () => {
     expect(buildScoutingReport("nope", [])).toEqual([]);
+  });
+});
+
+describe("externalResultsForSeason", () => {
+  const leagueTeams = [
+    { id: "L-ACE", name: "Aces" },
+    { id: "L-BEA", name: "Bears" },
+  ];
+  const groups: AgeGroup[] = [
+    { id: "ag1", name: "2027", seasonIds: ["spring2027"] },
+    { id: "ag2", name: "Other", seasonIds: ["fall2030"] },
+  ];
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("X", "Travel Club")];
+
+  it("maps a team to its league id by name and reports the margin", () => {
+    const games = [game("A", "B", 7, 3, "ag1")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([
+      { home: "L-ACE", away: "L-BEA", homeMargin: 4 },
+    ]);
+  });
+
+  it("never counts a game that came from the league schedule twice", () => {
+    // deriveLeagueScoutGames carries the league's own games into Team Rankings. Feeding them back
+    // would double the weight of every league result in the league's own forecast.
+    const games: ScoutGame[] = [
+      { ...game("A", "B", 7, 3, "ag1"), id: "league_spring2027_m1" },
+      game("A", "B", 5, 4, "ag1"),
+    ];
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    expect(out).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 1 }]);
+  });
+
+  it("keeps an outside opponent under an id of its own", () => {
+    // The point of including these: the model estimates how good the travel club was, rather than
+    // assuming, which is what makes a shared opponent informative.
+    const games = [game("A", "X", 2, 6, "ag1")];
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.home).toBe("L-ACE");
+    expect(out[0]?.away).not.toBe("L-BEA");
+    expect(out[0]?.away).toContain("X");
+    expect(out[0]?.homeMargin).toBe(-4);
+  });
+
+  it("ignores age groups that do not include this season", () => {
+    const games = [game("A", "B", 7, 3, "ag2")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("returns nothing when no age group is linked to the season at all", () => {
+    const games = [game("A", "B", 7, 3, "ag1")];
+    expect(externalResultsForSeason("winter2099", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("skips a scheduled game that has no score yet", () => {
+    const games = [game("A", "B", undefined, undefined, "ag1")];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+
+  it("matches names across age labels, as everything else here does", () => {
+    const aged = [team("A", "Aces 9U"), team("B", "Bears")];
+    const games = [game("A", "B", 7, 3, "ag1")];
+    const out = externalResultsForSeason("spring2027", groups, aged, games, leagueTeams);
+    expect(out[0]?.home).toBe("L-ACE");
   });
 });
