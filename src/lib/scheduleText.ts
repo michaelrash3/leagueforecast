@@ -8,6 +8,8 @@
  * straight into the ratings where nobody would notice it.
  */
 
+import { normalizeState } from "./teamRankings";
+
 /** Runs in a youth game; anything past this is a misread, not a blowout. */
 const MAX_SCORE = 99;
 const MAX_NAME_LENGTH = 80;
@@ -41,6 +43,9 @@ const clampScheduleDate = (value: unknown): string | undefined => {
  */
 export type ParsedGameRow = {
   date?: string;
+  /** Two-letter states, when the file named them. They describe the teams, not the game. */
+  stateA?: string;
+  stateB?: string;
   /** Home side when the source distinguished one. Absent = the subject team. */
   teamA?: string;
   teamB: string;
@@ -228,6 +233,8 @@ const MATCHUP_HEADERS = {
   scoreA: ["hometeamscore", "homescore", "homeruns", "homepoints", "hometeamruns"],
   teamB: ["awayteam", "away", "visitor", "visitors", "visitingteam", "awayteamname"],
   scoreB: ["awayteamscore", "awayscore", "awayruns", "awaypoints", "visitorscore", "awayteamruns"],
+  stateA: ["homestate", "hometeamstate"],
+  stateB: ["awaystate", "awayteamstate", "visitorstate"],
 } as const;
 
 const SCHEDULE_HEADERS = {
@@ -247,6 +254,7 @@ const SCHEDULE_HEADERS = {
   ],
   result: ["result", "finalscore", "final", "wl"],
   subject: ["team", "myteam", "ourteam", "subject"],
+  stateB: ["state", "opponentstate", "oppstate"],
 } as const;
 
 type MatchupMap = Partial<Record<keyof typeof MATCHUP_HEADERS, number>>;
@@ -316,10 +324,15 @@ const matchupFromCells = (
   const rawB = cellAt(cells, map.scoreB).trim();
   const played = rawA !== "" && rawB !== "";
 
+  const stateA = normalizeState(cellAt(cells, map.stateA));
+  const stateB = normalizeState(cellAt(cells, map.stateB));
+
   return {
     teamA,
     teamB,
     ...(date ? { date } : {}),
+    ...(stateA ? { stateA } : {}),
+    ...(stateB ? { stateB } : {}),
     ...(played ? { scoreA: Number(rawA), scoreB: Number(rawB) } : {}),
   };
 };
@@ -363,9 +376,12 @@ const rowFromCells = (
   void homeAway;
   void markerHome;
 
+  const stateB = normalizeState(cellAt(cells, map.stateB));
+
   return {
     teamB: opponent,
     ...(date ? { date } : {}),
+    ...(stateB ? { stateB } : {}),
     ...(teamScore !== undefined && opponentScore !== undefined
       ? { scoreA: teamScore, scoreB: opponentScore }
       : {}),
@@ -455,6 +471,8 @@ const sanitizeRows = (rows: ParsedGameRow[]): ParsedGameRow[] =>
         teamB,
         ...(teamA ? { teamA } : {}),
         ...(date ? { date } : {}),
+        ...(row.stateA ? { stateA: row.stateA } : {}),
+        ...(row.stateB ? { stateB: row.stateB } : {}),
         ...(played ? { scoreA, scoreB } : {}),
       };
     })

@@ -45,6 +45,7 @@ const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
       id: entry.id as string,
       name: entry.name as string,
       ...(entry.isMine === true ? { isMine: true } : {}),
+      ...(isString(entry.state) ? { state: entry.state } : {}),
     }));
 };
 

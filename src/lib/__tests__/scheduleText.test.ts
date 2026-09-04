@@ -284,3 +284,43 @@ describe("parseScheduleText", () => {
     expect(games[1]).toEqual({ teamB: "NV Stars", date: "2026-08-23" });
   });
 });
+
+describe("state columns", () => {
+  it("reads a state per side from a game list", () => {
+    const { games } = parseScheduleText(
+      [
+        "Date,Home Team,Home State,Home Team Score,Away Team,Away State,Away Team Score",
+        "2026-08-22,NV Stars Scout,KY,12,Ambush,oh,2",
+      ].join("\n")
+    );
+    expect(games[0]?.stateA).toBe("KY");
+    expect(games[0]?.stateB).toBe("OH");
+  });
+
+  it("reads an opponent's state from a schedule", () => {
+    const { games } = parseScheduleText(
+      ["Date,Opponent,State,Us,Them", "2026-08-22,Velocirabbits,IN,6,5"].join("\n")
+    );
+    expect(games[0]?.stateB).toBe("IN");
+  });
+
+  it("ignores anything that is not two letters rather than storing junk", () => {
+    const { games } = parseScheduleText(
+      ["Date,Opponent,State,Us,Them", "2026-08-22,Velocirabbits,Indiana,6,5"].join("\n")
+    );
+    expect(games[0]?.stateB).toBeUndefined();
+    expect(games[0]?.teamB).toBe("Velocirabbits");
+  });
+
+  it("is entirely optional — a file without one reads exactly as before", () => {
+    const { games } = parseScheduleText(
+      ["Date,Opponent,Us,Them", "2026-08-22,Velocirabbits,6,5"].join("\n")
+    );
+    expect(games[0]).toEqual({
+      teamB: "Velocirabbits",
+      date: "2026-08-22",
+      scoreA: 6,
+      scoreB: 5,
+    });
+  });
+});
