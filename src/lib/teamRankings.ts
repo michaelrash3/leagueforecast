@@ -485,3 +485,68 @@ export const externalResultsForSeason = (
       homeMargin: game.teamAScore! - game.teamBScore!,
     }));
 };
+
+/**
+ * Renames a team, merging it into an existing one when the new name is already taken.
+ *
+ * The merge is the point. A schedule that listed an opponent as "TBD", or a name typed two ways,
+ * becomes a second team holding a few games that belong to a real one. Renaming it onto that real
+ * name is how those games get routed home, so this repoints them rather than refusing the name.
+ *
+ * A game between the two teams being merged would become a team playing itself, which is not a
+ * result; those are dropped rather than kept as a nonsense row.
+ */
+export const renameScoutTeam = (
+  teamId: string,
+  nextName: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[]
+): {
+  teams: ScoutTeam[];
+  games: ScoutGame[];
+  mergedInto: ScoutTeam | null;
+  droppedGames: number;
+} => {
+  const display = stripAgeLabel(nextName).trim();
+  if (!display) return { teams, games, mergedInto: null, droppedGames: 0 };
+
+  const key = teamNameKey(display);
+  const target = teams.find((team) => team.id !== teamId && teamNameKey(team.name) === key);
+
+  if (!target) {
+    return {
+      teams: teams.map((team) => (team.id === teamId ? { ...team, name: display } : team)),
+      games,
+      mergedInto: null,
+      droppedGames: 0,
+    };
+  }
+
+  const repointed: ScoutGame[] = [];
+  let droppedGames = 0;
+  games.forEach((game) => {
+    const teamAId = game.teamAId === teamId ? target.id : game.teamAId;
+    const teamBId = game.teamBId === teamId ? target.id : game.teamBId;
+    if (teamAId === teamBId) {
+      droppedGames += 1;
+      return;
+    }
+    repointed.push(
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId }
+    );
+  });
+
+  return {
+    teams: teams.filter((team) => team.id !== teamId),
+    games: repointed,
+    mergedInto: target,
+    droppedGames,
+  };
+};
+
+/** Every game this team has, newest first, across every age group. */
+export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
+  games
+    .filter((game) => game.teamAId === teamId || game.teamBId === teamId)
+    .slice()
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));

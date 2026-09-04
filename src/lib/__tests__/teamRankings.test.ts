@@ -8,6 +8,8 @@ import {
   isScoutGamePlayed,
   predictMatchup,
   externalResultsForSeason,
+  gamesForTeam,
+  renameScoutTeam,
   resolveOrCreateTeam,
   stripAgeLabel,
   teamNameSuggestions,
@@ -505,5 +507,73 @@ describe("externalResultsForSeason", () => {
     const games = [game("A", "B", 7, 3, "ag1")];
     const out = externalResultsForSeason("spring2027", groups, aged, games, leagueTeams);
     expect(out[0]?.home).toBe("L-ACE");
+  });
+});
+
+describe("renameScoutTeam", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("T", "TBD")];
+
+  it("renames in place when the name is free", () => {
+    const out = renameScoutTeam("A", "Aces Red", teams, []);
+    expect(out.mergedInto).toBeNull();
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces Red");
+  });
+
+  it("strips an age label from the new name, like every other entry point", () => {
+    const out = renameScoutTeam("A", "Aces 10U", teams, []);
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces");
+  });
+
+  it("merges into the existing team when the name is taken, routing its games over", () => {
+    // This is how a placeholder gets sent to the team it really was.
+    const games = [game("T", "B", 4, 9, "ag1"), game("A", "B", 3, 2, "ag1")];
+    const out = renameScoutTeam("T", "Aces", teams, games);
+
+    expect(out.mergedInto?.id).toBe("A");
+    expect(out.teams.map((t) => t.id).sort()).toEqual(["A", "B"]);
+    expect(out.games).toHaveLength(2);
+    expect(out.games[0]?.teamAId).toBe("A");
+    expect(out.games[0]?.teamBId).toBe("B");
+    // The untouched game keeps its identity, so React does not see a new object for nothing.
+    expect(out.games[1]).toBe(games[1]);
+  });
+
+  it("drops a game between the two teams being merged rather than keeping a self-match", () => {
+    const games = [game("T", "A", 4, 9, "ag1"), game("T", "B", 1, 0, "ag1")];
+    const out = renameScoutTeam("T", "Aces", teams, games);
+    expect(out.droppedGames).toBe(1);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.teamAId).toBe("A");
+  });
+
+  it("refuses a name that is empty once the age label comes off", () => {
+    const out = renameScoutTeam("A", "   ", teams, []);
+    expect(out.teams).toBe(teams);
+    expect(out.mergedInto).toBeNull();
+  });
+
+  it("is a no-op rename when the name only differs by case or age label", () => {
+    const out = renameScoutTeam("A", "aces 9u", teams, []);
+    // Matching itself is not a merge; the stored spelling just updates.
+    expect(out.mergedInto).toBeNull();
+    expect(out.teams.find((t) => t.id === "A")?.name).toBe("aces");
+  });
+});
+
+describe("gamesForTeam", () => {
+  it("returns every game the team appears in, newest first, across age groups", () => {
+    const games = [
+      { ...game("A", "B", 1, 2, "ag1"), date: "2026-08-01" },
+      { ...game("C", "A", 3, 4, "ag2"), date: "2026-09-01" },
+      { ...game("B", "C", 5, 6, "ag1"), date: "2026-10-01" },
+    ];
+    const out = gamesForTeam("A", games);
+    expect(out).toHaveLength(2);
+    expect(out[0]?.date).toBe("2026-09-01");
+    expect(out[1]?.date).toBe("2026-08-01");
+  });
+
+  it("has nothing to show for a team with no games", () => {
+    expect(gamesForTeam("Z", [game("A", "B", 1, 2, "ag1")])).toEqual([]);
   });
 });
