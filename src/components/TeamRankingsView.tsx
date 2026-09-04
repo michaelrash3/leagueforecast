@@ -276,6 +276,31 @@ export function TeamRankingsView({
     [selectedAgeGroupId, merged.teams, ageGroupGames]
   );
 
+  /**
+   * Every game in every age group, league-derived ones included. Only the team detail panel wants
+   * this: it reports how many games a team has outside the group being ranked, and the chain-scoped
+   * list would silently miss a concurrent, unlinked group — the exact case that count exists for.
+   */
+  const allKnownGames = useMemo(() => {
+    let teams = scoutTeams;
+    const derivedGames: ScoutGame[] = [];
+    ageGroups.forEach((group) => {
+      const derived = deriveLeagueScoutGames(
+        group.id,
+        group.seasonIds.map((seasonId) => ({
+          seasonId,
+          teams: loadTeamsForSeason(seasonId),
+          matchups: loadMatchupsForSeason(seasonId),
+          logs: loadLogsForSeason(seasonId),
+        })),
+        teams
+      );
+      teams = derived.teams;
+      derivedGames.push(...derived.games);
+    });
+    return [...derivedGames, ...scoutGames];
+  }, [ageGroups, scoutGames, scoutTeams]);
+
   const myTeamId = ageGroups.find((g) => g.id === selectedAgeGroupId)?.myTeamId;
 
   const rankings = useMemo(
@@ -436,11 +461,15 @@ export function TeamRankingsView({
     persistGames(preview.games);
     if (preview.mergedInto) {
       // The merged-away team no longer exists, so follow the games to the one that does.
-      setOpenTeamId(preview.mergedInto.id);
-      if (myTeamId === teamId) {
+      const survivor = preview.mergedInto;
+      setOpenTeamId(survivor.id);
+      // Every age group that pointed at the removed team follows it. Repairing only the selected
+      // one would leave another group's star, "use my team" shortcut and default import subject
+      // pointing at an id nothing answers to.
+      if (ageGroups.some((group) => group.myTeamId === teamId)) {
         persistAgeGroups(
           ageGroups.map((group) =>
-            group.id === selectedAgeGroupId ? { ...group, myTeamId: preview.mergedInto!.id } : group
+            group.myTeamId === teamId ? { ...group, myTeamId: survivor.id } : group
           )
         );
       }
@@ -763,8 +792,12 @@ export function TeamRankingsView({
 
       {openTeam && (
         <TeamDetailPanel
+          // Keyed by team, so opening a different one gets a fresh panel. Without this React keeps
+          // the instance and its rename draft still holds the previous team's name — which would
+          // arm Merge to fold the newly opened team into the one you were just looking at.
+          key={openTeam.id}
           team={openTeam}
-          allGames={chainGames}
+          allGames={allKnownGames}
           ageGroupId={selectedAgeGroupId}
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}

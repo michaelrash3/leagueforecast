@@ -356,6 +356,8 @@ export const buildTeamRankings = (
       home: game.teamAId,
       away: game.teamBId,
       homeMargin: game.teamAScore! - game.teamBScore!,
+      // Team A is simply the side entered first, not the home team.
+      neutral: true,
     })),
     { cap: RATING_CAP }
   );
@@ -481,8 +483,9 @@ export const externalResultsForSeason = (
     .map((game) => ({
       home: ratingId(game.teamAId),
       away: ratingId(game.teamBId),
-      // Team Rankings is neutral-site; the pair order carries no home meaning.
       homeMargin: game.teamAScore! - game.teamBScore!,
+      // The pair order is the order it was typed, so this must not reach the home-field estimate.
+      neutral: true,
     }));
 };
 

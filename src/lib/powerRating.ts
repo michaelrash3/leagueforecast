@@ -5,6 +5,13 @@ export type RatingGame = {
   away: string;
   /** Actual run margin from the home team's perspective (homeScore − awayScore), uncapped. */
   homeMargin: number;
+  /**
+   * True when nobody was at home — a tournament game, or any result where the pair order is just
+   * the order it was typed in. Such a game still tells you who is better, but it says nothing
+   * about home-field advantage, so it is left out of that estimate. Without this, entering
+   * neutral games with the same side first every time invents a home-field edge out of nothing.
+   */
+  neutral?: boolean;
 };
 
 export type OpponentAdjustedRatings = {
@@ -124,19 +131,21 @@ export const buildOpponentAdjustedRatings = (
     if (h === undefined || w === undefined) return;
     const margin = clamp(game.homeMargin, -cap, cap);
 
-    // Row vector c: +1 at home, −1 at away, +1 at HFA; contributes c·cᵀ to A and c·margin to rhs.
+    // Row vector c: +1 at home, −1 at away, and `hf` at HFA — 1 for a real home game, 0 when the
+    // game was neutral. Contributes c·cᵀ to A and c·margin to rhs.
+    const hf = game.neutral ? 0 : 1;
     a[h]![h]! += 1;
     a[h]![w]! -= 1;
-    a[h]![hfa]! += 1;
+    a[h]![hfa]! += hf;
     a[w]![h]! -= 1;
     a[w]![w]! += 1;
-    a[w]![hfa]! -= 1;
-    a[hfa]![h]! += 1;
-    a[hfa]![w]! -= 1;
-    a[hfa]![hfa]! += 1;
+    a[w]![hfa]! -= hf;
+    a[hfa]![h]! += hf;
+    a[hfa]![w]! -= hf;
+    a[hfa]![hfa]! += hf * hf;
     rhs[h] += margin;
     rhs[w] -= margin;
-    rhs[hfa] += margin;
+    rhs[hfa] += hf * margin;
 
     rawMarginSum.set(game.home, (rawMarginSum.get(game.home) ?? 0) + margin);
     rawMarginSum.set(game.away, (rawMarginSum.get(game.away) ?? 0) - margin);
