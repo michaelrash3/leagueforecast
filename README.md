@@ -34,6 +34,18 @@ arrive batched into one pull request a week, which CI builds, type-checks, lints
 it can merge. Majors are excluded on purpose — each one is a migration and wants its own pull
 request.
 
+## Two modes
+
+The header switches the whole app between them. They keep separate storage and
+separate teams.
+
+| Mode                 | What it is                                                                                                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **League Standings** | One season of one league, on a fixed schedule, with full box scores. Standings, power ratings, playoff odds, magic numbers, a simulated forecast.                                            |
+| **Team Rankings**    | Any team from any source, scores only. Tournament games, another league's results, an opponent you are about to play. Everyone is rated against everyone else, adjusted for who they played. |
+
+See [Team Rankings](#team-rankings) below for how the two connect.
+
 ## Features
 
 | Area                 | Highlights                                                                             |
@@ -47,6 +59,7 @@ request.
 | **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                    |
 | **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                      |
 | **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                      |
+| **Team Rankings**    | Age groups, opponent-adjusted ratings, scouting report, CSV/paste import, team detail. |
 
 ## Architecture
 
@@ -69,6 +82,8 @@ src/
     geminiModels.ts       # Gemini model discovery + newest-first ranking
     leagueSummary.ts      # shared request contract + prompt building
     scheduleText.ts       # reads pasted text / CSV into games, entirely on the device
+    teamRankings.ts       # age groups, opponent-adjusted ratings, name matching, rename/merge
+    teamRankingsStorage.ts # its own localStorage keys, shared across seasons
     leagueSummaryClient.ts # browser client for /api/league-summary
     share.ts
     storage.ts
@@ -91,11 +106,106 @@ src/
     CommandPalette.tsx
     ShortcutsHelp.tsx
     OnboardingTour.tsx
+    TeamRankingsView.tsx
+    TeamDetailPanel.tsx
+    ScheduleImportPanel.tsx
     charts/
       LineChart.tsx
       HeadToHeadMatrix.tsx
   styles/tokens.ts
 ```
+
+## Team Rankings
+
+A separate ranking pool for teams from anywhere: tournament opponents, another
+league, a club you are about to play. Only scores are entered — there are no box
+scores here — and every team is rated against every other by the same
+opponent-adjusted model the league uses.
+
+### Age groups
+
+Nothing can be logged until an age group exists, because every game has to know
+which ranking it belongs to. A 9U score says nothing about an 11U game, so the
+two never mix.
+
+An age group is a name, zero or more League Standings seasons that belong to it,
+and optionally the age group it **continues from**.
+
+| Concept           | What it does                                                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Assigned seasons  | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                      |
+| `continuesFromId` | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel** — results never pool, so a 10U group that continues from a 9U one starts at zero games. |
+| `myTeamId`        | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                     |
+
+Two age groups running at the same time and not linked share no names, which is
+what stops a 9U opponent appearing while logging an 11U game.
+
+### How the two modes connect
+
+**League → Team Rankings, always.** A season assigned to an age group brings its
+whole schedule: upcoming games show their opponent right away, and once a game is
+scored in League Standings it counts as a final here too.
+
+**Team Rankings → League, by choice.** Tournament results sharpen that league's
+_game forecasts_ — see the `useScoutResults` setting. They help most where a
+schedule is thin: two teams who never met become comparable through an opponent
+they both played elsewhere. Records, standings, elo, recent form and strength of
+schedule stay league-only. Games carried in from the league are excluded on the
+way back, so nothing is counted twice.
+
+### Names
+
+Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
+Lexington Red". The age level is already carried by the age group, and keeping it
+in the name would split one club into a new team every year as it plays up.
+
+Clicking a team opens everything logged for it, and is also where a name is
+corrected. **Renaming onto a name that already exists merges the two** — which is
+how a game logged against "TBD", or a club typed two ways, reaches the team it
+belongs to.
+
+### Importing
+
+Paste games or pick a `.csv`. It is read on the device: no API key, no network
+call, nothing to run out. Two layouts are recognised:
+
+```
+Date,Home Team,Home Team Score,Away Team,Away Team Score
+August 22 2026,NV Stars Scout,12,Ambush,2
+September 5 2026,Ambush,,NV Stars Scout,
+```
+
+```
+Date,Opponent,Us,Them
+2026-08-22,Velocirabbits,6,5
+```
+
+The first names both teams and needs nothing else. The second is one team's
+schedule, so every score is from that team's side and the importer asks who that
+is. Blank scores mean _not played yet_ in either layout.
+
+Also read: spreadsheet (tab) pastes, headerless CSVs, `Home`/`Visitor` column
+variants, a single combined `6-5` or `W 6-5` score column, quoted names
+containing commas, a `Team` column crediting each row to that team, and schedule
+lines like `SAT 22 vs. Velocirabbits W 6-5` under an `August 2026` heading.
+
+Everything goes through a review table before it is saved. Two things are never
+guessed: a year that is not in the data (`8/22` alone gets no date rather than a
+wrong one), and a line that cannot be read, which is listed back as skipped.
+Rows already logged here arrive flagged and excluded, placeholders (`TBD`,
+`Winner of Game 3`) are called out, and a name close to a team already known
+offers it as a one-click correction.
+
+### Ratings
+
+A rating estimates how many runs a team beats an average opponent by, adjusted
+for opponent strength, capped at ±8 so one blowout cannot run away with a season.
+Only completed games count; scheduled ones exist so a future opponent can be
+logged early. Win probabilities are clamped to 8–92% — youth baseball has no
+locks.
+
+Until teams share opponents, directly or through a chain, a rating is close to a
+plain run differential. A table full of 0-0 · +0.0 means no finals are in yet.
 
 ## Postseason format
 
@@ -125,20 +235,24 @@ explicitly that no cut line exists and to cover the race for the top instead.
 
 ## Settings
 
-| Setting          | Effect                                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Season label     | Header/export label.                                                                                             |
-| Postseason       | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.          |
-| Gold cutoff      | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                      |
-| Score errors     | Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                |
-| Win / Tie points | Math calculations and Gold status.                                                                               |
-| Tiebreaker order | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored. |
-| Recap grouping   | Builds stories per game, date, or week.                                                                          |
-| Model aggression | Prediction weighting profile.                                                                                    |
+| Setting               | Effect                                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Season label          | Header/export label.                                                                                                                                                      |
+| Postseason            | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.                                                                   |
+| Gold cutoff           | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                                                                               |
+| Score errors          | Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                                                                         |
+| Win / Tie points      | Math calculations and Gold status.                                                                                                                                        |
+| Tiebreaker order      | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored.                                                          |
+| Team Rankings results | Whether tournament games logged in Team Rankings sharpen this league's game forecasts (`useScoutResults`). Forecasts only — records and standings are always league-only. |
+| Recap grouping        | Builds stories per game, date, or week.                                                                                                                                   |
+| Model aggression      | Prediction weighting profile.                                                                                                                                             |
 
 ## Data + persistence
 
 - `league_teams_v1`, `league_matchups_v1`, `league_logs_v1`, `league_settings_v1`
+- Team Rankings keeps its own keys, shared across seasons:
+  `league_forecast_scout_teams_v1`, `league_forecast_scout_games_v1`,
+  `league_forecast_scout_age_groups_v1`
 - `league_undo_snapshot_v1`
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
