@@ -7198,15 +7198,20 @@ function SettingsView({
               }
               className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
-              <option value="on">Count toward game forecasts</option>
+              <option value="on">Count toward power ratings</option>
               <option value="off">League games only</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
               Tournament games logged in Team Rankings, for an age group that includes this season,
-              sharpen this league&apos;s matchup forecasts. They help most where the schedule is
-              thin: two teams who never played each other become comparable through an opponent they
-              both faced elsewhere. Records, standings and strength of schedule are always
-              league-only — this changes forecasts, not results.
+              sharpen this league&apos;s <strong>opponent-adjusted power ratings</strong> and the
+              matchup analysis built on them. They help most where the schedule is thin: two teams
+              who never played each other become comparable through an opponent they both faced
+              elsewhere. Records, standings and strength of schedule are always league-only.
+            </p>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              The Forecast board&apos;s game picks and the simulated season come from a different
+              model, built on per-game runs, hits, walks and errors. Team Rankings holds final
+              scores only, so it has nothing to give that model and leaves it unchanged.
             </p>
           </label>
 

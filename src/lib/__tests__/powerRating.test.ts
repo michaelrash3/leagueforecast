@@ -86,3 +86,58 @@ describe("buildOpponentAdjustedRatings", () => {
     expect([...a.ratings.entries()]).toEqual([...b.ratings.entries()]);
   });
 });
+
+describe("neutral-site games and the home-field estimate", () => {
+  it("does not invent a home edge from games that had no home team", () => {
+    // Every row entered with the stronger side first. If those counted toward home field, the
+    // model would conclude that being listed first is worth runs.
+    const games = [
+      { home: "A", away: "B", homeMargin: 6, neutral: true },
+      { home: "A", away: "C", homeMargin: 5, neutral: true },
+      { home: "B", away: "C", homeMargin: 4, neutral: true },
+    ];
+    const out = buildOpponentAdjustedRatings(["A", "B", "C"], games);
+    expect(out.homeAdvantage).toBe(0);
+  });
+
+  it("still finds one from real home games", () => {
+    const games = [
+      { home: "A", away: "B", homeMargin: 6 },
+      { home: "B", away: "A", homeMargin: 2 },
+      { home: "A", away: "C", homeMargin: 5 },
+      { home: "C", away: "A", homeMargin: 1 },
+    ];
+    const out = buildOpponentAdjustedRatings(["A", "B", "C"], games);
+    expect(out.homeAdvantage).toBeGreaterThan(0);
+  });
+
+  it("still rates teams from neutral games — only the home term is excluded", () => {
+    const out = buildOpponentAdjustedRatings(
+      ["A", "B"],
+      [{ home: "A", away: "B", homeMargin: 8, neutral: true }]
+    );
+    expect(out.ratings.get("A") ?? 0).toBeGreaterThan(out.ratings.get("B") ?? 0);
+  });
+
+  it("keeps a real home edge out of the neutral rows' reach", () => {
+    // Two league games with a genuine home edge, plus a lopsided neutral one entered A-first.
+    // The neutral row must move the ratings without touching homeAdvantage's evidence.
+    const leagueOnly = buildOpponentAdjustedRatings(
+      ["A", "B"],
+      [
+        { home: "A", away: "B", homeMargin: 4 },
+        { home: "B", away: "A", homeMargin: 4 },
+      ]
+    );
+    const withNeutral = buildOpponentAdjustedRatings(
+      ["A", "B"],
+      [
+        { home: "A", away: "B", homeMargin: 4 },
+        { home: "B", away: "A", homeMargin: 4 },
+        { home: "A", away: "B", homeMargin: 9, neutral: true },
+      ]
+    );
+    expect(withNeutral.homeAdvantage).toBeCloseTo(leagueOnly.homeAdvantage, 6);
+    expect(withNeutral.ratings.get("A") ?? 0).toBeGreaterThan(leagueOnly.ratings.get("A") ?? 0);
+  });
+});

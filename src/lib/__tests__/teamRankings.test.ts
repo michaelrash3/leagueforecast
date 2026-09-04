@@ -462,7 +462,7 @@ describe("externalResultsForSeason", () => {
   it("maps a team to its league id by name and reports the margin", () => {
     const games = [game("A", "B", 7, 3, "ag1")];
     expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([
-      { home: "L-ACE", away: "L-BEA", homeMargin: 4 },
+      { home: "L-ACE", away: "L-BEA", homeMargin: 4, neutral: true },
     ]);
   });
 
@@ -474,7 +474,7 @@ describe("externalResultsForSeason", () => {
       game("A", "B", 5, 4, "ag1"),
     ];
     const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
-    expect(out).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 1 }]);
+    expect(out).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 1, neutral: true }]);
   });
 
   it("keeps an outside opponent under an id of its own", () => {

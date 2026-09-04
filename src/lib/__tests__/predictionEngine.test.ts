@@ -121,3 +121,31 @@ describe("buildPredictionEngine with results from outside the league", () => {
     expect(withExtra.powerRatings.every((r) => r.teamName !== "S-TRAVEL")).toBe(true);
   });
 });
+
+describe("home/away is a coin flip at this level", () => {
+  it("does not fit a home-field edge out of an arbitrary designation", () => {
+    // Which side is recorded as home is decided by a coin flip in nearly every game, so any
+    // home-field coefficient fitted from it is noise that every prediction then subtracts.
+    const live = calculateTeams(teams, matchups, logs, DEFAULT_SETTINGS);
+    const result = buildPredictionEngine(live, matchups, logs, DEFAULT_SETTINGS);
+    expect(result.powerRatings.length).toBeGreaterThan(0);
+    // Ratings still separate the teams; only the home term is gone.
+    const ratings = result.powerRatings.map((r) => r.rating);
+    expect(Math.max(...ratings)).toBeGreaterThan(Math.min(...ratings));
+  });
+
+  it("forecasts from outside results alone before any league game is final", () => {
+    // A preseason tournament is exactly the thin-schedule case these help most, and gating on a
+    // league final would have made them useless until the season started.
+    const noLogs: Record<string, GameLog> = {};
+    const live = calculateTeams(teams, matchups, noLogs, DEFAULT_SETTINGS);
+    const cold = buildPredictionEngine(live, matchups, noLogs, DEFAULT_SETTINGS);
+    expect(cold.dataQuality.tier).toBe("Insufficient");
+
+    const warm = buildPredictionEngine(live, matchups, noLogs, DEFAULT_SETTINGS, [
+      { home: "FAL", away: "S-TRAVEL", homeMargin: 8, neutral: true },
+      { home: "WOL", away: "S-TRAVEL", homeMargin: -6, neutral: true },
+    ]);
+    expect(warm.dataQuality.tier).not.toBe("Insufficient");
+  });
+});

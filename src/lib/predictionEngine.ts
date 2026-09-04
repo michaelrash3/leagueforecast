@@ -68,7 +68,8 @@ const completedGamesFrom = (matchups: Matchup[], logs: Record<string, GameLog>) 
 const tierForData = (
   teams: TeamBase[],
   completedGames: CompletedGame[],
-  futureGames: Matchup[]
+  futureGames: Matchup[],
+  externalCount = 0
 ) => {
   const teamGameCounts = new Map(teams.map((team) => [team.id, 0]));
   completedGames.forEach((game) => {
@@ -99,7 +100,12 @@ const tierForData = (
     recommendedActions.push("Add future scheduled games to generate upcoming predictions.");
 
   const tier: DataQualityTier =
-    teams.length < 2 || completedGames.length === 0
+    // Results from outside the league count toward there being *something* to go on. A league
+    // whose season has not started, but whose teams played a preseason tournament, can be
+    // forecast — that thin-schedule case is the one external results help most, and gating it on
+    // a league final would have made them useless exactly when they mattered. The higher tiers
+    // still want league games, since only those carry the full box score.
+    teams.length < 2 || completedGames.length + externalCount === 0
       ? "Insufficient"
       : completedGames.length >= teams.length * 4 && minGames >= 4
         ? "Excellent"
@@ -119,7 +125,13 @@ const confidenceTier = (score: number): ConfidenceTier =>
  * `home`/`away` are rating ids: a league team's own id where the name matches one, otherwise a
  * synthetic id for an opponent the league never plays.
  */
-export type ExternalResult = { home: string; away: string; homeMargin: number };
+export type ExternalResult = {
+  home: string;
+  away: string;
+  homeMargin: number;
+  /** These are tournament games with no home side; see `RatingGame.neutral`. */
+  neutral?: boolean;
+};
 
 export const buildPredictionEngine = (
   teams: Team[],
@@ -131,7 +143,7 @@ export const buildPredictionEngine = (
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
   const futureGames = matchups.filter((game) => !isFinal(logs[game.id]));
-  const dataQuality = tierForData(teams, completedGames, futureGames);
+  const dataQuality = tierForData(teams, completedGames, futureGames, externalResults.length);
   const leagueAvgScoring = completedGames.length
     ? completedGames.reduce((sum, game) => sum + game.awayScore + game.homeScore, 0) /
       (completedGames.length * 2)
@@ -155,10 +167,19 @@ export const buildPredictionEngine = (
   const adjusted = buildOpponentAdjustedRatings(
     [...ratingIds],
     [
+      // Which side is recorded as home is settled by a coin flip in very nearly every game at this
+      // level, so it is not a venue assignment: no travel, no crowd, no familiar park. Fitting a
+      // home-field coefficient from it fits noise, which every prediction then subtracts from its
+      // margin.
+      //
+      // Batting last is the one thing being home does buy, and it is real — a final chance to come
+      // back. But it is a win-probability effect in close games, not a run-margin one, so it does
+      // not belong in this term either. It is simply not modelled.
       ...completedGames.map((game) => ({
         home: game.home,
         away: game.away,
         homeMargin: game.homeScore - game.awayScore,
+        neutral: true,
       })),
       ...externalResults,
     ],
