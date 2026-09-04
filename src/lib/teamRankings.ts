@@ -550,3 +550,93 @@ export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
     .filter((game) => game.teamAId === teamId || game.teamBId === teamId)
     .slice()
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
+/**
+ * Names that stand in for a team nobody has decided yet: a bracket slot, a rained-out reschedule,
+ * a blank cell. Worth flagging on import, because logging one creates a "team" that will collect
+ * games belonging to whoever actually turns up.
+ */
+const PLACEHOLDER_NAMES = new Set([
+  "tbd",
+  "tba",
+  "tbc",
+  "bye",
+  "n/a",
+  "na",
+  "none",
+  "unknown",
+  "opponent",
+  "team",
+  "?",
+  "??",
+  "???",
+  "-",
+  "--",
+]);
+
+export const isPlaceholderName = (name: string): boolean => {
+  const raw = name.trim();
+  if (!raw) return true;
+  // A name that is nothing but an age level names no team. `stripAgeLabel` keeps it rather than
+  // returning an empty string, so it has to be recognised here.
+  if (/^(?:\d{1,2}\s*u|u\s*\d{1,2})$/i.test(raw)) return true;
+
+  // Dots go so "T.B.D." reads as "tbd"; they are punctuation in an abbreviation, not a name.
+  const value = stripAgeLabel(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s{2,}/g, " ");
+  if (!value) return true;
+  if (PLACEHOLDER_NAMES.has(value)) return true;
+  // "To be determined", "Winner of Game 3", "Loser of semifinal" — a slot, not a club.
+  return /^(to be (determined|announced)|winner of\b|loser of\b|game \d+|seed \d+)/.test(value);
+};
+
+/** Levenshtein distance, capped short-circuit free — names here are at most a line long. */
+const editDistance = (a: string, b: string): number => {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const row = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i += 1) {
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min((row[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = row[j] ?? 0;
+  }
+  return prev[b.length] ?? 0;
+};
+
+/**
+ * The team this name was probably meant to be, when it is close to one already known but not the
+ * same. Returns nothing for an exact match — that is not a near miss, it is the team.
+ *
+ * Two kinds of "close" matter here, and they are different mistakes. One name containing the other
+ * is usually a suffix nobody agreed on ("NV Stars" against "NV Stars Scout"). A small edit distance
+ * is a typo. Both are offered as a suggestion and never applied automatically, because
+ * "South Lexington Red" and "South Lexington Blue" are two real teams four characters apart.
+ */
+export const findSimilarTeam = (name: string, teams: ScoutTeam[]): ScoutTeam | null => {
+  const key = teamNameKey(name);
+  if (key.length < 4 || isPlaceholderName(name)) return null;
+
+  let best: { team: ScoutTeam; score: number } | null = null;
+  teams.forEach((team) => {
+    const other = teamNameKey(team.name);
+    if (other === key || other.length < 4) return;
+
+    const contains = other.startsWith(key) || key.startsWith(other);
+    const distance = editDistance(key, other);
+    const ratio = 1 - distance / Math.max(key.length, other.length);
+    // A shared prefix is strong evidence; otherwise the names have to be nearly identical.
+    const score = contains ? Math.max(ratio, 0.9) : ratio;
+    // 0.82 admits a two-edit typo in a twelve-character name. It deliberately stops short of
+    // "South Lexington Red" against "…Blue", which lands at 0.80 and is two real teams.
+    if (score < 0.82) return;
+    if (!best || score > best.score) best = { team, score };
+  });
+
+  return best ? (best as { team: ScoutTeam }).team : null;
+};

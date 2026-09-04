@@ -8,7 +8,9 @@ import {
   isScoutGamePlayed,
   predictMatchup,
   externalResultsForSeason,
+  findSimilarTeam,
   gamesForTeam,
+  isPlaceholderName,
   renameScoutTeam,
   resolveOrCreateTeam,
   stripAgeLabel,
@@ -575,5 +577,70 @@ describe("gamesForTeam", () => {
 
   it("has nothing to show for a team with no games", () => {
     expect(gamesForTeam("Z", [game("A", "B", 1, 2, "ag1")])).toEqual([]);
+  });
+});
+
+describe("isPlaceholderName", () => {
+  it("catches the ways a schedule says nobody has decided yet", () => {
+    [
+      "TBD",
+      "tba",
+      "T.B.D.",
+      "BYE",
+      "?",
+      "--",
+      "To be determined",
+      "Winner of Game 3",
+      "Seed 4",
+    ].forEach((name) => expect(isPlaceholderName(name)).toBe(true));
+  });
+
+  it("treats a blank as a placeholder too", () => {
+    expect(isPlaceholderName("   ")).toBe(true);
+    expect(isPlaceholderName("9U")).toBe(true);
+  });
+
+  it("leaves real team names alone", () => {
+    ["Aces", "NV Stars Scout", "606 Outlaws", "Trash Pandas", "Bye Bye Birdies"].forEach((name) =>
+      expect(isPlaceholderName(name)).toBe(false)
+    );
+  });
+});
+
+describe("findSimilarTeam", () => {
+  const teams = [
+    team("A", "NV Stars"),
+    team("B", "South Lexington Red"),
+    team("C", "South Lexington Blue"),
+    team("D", "Trash Pandas"),
+  ];
+
+  it("suggests the team a longer variant was probably meant to be", () => {
+    expect(findSimilarTeam("NV Stars Scout", teams)?.id).toBe("A");
+  });
+
+  it("catches a typo", () => {
+    expect(findSimilarTeam("Trash Panda", teams)?.id).toBe("D");
+    expect(findSimilarTeam("Trsah Pandas", teams)?.id).toBe("D");
+  });
+
+  it("does not confuse two real teams that share a long prefix", () => {
+    // The whole reason this suggests rather than applies.
+    const withoutBlue = teams.filter((t) => t.id !== "C");
+    expect(findSimilarTeam("South Lexington Blue", withoutBlue)).toBeNull();
+  });
+
+  it("says nothing for an exact match, which is not a near miss", () => {
+    expect(findSimilarTeam("NV Stars", teams)).toBeNull();
+    expect(findSimilarTeam("nv stars 9u", teams)).toBeNull();
+  });
+
+  it("says nothing for a placeholder or a name too short to judge", () => {
+    expect(findSimilarTeam("TBD", teams)).toBeNull();
+    expect(findSimilarTeam("NV", teams)).toBeNull();
+  });
+
+  it("says nothing when nothing is close", () => {
+    expect(findSimilarTeam("Bourbon Bandits", teams)).toBeNull();
   });
 });
