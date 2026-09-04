@@ -27,7 +27,7 @@ export function ShortcutsHelp({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 p-3"
+      className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/40 p-3"
       role="presentation"
       onClick={onClose}
     >
@@ -67,7 +67,7 @@ export function ShortcutsHelp({
                     className="flex items-center justify-between gap-3 text-sm font-bold text-slate-700 dark:text-slate-200"
                   >
                     <span>{entry.description}</span>
-                    <kbd className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    <kbd className="rounded-sm border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                       {entry.combo}
                     </kbd>
                   </li>

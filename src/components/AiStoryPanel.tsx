@@ -72,7 +72,7 @@ export function AiStoryPanel({
   if (!text && !loading) return null;
 
   return (
-    <div className="mb-3 whitespace-pre-line rounded-lg bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+    <div className="mb-3 whitespace-pre-line rounded-lg bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
       <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <span>{title}</span>
         {source === "gemini" && (

@@ -49,7 +49,7 @@ export function OnboardingTour({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/30 p-3 sm:items-center">
+    <div className="fixed inset-0 z-60 flex items-end justify-center bg-slate-950/30 p-3 sm:items-center">
       <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
         <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <span>
@@ -58,7 +58,7 @@ export function OnboardingTour({
           <button
             type="button"
             onClick={dismiss}
-            className="rounded px-2 py-0.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            className="rounded-sm px-2 py-0.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           >
             Skip
           </button>
@@ -82,7 +82,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               Next
             </button>
@@ -90,7 +90,7 @@ export function OnboardingTour({
             <button
               type="button"
               onClick={dismiss}
-              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              className="rounded-lg bg-slate-950 px-4 py-1.5 text-sm font-bold text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               Get Started
             </button>
