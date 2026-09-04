@@ -1811,7 +1811,7 @@ function TeamDrawer({
       role="presentation"
     >
       {/* Stop click + keydown propagation so the backdrop's onClose doesn't fire from inside the dialog. */}
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <aside
         ref={ref}
         role="dialog"
