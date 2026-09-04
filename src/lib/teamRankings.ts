@@ -53,6 +53,15 @@ export type ScoutGame = {
   teamBScore?: number;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
+  /**
+   * Logged, but deliberately kept out of the ratings and records.
+   *
+   * Fall tournaments routinely pair a team against the age group above or below, depending on who
+   * entered. Those games happened and are worth keeping — but a 10U beating an 8U says nothing
+   * about how it stacks up against other 10Us, and letting it count would flatter or punish both
+   * sides for something neither chose.
+   */
+  excluded?: boolean;
   date?: string;
   event?: string;
   note?: string;
@@ -244,7 +253,7 @@ export const teamsInAgeGroup = (
 ): ScoutTeam[] => {
   const active = new Set<string>();
   games.forEach((game) => {
-    if (game.ageGroupId !== ageGroupId) return;
+    if (game.ageGroupId !== ageGroupId || !countsTowardRating(game)) return;
     active.add(game.teamAId);
     active.add(game.teamBId);
   });
@@ -293,6 +302,14 @@ export const teamNameSuggestions = (
   });
   return teams.filter((team) => active.has(team.id));
 };
+
+/**
+ * Whether a game feeds the ratings and records: it has to have been played, and not be one of the
+ * cross-age tournament games kept only for the record. Every ranking calculation goes through this,
+ * so there is one answer to the question rather than four filters that can drift apart.
+ */
+export const countsTowardRating = (game: ScoutGame): boolean =>
+  isScoutGamePlayed(game) && game.excluded !== true;
 
 const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;
@@ -348,7 +365,7 @@ export const buildTeamRankings = (
   myTeamId?: string
 ): ScoutRankingRow[] => {
   const playedGames = games.filter(
-    (game) => game.ageGroupId === ageGroupId && isScoutGamePlayed(game)
+    (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
   );
   const adjusted = buildOpponentAdjustedRatings(
     teams.map((team) => team.id),
@@ -478,7 +495,7 @@ export const externalResultsForSeason = (
       (game) =>
         linked.has(game.ageGroupId) &&
         !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
-        isScoutGamePlayed(game)
+        countsTowardRating(game)
     )
     .map((game) => ({
       home: ratingId(game.teamAId),

@@ -7,6 +7,7 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
+  countsTowardRating,
   externalResultsForSeason,
   findSimilarTeam,
   gamesForTeam,
@@ -75,10 +76,12 @@ describe("teamsInAgeGroup", () => {
     expect(inAg1).not.toContain("C");
   });
 
-  it("counts a scheduled game as belonging to the age group", () => {
+  it("does not rank a team on the strength of a game it has not played", () => {
+    // A scheduled game puts an opponent in the log, not in the table. Ranking them on it would
+    // show a 0-0 · +0.0 row that says nothing and pushes teams with real results down.
     const teams = [team("A", "Aces"), team("B", "Bears")];
     const games = [game("A", "B", undefined, undefined, "ag1")];
-    expect(teamsInAgeGroup("ag1", teams, games)).toHaveLength(2);
+    expect(teamsInAgeGroup("ag1", teams, games)).toEqual([]);
   });
 });
 
@@ -642,5 +645,66 @@ describe("findSimilarTeam", () => {
 
   it("says nothing when nothing is close", () => {
     expect(findSimilarTeam("Bourbon Bandits", teams)).toBeNull();
+  });
+});
+
+describe("games that do not count", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+
+  it("keeps a scheduled game out of the ratings, as before", () => {
+    expect(countsTowardRating(game("A", "B", undefined, undefined, "ag1"))).toBe(false);
+  });
+
+  it("keeps an excluded game out even though it was played", () => {
+    // A fall tournament pairing a 10U against an 8U: real, worth keeping, but it says nothing
+    // about this age group.
+    expect(countsTowardRating({ ...game("A", "B", 12, 1, "ag1"), excluded: true })).toBe(false);
+    expect(countsTowardRating(game("A", "B", 12, 1, "ag1"))).toBe(true);
+  });
+
+  it("leaves an excluded game out of records and ratings", () => {
+    const games = [
+      game("A", "B", 6, 2, "ag1"),
+      { ...game("A", "C", 20, 0, "ag1"), excluded: true },
+    ];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const aces = rows.find((row) => row.teamId === "A")!;
+    expect(aces.record).toBe("1-0");
+    expect(aces.games).toBe(1);
+    // The 20-0 would have dominated the rating had it counted.
+    const withoutIt = buildTeamRankings("ag1", teams, [games[0]!]);
+    expect(aces.rating).toBeCloseTo(withoutIt.find((r) => r.teamId === "A")!.rating, 10);
+  });
+
+  it("does not rank a team whose only game here does not count", () => {
+    const games = [
+      game("A", "B", 6, 2, "ag1"),
+      { ...game("A", "C", 20, 0, "ag1"), excluded: true },
+    ];
+    expect(
+      teamsInAgeGroup("ag1", teams, games)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B"]);
+  });
+
+  it("does not rank a team that has only scheduled games", () => {
+    // In the league but yet to play: a 0-0 · +0.0 row says nothing and pushes real teams down.
+    const games = [game("A", "B", 6, 2, "ag1"), game("A", "C", undefined, undefined, "ag1")];
+    expect(
+      teamsInAgeGroup("ag1", teams, games)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B"]);
+  });
+
+  it("keeps an excluded game out of what reaches the league forecast", () => {
+    const groups: AgeGroup[] = [{ id: "ag1", name: "2027", seasonIds: ["spring2027"] }];
+    const leagueTeams = [
+      { id: "L-ACE", name: "Aces" },
+      { id: "L-BEA", name: "Bears" },
+    ];
+    const games = [{ ...game("A", "B", 12, 1, "ag1"), excluded: true }];
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
   });
 });

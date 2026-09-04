@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  countsTowardRating,
   gamesForTeam,
   isScoutGamePlayed,
   teamNameKey,
@@ -56,7 +57,10 @@ export function TeamDetailPanel({
   const here = everyGame.filter((game) => game.ageGroupId === ageGroupId);
   const elsewhere = everyGame.length - here.length;
 
-  const played = here.filter(isScoutGamePlayed);
+  // The record shown here has to match the ranking table's, so it uses the same filter: played,
+  // and not one of the cross-age games deliberately left out.
+  const played = here.filter(countsTowardRating);
+  const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
   const wins = played.filter((game) => {
     const isA = game.teamAId === team.id;
     return (
@@ -88,6 +92,9 @@ export function TeamDetailPanel({
             {played.length === 0
               ? `No completed games in ${ageGroupName || "this age group"} yet.`
               : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${played.length} game${played.length === 1 ? "" : "s"}.`}
+            {notCounted.length > 0
+              ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
+              : ""}
             {elsewhere > 0
               ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in other age groups, not counted here.`
               : ""}
@@ -159,7 +166,11 @@ export function TeamDetailPanel({
                 className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
               >
                 <span className="flex items-center gap-2">
-                  {line.result ? (
+                  {game.excluded ? (
+                    <span className={pill("amber")} title="Kept, but not counted">
+                      —
+                    </span>
+                  ) : line.result ? (
                     <span
                       className={pill(
                         line.result === "W" ? "emerald" : line.result === "L" ? "red" : "neutral"

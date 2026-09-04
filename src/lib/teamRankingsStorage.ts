@@ -71,6 +71,7 @@ const coerceScoutGames = (raw: unknown): ScoutGame[] => {
       ...(isString(entry.date) ? { date: entry.date } : {}),
       ...(isString(entry.event) ? { event: entry.event } : {}),
       ...(isString(entry.note) ? { note: entry.note } : {}),
+      ...(entry.excluded === true ? { excluded: true } : {}),
     }));
 };
 
