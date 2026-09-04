@@ -1,5 +1,7 @@
-/// <reference types="vitest" />
-import { defineConfig } from "vite";
+// Vitest 3 dropped the module augmentation that let Vite's own `defineConfig` accept a `test`
+// block, so the config is defined through `vitest/config` instead. It is Vite's `defineConfig`
+// with the test options typed on top; every Vite option below is unchanged.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
