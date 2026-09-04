@@ -1,0 +1,36 @@
+# Keeps dependencies current without letting them drift silently.
+#
+# Every update arrives as a pull request that CI builds, type-checks, lints and tests before it can
+# merge — which is the point: "up to date" is only safe when something proves the update works
+# first. Patch and minor updates are batched into one PR a week so routine currency costs one
+# review; major updates are deliberately excluded (see below) because each one is a migration.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the whole safe batch rather than a stream of single-package PRs.
+      routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Majors are migrations, not updates — React 19, Tailwind 4 and friends each touch real code
+      # and want their own PR with their own verification. Drop this block to have Dependabot
+      # propose them here instead.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: deps
+
+  # The workflow's own actions age too, and a pinned action that stops being maintained is the
+  # kind of thing nobody notices until a run breaks.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

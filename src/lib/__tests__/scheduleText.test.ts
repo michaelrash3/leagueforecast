@@ -27,6 +27,15 @@ describe("parseScheduleDate", () => {
     expect(parseScheduleDate("next Saturday")).toBeUndefined();
     expect(parseScheduleDate("")).toBeUndefined();
   });
+
+  it("rejects a day the calendar does not have", () => {
+    // These read as well-formed but are not real days; storing them would look right and be wrong.
+    expect(parseScheduleDate("2026-02-31")).toBeUndefined();
+    expect(parseScheduleDate("April 31 2026")).toBeUndefined();
+    expect(parseScheduleDate("2026-02-29")).toBeUndefined();
+    // 2028 is a leap year, so this one is real.
+    expect(parseScheduleDate("2028-02-29")).toBe("2028-02-29");
+  });
 });
 
 describe("parseScorePair", () => {
@@ -190,12 +199,7 @@ describe("parseScheduleText", () => {
     expect(games[0]?.teamB).toBe("Velocirabbits");
   });
 
-  it("takes a team column as the subject only when every row agrees", () => {
-    const agreed = parseScheduleText(
-      ["Team,Date,Opponent,Score", "South Lexington Red,2026-08-22,Velocirabbits,6-5"].join("\n")
-    );
-    expect(agreed.subjectTeam).toBe("South Lexington Red");
-
+  it("credits each row to its own Team column, not to one name for the whole file", () => {
     const mixed = parseScheduleText(
       [
         "Team,Date,Opponent,Score",
@@ -203,8 +207,57 @@ describe("parseScheduleText", () => {
         "Cincinnati Hornets,2026-08-23,NV Stars,3-10",
       ].join("\n")
     );
+    // Without a per-row team every one of these games would be credited to whoever was typed
+    // into "whose schedule is this?" — silently attributing another club's scores.
+    expect(mixed.games).toEqual([
+      {
+        teamA: "South Lexington Red",
+        teamB: "Velocirabbits",
+        date: "2026-08-22",
+        scoreA: 6,
+        scoreB: 5,
+      },
+      {
+        teamA: "Cincinnati Hornets",
+        teamB: "NV Stars",
+        date: "2026-08-23",
+        scoreA: 3,
+        scoreB: 10,
+      },
+    ]);
     expect(mixed.subjectTeam).toBeUndefined();
-    expect(mixed.games).toHaveLength(2);
+  });
+
+  it("reports a single-team file's name as the subject as well as on each row", () => {
+    const agreed = parseScheduleText(
+      ["Team,Date,Opponent,Score", "South Lexington Red,2026-08-22,Velocirabbits,6-5"].join("\n")
+    );
+    expect(agreed.subjectTeam).toBe("South Lexington Red");
+    expect(agreed.games[0]?.teamA).toBe("South Lexington Red");
+  });
+
+  it("reads the score even when a status word follows it", () => {
+    const { games } = parseScheduleText(
+      ["August 2026", "SAT 22 vs. Rockets W 6-5 Final", "SUN 23 @ Bandits L 3-10 F/6"].join("\n")
+    );
+    // With the status left in place the numbers are unreachable and the whole result ends up
+    // inside the opponent's name.
+    expect(games).toEqual([
+      { teamB: "Rockets", date: "2026-08-22", scoreA: 6, scoreB: 5 },
+      { teamB: "Bandits", date: "2026-08-23", scoreA: 3, scoreB: 10 },
+    ]);
+  });
+
+  it("does not mistake a comma inside a schedule line for a CSV delimiter", () => {
+    const { games } = parseScheduleText("August 22, 2026 vs. Rockets W 6-5");
+    expect(games).toEqual([{ teamB: "Rockets", date: "2026-08-22", scoreA: 6, scoreB: 5 }]);
+  });
+
+  it("still reads a real CSV whose opponent cell carries a vs. marker", () => {
+    const { games } = parseScheduleText(
+      ["Date,Opponent,Us,Them", "2026-08-22,vs. Velocirabbits,6,5"].join("\n")
+    );
+    expect(games).toEqual([{ teamB: "Velocirabbits", date: "2026-08-22", scoreA: 6, scoreB: 5 }]);
   });
 
   it("reports what it could not read instead of silently dropping it", () => {
