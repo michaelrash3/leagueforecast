@@ -41,6 +41,9 @@ type ReviewRow = {
   teamB: string;
   scoreA: string;
   scoreB: string;
+  /** Two-letter states from the file, applied to the teams on save. Not editable here. */
+  stateA?: string;
+  stateB?: string;
 };
 
 type Stage = "picking" | "review";
@@ -52,6 +55,12 @@ const SAMPLE_PASTE = `Date,Opponent,Us,Them
 
 const inputClass =
   "rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm dark:border-slate-800 dark:bg-slate-900";
+
+/** Fills in a team's state from an imported file, leaving an existing one alone. */
+const applyState = (teams: ScoutTeam[], teamId: string, state: string | undefined): ScoutTeam[] => {
+  if (!state) return teams;
+  return teams.map((team) => (team.id === teamId && !team.state ? { ...team, state } : team));
+};
 
 const isValidScorePair = (a: string, b: string) => {
   const bothBlank = a.trim() === "" && b.trim() === "";
@@ -191,6 +200,8 @@ export function ScheduleImportPanel({
           date: game.date ?? "",
           teamA: game.teamA ?? null,
           teamB: game.teamB,
+          ...(game.stateA ? { stateA: game.stateA } : {}),
+          ...(game.stateB ? { stateB: game.stateB } : {}),
           scoreA: game.scoreA === undefined ? "" : String(game.scoreA),
           scoreB: game.scoreB === undefined ? "" : String(game.scoreB),
         };
@@ -261,6 +272,11 @@ export function ScheduleImportPanel({
       pool = a.teams;
       const b = resolveOrCreateTeam(row.teamB, pool);
       pool = b.teams;
+
+      // A state named in the file fills one in, but never overwrites one already set: what you
+      // typed on the team is more trustworthy than a column in someone else's export.
+      pool = applyState(pool, a.teamId, row.stateA);
+      pool = applyState(pool, b.teamId, row.stateB);
       const played = row.scoreA.trim() !== "" && row.scoreB.trim() !== "";
       games.push({
         id: `scout_${Date.now()}_${index}_${Math.floor(Math.random() * 1000)}`,

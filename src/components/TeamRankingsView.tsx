@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   ageGroupChain,
   buildScoutingReport,
@@ -7,7 +7,11 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   resolveOrCreateTeam,
+  UNKNOWN_STATE,
+  filterRankingsByState,
+  normalizeState,
   renameScoutTeam,
+  statesInUse,
   teamNameSuggestions,
   teamsInAgeGroup,
   type AgeGroup,
@@ -33,6 +37,7 @@ import {
 } from "../lib/teamRankingsStorage";
 import { AiStoryPanel } from "./AiStoryPanel";
 import { ScheduleImportPanel } from "./ScheduleImportPanel";
+import { RankingMethodButton, RankingMethodPanel } from "./RankingMethodPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
@@ -99,6 +104,9 @@ export function TeamRankingsView({
 
   const [importOpen, setImportOpen] = useState(false);
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
+  const [stateFilter, setStateFilter] = useState("");
+  const [methodOpen, setMethodOpen] = useState(false);
+  const methodPanelId = useId();
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
@@ -308,6 +316,16 @@ export function TeamRankingsView({
     [selectedAgeGroupId, ageGroupTeams, ageGroupGames, myTeamId]
   );
 
+  const availableStates = useMemo(() => statesInUse(ageGroupTeams), [ageGroupTeams]);
+  const unknownStateCount = ageGroupTeams.filter((team) => !team.state).length;
+
+  // Filtering is presentational: ratings come from every game, because a team's strength does not
+  // depend on which rows are on screen. Only the numbering changes.
+  const visibleRankings = useMemo(
+    () => filterRankingsByState(rankings, ageGroupTeams, stateFilter),
+    [rankings, ageGroupTeams, stateFilter]
+  );
+
   const teamNameById = useMemo(
     () => new Map(merged.teams.map((team) => [team.id, team.name])),
     [merged.teams]
@@ -349,6 +367,18 @@ export function TeamRankingsView({
    * at the same time needs one of each, and the old global flag could only hold one. The team is
    * persisted first so the mark survives even if it was only ever a league-derived name.
    */
+  const setTeamState = (teamId: string, nextState: string) => {
+    const state = normalizeState(nextState);
+    const exists = merged.teams.some((team) => team.id === teamId);
+    if (!exists) return;
+    persistTeams(
+      merged.teams.map((team) =>
+        team.id === teamId ? { ...team, ...(state ? { state } : { state: undefined }) } : team
+      )
+    );
+    showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
+  };
+
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
     if (!scoutTeams.some((team) => team.id === teamId)) {
@@ -820,6 +850,7 @@ export function TeamRankingsView({
           teamNameById={teamNameById}
           fromLeague={leagueGameTeamIds.has(openTeam.id)}
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
+          onSetState={(state) => setTeamState(openTeam.id, state)}
           onClose={() => setOpenTeamId(null)}
         />
       )}
@@ -931,7 +962,53 @@ export function TeamRankingsView({
       </div>
 
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Full rankings</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+            Full rankings
+            <RankingMethodButton
+              open={methodOpen}
+              onToggle={() => setMethodOpen((value) => !value)}
+              panelId={methodPanelId}
+            />
+          </h2>
+          {(availableStates.length > 0 || unknownStateCount > 0) && (
+            <span className="flex items-center gap-2">
+              <label
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                htmlFor="scout-state-filter"
+              >
+                State
+              </label>
+              <select
+                id="scout-state-filter"
+                value={stateFilter}
+                onChange={(event) => setStateFilter(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="">All states</option>
+                {availableStates.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+                {unknownStateCount > 0 && (
+                  <option value={UNKNOWN_STATE}>No state set ({unknownStateCount})</option>
+                )}
+              </select>
+            </span>
+          )}
+        </div>
+        {methodOpen && (
+          <RankingMethodPanel id={methodPanelId} onClose={() => setMethodOpen(false)} />
+        )}
+        {stateFilter && (
+          <p className="mt-2 text-xs text-slate-500">
+            Showing {visibleRankings.length} of {rankings.length} teams. Ratings still come from
+            every game — filtering changes who is listed, not how anyone is rated, so the{" "}
+            <strong>#</strong> here is the position within this list and the grey number is the
+            place in the full table.
+          </p>
+        )}
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -946,9 +1023,16 @@ export function TeamRankingsView({
               </tr>
             </thead>
             <tbody>
-              {rankings.map((row) => (
+              {visibleRankings.map((row) => (
                 <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="py-3 font-black">#{row.rank}</td>
+                  <td className="py-3 font-black">
+                    #{row.rank}
+                    {row.overallRank !== undefined && row.overallRank !== row.rank && (
+                      <span className="ml-1 text-xs font-bold text-slate-400">
+                        #{row.overallRank}
+                      </span>
+                    )}
+                  </td>
                   <td className="font-bold text-slate-950 dark:text-white">
                     <button
                       type="button"

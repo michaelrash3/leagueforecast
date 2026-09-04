@@ -196,6 +196,16 @@ Rows already logged here arrive flagged and excluded, placeholders (`TBD`,
 `Winner of Game 3`) are called out, and a name close to a team already known
 offers it as a one-click correction.
 
+### States
+
+A team can carry a two-letter state, and the rankings can be narrowed to one — or
+to the teams whose state is not set yet. Set it on the team panel, or let an
+import fill it in: `Home State` / `Away State` on a game list, `State` on a
+schedule. An imported state never overwrites one already there.
+
+Filtering is presentational. Ratings come from every game regardless, so a
+filtered table renumbers but keeps each row's place in the full table alongside.
+
 ### Ratings
 
 A rating estimates how many runs a team beats an average opponent by, adjusted
@@ -205,7 +215,16 @@ logged early. Win probabilities are clamped to 8–92% — youth baseball has no
 locks.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
-plain run differential. A table full of 0-0 · +0.0 means no finals are in yet.
+plain run differential.
+
+The **?** beside "Full rankings" explains all of this in the app, with the
+constants read from the code so the explanation cannot drift from the maths.
+
+A game can also be logged but kept out of the maths — **Don't count** on a
+logged game. Fall tournaments routinely pair a team against the age group above
+or below, and those results say nothing about how it stacks up inside its own.
+A team whose games here are all scheduled, or all set not to count, is not
+ranked at all rather than shown at 0-0 · +0.0.
 
 ## Postseason format
 

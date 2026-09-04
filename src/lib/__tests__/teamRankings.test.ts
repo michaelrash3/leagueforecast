@@ -7,8 +7,12 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
+  UNKNOWN_STATE,
   countsTowardRating,
   externalResultsForSeason,
+  filterRankingsByState,
+  normalizeState,
+  statesInUse,
   findSimilarTeam,
   gamesForTeam,
   isPlaceholderName,
@@ -706,5 +710,61 @@ describe("games that do not count", () => {
     ];
     const games = [{ ...game("A", "B", 12, 1, "ag1"), excluded: true }];
     expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+  });
+});
+
+describe("state", () => {
+  const teams: ScoutTeam[] = [
+    { id: "A", name: "Aces", state: "KY" },
+    { id: "B", name: "Bears", state: "OH" },
+    { id: "C", name: "Cubs", state: "KY" },
+    { id: "D", name: "Ducks" },
+  ];
+  const games = [
+    game("A", "B", 6, 2, "ag1"),
+    game("A", "C", 5, 4, "ag1"),
+    game("B", "D", 3, 1, "ag1"),
+  ];
+  const rows = () => buildTeamRankings("ag1", teams, games);
+
+  it("takes two letters and nothing else", () => {
+    expect(normalizeState(" ky ")).toBe("KY");
+    expect(normalizeState("Ky")).toBe("KY");
+    expect(normalizeState("Kentucky")).toBeUndefined();
+    expect(normalizeState("K")).toBeUndefined();
+    expect(normalizeState("")).toBeUndefined();
+    expect(normalizeState("K1")).toBeUndefined();
+  });
+
+  it("offers only states some team actually has", () => {
+    expect(statesInUse(teams)).toEqual(["KY", "OH"]);
+    expect(statesInUse([{ id: "X", name: "X" }])).toEqual([]);
+  });
+
+  it("narrows to one state and renumbers, keeping the overall place", () => {
+    const filtered = filterRankingsByState(rows(), teams, "KY");
+    expect(filtered.map((row) => row.teamId).sort()).toEqual(["A", "C"]);
+    expect(filtered.map((row) => row.rank)).toEqual([1, 2]);
+    // The position in the full table is still there to show alongside.
+    filtered.forEach((row) => expect(row.overallRank).toBeDefined());
+  });
+
+  it("does not change any rating — filtering is presentational", () => {
+    const all = rows();
+    const filtered = filterRankingsByState(all, teams, "KY");
+    filtered.forEach((row) => {
+      const full = all.find((r) => r.teamId === row.teamId)!;
+      expect(row.rating).toBe(full.rating);
+      expect(row.record).toBe(full.record);
+    });
+  });
+
+  it("can show the teams whose state is unknown", () => {
+    const filtered = filterRankingsByState(rows(), teams, UNKNOWN_STATE);
+    expect(filtered.map((row) => row.teamId)).toEqual(["D"]);
+  });
+
+  it("returns everything when no state is chosen", () => {
+    expect(filterRankingsByState(rows(), teams, "")).toHaveLength(4);
   });
 });

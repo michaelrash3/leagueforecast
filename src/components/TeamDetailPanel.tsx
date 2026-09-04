@@ -19,6 +19,8 @@ type TeamDetailPanelProps = {
   /** League-derived teams are named by League Standings, so their name is not ours to change. */
   fromLeague: boolean;
   onRename: (nextName: string) => void;
+  /** Two letters, or empty to clear it. */
+  onSetState: (state: string) => void;
   onClose: () => void;
 };
 
@@ -48,6 +50,7 @@ export function TeamDetailPanel({
   teamNameById,
   fromLeague,
   onRename,
+  onSetState,
   onClose,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
@@ -149,6 +152,29 @@ export function TeamDetailPanel({
             &ldquo;Aces&rdquo;.
           </p>
         )}
+      </div>
+
+      <div className="mt-4">
+        <label
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          htmlFor="scout-team-state"
+        >
+          State
+        </label>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <input
+            id="scout-team-state"
+            type="text"
+            value={team.state ?? ""}
+            maxLength={2}
+            placeholder="KY"
+            onChange={(event) => onSetState(event.target.value)}
+            className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
+          />
+          <span className="text-xs text-slate-500">
+            Optional. Two letters, and only used to filter the rankings — it never changes a rating.
+          </span>
+        </div>
       </div>
 
       <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500">

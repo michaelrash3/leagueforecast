@@ -17,12 +17,19 @@ updates:
       routine:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    ignore:
-      # Majors are migrations, not updates — React 19, Tailwind 4 and friends each touch real code
-      # and want their own PR with their own verification. Drop this block to have Dependabot
-      # propose them here instead.
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+    # Majors are deliberately NOT ignored. Each arrives as its own pull request, which CI builds,
+    # type-checks, lints and tests before it can merge — so the cost of one that does not work is a
+    # red check, not a broken app. Three are known to be blocked upstream as of September 2026, and
+    # the point of letting them through is that Dependabot will say so the day that changes:
+    #
+    #   eslint 10       eslint-plugin-react peers ^9.7, eslint-plugin-jsx-a11y peers ^9
+    #   vite 8          @vitejs/plugin-react 6 pulls @rolldown/plugin-babel, whose
+    #                   @babel/plugin-transform-runtime 8 wants @babel/core ^8 against the 7 here
+    #   typescript 7    typescript-eslint declares typescript >=4.8.4 <6.1.0
+    #
+    # Those PRs will fail to install until the upstream plugins catch up. That failure is the
+    # signal, and it costs nothing; forcing any of them through with --legacy-peer-deps would buy
+    # a version number at the price of a dependency tree npm itself calls potentially broken.
     commit-message:
       prefix: deps
 

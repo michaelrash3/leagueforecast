@@ -38,6 +38,12 @@ export type ScoutTeam = {
    * everyone else.
    */
   isMine?: boolean;
+  /**
+   * Two-letter state, uppercase, when it is known. Optional on purpose: most opponents arrive from
+   * a screenshot or a schedule that never says where they are from, and a team with no state is a
+   * team you simply have not told, not a team from nowhere.
+   */
+  state?: string;
 };
 
 export type ScoutGame = {
@@ -72,6 +78,8 @@ export const isScoutGamePlayed = (game: ScoutGame): boolean =>
   Number.isFinite(game.teamAScore) && Number.isFinite(game.teamBScore);
 
 export type ScoutRankingRow = {
+  /** Rank in the unfiltered table, set only when a filter has renumbered `rank`. */
+  overallRank?: number;
   teamId: string;
   teamName: string;
   isMine: boolean;
@@ -100,7 +108,14 @@ export type MatchupPreview = {
   tier: MatchupTier;
 };
 
-const RATING_CAP = 8;
+/**
+ * The most run-differential any single game can contribute. A 20-0 counts as an 8-0: without a cap
+ * one blowout against a weak team would outweigh a season of close wins against strong ones.
+ *
+ * Exported because the app explains its own ranking to the reader, and a number quoted in prose
+ * that has drifted from the number in the maths is worse than not quoting it.
+ */
+export const RATING_CAP = 8;
 /** Prefix guarantees a scout-created id can never collide with a league season's own team ids
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
@@ -424,9 +439,21 @@ export const buildTeamRankings = (
 /** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
  * matchup predictions — kept identical so the two features read consistently. Deliberately ignores
  * home-field advantage: Team Rankings games are treated as neutral-site. */
+/** Widest projected margin a matchup preview will state, in runs. */
+export const MATCHUP_MARGIN_CAP = 14;
+/**
+ * Win probability never leaves this range. Youth baseball has no locks, and a model that says 99%
+ * is claiming a certainty the sport does not have.
+ */
+export const MATCHUP_PROBABILITY_FLOOR = 0.08;
+
 export const predictMatchup = (ratingA: number, ratingB: number) => {
-  const margin = clamp(ratingA - ratingB, -14, 14);
-  const winProbA = clamp(1 / (1 + Math.exp(-margin / 2.8)), 0.08, 0.92);
+  const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
+  const winProbA = clamp(
+    1 / (1 + Math.exp(-margin / 2.8)),
+    MATCHUP_PROBABILITY_FLOOR,
+    1 - MATCHUP_PROBABILITY_FLOOR
+  );
   return { projectedMargin: margin, winProbA, winProbB: 1 - winProbA };
 };
 
@@ -660,3 +687,43 @@ export const findSimilarTeam = (name: string, teams: ScoutTeam[]): ScoutTeam | n
 
   return best ? (best as { team: ScoutTeam }).team : null;
 };
+
+/** Two letters, uppercased. Anything else is not a state and is stored as no state at all. */
+export const normalizeState = (value: string): string | undefined => {
+  const trimmed = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(trimmed) ? trimmed : undefined;
+};
+
+/**
+ * The states represented among these teams, alphabetically. Drives the filter's options, so it
+ * only ever offers a state that some team on the table actually has.
+ */
+export const statesInUse = (teams: ScoutTeam[]): string[] =>
+  [...new Set(teams.map((team) => team.state).filter((state): state is string => Boolean(state)))]
+    .sort();
+
+/**
+ * Narrows a ranking to one state, or to the teams whose state is unknown.
+ *
+ * Filtering is presentational — the ratings themselves are computed from every game, because a
+ * team's strength does not change based on which rows you are looking at. Ranks are renumbered so
+ * a filtered table reads 1, 2, 3 rather than 4, 9, 12; each row keeps `overallRank` so the
+ * position in the full table is still there to show.
+ */
+export const filterRankingsByState = (
+  rows: ScoutRankingRow[],
+  teams: ScoutTeam[],
+  state: string
+): ScoutRankingRow[] => {
+  if (!state) return rows;
+  const stateById = new Map(teams.map((team) => [team.id, team.state]));
+  const matches = (id: string) =>
+    state === UNKNOWN_STATE ? !stateById.get(id) : stateById.get(id) === state;
+
+  return rows
+    .filter((row) => matches(row.teamId))
+    .map((row, index) => ({ ...row, overallRank: row.rank, rank: index + 1 }));
+};
+
+/** Filter value for "teams I have not given a state to". */
+export const UNKNOWN_STATE = "__unknown__";
