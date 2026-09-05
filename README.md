@@ -31,8 +31,10 @@ its own the day one ships.
 
 Dependency currency is handled by Dependabot (`.github/dependabot.yml`): patch and minor updates
 arrive batched into one pull request a week, which CI builds, type-checks, lints and tests before
-it can merge. Majors are excluded on purpose — each one is a migration and wants its own pull
-request.
+it can merge. Majors are *not* excluded — each arrives as its own pull request, because each one is
+a migration, and a red check on one is a cheap and accurate answer to "can we take this yet?".
+A few are blocked upstream at any given time; `.github/dependabot.yml` names which and why, and
+the day an upstream plugin catches up, the PR that was red goes green on its own.
 
 ## Two modes
 
