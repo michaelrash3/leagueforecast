@@ -17,32 +17,38 @@ updates:
       routine:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    # Majors are deliberately NOT ignored. Each arrives as its own pull request, which CI builds,
-    # type-checks, lints and tests before it can merge — so the cost of one that does not work is a
-    # red check, not a broken app. Two are blocked upstream as of September 2026, and the point of
-    # letting them through is that Dependabot will say so the day that changes:
+    # Majors still arrive as their own pull request — each is a migration and wants its own review,
+    # and letting them through is how vite 8 got taken the week it became possible. What does NOT
+    # arrive is a major that cannot install today. Those used to be left open on purpose, on the
+    # theory that a red check is a free signal that would flip to green the day upstream caught up.
+    # In practice it produced a permanently red pull request list, which is worse than a quiet one:
+    # a list that is always red teaches you to stop reading red, and red is the only thing here
+    # worth reading. So each one is ignored by name and version below, with what would unblock it.
     #
-    #   eslint 10       eslint-plugin-jsx-a11y peers ^9 (the one npm stops on), and behind it
-    #                   eslint-plugin-react peers ^9.7. eslint-plugin-react-hooks already peers
-    #                   ^10, so it is those two that decide when this can move.
-    #   typescript 7    typescript-eslint declares typescript >=4.8.4 <6.1.0
+    # Ignoring by *version* rather than by update-type is deliberate. "eslint 10.x" stops the PR
+    # that cannot work without also hiding eslint 11, so nothing is silently frozen — only the one
+    # version known to be impossible is skipped, and the next one still gets asked about.
     #
-    # Those PRs will fail to install until the upstream plugins catch up. That failure is the
-    # signal, and it costs nothing; forcing any of them through with --legacy-peer-deps would buy
-    # a version number at the price of a dependency tree npm itself calls potentially broken.
-    #
-    # Two things about reading these failures, both learned the hard way here:
-    #
-    # A red PR is not evidence the *package* is blocked — it is evidence that package is blocked
-    # against the base branch it was opened on. vite 8 and @vitejs/plugin-react 6 each looked
-    # blocked while the other was on 7; each installs, builds, lints and tests clean now that the
-    # base carries the other. A single-package PR that goes red the day a peer moves is stale, not
-    # stuck, and a rebase is the whole fix. When one of these is red, re-resolve it against current
-    # main before believing the reason — trusting a stale note is what put the wrong reason here.
-    #
-    # And some packages move in lockstep: eslint and @eslint/js peer each other, so Dependabot's
-    # single-package PR for either one fails on the other's 9, which reads like two problems and
-    # is one. Merging both together does not help — jsx-a11y still refuses.
+    # To re-check any of these: delete its entry, remove package-lock.json, and run npm install.
+    # Do not trust the reasons written here. They have twice been the stale part — vite 8 and
+    # @vitejs/plugin-react 6 each sat on this list looking blocked when the only real problem was
+    # that the other one had not moved yet, and both install clean now. A red pull request says a
+    # package is blocked against the base branch it was opened on, which is not the same as blocked.
+    ignore:
+      # eslint-plugin-jsx-a11y@6.10.2 peers ^3 || … || ^9 and is the latest release, with no
+      # prerelease saying otherwise; eslint-plugin-react@7.37.5 peers ^9.7 behind it.
+      # eslint-plugin-react-hooks already peers ^10, so those two decide when this can move.
+      - dependency-name: eslint
+        versions: ["10.x"]
+      # Same blocker wearing a different hat: eslint and @eslint/js are versioned in lockstep and
+      # peer each other, so bumping either half alone fails on the other's 9. Bumping both together
+      # still hits jsx-a11y — verified against a clean resolve, not assumed.
+      - dependency-name: "@eslint/js"
+        versions: ["10.x"]
+      # typescript-eslint declares typescript >=4.8.4 <6.1.0. The 6.x line ends at the 6.0.3 pinned
+      # here, so this is the only typescript update currently out of reach.
+      - dependency-name: typescript
+        versions: ["7.x"]
     commit-message:
       prefix: deps
 
