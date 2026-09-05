@@ -1,12 +1,22 @@
 import { useId, useMemo, useRef, useState } from "react";
 import {
+  advancedAgeGroup,
+  AGE_LEVELS,
   ageGroupChain,
+  ageGroupSeason,
   buildScoutingReport,
   buildTeamRankings,
+  createAgeGroupId,
   deriveLeagueScoutGames,
+  findAgeGroupForSeason,
   findDuplicateGame,
+  formatAgeGroupName,
   isScoutGamePlayed,
+  MIN_AGE_LEVEL,
+  MIN_SEASON_YEAR,
+  nextSeason,
   resolveOrCreateTeam,
+  seasonYearOptions,
   UNKNOWN_STATE,
   filterRankingsByState,
   normalizeState,
@@ -85,7 +95,8 @@ export function TeamRankingsView({
   const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
   const [manageOpen, setManageOpen] = useState(() => ageGroups.length === 0);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [groupNameInput, setGroupNameInput] = useState("");
+  const [groupAgeLevel, setGroupAgeLevel] = useState(MIN_AGE_LEVEL);
+  const [groupYear, setGroupYear] = useState(MIN_SEASON_YEAR);
   const [groupSeasonIds, setGroupSeasonIds] = useState<string[]>(() =>
     activeSeasonId ? [activeSeasonId] : []
   );
@@ -136,6 +147,8 @@ export function TeamRankingsView({
 
   // ---------- Age group management ----------
 
+  const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
+
   const toggleGroupSeason = (seasonId: string) => {
     setGroupSeasonIds((prev) =>
       prev.includes(seasonId) ? prev.filter((id) => id !== seasonId) : [...prev, seasonId]
@@ -143,8 +156,12 @@ export function TeamRankingsView({
   };
 
   const startEditGroup = (group: AgeGroup) => {
+    // A group saved before the season picker existed has only the name the user typed, so read
+    // what can be read from it and leave the rest at the defaults rather than blanking the form.
+    const season = ageGroupSeason(group);
     setEditingGroupId(group.id);
-    setGroupNameInput(group.name);
+    setGroupAgeLevel(season.ageLevel ?? MIN_AGE_LEVEL);
+    setGroupYear(season.year ?? MIN_SEASON_YEAR);
     setGroupSeasonIds(group.seasonIds);
     setGroupContinuesFromId(group.continuesFromId ?? "");
     setManageOpen(true);
@@ -152,17 +169,22 @@ export function TeamRankingsView({
 
   const resetGroupForm = () => {
     setEditingGroupId(null);
-    setGroupNameInput("");
+    setGroupAgeLevel(MIN_AGE_LEVEL);
+    setGroupYear(MIN_SEASON_YEAR);
     setGroupSeasonIds(activeSeasonId ? [activeSeasonId] : []);
     setGroupContinuesFromId("");
   };
 
   const saveAgeGroup = () => {
-    const name = groupNameInput.trim();
-    if (!name) {
-      showToast("Give the age group a name.", { tone: "error" });
+    const season = { ageLevel: groupAgeLevel, year: groupYear };
+    // Two age groups for the same 10U 2028 would split one squad's schedule across two rankings,
+    // and neither would be right. The picker can't produce a typo, so this can only be a repeat.
+    const clash = findAgeGroupForSeason(season, ageGroups);
+    if (clash && clash.id !== editingGroupId) {
+      showToast(`${clash.name} already exists.`, { tone: "error" });
       return;
     }
+    const name = formatAgeGroupName(season.ageLevel, season.year);
     // Pointing an age group at itself would make the chain meaningless, so drop that choice.
     const continuesFromId =
       groupContinuesFromId && groupContinuesFromId !== editingGroupId ? groupContinuesFromId : "";
@@ -173,6 +195,8 @@ export function TeamRankingsView({
             ? {
                 ...group,
                 name,
+                ageLevel: season.ageLevel,
+                year: season.year,
                 seasonIds: groupSeasonIds,
                 ...(continuesFromId ? { continuesFromId } : { continuesFromId: undefined }),
               }
@@ -182,8 +206,10 @@ export function TeamRankingsView({
       showToast("Age group updated.", { tone: "success" });
     } else {
       const newGroup: AgeGroup = {
-        id: `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        id: createAgeGroupId(),
         name,
+        ageLevel: season.ageLevel,
+        year: season.year,
         seasonIds: groupSeasonIds,
         ...(continuesFromId ? { continuesFromId } : {}),
       };
@@ -192,6 +218,33 @@ export function TeamRankingsView({
       showToast("Age group created.", { tone: "success" });
     }
     resetGroupForm();
+  };
+
+  /**
+   * Rolls a squad into next season: a year older, a year later, continuing from the one it came
+   * from so this year's opponents are already suggested when logging next year's games. Results
+   * stay behind — a 9U score says nothing about a 10U game — and so do the League Standings
+   * seasons, which don't exist yet for a year that hasn't started.
+   */
+  const advanceSeason = (group: AgeGroup) => {
+    const season = ageGroupSeason(group);
+    if (season.ageLevel === undefined || season.year === undefined) {
+      showToast("Set this group's age and year first, then advance it.", { tone: "error" });
+      startEditGroup(group);
+      return;
+    }
+    const next = nextSeason({ ageLevel: season.ageLevel, year: season.year });
+    const existing = findAgeGroupForSeason(next, ageGroups);
+    if (existing) {
+      setSelectedAgeGroupId(existing.id);
+      showToast(`${existing.name} already exists — switched to it.`);
+      return;
+    }
+    const created = advancedAgeGroup(group, next);
+    persistAgeGroups([...ageGroups, created]);
+    setSelectedAgeGroupId(created.id);
+    resetGroupForm();
+    showToast(`${created.name} created from ${group.name}.`, { tone: "success" });
   };
 
   const removeAgeGroup = async (group: AgeGroup) => {
@@ -716,6 +769,13 @@ export function TeamRankingsView({
                     <span className="flex gap-3">
                       <button
                         type="button"
+                        onClick={() => advanceSeason(group)}
+                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        Advance to new season
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => startEditGroup(group)}
                         className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
                       >
@@ -737,13 +797,51 @@ export function TeamRankingsView({
               {editingGroupId ? "Edit age group" : "New age group"}
             </p>
             <div className="flex flex-col gap-2">
-              <input
-                type="text"
-                value={groupNameInput}
-                onChange={(event) => setGroupNameInput(event.target.value)}
-                placeholder="e.g. 2027, 10U"
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-              />
+              <div className="flex flex-wrap gap-2">
+                <span className="flex flex-col gap-1">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    htmlFor="scout-group-age"
+                  >
+                    Age
+                  </label>
+                  <select
+                    id="scout-group-age"
+                    value={groupAgeLevel}
+                    onChange={(event) => setGroupAgeLevel(Number(event.target.value))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    {AGE_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {level}U
+                      </option>
+                    ))}
+                  </select>
+                </span>
+                <span className="flex flex-col gap-1">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    htmlFor="scout-group-year"
+                  >
+                    Year
+                  </label>
+                  <select
+                    id="scout-group-year"
+                    value={groupYear}
+                    onChange={(event) => setGroupYear(Number(event.target.value))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+                <span className="flex flex-col justify-end pb-2 text-sm font-bold text-slate-950 dark:text-white">
+                  {formatAgeGroupName(groupAgeLevel, groupYear)}
+                </span>
+              </div>
               <div className="flex flex-wrap gap-3">
                 {seasons.map((season) => (
                   <label

@@ -13,7 +13,16 @@ import { createTeamId } from "./sim";
  */
 export type AgeGroup = {
   id: string;
+  /**
+   * Display label, always derived from `ageLevel` + `year` for anything created since the season
+   * picker shipped (`formatAgeGroupName`). Older groups were free text ("2027, 10U"), so this
+   * stays the authoritative thing to *show*; `ageGroupSeason` is the thing to *reason* with.
+   */
   name: string;
+  /** Age level in years, 8-18, as in 10U. Absent on groups saved before the picker existed. */
+  ageLevel?: number;
+  /** Season year, as in the 2028 of "10U 2028". Absent on groups saved before the picker. */
+  year?: number;
   /** League Standings `SeasonMeta.id`s that belong to this age group. */
   seasonIds: string[];
   /**
@@ -274,6 +283,122 @@ export const teamsInAgeGroup = (
   });
   return teams.filter((team) => active.has(team.id));
 };
+
+/** Youngest age level offered. Below 8U there are no standings worth ranking. */
+export const MIN_AGE_LEVEL = 8;
+/**
+ * Oldest age level offered. 18U is the top of the youth pipeline — there is nothing to age up
+ * into — so `nextSeason` holds an 18U squad there rather than inventing a 19U, which is also the
+ * real-world case: a player can spend two years at 18U.
+ */
+export const MAX_AGE_LEVEL = 18;
+/** First season year offered. Earlier years are only listed when an age group already uses one. */
+export const MIN_SEASON_YEAR = 2027;
+/** How many years past `MIN_SEASON_YEAR` the picker offers without being asked. */
+const SEASON_YEAR_SPAN = 14;
+
+/** 8U through 18U, the whole ladder, oldest last. */
+export const AGE_LEVELS: number[] = Array.from(
+  { length: MAX_AGE_LEVEL - MIN_AGE_LEVEL + 1 },
+  (_, index) => MIN_AGE_LEVEL + index
+);
+
+/** A season is an age level and the year it is played in — "10U 2028". */
+export type AgeGroupSeason = { ageLevel: number; year: number };
+
+/** The one place the label is spelled, so a group renamed by an edit still reads the same. */
+export const formatAgeGroupName = (ageLevel: number, year: number): string =>
+  `${ageLevel}U ${year}`;
+
+/**
+ * Reads an age level and year back out of a free-text name. Age groups created before the season
+ * picker existed stored only a name the user typed — "2027, 10U", "10u", "2028" — so the picker
+ * has something to pre-select when one of those is edited, instead of silently resetting it to the
+ * defaults and relabelling the group.
+ */
+export const parseAgeGroupName = (name: string): Partial<AgeGroupSeason> => {
+  const season: Partial<AgeGroupSeason> = {};
+  const age = /\b(?:(\d{1,2})\s*[uU]|[uU]\s*(\d{1,2}))\b/.exec(name);
+  const ageLevel = Number(age?.[1] ?? age?.[2]);
+  if (Number.isFinite(ageLevel) && ageLevel >= MIN_AGE_LEVEL && ageLevel <= MAX_AGE_LEVEL) {
+    season.ageLevel = ageLevel;
+  }
+  const year = /\b(20\d{2})\b/.exec(name);
+  if (year) season.year = Number(year[1]);
+  return season;
+};
+
+/**
+ * The season an age group is for: the stored fields when it has them, otherwise whatever its name
+ * can be read as. Either half can still come back missing — a group named "Travel squad" says
+ * nothing — so callers that need both have to handle that.
+ */
+export const ageGroupSeason = (group: AgeGroup): Partial<AgeGroupSeason> => {
+  const parsed = parseAgeGroupName(group.name);
+  return {
+    ...(group.ageLevel !== undefined ? { ageLevel: group.ageLevel } : {}),
+    ...(group.year !== undefined ? { year: group.year } : {}),
+    ...(group.ageLevel === undefined && parsed.ageLevel !== undefined
+      ? { ageLevel: parsed.ageLevel }
+      : {}),
+    ...(group.year === undefined && parsed.year !== undefined ? { year: parsed.year } : {}),
+  };
+};
+
+/**
+ * The years the picker offers: a fixed run forward from `MIN_SEASON_YEAR`, plus any year an age
+ * group already sits in. The union matters in both directions — a season imported from an older
+ * install can be before the run, and advancing a season enough times walks past the end of it.
+ */
+export const seasonYearOptions = (ageGroups: AgeGroup[] = []): number[] => {
+  const years = new Set<number>();
+  for (let index = 0; index < SEASON_YEAR_SPAN; index += 1) years.add(MIN_SEASON_YEAR + index);
+  ageGroups.forEach((group) => {
+    const { year } = ageGroupSeason(group);
+    if (year !== undefined) years.add(year);
+  });
+  return [...years].sort((a, b) => a - b);
+};
+
+/**
+ * Next season for the same squad: a year older and a year later. The age stops at `MAX_AGE_LEVEL`
+ * while the year keeps going, so a second year at 18U advances the way it does in real life.
+ */
+export const nextSeason = (season: AgeGroupSeason): AgeGroupSeason => ({
+  ageLevel: Math.min(season.ageLevel + 1, MAX_AGE_LEVEL),
+  year: season.year + 1,
+});
+
+/** The age group already covering this season, if there is one — advancing twice must not make two. */
+export const findAgeGroupForSeason = (
+  season: AgeGroupSeason,
+  ageGroups: AgeGroup[]
+): AgeGroup | undefined =>
+  ageGroups.find((group) => {
+    const current = ageGroupSeason(group);
+    return current.ageLevel === season.ageLevel && current.year === season.year;
+  });
+
+/** Ids are minted here so every caller that creates an age group produces the same shape. */
+export const createAgeGroupId = (): string =>
+  `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+/**
+ * The age group that carries a squad into its next season: a year older, a year later, pointed at
+ * the one it came from so last year's opponents keep showing up in the name list, and carrying
+ * "our team" over since that is the same real-world club either way. Seasons are deliberately not
+ * copied — a new year's League Standings seasons do not exist yet, and inheriting last year's
+ * would pull last year's league games into this year's ratings.
+ */
+export const advancedAgeGroup = (group: AgeGroup, season: AgeGroupSeason): AgeGroup => ({
+  id: createAgeGroupId(),
+  name: formatAgeGroupName(season.ageLevel, season.year),
+  ageLevel: season.ageLevel,
+  year: season.year,
+  seasonIds: [],
+  continuesFromId: group.id,
+  ...(group.myTeamId ? { myTeamId: group.myTeamId } : {}),
+});
 
 /**
  * The age groups whose rosters belong together, nearest first: this one, then whatever it
