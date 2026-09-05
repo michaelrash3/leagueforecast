@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  advancedAgeGroup,
+  AGE_LEVELS,
   ageGroupChain,
+  ageGroupSeason,
+  findAgeGroupForSeason,
+  formatAgeGroupName,
+  MAX_AGE_LEVEL,
+  MIN_SEASON_YEAR,
+  nextSeason,
+  parseAgeGroupName,
+  seasonYearOptions,
   buildScoutingReport,
   buildTeamRankings,
   deriveLeagueScoutGames,
@@ -766,5 +776,99 @@ describe("state", () => {
 
   it("returns everything when no state is chosen", () => {
     expect(filterRankingsByState(rows(), teams, "")).toHaveLength(4);
+  });
+});
+
+describe("age group seasons", () => {
+  const group = (over: Partial<AgeGroup> & { id: string }): AgeGroup => ({
+    name: "",
+    seasonIds: [],
+    ...over,
+  });
+
+  it("offers every age level from 8U to 18U", () => {
+    expect(AGE_LEVELS[0]).toBe(8);
+    expect(AGE_LEVELS[AGE_LEVELS.length - 1]).toBe(MAX_AGE_LEVEL);
+    expect(AGE_LEVELS).toHaveLength(11);
+  });
+
+  it("names a season by its age and year", () => {
+    expect(formatAgeGroupName(9, 2027)).toBe("9U 2027");
+  });
+
+  it("reads age and year back out of the free text older groups were named with", () => {
+    expect(parseAgeGroupName("2027, 10U")).toEqual({ ageLevel: 10, year: 2027 });
+    expect(parseAgeGroupName("9U 2027")).toEqual({ ageLevel: 9, year: 2027 });
+    expect(parseAgeGroupName("u12 2029")).toEqual({ ageLevel: 12, year: 2029 });
+  });
+
+  it("reads only what is there, and refuses an age off the ladder", () => {
+    expect(parseAgeGroupName("2028")).toEqual({ year: 2028 });
+    expect(parseAgeGroupName("10U")).toEqual({ ageLevel: 10 });
+    expect(parseAgeGroupName("Travel squad")).toEqual({});
+    expect(parseAgeGroupName("22U 2027")).toEqual({ year: 2027 });
+  });
+
+  it("does not mistake a bare year for an age level", () => {
+    expect(parseAgeGroupName("2027").ageLevel).toBeUndefined();
+  });
+
+  it("prefers the stored fields over the name", () => {
+    const stored = group({ id: "a", name: "9U 2027", ageLevel: 10, year: 2028 });
+    expect(ageGroupSeason(stored)).toEqual({ ageLevel: 10, year: 2028 });
+  });
+
+  it("falls back to the name when a group predates the picker", () => {
+    expect(ageGroupSeason(group({ id: "a", name: "2027, 10U" }))).toEqual({
+      ageLevel: 10,
+      year: 2027,
+    });
+  });
+
+  it("offers years from 2027 on, plus any year already in use", () => {
+    const years = seasonYearOptions([group({ id: "a", name: "9U 2024" })]);
+    expect(years[0]).toBe(2024);
+    expect(years).toContain(MIN_SEASON_YEAR);
+    expect(years).toEqual([...years].sort((a, b) => a - b));
+    expect(new Set(years).size).toBe(years.length);
+  });
+
+  it("advances both the age and the year", () => {
+    expect(nextSeason({ ageLevel: 9, year: 2027 })).toEqual({ ageLevel: 10, year: 2028 });
+  });
+
+  it("holds an 18U squad at 18U while the year still moves", () => {
+    expect(nextSeason({ ageLevel: 18, year: 2036 })).toEqual({ ageLevel: 18, year: 2037 });
+  });
+
+  it("finds the group already covering a season, however it was named", () => {
+    const groups = [group({ id: "a", name: "2028, 10U" }), group({ id: "b", name: "9U 2027" })];
+    expect(findAgeGroupForSeason({ ageLevel: 10, year: 2028 }, groups)?.id).toBe("a");
+    expect(findAgeGroupForSeason({ ageLevel: 11, year: 2029 }, groups)).toBeUndefined();
+  });
+
+  it("carries the squad, not the results, into the new season", () => {
+    const previous = group({
+      id: "a",
+      name: "9U 2027",
+      ageLevel: 9,
+      year: 2027,
+      seasonIds: ["fall-2026", "spring-2027"],
+      myTeamId: "S-mine",
+    });
+    const next = advancedAgeGroup(previous, nextSeason({ ageLevel: 9, year: 2027 }));
+    expect(next.name).toBe("10U 2028");
+    expect(next.ageLevel).toBe(10);
+    expect(next.year).toBe(2028);
+    expect(next.continuesFromId).toBe("a");
+    expect(next.myTeamId).toBe("S-mine");
+    expect(next.seasonIds).toEqual([]);
+    expect(next.id).not.toBe(previous.id);
+  });
+
+  it("links the new season to the old one, so last year's opponents stay suggested", () => {
+    const previous = group({ id: "a", name: "9U 2027", ageLevel: 9, year: 2027 });
+    const next = advancedAgeGroup(previous, nextSeason({ ageLevel: 9, year: 2027 }));
+    expect(ageGroupChain(next.id, [previous, next])).toEqual([next.id, "a"]);
   });
 });

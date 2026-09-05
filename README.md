@@ -128,12 +128,17 @@ Nothing can be logged until an age group exists, because every game has to know
 which ranking it belongs to. A 9U score says nothing about an 11U game, so the
 two never mix.
 
-An age group is a name, zero or more League Standings seasons that belong to it,
-and optionally the age group it **continues from**.
+An age group is an **age level** (8U-18U) and a **year** (2027 on), zero or more
+League Standings seasons that belong to it, and optionally the age group it
+**continues from**. Both are dropdowns, so the label is always "10U 2028" and
+never two spellings of the same season. Groups created before the picker existed
+keep the name they were typed with; editing one reads the age and year back out
+of that name where it can.
 
 | Concept           | What it does                                                                                                                                                                                                             |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Assigned seasons  | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                      |
+| Advance to new season | Creates next year's group from this one — a year older, a year later (9U 2027 → 10U 2028), already continuing from it, already carrying "our team". Seasons are not copied: next year's don't exist yet. 18U stays 18U while the year moves, since a player can spend two years there. |
 | `continuesFromId` | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel** — results never pool, so a 10U group that continues from a 9U one starts at zero games. |
 | `myTeamId`        | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                     |
 
