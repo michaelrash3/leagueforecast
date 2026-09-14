@@ -45,10 +45,12 @@ import {
   clearPullProgress,
   loadAgeGroups,
   loadPullProgress,
+  loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
   saveAgeGroups,
   savePullProgress,
+  saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
@@ -178,6 +180,7 @@ export function TeamRankingsView({
   const [importOpen, setImportOpen] = useState(false);
   const [gcOpen, setGcOpen] = useState(false);
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
+  const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
   /** Which state the top ten shows; `null` means the one picked for you. */
@@ -1296,6 +1299,11 @@ export function TeamRankingsView({
           onClearProgress={() => {
             setPullProgress(null);
             clearPullProgress();
+          }}
+          refreshLog={refreshLog}
+          onRefreshLog={(log) => {
+            setRefreshLog(log);
+            saveRefreshLog(log);
           }}
           onClose={() => setGcOpen(false)}
           showToast={showToast}

@@ -11,6 +11,7 @@ import {
 } from "../lib/gameChangerImport";
 import {
   describePull,
+  isPullComplete,
   pullView,
   remainingIds,
   retryFailures,
@@ -21,6 +22,13 @@ import {
   type GcPullProgress,
   type GcPullView,
 } from "../lib/gameChangerPull";
+import {
+  describeDue,
+  describeRotation,
+  dueRefresh,
+  markRefreshed,
+  type RefreshLog,
+} from "../lib/gameChangerSchedule";
 import { mergeScoutTeams } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -39,6 +47,9 @@ type GameChangerImportPanelProps = {
   onClearProgress: () => void;
   onClose: () => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
+  /** Which levels have already had their turn today, and how to record that they have. */
+  refreshLog: RefreshLog;
+  onRefreshLog: (log: RefreshLog) => void;
 };
 
 type Stage = "picking" | "pulling" | "review";
@@ -83,6 +94,8 @@ export function GameChangerImportPanel({
   onClearProgress,
   onClose,
   showToast,
+  refreshLog,
+  onRefreshLog,
 }: GameChangerImportPanelProps) {
   const [text, setText] = useState("");
   const [stage, setStage] = useState<Stage>("picking");
@@ -103,8 +116,16 @@ export function GameChangerImportPanel({
   const progressRef = useRef<GcPullProgress | null>(savedProgress);
   const outcomesRef = useRef<GcImportOutcome[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  /** The levels a scheduled run is for, so they can be marked done when it finishes. */
+  const dueLevelsRef = useRef<number[]>([]);
 
   const parsed = useMemo(() => parseGcTeamList(text), [text]);
+
+  const due = useMemo(
+    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams),
+    [refreshLog, pool.ageGroups, pool.teams]
+  );
+  const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
 
   /** Copies the counts out of the live cursor so React has something it can see change. */
@@ -180,6 +201,15 @@ export function GameChangerImportPanel({
 
     flush();
     abortRef.current = null;
+    // Marked only now: a run that was stopped half way has not refreshed those levels.
+    if (
+      dueLevelsRef.current.length > 0 &&
+      progressRef.current &&
+      isPullComplete(progressRef.current)
+    ) {
+      onRefreshLog(markRefreshed(refreshLog, dueLevelsRef.current, new Date()));
+    }
+    dueLevelsRef.current = [];
     const finished = progressRef.current;
     setResult({
       summary: summarizeGcImport(outcomesRef.current),
@@ -190,6 +220,14 @@ export function GameChangerImportPanel({
     setApproved(new Set());
     setStage("review");
     syncStats();
+  };
+
+  const runDue = () => {
+    if (due.teamIds.length === 0) return;
+    const progress = startPull(due.teamIds, nowIso(), null);
+    onSaveProgress(progress);
+    dueLevelsRef.current = due.ageLevels;
+    void run(remainingIds(progress), progress);
   };
 
   const startNew = () => {
@@ -274,6 +312,37 @@ export function GameChangerImportPanel({
 
       {stage === "picking" && (
         <div className="mt-4">
+          <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-bold text-slate-950 dark:text-white">{describeDue(due)}</p>
+              <button
+                type="button"
+                onClick={() => setShowWeek((value) => !value)}
+                aria-expanded={showWeek}
+                className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {showWeek ? "Hide the week" : "The week"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Each age group comes round once a week, so no level is more than seven days old and no
+              day&apos;s run is long enough to be worth interrupting. Nothing happens on its own — a
+              browser cannot run while it is closed — so this is here whenever you next open it.
+            </p>
+            {showWeek && (
+              <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+                {describeRotation().map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {due.teamIds.length > 0 && (
+              <button type="button" onClick={runDue} className={`${button.primary} mt-3`}>
+                Refresh today&apos;s {due.ageLevels.map((level) => `${level}U`).join(" and ")}
+              </button>
+            )}
+          </div>
+
           {resumable.length > 0 && (
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/70 dark:bg-amber-950/40">
               <p className="font-bold text-amber-900 dark:text-amber-200">

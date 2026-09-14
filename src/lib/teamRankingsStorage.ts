@@ -1,6 +1,7 @@
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutGameSource, ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
+import type { RefreshLog } from "./gameChangerSchedule";
 import { idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import {
   decodeScoutGames,
@@ -19,6 +20,8 @@ const GAMES_KEY = "league_forecast_scout_games_v1";
 const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 /** Where an interrupted GameChanger pull keeps its place. Its own key, so clearing it never touches the pool. */
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
+/** When each age level last had its turn in the weekly rotation. */
+const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
 
 /**
  * Where the pool actually lives.
@@ -103,7 +106,7 @@ const parseJson = (raw: string | null): unknown => {
 };
 
 /** The keys the pool is made of. The cursor rides along; it is small and belongs with them. */
-const POOL_KEYS = [TEAMS_KEY, GAMES_KEY, AGE_GROUPS_KEY, GC_PULL_KEY];
+const POOL_KEYS = [TEAMS_KEY, GAMES_KEY, AGE_GROUPS_KEY, GC_PULL_KEY, GC_REFRESH_KEY];
 
 /**
  * A stored value. From the cache once the store has been opened, and straight off `localStorage`
@@ -378,3 +381,20 @@ export const loadPullProgress = (): GcPullProgress | null =>
 export const savePullProgress = (progress: GcPullProgress): boolean =>
   writeValue(GC_PULL_KEY, progress);
 export const clearPullProgress = (): void => forgetValue(GC_PULL_KEY);
+
+/**
+ * The weekly rotation's record of which level was refreshed when. Day keys only — a level either
+ * had its turn today or it did not — so an unreadable entry is simply dropped rather than
+ * pretending a refresh happened.
+ */
+export const loadRefreshLog = (): RefreshLog => {
+  const raw = readValue(GC_REFRESH_KEY);
+  if (!isRecord(raw)) return {};
+  const log: RefreshLog = {};
+  Object.entries(raw).forEach(([level, day]) => {
+    if (isString(day) && /^\d{4}-\d{2}-\d{2}$/.test(day)) log[level] = day;
+  });
+  return log;
+};
+
+export const saveRefreshLog = (log: RefreshLog): boolean => writeValue(GC_REFRESH_KEY, log);
