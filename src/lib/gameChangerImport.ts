@@ -30,8 +30,6 @@ import {
   ageGroupYear,
   createAgeGroupId,
   createScoutTeam,
-  findGcLink,
-  findTeamsByAvatarKey,
   formatAgeGroupName,
   gcSeasonLabel,
   isRankedAgeLevel,
@@ -44,6 +42,100 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
+
+/**
+ * The lookups an import does, precomputed.
+ *
+ * Every one of them — is this game already here, is this opponent a team I know, has this club
+ * been pulled before — was a scan of the whole pool, once per incoming game. That is quadratic,
+ * and measurably so: a thousand teams took thirty-five seconds where two hundred and fifty took
+ * two. Keyed instead, and kept up to date as the fold goes, the same work is linear.
+ *
+ * The keys mirror exactly what the functions they stand in for compare on, and the game bucket is
+ * still handed to `matchExistingGame` rather than matched here, so this changes how fast a match
+ * is found and never what counts as one.
+ */
+type ImportIndex = {
+  gamesById: Map<string, ScoutGame>;
+  /** Games by pool, pair and date — the three things a match must agree on. */
+  gamesByMatch: Map<string, ScoutGame[]>;
+  teamsById: Map<string, ScoutTeam>;
+  /** The team carrying a GameChanger id. One id lives on one team. */
+  teamByGcId: Map<string, ScoutTeam>;
+  teamsByAvatar: Map<string, ScoutTeam[]>;
+  /** Team ids with a game filed on a page, for the "on this page" that name matching needs. */
+  teamIdsByGroup: Map<string, Set<string>>;
+  /** Pool key of an age group: its season year, or the group itself when it has none. */
+  poolKeyOf: (ageGroupId: string) => string;
+};
+
+const pairKeyOf = (game: ScoutGame): string =>
+  [game.teamAId, game.teamBId].slice().sort().join("|");
+
+const matchKeyOf = (game: ScoutGame, poolKeyOf: (ageGroupId: string) => string): string =>
+  `${poolKeyOf(game.ageGroupId)}\u0000${pairKeyOf(game)}\u0000${game.date ?? ""}`;
+
+const push = <K, V>(map: Map<K, V[]>, key: K, value: V) => {
+  const bucket = map.get(key);
+  if (bucket) bucket.push(value);
+  else map.set(key, [value]);
+};
+
+const buildPoolKey = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string) => {
+  // Mirrors `rankingPoolGroupIds`: groups sharing a season year are one pool, and a group with no
+  // year is a pool of one.
+  const keys = new Map<string, string>();
+  ageGroups.forEach((group) => {
+    const year = ageGroupYear(group);
+    keys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
+  });
+  return (ageGroupId: string) => keys.get(ageGroupId) ?? `g:${ageGroupId}`;
+};
+
+const buildIndex = (state: GcImportState): ImportIndex => {
+  const poolKeyOf = buildPoolKey(state.ageGroups);
+  const index: ImportIndex = {
+    gamesById: new Map(),
+    gamesByMatch: new Map(),
+    teamsById: new Map(),
+    teamByGcId: new Map(),
+    teamsByAvatar: new Map(),
+    teamIdsByGroup: new Map(),
+    poolKeyOf,
+  };
+  state.teams.forEach((team) => indexTeam(index, team));
+  state.games.forEach((game) => indexGame(index, game));
+  return index;
+};
+
+const indexTeam = (index: ImportIndex, team: ScoutTeam) => {
+  index.teamsById.set(team.id, team);
+  (team.gcTeams ?? []).forEach((link) => {
+    index.teamByGcId.set(link.teamId, team);
+    if (link.avatarKey) {
+      const bucket = index.teamsByAvatar.get(link.avatarKey);
+      if (!bucket) index.teamsByAvatar.set(link.avatarKey, [team]);
+      else if (!bucket.some((entry) => entry.id === team.id)) bucket.push(team);
+    }
+  });
+};
+
+const indexGame = (index: ImportIndex, game: ScoutGame) => {
+  index.gamesById.set(game.id, game);
+  push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
+  const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
+  onPage.add(game.teamAId);
+  onPage.add(game.teamBId);
+  index.teamIdsByGroup.set(game.ageGroupId, onPage);
+};
+
+/** A page the fold has just created has no games yet, but its pool key must still resolve. */
+const indexAgeGroup = (index: ImportIndex, group: AgeGroup) => {
+  const previous = index.poolKeyOf;
+  const year = ageGroupYear(group);
+  const key = year === undefined ? `g:${group.id}` : `y:${year}`;
+  index.poolKeyOf = (ageGroupId: string) => (ageGroupId === group.id ? key : previous(ageGroupId));
+};
 
 /** The pool, as the importer reads and returns it. */
 export type GcImportState = {
@@ -133,6 +225,7 @@ const resolveAgeGroup = (
   if (ageLevel === undefined || !profile.season) return null;
   const year = squadYearForGcSeason(profile.season.season, profile.season.year);
 
+  // Few enough age groups that a scan is honest here — one per level per year, not one per team.
   const existing = state.ageGroups.find(
     (group) => ageGroupLevel(group) === ageLevel && ageGroupYear(group) === year
   );
@@ -175,15 +268,16 @@ const resolveOwnTeam = (
   ageGroupId: string,
   fetchedAt: string,
   teams: ScoutTeam[],
-  games: ScoutGame[]
+  index: ImportIndex
 ): { teams: ScoutTeam[]; teamId: string; created: boolean } => {
   const link = linkFor(profile, ageGroupId, fetchedAt);
-  const known = findGcLink(profile.id, teams);
+  const known = index.teamByGcId.get(profile.id);
   if (known) {
-    const updated = withLink(known.team, link);
+    const updated = withLink(known, link);
+    indexTeam(index, updated);
     return {
-      teams: teams.map((team) => (team.id === known.team.id ? updated : team)),
-      teamId: known.team.id,
+      teams: teams.map((team) => (team.id === known.id ? updated : team)),
+      teamId: known.id,
       created: false,
     };
   }
@@ -196,23 +290,27 @@ const resolveOwnTeam = (
    * of its own qualifies, and only on this page, which is the same rule opponents are matched by.
    */
   const key = teamNameKey(profile.name);
-  const onThisPage = new Set(
-    games
-      .filter((entry) => entry.ageGroupId === ageGroupId)
-      .flatMap((entry) => [entry.teamAId, entry.teamBId])
-  );
-  const placeholder = teams.find(
-    (team) => onThisPage.has(team.id) && !team.gcTeams?.length && teamNameKey(team.name) === key
-  );
+  const onThisPage = index.teamIdsByGroup.get(ageGroupId);
+  let placeholder: ScoutTeam | undefined;
+  if (onThisPage) {
+    for (const teamId of onThisPage) {
+      const team = index.teamsById.get(teamId);
+      if (team && !team.gcTeams?.length && teamNameKey(team.name) === key) {
+        placeholder = team;
+        break;
+      }
+    }
+  }
   if (placeholder) {
-    const updated = withLink(placeholder, link);
-    const extras = { ...updated };
+    const found = placeholder;
+    const updated = withLink(found, link);
     const placeholderState = normalizeState(profile.state ?? "");
-    if (placeholderState && !extras.state) extras.state = placeholderState;
-    if (profile.city && !extras.city) extras.city = profile.city;
+    if (placeholderState && !updated.state) updated.state = placeholderState;
+    if (profile.city && !updated.city) updated.city = profile.city;
+    indexTeam(index, updated);
     return {
-      teams: teams.map((team) => (team.id === placeholder.id ? extras : team)),
-      teamId: placeholder.id,
+      teams: teams.map((team) => (team.id === found.id ? updated : team)),
+      teamId: found.id,
       created: false,
     };
   }
@@ -222,6 +320,7 @@ const resolveOwnTeam = (
   if (state) extras.state = state;
   if (profile.city) extras.city = profile.city;
   const created = createScoutTeam(profile.name, teams, extras);
+  indexTeam(index, created.team);
   return { teams: created.teams, teamId: created.teamId, created: true };
 };
 
@@ -241,10 +340,10 @@ const resolveOpponent = (
   game: GcGame,
   ageGroupId: string,
   teams: ScoutTeam[],
-  games: ScoutGame[]
+  index: ImportIndex
 ): OpponentMatch => {
   if (game.opponentAvatarKey) {
-    const byAvatar = findTeamsByAvatarKey(game.opponentAvatarKey, teams);
+    const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
     // Exactly one, or the picture is shared and says nothing about which team this is.
     if (byAvatar.length === 1 && byAvatar[0]) {
       return { teams, teamId: byAvatar[0].id, basis: "avatar" };
@@ -252,17 +351,21 @@ const resolveOpponent = (
   }
 
   const key = teamNameKey(game.opponentName);
-  const onThisPage = new Set(
-    games
-      .filter((entry) => entry.ageGroupId === ageGroupId)
-      .flatMap((entry) => [entry.teamAId, entry.teamBId])
-  );
-  const byName = teams.filter((team) => onThisPage.has(team.id) && teamNameKey(team.name) === key);
+  const onThisPage = index.teamIdsByGroup.get(ageGroupId);
+  const byName: ScoutTeam[] = [];
+  if (onThisPage) {
+    for (const teamId of onThisPage) {
+      const team = index.teamsById.get(teamId);
+      if (team && teamNameKey(team.name) === key) byName.push(team);
+      if (byName.length > 1) break;
+    }
+  }
   if (byName.length === 1 && byName[0]) {
     return { teams, teamId: byName[0].id, basis: "name" };
   }
 
   const created = createScoutTeam(game.opponentName, teams, {});
+  indexTeam(index, created.team);
   return { teams: created.teams, teamId: created.teamId, basis: "created" };
 };
 
@@ -292,6 +395,13 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean =>
 export const importGcSchedule = (
   schedule: GcTeamSchedule,
   state: GcImportState
+): { state: GcImportState; outcome: GcImportOutcome } =>
+  importOne(schedule, state, buildIndex(state));
+
+const importOne = (
+  schedule: GcTeamSchedule,
+  state: GcImportState,
+  index: ImportIndex
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   const { profile } = schedule;
   const base: GcImportOutcome = {
@@ -326,7 +436,8 @@ export const importGcSchedule = (
   }
 
   const { group, created: createdAgeGroup } = resolved;
-  const own = resolveOwnTeam(profile, group.id, schedule.fetchedAt, state.teams, state.games);
+  if (createdAgeGroup) indexAgeGroup(index, group);
+  const own = resolveOwnTeam(profile, group.id, schedule.fetchedAt, state.teams, index);
   const ourLevel = profileAgeLevel(profile);
 
   let teams = own.teams;
@@ -348,7 +459,7 @@ export const importGcSchedule = (
       continue;
     }
 
-    const opponent = resolveOpponent(game, group.id, teams, games);
+    const opponent = resolveOpponent(game, group.id, teams, index);
     teams = opponent.teams;
     if (opponent.basis === "created") outcome.opponentsCreated += 1;
     else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
@@ -373,11 +484,12 @@ export const importGcSchedule = (
     // Two ways the game may already be here. The same schedule's same game id is certainly it —
     // and `matchExistingGame` will not find that one, because it looks for a *different* row
     // meaning the same thing. Failing that, the other team's copy of the game.
+    const bucket = index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [];
     const existing =
-      games.find((entry) => entry.id === candidate.id) ??
-      matchExistingGame(candidate, games, ageGroups);
+      index.gamesById.get(candidate.id) ?? matchExistingGame(candidate, bucket, ageGroups);
     if (!existing) {
       games = [...games, candidate];
+      indexGame(index, candidate);
       outcome.gamesAdded += 1;
       continue;
     }
@@ -394,6 +506,13 @@ export const importGcSchedule = (
       ...(candidate.season ? { season: candidate.season } : {}),
     };
     games = games.map((entry) => (entry.id === existing.id ? merged : entry));
+    // Same id, same pool, same pair, same date, so the buckets it sits in do not move.
+    index.gamesById.set(merged.id, merged);
+    const sameBucket = index.gamesByMatch.get(matchKeyOf(merged, index.poolKeyOf));
+    if (sameBucket) {
+      const at = sameBucket.findIndex((entry) => entry.id === merged.id);
+      if (at >= 0) sameBucket[at] = merged;
+    }
     outcome.gamesUpdated += 1;
   }
 
@@ -406,9 +525,11 @@ export const importGcSchedules = (
   state: GcImportState
 ): { state: GcImportState; outcomes: GcImportOutcome[] } => {
   let next = state;
+  // One index for the whole fold: rebuilding it per schedule would put the quadratic back.
+  const index = buildIndex(state);
   const outcomes: GcImportOutcome[] = [];
   for (const schedule of schedules) {
-    const result = importGcSchedule(schedule, next);
+    const result = importOne(schedule, next, index);
     next = result.state;
     outcomes.push(result.outcome);
   }
