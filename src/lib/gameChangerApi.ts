@@ -191,12 +191,18 @@ export const parseGcAgeLevel = (label: unknown): number | undefined => {
 
 /**
  * The age label a team name carries ("9u Astros", "Trash Pandas 9u", "U11 Bandits") — the
- * fallback when GameChanger's profile leaves `age_group` blank. The label is loose evidence, so
- * callers only use it when nothing better is known.
+ * fallback when GameChanger's profile or a CSV column leaves the age blank. The label is loose
+ * evidence, so callers only use it when nothing better is known.
+ *
+ * The tier letters travel ball hangs off the level — "9UA", "9UB", "11UAA" — are part of the
+ * label, not a different word, so they are consumed rather than read as the end of the name. A
+ * plain word boundary rejected every one of them, and a blank age column with the level only in
+ * the name is exactly when this function is asked. Only A through D are allowed through, so
+ * "12UNDER" is still not a 12U team.
  */
 export const ageLevelFromName = (name: string): number | undefined => {
   if (typeof name !== "string") return undefined;
-  const match = /\b(?:(\d{1,2})\s*[uU]|[uU]\s*(\d{1,2}))\b/.exec(name);
+  const match = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/.exec(name);
   if (!match) return undefined;
   const level = Number(match[1] ?? match[2]);
   return inAgeRange(level) ? level : undefined;
@@ -607,7 +613,9 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   const entry: GcTeamListEntry = { teamId };
   const name = cellAt(cells, columns.name);
   if (name) entry.name = name;
-  const ageLevel = parseGcAgeLevel(cellAt(cells, columns.age));
+  // The same fallback `normalizeGcTeamProfile` makes: an export can leave the age column blank
+  // and still name the level in the team name, which is how every such row in the wild reads.
+  const ageLevel = parseGcAgeLevel(cellAt(cells, columns.age)) ?? ageLevelFromName(name);
   if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const season = parseGcSeasonLabel(cellAt(cells, columns.season));
   if (season) entry.season = season;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import teamListCsv from "./fixtures/gc-team-list.csv?raw";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import {
@@ -550,5 +551,72 @@ describe("normalizeGcGames", () => {
         { id: "p1", start_ts: "2026-10-03T18:00:00.000Z", timezone: "America/New_York" },
       ])
     ).toEqual([]);
+  });
+});
+
+describe("age labels travel ball actually uses", () => {
+  // Every one of these came out of a real GameChanger export with a blank Age Group column: the
+  // level is in the name, and the tier letter sits right against it.
+  it("reads a level through its tier suffix", () => {
+    expect(ageLevelFromName("9UA Tortugas")).toBe(9);
+    expect(ageLevelFromName("9UB Sus Goats")).toBe(9);
+    expect(ageLevelFromName("WPPA 9UA Cougars")).toBe(9);
+    expect(ageLevelFromName("Base Invaders Welles Park 9UB")).toBe(9);
+    expect(ageLevelFromName("Frisco Dodgers - Gomez 11UAA")).toBe(11);
+    expect(ageLevelFromName("Thunder 10ud")).toBe(10);
+  });
+
+  it("still reads the plain labels", () => {
+    expect(ageLevelFromName("9u Astros 9U")).toBe(9);
+    expect(ageLevelFromName("Trash Pandas 9u")).toBe(9);
+    expect(ageLevelFromName("U11 Bandits")).toBe(11);
+    expect(ageLevelFromName("Kilbourne 19U Fall Ball")).toBe(19);
+  });
+
+  // The suffix is letters the tier uses, not any word starting with one, so a longer word still
+  // ends the label rather than being swallowed into it.
+  it("does not invent a level out of a longer word", () => {
+    expect(ageLevelFromName("12UNDER Bandits")).toBeUndefined();
+    expect(ageLevelFromName("Team Umpire 9")).toBeUndefined();
+    expect(ageLevelFromName("Wildcats")).toBeUndefined();
+  });
+});
+
+describe("parseGcTeamList against a real export", () => {
+  const csv = teamListCsv;
+
+  it("reads every row of the file people actually have", () => {
+    const { entries, skipped } = parseGcTeamList(csv);
+    expect(skipped).toEqual([]);
+    expect(entries).toHaveLength(6);
+    // The BOM a spreadsheet writes must not end up glued to the first header.
+    expect(entries[0]?.teamId).toBe("aGLfkW4E22sm");
+  });
+
+  it("falls back to the name when the age column is blank", () => {
+    const { entries } = parseGcTeamList(csv);
+    const tortugas = entries.find((entry) => entry.teamId === "aGLfkW4E22sm");
+    expect(tortugas?.ageLevel).toBe(9);
+    const dodgers = entries.find((entry) => entry.teamId === "ghoY0z3UvrY9");
+    expect(dodgers?.ageLevel).toBe(11);
+  });
+
+  it("keeps the rest of the row", () => {
+    const { entries } = parseGcTeamList(csv);
+    const astros = entries.find((entry) => entry.teamId === "hH8l9MBjxg7U");
+    expect(astros).toMatchObject({
+      name: "9u Astros 9U",
+      ageLevel: 9,
+      city: "Baileyton",
+      state: "AL",
+      season: { season: "fall", year: 2026 },
+    });
+  });
+
+  // A winter season spanning two years is labelled by the first of them.
+  it("reads a two-year winter label as its first year", () => {
+    const { entries } = parseGcTeamList(csv);
+    const enFuego = entries.find((entry) => entry.teamId === "zjvVkYnqLrf0");
+    expect(enFuego?.season).toEqual({ season: "winter", year: 2026 });
   });
 });
