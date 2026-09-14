@@ -36,6 +36,15 @@ import {
   type TeamRankingsBackup,
   type UndoSnapshotWithRankings,
 } from "./lib/teamRankingsBackup";
+import {
+  applyFullBackup,
+  backupFilename,
+  coerceBackup,
+  readFullBackup,
+  summarizeFullBackup,
+  type FullBackup,
+  type LiveSeasonData,
+} from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -90,7 +99,6 @@ import {
 } from "./lib/projectionDelta";
 import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
-import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./lib/validate";
 import {
   applyResult,
   calculateTeams,
@@ -2174,7 +2182,7 @@ export default function App() {
     },
     [showToast]
   );
-  const { theme, toggle: toggleTheme } = useDarkMode();
+  const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
   /**
    * Bumped whenever Team Rankings saves. That data lives in its own storage keys, so nothing here
@@ -3768,98 +3776,130 @@ This will replace the current season data and save an undo snapshot.`,
     URL.revokeObjectURL(url);
   };
 
-  const exportBackup = () => {
-    const blob = new Blob(
-      [
-        JSON.stringify(
-          {
-            teams,
-            matchups,
-            logs,
-            bracketLogs,
-            settings,
-            // The Team Rankings pool keeps its own storage keys, shared across every season, so a
-            // backup has to name it explicitly or the whole ranking history falls out of the file.
-            teamRankings: readTeamRankingsBackup(),
-          },
-          null,
-          2
-        ),
-      ],
-      {
-        type: "application/json",
-      }
-    );
+  /** The active season's live React state — fresher than storage, whose score writes are debounced. */
+  const liveSeasonData = (): LiveSeasonData => ({
+    teams,
+    matchups,
+    logs,
+    bracketLogs,
+    settings,
+  });
+
+  const downloadBackup = (backup: FullBackup) => {
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${settings.seasonLabel.replace(/\s+/g, "_")}_Backup.json`;
+    anchor.download = backupFilename(backup.exportedAt);
     anchor.click();
     URL.revokeObjectURL(url);
   };
+
+  const exportBackup = () => downloadBackup(readFullBackup(liveSeasonData()));
+
+  /**
+   * A whole-browser restore: every season, the Team Rankings pool, and the UI preferences. It
+   * replaces more than the undo snapshot can hold — a season the backup does not carry is gone —
+   * so instead of a misleading Undo the toast hands back a backup of what was just replaced.
+   */
+  const restoreFullBackup = async (backup: FullBackup) => {
+    const previous = readFullBackup(liveSeasonData());
+    const confirmed = await requestConfirmation({
+      title: "Restore full backup?",
+      message: `${summarizeFullBackup(backup)}
+
+This replaces everything currently in this browser: all ${seasons.length} season${seasons.length === 1 ? "" : "s"}, the Team Rankings pool, and your theme and mode. It cannot be undone — the toast afterwards offers a download of the data being replaced.`,
+      confirmLabel: "Restore everything",
+    });
+    if (!confirmed) return;
+
+    const result = applyFullBackup(backup);
+    // Storage is the source of truth after a restore, so pull React state back from it.
+    reloadActiveSeason();
+    // Also drops the team-data deep link, which could otherwise point at a team the restored
+    // season does not have.
+    closeTeamData();
+    noteScoutChange();
+    if (backup.preferences.theme) setTheme(backup.preferences.theme);
+    if (backup.preferences.appMode) setAppMode(backup.preferences.appMode);
+    setLastImpact(null);
+    setActiveView("standings");
+
+    // The download is the only way back from a restore, so it is offered on both outcomes — most
+    // of all on a partial one — and the toast is held open long enough to actually click.
+    const replacedDataAction = {
+      actionLabel: "Download replaced data",
+      onAction: () => downloadBackup(previous),
+      durationMs: 12000,
+    };
+    if (!result.ok) {
+      showToast(`Restore incomplete — could not write ${result.failed.join(", ")}.`, {
+        tone: "error",
+        ...replacedDataAction,
+      });
+      return;
+    }
+    showToast(
+      `Restored ${backup.seasons.length} season${backup.seasons.length === 1 ? "" : "s"} and Team Rankings.`,
+      { tone: "success", ...replacedDataAction }
+    );
+  };
+
+  /** The older single-season backup shape: replaces the active season only, and stays undoable. */
+  const restoreSeasonBackup = async (
+    season: LiveSeasonData,
+    nextRankings: TeamRankingsBackup | null
+  ) => {
+    const backupTeamNameById = new Map(
+      season.teams.map((team) => [team.id, displayName(team.name)])
+    );
+    const preview = buildSeasonImportPreview(
+      season.teams,
+      season.matchups,
+      season.logs,
+      teams,
+      matchups,
+      (teamId) => backupTeamNameById.get(teamId) ?? displayName(teamId),
+      logs
+    );
+    const confirmed = await requestConfirmation({
+      title: "Import backup JSON?",
+      message: `${formatSeasonImportPreview(preview)}
+
+${teamRankingsImportNote(nextRankings)}
+
+This backup carries one season, so it replaces the current season data and saves an undo snapshot.`,
+      confirmLabel: "Import backup",
+    });
+    if (!confirmed) return;
+
+    captureUndo("Backup import", { withTeamRankings: Boolean(nextRankings) });
+    applyTeamRankingsImport(nextRankings);
+    setTeams(season.teams);
+    setMatchups(season.matchups);
+    setLogs(season.logs);
+    setBracketLogs(season.bracketLogs);
+    setSettings(season.settings);
+    closeTeamData();
+    setLastImpact(null);
+    setActiveView("standings");
+    showToast(`Imported backup (${season.matchups.length} games).`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: restoreUndo,
+    });
+  };
+
   const importBackup = (file: File) => {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("Backup is not text");
-        const parsed = JSON.parse(raw) as unknown;
-        if (!isRecord(parsed)) throw new Error("Backup must be an object");
-        if (
-          !Array.isArray(parsed.teams) ||
-          !Array.isArray(parsed.matchups) ||
-          !isRecord(parsed.logs)
-        ) {
-          throw new Error("Backup is missing teams, matchups, or logs");
-        }
-
-        const nextSettings = coerceSettings(parsed.settings);
-        const nextTeams = coerceTeams(parsed.teams);
-        const nextMatchups = coerceMatchups(parsed.matchups, nextTeams);
-        const nextLogs = coerceLogs(parsed.logs, nextMatchups, nextSettings);
-        // Absent in every backup written before rankings were included, which must leave the live
-        // pool alone rather than empty it.
-        const nextRankings = coerceTeamRankingsBackup(parsed.teamRankings);
-        const backupTeamNameById = new Map(
-          nextTeams.map((team) => [team.id, displayName(team.name)])
-        );
-        const preview = buildSeasonImportPreview(
-          nextTeams,
-          nextMatchups,
-          nextLogs,
-          teams,
-          matchups,
-          (teamId) => backupTeamNameById.get(teamId) ?? displayName(teamId),
-          logs
-        );
-        const confirmed = await requestConfirmation({
-          title: "Import backup JSON?",
-          message: `${formatSeasonImportPreview(preview)}
-
-${teamRankingsImportNote(nextRankings)}
-
-This will replace current season data and save an undo snapshot.`,
-          confirmLabel: "Import backup",
-        });
-        if (!confirmed) return;
-
-        captureUndo("Backup import", { withTeamRankings: Boolean(nextRankings) });
-        applyTeamRankingsImport(nextRankings);
-        setTeams(nextTeams);
-        setMatchups(nextMatchups);
-        setLogs(nextLogs);
-        setBracketLogs(
-          coerceLogs(isRecord(parsed.bracketLogs) ? parsed.bracketLogs : {}, [], nextSettings)
-        );
-        setSettings(nextSettings);
-        closeTeamData();
-        setLastImpact(null);
-        setActiveView("standings");
-        showToast(`Imported backup (${nextMatchups.length} games).`, {
-          tone: "undo",
-          actionLabel: "Undo",
-          onAction: restoreUndo,
-        });
+        const parsed = coerceBackup(JSON.parse(raw) as unknown);
+        if (!parsed) throw new Error("Backup is not a League Forecast backup");
+        if (parsed.kind === "full") await restoreFullBackup(parsed.backup);
+        else await restoreSeasonBackup(parsed.season, parsed.teamRankings);
       } catch (error) {
         console.error(error);
         showToast("Could not import this backup JSON.", { tone: "error" });
@@ -7582,6 +7622,10 @@ function SettingsView({
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Data
           </h3>
+          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+            Backup JSON saves everything in this browser — every season, the Team Rankings pool, and
+            your theme and mode. Export CSV covers this season&apos;s schedule plus Team Rankings.
+          </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800">
               Import CSV

@@ -1,31 +1,13 @@
 import { useEffect, useState } from "react";
+import { readAppMode, writeAppMode, type AppMode } from "../lib/preferences";
 
-const STORAGE_KEY = "lf_app_mode_v1";
-
-export type AppMode = "league" | "rankings";
-
-const safeGet = (): AppMode | null => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw === "league" || raw === "rankings" ? raw : null;
-  } catch {
-    return null;
-  }
-};
-
-const safeSet = (mode: AppMode) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, mode);
-  } catch {
-    /* ignore */
-  }
-};
+export type { AppMode };
 
 export function useAppMode() {
-  const [appMode, setAppMode] = useState<AppMode>(() => safeGet() ?? "league");
+  const [appMode, setAppMode] = useState<AppMode>(() => readAppMode() ?? "league");
 
   useEffect(() => {
-    safeSet(appMode);
+    writeAppMode(appMode);
   }, [appMode]);
 
   return { appMode, setAppMode };

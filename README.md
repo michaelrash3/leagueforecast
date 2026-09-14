@@ -287,30 +287,55 @@ explicitly that no cut line exists and to cover the race for the top instead.
 
 ### Backups
 
-Both exports under **Settings → Data** are full backups: they carry the season
-(teams, games, scores, bracket, settings) _and_ the whole Team Rankings pool —
-every age group, ranked team, and logged game, scored or scheduled. Team
-Rankings lives in its own storage keys shared across seasons, so without this a
-backup would quietly leave the entire ranking history out of the file.
+**Backup JSON is a whole-browser backup.** It carries every storage key this app
+owns, not just the season you happen to be looking at:
 
-| Export          | Layout                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------ |
-| **Backup JSON** | A `teamRankings` object alongside `teams` / `matchups` / `logs` / `bracketLogs` / `settings`.    |
-| **Export CSV**  | The schedule table, then `# Section:` blocks for the age groups, ranked teams, and logged games. |
+| Storage                                                         | In the file                                         |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| `league_seasons_v1`, `league_active_season_v1`                  | `seasons[].id`/`name`/`createdAt`, `activeSeasonId` |
+| `league_season_<id>_{teams,matchups,logs,bracketLogs,settings}` | one `seasons[]` entry per season                    |
+| `league_forecast_scout_{teams,games,age_groups}_v1`             | `teamRankings`                                      |
+| `nkb_theme_v1`, `lf_app_mode_v1`                                | `preferences`                                       |
+| `league_season_<id>_undo_v1`                                    | **omitted on purpose** — see below                  |
 
-A `# Section: <name>` line opens each CSV block — one cell in a spreadsheet, and
-a line no header or data row can be mistaken for. Importing reads each block
-back; a CSV with no markers at all is treated as all schedule, so every CSV
-exported before sections existed (and every hand-made one) still imports
-unchanged. Names are written beside the IDs in each block to keep the file
-readable, but the IDs are what a restore reads.
+The one omission is each season's undo snapshot. It is scratch state for a
+single action, it duplicates the season it belongs to (so carrying it would
+roughly double the file), and restoring a stale one would offer an "undo" back
+to a state from some other session.
 
-Because the pool spans every season and age group, restoring one **replaces**
-the pool outright rather than merging into it, and both import dialogs say so
-before you confirm. The undo snapshot covers it: undoing an import puts the
-previous pool back along with the season. A file carrying no Team Rankings data
-— including any backup written before this shipped — leaves the live pool
-exactly as it is.
+The active season is read from live app state rather than storage, because
+score writes are debounced — a backup taken right after typing a score would
+otherwise miss it.
+
+**Export CSV stays season-scoped**: this season's schedule, then `# Section:`
+blocks for the Team Rankings age groups, ranked teams, and logged games. A
+`# Section: <name>` line opens each block — one cell in a spreadsheet, and a
+line no header or data row can be mistaken for. Names are written beside the
+IDs to keep the file readable, but the IDs are what a restore reads.
+
+#### Restoring
+
+Importing a JSON backup does one of two things, decided by the file:
+
+| File                                             | Effect                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Has `seasons[]` (current format)                 | Replaces **everything** in this browser: all seasons, the Team Rankings pool, theme and mode. |
+| Has top-level `teams`/`matchups`/`logs` (pre-v2) | Replaces the active season only, as it always did, and stays undoable.                        |
+
+A whole-browser restore reaches further than the undo snapshot can hold — a
+season the backup does not carry is gone — so it is not offered as undoable.
+Instead the confirmation dialog lists every season in the file and says plainly
+what is being replaced, and the toast afterwards offers **Download replaced
+data**: a backup of the state that was just overwritten, built before the write.
+
+For the Team Rankings pool specifically, restoring **replaces** it rather than
+merging into it, since one backup carries every age group. Both import dialogs
+say so, including the case a count would not reveal: a file saved while the pool
+was empty clears it. A file with no rankings data at all — including any backup
+written before this shipped — leaves the live pool exactly as it is.
+
+A CSV with no section markers is treated as all schedule, so every CSV exported
+before sections existed, and every hand-made one, still imports unchanged.
 
 ## AI write-ups
 
