@@ -429,3 +429,58 @@ describe("both sides of a cross-age game", () => {
     expect(state.teams.filter((team) => team.name === "Bandits")).toHaveLength(2);
   });
 });
+
+describe("a name two clubs share", () => {
+  // Both pulled by id, so neither is name-matched: two real teams called Yankees, which is exactly
+  // what identity-by-id is for.
+  const first = schedule({ id: "gcY100000000", name: "Yankees 9U" }, [
+    game({ id: "y1", opponentName: "Aces 9U" }),
+  ]);
+  const second = schedule({ id: "gcY200000000", name: "Yankees 9U" }, [
+    game({ id: "y2", opponentName: "Bears 9U", date: "2026-08-24" }),
+  ]);
+  // A third schedule names "Yankees" as an opponent, and cannot say which.
+  const third = schedule({ id: "gcC000000000", name: "Comets 9U" }, [
+    game({ id: "c1", opponentName: "Yankees", date: "2026-08-25" }),
+  ]);
+
+  /**
+   * The ambiguous name has to become *a* team — the game happened and needs an opponent — but the
+   * next pull must find that team rather than make another. The opponent a known game already
+   * settled on is the answer, so a weekly re-pull no longer adds a Yankees a week forever.
+   */
+  it("stops making a new team on every re-pull", () => {
+    let state = importGcSchedules([first, second, third], empty).state;
+    const afterFirst = state.teams.length;
+
+    for (let round = 0; round < 3; round += 1) {
+      state = importGcSchedules([first, second, third], state).state;
+    }
+
+    expect(state.teams).toHaveLength(afterFirst);
+    expect(state.games).toHaveLength(3);
+  });
+
+  it("does not fold a club into a namesake by adopting an ambiguous placeholder", () => {
+    // Two name-only "Yankees" on the page, then a real Yankees pulled by id.
+    const seeded = importGcSchedules(
+      [
+        schedule({ id: "gcP100000000", name: "Aces 9U" }, [
+          game({ id: "p1", opponentName: "Yankees" }),
+        ]),
+        schedule({ id: "gcP200000000", name: "Bears 9U" }, [
+          game({ id: "p2", opponentName: "Yankees", date: "2026-08-26" }),
+        ]),
+      ],
+      empty
+    ).state;
+    // Those two both matched by name, so there is one placeholder, and adopting it is right.
+    expect(seeded.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+
+    const pulled = importGcSchedule(
+      schedule({ id: "gcY900000000", name: "Yankees 9U" }, []),
+      seeded
+    );
+    expect(pulled.outcome.createdTeam).toBe(false);
+  });
+});

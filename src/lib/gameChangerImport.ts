@@ -200,13 +200,32 @@ const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void 
   indexTeam(index, team);
 };
 
-/** Replaces a team in place. Its id does not change, so nothing it is filed under moves. */
+/** Takes a team out of the avatar index, so a key it no longer carries stops pointing at it. */
+const unindexAvatars = (index: ImportIndex, team: ScoutTeam): void => {
+  (team.gcTeams ?? []).forEach((link) => {
+    if (!link.avatarKey) return;
+    const bucket = index.teamsByAvatar.get(link.avatarKey);
+    if (!bucket) return;
+    const at = bucket.findIndex((entry) => entry.id === team.id);
+    if (at >= 0) bucket.splice(at, 1);
+    if (bucket.length === 0) index.teamsByAvatar.delete(link.avatarKey);
+  });
+};
+
+/**
+ * Replaces a team in place. Its id does not change, so nothing it is filed under moves — except
+ * its avatars, which a re-pull can change: GameChanger teams do get new pictures, and the old key
+ * left behind would go on claiming this team, or worse make it ambiguous with whoever takes that
+ * picture next.
+ */
 const replaceTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
   const position = index.teamPos.get(team.id);
   if (position === undefined) {
     addTeam(index, teams, team);
     return;
   }
+  const previous = teams[position];
+  if (previous) unindexAvatars(index, previous);
   teams[position] = team;
   indexTeam(index, team);
 };
@@ -378,14 +397,12 @@ const resolveOwnTeam = (
     index.teamIdsByGroupName.get(
       nameSlotKey(index.poolKeyOf(ageGroupId), key, profileAgeLevel(profile))
     ) ?? [];
-  let placeholder: ScoutTeam | undefined;
-  for (const teamId of sameName) {
-    const team = index.teamsById.get(teamId);
-    if (team && !team.gcTeams?.length) {
-      placeholder = team;
-      break;
-    }
-  }
+  // Exactly one, or picking between them is a guess — and a wrong one folds a club's games into
+  // somebody else's team.
+  const placeholders = sameName
+    .map((teamId) => index.teamsById.get(teamId))
+    .filter((team): team is ScoutTeam => Boolean(team) && !team?.gcTeams?.length);
+  const placeholder = placeholders.length === 1 ? placeholders[0] : undefined;
   if (placeholder) {
     const updated = withLink(placeholder, link);
     const placeholderState = normalizeState(profile.state ?? "");
@@ -567,17 +584,33 @@ const importOne = (
       continue;
     }
 
-    const opponent = resolveOpponent(game, group.id, teams, index);
-    if (opponent.basis === "created") outcome.opponentsCreated += 1;
-    else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
-    else outcome.opponentsMatchedByName += 1;
+    /*
+     * This schedule's own copy of this game, if it has been pulled before. Found first, because the
+     * opponent it already settled on is the answer — working it out again on a name that is
+     * ambiguous would mint a fresh team, and a weekly re-pull would do that every week forever.
+     */
+    const known = index.gamesById.get(gcGameId(profile.id, game.id));
+    const knownOpponentId = known
+      ? known.teamAId === own.teamId
+        ? known.teamBId
+        : known.teamAId
+      : undefined;
+
+    let opponentId = knownOpponentId;
+    if (opponentId === undefined) {
+      const opponent = resolveOpponent(game, group.id, teams, index);
+      opponentId = opponent.teamId;
+      if (opponent.basis === "created") outcome.opponentsCreated += 1;
+      else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+      else outcome.opponentsMatchedByName += 1;
+    }
 
     // Their level is only ever a guess from the name; ours is what GameChanger said.
     const theirLevel = ageLevelFromName(game.opponentName);
     const candidate: ScoutGame = {
       id: gcGameId(profile.id, game.id),
       teamAId: own.teamId,
-      teamBId: opponent.teamId,
+      teamBId: opponentId,
       ageGroupId: group.id,
       ...(game.teamScore === undefined ? {} : { teamAScore: game.teamScore }),
       ...(game.opponentScore === undefined ? {} : { teamBScore: game.opponentScore }),
@@ -591,9 +624,13 @@ const importOne = (
     // Two ways the game may already be here. The same schedule's same game id is certainly it —
     // and `matchExistingGame` will not find that one, because it looks for a *different* row
     // meaning the same thing. Failing that, the other team's copy of the game.
-    const bucket = index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [];
     const existing =
-      index.gamesById.get(candidate.id) ?? matchExistingGame(candidate, bucket, ageGroups);
+      known ??
+      matchExistingGame(
+        candidate,
+        index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [],
+        ageGroups
+      );
     if (!existing) {
       addGame(index, games, candidate);
       outcome.gamesAdded += 1;
