@@ -14,6 +14,7 @@ import {
   formatAgeGroupName,
   isRankedAgeLevel,
   isScoutGamePlayed,
+  mergeScoutTeams,
   MAX_AGE_LEVEL,
   MIN_RANKED_AGE_LEVEL,
   MIN_SEASON_YEAR,
@@ -27,6 +28,7 @@ import {
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
+  unlinkGcTeam,
   type AgeGroup,
   type LeagueSeasonSnapshot,
   type MatchupTier,
@@ -780,6 +782,47 @@ export function TeamRankingsView({
     });
   };
 
+  /**
+   * Takes one GameChanger id off a team. Only the roster changes: the games that id brought in
+   * stay where they are, because they happened and still belong to this team until somebody says
+   * otherwise.
+   */
+  const unlinkGc = (teamId: string, gcTeamId: string) => {
+    const next = unlinkGcTeam(teamId, gcTeamId, scoutTeams);
+    if (next === scoutTeams) return;
+    persistTeams(next);
+    showToast("Unlinked from GameChanger.", { tone: "success" });
+  };
+
+  /**
+   * The "same team as" the pull can only ever propose. Folding is confirmed first because it moves
+   * every game and removes an entry, and a wrong one is tedious to undo by hand.
+   */
+  const mergeInto = async (fromId: string, intoId: string) => {
+    const from = allKnown.teams.find((team) => team.id === fromId);
+    const into = allKnown.teams.find((team) => team.id === intoId);
+    if (!from || !into) return;
+    const preview = mergeScoutTeams(fromId, intoId, scoutTeams, scoutGames);
+    const confirmed = await requestConfirmation({
+      title: `Fold ${from.name} into ${into.name}?`,
+      message: `Every game moves to ${into.name} and ${from.name} is removed.${
+        preview.droppedGames > 0
+          ? ` ${preview.droppedGames} game${preview.droppedGames === 1 ? "" : "s"} between the two cannot survive the merge and will be dropped.`
+          : ""
+      }`,
+      confirmLabel: "Fold in",
+    });
+    if (!confirmed) return;
+    persistTeams(preview.teams);
+    persistGames(preview.games);
+    setOpenTeamId(intoId);
+    showToast(`Folded into ${into.name}.`, { tone: "success" });
+  };
+
+  /** Everyone else rated on this page — who a team could plausibly be the same club as. */
+  const mergeCandidatesFor = (teamId: string): ScoutTeam[] =>
+    rankedTeams.filter((team) => team.id !== teamId);
+
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
 
   /**
@@ -1268,6 +1311,9 @@ export function TeamRankingsView({
           teamNameById={teamNameById}
           fromLeague={leagueGameTeamIds.has(openTeam.id)}
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
+          onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}
+          onMergeInto={(intoTeamId) => void mergeInto(openTeam.id, intoTeamId)}
+          mergeCandidates={mergeCandidatesFor(openTeam.id)}
           onSetState={(state) => setTeamState(openTeam.id, state)}
           onClose={() => setOpenTeamId(null)}
         />

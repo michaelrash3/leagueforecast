@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   countsTowardRating,
   gamesForTeam,
+  gcSeasonLabel,
   isScoutGamePlayed,
   rankingPoolGroupIds,
   teamNameKey,
@@ -26,6 +27,12 @@ type TeamDetailPanelProps = {
   onRename: (nextName: string) => void;
   /** Two letters, or empty to clear it. */
   onSetState: (state: string) => void;
+  /** Takes one GameChanger id off this team, undoing a pairing that turned out to be wrong. */
+  onUnlinkGc: (gcTeamId: string) => void;
+  /** Folds this team into another — the "same team as" the pull could only propose. */
+  onMergeInto: (intoTeamId: string) => void;
+  /** Teams this one could be folded into: everyone else on the page, for the picker. */
+  mergeCandidates: ScoutTeam[];
   onClose: () => void;
 };
 
@@ -57,9 +64,13 @@ export function TeamDetailPanel({
   fromLeague,
   onRename,
   onSetState,
+  onUnlinkGc,
+  onMergeInto,
+  mergeCandidates,
   onClose,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
+  const [mergeTarget, setMergeTarget] = useState("");
 
   const nameOf = (id: string) => teamNameById.get(id) ?? "Unknown";
   const everyGame = useMemo(() => gamesForTeam(team.id, allGames), [team.id, allGames]);
@@ -164,6 +175,88 @@ export function TeamDetailPanel({
           </p>
         )}
       </div>
+
+      {(team.gcTeams?.length ?? 0) > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Known on GameChanger as
+          </p>
+          <ul className="mt-1 space-y-1">
+            {team.gcTeams?.map((link) => (
+              <li key={link.teamId} className="flex flex-wrap items-center gap-2 text-sm">
+                <a
+                  href={`https://web.gc.com/teams/${link.teamId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {link.name}
+                </a>
+                <span className="text-xs text-slate-500">
+                  {gcSeasonLabel(link) || "season unknown"}
+                  {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onUnlinkGc(link.teamId)}
+                  className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                >
+                  Unlink
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-slate-500">
+            GameChanger mints a new id every season, so a club pulled across two seasons is known by
+            two. Unlinking takes one off and leaves its games here — that id can then be pulled onto
+            a team of its own, which is how a wrong pairing is taken apart.
+          </p>
+        </div>
+      )}
+
+      {mergeCandidates.length > 0 && (
+        <div className="mt-4">
+          <label
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+            htmlFor="scout-team-merge"
+          >
+            Same team as
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <select
+              id="scout-team-merge"
+              value={mergeTarget}
+              onChange={(event) => setMergeTarget(event.target.value)}
+              className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <option value="">Choose a team…</option>
+              {mergeCandidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                  {candidate.state ? ` (${candidate.state})` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!mergeTarget}
+              onClick={() => {
+                if (!mergeTarget) return;
+                onMergeInto(mergeTarget);
+                setMergeTarget("");
+              }}
+              className={button.ghost}
+            >
+              Fold into it
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Moves every game from this team over to that one and removes this entry, keeping both
+            GameChanger ids. For a club that arrived twice — once pulled by id, once as somebody
+            else&apos;s opponent.
+          </p>
+        </div>
+      )}
 
       <div className="mt-4">
         <label
