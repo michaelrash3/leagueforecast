@@ -1,5 +1,11 @@
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutGameSource, ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
+import {
+  decodeScoutGames,
+  decodeScoutTeams,
+  encodeScoutGames,
+  encodeScoutTeams,
+} from "./teamRankingsCompact";
 
 /**
  * Team Rankings persistence is intentionally separate from `storage.ts`'s season-namespaced
@@ -165,13 +171,21 @@ export const coerceAgeGroups = (raw: unknown): AgeGroup[] => {
     }));
 };
 
-export const loadScoutTeams = (): ScoutTeam[] => coerceScoutTeams(parseJson(safeGet(TEAMS_KEY)));
+/**
+ * Written compactly — tuples and dictionaries rather than the objects themselves — because a
+ * GameChanger pull reaches a size the readable form does not fit in: see `teamRankingsCompact.ts`.
+ * A pool saved before that existed is an array, and is still read as one; the next save rewrites
+ * it. The in-memory shape is unchanged either way, so nothing above this line knows.
+ */
+export const loadScoutTeams = (): ScoutTeam[] =>
+  decodeScoutTeams(parseJson(safeGet(TEAMS_KEY)), coerceScoutTeams);
 export const saveScoutTeams = (teams: ScoutTeam[]): boolean =>
-  safeSet(TEAMS_KEY, JSON.stringify(teams));
+  safeSet(TEAMS_KEY, JSON.stringify(encodeScoutTeams(teams)));
 
-export const loadScoutGames = (): ScoutGame[] => coerceScoutGames(parseJson(safeGet(GAMES_KEY)));
+export const loadScoutGames = (): ScoutGame[] =>
+  decodeScoutGames(parseJson(safeGet(GAMES_KEY)), coerceScoutGames);
 export const saveScoutGames = (games: ScoutGame[]): boolean =>
-  safeSet(GAMES_KEY, JSON.stringify(games));
+  safeSet(GAMES_KEY, JSON.stringify(encodeScoutGames(games)));
 
 export const loadAgeGroups = (): AgeGroup[] => coerceAgeGroups(parseJson(safeGet(AGE_GROUPS_KEY)));
 export const saveAgeGroups = (ageGroups: AgeGroup[]): boolean =>
