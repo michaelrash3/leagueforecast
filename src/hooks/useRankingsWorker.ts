@@ -56,7 +56,7 @@ export function useRankingsWorker(input: RankingsInput): {
   stale: boolean;
 } {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
-  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const nextIdRef = useRef(0);
   const latestIdRef = useRef(0);
@@ -69,38 +69,38 @@ export function useRankingsWorker(input: RankingsInput): {
   }, []);
 
   /**
-   * What the answer depends on. Lengths rather than contents: a fit is re-run when a game or a
-   * team arrives or leaves, or when the page changes, and re-running it on every identity change
-   * of an array rebuilt each render would mean re-running it always. A score edited in place is
-   * caught by `scoresKey` below rather than by any length.
+   * Everything the answer depends on, gathered into one object that is a new object whenever any
+   * of it is. It is both what gets fitted and the key for whether the fit on screen is current.
+   *
+   * This used to be a digest — the three array lengths and a weighted sum of the scores — and it
+   * was wrong in both directions. It missed every change that alters a rating without altering a
+   * length or a score: setting a game not to count, correcting a team's name, saying which level a
+   * side played at, fixing who played whom, moving a game to another page, or changing an age
+   * group's year, which decides the whole pool. A rating and a record went on counting a game the
+   * page had already marked as not counting. The weighted sum could collide as well, so two
+   * genuinely different sets of scores could share a key.
+   *
+   * Identity is the honest test and it costs nothing to take. Every input here is React state or
+   * memoised from it, so an array is a new array exactly when the pool behind it changed, and
+   * never merely because the component rendered. That makes this both complete — there is no
+   * field of a team, a game or an age group it can miss — and cheaper than walking thousands of
+   * games to build a string.
+   *
+   * The one thing it asks of a caller is that these arrays not be rebuilt on every render. They
+   * are not today, and a caller that did would refit constantly rather than show a stale table,
+   * which is the failure worth having. Fitting from this object rather than from `input` is what
+   * makes that guarantee hold: what was fitted and what the staleness is judged against are then
+   * the same snapshot, and cannot drift apart.
    */
-  const scoresKey = useMemo(
-    () =>
-      input.games.reduce(
-        (total, game) => total + (game.teamAScore ?? 0) * 31 + (game.teamBScore ?? 0),
-        0
-      ),
-    [input.games]
-  );
-
-  const key = useMemo(
-    () =>
-      JSON.stringify([
-        input.ageGroupId,
-        input.teams.length,
-        input.games.length,
-        input.ageGroups.length,
-        input.myTeamId ?? "",
-        scoresKey,
-      ]),
-    [
-      input.ageGroupId,
-      input.teams.length,
-      input.games.length,
-      input.ageGroups.length,
-      input.myTeamId,
-      scoresKey,
-    ]
+  const snapshot = useMemo(
+    (): RankingsInput => ({
+      ageGroupId: input.ageGroupId,
+      teams: input.teams,
+      games: input.games,
+      ageGroups: input.ageGroups,
+      ...(input.myTeamId === undefined ? {} : { myTeamId: input.myTeamId }),
+    }),
+    [input.ageGroupId, input.teams, input.games, input.ageGroups, input.myTeamId]
   );
 
   const idle = input.ageGroupId === "" || input.teams.length === 0;
@@ -113,15 +113,13 @@ export function useRankingsWorker(input: RankingsInput): {
   const inlineRows = useMemo(() => {
     if (idle || !small) return null;
     return buildTeamRankings(
-      input.ageGroupId,
-      input.teams,
-      input.games,
-      input.myTeamId,
-      input.ageGroups
+      snapshot.ageGroupId,
+      snapshot.teams,
+      snapshot.games,
+      snapshot.myTeamId,
+      snapshot.ageGroups
     );
-    // `key` stands in for the contents; see its note above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idle, small, key]);
+  }, [idle, small, snapshot]);
 
   useEffect(() => {
     if (idle || small) return;
@@ -138,15 +136,15 @@ export function useRankingsWorker(input: RankingsInput): {
 
       const runInline = () => {
         const fitted = buildTeamRankings(
-          input.ageGroupId,
-          input.teams,
-          input.games,
-          input.myTeamId,
-          input.ageGroups
+          snapshot.ageGroupId,
+          snapshot.teams,
+          snapshot.games,
+          snapshot.myTeamId,
+          snapshot.ageGroups
         );
         if (latestIdRef.current !== id) return;
         setRows(fitted);
-        setSettledKey(key);
+        setSettledSnapshot(snapshot);
       };
 
       if (!worker) {
@@ -160,7 +158,7 @@ export function useRankingsWorker(input: RankingsInput): {
         detach = null;
         if (latestIdRef.current !== id) return;
         setRows(event.data.rows);
-        setSettledKey(key);
+        setSettledSnapshot(snapshot);
       };
       const onError = (error: ErrorEvent) => {
         console.warn("Rankings worker failed, falling back to inline.", error.message);
@@ -181,11 +179,11 @@ export function useRankingsWorker(input: RankingsInput): {
       worker.postMessage({
         kind: "rankings",
         id,
-        ageGroupId: input.ageGroupId,
-        teams: input.teams,
-        games: input.games,
-        ...(input.myTeamId === undefined ? {} : { myTeamId: input.myTeamId }),
-        ageGroups: input.ageGroups,
+        ageGroupId: snapshot.ageGroupId,
+        teams: snapshot.teams,
+        games: snapshot.games,
+        ...(snapshot.myTeamId === undefined ? {} : { myTeamId: snapshot.myTeamId }),
+        ageGroups: snapshot.ageGroups,
       } satisfies WorkerRequest);
     }, DEBOUNCE_MS);
 
@@ -196,11 +194,9 @@ export function useRankingsWorker(input: RankingsInput): {
       // has moved on.
       worker?.postMessage({ kind: "cancel", id } satisfies WorkerRequest);
     };
-    // `key` stands in for the contents; see its note above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idle, small, key]);
+  }, [idle, small, snapshot]);
 
   if (idle) return { rows: NO_ROWS, stale: false };
   if (inlineRows) return { rows: inlineRows, stale: false };
-  return { rows, stale: settledKey !== key };
+  return { rows, stale: settledSnapshot !== snapshot };
 }
