@@ -29,6 +29,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   createAgeGroupId,
+  MIN_AGE_LEVEL,
   buildScoutTeam,
   formatAgeGroupName,
   gcSeasonLabel,
@@ -330,7 +331,11 @@ const resolveAgeGroup = (
   state: GcImportState
 ): { ageGroups: AgeGroup[]; group: AgeGroup; created: boolean } | null => {
   const ageLevel = profileAgeLevel(profile);
-  if (ageLevel === undefined || !profile.season) return null;
+  // Below the youngest level the app ranks there is nothing worth filing. A nationwide team list
+  // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
+  // about any team, and filing them would mint pages nobody asked for and fetch schedules nobody
+  // reads. They are skipped outright rather than ranked or half-created.
+  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || !profile.season) return null;
   const year = squadYearForGcSeason(profile.season.season, profile.season.year);
 
   // Few enough age groups that a scan is honest here — one per level per year, not one per team.
@@ -347,6 +352,18 @@ const resolveAgeGroup = (
     seasonIds: [],
   };
   return { ageGroups: [...state.ageGroups, group], group, created: true };
+};
+
+/** Why a schedule was left where it was, in the words the panel shows. */
+const skipReason = (profile: GcTeamProfile): string => {
+  const ageLevel = profileAgeLevel(profile);
+  if (ageLevel === undefined) {
+    return "GameChanger gave no age group for this team, and its name does not say one.";
+  }
+  if (ageLevel < MIN_AGE_LEVEL) {
+    return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
+  }
+  return "GameChanger gave no season for this team, so there is no squad year to file it under.";
 };
 
 /** The link this pull records against a team, so a later pull knows what it already has. */
@@ -552,10 +569,7 @@ const importOne = (
       state,
       outcome: {
         ...base,
-        issue:
-          profileAgeLevel(profile) === undefined
-            ? "GameChanger gave no age group for this team, and its name does not say one."
-            : "GameChanger gave no season for this team, so there is no squad year to file it under.",
+        issue: skipReason(profile),
       },
     };
   }

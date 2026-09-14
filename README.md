@@ -128,8 +128,17 @@ opponent-adjusted model the league uses.
 
 ### Age groups
 
-Nothing can be logged until an age group exists, because every game has to know
-which ranking it belongs to. **Each level has its own table and only lists teams
+A GameChanger pull creates the pages it needs: every team says which age level
+and season it belongs to, and each schedule is filed under the page for that
+squad year, made on the spot if it is not there. Setting one up by hand is for a
+league tracked without GameChanger — and nothing can be logged by hand until an
+age group exists, because every game has to know which ranking it belongs to.
+
+A team below the youngest level ranked here, or one GameChanger gives no age
+for, is skipped rather than filed: a nationwide list carries thousands of 6U and
+7U squads whose results say more about which league plays coach pitch than about
+any team. The list drops them before the pull so their schedules are never even
+fetched, and the import skips any that get that far. **Each level has its own table and only lists teams
 of that level** — a 9U team never appears on the 11U ranking. What a season year
 shares is the _fit_, not the table, so that a 9U who plays up in a tournament
 still counts for both sides: see [Playing up and down](#playing-up-and-down).

@@ -30,7 +30,7 @@ import {
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
 import { flushPoolWrites } from "../lib/teamRankingsStorage";
-import { mergeScoutTeams } from "../lib/teamRankings";
+import { MIN_AGE_LEVEL, mergeScoutTeams } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
 
@@ -120,7 +120,21 @@ export function GameChangerImportPanel({
   /** The levels a scheduled run is for, so they can be marked done when it finishes. */
   const dueLevelsRef = useRef<number[]>([]);
 
-  const parsed = useMemo(() => parseGcTeamList(text), [text]);
+  /**
+   * The list as pasted, less the levels this app does not rank.
+   *
+   * A nationwide export carries thousands of 6U and 7U squads, and fetching them would spend two
+   * requests each on schedules that could never be filed — `importGcSchedule` skips anything below
+   * `MIN_AGE_LEVEL` when it arrives. A row that simply does not say its age is kept, because a
+   * pasted id never says one either and GameChanger's own answer settles it.
+   */
+  const parsed = useMemo(() => {
+    const read = parseGcTeamList(text);
+    const entries = read.entries.filter(
+      (entry) => entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL
+    );
+    return { ...read, entries, tooYoung: read.entries.length - entries.length };
+  }, [text]);
 
   const due = useMemo(
     () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams),
@@ -450,6 +464,11 @@ export function GameChangerImportPanel({
                 </span>
                 {parsed.skipped.length > 0 && (
                   <span className={pill("amber")}>{parsed.skipped.length} line(s) ignored</span>
+                )}
+                {parsed.tooYoung > 0 && (
+                  <span className={pill("neutral")}>
+                    {parsed.tooYoung} under {MIN_AGE_LEVEL}U, skipped
+                  </span>
                 )}
                 {parsed.entries.length > 200 && (
                   <span>

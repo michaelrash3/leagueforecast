@@ -484,3 +484,70 @@ describe("a name two clubs share", () => {
     expect(pulled.outcome.createdTeam).toBe(false);
   });
 });
+
+describe("levels this app does not rank", () => {
+  it("skips a team below the youngest ranked level instead of making it a page", () => {
+    const state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    const { state: next, outcome } = importGcSchedule(
+      {
+        profile: {
+          id: "gc7u",
+          name: "Tiny Titans 7U",
+          ageLevel: 7,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "g1",
+            date: "2026-09-05",
+            opponentName: "Some Club 7U",
+            teamScore: 5,
+            opponentScore: 4,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    );
+    expect(outcome.issue).toContain("below the youngest level ranked here");
+    // Nothing is filed: no page, no team, no game.
+    expect(next.ageGroups).toEqual([]);
+    expect(next.teams).toEqual([]);
+    expect(next.games).toEqual([]);
+  });
+
+  it("still files a team at the youngest ranked level", () => {
+    const state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    const { state: next, outcome } = importGcSchedule(
+      {
+        profile: {
+          id: "gc8u",
+          name: "Tiny Titans 8U",
+          ageLevel: 8,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    );
+    expect(outcome.issue).toBeUndefined();
+    expect(next.ageGroups).toHaveLength(1);
+    expect(next.ageGroups[0]!.ageLevel).toBe(8);
+  });
+
+  it("skips a team whose age nothing could say", () => {
+    const state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    const { state: next, outcome } = importGcSchedule(
+      {
+        profile: { id: "gcx", name: "Just A Club", season: { season: "fall", year: 2026 } },
+        games: [],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    );
+    expect(outcome.issue).toContain("no age group");
+    expect(next.ageGroups).toEqual([]);
+  });
+});

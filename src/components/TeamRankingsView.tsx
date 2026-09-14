@@ -158,7 +158,13 @@ export function TeamRankingsView({
   const { route, push, replace } = useRankingsRoute();
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
-  const [manageOpen, setManageOpen] = useState(() => ageGroups.length === 0);
+  /**
+   * Whether the age-group editor is showing. It used to open itself whenever the pool was empty,
+   * from a time when typing a group in was the only way to start. A GameChanger pull names the
+   * age level and the season itself and creates the page it needs, so opening a form the reader
+   * does not have to fill in read as a step they had to take first.
+   */
+  const [manageOpen, setManageOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   // Opens on the youngest level that actually ranks. 8U stays selectable — its games are evidence
   // about the 9U teams that played down — but it is not what accepting the defaults gives you.
@@ -1067,6 +1073,26 @@ export function TeamRankingsView({
           </button>
         </div>
 
+        {ageGroups.length === 0 && !manageOpen && (
+          <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
+            <p className="text-sm font-bold text-slate-950 dark:text-white">Nothing ranked yet.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Pull a team list from GameChanger and the pages make themselves: every team says which
+              age level and season it belongs to, and each one is filed under the page for that
+              squad year — created if it is not there yet. Setting a page up by hand is for a league
+              you are tracking without GameChanger.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setGcOpen(true)} className={button.primary}>
+                Pull from GameChanger
+              </button>
+              <button type="button" onClick={() => setManageOpen(true)} className={button.ghost}>
+                Set one up by hand
+              </button>
+            </div>
+          </div>
+        )}
+
         {groupsInYear.length > 0 && (
           <nav aria-label="Age level" className="mt-3 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
             {groupsInYear.map((group) => {
@@ -1402,7 +1428,7 @@ export function TeamRankingsView({
         </div>
         <p className="mt-1 text-xs text-slate-500">
           {ageGroups.length === 0
-            ? "Set up an age group above first — every game needs one to know which ranking it belongs to."
+            ? "Pulling from GameChanger creates the pages it needs. To log a game by hand instead, set up an age group above first — every game needs one to know which ranking it belongs to."
             : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
         </p>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
