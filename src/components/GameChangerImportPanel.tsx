@@ -412,9 +412,37 @@ export function GameChangerImportPanel({
             className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-3 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
           />
 
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="inline-block">
+              <span className={`${button.ghost} inline-block cursor-pointer`}>
+                Choose a CSV file
+              </span>
+              <input
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                className="hidden"
+                aria-label="Team list CSV"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  // Cleared straight away so picking the same file twice still fires a change.
+                  event.currentTarget.value = "";
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
+                  reader.onload = () => setText(String(reader.result ?? ""));
+                  reader.readAsText(file);
+                }}
+              />
+            </label>
+            <span className="text-xs text-slate-500">
+              The export from GameChanger, headers and all — or paste it above. A file of a few
+              thousand teams is fine; the rota is there so they need not all be pulled at once.
+            </span>
+          </div>
+
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
             {text.trim() === "" ? (
-              <span>Nothing pasted yet.</span>
+              <span>Nothing chosen or pasted yet.</span>
             ) : (
               <>
                 <span className={pill(parsed.entries.length ? "emerald" : "red")}>

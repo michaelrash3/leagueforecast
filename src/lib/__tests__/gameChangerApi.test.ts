@@ -95,6 +95,28 @@ describe("parseGcTeamId", () => {
 });
 
 describe("parseGcTeamList", () => {
+  it("keeps the club's name out of a list cell that carries the whole card", () => {
+    // GameChanger's own team-list export writes the card into one cell. Everything after the
+    // bullet describes the team; none of it names it.
+    const { entries } = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group,Season",
+        '"101 Baseball Bros 9U Fall 2026 • Staff: Eric Deskins • 10 players",gK5JSTKGwRYz,9U,Fall 2026',
+      ].join("\n")
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.name).toBe("101 Baseball Bros 9U Fall 2026");
+    // The age level is still read, because it sits before the bullet.
+    expect(entries[0]!.ageLevel).toBe(9);
+    expect(entries[0]!.season).toEqual({ season: "fall", year: 2026 });
+  });
+
+  it("leaves a name with no bullet exactly as it is", () => {
+    const { entries } = parseGcTeamList(
+      ["Team Name,Team ID", "NV Stars 9u Scout,gsUthn4XoIxS"].join("\n")
+    );
+    expect(entries[0]!.name).toBe("NV Stars 9u Scout");
+  });
   const csv = [
     "\uFEFFTeam Name,Team ID,Age Group,Season,City,State,Player Count,GameChanger URL",
     '"Trash Pandas, Baseball Club",zjvVkYnqLrf0,11U,Fall 2026,Georgetown,KY,12,https://web.gc.com/teams/zjvVkYnqLrf0',

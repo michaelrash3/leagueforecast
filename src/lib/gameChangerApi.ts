@@ -609,9 +609,24 @@ const idFromRow = (cells: string[], columns: ListColumns): string | null => {
   return null;
 };
 
+/**
+ * The club's name out of a list cell that carries more than the name.
+ *
+ * A team list exported from GameChanger's own pages writes the whole card into one cell —
+ * "101 Baseball Bros 9U Fall 2026 • Staff: Eric Deskins • 10 players" — and everything after the
+ * first bullet describes the team rather than naming it. Keeping it would put the coach and a
+ * player count into a team's name on any row the pull cannot reach, and into every line of the
+ * review before it. The bullet is the separator GameChanger uses; a name that genuinely contains
+ * one is not a thing.
+ */
+const nameFromListCell = (cell: string): string => {
+  const [first = ""] = cell.split(/\s*[•·]\s*/);
+  return first.trim() || cell.trim();
+};
+
 const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): GcTeamListEntry => {
   const entry: GcTeamListEntry = { teamId };
-  const name = cellAt(cells, columns.name);
+  const name = nameFromListCell(cellAt(cells, columns.name));
   if (name) entry.name = name;
   // The same fallback `normalizeGcTeamProfile` makes: an export can leave the age column blank
   // and still name the level in the team name, which is how every such row in the wild reads.
