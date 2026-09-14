@@ -285,6 +285,33 @@ explicitly that no cut line exists and to cover the race for the top instead.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
+### Backups
+
+Both exports under **Settings → Data** are full backups: they carry the season
+(teams, games, scores, bracket, settings) _and_ the whole Team Rankings pool —
+every age group, ranked team, and logged game, scored or scheduled. Team
+Rankings lives in its own storage keys shared across seasons, so without this a
+backup would quietly leave the entire ranking history out of the file.
+
+| Export          | Layout                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| **Backup JSON** | A `teamRankings` object alongside `teams` / `matchups` / `logs` / `bracketLogs` / `settings`.    |
+| **Export CSV**  | The schedule table, then `# Section:` blocks for the age groups, ranked teams, and logged games. |
+
+A `# Section: <name>` line opens each CSV block — one cell in a spreadsheet, and
+a line no header or data row can be mistaken for. Importing reads each block
+back; a CSV with no markers at all is treated as all schedule, so every CSV
+exported before sections existed (and every hand-made one) still imports
+unchanged. Names are written beside the IDs in each block to keep the file
+readable, but the IDs are what a restore reads.
+
+Because the pool spans every season and age group, restoring one **replaces**
+the pool outright rather than merging into it, and both import dialogs say so
+before you confirm. The undo snapshot covers it: undoing an import puts the
+previous pool back along with the season. A file carrying no Team Rankings data
+— including any backup written before this shipped — leaves the live pool
+exactly as it is.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

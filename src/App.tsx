@@ -25,6 +25,17 @@ import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { TeamRankingsView } from "./components/TeamRankingsView";
 import { externalResultsForSeason } from "./lib/teamRankings";
 import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "./lib/teamRankingsStorage";
+import {
+  coerceTeamRankingsBackup,
+  parseTeamRankingsCsv,
+  readTeamRankingsBackup,
+  summarizeTeamRankingsBackup,
+  teamRankingsBackupIsEmpty,
+  teamRankingsCsvSections,
+  writeTeamRankingsBackup,
+  type TeamRankingsBackup,
+  type UndoSnapshotWithRankings,
+} from "./lib/teamRankingsBackup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -43,7 +54,7 @@ import {
   goldCutLineSnapshot,
   type ClinchingPathNote,
 } from "./lib/clinchingPaths";
-import { csvEscape } from "./lib/csv";
+import { CSV_SECTIONS, csvEscape, csvSectionMarker } from "./lib/csv";
 import {
   formatGameDate,
   formatGameDateLong,
@@ -138,7 +149,6 @@ import {
   type TeamBase,
   type TeamWithProjection,
   type TiebreakerFactor,
-  type UndoSnapshot,
 } from "./lib/types";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { button as buttonClasses, card, pill, tab } from "./styles/tokens";
@@ -2156,7 +2166,7 @@ export default function App() {
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const confirmDialogRef = useRef<HTMLElement>(null);
 
-  const undoRef = useRef<UndoSnapshot | null>(null);
+  const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
@@ -3436,14 +3446,20 @@ export default function App() {
     });
   };
 
-  const captureUndo = (label: string) => {
-    const snapshot: UndoSnapshot = {
+  /**
+   * `withTeamRankings` is for the imports that replace the shared Team Rankings pool: only those
+   * need the pool in the snapshot, and it is large enough that carrying it on every undo-able
+   * action would risk filling storage for nothing.
+   */
+  const captureUndo = (label: string, options?: { withTeamRankings?: boolean }) => {
+    const snapshot: UndoSnapshotWithRankings = {
       teams,
       matchups,
       logs,
       bracketLogs,
       label,
       timestamp: Date.now(),
+      ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
     };
     undoRef.current = snapshot;
     if (!saveUndoSnapshot(snapshot)) {
@@ -3452,12 +3468,15 @@ export default function App() {
   };
 
   const restoreUndo = () => {
-    const snapshot = undoRef.current ?? (readUndoSnapshot() as UndoSnapshot | null);
+    const snapshot = undoRef.current ?? (readUndoSnapshot() as UndoSnapshotWithRankings | null);
     if (!snapshot) return;
     setTeams(snapshot.teams);
     setMatchups(snapshot.matchups);
     setLogs(snapshot.logs);
     setBracketLogs(snapshot.bracketLogs ?? {});
+    // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
+    const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);
+    if (rankings && writeTeamRankingsBackup(rankings)) noteScoutChange();
     closeTeamData();
     undoRef.current = null;
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
@@ -3549,6 +3568,34 @@ export default function App() {
 
   // ---------- Mutations ----------
 
+  /**
+   * What an import is about to do to the Team Rankings pool, for the confirmation dialog. Worth
+   * stating in all three cases: the pool spans every season and every age group, so replacing it
+   * reaches well past the one season being imported; a file that predates rankings backups leaves
+   * it untouched, which a manager restoring an old backup should not have to guess at; and a file
+   * saved back when the pool was empty restores that emptiness, which is the one outcome nobody
+   * would infer from a count.
+   */
+  const teamRankingsImportNote = (incoming: TeamRankingsBackup | null) => {
+    if (!incoming) {
+      return "Team Rankings: none in this file. The current Team Rankings pool is left as it is.";
+    }
+    if (teamRankingsBackupIsEmpty(incoming)) {
+      return "Team Rankings: this file's pool is empty. Importing it clears every age group, ranked team, and logged game from Team Rankings.";
+    }
+    return `Team Rankings: ${summarizeTeamRankingsBackup(incoming)}. Replaces the shared Team Rankings pool for every age group, not just this season.`;
+  };
+
+  const applyTeamRankingsImport = (incoming: TeamRankingsBackup | null) => {
+    if (!incoming) return;
+    if (writeTeamRankingsBackup(incoming)) noteScoutChange();
+    else {
+      showToast("Season imported, but Team Rankings data could not be saved (storage full).", {
+        tone: "error",
+      });
+    }
+  };
+
   const importCSV = (file: File) => {
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -3561,6 +3608,9 @@ export default function App() {
           logs: importedLogs,
           issues: importIssues,
         } = parseScheduleCsvImport(raw);
+        // A CSV exported as a backup carries the Team Rankings sections after the schedule; a
+        // plain schedule CSV carries none, and parses to null so the pool is left alone.
+        const importedRankings = parseTeamRankingsCsv(raw);
 
         const warningLines = summarizeCsvImportIssues(importIssues);
         const importedScoreCount = Object.values(importedLogs).filter(isFinal).length;
@@ -3591,12 +3641,15 @@ export default function App() {
           title: "Import schedule CSV?",
           message: `${formatSeasonImportPreview(preview, warningLines)}${verificationMessage}
 
+${teamRankingsImportNote(importedRankings)}
+
 This will replace the current season data and save an undo snapshot.`,
           confirmLabel: warningLines.length ? "Import with warnings" : "Replace season",
         });
         if (!confirmed) return;
 
-        captureUndo("CSV import");
+        captureUndo("CSV import", { withTeamRankings: Boolean(importedRankings) });
+        applyTeamRankingsImport(importedRankings);
         setTeams(importedTeams);
         setMatchups(importedMatchups);
         setLogs(logsPendingVerification);
@@ -3695,7 +3748,16 @@ This will replace the current season data and save an undo snapshot.`,
             ];
       return values.map(csvEscape).join(",");
     });
-    const blob = new Blob([[headers.join(","), ...rows].join("\n")], {
+    const schedule = [headers.join(","), ...rows].join("\n");
+    // Team Rankings is stored outside this season, so a CSV of the schedule alone is not a full
+    // backup. Its sections ride along after the schedule, and the schedule block gets its own
+    // marker so the file reads as the sectioned document it has become. A league that never used
+    // Team Rankings has nothing to append and gets the same flat CSV as before.
+    const rankings = teamRankingsCsvSections(readTeamRankingsBackup());
+    const csv = rankings
+      ? `${csvSectionMarker(CSV_SECTIONS.schedule)}\n${schedule}\n\n${rankings}\n`
+      : schedule;
+    const blob = new Blob([csv], {
       type: "text/csv",
     });
     const url = URL.createObjectURL(blob);
@@ -3708,7 +3770,22 @@ This will replace the current season data and save an undo snapshot.`,
 
   const exportBackup = () => {
     const blob = new Blob(
-      [JSON.stringify({ teams, matchups, logs, bracketLogs, settings }, null, 2)],
+      [
+        JSON.stringify(
+          {
+            teams,
+            matchups,
+            logs,
+            bracketLogs,
+            settings,
+            // The Team Rankings pool keeps its own storage keys, shared across every season, so a
+            // backup has to name it explicitly or the whole ranking history falls out of the file.
+            teamRankings: readTeamRankingsBackup(),
+          },
+          null,
+          2
+        ),
+      ],
       {
         type: "application/json",
       }
@@ -3740,6 +3817,9 @@ This will replace the current season data and save an undo snapshot.`,
         const nextTeams = coerceTeams(parsed.teams);
         const nextMatchups = coerceMatchups(parsed.matchups, nextTeams);
         const nextLogs = coerceLogs(parsed.logs, nextMatchups, nextSettings);
+        // Absent in every backup written before rankings were included, which must leave the live
+        // pool alone rather than empty it.
+        const nextRankings = coerceTeamRankingsBackup(parsed.teamRankings);
         const backupTeamNameById = new Map(
           nextTeams.map((team) => [team.id, displayName(team.name)])
         );
@@ -3756,12 +3836,15 @@ This will replace the current season data and save an undo snapshot.`,
           title: "Import backup JSON?",
           message: `${formatSeasonImportPreview(preview)}
 
+${teamRankingsImportNote(nextRankings)}
+
 This will replace current season data and save an undo snapshot.`,
           confirmLabel: "Import backup",
         });
         if (!confirmed) return;
 
-        captureUndo("Backup import");
+        captureUndo("Backup import", { withTeamRankings: Boolean(nextRankings) });
+        applyTeamRankingsImport(nextRankings);
         setTeams(nextTeams);
         setMatchups(nextMatchups);
         setLogs(nextLogs);
