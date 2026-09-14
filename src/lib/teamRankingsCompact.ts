@@ -105,6 +105,11 @@ const EXCLUDED = 1;
  *                                                                        is not a plain date)
  * 6 flags      7 level A     8 level B    9 season     10 source team 11 source game
  * 12 event    13 note       14 id (only when it cannot be rebuilt from the source)
+ * 15 start time (the instant the source gave, when it gave one)
+ *
+ * Positions are only ever appended to. An older file simply stops earlier, and every reader below
+ * treats a missing position as the field being absent, so a pool written before a position existed
+ * still reads.
  */
 type GameRow = (number | string | null)[];
 
@@ -165,6 +170,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       events.index(game.event),
       game.note ?? null,
       canDerive ? null : game.id,
+      game.startTs ?? null,
     ]);
   });
 
@@ -227,6 +233,9 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
   const note = str(row[13]);
   if (note) game.note = note;
 
+  const startTs = str(row[15]);
+  if (startTs) game.startTs = startTs;
+
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
   }
@@ -288,6 +297,8 @@ type TeamRow = (number | string | null | CompactLink[])[];
 type CompactLink = (number | string | null)[];
 
 const MINE = 1;
+/** A name that stood in for a club nobody had decided yet; never a team, never ranked. */
+const PLACEHOLDER = 2;
 
 export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
   const groups = interner();
@@ -312,7 +323,7 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
     const row: TeamRow = [
       team.id,
       team.name,
-      team.isMine ? MINE : 0,
+      (team.isMine ? MINE : 0) | (team.placeholder ? PLACEHOLDER : 0),
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
@@ -378,7 +389,9 @@ export const decodeScoutTeams = (
     if (!id || name === undefined) return;
 
     const team: ScoutTeam = { id, name };
-    if ((num(row[2]) ?? 0) & MINE) team.isMine = true;
+    const flags = num(row[2]) ?? 0;
+    if (flags & MINE) team.isMine = true;
+    if (flags & PLACEHOLDER) team.placeholder = true;
     const state = str(row[3]);
     if (state) team.state = state;
     const city = str(row[4]);

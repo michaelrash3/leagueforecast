@@ -1549,6 +1549,17 @@ export const isPlaceholderName = (name: string): boolean => {
     .replace(/\s{2,}/g, " ");
   if (!value) return true;
   if (PLACEHOLDER_NAMES.has(value)) return true;
+  /**
+   * A placeholder rarely arrives on its own. GameChanger writes an undecided bracket slot as
+   * "TBD- 08/04/26, 5:00 PM", so the date and the start time are part of the name, and every one
+   * of them is a different string — which made them all look like different clubs and put a
+   * thousand of them in the rankings. Matching the opening token catches the whole family without
+   * having to know what a source will append to it.
+   *
+   * Only the tokens that name nothing on their own are matched this way. "Bye" and "Team" stay
+   * exact matches above, because a real club can begin with either.
+   */
+  if (/^(tbd|tba|tbc)\b/.test(value)) return true;
   // "To be determined", "Winner of Game 3", "Loser of semifinal" — a slot, not a club.
   return /^(to be (determined|announced)|winner of\b|loser of\b|game \d+|seed \d+)/.test(value);
 };
