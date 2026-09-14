@@ -4,6 +4,7 @@ import profileFixture from "./fixtures/gc-team-profile.json";
 import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
 import {
   importGcSchedule,
+  resolveSlotGames,
   importGcSchedules,
   proposeSeasonPairings,
   summarizeGcImport,
@@ -597,5 +598,198 @@ describe("a placeholder opponent", () => {
     const named = state.teams.filter((team) => !team.placeholder).map((team) => team.name);
     expect(named).toContain("Trash Pandas");
     expect(state.teams.filter((team) => team.placeholder)).toHaveLength(1);
+  });
+});
+
+describe("resolveSlotGames", () => {
+  /** Two schedules for one fixture: one names the club, the other only said "TBD". */
+  const bothSides = (opts: {
+    slotTime?: string;
+    namedTime?: string;
+    slotScored?: boolean;
+    namedScored?: boolean;
+  }): GcImportState => {
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            ...(opts.slotTime ? { startTs: opts.slotTime } : {}),
+            opponentName: "TBD",
+            ...(opts.slotScored === false ? {} : { teamScore: 7, opponentScore: 3 }),
+            status: opts.slotScored === false ? "scheduled" : "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcB",
+          name: "Bears 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "b1",
+            date: "2026-09-05",
+            ...(opts.namedTime ? { startTs: opts.namedTime } : {}),
+            opponentName: "Aces 9U",
+            ...(opts.namedScored === false ? {} : { teamScore: 3, opponentScore: 7 }),
+            status: opts.namedScored === false ? "scheduled" : "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    return state;
+  };
+
+  it("lets the schedule that named the club answer the one that said TBD", () => {
+    const before = bothSides({});
+    // Two rows for one fixture, and a slot standing where Bears belong.
+    expect(before.games).toHaveLength(2);
+    expect(before.teams.filter((team) => team.placeholder)).toHaveLength(1);
+
+    const { state, resolved } = resolveSlotGames(before);
+    expect(resolved).toBe(1);
+    // One fixture, one row, both sides real.
+    expect(state.games).toHaveLength(1);
+    expect(state.teams.filter((team) => team.placeholder)).toEqual([]);
+    const survivor = state.games[0]!;
+    const names = [survivor.teamAId, survivor.teamBId].map(
+      (id) => state.teams.find((team) => team.id === id)!.name
+    );
+    expect(names.sort()).toEqual(["Aces", "Bears"]);
+  });
+
+  it("takes a score the naming schedule had not posted yet", () => {
+    const { state } = resolveSlotGames(bothSides({ namedScored: false }));
+    const survivor = state.games[0]!;
+    const byId = new Map(state.teams.map((team) => [team.id, team.name]));
+    const aces = byId.get(survivor.teamAId) === "Aces" ? "A" : "B";
+    expect(aces === "A" ? survivor.teamAScore : survivor.teamBScore).toBe(7);
+    expect(aces === "A" ? survivor.teamBScore : survivor.teamAScore).toBe(3);
+  });
+
+  it("matches on the start time when both schedules give one", () => {
+    const { resolved } = resolveSlotGames(
+      bothSides({ slotTime: "2026-09-05T18:00:00.000Z", namedTime: "2026-09-05T18:00:00.000Z" })
+    );
+    expect(resolved).toBe(1);
+  });
+
+  it("will not join two games of a doubleheader that kicked off at different times", () => {
+    const { state, resolved } = resolveSlotGames(
+      bothSides({ slotTime: "2026-09-05T18:00:00.000Z", namedTime: "2026-09-05T20:30:00.000Z" })
+    );
+    expect(resolved).toBe(0);
+    expect(state.games).toHaveLength(2);
+  });
+
+  it("leaves a slot alone when the club's own schedule is the only evidence", () => {
+    // Aces list both a placeholder and a named opponent that day: two games they are playing,
+    // neither of which names the other.
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+          {
+            id: "a2",
+            date: "2026-09-05",
+            opponentName: "Bears 9U",
+            teamScore: 2,
+            opponentScore: 1,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    const { resolved, state: after } = resolveSlotGames(state);
+    expect(resolved).toBe(0);
+    expect(after.games).toHaveLength(2);
+  });
+
+  it("will not choose between two clubs that both name this team that day", () => {
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    const named = (gcId: string, gameId: string, name: string) => ({
+      profile: {
+        id: gcId,
+        name,
+        ageLevel: 9,
+        season: { season: "fall" as const, year: 2026 },
+      },
+      games: [
+        {
+          id: gameId,
+          date: "2026-09-05",
+          opponentName: "Aces 9U",
+          teamScore: 1,
+          opponentScore: 2,
+          status: "completed" as const,
+        },
+      ],
+      fetchedAt: "2026-09-06T00:00:00.000Z",
+    });
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    state = importGcSchedule(named("gcB", "b1", "Bears 9U"), state).state;
+    state = importGcSchedule(named("gcC", "c1", "Cubs 9U"), state).state;
+
+    const { resolved } = resolveSlotGames(state);
+    expect(resolved).toBe(0);
+  });
+
+  it("does nothing to a pool with no placeholders", () => {
+    const state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    expect(resolveSlotGames(state)).toEqual({ state, resolved: 0 });
   });
 });

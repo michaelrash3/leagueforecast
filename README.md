@@ -251,9 +251,23 @@ that as evidence about how they compare to each other. Slots are not ranked,
 never offered as a name to log a game against, and never matched to a real club
 that looks similar.
 
-Naming one is the fix, and it is the ordinary rename: open the slot, type the
-club's real name, and the game moves there — merging into that club if it is
-already in the pool.
+Most slots name themselves. A bracket posts "TBD" on one team's schedule and
+the real fixture on the other's, so pulling both sides answers the question:
+after a run, a slot whose fixture another schedule named is folded into that
+named row — one fixture, one game, both sides real. The named row wins because
+a schedule that names a club is saying who turned up, and a score it had not
+posted yet is taken from the slot's row.
+
+That only happens where it is certain. The naming row has to come from another
+club's schedule, since a team listing both a placeholder and a named opponent
+on one day is playing two games and neither names the other. Where both rows
+give a start time they have to agree on it, which is what tells the halves of a
+doubleheader apart. A day with two clubs that could both be the answer is left
+alone.
+
+Anything still unnamed is the ordinary rename: open the slot, type the club's
+real name, and the game moves there — merging into that club if it is already in
+the pool.
 
 ### Names
 

@@ -4,6 +4,7 @@ import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   importGcSchedule,
   proposeSeasonPairings,
+  resolveSlotGames,
   summarizeGcImport,
   type GcImportOutcome,
   type GcImportState,
@@ -250,9 +251,29 @@ export function GameChangerImportPanel({
       onRefreshLog(markRefreshed(refreshLog, dueLevelsRef.current, new Date()));
     }
     dueLevelsRef.current = [];
+
+    /**
+     * Now that every schedule in this run is in, the ones that named a fixture can answer the ones
+     * that only said "TBD". It runs here rather than per schedule because the naming half may
+     * arrive after the placeholder half, and a whole run is the first point at which both are
+     * certainly present.
+     */
+    const named = resolveSlotGames(poolRef.current);
+    if (named.resolved > 0) {
+      poolRef.current = named.state;
+      if (persist()) await flushPoolWrites();
+    }
+
     const finished = progressRef.current;
     setResult({
-      summary: summarizeGcImport(outcomesRef.current),
+      summary: [
+        ...summarizeGcImport(outcomesRef.current),
+        ...(named.resolved > 0
+          ? [
+              `${named.resolved} placeholder${named.resolved === 1 ? "" : "s"} named from the other team's schedule.`,
+            ]
+          : []),
+      ],
       failures: finished?.failures ?? [],
       canRetry: finished ? retryableIds(finished).length > 0 : false,
     });

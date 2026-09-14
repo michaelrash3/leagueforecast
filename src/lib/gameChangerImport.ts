@@ -647,6 +647,7 @@ const importOne = (
       ...(ourLevel === undefined ? {} : { ageLevelA: ourLevel }),
       ...(theirLevel === undefined ? {} : { ageLevelB: theirLevel }),
       ...(profile.season ? { season: formatGcSeason(profile.season) } : {}),
+      ...(game.startTs ? { startTs: game.startTs } : {}),
       source: { kind: "gamechanger", teamId: profile.id, gameId: game.id },
     };
 
@@ -717,6 +718,112 @@ export const importGcSchedules = (
     outcomes.push(result.outcome);
   }
   return { state: next, outcomes };
+};
+
+/**
+ * Names the slots that another schedule already answered.
+ *
+ * A bracket posts "TBD" on one team's schedule and the real fixture on the other's, so the same
+ * game arrives twice and disagrees with itself: one row says the club played a placeholder, the
+ * other names both sides. Left alone that is a fixture counted twice, and a slot standing where a
+ * real opponent belongs. The named row is the better evidence — a schedule that names a club is
+ * saying who turned up — so it wins, and the slot's row is folded into it.
+ *
+ * What makes this safe rather than a guess is where the naming row comes from and when it kicked
+ * off. It has to come from a *different* GameChanger team's schedule: if a club's own schedule
+ * lists both a placeholder and a named opponent that day, those are two different games it is
+ * playing, and neither names the other. Where both rows carry a start time they must agree on it,
+ * which is what tells the two halves of a doubleheader apart. Without times, the day has to hold
+ * exactly one candidate; anything less certain is left as it is, because a wrong answer here
+ * silently moves a result onto a club that never played it.
+ */
+export const resolveSlotGames = (
+  state: GcImportState
+): { state: GcImportState; resolved: number } => {
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const isSlot = (teamId: string) => teamById.get(teamId)?.placeholder === true;
+
+  const slotGames = state.games.filter(
+    (game) => isSlot(game.teamAId) !== isSlot(game.teamBId) && Boolean(game.date)
+  );
+  if (slotGames.length === 0) return { state, resolved: 0 };
+
+  /** Games with two real sides, indexed by the known team and day they could answer for. */
+  const namedByTeamDay = new Map<string, ScoutGame[]>();
+  const dayKey = (teamId: string, date: string) => `${teamId}@${date}`;
+  state.games.forEach((game) => {
+    if (!game.date) return;
+    if (isSlot(game.teamAId) || isSlot(game.teamBId)) return;
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      const key = dayKey(teamId, game.date!);
+      const bucket = namedByTeamDay.get(key);
+      if (bucket) bucket.push(game);
+      else namedByTeamDay.set(key, [game]);
+    });
+  });
+  if (namedByTeamDay.size === 0) return { state, resolved: 0 };
+
+  const sourceOf = (game: ScoutGame) => game.source?.teamId;
+  /** A named row already used to answer a slot cannot answer a second one. */
+  const spoken = new Set<string>();
+  /** Slot rows to drop, and the named row each one's scores were folded into. */
+  const merges = new Map<string, ScoutGame>();
+
+  slotGames.forEach((slotGame) => {
+    const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
+      (named) =>
+        !spoken.has(named.id) &&
+        // The other club's schedule, never the same one this slot came from.
+        sourceOf(named) !== undefined &&
+        sourceOf(named) !== sourceOf(slotGame) &&
+        // A time on both sides has to agree; a doubleheader is two games, not one.
+        (slotGame.startTs === undefined ||
+          named.startTs === undefined ||
+          slotGame.startTs === named.startTs)
+    );
+
+    // With times on both rows, an exact time is the answer even on a day holding several games.
+    const timed = candidates.filter(
+      (named) => slotGame.startTs !== undefined && named.startTs === slotGame.startTs
+    );
+    const shortlist = timed.length > 0 ? timed : candidates;
+    if (shortlist.length !== 1) return;
+
+    const named = shortlist[0]!;
+    spoken.add(named.id);
+    merges.set(slotGame.id, named);
+  });
+
+  if (merges.size === 0) return { state, resolved: 0 };
+
+  // The named row keeps its id and its side order; only a score it does not have is taken from the
+  // slot's row, since a placeholder's schedule can carry a result the other's has not posted yet.
+  const filled = new Map<string, ScoutGame>();
+  merges.forEach((named, slotId) => {
+    const slotGame = state.games.find((game) => game.id === slotId);
+    if (!slotGame || !isScored(slotGame) || isScored(named)) return;
+    const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const knownScore = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
+    const otherScore = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+    const current = filled.get(named.id) ?? named;
+    filled.set(named.id, {
+      ...current,
+      ...(named.teamAId === knownId
+        ? { teamAScore: knownScore, teamBScore: otherScore }
+        : { teamAScore: otherScore, teamBScore: knownScore }),
+    });
+  });
+
+  const games = state.games
+    .filter((game) => !merges.has(game.id))
+    .map((game) => filled.get(game.id) ?? game);
+
+  // A slot nothing else references is not a club and should not linger in the roster.
+  const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
+  const teams = state.teams.filter((team) => !team.placeholder || stillUsed.has(team.id));
+
+  return { state: { ...state, teams, games }, resolved: merges.size };
 };
 
 /**

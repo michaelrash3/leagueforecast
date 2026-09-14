@@ -155,6 +155,13 @@ export type ScoutGame = {
   ageLevelB?: number;
   /** Season label from the source, as in "Fall 2026" — display and filtering only. */
   season?: string;
+  /**
+   * When the game started, as the source gave it (an instant, in UTC). Only some sources know it,
+   * and nothing is rated by it — it is here to tell two games of a doubleheader apart, which is
+   * what makes it safe to say that one schedule's "TBD" and another schedule's named game are the
+   * same fixture.
+   */
+  startTs?: string;
   /** Present when the game was pulled from GameChanger rather than typed in. */
   source?: ScoutGameSource;
 };
