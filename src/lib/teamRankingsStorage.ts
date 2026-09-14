@@ -1,5 +1,6 @@
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutGameSource, ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
+import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import {
   decodeScoutGames,
   decodeScoutTeams,
@@ -15,6 +16,8 @@ import {
 const TEAMS_KEY = "league_forecast_scout_teams_v1";
 const GAMES_KEY = "league_forecast_scout_games_v1";
 const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
+/** Where an interrupted GameChanger pull keeps its place. Its own key, so clearing it never touches the pool. */
+const GC_PULL_KEY = "league_forecast_gc_pull_v1";
 
 const safeGet = (key: string): string | null => {
   try {
@@ -29,6 +32,13 @@ const safeSet = (key: string, value: string): boolean => {
     return true;
   } catch {
     return false;
+  }
+};
+const safeRemove = (key: string): void => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* a storage that will not forget is not worth failing over */
   }
 };
 const parseJson = (raw: string | null): unknown => {
@@ -190,3 +200,13 @@ export const saveScoutGames = (games: ScoutGame[]): boolean =>
 export const loadAgeGroups = (): AgeGroup[] => coerceAgeGroups(parseJson(safeGet(AGE_GROUPS_KEY)));
 export const saveAgeGroups = (ageGroups: AgeGroup[]): boolean =>
   safeSet(AGE_GROUPS_KEY, JSON.stringify(ageGroups));
+
+/**
+ * The cursor of a GameChanger pull, so closing the tab mid-run costs nothing but the request in
+ * flight. Only the cursor — the schedules themselves are folded into the pool as they arrive.
+ */
+export const loadPullProgress = (): GcPullProgress | null =>
+  coercePullProgress(parseJson(safeGet(GC_PULL_KEY)));
+export const savePullProgress = (progress: GcPullProgress): boolean =>
+  safeSet(GC_PULL_KEY, JSON.stringify(progress));
+export const clearPullProgress = (): void => safeRemove(GC_PULL_KEY);
