@@ -3,6 +3,7 @@ import {
   advancedAgeGroup,
   AGE_LEVELS,
   ageGroupChain,
+  ageGroupLevel,
   ageGroupSeason,
   buildScoutingReport,
   buildTeamRankings,
@@ -11,10 +12,13 @@ import {
   findAgeGroupForSeason,
   findDuplicateGame,
   formatAgeGroupName,
+  isRankedAgeLevel,
   isScoutGamePlayed,
   MIN_AGE_LEVEL,
+  MIN_RANKED_AGE_LEVEL,
   MIN_SEASON_YEAR,
   nextSeason,
+  rankingPoolGroupIds,
   resolveOrCreateTeam,
   seasonYearOptions,
   UNKNOWN_STATE,
@@ -23,7 +27,6 @@ import {
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
-  teamsInAgeGroup,
   type AgeGroup,
   type LeagueSeasonSnapshot,
   type MatchupTier,
@@ -329,20 +332,16 @@ export function TeamRankingsView({
     [merged.games, selectedAgeGroupId]
   );
 
-  // Only teams with a game in this age group are ranked here. The roster itself is shared across
-  // age groups (so the same club stays one entity as it ages up), but a team logged under a
-  // different age group doesn't appear in this ranking.
-  const ageGroupTeams = useMemo(
-    () => teamsInAgeGroup(selectedAgeGroupId, merged.teams, ageGroupGames),
-    [selectedAgeGroupId, merged.teams, ageGroupGames]
-  );
-
   /**
-   * Every game in every age group, league-derived ones included. Only the team detail panel wants
-   * this: it reports how many games a team has outside the group being ranked, and the chain-scoped
-   * list would silently miss a concurrent, unlinked group — the exact case that count exists for.
+   * Every team and game in every age group, league-derived ones included. Two callers need this
+   * width. The team detail panel reports how many games a team has outside the group being ranked,
+   * and the chain-scoped list would silently miss a concurrent, unlinked group — the exact case
+   * that count exists for. The rating pool needs it because a pool spans every age group sharing a
+   * season year, and those sibling groups are not on this group's chain: a 10U that only ever
+   * played down against 9Us has no game filed on the 9U page, and the roster has to carry it or
+   * the game drops out of the fit for want of a team to rate.
    */
-  const allKnownGames = useMemo(() => {
+  const allKnown = useMemo(() => {
     let teams = scoutTeams;
     const derivedGames: ScoutGame[] = [];
     ageGroups.forEach((group) => {
@@ -359,24 +358,55 @@ export function TeamRankingsView({
       teams = derived.teams;
       derivedGames.push(...derived.games);
     });
-    return [...derivedGames, ...scoutGames];
+    return { teams, games: [...derivedGames, ...scoutGames] };
   }, [ageGroups, scoutGames, scoutTeams]);
+  const allKnownGames = allKnown.games;
+
+  /**
+   * The games the rating pool is fitted over: every counted game in any age group sharing this
+   * group's season year. `buildTeamRankings` filters to the pool itself, but it can only rate what
+   * it is handed, so the wider list is passed rather than the page-scoped one.
+   */
+  const poolGames = useMemo(() => {
+    const pool = new Set(rankingPoolGroupIds(selectedAgeGroupId, ageGroups));
+    return allKnown.games.filter((game) => pool.has(game.ageGroupId));
+  }, [allKnown.games, selectedAgeGroupId, ageGroups]);
 
   const myTeamId = ageGroups.find((g) => g.id === selectedAgeGroupId)?.myTeamId;
 
+  /**
+   * Passing `ageGroups` is what rates the whole season year as one pool: every age group sharing
+   * this group's year is fitted together, each game carrying the age gap between the two sides, and
+   * the rows that come back are the teams whose home level is this page's. A group below
+   * `MIN_RANKED_AGE_LEVEL` has no table and comes back empty — its games still count as evidence
+   * about the older teams that played down against it.
+   */
   const rankings = useMemo(
-    () => buildTeamRankings(selectedAgeGroupId, ageGroupTeams, ageGroupGames, myTeamId),
-    [selectedAgeGroupId, ageGroupTeams, ageGroupGames, myTeamId]
+    () => buildTeamRankings(selectedAgeGroupId, allKnown.teams, poolGames, myTeamId, ageGroups),
+    [selectedAgeGroupId, allKnown.teams, poolGames, myTeamId, ageGroups]
   );
 
-  const availableStates = useMemo(() => statesInUse(ageGroupTeams), [ageGroupTeams]);
-  const unknownStateCount = ageGroupTeams.filter((team) => !team.state).length;
+  /**
+   * The teams behind the rows on this page. Taken from the rows rather than from the games filed
+   * here, because the pool can list a team whose games were all filed elsewhere — a 10U that spent
+   * the year playing down is at home on the 10U page with nothing filed on it — and the state
+   * filter has to know about that team or it would drop off the page when a state is chosen.
+   */
+  const rankedTeams = useMemo(() => {
+    const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
+    return rankings
+      .map((row) => byId.get(row.teamId))
+      .filter((team): team is ScoutTeam => team !== undefined);
+  }, [rankings, allKnown.teams]);
+
+  const availableStates = useMemo(() => statesInUse(rankedTeams), [rankedTeams]);
+  const unknownStateCount = rankedTeams.filter((team) => !team.state).length;
 
   // Filtering is presentational: ratings come from every game, because a team's strength does not
   // depend on which rows are on screen. Only the numbering changes.
   const visibleRankings = useMemo(
-    () => filterRankingsByState(rankings, ageGroupTeams, stateFilter),
-    [rankings, ageGroupTeams, stateFilter]
+    () => filterRankingsByState(rankings, rankedTeams, stateFilter),
+    [rankings, rankedTeams, stateFilter]
   );
 
   const teamNameById = useMemo(
@@ -394,6 +424,17 @@ export function TeamRankingsView({
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
+
+  /**
+   * A level below `MIN_RANKED_AGE_LEVEL` has no table by design, so its page would otherwise read
+   * as "no teams yet" however many games were logged on it. Said plainly instead, because the
+   * games are not being ignored — they are evidence about the older teams that played down.
+   */
+  const selectedAgeLevel = ageGroupLevel(ageGroups.find((g) => g.id === selectedAgeGroupId));
+  const unrankedLevelNote =
+    selectedAgeGroupId && !isRankedAgeLevel(selectedAgeLevel)
+      ? `${selectedAgeLevel}U is not ranked — at that age the results say more about which league is machine pitch than about the teams. Games logged here still count as evidence about the ${MIN_RANKED_AGE_LEVEL}U and older teams that played down against them.`
+      : null;
 
   const explanationRequest = useMemo(() => {
     if (!reportRow || reportRow.games === 0) return null;
@@ -902,9 +943,11 @@ export function TeamRankingsView({
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Top 10</h2>
         {rankings.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            {ageGroups.length === 0
-              ? "Set up an age group above, then add a game to start ranking teams."
-              : "Add a game below to start ranking teams for this age group."}
+            {unrankedLevelNote
+              ? unrankedLevelNote
+              : ageGroups.length === 0
+                ? "Set up an age group above, then add a game to start ranking teams."
+                : "Add a game below to start ranking teams for this age group."}
           </p>
         ) : (
           <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -1177,7 +1220,7 @@ export function TeamRankingsView({
           </table>
           {rankings.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500">
-              No teams yet for this age group.
+              {unrankedLevelNote ?? "No teams yet for this age group."}
             </p>
           )}
         </div>
