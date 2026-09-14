@@ -3,7 +3,7 @@ import { displayName } from "./format";
 import type { CsvImportIssue } from "./importReport";
 import { createTeamId } from "./sim";
 import type { GameLog, Matchup, TeamBase } from "./types";
-import { normalizeHeader, parseCSVLine, stripBom } from "./csv";
+import { CSV_SECTIONS, normalizeHeader, parseCSVLine, splitCsvSections } from "./csv";
 
 export type ScheduleCsvImportResult = {
   teams: TeamBase[];
@@ -15,7 +15,11 @@ export type ScheduleCsvImportResult = {
 const scoreMakesFinal = (awayRuns: string, homeRuns: string) => awayRuns !== "" && homeRuns !== "";
 
 export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => {
-  const text = stripBom(raw);
+  // A backup CSV appends the Team Rankings pool after the schedule, so read only the schedule
+  // section. An unsectioned file — every CSV exported before sections existed, and every hand-made
+  // one — is all schedule, which is exactly what `splitCsvSections` files under the leading name.
+  const text =
+    splitCsvSections(raw, CSV_SECTIONS.schedule).get(normalizeHeader(CSV_SECTIONS.schedule)) ?? "";
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (lines.length < 2) throw new Error("CSV has no rows");
 

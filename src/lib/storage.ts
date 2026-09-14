@@ -178,6 +178,8 @@ export const loadMatchupsForSeason = (seasonId: string): Matchup[] => loadMatchu
 export const loadLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   loadLogsFor(seasonId);
 export const loadSettingsForSeason = (seasonId: string): Settings => loadSettingsFor(seasonId);
+export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
+  coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), [], loadSettingsFor(seasonId));
 
 export const saveTeams = (teams: TeamBase[]) =>
   safeSet(seasonKey(activeId(), "teams"), JSON.stringify(teams));
@@ -272,4 +274,75 @@ export const deleteSeason = (id: string): boolean => {
   writeSeasons(remaining);
   if (readActive() === id) writeActive(remaining[0]!.id);
   return true;
+};
+
+// ---------- Whole-layout read/write (backups) ----------
+
+/** One season's index entry and all of its data, as a backup carries it. */
+export type SeasonSnapshot = SeasonMeta & {
+  teams: TeamBase[];
+  matchups: Matchup[];
+  logs: Record<string, GameLog>;
+  bracketLogs: Record<string, GameLog>;
+  settings: Settings;
+};
+
+export type LeagueSnapshot = {
+  activeSeasonId: string;
+  seasons: SeasonSnapshot[];
+};
+
+/**
+ * Read every season, not just the active one. The per-season undo snapshot is deliberately left
+ * out: it is scratch state for one action, it duplicates the season it belongs to, and restoring
+ * a stale one into a different session would offer an "undo" to a state nobody remembers.
+ */
+export const readLeagueSnapshot = (): LeagueSnapshot => {
+  ensureInitialized();
+  return {
+    activeSeasonId: activeId(),
+    seasons: readSeasons().map((season) => ({
+      ...season,
+      teams: loadTeamsFor(season.id),
+      matchups: loadMatchupsFor(season.id),
+      logs: loadLogsFor(season.id),
+      bracketLogs: loadBracketLogsForSeason(season.id),
+      settings: loadSettingsFor(season.id),
+    })),
+  };
+};
+
+/**
+ * Replace the whole multi-season layout with a restored one: every season currently stored is
+ * cleared first, so a season absent from the backup does not survive the restore. Refuses an
+ * empty season list rather than leaving the app with no season to open.
+ */
+export const replaceLeagueSnapshot = (snapshot: LeagueSnapshot): boolean => {
+  ensureInitialized();
+  if (!snapshot.seasons.length) return false;
+
+  readSeasons().forEach((season) => {
+    DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(season.id, dataKey)));
+  });
+
+  let ok = true;
+  snapshot.seasons.forEach((season) => {
+    const write = (dataKey: DataKey, value: unknown) => {
+      if (!safeSet(seasonKey(season.id, dataKey), JSON.stringify(value))) ok = false;
+    };
+    write("teams", season.teams);
+    write("matchups", season.matchups);
+    write("logs", season.logs);
+    write("bracketLogs", season.bracketLogs);
+    write("settings", season.settings);
+  });
+
+  const meta = snapshot.seasons.map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+  if (!writeSeasons(meta)) ok = false;
+  // A pointer at a season the backup does not carry would leave the app on an empty season.
+  const active = meta.some((season) => season.id === snapshot.activeSeasonId)
+    ? snapshot.activeSeasonId
+    : meta[0]!.id;
+  if (!writeActive(active)) ok = false;
+  return ok;
 };

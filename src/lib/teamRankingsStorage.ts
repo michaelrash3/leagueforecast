@@ -34,7 +34,7 @@ const parseJson = (raw: string | null): unknown => {
   }
 };
 
-const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
+export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
@@ -49,7 +49,7 @@ const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
     }));
 };
 
-const coerceScoutGames = (raw: unknown): ScoutGame[] => {
+export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
@@ -76,7 +76,7 @@ const coerceScoutGames = (raw: unknown): ScoutGame[] => {
     }));
 };
 
-const coerceAgeGroups = (raw: unknown): AgeGroup[] => {
+export const coerceAgeGroups = (raw: unknown): AgeGroup[] => {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
