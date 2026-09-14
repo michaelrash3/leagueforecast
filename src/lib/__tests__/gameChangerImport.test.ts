@@ -335,3 +335,97 @@ describe("summarizeGcImport", () => {
     expect(summarizeGcImport(outcomes)[0]).toContain("could not be filed");
   });
 });
+
+describe("a schedule that has not caught up", () => {
+  // GameChanger posts a result on one team's schedule before the other's, so the opponent's copy
+  // of a game that has been played routinely arrives with nothing in it.
+  it("does not erase a score with an unscored copy of the same game", () => {
+    const scored = importGcSchedule(schedule({}, [game()]), empty);
+    expect(scored.state.games[0]).toMatchObject({ teamAScore: 12, teamBScore: 2 });
+
+    const theirs = schedule({ id: "gcBBBBBBBBBB", name: "NKY Sluggers 9U" }, [
+      game({
+        id: "their-g1",
+        opponentName: "Lexington Legends 9U",
+        teamScore: undefined,
+        opponentScore: undefined,
+        status: "scheduled",
+      }),
+    ]);
+    const after = importGcSchedule(theirs, scored.state);
+
+    expect(after.state.games).toHaveLength(1);
+    expect(after.state.games[0]).toMatchObject({ teamAScore: 12, teamBScore: 2 });
+  });
+
+  it("still writes a score that has genuinely been corrected", () => {
+    const first = importGcSchedule(schedule({}, [game()]), empty);
+    const corrected = importGcSchedule(
+      schedule({}, [game({ teamScore: 11, opponentScore: 3 })]),
+      first.state
+    );
+    expect(corrected.outcome.gamesUpdated).toBe(1);
+    expect(corrected.state.games[0]).toMatchObject({ teamAScore: 11, teamBScore: 3 });
+  });
+
+  // The other team lists itself first, so its copy is the mirror of the row already here.
+  it("does not call a mirrored copy a change", () => {
+    const ours = importGcSchedule(schedule({}, [game()]), empty);
+    const theirs = importGcSchedule(
+      schedule({ id: "gcBBBBBBBBBB", name: "NKY Sluggers 9U" }, [
+        game({
+          id: "their-g1",
+          opponentName: "Lexington Legends 9U",
+          teamScore: 2,
+          opponentScore: 12,
+        }),
+      ]),
+      ours.state
+    );
+    expect(theirs.outcome.gamesUnchanged).toBe(1);
+    expect(theirs.outcome.gamesUpdated).toBe(0);
+  });
+});
+
+describe("both sides of a cross-age game", () => {
+  const nineU = schedule({ id: "gcNINE000000", name: "Lexington Legends 9U", ageLevel: 9 }, [
+    game({ id: "g1", opponentName: "Bandits 11U", teamScore: 12, opponentScore: 2 }),
+  ]);
+  const elevenU = schedule({ id: "gcELEVEN0000", name: "Bandits 11U", ageLevel: 11 }, [
+    game({ id: "t1", opponentName: "Lexington Legends 9U", teamScore: 2, opponentScore: 12 }),
+  ]);
+
+  /**
+   * The two sides of a cross-age game are filed under different pages — the 9U's copy on the 9U
+   * page, the 11U's on its own — so a name looked up on the page could never find the opponent the
+   * other side had already created. Pulling both made a second Bandits and a second row.
+   */
+  it("is one team each and one game, whichever order they are pulled in", () => {
+    const forwards = importGcSchedules([nineU, elevenU], empty);
+    expect(forwards.state.teams).toHaveLength(2);
+    expect(forwards.state.games).toHaveLength(1);
+
+    const backwards = importGcSchedules([elevenU, nineU], empty);
+    expect(backwards.state.teams).toHaveLength(2);
+    expect(backwards.state.games).toHaveLength(1);
+  });
+
+  it("gives each side its own page and keeps the level each played at", () => {
+    const { state } = importGcSchedules([nineU, elevenU], empty);
+    expect(state.ageGroups.map((group) => group.name).sort()).toEqual(["11U 2027", "9U 2027"]);
+    const filed = state.games[0]!;
+    expect([filed.ageLevelA, filed.ageLevelB].sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([9, 11]);
+  });
+
+  // The level still has to agree, or a club's own two squads would fold into one team.
+  it("keeps a club's 9U and 11U squads apart", () => {
+    const clubNine = schedule({ id: "gcCLUB9", name: "Bandits 9U", ageLevel: 9 }, [
+      game({ id: "a1", opponentName: "Aces 9U" }),
+    ]);
+    const clubEleven = schedule({ id: "gcCLUB11", name: "Bandits 11U", ageLevel: 11 }, [
+      game({ id: "b1", opponentName: "Comets 11U" }),
+    ]);
+    const { state } = importGcSchedules([clubNine, clubEleven], empty);
+    expect(state.teams.filter((team) => team.name === "Bandits")).toHaveLength(2);
+  });
+});
