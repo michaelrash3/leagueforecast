@@ -1,10 +1,11 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   advancedAgeGroup,
   AGE_LEVELS,
   ageGroupChain,
   ageGroupLevel,
   ageGroupSeason,
+  ageGroupYear,
   buildScoutingReport,
   buildTeamRankings,
   createAgeGroupId,
@@ -14,6 +15,7 @@ import {
   formatAgeGroupName,
   isRankedAgeLevel,
   isScoutGamePlayed,
+  MAX_AGE_LEVEL,
   MIN_RANKED_AGE_LEVEL,
   MIN_SEASON_YEAR,
   nextSeason,
@@ -53,8 +55,9 @@ import { RankingMethodButton, RankingMethodPanel } from "./RankingMethodPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
+import { useRankingsRoute } from "../hooks/useRankingsRoute";
 import type { ToastTone } from "../hooks/useToast";
-import { button, card, pill } from "../styles/tokens";
+import { button, card, pill, tab } from "../styles/tokens";
 
 type ConfirmOptions = {
   title: string;
@@ -93,8 +96,9 @@ export function TeamRankingsView({
   requestConfirmation,
   onDataChange,
 }: TeamRankingsViewProps) {
+  const { route, push, replace } = useRankingsRoute();
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
-  const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
+  const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
   const [manageOpen, setManageOpen] = useState(() => ageGroups.length === 0);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   // Opens on the youngest level that actually ranks. 8U stays selectable — its games are evidence
@@ -218,7 +222,7 @@ export function TeamRankingsView({
         ...(continuesFromId ? { continuesFromId } : {}),
       };
       persistAgeGroups([...ageGroups, newGroup]);
-      setSelectedAgeGroupId(newGroup.id);
+      setPickedGroupId(newGroup.id);
       showToast("Age group created.", { tone: "success" });
     }
     resetGroupForm();
@@ -240,13 +244,13 @@ export function TeamRankingsView({
     const next = nextSeason({ ageLevel: season.ageLevel, year: season.year });
     const existing = findAgeGroupForSeason(next, ageGroups);
     if (existing) {
-      setSelectedAgeGroupId(existing.id);
+      setPickedGroupId(existing.id);
       showToast(`${existing.name} already exists — switched to it.`);
       return;
     }
     const created = advancedAgeGroup(group, next);
     persistAgeGroups([...ageGroups, created]);
-    setSelectedAgeGroupId(created.id);
+    setPickedGroupId(created.id);
     resetGroupForm();
     showToast(`${created.name} created from ${group.name}.`, { tone: "success" });
   };
@@ -266,9 +270,130 @@ export function TeamRankingsView({
       .map((g) => (g.continuesFromId === group.id ? { ...g, continuesFromId: undefined } : g));
     persistAgeGroups(remaining);
     persistGames(scoutGames.filter((g) => g.ageGroupId !== group.id));
-    if (selectedAgeGroupId === group.id) setSelectedAgeGroupId(remaining[0]?.id ?? "");
+    if (selectedAgeGroupId === group.id) setPickedGroupId(remaining[0]?.id ?? "");
     showToast(`"${group.name}" deleted.`, { tone: "success" });
   };
+
+  // ---------- Pages: one per age level, within one season year ----------
+
+  const byLevel = (a: AgeGroup, b: AgeGroup) =>
+    (ageGroupLevel(a) ?? MAX_AGE_LEVEL + 1) - (ageGroupLevel(b) ?? MAX_AGE_LEVEL + 1);
+
+  /**
+   * The page the URL names, if it names one that exists. A link giving both halves names one page
+   * exactly; a link giving only a level opens it in whichever year has it; a link giving only a
+   * year opens that year's youngest page. A link to a page that is not there resolves to nothing
+   * and the last picked page stands, with the URL corrected afterwards rather than obeyed.
+   */
+  const routeGroupId = useMemo(() => {
+    if (route.ageLevel === undefined && route.year === undefined) return undefined;
+    const matches = ageGroups.filter(
+      (group) =>
+        (route.ageLevel === undefined || ageGroupLevel(group) === route.ageLevel) &&
+        (route.year === undefined || ageGroupYear(group) === route.year)
+    );
+    return matches.slice().sort(byLevel)[0]?.id;
+  }, [route.ageLevel, route.year, ageGroups]);
+
+  /**
+   * Which page is open. Derived rather than stored, so Back and Forward move between pages without
+   * anything having to notice and write state back. The picked id is the fallback for a URL that
+   * names no page, and it is checked against the groups that still exist so a deleted page cannot
+   * leave the view pointing at nothing.
+   */
+  const selectedAgeGroupId =
+    routeGroupId ??
+    (ageGroups.some((group) => group.id === pickedGroupId)
+      ? pickedGroupId
+      : (ageGroups[0]?.id ?? ""));
+
+  /**
+   * The season years that have a page — the years age groups actually sit in, not a forward run of
+   * every year the create form offers, because a year with no age group has nothing to show.
+   */
+  const pageYears = useMemo(() => {
+    const years = new Set<number>();
+    ageGroups.forEach((group) => {
+      const year = ageGroupYear(group);
+      if (year !== undefined) years.add(year);
+    });
+    return [...years].sort((a, b) => a - b);
+  }, [ageGroups]);
+
+  /**
+   * Groups whose season year cannot be read — a legacy "Travel squad" named before the season
+   * picker existed. They still need somewhere to live, so the year picker gains an entry for them
+   * rather than leaving them unreachable.
+   */
+  const undatedGroups = useMemo(
+    () => ageGroups.filter((group) => ageGroupYear(group) === undefined),
+    [ageGroups]
+  );
+
+  /** Season-picker options, `undefined` standing for the groups with no year of their own. */
+  const yearChoices = useMemo<(number | undefined)[]>(
+    () => [...pageYears, ...(undatedGroups.length > 0 ? [undefined] : [])],
+    [pageYears, undatedGroups]
+  );
+
+  const selectedGroup = ageGroups.find((group) => group.id === selectedAgeGroupId);
+  const selectedYear = ageGroupYear(selectedGroup);
+
+  /** The tabs: every age group in the season year on screen, youngest level first. */
+  const groupsInYear = useMemo(() => {
+    const inYear =
+      selectedYear === undefined
+        ? undatedGroups
+        : ageGroups.filter((group) => ageGroupYear(group) === selectedYear);
+    return inYear.slice().sort(byLevel);
+  }, [ageGroups, selectedYear, undatedGroups]);
+
+  const openPage = (groupId: string) => {
+    if (!groupId || groupId === selectedAgeGroupId) return;
+    setPickedGroupId(groupId);
+    const group = ageGroups.find((entry) => entry.id === groupId);
+    // Pushed, not replaced: this is a page the user asked for, so Back should return to the last.
+    push({
+      mode: "rankings",
+      ...(ageGroupLevel(group) === undefined ? {} : { ageLevel: ageGroupLevel(group) }),
+      ...(ageGroupYear(group) === undefined ? {} : { year: ageGroupYear(group) }),
+    });
+  };
+
+  /**
+   * Changing the season year keeps the level on screen where that level exists in the new year —
+   * moving from 10U 2028 to 2029 lands on 10U 2029 — and otherwise opens that year's youngest
+   * page, which is the closest thing to "the same place" a year without that level has.
+   */
+  const openYear = (year: number | undefined) => {
+    const candidates =
+      year === undefined
+        ? undatedGroups
+        : ageGroups.filter((group) => ageGroupYear(group) === year);
+    if (candidates.length === 0) return;
+    const sameLevel = candidates.find(
+      (group) => ageGroupLevel(group) === ageGroupLevel(selectedGroup)
+    );
+    const next = sameLevel ?? candidates.slice().sort(byLevel)[0];
+    if (next) openPage(next.id);
+  };
+
+  /**
+   * Keeps the URL honest about the page actually on screen — after a group is deleted, after the
+   * first group is created, or when a link asked for a page that is not there. Replaced rather
+   * than pushed: the app tidying up after itself is not somewhere Back should land.
+   */
+  useEffect(() => {
+    if (!selectedGroup) return;
+    const level = ageGroupLevel(selectedGroup);
+    const year = ageGroupYear(selectedGroup);
+    if (route.ageLevel === level && route.year === year) return;
+    replace({
+      mode: "rankings",
+      ...(level === undefined ? {} : { ageLevel: level }),
+      ...(year === undefined ? {} : { year }),
+    });
+  }, [selectedGroup, route.ageLevel, route.year, replace]);
 
   // ---------- Ranking data for the selected age group ----------
 
@@ -740,23 +865,34 @@ export function TeamRankingsView({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
             className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-            htmlFor="scout-age-group"
+            htmlFor="scout-season-year"
           >
-            Ranking teams for
+            Season
           </label>
-          {ageGroups.length > 0 && (
+          {yearChoices.length > 1 ? (
             <select
-              id="scout-age-group"
-              value={selectedAgeGroupId}
-              onChange={(event) => setSelectedAgeGroupId(event.target.value)}
+              id="scout-season-year"
+              value={selectedYear === undefined ? "" : String(selectedYear)}
+              onChange={(event) =>
+                openYear(event.target.value === "" ? undefined : Number(event.target.value))
+              }
               className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
             >
-              {ageGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
+              {yearChoices.map((year) => (
+                <option key={year === undefined ? "" : year} value={year === undefined ? "" : year}>
+                  {year === undefined ? "No season set" : year}
                 </option>
               ))}
             </select>
+          ) : (
+            ageGroups.length > 0 && (
+              <span
+                id="scout-season-year"
+                className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200"
+              >
+                {selectedYear ?? "No season set"}
+              </span>
+            )
           )}
           <button
             type="button"
@@ -770,6 +906,27 @@ export function TeamRankingsView({
                 : "Manage age groups"}
           </button>
         </div>
+
+        {groupsInYear.length > 0 && (
+          <nav aria-label="Age level" className="mt-3 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+            {groupsInYear.map((group) => {
+              const level = ageGroupLevel(group);
+              const active = group.id === selectedAgeGroupId;
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => openPage(group.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={tab(active)}
+                >
+                  {level === undefined ? group.name : `${level}U`}
+                  {isRankedAgeLevel(level) ? "" : " ·"}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
         {manageOpen && (
           <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
