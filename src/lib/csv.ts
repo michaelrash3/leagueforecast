@@ -1,8 +1,7 @@
 const FORMULA_INJECTION_RE = /^[=+\-@]/;
 const BOM = "﻿";
 
-export const stripBom = (text: string) =>
-  text.startsWith(BOM) ? text.slice(1) : text;
+export const stripBom = (text: string) => (text.startsWith(BOM) ? text.slice(1) : text);
 
 export const parseCSVLine = (line: string) => {
   const normalized = line.replace(/\r$/, "");
@@ -35,15 +34,11 @@ export const parseCSVLine = (line: string) => {
 // some spreadsheet apps execute it. On export prefix with a single quote;
 // on import strip that prefix.
 const stripImportPrefix = (value: string) =>
-  value.startsWith("'") && FORMULA_INJECTION_RE.test(value.slice(1))
-    ? value.slice(1)
-    : value;
+  value.startsWith("'") && FORMULA_INJECTION_RE.test(value.slice(1)) ? value.slice(1) : value;
 
-const guardForExport = (value: string) =>
-  FORMULA_INJECTION_RE.test(value) ? `'${value}` : value;
+const guardForExport = (value: string) => (FORMULA_INJECTION_RE.test(value) ? `'${value}` : value);
 
-export const normalizeHeader = (header: string) =>
-  header.trim().toLowerCase().replace(/\s+/g, " ");
+export const normalizeHeader = (header: string) => header.trim().toLowerCase().replace(/\s+/g, " ");
 
 export const csvEscape = (value: string | number) => {
   const text = guardForExport(String(value ?? ""));

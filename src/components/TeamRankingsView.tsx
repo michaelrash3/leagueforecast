@@ -279,88 +279,64 @@ export function TeamRankingsView({
     [selectedAgeGroupId, ageGroups]
   );
 
-  // Every League Standings season bundled into any age group on that chain, read fresh every
-  // render — this view never writes back to League Standings data, only reads it.
-  const chainLeagueSeasons = useMemo<{ ageGroupId: string; seasons: LeagueSeasonSnapshot[] }[]>(
-    () =>
-      chainGroupIds.map((ageGroupId) => ({
-        ageGroupId,
-        seasons: (ageGroups.find((g) => g.id === ageGroupId)?.seasonIds ?? []).map((seasonId) => ({
-          seasonId,
-          teams: loadTeamsForSeason(seasonId),
-          matchups: loadMatchupsForSeason(seasonId),
-          logs: loadLogsForSeason(seasonId),
-        })),
-      })),
-    [ageGroups, chainGroupIds]
-  );
-
-  // The team roster this view reads from: the persisted scout roster, extended (in-memory, not yet
-  // necessarily saved) with any league team names not already in it. Every read in this view uses
-  // this — never the raw `scoutTeams` state directly — so a league team is usable immediately,
-  // before any save has happened. The roster is threaded through the chain one group at a time so
-  // the same club resolves to the same id whether it was first seen at 9U or at 10U.
-  const merged = useMemo(() => {
+  /**
+   * Every team and game the app knows about: the persisted scout roster extended (in memory, not
+   * yet necessarily saved) with every league team name not already in it, and every game from
+   * every age group, League Standings ones derived alongside. League seasons are read fresh every
+   * render — this view never writes back to League Standings data, only reads it.
+   *
+   * Derived once, over every age group, because a scout id minted for a league team is only unique
+   * against the roster it was minted alongside: `mintScoutTeamId` breaks a name collision by
+   * counting, so "Lexington Legends" is `S-LEXI` when the 9U season is walked first and `S-LEXI2`
+   * when a 10U "Lexington Lions" got there ahead of it. Two passes over different sets of age
+   * groups therefore hand the same club two different ids, and anything that looked a row up in
+   * the other pass's roster would miss, or worse, hit the wrong club. One pass, one set of ids,
+   * and every narrower view below is a filter of it rather than a second derivation.
+   *
+   * Teams already in the stored roster are matched by name and keep the ids they were saved with,
+   * so widening this pass does not renumber anything already on disk.
+   */
+  const allKnown = useMemo(() => {
     let teams = scoutTeams;
-    const games: ScoutGame[] = [];
-    chainLeagueSeasons.forEach((entry) => {
-      const derived = deriveLeagueScoutGames(entry.ageGroupId, entry.seasons, teams);
+    const derivedGames: ScoutGame[] = [];
+    ageGroups.forEach((group) => {
+      const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
+        seasonId,
+        teams: loadTeamsForSeason(seasonId),
+        matchups: loadMatchupsForSeason(seasonId),
+        logs: loadLogsForSeason(seasonId),
+      }));
+      const derived = deriveLeagueScoutGames(group.id, seasons, teams);
       teams = derived.teams;
-      games.push(...derived.games);
+      derivedGames.push(...derived.games);
     });
-    return { teams, games };
-  }, [chainLeagueSeasons, scoutTeams]);
+    return { teams, derivedGames, games: [...derivedGames, ...scoutGames] };
+  }, [ageGroups, scoutGames, scoutTeams]);
+
+  const allKnownGames = allKnown.games;
 
   // Everything on the chain — used only for name suggestions, never for ratings.
   const chainGames = useMemo(() => {
     const onChain = new Set(chainGroupIds);
-    return [...merged.games, ...scoutGames.filter((game) => onChain.has(game.ageGroupId))];
-  }, [merged.games, scoutGames, chainGroupIds]);
+    return allKnown.games.filter((game) => onChain.has(game.ageGroupId));
+  }, [allKnown.games, chainGroupIds]);
 
   const ageGroupGames = useMemo(
     () => chainGames.filter((game) => game.ageGroupId === selectedAgeGroupId),
     [chainGames, selectedAgeGroupId]
   );
 
+  // Teams whose game here came from a League Standings season rather than being logged by hand.
+  // Derived games only, so a manually added game never reads as a league one.
   const leagueGameTeamIds = useMemo(
     () =>
       new Set(
-        merged.games
+        allKnown.derivedGames
           .filter((game) => game.ageGroupId === selectedAgeGroupId)
           .flatMap((game) => [game.teamAId, game.teamBId])
       ),
-    [merged.games, selectedAgeGroupId]
+    [allKnown.derivedGames, selectedAgeGroupId]
   );
-
-  /**
-   * Every team and game in every age group, league-derived ones included. Two callers need this
-   * width. The team detail panel reports how many games a team has outside the group being ranked,
-   * and the chain-scoped list would silently miss a concurrent, unlinked group — the exact case
-   * that count exists for. The rating pool needs it because a pool spans every age group sharing a
-   * season year, and those sibling groups are not on this group's chain: a 10U that only ever
-   * played down against 9Us has no game filed on the 9U page, and the roster has to carry it or
-   * the game drops out of the fit for want of a team to rate.
-   */
-  const allKnown = useMemo(() => {
-    let teams = scoutTeams;
-    const derivedGames: ScoutGame[] = [];
-    ageGroups.forEach((group) => {
-      const derived = deriveLeagueScoutGames(
-        group.id,
-        group.seasonIds.map((seasonId) => ({
-          seasonId,
-          teams: loadTeamsForSeason(seasonId),
-          matchups: loadMatchupsForSeason(seasonId),
-          logs: loadLogsForSeason(seasonId),
-        })),
-        teams
-      );
-      teams = derived.teams;
-      derivedGames.push(...derived.games);
-    });
-    return { teams, games: [...derivedGames, ...scoutGames] };
-  }, [ageGroups, scoutGames, scoutTeams]);
-  const allKnownGames = allKnown.games;
 
   /**
    * The games the rating pool is fitted over: every counted game in any age group sharing this
@@ -410,8 +386,8 @@ export function TeamRankingsView({
   );
 
   const teamNameById = useMemo(
-    () => new Map(merged.teams.map((team) => [team.id, team.name])),
-    [merged.teams]
+    () => new Map(allKnown.teams.map((team) => [team.id, team.name])),
+    [allKnown.teams]
   );
 
   const reportRows = useMemo(() => {
@@ -463,10 +439,10 @@ export function TeamRankingsView({
    */
   const setTeamState = (teamId: string, nextState: string) => {
     const state = normalizeState(nextState);
-    const exists = merged.teams.some((team) => team.id === teamId);
+    const exists = allKnown.teams.some((team) => team.id === teamId);
     if (!exists) return;
     persistTeams(
-      merged.teams.map((team) =>
+      allKnown.teams.map((team) =>
         team.id === teamId ? { ...team, ...(state ? { state } : { state: undefined }) } : team
       )
     );
@@ -476,7 +452,7 @@ export function TeamRankingsView({
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
     if (!scoutTeams.some((team) => team.id === teamId)) {
-      persistTeams([...scoutTeams, ...merged.teams.filter((t) => t.id === teamId)]);
+      persistTeams([...scoutTeams, ...allKnown.teams.filter((t) => t.id === teamId)]);
     }
     persistAgeGroups(
       ageGroups.map((group) =>
@@ -557,14 +533,14 @@ export function TeamRankingsView({
     });
   };
 
-  const openTeam = openTeamId ? (merged.teams.find((t) => t.id === openTeamId) ?? null) : null;
+  const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
 
   /**
    * Renaming onto a name that already exists merges the two teams, so a placeholder or a
    * misspelling can be routed to the real team rather than leaving its games stranded.
    */
   const renameTeam = async (teamId: string, nextName: string) => {
-    const preview = renameScoutTeam(teamId, nextName, merged.teams, scoutGames);
+    const preview = renameScoutTeam(teamId, nextName, allKnown.teams, scoutGames);
     if (preview.mergedInto) {
       const moved = scoutGames.filter(
         (game) => game.teamAId === teamId || game.teamBId === teamId
@@ -625,7 +601,7 @@ export function TeamRankingsView({
       showToast("Enter both team names, and either both scores or neither.", { tone: "error" });
       return;
     }
-    let teams = merged.teams;
+    let teams = allKnown.teams;
     const a = resolveOrCreateTeam(teamAName, teams);
     teams = a.teams;
     const b = resolveOrCreateTeam(teamBName, teams);
@@ -725,8 +701,8 @@ export function TeamRankingsView({
   // Scoped to this age group and the ones it continues from: a 9U opponent has no business being
   // suggested while logging an 11U game, even though both squads share one roster store.
   const suggestedTeams = useMemo(
-    () => teamNameSuggestions(selectedAgeGroupId, ageGroups, merged.teams, chainGames),
-    [selectedAgeGroupId, ageGroups, merged.teams, chainGames]
+    () => teamNameSuggestions(selectedAgeGroupId, ageGroups, allKnown.teams, chainGames),
+    [selectedAgeGroupId, ageGroups, allKnown.teams, chainGames]
   );
   const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
 
@@ -1000,7 +976,7 @@ export function TeamRankingsView({
         <ScheduleImportPanel
           ageGroupId={selectedAgeGroupId}
           ageGroupName={selectedGroupName}
-          teams={merged.teams}
+          teams={allKnown.teams}
           suggestedTeams={suggestedTeams}
           existingGames={ageGroupGames}
           defaultSubjectTeam={myTeamName}
@@ -1205,7 +1181,7 @@ export function TeamRankingsView({
                       <button
                         type="button"
                         onClick={() => {
-                          const team = merged.teams.find((t) => t.id === row.teamId);
+                          const team = allKnown.teams.find((t) => t.id === row.teamId);
                           if (team) void removeTeam(team);
                         }}
                         className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"

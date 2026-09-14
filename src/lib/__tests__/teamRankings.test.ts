@@ -1581,3 +1581,71 @@ describe("teamNameSuggestions with a pool", () => {
     expect(teamNameSuggestions("u9", pool, teams, [])).toEqual([]);
   });
 });
+
+describe("scout ids minted for league teams depend on what came first", () => {
+  const finalLog = (away: number, home: number) => ({
+    awayRuns: String(away),
+    awayHits: "0",
+    awayK: "0",
+    homeRuns: String(home),
+    homeHits: "0",
+    homeK: "0",
+    innings: "6",
+    isFinal: true,
+  });
+
+  const nineU: LeagueSeasonSnapshot = {
+    seasonId: "s9",
+    teams: [
+      { id: "L1", name: "Lexington Legends" },
+      { id: "L2", name: "Owensboro Oilers" },
+    ],
+    matchups: [{ id: "m1", date: "2027-04-01", away: "L1", home: "L2" }],
+    logs: { m1: finalLog(7, 3) },
+  };
+
+  const tenU: LeagueSeasonSnapshot = {
+    seasonId: "s10",
+    teams: [
+      { id: "X1", name: "Lexington Lions" },
+      { id: "X2", name: "Paducah Pirates" },
+    ],
+    matchups: [{ id: "n1", date: "2027-04-02", away: "X1", home: "X2" }],
+    logs: { n1: finalLog(4, 1) },
+  };
+
+  const idOf = (name: string, teams: ScoutTeam[]) => teams.find((t) => t.name === name)?.id;
+
+  /**
+   * `mintScoutTeamId` breaks a name collision by counting, so which club gets the plain id is
+   * decided by which one was derived first. This is the property that makes a second derivation
+   * pass over a different set of age groups dangerous: it produces a whole second set of ids for
+   * the same clubs, and a row carrying one set cannot be looked up in the other.
+   */
+  it("gives the same club a different id when another club is derived ahead of it", () => {
+    const nineFirst = deriveLeagueScoutGames("g9", [nineU], []);
+    const bothFromTen = deriveLeagueScoutGames(
+      "g9",
+      [nineU],
+      deriveLeagueScoutGames("g10", [tenU], []).teams
+    );
+
+    expect(idOf("Lexington Legends", nineFirst.teams)).toBe("S-LEXI");
+    expect(idOf("Lexington Legends", bothFromTen.teams)).toBe("S-LEXI2");
+    // Same club, same name, two different ids — so a view must derive once and filter, never
+    // derive twice over different sets of groups.
+    expect(idOf("Lexington Legends", nineFirst.teams)).not.toBe(
+      idOf("Lexington Legends", bothFromTen.teams)
+    );
+  });
+
+  it("leaves an already stored team on the id it was saved with", () => {
+    const stored: ScoutTeam[] = [{ id: "S-LEXI", name: "Lexington Legends" }];
+    // The 10U season is walked first, so without the stored roster the Lions would take S-LEXI.
+    const afterTen = deriveLeagueScoutGames("g10", [tenU], stored).teams;
+    const afterNine = deriveLeagueScoutGames("g9", [nineU], afterTen).teams;
+
+    expect(idOf("Lexington Legends", afterNine)).toBe("S-LEXI");
+    expect(idOf("Lexington Lions", afterNine)).toBe("S-LEXI2");
+  });
+});
