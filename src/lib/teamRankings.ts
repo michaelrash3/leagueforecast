@@ -249,9 +249,14 @@ export const resolveOrCreateTeam = (
   return { teams: [...teams, { id: uniqueId, name: display }], teamId: uniqueId };
 };
 
-/** A fresh scout id for this name that no team in the pool already has. */
-const mintScoutTeamId = (display: string, teams: ScoutTeam[]): string => {
-  const existingIds = new Set(teams.map((team) => team.id));
+/**
+ * A fresh scout id for this name that none of `existingIds` already has.
+ *
+ * Taking the set rather than the roster matters when thousands of teams are created in one pass:
+ * rebuilding it from the roster each time is what made a large import quadratic. A caller that
+ * keeps its own set hands it in and the minting is constant.
+ */
+const mintScoutTeamIdFrom = (display: string, existingIds: ReadonlySet<string>): string => {
   const id = `${SCOUT_ID_PREFIX}${createTeamId(display, new Set())}`;
   let uniqueId = id;
   let counter = 2;
@@ -261,6 +266,10 @@ const mintScoutTeamId = (display: string, teams: ScoutTeam[]): string => {
   }
   return uniqueId;
 };
+
+/** A fresh scout id for this name that no team in the pool already has. */
+const mintScoutTeamId = (display: string, teams: ScoutTeam[]): string =>
+  mintScoutTeamIdFrom(display, new Set(teams.map((team) => team.id)));
 
 /**
  * Creates a team without looking for one by name first. The GameChanger importer decides identity
@@ -276,15 +285,28 @@ export const createScoutTeam = (
   teams: ScoutTeam[],
   extras: Partial<ScoutTeam> = {}
 ): { teams: ScoutTeam[]; teamId: string; team: ScoutTeam } => {
+  const team = buildScoutTeam(name, new Set(teams.map((entry) => entry.id)), extras);
+  return { teams: [...teams, team], teamId: team.id, team };
+};
+
+/**
+ * The team `createScoutTeam` would make, without building a new roster to hold it. For a caller
+ * adding thousands in one pass, which cannot afford a copy of the roster per team; the two share
+ * this so the teams they produce stay indistinguishable.
+ */
+export const buildScoutTeam = (
+  name: string,
+  existingIds: ReadonlySet<string>,
+  extras: Partial<ScoutTeam> = {}
+): ScoutTeam => {
   const display = stripAgeLabel(name).trim();
-  const teamId = mintScoutTeamId(display, teams);
-  const team: ScoutTeam = { id: teamId, name: display };
+  const team: ScoutTeam = { id: mintScoutTeamIdFrom(display, existingIds), name: display };
   (Object.keys(extras) as (keyof ScoutTeam)[]).forEach((key) => {
     if (key === "id" || key === "name") return;
     const value = extras[key];
     if (value !== undefined) Object.assign(team, { [key]: value });
   });
-  return { teams: [...teams, team], teamId, team };
+  return team;
 };
 
 const scoreFor = (log: GameLog | undefined, side: "away" | "home") =>
