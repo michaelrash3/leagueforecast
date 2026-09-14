@@ -27,12 +27,18 @@ describe("dates as day numbers", () => {
     expect(decodeDate(encodeDate("2028-02-29"))).toBe("2028-02-29");
   });
 
-  it("has nothing to say about a value that is not a date", () => {
+  it("will not turn text into a day number", () => {
     expect(encodeDate(undefined)).toBeNull();
     expect(encodeDate("")).toBeNull();
     expect(encodeDate("last Tuesday")).toBeNull();
     expect(decodeDate(null)).toBeUndefined();
-    expect(decodeDate("212")).toBeUndefined();
+  });
+
+  // Text in the date slot is a date the encoder could not read and kept verbatim rather than
+  // discard, so reading it back gives the text, not nothing.
+  it("gives back text in the date slot as it found it", () => {
+    expect(decodeDate("August 22 2026")).toBe("August 22 2026");
+    expect(decodeDate("")).toBeUndefined();
   });
 });
 
@@ -273,5 +279,45 @@ describe("the size it is all for", () => {
     // judgement call rather than a failing test.
     expect(compact * 4).toBeLessThan(plain);
     expect(roundTripGames(games)).toEqual(games);
+  });
+});
+
+describe("what the encoder accepts, the decoder keeps", () => {
+  // `stripAgeLabel` leaves nothing behind for a team called only "9U", so an empty name is a real
+  // thing to store. It used to encode fine and vanish on the next load, taking its games' opponent
+  // with it.
+  it("keeps a team whose name is empty", () => {
+    const teams: ScoutTeam[] = [{ id: "S-X", name: "" }];
+    expect(roundTripTeams(teams)).toEqual(teams);
+  });
+
+  it("keeps a GameChanger link whose name is empty", () => {
+    const teams: ScoutTeam[] = [
+      { id: "S-X", name: "Aces", gcTeams: [{ teamId: "gc1", name: "", ageGroupId: "ag_1" }] },
+    ];
+    expect(roundTripTeams(teams)).toEqual(teams);
+  });
+
+  // A date in a shape this does not parse is still a date somebody entered.
+  it("keeps a date it cannot read as a day number", () => {
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag_1", date: "August 22 2026" },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+  });
+
+  it("still reads a plain date as a day number", () => {
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag_1", date: "2026-08-22" },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+    // Stored as a number, not as the eleven characters it came in as.
+    expect(typeof encodeScoutGames(games).r[0]?.[5]).toBe("number");
+  });
+
+  // Written straight back out, "NaN-NaN-NaN" would be stored as though it were a date.
+  it("reads a day number the calendar cannot hold as no date at all", () => {
+    expect(decodeDate(Number.MAX_SAFE_INTEGER)).toBeUndefined();
+    expect(decodeDate(-1e15)).toBeUndefined();
   });
 });

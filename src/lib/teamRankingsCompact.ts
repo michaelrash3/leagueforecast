@@ -44,9 +44,19 @@ export const encodeDate = (date: string | undefined): number | null => {
   return Math.round((ms - DATE_EPOCH) / MS_PER_DAY);
 };
 
+/**
+ * Back to a date. A day number the calendar cannot represent — a corrupt or absurd value — is no
+ * date rather than the string "NaN-NaN-NaN", which would otherwise be written straight back out
+ * and stored as though it meant something.
+ *
+ * A string comes back as it is: `encodeDate` keeps a date it cannot read as the text it was, so
+ * that a date in a shape nobody anticipated survives being stored rather than being dropped.
+ */
 export const decodeDate = (day: unknown): string | undefined => {
+  if (typeof day === "string") return day || undefined;
   if (typeof day !== "number" || !Number.isFinite(day)) return undefined;
   const date = new Date(DATE_EPOCH + day * MS_PER_DAY);
+  if (Number.isNaN(date.getTime())) return undefined;
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const dayOfMonth = String(date.getUTCDate()).padStart(2, "0");
@@ -90,7 +100,9 @@ const EXCLUDED = 1;
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
  * pair, a pair of scores, a page and a date, so most rows stop after six entries.
  *
- * 0 team A     1 team B      2 score A    3 score B     4 age group   5 date
+ * 0 team A     1 team B      2 score A    3 score B     4 age group   5 date (a day number,
+ *                                                                        or the raw text when it
+ *                                                                        is not a plain date)
  * 6 flags      7 level A     8 level B    9 season     10 source team 11 source game
  * 12 event    13 note       14 id (only when it cannot be rebuilt from the source)
  */
@@ -142,7 +154,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       game.teamAScore ?? null,
       game.teamBScore ?? null,
       groups.index(game.ageGroupId) ?? -1,
-      encodeDate(game.date),
+      // A date this cannot read is kept as the text it was, not thrown away.
+      encodeDate(game.date) ?? game.date ?? null,
       game.excluded ? EXCLUDED : 0,
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
@@ -313,9 +326,10 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
 const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
   if (!Array.isArray(row)) return null;
   const teamId = str(row[0]);
-  const name = str(row[1]);
+  // As above: a link's name is whatever GameChanger called it, empty included.
+  const name = typeof row[1] === "string" ? row[1] : undefined;
   const ageGroupId = at(pool.g, row[2]);
-  if (!teamId || !name || !ageGroupId) return null;
+  if (!teamId || name === undefined || !ageGroupId) return null;
 
   const link: GcTeamLink = { teamId, name, ageGroupId };
   const season = at(pool.s, row[3]);
@@ -357,8 +371,11 @@ export const decodeScoutTeams = (
   pool.r.forEach((row) => {
     if (!Array.isArray(row)) return;
     const id = str(row[0]);
-    const name = str(row[1]);
-    if (!id || !name) return;
+    // The name may legitimately be empty — `stripAgeLabel` leaves nothing behind for a team called
+    // only "9U" — and dropping the team for that would lose it and every game pointing at it. An
+    // id is the one thing a team cannot do without.
+    const name = typeof row[1] === "string" ? row[1] : undefined;
+    if (!id || name === undefined) return;
 
     const team: ScoutTeam = { id, name };
     if ((num(row[2]) ?? 0) & MINE) team.isMine = true;
