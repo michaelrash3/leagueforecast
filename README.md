@@ -129,8 +129,10 @@ opponent-adjusted model the league uses.
 ### Age groups
 
 Nothing can be logged until an age group exists, because every game has to know
-which ranking it belongs to. Each level has its own table, and a season year is
-fitted as one pool — see [Playing up and down](#playing-up-and-down).
+which ranking it belongs to. **Each level has its own table and only lists teams
+of that level** — a 9U team never appears on the 11U ranking. What a season year
+shares is the *fit*, not the table, so that a 9U who plays up in a tournament
+still counts for both sides: see [Playing up and down](#playing-up-and-down).
 
 An age group is an **age level** (8U-18U) and a **year** (2027 on), zero or more
 League Standings seasons that belong to it, and optionally the age group it
@@ -316,10 +318,18 @@ about that much to a 9U comes out even rather than punished. Strength of schedul
 is read from each team's own seat, so it weighs heavier for the team playing up
 and lighter for the one playing down.
 
-Each level still shows its own table. A team is listed on the page for the level
-it played most at, so a 10U that spent the year playing down is rated alongside
-the 9Us it played and listed on the 10U page. With no cross-age games in a pool,
-the arithmetic is exactly what it was before.
+**Pooling the fit is not pooling the tables.** Each level lists only its own
+teams — a 9U that beats an 11U in a tournament stays on the 9U page, and the 11U
+page never shows it. What the pool changes is that the game counts for both of
+them rather than being discarded or counted as if they were the same age.
+
+A team is listed on the page for the level it actually plays at: its GameChanger
+level where that is known, otherwise the level recorded on most of its games. So
+a 10U that spent the year playing down is rated alongside the 9Us it played and
+listed on the 10U page — which is also why its panel counts the whole pool, or it
+would read 0-0 beneath a row saying otherwise.
+
+With no cross-age games in a pool, the arithmetic is exactly what it was before.
 
 Only 9U and up get a table. 8U results are kept as evidence about the 9U teams
 that played down against them, but at that age the results say more about which
