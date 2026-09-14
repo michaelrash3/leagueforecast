@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   advancedAgeGroup,
   AGE_LEVELS,
@@ -7,7 +7,6 @@ import {
   ageGroupSeason,
   ageGroupYear,
   buildScoutingReport,
-  buildTeamRankings,
   createAgeGroupId,
   deriveLeagueScoutGames,
   findAgeGroupForSeason,
@@ -32,6 +31,7 @@ import {
   type LeagueSeasonSnapshot,
   type MatchupTier,
   type ScoutGame,
+  type ScoutRankingRow,
   type ScoutTeam,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
@@ -60,6 +60,7 @@ import { TeamDetailPanel } from "./TeamDetailPanel";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useRankingsRoute } from "../hooks/useRankingsRoute";
+import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill, tab } from "../styles/tokens";
 
@@ -90,8 +91,57 @@ type TeamRankingsViewProps = {
 const tierTone = (tier: MatchupTier) =>
   tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
 
+/** How many teams a page leads with, nationally and within one state. */
+const NATIONAL_TOP = 25;
+const STATE_TOP = 10;
+
 const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 const formatPct = (value: number) => `${Math.round(value * 100)}%`;
+
+/** A ranked list: place, team, its state when that adds something, record and rating. */
+function RankingList({
+  rows,
+  onOpen,
+  stateOf,
+  showState = false,
+}: {
+  rows: ScoutRankingRow[];
+  onOpen: (teamId: string) => void;
+  stateOf: (teamId: string) => string | undefined;
+  showState?: boolean;
+}) {
+  return (
+    <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
+      {rows.map((row, index) => (
+        <li
+          key={row.teamId}
+          className={`flex items-center justify-between gap-3 px-2 py-2.5 text-sm ${
+            row.isMine ? "rounded-lg bg-blue-50 dark:bg-blue-950/40" : ""
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            {/* The place in *this* list; a state top ten is not the national ranking renumbered. */}
+            <span className={pill(index === 0 ? "amber" : "neutral")}>#{index + 1}</span>
+            <button
+              type="button"
+              onClick={() => onOpen(row.teamId)}
+              className="truncate text-left font-bold text-slate-950 hover:underline dark:text-white"
+            >
+              {row.teamName}
+              {row.isMine ? " ★" : ""}
+            </button>
+            {showState && stateOf(row.teamId) && (
+              <span className="shrink-0 text-xs text-slate-500">{stateOf(row.teamId)}</span>
+            )}
+          </span>
+          <span className="shrink-0 text-slate-500">
+            {row.record} · {formatRating(row.rating)}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export function TeamRankingsView({
   seasons,
@@ -130,6 +180,9 @@ export function TeamRankingsView({
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
+  /** Which state the top ten shows; `null` means the one picked for you. */
+  const [stateTop, setStateTop] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const [methodOpen, setMethodOpen] = useState(false);
   const methodPanelId = useId();
 
@@ -489,10 +542,13 @@ export function TeamRankingsView({
    * `MIN_RANKED_AGE_LEVEL` has no table and comes back empty — its games still count as evidence
    * about the older teams that played down against it.
    */
-  const rankings = useMemo(
-    () => buildTeamRankings(selectedAgeGroupId, allKnown.teams, poolGames, myTeamId, ageGroups),
-    [selectedAgeGroupId, allKnown.teams, poolGames, myTeamId, ageGroups]
-  );
+  const { rows: rankings, stale: rankingsStale } = useRankingsWorker({
+    ageGroupId: selectedAgeGroupId,
+    teams: allKnown.teams,
+    games: poolGames,
+    ...(myTeamId === undefined ? {} : { myTeamId }),
+    ageGroups,
+  });
 
   /**
    * The teams behind the rows on this page. Taken from the rows rather than from the games filed
@@ -508,6 +564,50 @@ export function TeamRankingsView({
   }, [rankings, allKnown.teams]);
 
   const availableStates = useMemo(() => statesInUse(rankedTeams), [rankedTeams]);
+
+  /**
+   * The two rankings a page leads with. A nationwide pool is thousands of teams and a table of all
+   * of them answers no question anybody has; the ones worth a headline are the best in the country
+   * at this age, and the best in one state. The full list is still below, for finding a team.
+   */
+  const nationalTop = useMemo(() => rankings.slice(0, NATIONAL_TOP), [rankings]);
+
+  /**
+   * Which state the top ten is for. Yours if we know it, otherwise whichever state has the most
+   * teams on this page — the one most likely to be the reason you are here.
+   */
+  const defaultState = useMemo(() => {
+    const mine = rankedTeams.find((team) => team.id === myTeamId)?.state;
+    if (mine) return mine;
+    const counts = new Map<string, number>();
+    rankedTeams.forEach((team) => {
+      if (team.state) counts.set(team.state, (counts.get(team.state) ?? 0) + 1);
+    });
+    let best = "";
+    let most = 0;
+    counts.forEach((count, state) => {
+      if (count > most) {
+        most = count;
+        best = state;
+      }
+    });
+    return best;
+  }, [rankedTeams, myTeamId]);
+
+  const shownState = stateTop === null ? defaultState : stateTop;
+
+  const stateOf = useCallback(
+    (teamId: string) => rankedTeams.find((team) => team.id === teamId)?.state,
+    [rankedTeams]
+  );
+
+  const stateTopRows = useMemo(
+    () =>
+      shownState
+        ? filterRankingsByState(rankings, rankedTeams, shownState).slice(0, STATE_TOP)
+        : [],
+    [rankings, rankedTeams, shownState]
+  );
   const unknownStateCount = rankedTeams.filter((team) => !team.state).length;
 
   // Filtering is presentational: ratings come from every game, because a team's strength does not
@@ -1091,9 +1191,11 @@ export function TeamRankingsView({
         )}
       </div>
 
-      <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Top 10</h2>
-        {rankings.length === 0 ? (
+      {rankings.length === 0 ? (
+        <div className={`${card} p-5`}>
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+            {selectedGroupName || "Rankings"}
+          </h2>
           <p className="mt-3 text-sm text-slate-500">
             {unrankedLevelNote
               ? unrankedLevelNote
@@ -1101,34 +1203,53 @@ export function TeamRankingsView({
                 ? "Set up an age group above, then add a game to start ranking teams."
                 : "Add a game below to start ranking teams for this age group."}
           </p>
-        ) : (
-          <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-            {rankings.slice(0, 10).map((row) => (
-              <li
-                key={row.teamId}
-                className={`flex items-center justify-between gap-3 px-2 py-2.5 text-sm ${
-                  row.isMine ? "rounded-lg bg-blue-50 dark:bg-blue-950/40" : ""
-                }`}
-              >
-                <span className="flex items-center gap-3">
-                  <span className={pill(row.rank === 1 ? "amber" : "neutral")}>#{row.rank}</span>
-                  <button
-                    type="button"
-                    onClick={() => setOpenTeamId(row.teamId)}
-                    className="text-left font-bold text-slate-950 hover:underline dark:text-white"
-                  >
-                    {row.teamName}
-                    {row.isMine ? " ★" : ""}
-                  </button>
-                </span>
-                <span className="text-slate-500">
-                  {row.record} · {formatRating(row.rating)}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className={`${card} p-5`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                National top {NATIONAL_TOP}
+              </h2>
+              <span className="text-xs text-slate-500">
+                {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
+              </span>
+            </div>
+            <RankingList rows={nationalTop} onOpen={setOpenTeamId} stateOf={stateOf} showState />
+          </div>
+
+          <div className={`${card} p-5`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                State top {STATE_TOP}
+              </h2>
+              {availableStates.length > 0 && (
+                <select
+                  aria-label="State"
+                  value={shownState}
+                  onChange={(event) => setStateTop(event.target.value)}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                >
+                  {availableStates.map((state) => (
+                    <option key={state} value={state}>
+                      {state}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            {stateTopRows.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">
+                {availableStates.length === 0
+                  ? "No team here has a state yet. Add one from a team's panel, or pull from GameChanger, which brings the state with it."
+                  : `No ranked teams in ${shownState} yet.`}
+              </p>
+            ) : (
+              <RankingList rows={stateTopRows} onOpen={setOpenTeamId} stateOf={stateOf} />
+            )}
+          </div>
+        </div>
+      )}
 
       {openTeam && (
         <TeamDetailPanel
@@ -1306,7 +1427,19 @@ export function TeamRankingsView({
               panelId={methodPanelId}
             />
           </h2>
-          {(availableStates.length > 0 || unknownStateCount > 0) && (
+          {/*
+            Collapsed by default now that the page leads with the two lists worth reading. A
+            nationwide pool is thousands of rows; they are here to find a team in, not to scroll.
+          */}
+          <button
+            type="button"
+            onClick={() => setShowAll((value) => !value)}
+            aria-expanded={showAll}
+            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {showAll ? "Hide the full table" : `Show all ${rankings.length} teams`}
+          </button>
+          {showAll && (availableStates.length > 0 || unknownStateCount > 0) && (
             <span className="flex items-center gap-2">
               <label
                 className="text-xs font-semibold uppercase tracking-wide text-slate-500"
@@ -1336,88 +1469,90 @@ export function TeamRankingsView({
         {methodOpen && (
           <RankingMethodPanel id={methodPanelId} onClose={() => setMethodOpen(false)} />
         )}
-        {stateFilter && (
+        {showAll && stateFilter && (
           <p className="mt-2 text-xs text-slate-500">
-            Showing {visibleRankings.length} of {rankings.length} teams. Ratings still come from
-            every game — filtering changes who is listed, not how anyone is rated, so the{" "}
-            <strong>#</strong> here is the position within this list and the grey number is the
-            place in the full table.
+            {rankingsStale ? "Refitting the ratings… " : ""}Showing {visibleRankings.length} of{" "}
+            {rankings.length} teams. Ratings still come from every game — filtering changes who is
+            listed, not how anyone is rated, so the <strong>#</strong> here is the position within
+            this list and the grey number is the place in the full table.
           </p>
         )}
-        <div className="mt-3 overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="py-2">Rank</th>
-                <th>Team</th>
-                <th>Record</th>
-                <th>Rating</th>
-                <th>Games</th>
-                <th>SOS</th>
-                <th className="sr-only">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRankings.map((row) => (
-                <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="py-3 font-black">
-                    #{row.rank}
-                    {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                      <span className="ml-1 text-xs font-bold text-slate-400">
-                        #{row.overallRank}
-                      </span>
-                    )}
-                  </td>
-                  <td className="font-bold text-slate-950 dark:text-white">
-                    <button
-                      type="button"
-                      onClick={() => setOpenTeamId(row.teamId)}
-                      className="text-left font-bold hover:underline"
-                      title="Every game logged for this team"
-                    >
-                      {row.teamName}
-                    </button>
-                    {leagueGameTeamIds.has(row.teamId) && (
-                      <span className={`ml-2 ${pill("blue")}`}>League</span>
-                    )}
-                  </td>
-                  <td>{row.record}</td>
-                  <td>{formatRating(row.rating)}</td>
-                  <td>{row.games}</td>
-                  <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
-                  <td className="space-x-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setMyTeam(row.teamId)}
-                      className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                      aria-pressed={row.isMine}
-                      title="Mark as my team"
-                    >
-                      {row.isMine ? "★ My team" : "☆ Mark mine"}
-                    </button>
-                    {!leagueGameTeamIds.has(row.teamId) && hasGamesFiledHere(row.teamId) && (
+        {showAll && (
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="py-2">Rank</th>
+                  <th>Team</th>
+                  <th>Record</th>
+                  <th>Rating</th>
+                  <th>Games</th>
+                  <th>SOS</th>
+                  <th className="sr-only">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRankings.map((row) => (
+                  <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="py-3 font-black">
+                      #{row.rank}
+                      {row.overallRank !== undefined && row.overallRank !== row.rank && (
+                        <span className="ml-1 text-xs font-bold text-slate-400">
+                          #{row.overallRank}
+                        </span>
+                      )}
+                    </td>
+                    <td className="font-bold text-slate-950 dark:text-white">
                       <button
                         type="button"
-                        onClick={() => {
-                          const team = allKnown.teams.find((t) => t.id === row.teamId);
-                          if (team) void removeTeam(team);
-                        }}
-                        className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                        onClick={() => setOpenTeamId(row.teamId)}
+                        className="text-left font-bold hover:underline"
+                        title="Every game logged for this team"
                       >
-                        Remove
+                        {row.teamName}
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rankings.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">
-              {unrankedLevelNote ?? "No teams yet for this age group."}
-            </p>
-          )}
-        </div>
+                      {leagueGameTeamIds.has(row.teamId) && (
+                        <span className={`ml-2 ${pill("blue")}`}>League</span>
+                      )}
+                    </td>
+                    <td>{row.record}</td>
+                    <td>{formatRating(row.rating)}</td>
+                    <td>{row.games}</td>
+                    <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
+                    <td className="space-x-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setMyTeam(row.teamId)}
+                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                        aria-pressed={row.isMine}
+                        title="Mark as my team"
+                      >
+                        {row.isMine ? "★ My team" : "☆ Mark mine"}
+                      </button>
+                      {!leagueGameTeamIds.has(row.teamId) && hasGamesFiledHere(row.teamId) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const team = allKnown.teams.find((t) => t.id === row.teamId);
+                            if (team) void removeTeam(team);
+                          }}
+                          className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rankings.length === 0 && (
+              <p className="py-6 text-center text-sm text-slate-500">
+                {unrankedLevelNote ?? "No teams yet for this age group."}
+              </p>
+            )}
+          </div>
+        )}
         <p className="mt-3 text-xs text-slate-500">
           Ratings only become meaningful once teams&apos; schedules connect, directly or through
           common opponents — a team with no shared opponents will show a plain, less certain rating.
