@@ -42,14 +42,18 @@ import {
   type SeasonMeta,
 } from "../lib/storage";
 import {
+  clearPullProgress,
   loadAgeGroups,
+  loadPullProgress,
   loadScoutGames,
   loadScoutTeams,
   saveAgeGroups,
+  savePullProgress,
   saveScoutGames,
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
 import { AiStoryPanel } from "./AiStoryPanel";
+import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { ScheduleImportPanel } from "./ScheduleImportPanel";
 import { RankingMethodButton, RankingMethodPanel } from "./RankingMethodPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
@@ -122,6 +126,8 @@ export function TeamRankingsView({
   const [gameEvent, setGameEvent] = useState("");
 
   const [importOpen, setImportOpen] = useState(false);
+  const [gcOpen, setGcOpen] = useState(false);
+  const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
   const [methodOpen, setMethodOpen] = useState(false);
@@ -1143,6 +1149,38 @@ export function TeamRankingsView({
         />
       )}
 
+      {gcOpen && (
+        <GameChangerImportPanel
+          /*
+           * The stored pool only — not the merged roster. League-derived teams and games are
+           * rebuilt from League Standings on every render and must never be written back here, or
+           * a pull would persist a second copy of every league game it happened to see.
+           */
+          pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
+          savedProgress={pullProgress}
+          onPersist={(next) => {
+            const savedGroups = saveAgeGroups(next.ageGroups);
+            const savedTeams = saveScoutTeams(next.teams);
+            const savedGames = saveScoutGames(next.games);
+            setAgeGroups(next.ageGroups);
+            setScoutTeams(next.teams);
+            setScoutGames(next.games);
+            onDataChange?.();
+            return savedGroups && savedTeams && savedGames;
+          }}
+          onSaveProgress={(progress) => {
+            setPullProgress(progress);
+            savePullProgress(progress);
+          }}
+          onClearProgress={() => {
+            setPullProgress(null);
+            clearPullProgress();
+          }}
+          onClose={() => setGcOpen(false)}
+          showToast={showToast}
+        />
+      )}
+
       {importOpen && selectedAgeGroupId && (
         <ScheduleImportPanel
           ageGroupId={selectedAgeGroupId}
@@ -1167,6 +1205,15 @@ export function TeamRankingsView({
               className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
             >
               Import games
+            </button>
+          )}
+          {!gcOpen && (
+            <button
+              type="button"
+              onClick={() => setGcOpen(true)}
+              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Pull from GameChanger
             </button>
           )}
         </div>
