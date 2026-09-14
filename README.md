@@ -42,28 +42,28 @@ the point: eslint 10 is skipped, eslint 11 will still get asked about.
 The header switches the whole app between them. They keep separate storage and
 separate teams.
 
-| Mode                 | What it is                                                                                                                                                                                   |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **League Standings** | One season of one league, on a fixed schedule, with full box scores. Standings, power ratings, playoff odds, magic numbers, a simulated forecast.                                            |
+| Mode                 | What it is                                                                                                                                                                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **League Standings** | One season of one league, on a fixed schedule. Final scores are all it asks for; the fuller box score is optional. Standings, power ratings, playoff odds, magic numbers, a simulated forecast.                                                                                   |
 | **Team Rankings**    | Any team from any source, scores only — entered by hand or pulled from GameChanger. Tournament games, another league's results, an opponent you are about to play. Everyone is rated against everyone else, adjusted for who they played and for the age level they played it at. |
 
 See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Features
 
-| Area                 | Highlights                                                                             |
-| -------------------- | -------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.      |
-| **Games**            | R/H/K entry, predictions, final toggle, filters, auto re-projection.                   |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.            |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.        |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                  |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding. |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                    |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                      |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                      |
+| Area                 | Highlights                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                          |
+| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                     |
+| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                |
+| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                            |
+| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                      |
+| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                     |
+| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                        |
+| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                          |
+| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                          |
 | **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report, CSV/paste import, team detail. |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval. |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                 |
 
 ## Architecture
 
@@ -131,7 +131,7 @@ opponent-adjusted model the league uses.
 Nothing can be logged until an age group exists, because every game has to know
 which ranking it belongs to. **Each level has its own table and only lists teams
 of that level** — a 9U team never appears on the 11U ranking. What a season year
-shares is the *fit*, not the table, so that a 9U who plays up in a tournament
+shares is the _fit_, not the table, so that a 9U who plays up in a tournament
 still counts for both sides: see [Playing up and down](#playing-up-and-down).
 
 An age group is an **age level** (8U-18U) and a **year** (2027 on), zero or more
@@ -141,12 +141,12 @@ never two spellings of the same season. Groups created before the picker existed
 keep the name they were typed with; editing one reads the age and year back out
 of that name where it can.
 
-| Concept           | What it does                                                                                                                                                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Assigned seasons  | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                      |
+| Concept               | What it does                                                                                                                                                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Assigned seasons      | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                                                                                    |
 | Advance to new season | Creates next year's group from this one — a year older, a year later (9U 2027 → 10U 2028), already continuing from it, already carrying "our team". Seasons are not copied: next year's don't exist yet. 18U stays 18U while the year moves, since a player can spend two years there. |
-| `continuesFromId` | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel across years** — a 10U group that continues from a 9U one starts at zero games. Levels within one season year do pool; across years they never do. |
-| `myTeamId`        | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                     |
+| `continuesFromId`     | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel across years** — a 10U group that continues from a 9U one starts at zero games. Levels within one season year do pool; across years they never do.      |
+| `myTeamId`            | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                                                                                   |
 
 Two age groups running at the same time and not linked share no names, which is
 what stops a 9U opponent appearing while logging an 11U game.
@@ -167,7 +167,7 @@ Team Rankings instead of wherever that browser happened to be last.
 
 A page leads with a **national top 25** and a **state top 10**, the state being
 yours where it is known and otherwise whichever has the most teams there. The
-place shown in each is the place in *that* list: a state top ten is ten teams
+place shown in each is the place in _that_ list: a state top ten is ten teams
 rated against the whole country and then listed together, so the second-best team
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
@@ -184,6 +184,29 @@ schedule is thin: two teams who never met become comparable through an opponent
 they both played elsewhere. Records, standings, elo, recent form and strength of
 schedule stay league-only. Games carried in from the league are excluded on the
 way back, so nothing is counted twice.
+
+**Team Rankings → League scores, on request.** Once a club pulls its own
+GameChanger team, every result of its league season is already in the pool, and
+typing those scores a second time into the league schedule is work the app can
+do. **Fill scores from Team Rankings**, on Games, offers them.
+
+It matches a league game to a pool result on the two teams and the day —
+the league stores a date as month and day, so that is the common ground — within
+the age groups that claim this season. It fills runs, and only runs, which is
+everything the standings, the records and the projections are built from.
+
+Nothing is written before the review is read, and three rules keep a wrong score
+out of a table nobody can check:
+
+| Case                                 | What happens                                                                                               |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
+| A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
+| A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
+
+Games the league itself put into the pool are excluded on the way back, so a
+season can never confirm its own scores. Anything already typed into a game —
+hits, strikeouts, the innings it was stored with — survives the fill untouched.
 
 ### Names
 
@@ -246,11 +269,11 @@ day AWS WAF starts challenging server traffic.
 
 **Identity is asymmetric, on purpose.**
 
-| | |
-| --- | --- |
-| A team pulled by id | *is* that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them. |
-| An opponent | has no id — GameChanger never gives one. The avatar is the only identifier that means the same thing on two schedules, so it is matched on that first, then on a name, and then only within one age level and season year. |
-| A club already here as an opponent | is adopted rather than duplicated when its own turn comes. In a full pull nearly every team appears as somebody's opponent first. |
+|                                    |                                                                                                                                                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A team pulled by id                | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                     |
+| An opponent                        | has no id — GameChanger never gives one. The avatar is the only identifier that means the same thing on two schedules, so it is matched on that first, then on a name, and then only within one age level and season year. |
+| A club already here as an opponent | is adopted rather than duplicated when its own turn comes. In a full pull nearly every team appears as somebody's opponent first.                                                                                          |
 
 The same game is on both teams' schedules and a re-pull brings back a schedule
 almost entirely unchanged; both are matched rather than filed again, and only a
@@ -271,12 +294,12 @@ stopping, reloading or closing the tab costs at most those twenty-five.
 Re-pulling a whole list nightly is thousands of requests for data that has mostly
 not moved, so each age group comes round once a week instead:
 
-| Day | | Day | |
-| --- | --- | --- | --- |
-| Sunday | 8U, 9U | Thursday | 12U, 13U |
-| Monday | 16U, 17U | Friday | catch up on failures |
-| Tuesday | 10U, 11U | Saturday | 14U, 15U |
-| Wednesday | 18U | | |
+| Day       |          | Day      |                      |
+| --------- | -------- | -------- | -------------------- |
+| Sunday    | 8U, 9U   | Thursday | 12U, 13U             |
+| Monday    | 16U, 17U | Friday   | catch up on failures |
+| Tuesday   | 10U, 11U | Saturday | 14U, 15U             |
+| Wednesday | 18U      |          |                      |
 
 Every level is at most seven days old and no day's run is long enough to be worth
 interrupting. `WEEKLY_ROTATION` in `src/lib/gameChangerSchedule.ts` is the whole
@@ -382,7 +405,8 @@ explicitly that no cut line exists and to cover the race for the top instead.
 | Season label          | Header/export label.                                                                                                                                                      |
 | Postseason            | `Cut line` (top N make the Gold Bracket), `Bracket, no cut` (every team qualifies), or `No postseason`.                                                                   |
 | Gold cutoff           | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                                                                               |
-| Score errors          | Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                                                                         |
+| Score detail          | `Runs only` (the default) or `Full box score`. Runs alone drive the standings, the records and every projection; the fuller box score only adds the per-game stat pages.  |
+| Score errors          | Full box score and Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                                                      |
 | Win / Tie points      | Math calculations and Gold status.                                                                                                                                        |
 | Tiebreaker order      | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored.                                                          |
 | Team Rankings results | Whether tournament games logged in Team Rankings sharpen this league's game forecasts (`useScoutResults`). Forecasts only — records and standings are always league-only. |
@@ -419,16 +443,16 @@ is stored as `[2,3,5,3,0,212,0,9,9,0,0,"0-1-0"]`. Measured across pools the size
 of a real pull, that is **5.3 to 5.7 times smaller**: four thousand teams take
 2.69 MB rather than 14.36.
 
-| | Pool it holds |
-| --- | --- |
-| `localStorage`, as objects | about 2,500 teams |
-| `localStorage`, compact | about 14,000 |
-| IndexedDB, compact | far past anything a browser will be asked to rank |
+|                            | Pool it holds                                     |
+| -------------------------- | ------------------------------------------------- |
+| `localStorage`, as objects | about 2,500 teams                                 |
+| `localStorage`, compact    | about 14,000                                      |
+| IndexedDB, compact         | far past anything a browser will be asked to rank |
 
 IndexedDB is asynchronous and this app reads its pool during render, so the pool
 is read into memory once before anything mounts and the synchronous reads stay
 synchronous; writes go out behind them, coalesced per key. A write is therefore
-reported as *accepted* rather than as landed, and one that later fails surfaces
+reported as _accepted_ rather than as landed, and one that later fails surfaces
 as a toast, which is the only thing left that can still say so.
 
 Moving across is all or nothing: a value that will not write abandons the whole

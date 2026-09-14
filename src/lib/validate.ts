@@ -4,12 +4,14 @@ import {
   RUN_SCORE_CAP,
   DEFAULT_TIEBREAKER_ORDER,
   POSTSEASON_FORMAT_VALUES,
+  SCORE_DETAIL_VALUES,
   type GameLog,
   type Matchup,
   type ModelAggression,
   type PitchMode,
   type PostseasonFormat,
   type RecapGrouping,
+  type ScoreDetail,
   type Settings,
   type TeamBase,
   type TiebreakerFactor,
@@ -119,7 +121,7 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
 export const coerceLogs = (
   raw: unknown,
   matchups: Matchup[] = [],
-  settings: Pick<Settings, "maxScoreCap" | "pitchMode"> = DEFAULT_SETTINGS
+  settings: Pick<Settings, "maxScoreCap" | "pitchMode" | "scoreDetail"> = DEFAULT_SETTINGS
 ): Record<string, GameLog> => {
   if (!isRecord(raw)) return {};
   const matchupIds = new Set(matchups.map((matchup) => matchup.id));
@@ -146,7 +148,10 @@ export const coerceLogs = (
       log.homeWalksAllowed = clampGameStatText(value.homeWalksAllowed);
     const hasScore = log.awayRuns !== "" && log.homeRuns !== "";
     const hasKs = log.awayK !== "" && log.homeK !== "";
-    const hasRequiredStats = settings.pitchMode === "player" ? hasScore : hasKs;
+    // A runs-only league never enters strikeouts, so demanding them here would
+    // quietly un-final every machine- and coach-pitch game on the next reload.
+    const hasRequiredStats =
+      settings.scoreDetail === "runs" || settings.pitchMode === "player" ? hasScore : hasKs;
     log.isFinal = Boolean(log.isFinal && hasScore && hasRequiredStats);
     out[key] = log;
   });
@@ -202,6 +207,14 @@ export const coerceSettings = (raw: unknown): Settings => {
       ? (pitchModeRaw as PitchMode)
       : DEFAULT_SETTINGS.pitchMode;
 
+  // A season saved before this setting existed has no stored value and lands on
+  // the "runs" default, which is what those leagues were really recording anyway.
+  const scoreDetailRaw = raw.scoreDetail;
+  const scoreDetail: ScoreDetail =
+    isString(scoreDetailRaw) && SCORE_DETAIL_VALUES.includes(scoreDetailRaw as ScoreDetail)
+      ? (scoreDetailRaw as ScoreDetail)
+      : DEFAULT_SETTINGS.scoreDetail;
+
   const runDiffTiebreaker = isBoolean(raw.runDiffTiebreaker)
     ? raw.runDiffTiebreaker
     : DEFAULT_SETTINGS.runDiffTiebreaker;
@@ -242,6 +255,7 @@ export const coerceSettings = (raw: unknown): Settings => {
         : DEFAULT_SETTINGS.useScoutResults,
     modelAggression,
     pitchMode,
+    scoreDetail,
     trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,
     recapGrouping,
   };
