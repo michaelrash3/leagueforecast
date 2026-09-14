@@ -11,6 +11,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../lib/teamRankings";
+import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
 
 type TeamDetailPanelProps = {
@@ -71,6 +72,21 @@ export function TeamDetailPanel({
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
   const [mergeTarget, setMergeTarget] = useState("");
+
+  /**
+   * What the merge picker offers. The state rides along as the detail line, because a pool pulled
+   * from GameChanger holds several clubs of the same name and the name alone cannot choose between
+   * them; the picker sorts and filters them itself.
+   */
+  const mergeOptions = useMemo(
+    () =>
+      mergeCandidates.map((candidate) => ({
+        id: candidate.id,
+        label: candidate.name,
+        ...(candidate.state ? { detail: candidate.state } : {}),
+      })),
+    [mergeCandidates]
+  );
 
   const nameOf = (id: string) => teamNameById.get(id) ?? "Unknown";
   const everyGame = useMemo(() => gamesForTeam(team.id, allGames), [team.id, allGames]);
@@ -230,20 +246,14 @@ export function TeamDetailPanel({
             Same team as
           </label>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <select
+            <TeamSearchSelect
               id="scout-team-merge"
               value={mergeTarget}
-              onChange={(event) => setMergeTarget(event.target.value)}
-              className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            >
-              <option value="">Choose a team…</option>
-              {mergeCandidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                  {candidate.state ? ` (${candidate.state})` : ""}
-                </option>
-              ))}
-            </select>
+              onChange={setMergeTarget}
+              options={mergeOptions}
+              placeholder="Type a team name…"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            />
             <button
               type="button"
               disabled={!mergeTarget}
