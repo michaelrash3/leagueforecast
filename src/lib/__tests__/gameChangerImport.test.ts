@@ -1,0 +1,337 @@
+import { describe, expect, it } from "vitest";
+import gamesFixture from "./fixtures/gc-team-games.json";
+import profileFixture from "./fixtures/gc-team-profile.json";
+import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
+import {
+  importGcSchedule,
+  importGcSchedules,
+  proposeSeasonPairings,
+  summarizeGcImport,
+  type GcImportState,
+} from "../gameChangerImport";
+import { countsTowardRating, isScoutGamePlayed, type ScoutTeam } from "../teamRankings";
+
+const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
+
+const schedule = (
+  overrides: Partial<GcTeamSchedule["profile"]> = {},
+  games: GcTeamSchedule["games"] = []
+): GcTeamSchedule => ({
+  profile: {
+    id: "gcAAAAAAAAAA",
+    name: "Lexington Legends 9U",
+    ageLevel: 9,
+    season: { season: "fall", year: 2026 },
+    ...overrides,
+  },
+  games,
+  fetchedAt: "2026-09-14T12:00:00.000Z",
+});
+
+const game = (overrides: Partial<GcTeamSchedule["games"][number]> = {}) => ({
+  id: "g1",
+  date: "2026-08-22",
+  opponentName: "NKY Sluggers 9U",
+  status: "completed" as const,
+  teamScore: 12,
+  opponentScore: 2,
+  ...overrides,
+});
+
+describe("importGcSchedule", () => {
+  it("files a schedule under the squad year its season belongs to", () => {
+    // Fall 2026 and Spring 2027 are one squad, and this app calls that squad "9U 2027".
+    const { state, outcome } = importGcSchedule(schedule({}, [game()]), empty);
+
+    expect(outcome.issue).toBeUndefined();
+    expect(outcome.createdAgeGroup).toBe(true);
+    expect(outcome.ageGroupName).toBe("9U 2027");
+    expect(state.ageGroups).toHaveLength(1);
+    expect(state.ageGroups[0]).toMatchObject({ ageLevel: 9, year: 2027 });
+  });
+
+  it("creates the team, the opponent and the game", () => {
+    const { state, outcome } = importGcSchedule(schedule({}, [game()]), empty);
+
+    expect(outcome.createdTeam).toBe(true);
+    expect(outcome.gamesAdded).toBe(1);
+    expect(outcome.opponentsCreated).toBe(1);
+    expect(state.teams).toHaveLength(2);
+    expect(state.games).toHaveLength(1);
+    expect(state.games[0]).toMatchObject({ teamAScore: 12, teamBScore: 2, date: "2026-08-22" });
+    expect(state.games[0]?.source).toEqual({
+      kind: "gamechanger",
+      teamId: "gcAAAAAAAAAA",
+      gameId: "g1",
+    });
+  });
+
+  it("records the GameChanger id on the team it was pulled as", () => {
+    const { state } = importGcSchedule(
+      schedule({ avatarKey: "av-legends", state: "ky", city: "Lexington" }, [game()]),
+      empty
+    );
+    const pulled = state.teams.find((team) => team.gcTeams?.length);
+    expect(pulled).toMatchObject({ state: "KY", city: "Lexington" });
+    expect(pulled?.gcTeams?.[0]).toMatchObject({
+      teamId: "gcAAAAAAAAAA",
+      ageLevel: 9,
+      season: "fall",
+      seasonYear: 2026,
+      avatarKey: "av-legends",
+    });
+  });
+
+  // A schedule is pulled again and again as a season runs; almost nothing changes each time.
+  it("is a no-op when the same schedule is pulled again", () => {
+    const first = importGcSchedule(schedule({}, [game()]), empty);
+    const second = importGcSchedule(schedule({}, [game()]), first.state);
+
+    expect(second.outcome.gamesAdded).toBe(0);
+    expect(second.outcome.gamesUnchanged).toBe(1);
+    expect(second.state.games).toHaveLength(1);
+    expect(second.state.teams).toHaveLength(2);
+    expect(second.state.ageGroups).toHaveLength(1);
+  });
+
+  it("writes a score that has been played since the last pull", () => {
+    const scheduled = importGcSchedule(
+      schedule({}, [game({ status: "scheduled", teamScore: undefined, opponentScore: undefined })]),
+      empty
+    );
+    expect(isScoutGamePlayed(scheduled.state.games[0]!)).toBe(false);
+
+    const played = importGcSchedule(schedule({}, [game()]), scheduled.state);
+    expect(played.outcome.gamesUpdated).toBe(1);
+    expect(played.state.games).toHaveLength(1);
+    expect(played.state.games[0]).toMatchObject({ teamAScore: 12, teamBScore: 2 });
+  });
+
+  it("leaves out games with no date and games called off", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({}, [
+        game({ id: "g1", date: undefined }),
+        game({ id: "g2", status: "canceled" }),
+        game({ id: "g3" }),
+      ]),
+      empty
+    );
+    expect(outcome.gamesIgnored).toBe(2);
+    expect(outcome.gamesAdded).toBe(1);
+    expect(state.games).toHaveLength(1);
+  });
+
+  it("says so, and changes nothing, when there is no page to file under", () => {
+    const noLevel = importGcSchedule(
+      schedule({ name: "Wildcats", ageLevel: undefined }, [game()]),
+      empty
+    );
+    expect(noLevel.outcome.issue).toContain("age group");
+    expect(noLevel.state).toBe(empty);
+
+    const noSeason = importGcSchedule(schedule({ season: undefined }, [game()]), empty);
+    expect(noSeason.outcome.issue).toContain("season");
+    expect(noSeason.state).toBe(empty);
+  });
+});
+
+describe("the same game on two schedules", () => {
+  // Both teams' schedules list the one game, so pulling both must not file it twice.
+  it("is matched rather than duplicated", () => {
+    const ours = schedule({}, [game()]);
+    const theirs = schedule({ id: "gcBBBBBBBBBB", name: "NKY Sluggers 9U" }, [
+      game({
+        id: "their-g1",
+        opponentName: "Lexington Legends 9U",
+        teamScore: 2,
+        opponentScore: 12,
+      }),
+    ]);
+
+    const { state, outcomes } = importGcSchedules([ours, theirs], empty);
+
+    expect(outcomes[0]?.gamesAdded).toBe(1);
+    expect(outcomes[1]?.gamesAdded).toBe(0);
+    expect(state.games).toHaveLength(1);
+    // The side order of the row that was already there stands, and the scores still belong to it.
+    const row = state.games[0]!;
+    expect(row.teamAScore).toBe(12);
+    expect(row.teamBScore).toBe(2);
+  });
+
+  it("keeps a doubleheader as two games", () => {
+    const { state } = importGcSchedule(
+      schedule({}, [game({ id: "g1" }), game({ id: "g2", teamScore: 4, opponentScore: 5 })]),
+      empty
+    );
+    expect(state.games).toHaveLength(2);
+  });
+});
+
+describe("who an opponent is", () => {
+  it("is the team with that avatar, wherever it was pulled from", () => {
+    const pulled = importGcSchedule(
+      schedule({ id: "gcSLUGGERS00", name: "NKY Sluggers 9U", avatarKey: "av-sluggers" }, []),
+      empty
+    );
+
+    const { state, outcome } = importGcSchedule(
+      schedule({}, [game({ opponentName: "Sluggers", opponentAvatarKey: "av-sluggers" })]),
+      pulled.state
+    );
+
+    expect(outcome.opponentsMatchedByAvatar).toBe(1);
+    expect(outcome.opponentsCreated).toBe(0);
+    // Named differently on this schedule, and still the same club.
+    expect(state.teams).toHaveLength(2);
+    const filed = state.games[0]!;
+    expect([filed.teamAId, filed.teamBId]).toContain(
+      state.teams.find((team) => team.gcTeams?.[0]?.teamId === "gcSLUGGERS00")!.id
+    );
+  });
+
+  it("is not matched by name alone across a different age level", () => {
+    const nineU = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty);
+    const elevenU = importGcSchedule(
+      schedule({ id: "gcCCCCCCCCCC", name: "Bandits 11U", ageLevel: 11 }, [
+        game({ id: "g9", opponentName: "Yankees" }),
+      ]),
+      nineU.state
+    );
+
+    // "Yankees" on an 11U schedule is not the "Yankees" on a 9U one.
+    expect(elevenU.outcome.opponentsCreated).toBe(1);
+    expect(elevenU.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
+  });
+
+  it("is matched by name within one page", () => {
+    const first = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty);
+    const second = importGcSchedule(
+      schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
+        game({ id: "g2", opponentName: "Yankees", date: "2026-08-30" }),
+      ]),
+      first.state
+    );
+    expect(second.outcome.opponentsMatchedByName).toBe(1);
+    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+  });
+});
+
+describe("a real schedule", () => {
+  const real: GcTeamSchedule = {
+    profile: normalizeGcTeamProfile(profileFixture)!,
+    games: normalizeGcGames(gamesFixture),
+    fetchedAt: "2026-09-14T12:44:04.965Z",
+  };
+
+  it("files all twelve games, and rates them", () => {
+    const { state, outcome } = importGcSchedule(real, empty);
+
+    expect(outcome.issue).toBeUndefined();
+    expect(outcome.gamesAdded).toBe(12);
+    expect(state.games).toHaveLength(12);
+    expect(state.games.every(countsTowardRating)).toBe(true);
+    expect(outcome.ageGroupName).toBe("9U 2027");
+  });
+
+  it("agrees with the record GameChanger reported", () => {
+    const { state } = importGcSchedule(real, empty);
+    const ours = state.teams.find((team) => team.gcTeams?.[0]?.teamId === real.profile.id)!;
+    const wins = state.games.filter((entry) =>
+      entry.teamAId === ours.id
+        ? entry.teamAScore! > entry.teamBScore!
+        : entry.teamBScore! > entry.teamAScore!
+    ).length;
+    expect(wins).toBe(real.profile.record?.win);
+  });
+});
+
+describe("proposeSeasonPairings", () => {
+  const withLinks = (
+    id: string,
+    name: string,
+    link: Partial<NonNullable<ScoutTeam["gcTeams"]>[number]>
+  ): ScoutTeam => ({
+    id,
+    name,
+    gcTeams: [
+      {
+        teamId: `gc-${id}`,
+        name,
+        ageGroupId: "ag1",
+        ageLevel: 9,
+        ...link,
+      },
+    ],
+  });
+
+  it("offers a Fall squad and the Spring squad that follows it", () => {
+    const pairings = proposeSeasonPairings([
+      withLinks("t1", "Trosky Illinois 9U", {
+        season: "fall",
+        seasonYear: 2026,
+        avatarKey: "av-1",
+      }),
+      withLinks("t2", "Trosky Illinois 9U", {
+        season: "spring",
+        seasonYear: 2027,
+        avatarKey: "av-1",
+      }),
+    ]);
+
+    expect(pairings).toHaveLength(1);
+    expect(pairings[0]).toMatchObject({
+      fromTeamId: "t1",
+      toTeamId: "t2",
+      basis: "avatar",
+      confidence: "strong",
+      fromSeason: "Fall 2026",
+      toSeason: "Spring 2027",
+    });
+  });
+
+  it("does not offer two clubs that only share a name at different levels", () => {
+    const pairings = proposeSeasonPairings([
+      withLinks("t1", "Yankees", { season: "fall", seasonYear: 2026, ageLevel: 9 }),
+      withLinks("t2", "Yankees", { season: "spring", seasonYear: 2027, ageLevel: 11 }),
+    ]);
+    expect(pairings).toEqual([]);
+  });
+
+  // Summer to the next Fall is a squad ageing up, not the same squad continuing.
+  it("does not offer a pairing across a squad year", () => {
+    const pairings = proposeSeasonPairings([
+      withLinks("t1", "Trosky", { season: "spring", seasonYear: 2027, avatarKey: "av-1" }),
+      withLinks("t2", "Trosky", { season: "fall", seasonYear: 2027, avatarKey: "av-1" }),
+    ]);
+    expect(pairings).toEqual([]);
+  });
+
+  it("puts the strongest evidence first", () => {
+    const pairings = proposeSeasonPairings([
+      withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }),
+      withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }),
+      withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
+      withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
+    ]);
+    expect(pairings[0]?.confidence).toBe("strong");
+    expect(pairings[pairings.length - 1]?.confidence).toBe("likely");
+  });
+});
+
+describe("summarizeGcImport", () => {
+  it("counts what a pull did", () => {
+    const { outcomes } = importGcSchedules(
+      [schedule({}, [game()]), schedule({ id: "gcEEEEEEEEEE", name: "Comets 9U" }, [])],
+      empty
+    );
+    const lines = summarizeGcImport(outcomes);
+    expect(lines[0]).toContain("2 schedules read");
+    expect(lines[1]).toContain("1 game added");
+  });
+
+  it("names the schedules it could not file", () => {
+    const { outcomes } = importGcSchedules([schedule({ season: undefined }, [game()])], empty);
+    expect(summarizeGcImport(outcomes)[0]).toContain("could not be filed");
+  });
+});
