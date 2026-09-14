@@ -22,6 +22,12 @@ const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
 /** When each age level last had its turn in the weekly rotation. */
 const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
+/**
+ * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
+ * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is
+ * in IndexedDB and it would not open today", which are the same silence and very different facts.
+ */
+const MIGRATED_KEY = "league_forecast_pool_in_idb_v1";
 
 /**
  * Where the pool actually lives.
@@ -38,6 +44,15 @@ const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
  */
 const cache = new Map<string, unknown>();
 let usingIdb = false;
+/**
+ * The pool is known to live in IndexedDB and IndexedDB would not open. Reads answer empty because
+ * there is nothing to answer with, and writes refuse rather than going to a localStorage the
+ * migration emptied — a write accepted here would be stranded where nothing will ever read it.
+ */
+let poolUnavailable = false;
+
+/** Whether this session is looking at a pool it cannot reach. The app says so; nothing else can. */
+export const isPoolUnavailable = (): boolean => poolUnavailable;
 
 let reportWriteError: ((key: string) => void) | null = null;
 
@@ -57,6 +72,9 @@ export const onPoolWriteError = (handler: ((key: string) => void) | null): void 
 const pendingWrites = new Map<string, unknown>();
 let flushing = false;
 
+/** Whether everything queued since the last check actually landed. */
+let landed = true;
+
 const flushWrites = async (): Promise<void> => {
   if (flushing) return;
   flushing = true;
@@ -66,12 +84,38 @@ const flushWrites = async (): Promise<void> => {
       pendingWrites.clear();
       for (const [key, value] of batch) {
         const ok = await idbSet(key, value);
-        if (!ok) reportWriteError?.(key);
+        if (ok) continue;
+        landed = false;
+        // A handler that throws must not take the rest of the batch down with it.
+        try {
+          reportWriteError?.(key);
+        } catch {
+          /* the report is a courtesy; the writes are the job */
+        }
       }
     }
   } finally {
     flushing = false;
   }
+};
+
+/**
+ * Waits for everything queued to actually reach the store, and says whether it did.
+ *
+ * `writeValue` can only report that a write was *accepted*, since the transaction has not finished
+ * when the caller returns. Anything that must not act on an acknowledgement — a pull advancing its
+ * cursor past teams it believes are saved — waits here first.
+ */
+export const flushPoolWrites = async (): Promise<boolean> => {
+  if (!usingIdb) return !poolUnavailable;
+  // Whoever is already flushing will drain the queue; wait for it to be empty and idle.
+  while (pendingWrites.size > 0 || flushing) {
+    await flushWrites();
+    if (pendingWrites.size > 0 || flushing) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const ok = landed;
+  landed = true;
+  return ok;
 };
 
 const safeGet = (key: string): string | null => {
@@ -114,6 +158,9 @@ const POOL_KEYS = [TEAMS_KEY, GAMES_KEY, AGE_GROUPS_KEY, GC_PULL_KEY, GC_REFRESH
  * synchronous.
  */
 const readValue = (key: string): unknown => {
+  // The pool is in a store this session cannot open. There is nothing to answer with, and reading
+  // the localStorage the migration emptied would answer "empty" as though that were the truth.
+  if (poolUnavailable) return null;
   // Without IndexedDB there is nothing to cache *for*: localStorage is already synchronous, and a
   // cache in front of it could only go stale against a write from another tab.
   if (!usingIdb) return parseJson(safeGet(key));
@@ -127,6 +174,8 @@ const readValue = (key: string): unknown => {
  * answer: whether it actually landed.
  */
 const writeValue = (key: string, value: unknown): boolean => {
+  // Refused rather than written somewhere nothing will read it back.
+  if (poolUnavailable) return false;
   if (!usingIdb) return safeSet(key, JSON.stringify(value));
   cache.set(key, value);
   pendingWrites.set(key, value);
@@ -178,21 +227,26 @@ const browserIo: PoolStoreIo = {
  * the new store, and dropping them matters: leaving them behind would go on occupying the very
  * quota this was done to escape.
  */
-export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknown> | null> => {
+export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknown>> => {
   const existing = new Set(await io.keys());
-  if (existing.size === 0) {
-    const carried: [string, unknown][] = [];
-    for (const key of POOL_KEYS) {
-      const raw = io.readLocal(key);
-      if (raw === null || raw === undefined) continue;
-      if (!(await io.set(key, raw))) return null;
-      carried.push([key, raw]);
-    }
-    carried.forEach(([key]) => io.clearLocal(key));
+
+  for (const key of POOL_KEYS) {
+    // Already carried across; localStorage has nothing to say about it.
+    if (existing.has(key)) continue;
+    const raw = io.readLocal(key);
+    if (raw === null || raw === undefined) continue;
+    // Cleared only once the store has it, so a key is never in neither place. A key that will not
+    // write stays in localStorage and is tried again next time.
+    if (await io.set(key, raw)) io.clearLocal(key);
   }
 
   const filled = new Map<string, unknown>();
-  for (const key of POOL_KEYS) filled.set(key, await io.get(key));
+  for (const key of POOL_KEYS) {
+    const stored = await io.get(key);
+    // A key that could not be carried is still readable where it is, so a failed move costs
+    // nothing but a retry — rather than hiding data that is sitting in localStorage.
+    filled.set(key, stored ?? io.readLocal(key));
+  }
   return filled;
 };
 
@@ -203,12 +257,21 @@ export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknow
  * simply carries on using `localStorage`.
  */
 export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => {
-  if (!io && !(await openPoolDb())) return;
+  if (!io && !(await openPoolDb())) {
+    /*
+     * No store. Which of two very different things that is depends on whether this pool has ever
+     * been moved: a browser that never had IndexedDB still has its pool in localStorage and is
+     * fine, while one whose pool was moved is looking at a localStorage the migration emptied.
+     * Falling through silently there shows an empty pool and accepts edits nothing will keep.
+     */
+    if (safeGet(MIGRATED_KEY)) poolUnavailable = true;
+    return;
+  }
   try {
     const filled = await fillPoolCache(io ?? browserIo);
-    if (!filled) return;
     filled.forEach((value, key) => cache.set(key, value));
     usingIdb = true;
+    if (!io) safeSet(MIGRATED_KEY, "1");
   } catch {
     // Anything unexpected leaves `usingIdb` false, which is the working localStorage path.
   }
@@ -219,6 +282,8 @@ export const resetTeamRankingsStore = (): void => {
   cache.clear();
   pendingWrites.clear();
   usingIdb = false;
+  poolUnavailable = false;
+  landed = true;
 };
 
 /** A string with something in it — an id made of whitespace identifies nothing. */

@@ -28,6 +28,7 @@ import {
   loadAgeGroups,
   loadScoutGames,
   loadScoutTeams,
+  isPoolUnavailable,
   onPoolWriteError,
 } from "./lib/teamRankingsStorage";
 import {
@@ -2191,6 +2192,19 @@ export default function App() {
       showToast("Team Rankings could not be saved — storage is full.", { tone: "error" })
     );
     return () => onPoolWriteError(null);
+  }, [showToast]);
+
+  /**
+   * The pool is in a store this session could not open — a private window, or a browser that
+   * refused it this time. Said out loud, because the alternative is a Team Rankings that looks
+   * simply empty and quietly refuses everything typed into it.
+   */
+  useEffect(() => {
+    if (!isPoolUnavailable()) return;
+    showToast(
+      "Team Rankings is stored in this browser's database, which would not open. Your data is safe — reload, or try a normal (not private) window.",
+      { tone: "error", durationMs: 15000 }
+    );
   }, [showToast]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {

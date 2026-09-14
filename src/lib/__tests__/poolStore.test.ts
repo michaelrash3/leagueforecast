@@ -73,7 +73,7 @@ describe("moving the pool into the store", () => {
     expect(io.local[GAMES_KEY]).toBeUndefined();
   });
 
-  it("leaves localStorage alone when the store already has a pool", async () => {
+  it("leaves a key alone when the store already has it", async () => {
     const io = fakeIo({}, { [TEAMS_KEY]: { v: 2, r: ["local"] } });
     io.store.set(TEAMS_KEY, { v: 2, r: ["already here"] });
 
@@ -82,23 +82,39 @@ describe("moving the pool into the store", () => {
     expect(io.local[TEAMS_KEY]).toEqual({ v: 2, r: ["local"] });
   });
 
-  // Half in one store and half in another is worse than never having moved.
-  it("abandons the whole move when a write will not land, and keeps localStorage", async () => {
+  /**
+   * Per key, not per store. A key is cleared from localStorage only once the store has it, so a
+   * key is never in neither place; one that will not write stays where it is and is carried next
+   * time. Gating the whole move on an empty store instead meant a half-finished migration was
+   * never retried, and the keys left behind became unreachable for good.
+   */
+  it("keeps a key that will not write, and carries the ones that will", async () => {
     let writes = 0;
-    const io = fakeIo(
-      {
-        set: async (key, value) => {
-          writes += 1;
-          if (writes > 1) return false;
-          return Boolean(key) && Boolean(value);
-        },
-      },
-      { [TEAMS_KEY]: { v: 2, r: [1] }, [GAMES_KEY]: { v: 2, r: [2] } }
-    );
+    const io = fakeIo({}, { [TEAMS_KEY]: { v: 2, r: [1] }, [GAMES_KEY]: { v: 2, r: [2] } });
+    // The first write lands; everything after it is refused, as a quota abort would be.
+    io.set = async (key, value) => {
+      writes += 1;
+      if (writes > 1) return false;
+      io.store.set(key, value);
+      return true;
+    };
 
-    expect(await fillPoolCache(io)).toBeNull();
-    expect(io.local[TEAMS_KEY]).toEqual({ v: 2, r: [1] });
+    const filled = await fillPoolCache(io);
+    // The one that landed is in the store and gone from localStorage.
+    expect(io.store.get(TEAMS_KEY)).toEqual({ v: 2, r: [1] });
+    expect(io.local[TEAMS_KEY]).toBeUndefined();
+    // The one that did not is still where it was, and still readable.
     expect(io.local[GAMES_KEY]).toEqual({ v: 2, r: [2] });
+    expect(filled?.get(GAMES_KEY)).toEqual({ v: 2, r: [2] });
+  });
+
+  it("carries a key left behind by an earlier half-finished move", async () => {
+    const io = fakeIo({}, { [GAMES_KEY]: { v: 2, r: [2] } });
+    io.store.set(TEAMS_KEY, { v: 2, r: [1] });
+
+    await fillPoolCache(io);
+    expect(io.store.get(GAMES_KEY)).toEqual({ v: 2, r: [2] });
+    expect(io.local[GAMES_KEY]).toBeUndefined();
   });
 
   it("is happy with nothing to carry", async () => {

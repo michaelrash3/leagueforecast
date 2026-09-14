@@ -29,6 +29,7 @@ import {
   markRefreshed,
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
+import { flushPoolWrites } from "../lib/teamRankingsStorage";
 import { mergeScoutTeams } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -154,18 +155,43 @@ export function GameChangerImportPanel({
 
     // Settled but not yet written. The cursor follows the save, never leads it.
     let unsaved: string[] = [];
+    // Flushes run one at a time and in order; a batch is never overtaken by the next.
+    let flushing: Promise<void> = Promise.resolve();
 
-    const flush = () => {
-      if (unsaved.length === 0) return;
-      if (!persist()) return;
-      const at = nowIso();
-      unsaved.forEach((teamId) => {
-        const failure = pendingFailures.get(teamId);
-        progressRef.current = settleTeam(progressRef.current ?? progress, teamId, at, failure);
-      });
-      if (progressRef.current) onSaveProgress(progressRef.current);
+    /**
+     * Writes what has been folded in, then advances the cursor — in that order, and only if the
+     * write actually reached the store.
+     *
+     * Waiting matters because a save can only be *accepted* synchronously: the pool is written to
+     * IndexedDB behind the caller, so a cursor that trusted the acknowledgement would mark teams
+     * settled that a closed tab then loses, and the resume would skip them for good.
+     */
+    const flush = (): Promise<void> => {
+      if (unsaved.length === 0) return flushing;
+      const batch = unsaved;
+      const failures = new Map(pendingFailures);
       unsaved = [];
       pendingFailures.clear();
+
+      flushing = flushing.then(async () => {
+        if (!persist()) return;
+        if (!(await flushPoolWrites())) {
+          showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
+          abortRef.current?.abort();
+          return;
+        }
+        const at = nowIso();
+        batch.forEach((teamId) => {
+          progressRef.current = settleTeam(
+            progressRef.current ?? progress,
+            teamId,
+            at,
+            failures.get(teamId)
+          );
+        });
+        if (progressRef.current) onSaveProgress(progressRef.current);
+      });
+      return flushing;
     };
 
     const pendingFailures = new Map<
@@ -185,7 +211,7 @@ export function GameChangerImportPanel({
           pendingFailures.set(teamId, { reason: result.reason, message: result.message });
         }
         unsaved.push(teamId);
-        if (unsaved.length >= SAVE_EVERY) flush();
+        if (unsaved.length >= SAVE_EVERY) void flush();
         // The cursor only advances on a flush, so the bar counts what is settled plus what is
         // fetched and waiting to be written — otherwise it would sit still between saves.
         const settled = progressRef.current?.settled.length ?? 0;
@@ -199,7 +225,7 @@ export function GameChangerImportPanel({
       },
     });
 
-    flush();
+    await flush();
     abortRef.current = null;
     // Marked only now: a run that was stopped half way has not refreshed those levels.
     if (
