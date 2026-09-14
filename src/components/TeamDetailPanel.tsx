@@ -3,7 +3,10 @@ import {
   countsTowardRating,
   gamesForTeam,
   isScoutGamePlayed,
+  rankingPoolGroupIds,
   teamNameKey,
+  teamRecordInPool,
+  type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "../lib/teamRankings";
@@ -11,10 +14,12 @@ import { button, card, pill } from "../styles/tokens";
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
-  /** Every game in the roster's world, so games outside this age group can be counted too. */
+  /** Every game in the roster's world, so games outside this season can be counted too. */
   allGames: ScoutGame[];
   ageGroupId: string;
   ageGroupName: string;
+  /** Every age group, so the pool this page rates can be worked out. */
+  ageGroups: AgeGroup[];
   teamNameById: Map<string, string>;
   /** League-derived teams are named by League Standings, so their name is not ours to change. */
   fromLeague: boolean;
@@ -47,6 +52,7 @@ export function TeamDetailPanel({
   allGames,
   ageGroupId,
   ageGroupName,
+  ageGroups,
   teamNameById,
   fromLeague,
   onRename,
@@ -57,26 +63,28 @@ export function TeamDetailPanel({
 
   const nameOf = (id: string) => teamNameById.get(id) ?? "Unknown";
   const everyGame = useMemo(() => gamesForTeam(team.id, allGames), [team.id, allGames]);
-  const here = everyGame.filter((game) => game.ageGroupId === ageGroupId);
+
+  /**
+   * Scoped to the rating pool — every age group sharing this one's season year — rather than to
+   * the page's own group, because that is what the ranking table rates. A 10U that spent the year
+   * playing down is listed on the 10U page with every one of its games filed under 9U: scoped to
+   * the group it would read 0-0 with nothing logged, directly contradicting the row above it.
+   */
+  const poolIds = useMemo(
+    () => new Set(rankingPoolGroupIds(ageGroupId, ageGroups)),
+    [ageGroupId, ageGroups]
+  );
+  const here = everyGame.filter((game) => poolIds.has(game.ageGroupId));
   const elsewhere = everyGame.length - here.length;
 
-  // The record shown here has to match the ranking table's, so it uses the same filter: played,
-  // and not one of the cross-age games deliberately left out.
+  // The same record the ranking row shows, counted by the same function, so the two agree.
+  const record = useMemo(
+    () => teamRecordInPool(team.id, ageGroupId, allGames, ageGroups),
+    [team.id, ageGroupId, allGames, ageGroups]
+  );
+  const { wins, losses, ties } = record;
   const played = here.filter(countsTowardRating);
   const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
-  const wins = played.filter((game) => {
-    const isA = game.teamAId === team.id;
-    return (
-      (isA ? game.teamAScore! : game.teamBScore!) > (isA ? game.teamBScore! : game.teamAScore!)
-    );
-  }).length;
-  const losses = played.filter((game) => {
-    const isA = game.teamAId === team.id;
-    return (
-      (isA ? game.teamAScore! : game.teamBScore!) < (isA ? game.teamBScore! : game.teamAScore!)
-    );
-  }).length;
-  const ties = played.length - wins - losses;
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -95,11 +103,14 @@ export function TeamDetailPanel({
             {played.length === 0
               ? `No completed games in ${ageGroupName || "this age group"} yet.`
               : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${played.length} game${played.length === 1 ? "" : "s"}.`}
+            {record.crossAgeGames > 0
+              ? ` ${record.crossAgeGames} of ${record.crossAgeGames === 1 ? "them was" : "them were"} against another age level.`
+              : ""}
             {notCounted.length > 0
               ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
               : ""}
             {elsewhere > 0
-              ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in other age groups, not counted here.`
+              ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
               : ""}
           </p>
         </div>

@@ -14,7 +14,6 @@ import {
   formatAgeGroupName,
   isRankedAgeLevel,
   isScoutGamePlayed,
-  MIN_AGE_LEVEL,
   MIN_RANKED_AGE_LEVEL,
   MIN_SEASON_YEAR,
   nextSeason,
@@ -98,7 +97,9 @@ export function TeamRankingsView({
   const [selectedAgeGroupId, setSelectedAgeGroupId] = useState(() => ageGroups[0]?.id ?? "");
   const [manageOpen, setManageOpen] = useState(() => ageGroups.length === 0);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [groupAgeLevel, setGroupAgeLevel] = useState(MIN_AGE_LEVEL);
+  // Opens on the youngest level that actually ranks. 8U stays selectable — its games are evidence
+  // about the 9U teams that played down — but it is not what accepting the defaults gives you.
+  const [groupAgeLevel, setGroupAgeLevel] = useState(MIN_RANKED_AGE_LEVEL);
   const [groupYear, setGroupYear] = useState(MIN_SEASON_YEAR);
   const [groupSeasonIds, setGroupSeasonIds] = useState<string[]>(() =>
     activeSeasonId ? [activeSeasonId] : []
@@ -163,7 +164,7 @@ export function TeamRankingsView({
     // what can be read from it and leave the rest at the defaults rather than blanking the form.
     const season = ageGroupSeason(group);
     setEditingGroupId(group.id);
-    setGroupAgeLevel(season.ageLevel ?? MIN_AGE_LEVEL);
+    setGroupAgeLevel(season.ageLevel ?? MIN_RANKED_AGE_LEVEL);
     setGroupYear(season.year ?? MIN_SEASON_YEAR);
     setGroupSeasonIds(group.seasonIds);
     setGroupContinuesFromId(group.continuesFromId ?? "");
@@ -172,7 +173,7 @@ export function TeamRankingsView({
 
   const resetGroupForm = () => {
     setEditingGroupId(null);
-    setGroupAgeLevel(MIN_AGE_LEVEL);
+    setGroupAgeLevel(MIN_RANKED_AGE_LEVEL);
     setGroupYear(MIN_SEASON_YEAR);
     setGroupSeasonIds(activeSeasonId ? [activeSeasonId] : []);
     setGroupContinuesFromId("");
@@ -493,6 +494,18 @@ export function TeamRankingsView({
    * one, and removing a stray 11U entry shouldn't wipe the 9U history. The team record itself only
    * goes when nothing is left of it anywhere.
    */
+  /**
+   * Whether this page has anything of its own to remove for a team. The pool can list a team whose
+   * every game is filed under a sibling age group; `removeTeam` only touches games filed here, so
+   * for that team it would delete nothing and still say it had. The button is not offered instead.
+   */
+  const hasGamesFiledHere = (teamId: string): boolean =>
+    scoutGames.some(
+      (game) =>
+        game.ageGroupId === selectedAgeGroupId &&
+        (game.teamAId === teamId || game.teamBId === teamId)
+    );
+
   const removeTeam = async (team: ScoutTeam) => {
     const isHere = (game: ScoutGame) =>
       game.ageGroupId === selectedAgeGroupId &&
@@ -830,7 +843,7 @@ export function TeamRankingsView({
                   >
                     {AGE_LEVELS.map((level) => (
                       <option key={level} value={level}>
-                        {level}U
+                        {level}U{isRankedAgeLevel(level) ? "" : " (not ranked)"}
                       </option>
                     ))}
                   </select>
@@ -963,6 +976,7 @@ export function TeamRankingsView({
           team={openTeam}
           allGames={allKnownGames}
           ageGroupId={selectedAgeGroupId}
+          ageGroups={ageGroups}
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}
           fromLeague={leagueGameTeamIds.has(openTeam.id)}
@@ -1177,7 +1191,7 @@ export function TeamRankingsView({
                     >
                       {row.isMine ? "★ My team" : "☆ Mark mine"}
                     </button>
-                    {!leagueGameTeamIds.has(row.teamId) && (
+                    {!leagueGameTeamIds.has(row.teamId) && hasGamesFiledHere(row.teamId) && (
                       <button
                         type="button"
                         onClick={() => {
