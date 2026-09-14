@@ -269,6 +269,22 @@ Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.
 
+### What a pull could not import
+
+A run over thousands of teams always leaves some behind, in two different
+ways, and a count hides both. **Did not import** lists every one of them:
+
+| Kind            | What it means                                                                                                     |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Not reached** | The schedule never arrived — no such team, a refusal, a timeout, the proxy not deployed. Often worth another try. |
+| **Not filed**   | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
+
+Each row gives the team id, the name where anything knew one, the reason in a
+few words, the sentence the failing layer wrote, and a link to the team on
+GameChanger. **Download the list** writes the lot as a CSV, because a few
+hundred rows is spreadsheet work rather than something to scroll on a phone —
+the panel draws the first two hundred and the file has them all.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
