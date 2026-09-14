@@ -1,0 +1,28 @@
+{
+ "id": "gsUthn4XoIxS",
+ "name": "NV Stars 9u Scout",
+ "sport": "baseball",
+ "ngb": "[\"usssa\"]",
+ "location": {
+  "city": "Georgetown",
+  "state": "KY",
+  "country": "United States"
+ },
+ "age_group": "9U",
+ "team_season": {
+  "season": "fall",
+  "year": 2026,
+  "record": {
+   "win": 11,
+   "loss": 1,
+   "tie": 0
+  }
+ },
+ "avatar_url": "https://media-service.gc.com/5192a689-d888-4ae5-abce-446885dca7c7",
+ "staff": [
+  "Noochie Varner",
+  "Jordan Fox",
+  "Tyler Coons"
+ ],
+ "player_count": 10
+}

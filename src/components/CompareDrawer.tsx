@@ -12,6 +12,12 @@ type Props = {
   allTeams: TeamWithProjection[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
+  /**
+   * True when the league records the final score and nothing else. The hit and
+   * strikeout rows would then compare a season-long 0.0 against a season-long
+   * 0.0, so they are left out rather than shown as a fake dead heat.
+   */
+  runsOnly: boolean;
   onClose: () => void;
   onPickRight: (id: string) => void;
 };
@@ -26,6 +32,7 @@ export function CompareDrawer({
   allTeams,
   matchups,
   logs,
+  runsOnly,
   onClose,
   onPickRight,
 }: Props) {
@@ -114,24 +121,28 @@ export function CompareDrawer({
         right: fmt(right.rag),
         better: compare(left.rag, right.rag, false),
       },
-      {
-        label: "Hits/Game",
-        left: fmt(left.hpg),
-        right: fmt(right.hpg),
-        better: compare(left.hpg, right.hpg),
-      },
-      {
-        label: "K/Game (batting)",
-        left: fmt(left.kpg),
-        right: fmt(right.kpg),
-        better: compare(left.kpg, right.kpg, false),
-      },
-      {
-        label: "Opp K/Game",
-        left: fmt(left.oppKpg),
-        right: fmt(right.oppKpg),
-        better: compare(left.oppKpg, right.oppKpg),
-      },
+      ...(runsOnly
+        ? []
+        : [
+            {
+              label: "Hits/Game",
+              left: fmt(left.hpg),
+              right: fmt(right.hpg),
+              better: compare(left.hpg, right.hpg),
+            },
+            {
+              label: "K/Game (batting)",
+              left: fmt(left.kpg),
+              right: fmt(right.kpg),
+              better: compare(left.kpg, right.kpg, false),
+            },
+            {
+              label: "Opp K/Game",
+              left: fmt(left.oppKpg),
+              right: fmt(right.oppKpg),
+              better: compare(left.oppKpg, right.oppKpg),
+            },
+          ]),
       {
         label: "Gold Odds",
         left: `${Math.round(left.goldPct)}%`,
@@ -151,7 +162,7 @@ export function CompareDrawer({
         better: compare(left.projectedRank, right.projectedRank, false),
       },
     ];
-  }, [left, right]);
+  }, [left, right, runsOnly]);
 
   const tone = (which: "left" | "right" | "tie" | undefined, side: "left" | "right") => {
     if (which === "tie" || which === undefined) return "text-slate-700 dark:text-slate-200";

@@ -130,6 +130,14 @@ export const DEFAULT_TIEBREAKER_ORDER: TiebreakerFactor[] = [
  */
 export type PostseasonFormat = "cut" | "all" | "none";
 
+/**
+ * How much of each game gets written down.
+ *
+ * - `runs` — the final score only, which is all most leagues ever record.
+ * - `full` — the fuller box score as well: hits, strikeouts, errors and walks.
+ */
+export type ScoreDetail = "runs" | "full";
+
 export type Settings = {
   goldCutoff: number;
   /** Whether a cut line exists at all, and whether there is a postseason. */
@@ -154,9 +162,22 @@ export type Settings = {
   modelAggression: ModelAggression;
   pitchMode: PitchMode;
   /**
+   * How much of each game gets recorded. Most leagues only ever write down the
+   * final score, and runs alone drive the standings, records and every
+   * projection, so `runs` is the default and the fuller box score — hits,
+   * strikeouts, errors, walks — is opt-in for the leagues that keep it.
+   *
+   * A season saved before this setting existed has no stored value, so it lands
+   * on the `runs` default. That is deliberate: it keeps everything those seasons
+   * are judged on intact, and the box-score numbers they did record stay in the
+   * logs, ready to reappear the moment the league switches to `full`.
+   */
+  scoreDetail: ScoreDetail;
+  /**
    * Whether kid-pitch games record fielding errors. Plenty of leagues do not
    * score them, and an always-blank E column is worse than no column. Ignored
-   * outside kid pitch, which tracks strikeouts instead.
+   * outside kid pitch, which tracks strikeouts instead, and outside the full box
+   * score, which is the only place an E column appears at all.
    */
   trackErrors: boolean;
   recapGrouping: RecapGrouping;
@@ -191,6 +212,8 @@ export const GAME_STAT_CAP = 99;
 
 export const POSTSEASON_FORMAT_VALUES: PostseasonFormat[] = ["cut", "all", "none"];
 
+export const SCORE_DETAIL_VALUES: ScoreDetail[] = ["runs", "full"];
+
 export const DEFAULT_SETTINGS: Settings = {
   goldCutoff: DEFAULT_GOLD_CUTOFF,
   postseasonFormat: "cut",
@@ -207,6 +230,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useScoutResults: true,
   modelAggression: "Balanced",
   pitchMode: "player",
+  scoreDetail: "runs",
   trackErrors: true,
   recapGrouping: "date",
 };

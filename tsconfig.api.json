@@ -16,5 +16,10 @@
     "noUncheckedIndexedAccess": true,
     "types": []
   },
-  "include": ["api", "src/lib/geminiModels.ts", "src/lib/leagueSummary.ts"]
+  "include": [
+    "api",
+    "src/lib/geminiModels.ts",
+    "src/lib/leagueSummary.ts",
+    "src/lib/gameChangerApi.ts"
+  ]
 }

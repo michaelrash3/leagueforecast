@@ -1,0 +1,933 @@
+/**
+ * Folding a pulled GameChanger schedule into the Team Rankings pool.
+ *
+ * Everything here is pure: it takes the pool as it stands and a schedule, and returns the pool as
+ * it would stand plus a report of what happened to that team. Nothing is saved, so the panel can
+ * pull first, show the report, and only then write — and a re-pull of the same schedule is a
+ * no-op rather than a second copy of every game.
+ *
+ * The identity rules are the whole of the difficulty, and they are deliberately asymmetric:
+ *
+ * - **A team pulled by id is that id.** GameChanger mints a new team id every season, so a club's
+ *   Fall and Spring squads arrive as two ids. They are two teams here until somebody says
+ *   otherwise — see `proposeSeasonPairings`, which suggests the pairing and waits. Folding them
+ *   together automatically would be guessing, and the country has a great many Yankees.
+ * - **An opponent is a name and a picture.** GameChanger never gives an opponent's team id, so the
+ *   avatar is the only stable thing that survives the trip. A matching avatar is the same club. A
+ *   matching name is only the same club within one age level and season year, because "Yankees" on
+ *   a 9U schedule in Kentucky and "Yankees" on an 11U schedule in California are not related.
+ */
+
+import {
+  ageLevelFromName,
+  formatGcSeason,
+  type GcGame,
+  type GcTeamProfile,
+  type GcTeamSchedule,
+} from "./gameChangerApi";
+import {
+  ageGroupLevel,
+  ageGroupYear,
+  createAgeGroupId,
+  isPlaceholderName,
+  MIN_AGE_LEVEL,
+  buildScoutTeam,
+  formatAgeGroupName,
+  gcSeasonLabel,
+  isRankedAgeLevel,
+  matchExistingGame,
+  normalizeState,
+  squadYearForGcSeason,
+  teamNameKey,
+  type AgeGroup,
+  type GcTeamLink,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings";
+
+/**
+ * The lookups an import does, precomputed.
+ *
+ * Every one of them — is this game already here, is this opponent a team I know, has this club
+ * been pulled before — was a scan of the whole pool, once per incoming game. That is quadratic,
+ * and measurably so: a thousand teams took thirty-five seconds where two hundred and fifty took
+ * two. Keyed instead, and kept up to date as the fold goes, the same work is linear.
+ *
+ * The keys mirror exactly what the functions they stand in for compare on, and the game bucket is
+ * still handed to `matchExistingGame` rather than matched here, so this changes how fast a match
+ * is found and never what counts as one.
+ */
+type ImportIndex = {
+  gamesById: Map<string, ScoutGame>;
+  /** Where each game sits in the working array, so an update is an assignment rather than a map. */
+  gamePos: Map<string, number>;
+  /** Where each team sits, for the same reason. */
+  teamPos: Map<string, number>;
+  /** Every scout id in use, kept as the fold goes so minting a new one does not rescan the roster. */
+  usedTeamIds: Set<string>;
+  /** Games by pool, pair and date — the three things a match must agree on. */
+  gamesByMatch: Map<string, ScoutGame[]>;
+  teamsById: Map<string, ScoutTeam>;
+  /** The team carrying a GameChanger id. One id lives on one team. */
+  teamByGcId: Map<string, ScoutTeam>;
+  teamsByAvatar: Map<string, ScoutTeam[]>;
+  /** Team ids with a game filed on a page, for the "on this page" that name matching needs. */
+  teamIdsByGroup: Map<string, Set<string>>;
+  /**
+   * The same, keyed by page *and* name. Name matching asks "is there a team called this on this
+   * page?", and walking the page's whole roster to answer it is a scan per game — which for a pool
+   * where everyone is on one page is the whole pool, per game.
+   */
+  teamIdsByGroupName: Map<string, string[]>;
+  /** Pool key of an age group: its season year, or the group itself when it has none. */
+  poolKeyOf: (ageGroupId: string) => string;
+  /** Age level of an age group: the level half of a name match, and a side's fallback level. */
+  levelOf: (ageGroupId: string) => number | undefined;
+};
+
+const pairKeyOf = (game: ScoutGame): string =>
+  [game.teamAId, game.teamBId].slice().sort().join("|");
+
+const matchKeyOf = (game: ScoutGame, poolKeyOf: (ageGroupId: string) => string): string =>
+  `${poolKeyOf(game.ageGroupId)}\u0000${pairKeyOf(game)}\u0000${game.date ?? ""}`;
+
+const push = <K, V>(map: Map<K, V[]>, key: K, value: V) => {
+  const bucket = map.get(key);
+  if (bucket) bucket.push(value);
+  else map.set(key, [value]);
+};
+
+const buildPoolKey = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string) => {
+  // Mirrors `rankingPoolGroupIds`: groups sharing a season year are one pool, and a group with no
+  // year is a pool of one.
+  const keys = new Map<string, string>();
+  ageGroups.forEach((group) => {
+    const year = ageGroupYear(group);
+    keys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
+  });
+  return (ageGroupId: string) => keys.get(ageGroupId) ?? `g:${ageGroupId}`;
+};
+
+const buildLevelOf = (ageGroups: AgeGroup[]): ((ageGroupId: string) => number | undefined) => {
+  const levels = new Map<string, number | undefined>();
+  ageGroups.forEach((group) => levels.set(group.id, ageGroupLevel(group)));
+  return (ageGroupId: string) => levels.get(ageGroupId);
+};
+
+const buildIndex = (state: GcImportState): ImportIndex => {
+  const poolKeyOf = buildPoolKey(state.ageGroups);
+  const levelOf = buildLevelOf(state.ageGroups);
+  const index: ImportIndex = {
+    gamesById: new Map(),
+    gamePos: new Map(),
+    teamPos: new Map(),
+    usedTeamIds: new Set(),
+    gamesByMatch: new Map(),
+    teamsById: new Map(),
+    teamByGcId: new Map(),
+    teamsByAvatar: new Map(),
+    teamIdsByGroup: new Map(),
+    teamIdsByGroupName: new Map(),
+    poolKeyOf,
+    levelOf,
+  };
+  state.teams.forEach((team, position) => {
+    index.teamPos.set(team.id, position);
+    index.usedTeamIds.add(team.id);
+    indexTeam(index, team);
+  });
+  state.games.forEach((game, position) => {
+    index.gamePos.set(game.id, position);
+    indexGame(index, game);
+  });
+  return index;
+};
+
+const indexTeam = (index: ImportIndex, team: ScoutTeam) => {
+  index.teamsById.set(team.id, team);
+  (team.gcTeams ?? []).forEach((link) => {
+    index.teamByGcId.set(link.teamId, team);
+    if (link.avatarKey) {
+      const bucket = index.teamsByAvatar.get(link.avatarKey);
+      if (!bucket) index.teamsByAvatar.set(link.avatarKey, [team]);
+      else if (!bucket.some((entry) => entry.id === team.id)) bucket.push(team);
+    }
+  });
+};
+
+/**
+ * The scope a name is allowed to match in: one rating pool, at one age level.
+ *
+ * The pool rather than the page, because the two sides of a cross-age game are filed under
+ * different pages — a 9U beating an 11U puts the 11U opponent on the 9U page, and pulling that 11U
+ * team afterwards looked for it on the 11U page, found nothing, and made a second one. The level
+ * still has to agree, so a club's own 9U and 11U squads stay two teams, which is what scoping by
+ * page was really protecting.
+ */
+const nameSlotKey = (poolKey: string, nameKey: string, level: number | undefined): string =>
+  `${poolKey}\u0000${level ?? "?"}\u0000${nameKey}`;
+
+const noteInPool = (
+  index: ImportIndex,
+  ageGroupId: string,
+  teamId: string,
+  level: number | undefined
+) => {
+  const team = index.teamsById.get(teamId);
+  if (!team) return;
+  const key = nameSlotKey(index.poolKeyOf(ageGroupId), teamNameKey(team.name), level);
+  const bucket = index.teamIdsByGroupName.get(key);
+  if (!bucket) index.teamIdsByGroupName.set(key, [teamId]);
+  else if (!bucket.includes(teamId)) bucket.push(teamId);
+};
+
+const indexGame = (index: ImportIndex, game: ScoutGame) => {
+  index.gamesById.set(game.id, game);
+  push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
+  const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
+  onPage.add(game.teamAId);
+  onPage.add(game.teamBId);
+  index.teamIdsByGroup.set(game.ageGroupId, onPage);
+  // A side's level is what the game recorded for it, falling back to the page it is filed under.
+  const pageLevel = index.levelOf(game.ageGroupId);
+  noteInPool(index, game.ageGroupId, game.teamAId, game.ageLevelA ?? pageLevel);
+  noteInPool(index, game.ageGroupId, game.teamBId, game.ageLevelB ?? pageLevel);
+};
+
+/** Appends a team to the working roster and records where it went. */
+const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
+  index.teamPos.set(team.id, teams.length);
+  index.usedTeamIds.add(team.id);
+  teams.push(team);
+  indexTeam(index, team);
+};
+
+/** Takes a team out of the avatar index, so a key it no longer carries stops pointing at it. */
+const unindexAvatars = (index: ImportIndex, team: ScoutTeam): void => {
+  (team.gcTeams ?? []).forEach((link) => {
+    if (!link.avatarKey) return;
+    const bucket = index.teamsByAvatar.get(link.avatarKey);
+    if (!bucket) return;
+    const at = bucket.findIndex((entry) => entry.id === team.id);
+    if (at >= 0) bucket.splice(at, 1);
+    if (bucket.length === 0) index.teamsByAvatar.delete(link.avatarKey);
+  });
+};
+
+/**
+ * Replaces a team in place. Its id does not change, so nothing it is filed under moves — except
+ * its avatars, which a re-pull can change: GameChanger teams do get new pictures, and the old key
+ * left behind would go on claiming this team, or worse make it ambiguous with whoever takes that
+ * picture next.
+ */
+const replaceTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
+  const position = index.teamPos.get(team.id);
+  if (position === undefined) {
+    addTeam(index, teams, team);
+    return;
+  }
+  const previous = teams[position];
+  if (previous) unindexAvatars(index, previous);
+  teams[position] = team;
+  indexTeam(index, team);
+};
+
+/** Appends a game to the working list and records where it went. */
+const addGame = (index: ImportIndex, games: ScoutGame[], game: ScoutGame): void => {
+  index.gamePos.set(game.id, games.length);
+  games.push(game);
+  indexGame(index, game);
+};
+
+/** A page the fold has just created has no games yet, but its pool key must still resolve. */
+const indexAgeGroup = (index: ImportIndex, group: AgeGroup) => {
+  const previous = index.poolKeyOf;
+  const year = ageGroupYear(group);
+  const key = year === undefined ? `g:${group.id}` : `y:${year}`;
+  index.poolKeyOf = (ageGroupId: string) => (ageGroupId === group.id ? key : previous(ageGroupId));
+};
+
+/** The pool, as the importer reads and returns it. */
+export type GcImportState = {
+  ageGroups: AgeGroup[];
+  teams: ScoutTeam[];
+  games: ScoutGame[];
+};
+
+/** What one team's schedule did to the pool. One row of the panel's report. */
+export type GcImportOutcome = {
+  gcTeamId: string;
+  teamName: string;
+  /** The team in our roster this schedule belongs to. */
+  teamId: string;
+  /** The page its games were filed under. */
+  ageGroupId: string;
+  ageGroupName: string;
+  /** A group that did not exist until this schedule arrived. */
+  createdAgeGroup: boolean;
+  /** This GameChanger id had never been pulled before. */
+  createdTeam: boolean;
+  gamesAdded: number;
+  /** Matched an existing game and changed something — usually a score that has since been played. */
+  gamesUpdated: number;
+  /** Matched an existing game with nothing to change. */
+  gamesUnchanged: number;
+  /** Listed by GameChanger but not filed: cancelled, or missing the date a game is matched on. */
+  gamesIgnored: number;
+  opponentsCreated: number;
+  opponentsMatchedByAvatar: number;
+  opponentsMatchedByName: number;
+  /** Set when the schedule could not be filed at all; the pool is returned untouched. */
+  issue?: string;
+};
+
+/** A club that looks like the same club a season later, offered for the user to confirm. */
+export type GcSeasonPairing = {
+  /** The earlier squad. */
+  fromTeamId: string;
+  fromTeamName: string;
+  fromSeason: string;
+  /** The later squad, a season on. */
+  toTeamId: string;
+  toTeamName: string;
+  toSeason: string;
+  /** Why these two are being offered, in the order the evidence was found. */
+  basis: "avatar" | "name";
+  /** Same picture and same name is as strong as this gets; either alone is weaker. */
+  confidence: "strong" | "likely";
+};
+
+/** Seasons in the order a squad plays them, so "the next one" has a meaning. */
+const SEASON_ORDER = ["fall", "winter", "spring", "summer"] as const;
+
+/**
+ * A squad year runs Fall through the following Summer, so these two labels are consecutive within
+ * one squad year. Anything else — Summer to the next Fall — is a new squad at a new age level, and
+ * that is an age-up rather than a pairing.
+ */
+const isNextSeason = (from: GcTeamLink, to: GcTeamLink): boolean => {
+  const fromIndex = SEASON_ORDER.indexOf((from.season ?? "") as (typeof SEASON_ORDER)[number]);
+  const toIndex = SEASON_ORDER.indexOf((to.season ?? "") as (typeof SEASON_ORDER)[number]);
+  if (fromIndex < 0 || toIndex < 0 || toIndex <= fromIndex) return false;
+  return (
+    squadYearForGcSeason(from.season, from.seasonYear ?? 0) ===
+    squadYearForGcSeason(to.season, to.seasonYear ?? 0)
+  );
+};
+
+/** The level a profile is for: what GameChanger says, else what the name says. */
+const profileAgeLevel = (profile: GcTeamProfile): number | undefined =>
+  profile.ageLevel ?? ageLevelFromName(profile.name);
+
+/** A game id nobody else will mint, derived from the GameChanger ids it came from. */
+const gcGameId = (gcTeamId: string, gameId: string): string => `gc_${gcTeamId}_${gameId}`;
+
+/**
+ * The page a pulled schedule belongs on: its age level, in the squad year its GameChanger season
+ * falls in. Creates the group when there is not one, because a nationwide pull cannot expect the
+ * user to have made a page for every level first.
+ */
+const resolveAgeGroup = (
+  profile: GcTeamProfile,
+  state: GcImportState
+): { ageGroups: AgeGroup[]; group: AgeGroup; created: boolean } | null => {
+  const ageLevel = profileAgeLevel(profile);
+  // Below the youngest level the app ranks there is nothing worth filing. A nationwide team list
+  // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
+  // about any team, and filing them would mint pages nobody asked for and fetch schedules nobody
+  // reads. They are skipped outright rather than ranked or half-created.
+  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || !profile.season) return null;
+  const year = squadYearForGcSeason(profile.season.season, profile.season.year);
+
+  // Few enough age groups that a scan is honest here — one per level per year, not one per team.
+  const existing = state.ageGroups.find(
+    (group) => ageGroupLevel(group) === ageLevel && ageGroupYear(group) === year
+  );
+  if (existing) return { ageGroups: state.ageGroups, group: existing, created: false };
+
+  const group: AgeGroup = {
+    id: createAgeGroupId(),
+    name: formatAgeGroupName(ageLevel, year),
+    ageLevel,
+    year,
+    seasonIds: [],
+  };
+  return { ageGroups: [...state.ageGroups, group], group, created: true };
+};
+
+/** Why a schedule was left where it was, in the words the panel shows. */
+const skipReason = (profile: GcTeamProfile): string => {
+  const ageLevel = profileAgeLevel(profile);
+  if (ageLevel === undefined) {
+    return "GameChanger gave no age group for this team, and its name does not say one.";
+  }
+  if (ageLevel < MIN_AGE_LEVEL) {
+    return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
+  }
+  return "GameChanger gave no season for this team, so there is no squad year to file it under.";
+};
+
+/** The link this pull records against a team, so a later pull knows what it already has. */
+const linkFor = (profile: GcTeamProfile, ageGroupId: string, fetchedAt: string): GcTeamLink => ({
+  teamId: profile.id,
+  name: profile.name,
+  ageGroupId,
+  ...(profile.season ? { season: profile.season.season, seasonYear: profile.season.year } : {}),
+  ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
+  ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
+  ...(profile.record ? { record: profile.record } : {}),
+  importedAt: fetchedAt,
+});
+
+const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
+  const rest = (team.gcTeams ?? []).filter((entry) => entry.teamId !== link.teamId);
+  return { ...team, gcTeams: [...rest, link] };
+};
+
+/**
+ * The team a pulled schedule belongs to. By GameChanger id and nothing else: a team pulled by id
+ * *is* that id, and pairing a Fall squad to a Spring one is the user's call, not a guess made
+ * here.
+ */
+const resolveOwnTeam = (
+  profile: GcTeamProfile,
+  ageGroupId: string,
+  fetchedAt: string,
+  teams: ScoutTeam[],
+  index: ImportIndex
+): { teamId: string; created: boolean } => {
+  const link = linkFor(profile, ageGroupId, fetchedAt);
+  const known = index.teamByGcId.get(profile.id);
+  if (known) {
+    replaceTeam(index, teams, withLink(known, link));
+    return { teamId: known.id, created: false };
+  }
+
+  /**
+   * Before minting one: this club is very likely already here as a name-only opponent, put there
+   * by a schedule pulled earlier. Adopting that entry is what keeps one club one team — in a pull
+   * of a whole list nearly every team appears as somebody's opponent before its own turn comes,
+   * so creating a second would duplicate most of the pull. Only an entry with no GameChanger id
+   * of its own qualifies, and only on this page, which is the same rule opponents are matched by.
+   */
+  const key = teamNameKey(profile.name);
+  const sameName =
+    index.teamIdsByGroupName.get(
+      nameSlotKey(index.poolKeyOf(ageGroupId), key, profileAgeLevel(profile))
+    ) ?? [];
+  // Exactly one, or picking between them is a guess — and a wrong one folds a club's games into
+  // somebody else's team.
+  const placeholders = sameName
+    .map((teamId) => index.teamsById.get(teamId))
+    .filter((team): team is ScoutTeam => Boolean(team) && !team?.gcTeams?.length);
+  const placeholder = placeholders.length === 1 ? placeholders[0] : undefined;
+  if (placeholder) {
+    const updated = withLink(placeholder, link);
+    const placeholderState = normalizeState(profile.state ?? "");
+    if (placeholderState && !updated.state) updated.state = placeholderState;
+    if (profile.city && !updated.city) updated.city = profile.city;
+    replaceTeam(index, teams, updated);
+    return { teamId: placeholder.id, created: false };
+  }
+
+  const extras: Partial<ScoutTeam> = { gcTeams: [link] };
+  const state = normalizeState(profile.state ?? "");
+  if (state) extras.state = state;
+  if (profile.city) extras.city = profile.city;
+  const team = buildScoutTeam(profile.name, index.usedTeamIds, extras);
+  addTeam(index, teams, team);
+  return { teamId: team.id, created: true };
+};
+
+type OpponentMatch = {
+  teamId: string;
+  basis: "avatar" | "name" | "created";
+};
+
+/**
+ * The team an opponent name refers to. The avatar first, because it is the only identifier
+ * GameChanger gives that means the same thing on two different schedules. Failing that, a name —
+ * but only among teams already on this page, since a name on its own says nothing across levels or
+ * seasons. Failing that, a new team, which is the honest answer for a club nobody has pulled.
+ */
+const resolveOpponent = (
+  game: GcGame,
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  index: ImportIndex
+): OpponentMatch => {
+  /**
+   * "TBD", "Winner of Game 3", a blank cell on a bracket: a name that stands in for a team nobody
+   * had decided yet. Matching one to anything is the mistake — a single shared "TBD" would collect
+   * games from dozens of unrelated schedules and then sit in the rating graph as an opponent all
+   * of them had played, which the fit would read as evidence about how they compare. Each gets a
+   * slot of its own, marked as one, and the game is filed exactly as any other so it still counts
+   * for the team that played it.
+   */
+  if (isPlaceholderName(game.opponentName)) {
+    const slot = buildScoutTeam(game.opponentName, index.usedTeamIds, { placeholder: true });
+    addTeam(index, teams, slot);
+    return { teamId: slot.id, basis: "created" };
+  }
+
+  if (game.opponentAvatarKey) {
+    const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
+    // Exactly one, or the picture is shared and says nothing about which team this is.
+    if (byAvatar.length === 1 && byAvatar[0]) {
+      return { teamId: byAvatar[0].id, basis: "avatar" };
+    }
+  }
+
+  const key = teamNameKey(game.opponentName);
+  const theirLevel = ageLevelFromName(game.opponentName) ?? index.levelOf(ageGroupId);
+  const sameName =
+    index.teamIdsByGroupName.get(nameSlotKey(index.poolKeyOf(ageGroupId), key, theirLevel)) ?? [];
+  // More than one team of that name at that level says nothing about which this is.
+  if (sameName.length === 1 && sameName[0]) {
+    return { teamId: sameName[0], basis: "name" };
+  }
+
+  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {});
+  addTeam(index, teams, created);
+  return { teamId: created.id, basis: "created" };
+};
+
+/** Games GameChanger lists but that cannot be filed: no date to match on, or called off. */
+const isFilable = (game: GcGame): boolean => Boolean(game.date) && game.status !== "canceled";
+
+/**
+ * Whether a re-pull actually says anything new. A schedule is pulled repeatedly as a season runs,
+ * and almost every game comes back exactly as it was; only a game that has since been played, or
+ * whose score GameChanger has corrected, is worth writing.
+ */
+/** Whether a game carries a result at all. One score without the other is not one. */
+const isScored = (game: ScoutGame): boolean =>
+  game.teamAScore !== undefined && game.teamBScore !== undefined;
+
+/**
+ * The candidate's scores as they would sit on the existing row's sides.
+ *
+ * The same game is on both teams' schedules and each lists itself first, so the copy arriving may
+ * be the mirror of the row already here. Comparing them side for side would call every mirrored
+ * game a change and rewrite it on every pull.
+ */
+const scoresAsExisting = (
+  existing: ScoutGame,
+  candidate: ScoutGame
+): { a: number | undefined; b: number | undefined } =>
+  existing.teamAId === candidate.teamAId
+    ? { a: candidate.teamAScore, b: candidate.teamBScore }
+    : { a: candidate.teamBScore, b: candidate.teamAScore };
+
+const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
+  const scores = scoresAsExisting(existing, candidate);
+  // An unscored copy says nothing about the result; it must not be read as disagreeing with one.
+  const scoreChanged =
+    isScored(candidate) && (existing.teamAScore !== scores.a || existing.teamBScore !== scores.b);
+  return (
+    scoreChanged ||
+    existing.season !== candidate.season ||
+    existing.ageLevelA !== candidate.ageLevelA ||
+    existing.ageLevelB !== candidate.ageLevelB
+  );
+};
+
+/**
+ * One pulled schedule, folded in.
+ *
+ * Returns the pool it would produce and a report of what it did. When the schedule cannot be filed
+ * — no age level, or no season, so there is no page it belongs on — the pool comes back untouched
+ * with the reason in `issue`, because filing a nationwide pull's worth of games under a guess is
+ * worse than saying so.
+ */
+export const importGcSchedule = (
+  schedule: GcTeamSchedule,
+  state: GcImportState
+): { state: GcImportState; outcome: GcImportOutcome } => {
+  // The fold works in place, so it is handed copies: a caller's pool is never altered under it.
+  const working: GcImportState = {
+    ageGroups: state.ageGroups.slice(),
+    teams: state.teams.slice(),
+    games: state.games.slice(),
+  };
+  const result = importOne(schedule, working, buildIndex(working));
+  // Nothing could be filed, so hand back exactly what came in rather than a copy of it.
+  return result.outcome.issue ? { state, outcome: result.outcome } : result;
+};
+
+const importOne = (
+  schedule: GcTeamSchedule,
+  state: GcImportState,
+  index: ImportIndex
+): { state: GcImportState; outcome: GcImportOutcome } => {
+  const { profile } = schedule;
+  const base: GcImportOutcome = {
+    gcTeamId: profile.id,
+    teamName: profile.name,
+    teamId: "",
+    ageGroupId: "",
+    ageGroupName: "",
+    createdAgeGroup: false,
+    createdTeam: false,
+    gamesAdded: 0,
+    gamesUpdated: 0,
+    gamesUnchanged: 0,
+    gamesIgnored: 0,
+    opponentsCreated: 0,
+    opponentsMatchedByAvatar: 0,
+    opponentsMatchedByName: 0,
+  };
+
+  const resolved = resolveAgeGroup(profile, state);
+  if (!resolved) {
+    return {
+      state,
+      outcome: {
+        ...base,
+        issue: skipReason(profile),
+      },
+    };
+  }
+
+  const { group, created: createdAgeGroup } = resolved;
+  if (createdAgeGroup) indexAgeGroup(index, group);
+  // The working arrays are mutated from here on; the public entry hands in copies.
+  const teams = state.teams;
+  const games = state.games;
+  const own = resolveOwnTeam(profile, group.id, schedule.fetchedAt, teams, index);
+  const ourLevel = profileAgeLevel(profile);
+  const outcome: GcImportOutcome = {
+    ...base,
+    teamId: own.teamId,
+    ageGroupId: group.id,
+    ageGroupName: group.name,
+    createdAgeGroup,
+    createdTeam: own.created,
+  };
+
+  const ageGroups = resolved.ageGroups;
+
+  for (const game of schedule.games) {
+    if (!isFilable(game)) {
+      outcome.gamesIgnored += 1;
+      continue;
+    }
+
+    /*
+     * This schedule's own copy of this game, if it has been pulled before. Found first, because the
+     * opponent it already settled on is the answer — working it out again on a name that is
+     * ambiguous would mint a fresh team, and a weekly re-pull would do that every week forever.
+     */
+    const known = index.gamesById.get(gcGameId(profile.id, game.id));
+    const knownOpponentId = known
+      ? known.teamAId === own.teamId
+        ? known.teamBId
+        : known.teamAId
+      : undefined;
+
+    let opponentId = knownOpponentId;
+    if (opponentId === undefined) {
+      const opponent = resolveOpponent(game, group.id, teams, index);
+      opponentId = opponent.teamId;
+      if (opponent.basis === "created") outcome.opponentsCreated += 1;
+      else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+      else outcome.opponentsMatchedByName += 1;
+    }
+
+    // Their level is only ever a guess from the name; ours is what GameChanger said.
+    const theirLevel = ageLevelFromName(game.opponentName);
+    const candidate: ScoutGame = {
+      id: gcGameId(profile.id, game.id),
+      teamAId: own.teamId,
+      teamBId: opponentId,
+      ageGroupId: group.id,
+      ...(game.teamScore === undefined ? {} : { teamAScore: game.teamScore }),
+      ...(game.opponentScore === undefined ? {} : { teamBScore: game.opponentScore }),
+      ...(game.date ? { date: game.date } : {}),
+      ...(ourLevel === undefined ? {} : { ageLevelA: ourLevel }),
+      ...(theirLevel === undefined ? {} : { ageLevelB: theirLevel }),
+      ...(profile.season ? { season: formatGcSeason(profile.season) } : {}),
+      ...(game.startTs ? { startTs: game.startTs } : {}),
+      source: { kind: "gamechanger", teamId: profile.id, gameId: game.id },
+    };
+
+    // Two ways the game may already be here. The same schedule's same game id is certainly it —
+    // and `matchExistingGame` will not find that one, because it looks for a *different* row
+    // meaning the same thing. Failing that, the other team's copy of the game.
+    const existing =
+      known ??
+      matchExistingGame(
+        candidate,
+        index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [],
+        ageGroups
+      );
+    if (!existing) {
+      addGame(index, games, candidate);
+      outcome.gamesAdded += 1;
+      continue;
+    }
+    if (!differs(existing, candidate)) {
+      outcome.gamesUnchanged += 1;
+      continue;
+    }
+    /*
+     * The existing row keeps its id and its side order; only what the pull actually learned is
+     * written. In particular an unscored copy leaves the score alone: GameChanger posts a result on
+     * one team's schedule before the other's, so the opponent's copy of a game that has been played
+     * routinely arrives with nothing in it, and writing that over a real result would erase it.
+     */
+    const scores = scoresAsExisting(existing, candidate);
+    const merged: ScoutGame = {
+      ...existing,
+      ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
+      ...(candidate.season ? { season: candidate.season } : {}),
+    };
+    // Same id, same pool, same pair, same date, so nothing it is filed under moves.
+    const position = index.gamePos.get(existing.id);
+    if (position !== undefined) games[position] = merged;
+    index.gamesById.set(merged.id, merged);
+    const sameBucket = index.gamesByMatch.get(matchKeyOf(merged, index.poolKeyOf));
+    if (sameBucket) {
+      const at = sameBucket.findIndex((entry) => entry.id === merged.id);
+      if (at >= 0) sameBucket[at] = merged;
+    }
+    outcome.gamesUpdated += 1;
+  }
+
+  return { state: { ageGroups, teams, games }, outcome };
+};
+
+/** Every schedule in turn, each seeing what the ones before it added. */
+export const importGcSchedules = (
+  schedules: GcTeamSchedule[],
+  state: GcImportState
+): { state: GcImportState; outcomes: GcImportOutcome[] } => {
+  // One index and one set of working arrays for the whole fold. Rebuilding either per schedule is
+  // what made a large import quadratic: the index turned every lookup into a scan, and copying the
+  // arrays turned every added game into a copy of every game before it.
+  let next: GcImportState = {
+    ageGroups: state.ageGroups.slice(),
+    teams: state.teams.slice(),
+    games: state.games.slice(),
+  };
+  const index = buildIndex(next);
+  const outcomes: GcImportOutcome[] = [];
+  for (const schedule of schedules) {
+    const result = importOne(schedule, next, index);
+    next = result.state;
+    outcomes.push(result.outcome);
+  }
+  return { state: next, outcomes };
+};
+
+/**
+ * Names the slots that another schedule already answered.
+ *
+ * A bracket posts "TBD" on one team's schedule and the real fixture on the other's, so the same
+ * game arrives twice and disagrees with itself: one row says the club played a placeholder, the
+ * other names both sides. Left alone that is a fixture counted twice, and a slot standing where a
+ * real opponent belongs. The named row is the better evidence — a schedule that names a club is
+ * saying who turned up — so it wins, and the slot's row is folded into it.
+ *
+ * What makes this safe rather than a guess is where the naming row comes from and when it kicked
+ * off. It has to come from a *different* GameChanger team's schedule: if a club's own schedule
+ * lists both a placeholder and a named opponent that day, those are two different games it is
+ * playing, and neither names the other. Where both rows carry a start time they must agree on it,
+ * which is what tells the two halves of a doubleheader apart. Without times, the day has to hold
+ * exactly one candidate; anything less certain is left as it is, because a wrong answer here
+ * silently moves a result onto a club that never played it.
+ */
+export const resolveSlotGames = (
+  state: GcImportState
+): { state: GcImportState; resolved: number } => {
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const isSlot = (teamId: string) => teamById.get(teamId)?.placeholder === true;
+
+  const slotGames = state.games.filter(
+    (game) => isSlot(game.teamAId) !== isSlot(game.teamBId) && Boolean(game.date)
+  );
+  if (slotGames.length === 0) return { state, resolved: 0 };
+
+  /** Games with two real sides, indexed by the known team and day they could answer for. */
+  const namedByTeamDay = new Map<string, ScoutGame[]>();
+  const dayKey = (teamId: string, date: string) => `${teamId}@${date}`;
+  state.games.forEach((game) => {
+    if (!game.date) return;
+    if (isSlot(game.teamAId) || isSlot(game.teamBId)) return;
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      const key = dayKey(teamId, game.date!);
+      const bucket = namedByTeamDay.get(key);
+      if (bucket) bucket.push(game);
+      else namedByTeamDay.set(key, [game]);
+    });
+  });
+  if (namedByTeamDay.size === 0) return { state, resolved: 0 };
+
+  const sourceOf = (game: ScoutGame) => game.source?.teamId;
+  /** A named row already used to answer a slot cannot answer a second one. */
+  const spoken = new Set<string>();
+  /** Slot rows to drop, and the named row each one's scores were folded into. */
+  const merges = new Map<string, ScoutGame>();
+
+  slotGames.forEach((slotGame) => {
+    const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
+      (named) =>
+        !spoken.has(named.id) &&
+        // The other club's schedule, never the same one this slot came from.
+        sourceOf(named) !== undefined &&
+        sourceOf(named) !== sourceOf(slotGame) &&
+        // A time on both sides has to agree; a doubleheader is two games, not one.
+        (slotGame.startTs === undefined ||
+          named.startTs === undefined ||
+          slotGame.startTs === named.startTs)
+    );
+
+    // With times on both rows, an exact time is the answer even on a day holding several games.
+    const timed = candidates.filter(
+      (named) => slotGame.startTs !== undefined && named.startTs === slotGame.startTs
+    );
+    const shortlist = timed.length > 0 ? timed : candidates;
+    if (shortlist.length !== 1) return;
+
+    const named = shortlist[0]!;
+    spoken.add(named.id);
+    merges.set(slotGame.id, named);
+  });
+
+  if (merges.size === 0) return { state, resolved: 0 };
+
+  // The named row keeps its id and its side order; only a score it does not have is taken from the
+  // slot's row, since a placeholder's schedule can carry a result the other's has not posted yet.
+  const filled = new Map<string, ScoutGame>();
+  merges.forEach((named, slotId) => {
+    const slotGame = state.games.find((game) => game.id === slotId);
+    if (!slotGame || !isScored(slotGame) || isScored(named)) return;
+    const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const knownScore = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
+    const otherScore = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+    const current = filled.get(named.id) ?? named;
+    filled.set(named.id, {
+      ...current,
+      ...(named.teamAId === knownId
+        ? { teamAScore: knownScore, teamBScore: otherScore }
+        : { teamAScore: otherScore, teamBScore: knownScore }),
+    });
+  });
+
+  const games = state.games
+    .filter((game) => !merges.has(game.id))
+    .map((game) => filled.get(game.id) ?? game);
+
+  // A slot nothing else references is not a club and should not linger in the roster.
+  const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
+  const teams = state.teams.filter((team) => !team.placeholder || stillUsed.has(team.id));
+
+  return { state: { ...state, teams, games }, resolved: merges.size };
+};
+
+/**
+ * Clubs that look like the same club a season on — a Fall squad and a Spring squad with the same
+ * picture, or the same name at the same level. Offered, never applied: only the user can say that
+ * a Fall roster and a Spring roster are the same team, and merging two clubs that merely share a
+ * name would quietly ruin both their ratings.
+ *
+ * Teams already paired onto one entry are not offered again, since they are the same team here
+ * already.
+ */
+export const proposeSeasonPairings = (teams: ScoutTeam[]): GcSeasonPairing[] => {
+  const pairings: GcSeasonPairing[] = [];
+  const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
+
+  for (const from of linked) {
+    for (const to of linked) {
+      if (from.team.id === to.team.id) continue;
+      if (!isNextSeason(from.link, to.link)) continue;
+      // A level apart is an age-up, not the same squad carrying on through a season.
+      if (from.link.ageLevel !== to.link.ageLevel) continue;
+
+      const sameAvatar = Boolean(from.link.avatarKey && from.link.avatarKey === to.link.avatarKey);
+      const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
+      if (!sameAvatar && !sameName) continue;
+
+      pairings.push({
+        fromTeamId: from.team.id,
+        fromTeamName: from.team.name,
+        fromSeason: gcSeasonLabel(from.link) || "an unlabelled season",
+        toTeamId: to.team.id,
+        toTeamName: to.team.name,
+        toSeason: gcSeasonLabel(to.link) || "an unlabelled season",
+        basis: sameAvatar ? "avatar" : "name",
+        confidence: sameAvatar && sameName ? "strong" : "likely",
+      });
+    }
+  }
+
+  // Strongest first, so the ones worth approving in bulk are together at the top.
+  return pairings.sort((a, b) =>
+    a.confidence === b.confidence ? 0 : a.confidence === "strong" ? -1 : 1
+  );
+};
+
+/**
+ * What a finished pull did, in one line per thing worth saying. The panel shows this above the
+ * per-team rows, which for a nationwide pull are far too many to read.
+ */
+export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
+  const filed = outcomes.filter((outcome) => !outcome.issue);
+  const failed = outcomes.length - filed.length;
+  const sum = (pick: (outcome: GcImportOutcome) => number) =>
+    filed.reduce((total, outcome) => total + pick(outcome), 0);
+
+  const lines: string[] = [];
+  lines.push(
+    `${filed.length} schedule${filed.length === 1 ? "" : "s"} read${
+      failed ? `, ${failed} that could not be filed` : ""
+    }.`
+  );
+
+  const added = sum((outcome) => outcome.gamesAdded);
+  const updated = sum((outcome) => outcome.gamesUpdated);
+  const unchanged = sum((outcome) => outcome.gamesUnchanged);
+  lines.push(
+    `${added} game${added === 1 ? "" : "s"} added, ${updated} updated, ${unchanged} already had.`
+  );
+
+  const createdTeams = filed.filter((outcome) => outcome.createdTeam).length;
+  const createdOpponents = sum((outcome) => outcome.opponentsCreated);
+  const byAvatar = sum((outcome) => outcome.opponentsMatchedByAvatar);
+  const byName = sum((outcome) => outcome.opponentsMatchedByName);
+  lines.push(
+    `${createdTeams + createdOpponents} team${
+      createdTeams + createdOpponents === 1 ? "" : "s"
+    } new, ${byAvatar} opponent${byAvatar === 1 ? "" : "s"} recognised by picture, ${byName} by name.`
+  );
+
+  const newPages = filed.filter((outcome) => outcome.createdAgeGroup);
+  if (newPages.length) {
+    lines.push(
+      `${newPages.length} page${newPages.length === 1 ? "" : "s"} created: ${newPages
+        .map((outcome) => outcome.ageGroupName)
+        .join(", ")}.`
+    );
+  }
+
+  const unranked = filed.filter((outcome) => !isRankedAgeLevel(ageLevelOfOutcome(outcome))).length;
+  if (unranked) {
+    lines.push(
+      `${unranked} went to a level that is not ranked; those games count as evidence about the older teams that played them.`
+    );
+  }
+
+  const ignored = sum((outcome) => outcome.gamesIgnored);
+  if (ignored) {
+    lines.push(`${ignored} listed game${ignored === 1 ? " was" : "s were"} cancelled or undated.`);
+  }
+  return lines;
+};
+
+/** The level a report row landed on, read back off the page name it was filed under. */
+const ageLevelOfOutcome = (outcome: GcImportOutcome): number | undefined => {
+  const match = /^(\d{1,2})U\b/.exec(outcome.ageGroupName);
+  return match ? Number(match[1]) : undefined;
+};

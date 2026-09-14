@@ -23,8 +23,21 @@ import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMa
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { TeamRankingsView } from "./components/TeamRankingsView";
+import { LeagueScoreFillPanel } from "./components/LeagueScoreFillPanel";
+import {
+  applyLeagueScoreFill,
+  planLeagueScoreFill,
+  summarizeLeagueFill,
+  type LeagueFillPlan,
+} from "./lib/leagueScoreFill";
 import { externalResultsForSeason } from "./lib/teamRankings";
-import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "./lib/teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadScoutGames,
+  loadScoutTeams,
+  isPoolUnavailable,
+  onPoolWriteError,
+} from "./lib/teamRankingsStorage";
 import {
   coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
@@ -151,6 +164,7 @@ import {
   type PostseasonFormat,
   type Prediction,
   type RecapGrouping,
+  type ScoreDetail,
   type Settings,
   type SwingGame,
   type Team,
@@ -736,7 +750,8 @@ const trendStatusFor = (
 const buildTeamTrendSummary = (
   teamId: string,
   matchups: Matchup[],
-  logs: Record<string, GameLog>
+  logs: Record<string, GameLog>,
+  runsOnly: boolean
 ): TeamTrendSummary => {
   const games = matchups
     .filter((game) => game.away === teamId || game.home === teamId)
@@ -804,7 +819,13 @@ const buildTeamTrendSummary = (
     },
   ];
 
-  const metrics = metricConfigs.map<TeamTrendMetric>((config) => {
+  // A runs-only league never records a hit, so the two hit trends would be flat
+  // lines at zero for the whole season. Runs carry the trend on their own.
+  const visibleConfigs = runsOnly
+    ? metricConfigs.filter((config) => config.key === "runs-for" || config.key === "runs-against")
+    : metricConfigs;
+
+  const metrics = visibleConfigs.map<TeamTrendMetric>((config) => {
     const values = games.map(config.value);
     const season = averageRecent(values, values.length);
     const recent = recentWindow ? averageRecent(values, recentWindow) : null;
@@ -865,7 +886,8 @@ const buildTeamStatRankings = (
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   pitchMode: PitchMode,
-  trackErrors: boolean
+  trackErrors: boolean,
+  runsOnly: boolean
 ): StatRankings => {
   const summaries = teams.map((team) => ({
     team,
@@ -909,14 +931,31 @@ const buildTeamStatRankings = (
 
   const sampleGames = matchups.filter((game) => isFinal(logs[game.id])).length;
 
+  const runsScored: StatRankingMetric = {
+    key: "runs-scored",
+    label: "R/G",
+    direction: "desc",
+    average: averageFor((line) => line.offense.runs),
+    entries: rankedEntries((line) => line.offense.runs, "desc"),
+  };
+
+  const runsAllowed: StatRankingMetric = {
+    key: "runs-allowed",
+    label: "RA/G",
+    direction: "asc",
+    average: averageFor((line) => line.defense.runs),
+    entries: rankedEntries((line) => line.defense.runs, "asc"),
+  };
+
+  // A runs-only league records nothing else, so a leaderboard of hits or
+  // strikeouts would be every team tied at 0.0. Runs for and against are the
+  // whole box score here, and they are also the only ones the standings use.
+  if (runsOnly) {
+    return { sampleGames, metrics: [runsScored, runsAllowed] };
+  }
+
   const baseMetrics: StatRankingMetric[] = [
-    {
-      key: "runs-scored",
-      label: "R/G",
-      direction: "desc",
-      average: averageFor((line) => line.offense.runs),
-      entries: rankedEntries((line) => line.offense.runs, "desc"),
-    },
+    runsScored,
     {
       key: "hits",
       label: "H/G",
@@ -970,13 +1009,7 @@ const buildTeamStatRankings = (
     metrics: [
       ...baseMetrics,
       ...modeMetrics,
-      {
-        key: "runs-allowed",
-        label: "RA/G",
-        direction: "asc",
-        average: averageFor((line) => line.defense.runs),
-        entries: rankedEntries((line) => line.defense.runs, "asc"),
-      },
+      runsAllowed,
       {
         key: pitchMode === "player" ? "walks-allowed" : "hits-allowed",
         label: pitchMode === "player" ? "BB Allowed/G" : "HA/G",
@@ -1102,15 +1135,21 @@ function SplitStatsTable({
   side,
   pitchMode,
   trackErrors,
+  runsOnly,
 }: {
   title: string;
   lines: TeamSplitLine[];
   side: "offense" | "defense";
   pitchMode: PitchMode;
   trackErrors: boolean;
+  runsOnly: boolean;
 }) {
+  // A runs-only league records neither hits nor the mode column, so the split
+  // is runs per game and nothing else. One real column beats three empty ones.
+  const showHitsColumn = !runsOnly;
   // The kid-pitch defensive column is E/G, which is empty when errors are not scored.
-  const showModeColumn = !(pitchMode === "player" && side === "defense" && !trackErrors);
+  const showModeColumn =
+    !runsOnly && !(pitchMode === "player" && side === "defense" && !trackErrors);
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900">
@@ -1126,7 +1165,7 @@ function SplitStatsTable({
               <th className="px-4 py-2">Split</th>
               <th className="px-3 py-2 text-center">G</th>
               <th className="px-3 py-2 text-center">R/G</th>
-              <th className="px-3 py-2 text-center">H/G</th>
+              {showHitsColumn && <th className="px-3 py-2 text-center">H/G</th>}
               {showModeColumn && (
                 <th className="px-3 py-2 text-center">
                   {pitchMode === "player" ? (side === "offense" ? "BB/G" : "E/G") : "K/G"}
@@ -1142,9 +1181,11 @@ function SplitStatsTable({
                 <td className="px-3 py-3 text-center font-bold">
                   {perGame(line[side].runs, line.games)}
                 </td>
-                <td className="px-3 py-3 text-center font-bold">
-                  {perGame(line[side].hits, line.games)}
-                </td>
+                {showHitsColumn && (
+                  <td className="px-3 py-3 text-center font-bold">
+                    {perGame(line[side].hits, line.games)}
+                  </td>
+                )}
                 {showModeColumn && (
                   <td className="px-3 py-3 text-center font-bold">
                     {pitchMode === "player"
@@ -1399,6 +1440,7 @@ type ScoreRowProps = {
   onChange: (field: keyof GameLog, value: string) => void;
   pitchMode: PitchMode;
   trackErrors: boolean;
+  runsOnly: boolean;
 };
 
 const ScoreRow = React.memo(function ScoreRow({
@@ -1408,25 +1450,31 @@ const ScoreRow = React.memo(function ScoreRow({
   onChange,
   pitchMode,
   trackErrors,
+  runsOnly,
 }: ScoreRowProps) {
   const fields = useMemo(
-    () => [
-      { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
-      { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
-      ...(pitchMode === "player"
-        ? [
-            ...(trackErrors
-              ? [{ key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" }]
-              : []),
-            {
-              key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog,
-              label: "BB",
-              aria: "Walks",
-            },
-          ]
-        : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
-    ],
-    [pitchMode, prefix, trackErrors]
+    () =>
+      // A runs-only league writes down the final score and nothing else, so one
+      // box per team is the entire entry form.
+      runsOnly
+        ? [{ key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" }]
+        : [
+            { key: `${prefix}Runs` as keyof GameLog, label: "R", aria: "Runs" },
+            { key: `${prefix}Hits` as keyof GameLog, label: "H", aria: "Hits" },
+            ...(pitchMode === "player"
+              ? [
+                  ...(trackErrors
+                    ? [{ key: `${prefix}Errors` as keyof GameLog, label: "E", aria: "Errors" }]
+                    : []),
+                  {
+                    key: `${prefix === "away" ? "home" : "away"}WalksAllowed` as keyof GameLog,
+                    label: "BB",
+                    aria: "Walks",
+                  },
+                ]
+              : [{ key: `${prefix}K` as keyof GameLog, label: "K", aria: "Strikeouts" }]),
+          ],
+    [pitchMode, prefix, runsOnly, trackErrors]
   );
   const display = displayName(teamName);
   const abbr = teamAbbr(teamName);
@@ -1506,7 +1554,8 @@ function areScoreRowPropsEqual(previous: ScoreRowProps, next: ScoreRowProps) {
     previous.teamName === next.teamName &&
     previous.prefix === next.prefix &&
     previous.log === next.log &&
-    previous.pitchMode === next.pitchMode
+    previous.pitchMode === next.pitchMode &&
+    previous.runsOnly === next.runsOnly
   );
 }
 
@@ -1867,6 +1916,7 @@ function TeamDrawer({
   leagueAverageStats,
   pitchMode,
   trackErrors,
+  runsOnly,
   hasCutLine,
   projectionExplanations,
   onRename,
@@ -1892,6 +1942,7 @@ function TeamDrawer({
   leagueAverageStats: LeagueAverageStats;
   pitchMode: PitchMode;
   trackErrors: boolean;
+  runsOnly: boolean;
   hasCutLine: boolean;
   projectionExplanations: string[];
 }) {
@@ -1974,29 +2025,42 @@ function TeamDrawer({
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
           {hasCutLine && <DrawerMetric label="Bubble" value={bubble} />}
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
-          <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
-          {pitchMode === "player" ? (
+          {/* Everything below runs is only ever entered under the full box score. */}
+          {!runsOnly && (
             <>
-              {trackErrors && (
-                <DrawerMetric label="Errors/Game" value={(team.errorsPerGame ?? 0).toFixed(1)} />
+              <DrawerMetric label="Hits/Game" value={team.hpg.toFixed(1)} />
+              {pitchMode === "player" ? (
+                <>
+                  {trackErrors && (
+                    <DrawerMetric
+                      label="Errors/Game"
+                      value={(team.errorsPerGame ?? 0).toFixed(1)}
+                    />
+                  )}
+                  <DrawerMetric
+                    label="BB/Game"
+                    value={(team.walksReceivedPerGame ?? 0).toFixed(1)}
+                  />
+                </>
+              ) : (
+                <>
+                  <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
+                  <DrawerMetric label="Opp K/Game" value={team.oppKpg.toFixed(1)} />
+                </>
               )}
-              <DrawerMetric label="BB/Game" value={(team.walksReceivedPerGame ?? 0).toFixed(1)} />
-            </>
-          ) : (
-            <>
-              <DrawerMetric label="K/Game" value={team.kpg.toFixed(1)} />
-              <DrawerMetric label="Opp K/Game" value={team.oppKpg.toFixed(1)} />
             </>
           )}
           <DrawerMetric
             label="Lg Avg R/G"
             value={perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
           />
-          <DrawerMetric
-            label="Lg Avg H/G"
-            value={perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
-          />
-          {(pitchMode !== "player" || trackErrors) && (
+          {!runsOnly && (
+            <DrawerMetric
+              label="Lg Avg H/G"
+              value={perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
+            />
+          )}
+          {!runsOnly && (pitchMode !== "player" || trackErrors) && (
             <DrawerMetric
               label={pitchMode === "player" ? "Lg Avg E/G" : "Lg Avg K/G"}
               value={
@@ -2023,6 +2087,7 @@ function TeamDrawer({
             title="Offensive Splits"
             side="offense"
             trackErrors={trackErrors}
+            runsOnly={runsOnly}
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
             pitchMode={pitchMode}
           />
@@ -2030,6 +2095,7 @@ function TeamDrawer({
             title="Defensive Splits"
             side="defense"
             trackErrors={trackErrors}
+            runsOnly={runsOnly}
             lines={[splitSummary.all, splitSummary.home, splitSummary.away]}
             pitchMode={pitchMode}
           />
@@ -2176,6 +2242,30 @@ export default function App() {
 
   const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+
+  /**
+   * A pool write goes to IndexedDB behind the caller, so a quota failure surfaces long after the
+   * save was reported as accepted. This is the only place that can still say so.
+   */
+  useEffect(() => {
+    onPoolWriteError(() =>
+      showToast("Team Rankings could not be saved — storage is full.", { tone: "error" })
+    );
+    return () => onPoolWriteError(null);
+  }, [showToast]);
+
+  /**
+   * The pool is in a store this session could not open — a private window, or a browser that
+   * refused it this time. Said out loud, because the alternative is a Team Rankings that looks
+   * simply empty and quietly refuses everything typed into it.
+   */
+  useEffect(() => {
+    if (!isPoolUnavailable()) return;
+    showToast(
+      "Team Rankings is stored in this browser's database, which would not open. Your data is safe — reload, or try a normal (not private) window.",
+      { tone: "error", durationMs: 15000 }
+    );
+  }, [showToast]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
       if (!ok) showToast(errorMessage, { tone: "error" });
@@ -2263,6 +2353,14 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [confirmState, resolveConfirmation]);
+
+  /**
+   * Whether this league writes down the final score and nothing else. Runs are
+   * all the standings and the projections ever needed, so the rest of the box
+   * score is opt-in, and every display built on it hides while it is off rather
+   * than reporting a season-long 0.0.
+   */
+  const runsOnly = settings.scoreDetail === "runs";
 
   const postseasonFormat = settings.postseasonFormat;
   /** Only a "cut" league has a line to be inside or outside of. */
@@ -2366,9 +2464,10 @@ export default function App() {
         matchups,
         deferredLogs,
         settings.pitchMode,
-        settings.trackErrors
+        settings.trackErrors,
+        runsOnly
       ),
-    [teams, matchups, deferredLogs, settings.pitchMode, settings.trackErrors]
+    [teams, matchups, deferredLogs, settings.pitchMode, settings.trackErrors, runsOnly]
   );
   const remainingCounts = useMemo(
     () =>
@@ -2472,6 +2571,21 @@ export default function App() {
     [teams, matchups, deferredLogs, settings]
   );
 
+  /**
+   * This season's schedule in the shape `externalResultsForSeason` matches stored games against:
+   * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
+   * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
+   * team's schedule would feed this season's own games back in as if they were outside results.
+   */
+  const seasonFixtures = useMemo(() => {
+    const nameById = new Map(teams.map((team) => [team.id, team.name]));
+    return matchups.map((game) => ({
+      away: nameById.get(game.away) ?? "",
+      home: nameById.get(game.home) ?? "",
+      date: game.date,
+    }));
+  }, [teams, matchups]);
+
   // Tournament results logged in Team Rankings, for age groups that include this season. Read
   // from storage rather than held in state: Team Rankings owns them, this view only borrows.
   const externalResults = useMemo(() => {
@@ -2484,9 +2598,10 @@ export default function App() {
       loadAgeGroups(),
       loadScoutTeams(),
       loadScoutGames(),
-      liveTeams
+      liveTeams,
+      seasonFixtures
     );
-  }, [settings.useScoutResults, activeSeasonId, liveTeams, scoutRevision]);
+  }, [settings.useScoutResults, activeSeasonId, liveTeams, seasonFixtures, scoutRevision]);
 
   const predictionEngine = useMemo(
     () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings, externalResults),
@@ -4180,6 +4295,45 @@ This backup carries one season, so it replaces the current season data and saves
     setNewDate("");
   };
 
+  /**
+   * Filling this season's scores from the Team Rankings pool — in practice, from a GameChanger
+   * pull. The plan is built when the panel opens rather than continuously: it reads the pool off
+   * storage, and nothing about it changes while the review is on screen.
+   */
+  const [scoreFillPlan, setScoreFillPlan] = useState<LeagueFillPlan | null>(null);
+
+  const openScoreFill = () => {
+    setScoreFillPlan(
+      planLeagueScoreFill({
+        seasonId: activeSeasonId,
+        teams,
+        matchups,
+        logs,
+        ageGroups: loadAgeGroups(),
+        scoutTeams: loadScoutTeams(),
+        scoutGames: loadScoutGames(),
+      })
+    );
+  };
+
+  const applyScoreFill = (matchupIds: string[]) => {
+    const plan = scoreFillPlan;
+    if (!plan) return;
+    const result = applyLeagueScoreFill(plan, matchupIds, logs, settings.defaultGameInnings);
+    setScoreFillPlan(null);
+    if (result.filled === 0) {
+      showToast("Nothing was filled in.", { tone: "info" });
+      return;
+    }
+    captureUndo("Filled scores from Team Rankings");
+    setLogs(result.logs);
+    showToast(summarizeLeagueFill(plan, result.filled), {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: restoreUndo,
+    });
+  };
+
   const removeGame = async (gameId: string) => {
     const confirmed = await requestConfirmation({
       title: "Delete this game?",
@@ -4444,9 +4598,9 @@ This backup carries one season, so it replaces the current season data and saves
   const selectedTeamTrendSummary = useMemo(
     () =>
       selectedTeam
-        ? buildTeamTrendSummary(selectedTeam.id, matchups, logs)
-        : buildTeamTrendSummary("", [], {}),
-    [selectedTeam, matchups, logs]
+        ? buildTeamTrendSummary(selectedTeam.id, matchups, logs, runsOnly)
+        : buildTeamTrendSummary("", [], {}, runsOnly),
+    [selectedTeam, matchups, logs, runsOnly]
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
   const currentLeader = dashboardRows[0];
@@ -5114,6 +5268,7 @@ This backup carries one season, so it replaces the current season data and saves
                 statRankings={statRankings}
                 pitchMode={settings.pitchMode}
                 trackErrors={settings.trackErrors}
+                runsOnly={runsOnly}
                 matrixTeams={headToHeadMatrixTeams}
                 headToHeadCell={headToHeadCell}
               />
@@ -5197,6 +5352,7 @@ This backup carries one season, so it replaces the current season data and saves
                 scoreboardTeamFilter={scoreboardTeamFilter}
                 pitchMode={settings.pitchMode}
                 trackErrors={settings.trackErrors}
+                runsOnly={runsOnly}
                 setScoreboardTeamFilter={setScoreboardTeamFilter}
                 newDate={newDate}
                 setNewDate={setNewDate}
@@ -5217,6 +5373,11 @@ This backup carries one season, so it replaces the current season data and saves
                 silverBracketProjection={silverBracketProjection}
                 updateBracketLog={updateBracketLog}
                 toggleBracketFinal={toggleBracketFinal}
+                scoreFillPlan={scoreFillPlan}
+                openScoreFill={openScoreFill}
+                closeScoreFill={() => setScoreFillPlan(null)}
+                applyScoreFill={applyScoreFill}
+                seasonLabel={settings.seasonLabel}
               />
             )}
           </main>
@@ -5261,6 +5422,7 @@ This backup carries one season, so it replaces the current season data and saves
             leagueAverageStats={leagueAverageStats}
             pitchMode={settings.pitchMode}
             trackErrors={settings.trackErrors}
+            runsOnly={runsOnly}
             hasCutLine={hasCutLine}
             projectionExplanations={
               lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
@@ -5282,6 +5444,7 @@ This backup carries one season, so it replaces the current season data and saves
             allTeams={dashboardRows}
             matchups={matchups}
             logs={logs}
+            runsOnly={runsOnly}
             onClose={() => setCompareTeamId(null)}
             onPickRight={(id) => setCompareTeamId(id)}
           />
@@ -5848,6 +6011,7 @@ function TeamStatsView({
   statRankings,
   pitchMode,
   trackErrors,
+  runsOnly,
   matrixTeams,
   headToHeadCell,
 }: {
@@ -5855,6 +6019,7 @@ function TeamStatsView({
   statRankings: StatRankings;
   pitchMode: PitchMode;
   trackErrors: boolean;
+  runsOnly: boolean;
   matrixTeams: { id: string; name: string }[];
   headToHeadCell: (rowId: string, colId: string) => H2HCell;
 }) {
@@ -5865,7 +6030,9 @@ function TeamStatsView({
           League Stats
         </h2>
         <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Compare league-wide scoring, hitting, pitching, and fielding rates.
+          {runsOnly
+            ? "Compare league-wide scoring, for and against."
+            : "Compare league-wide scoring, hitting, pitching, and fielding rates."}
         </p>
       </section>
 
@@ -5890,15 +6057,18 @@ function TeamStatsView({
               {perGame(leagueAverageStats.runs, leagueAverageStats.teamGames)}
             </div>
           </div>
-          <div className="rounded-lg bg-linear-to-br from-amber-500/14 via-white to-white p-4 shadow-xs ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              League Avg H/G
+          {/* Hits, walks and errors are only ever entered under the full box score. */}
+          {!runsOnly && (
+            <div className="rounded-lg bg-linear-to-br from-amber-500/14 via-white to-white p-4 shadow-xs ring-1 ring-amber-100 dark:from-amber-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-amber-900/50">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                League Avg H/G
+              </div>
+              <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
+                {perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
+              </div>
             </div>
-            <div className="mt-1 text-xl font-black text-slate-950 dark:text-slate-100">
-              {perGame(leagueAverageStats.hits, leagueAverageStats.teamGames)}
-            </div>
-          </div>
-          {pitchMode === "player" && (
+          )}
+          {!runsOnly && pitchMode === "player" && (
             <div className="rounded-lg bg-linear-to-br from-violet-500/12 via-white to-white p-4 shadow-xs ring-1 ring-violet-100 dark:from-violet-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-violet-900/50">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 League Avg BB/G
@@ -5908,7 +6078,7 @@ function TeamStatsView({
               </div>
             </div>
           )}
-          {(pitchMode !== "player" || trackErrors) && (
+          {!runsOnly && (pitchMode !== "player" || trackErrors) && (
             <div className="rounded-lg bg-linear-to-br from-red-500/12 via-white to-white p-4 shadow-xs ring-1 ring-red-100 dark:from-red-500/18 dark:via-slate-900 dark:to-slate-900 dark:ring-red-900/50">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 {pitchMode === "player" ? "League Avg E/G" : "League Avg K/G"}
@@ -7244,7 +7414,7 @@ function SettingsView({
   const winId = useId();
   const tieId = useId();
   const regularSeasonGamesId = useId();
-  const defaultInningsId = useId();
+  const scoreDetailId = useId();
   const maxRunDifferentialId = useId();
   const useScoutResultsId = useId();
   const pitchModeId = useId();
@@ -7377,29 +7547,27 @@ function SettingsView({
             />
           </label>
 
-          <label htmlFor={defaultInningsId} className="block">
+          <label htmlFor={scoreDetailId} className="block">
             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              Default Innings / Game
+              Score Detail
             </span>
             <select
-              id={defaultInningsId}
-              value={settings.defaultGameInnings}
+              id={scoreDetailId}
+              value={settings.scoreDetail}
               onChange={(event) =>
                 setSettings((prev) => ({
                   ...prev,
-                  defaultGameInnings: Number(event.target.value),
+                  scoreDetail: event.target.value as ScoreDetail,
                 }))
               }
               className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
             >
-              {[5, 6, 7].map((innings) => (
-                <option key={innings} value={innings}>
-                  {innings} innings
-                </option>
-              ))}
+              <option value="runs">Runs only</option>
+              <option value="full">Full box score</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              New games and blank round-robin schedules use this innings value by default.
+              Runs alone drive the standings, records and every projection; the full box score
+              (hits, strikeouts, errors, walks) only adds the per-game stat pages.
             </p>
           </label>
 
@@ -7488,12 +7656,15 @@ function SettingsView({
               <option value="player">Kid Pitch</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Machine Pitch and Coach Pitch use R/H/K. Kid Pitch uses R/H/E/BB; BB means walks drawn
-              by that team&apos;s hitters.
+              {settings.scoreDetail === "runs"
+                ? "The format still sets the automatic run-differential cap and shapes the model, even though runs-only entry is the same box either way."
+                : "Machine Pitch and Coach Pitch use R/H/K. Kid Pitch uses R/H/E/BB; BB means walks drawn by that team's hitters."}
             </p>
           </label>
 
-          {settings.pitchMode === "player" && (
+          {/* Errors are a kid-pitch box-score column, so the choice only means
+              something where both of those are true. */}
+          {settings.scoreDetail === "full" && settings.pitchMode === "player" && (
             <label htmlFor={trackErrorsId} className="block">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 Score Errors
@@ -7692,6 +7863,7 @@ function GamesView({
   scoreboardTeamFilter,
   pitchMode,
   trackErrors,
+  runsOnly,
   setScoreboardTeamFilter,
   newDate,
   setNewDate,
@@ -7712,6 +7884,11 @@ function GamesView({
   silverBracketProjection,
   updateBracketLog,
   toggleBracketFinal,
+  scoreFillPlan,
+  openScoreFill,
+  closeScoreFill,
+  applyScoreFill,
+  seasonLabel,
 }: {
   teams: TeamBase[];
   matchups: Matchup[];
@@ -7730,6 +7907,7 @@ function GamesView({
   scoreboardTeamFilter: string;
   pitchMode: PitchMode;
   trackErrors: boolean;
+  runsOnly: boolean;
   setScoreboardTeamFilter: (v: string) => void;
   newDate: string;
   setNewDate: (v: string) => void;
@@ -7750,6 +7928,12 @@ function GamesView({
   silverBracketProjection: ReturnType<typeof buildBracketProjection>;
   updateBracketLog: (gameId: string, field: keyof GameLog, value: string | boolean) => void;
   toggleBracketFinal: (gameId: string) => void;
+  /** Set while the fill review is open; null when it is not. */
+  scoreFillPlan: LeagueFillPlan | null;
+  openScoreFill: () => void;
+  closeScoreFill: () => void;
+  applyScoreFill: (matchupIds: string[]) => void;
+  seasonLabel: string;
 }) {
   const dateId = useId();
   const awayId = useId();
@@ -7895,7 +8079,31 @@ function GamesView({
             Pick two different teams to add a game.
           </p>
         )}
+        {_matchups.length > 0 && !scoreFillPlan && (
+          <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={openScoreFill}
+              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Fill scores from Team Rankings
+            </button>
+            <span className="ml-2 text-xs text-slate-500">
+              Reads results already in the pool — a GameChanger pull, usually — and offers them for
+              this schedule. Nothing is written until you have looked.
+            </span>
+          </div>
+        )}
       </div>
+
+      {scoreFillPlan && (
+        <LeagueScoreFillPanel
+          plan={scoreFillPlan}
+          seasonLabel={seasonLabel}
+          onApply={applyScoreFill}
+          onClose={closeScoreFill}
+        />
+      )}
 
       <div className={`${card} p-4`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -8069,6 +8277,7 @@ function GamesView({
                     onChange={(field, value) => updateLog(game.id, field, value)}
                     pitchMode={pitchMode}
                     trackErrors={trackErrors}
+                    runsOnly={runsOnly}
                   />
                   <ScoreRow
                     teamName={home?.name || game.home}
@@ -8077,30 +8286,9 @@ function GamesView({
                     onChange={(field, value) => updateLog(game.id, field, value)}
                     pitchMode={pitchMode}
                     trackErrors={trackErrors}
+                    runsOnly={runsOnly}
                   />
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:text-slate-400">
-                    <label className="flex items-center gap-2">
-                      Innings
-                      <input
-                        value={log.innings}
-                        onChange={(event) =>
-                          updateLog(
-                            game.id,
-                            "innings",
-                            event.target.value.replace(/[^0-9]/g, "").slice(0, 2)
-                          )
-                        }
-                        onBlur={(event) => {
-                          const n = clamp(parseNumber(event.target.value, 6), 1, 10);
-                          updateLog(game.id, "innings", String(n));
-                        }}
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={2}
-                        aria-label="Innings played"
-                        className="w-14 rounded-lg border border-slate-300 bg-white px-2 py-1 text-center font-black text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      />
-                    </label>
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     <span>
                       {final
                         ? `Final · ${formatGameDate(game.date)}`
@@ -8216,6 +8404,7 @@ function GamesView({
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
                       pitchMode={pitchMode}
                       trackErrors={trackErrors}
+                      runsOnly={runsOnly}
                     />
                     <ScoreRow
                       teamName={home?.name || matchup.home}
@@ -8224,6 +8413,7 @@ function GamesView({
                       onChange={(field, value) => updateBracketLog(game.id, field, value)}
                       pitchMode={pitchMode}
                       trackErrors={trackErrors}
+                      runsOnly={runsOnly}
                     />
                     <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       <span>

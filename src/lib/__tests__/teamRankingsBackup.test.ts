@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CSV_SECTIONS, csvSectionMarker, splitCsvSections } from "../csv";
 import { parseScheduleCsvImport } from "../scheduleCsvImport";
-import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
 import {
   coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
@@ -24,14 +24,34 @@ const ageGroups: AgeGroup[] = [
   { id: "ag2", name: "2027, 9U", seasonIds: [], continuesFromId: "ag1" },
 ];
 
+const fallLink: GcTeamLink = {
+  teamId: "gsUthn4XoIxS",
+  name: 'Ice Cats 10u "Scout"',
+  ageGroupId: "ag1",
+  season: "fall",
+  seasonYear: 2027,
+  ageLevel: 10,
+  avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
+  record: { win: 11, loss: 1, tie: 0 },
+  importedAt: "2027-09-14T12:00:00.000Z",
+};
+const springLink: GcTeamLink = { teamId: "zjvVkYnqLrf0", name: "Ice Cats 10U", ageGroupId: "ag1" };
+
 const teams: ScoutTeam[] = [
-  { id: "S-ICEC", name: "Ice Cats", isMine: true, state: "OH" },
+  {
+    id: "S-ICEC",
+    name: "Ice Cats",
+    isMine: true,
+    state: "OH",
+    city: "Columbus",
+    gcTeams: [fallLink, springLink],
+  },
   { id: "S-ROCK", name: "Rockets, Red" },
 ];
 
 const games: ScoutGame[] = [
   {
-    id: "g1",
+    id: "gc_gsUthn4XoIxS_59cdce43",
     teamAId: "S-ICEC",
     teamBId: "S-ROCK",
     ageGroupId: "ag1",
@@ -40,6 +60,10 @@ const games: ScoutGame[] = [
     date: "2028-04-05",
     event: 'Spring "Classic"',
     note: "Pool play",
+    season: "Spring 2028",
+    ageLevelA: 10,
+    ageLevelB: 11,
+    source: { kind: "gamechanger", teamId: "gsUthn4XoIxS", gameId: "59cdce43" },
   },
   // A scheduled game, no scores yet.
   { id: "g2", teamAId: "S-ROCK", teamBId: "S-ICEC", ageGroupId: "ag1" },
@@ -114,6 +138,36 @@ describe("teamRankingsCsvSections", () => {
     expect(gamesSection).toContain("Ice Cats");
     expect(gamesSection).toContain("10U 2028");
   });
+
+  it("writes the GameChanger links as one JSON cell on the team's row", () => {
+    const teamsSection = teamRankingsCsvSections(backup)
+      .split(csvSectionMarker(CSV_SECTIONS.teams))[1]
+      ?.split(csvSectionMarker(CSV_SECTIONS.games))[0]
+      ?.trim();
+    const lines = teamsSection?.split("\n") ?? [];
+    expect(lines[0]).toBe("Team ID,Team Name,State,City,Is My Team,Placeholder,GameChanger Teams");
+    // One row per team, even though the first carries two links with quotes and commas inside.
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain("Columbus");
+    expect(lines[1]).toContain("gsUthn4XoIxS");
+    expect(lines[1]).toContain("zjvVkYnqLrf0");
+    expect(lines[2]).toMatch(/,$/);
+  });
+
+  it("writes the season, both ages and the source beside each game", () => {
+    const gamesSection = teamRankingsCsvSections(backup)
+      .split(csvSectionMarker(CSV_SECTIONS.games))[1]
+      ?.trim();
+    const lines = gamesSection?.split("\n") ?? [];
+    expect(lines[0]).toBe(
+      [
+        "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
+        "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
+      ].join(",")
+    );
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43$/);
+    expect(lines[2]).toMatch(/,,,,,$/);
+  });
 });
 
 describe("parseTeamRankingsCsv", () => {
@@ -146,6 +200,73 @@ describe("parseTeamRankingsCsv", () => {
         },
       ],
     });
+  });
+
+  it("reads a file written before the GameChanger columns existed", () => {
+    const csv = [
+      csvSectionMarker(CSV_SECTIONS.teams),
+      "Team ID,Team Name,State,Is My Team",
+      "S-ICEC,Ice Cats,OH,yes",
+      "",
+      csvSectionMarker(CSV_SECTIONS.games),
+      "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B,Team B Score,Event,Note,Excluded",
+      "g1,ag1,10U 2028,2028-04-05,S-ICEC,Ice Cats,7,S-ROCK,Rockets,4,,,",
+    ].join("\n");
+
+    expect(parseTeamRankingsCsv(csv)).toEqual({
+      ageGroups: [],
+      teams: [{ id: "S-ICEC", name: "Ice Cats", isMine: true, state: "OH" }],
+      games: [
+        {
+          id: "g1",
+          teamAId: "S-ICEC",
+          teamBId: "S-ROCK",
+          ageGroupId: "ag1",
+          teamAScore: 7,
+          teamBScore: 4,
+          date: "2028-04-05",
+        },
+      ],
+    });
+  });
+
+  it("treats a links cell it cannot read as no links, and drops only the bad link from one it can", () => {
+    const mixed = JSON.stringify([springLink, { name: "no id" }]).replace(/"/g, '""');
+    const csv = [
+      csvSectionMarker(CSV_SECTIONS.teams),
+      "Team ID,Team Name,City,GameChanger Teams",
+      "S-ICEC,Ice Cats,Columbus,not json",
+      `S-ROCK,Rockets,,"${mixed}"`,
+      "S-NONE,Nobody,,[]",
+    ].join("\n");
+
+    expect(parseTeamRankingsCsv(csv)?.teams).toEqual([
+      { id: "S-ICEC", name: "Ice Cats", city: "Columbus" },
+      { id: "S-ROCK", name: "Rockets", gcTeams: [springLink] },
+      { id: "S-NONE", name: "Nobody" },
+    ]);
+  });
+
+  it("takes a game's source only when both of its ids are there", () => {
+    const csv = [
+      csvSectionMarker(CSV_SECTIONS.games),
+      "Game ID,Age Group ID,Team A ID,Team B ID,Team A Age,Team B Age,Source Team ID,Source Game ID",
+      "g1,ag1,S-ICEC,S-ROCK,9,,gsUthn4XoIxS,",
+      "g2,ag1,S-ICEC,S-ROCK,,8.5,,59cdce43",
+      "g3,ag1,S-ICEC,S-ROCK,,,gsUthn4XoIxS,59cdce43",
+    ].join("\n");
+
+    expect(parseTeamRankingsCsv(csv)?.games).toEqual([
+      { id: "g1", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1", ageLevelA: 9 },
+      { id: "g2", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1" },
+      {
+        id: "g3",
+        teamAId: "S-ICEC",
+        teamBId: "S-ROCK",
+        ageGroupId: "ag1",
+        source: { kind: "gamechanger", teamId: "gsUthn4XoIxS", gameId: "59cdce43" },
+      },
+    ]);
   });
 
   it("skips rows missing the IDs a row is meaningless without", () => {
@@ -266,5 +387,28 @@ describe("splitCsvSections", () => {
     );
     expect(sections.get("schedule")).toBe("a,b\n1,2");
     expect(sections.get("team rankings teams")).toBe("Team ID\nS-ICEC");
+  });
+});
+
+describe("placeholder slots in a backup", () => {
+  it("round-trips the flag, so a slot does not come back as a team", () => {
+    const backup = {
+      ageGroups: [{ id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] }],
+      teams: [
+        { id: "S-ACES", name: "Aces" },
+        { id: "S-TBD", name: "TBD", placeholder: true as const },
+      ],
+      games: [],
+    };
+    const restored = parseTeamRankingsCsv(teamRankingsCsvSections(backup));
+    expect(restored?.teams).toEqual(backup.teams);
+  });
+
+  it("reads a file written before the column existed, leaving every team a team", () => {
+    const csv = [csvSectionMarker(CSV_SECTIONS.teams), "Team ID,Team Name", "S-ACES,Aces"].join(
+      "\n"
+    );
+    const restored = parseTeamRankingsCsv(csv);
+    expect(restored?.teams).toEqual([{ id: "S-ACES", name: "Aces" }]);
   });
 });

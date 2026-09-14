@@ -2,8 +2,12 @@ import { useMemo, useState } from "react";
 import {
   countsTowardRating,
   gamesForTeam,
+  gcSeasonLabel,
   isScoutGamePlayed,
+  rankingPoolGroupIds,
   teamNameKey,
+  teamRecordInPool,
+  type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "../lib/teamRankings";
@@ -11,16 +15,24 @@ import { button, card, pill } from "../styles/tokens";
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
-  /** Every game in the roster's world, so games outside this age group can be counted too. */
+  /** Every game in the roster's world, so games outside this season can be counted too. */
   allGames: ScoutGame[];
   ageGroupId: string;
   ageGroupName: string;
+  /** Every age group, so the pool this page rates can be worked out. */
+  ageGroups: AgeGroup[];
   teamNameById: Map<string, string>;
   /** League-derived teams are named by League Standings, so their name is not ours to change. */
   fromLeague: boolean;
   onRename: (nextName: string) => void;
   /** Two letters, or empty to clear it. */
   onSetState: (state: string) => void;
+  /** Takes one GameChanger id off this team, undoing a pairing that turned out to be wrong. */
+  onUnlinkGc: (gcTeamId: string) => void;
+  /** Folds this team into another — the "same team as" the pull could only propose. */
+  onMergeInto: (intoTeamId: string) => void;
+  /** Teams this one could be folded into: everyone else on the page, for the picker. */
+  mergeCandidates: ScoutTeam[];
   onClose: () => void;
 };
 
@@ -47,36 +59,43 @@ export function TeamDetailPanel({
   allGames,
   ageGroupId,
   ageGroupName,
+  ageGroups,
   teamNameById,
   fromLeague,
   onRename,
   onSetState,
+  onUnlinkGc,
+  onMergeInto,
+  mergeCandidates,
   onClose,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
+  const [mergeTarget, setMergeTarget] = useState("");
 
   const nameOf = (id: string) => teamNameById.get(id) ?? "Unknown";
   const everyGame = useMemo(() => gamesForTeam(team.id, allGames), [team.id, allGames]);
-  const here = everyGame.filter((game) => game.ageGroupId === ageGroupId);
+
+  /**
+   * Scoped to the rating pool — every age group sharing this one's season year — rather than to
+   * the page's own group, because that is what the ranking table rates. A 10U that spent the year
+   * playing down is listed on the 10U page with every one of its games filed under 9U: scoped to
+   * the group it would read 0-0 with nothing logged, directly contradicting the row above it.
+   */
+  const poolIds = useMemo(
+    () => new Set(rankingPoolGroupIds(ageGroupId, ageGroups)),
+    [ageGroupId, ageGroups]
+  );
+  const here = everyGame.filter((game) => poolIds.has(game.ageGroupId));
   const elsewhere = everyGame.length - here.length;
 
-  // The record shown here has to match the ranking table's, so it uses the same filter: played,
-  // and not one of the cross-age games deliberately left out.
+  // The same record the ranking row shows, counted by the same function, so the two agree.
+  const record = useMemo(
+    () => teamRecordInPool(team.id, ageGroupId, allGames, ageGroups),
+    [team.id, ageGroupId, allGames, ageGroups]
+  );
+  const { wins, losses, ties } = record;
   const played = here.filter(countsTowardRating);
   const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
-  const wins = played.filter((game) => {
-    const isA = game.teamAId === team.id;
-    return (
-      (isA ? game.teamAScore! : game.teamBScore!) > (isA ? game.teamBScore! : game.teamAScore!)
-    );
-  }).length;
-  const losses = played.filter((game) => {
-    const isA = game.teamAId === team.id;
-    return (
-      (isA ? game.teamAScore! : game.teamBScore!) < (isA ? game.teamBScore! : game.teamAScore!)
-    );
-  }).length;
-  const ties = played.length - wins - losses;
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -95,11 +114,14 @@ export function TeamDetailPanel({
             {played.length === 0
               ? `No completed games in ${ageGroupName || "this age group"} yet.`
               : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${played.length} game${played.length === 1 ? "" : "s"}.`}
+            {record.crossAgeGames > 0
+              ? ` ${record.crossAgeGames} of ${record.crossAgeGames === 1 ? "them was" : "them were"} against another age level.`
+              : ""}
             {notCounted.length > 0
               ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
               : ""}
             {elsewhere > 0
-              ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in other age groups, not counted here.`
+              ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
               : ""}
           </p>
         </div>
@@ -146,6 +168,13 @@ export function TeamDetailPanel({
             A team is already called that. Saving moves every game from this one over to it and
             removes this one — which is how a placeholder gets routed to the real team.
           </p>
+        ) : team.placeholder ? (
+          <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+            This is a placeholder, not a team — the schedule said so rather than naming a club. The
+            game is kept and counts for whoever played it, and this slot is not ranked. Type the
+            club&apos;s real name here once you know it and the game moves to them; if that club is
+            already here, saving merges the two.
+          </p>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
             Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
@@ -153,6 +182,88 @@ export function TeamDetailPanel({
           </p>
         )}
       </div>
+
+      {(team.gcTeams?.length ?? 0) > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Known on GameChanger as
+          </p>
+          <ul className="mt-1 space-y-1">
+            {team.gcTeams?.map((link) => (
+              <li key={link.teamId} className="flex flex-wrap items-center gap-2 text-sm">
+                <a
+                  href={`https://web.gc.com/teams/${link.teamId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {link.name}
+                </a>
+                <span className="text-xs text-slate-500">
+                  {gcSeasonLabel(link) || "season unknown"}
+                  {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onUnlinkGc(link.teamId)}
+                  className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                >
+                  Unlink
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-slate-500">
+            GameChanger mints a new id every season, so a club pulled across two seasons is known by
+            two. Unlinking takes one off and leaves its games here — that id can then be pulled onto
+            a team of its own, which is how a wrong pairing is taken apart.
+          </p>
+        </div>
+      )}
+
+      {mergeCandidates.length > 0 && (
+        <div className="mt-4">
+          <label
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+            htmlFor="scout-team-merge"
+          >
+            Same team as
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <select
+              id="scout-team-merge"
+              value={mergeTarget}
+              onChange={(event) => setMergeTarget(event.target.value)}
+              className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <option value="">Choose a team…</option>
+              {mergeCandidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                  {candidate.state ? ` (${candidate.state})` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!mergeTarget}
+              onClick={() => {
+                if (!mergeTarget) return;
+                onMergeInto(mergeTarget);
+                setMergeTarget("");
+              }}
+              className={button.ghost}
+            >
+              Fold into it
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Moves every game from this team over to that one and removes this entry, keeping both
+            GameChanger ids. For a club that arrived twice — once pulled by id, once as somebody
+            else&apos;s opponent.
+          </p>
+        </div>
+      )}
 
       <div className="mt-4">
         <label

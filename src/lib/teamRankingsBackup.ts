@@ -2,6 +2,7 @@ import { CSV_SECTIONS, csvEscape, csvSection, readCsvSection, splitCsvSections }
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings";
 import {
   coerceAgeGroups,
+  coerceGcTeamLinks,
   coerceScoutGames,
   coerceScoutTeams,
   loadAgeGroups,
@@ -42,7 +43,22 @@ const AGE_GROUP_HEADERS = [
   "My Team ID",
 ];
 
-const TEAM_HEADERS = ["Team ID", "Team Name", "State", "Is My Team"];
+/**
+ * A team's GameChanger links go in one cell as a JSON array. A link is a small record of its own
+ * (id, name, season, avatar, record…) and a team can carry several; flattening them into columns
+ * would either cap how many a team may have or turn one team into several rows, and a spreadsheet
+ * reader has no reason to edit them by hand. `csvEscape` quotes the JSON's commas and doubles its
+ * quotes, so the cell survives the trip like any other text.
+ */
+const TEAM_HEADERS = [
+  "Team ID",
+  "Team Name",
+  "State",
+  "City",
+  "Is My Team",
+  "Placeholder",
+  "GameChanger Teams",
+];
 
 const GAME_HEADERS = [
   "Game ID",
@@ -58,6 +74,11 @@ const GAME_HEADERS = [
   "Event",
   "Note",
   "Excluded",
+  "Season",
+  "Team A Age",
+  "Team B Age",
+  "Source Team ID",
+  "Source Game ID",
 ];
 
 /**
@@ -129,6 +150,17 @@ const parseLevel = (value: string): number | undefined => {
   const level = Number(value);
   return Number.isInteger(level) ? level : undefined;
 };
+/** JSON.stringify never emits a raw newline (it escapes them), so a JSON cell needs no flattening. */
+const linksCell = (team: ScoutTeam) => (team.gcTeams?.length ? JSON.stringify(team.gcTeams) : "");
+/** A links cell that is empty, or not JSON, or not a list, is simply a team with no links. */
+const parseLinksCell = (value: string) => {
+  if (!value) return [];
+  try {
+    return coerceGcTeamLinks(JSON.parse(value));
+  } catch {
+    return [];
+  }
+};
 
 /**
  * Render the pool as CSV sections to append to a schedule export. Empty string when there is
@@ -154,7 +186,15 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
   );
 
   const teamRows = backup.teams.map((team) =>
-    [team.id, textCell(team.name), textCell(team.state), yesNo(team.isMine)]
+    [
+      team.id,
+      textCell(team.name),
+      textCell(team.state),
+      textCell(team.city),
+      yesNo(team.isMine),
+      yesNo(team.placeholder),
+      linksCell(team),
+    ]
       .map(csvEscape)
       .join(",")
   );
@@ -176,6 +216,11 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
       textCell(game.event),
       textCell(game.note),
       yesNo(game.excluded),
+      textCell(game.season),
+      game.ageLevelA ?? "",
+      game.ageLevelB ?? "",
+      game.source?.teamId ?? "",
+      game.source?.gameId ?? "",
     ]
       .map(csvEscape)
       .join(",")
@@ -190,7 +235,9 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
 
 /**
  * Read the pool back out of a backup CSV. `null` when the file carries none of the Team Rankings
- * sections — a plain schedule CSV — so an import of one leaves the live pool alone.
+ * sections — a plain schedule CSV — so an import of one leaves the live pool alone. Columns are
+ * found by header name, so a file written before a column existed reads as if that column were
+ * blank — the fields it carries are simply absent, as they were when it was written.
  */
 export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => {
   const sections = splitCsvSections(raw, CSV_SECTIONS.schedule);
@@ -229,12 +276,17 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const name = cell("Team Name");
     if (!id || !name) return [];
     const state = cell("State");
+    const city = cell("City");
+    const gcTeams = parseLinksCell(cell("GameChanger Teams"));
     return [
       {
         id,
         name,
         ...(isYes(cell("Is My Team")) ? { isMine: true as const } : {}),
+        ...(isYes(cell("Placeholder")) ? { placeholder: true as const } : {}),
         ...(state ? { state } : {}),
+        ...(city ? { city } : {}),
+        ...(gcTeams.length ? { gcTeams } : {}),
       },
     ];
   });
@@ -251,6 +303,11 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const date = cell("Date");
     const event = cell("Event");
     const note = cell("Note");
+    const season = cell("Season");
+    const ageLevelA = parseLevel(cell("Team A Age"));
+    const ageLevelB = parseLevel(cell("Team B Age"));
+    const sourceTeamId = cell("Source Team ID");
+    const sourceGameId = cell("Source Game ID");
     return [
       {
         id,
@@ -263,6 +320,13 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(event ? { event } : {}),
         ...(note ? { note } : {}),
         ...(isYes(cell("Excluded")) ? { excluded: true as const } : {}),
+        ...(season ? { season } : {}),
+        ...(ageLevelA === undefined ? {} : { ageLevelA }),
+        ...(ageLevelB === undefined ? {} : { ageLevelB }),
+        // Half a source names nothing a re-pull could match, so it takes both ids or neither.
+        ...(sourceTeamId && sourceGameId
+          ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }
+          : {}),
       },
     ];
   });
