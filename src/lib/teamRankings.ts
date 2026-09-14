@@ -53,6 +53,51 @@ export type ScoutTeam = {
    * team you simply have not told, not a team from nowhere.
    */
   state?: string;
+  /** City, when a source gave one. Display only, like `state`; it never reaches the maths. */
+  city?: string;
+  /**
+   * The GameChanger teams this team is known by, one per GameChanger season: GameChanger mints a
+   * new team id every season, so a club's Fall and Spring squads arrive as two ids that the user
+   * has paired onto one team here. Identity by id is what keeps the country's many "Yankees" apart:
+   * two teams with different GameChanger ids are two teams, whatever they are called.
+   */
+  gcTeams?: GcTeamLink[];
+};
+
+/** One GameChanger team id and what GameChanger said about it the last time it was pulled. */
+export type GcTeamLink = {
+  /** GameChanger's public team id — the 12 characters in web.gc.com/teams/<id>. */
+  teamId: string;
+  /** The name exactly as GameChanger has it, age label and all, for matching and display. */
+  name: string;
+  /** The age group this GameChanger team's schedule is filed under. */
+  ageGroupId: string;
+  /** GameChanger's season for this team id: "fall", "winter", "spring" or "summer". */
+  season?: string;
+  /** The calendar year GameChanger gives that season ("Fall 2026" → 2026). */
+  seasonYear?: number;
+  /** The age level GameChanger lists, as a number (9 for "9U"). */
+  ageLevel?: number;
+  /**
+   * The id of the team's avatar image. GameChanger names an opponent but never gives its team id;
+   * the avatar it shows beside that name is the one stable thing that survives the trip, so a
+   * matching avatar on someone else's schedule is how a name-only opponent is recognised as a team
+   * already pulled by id.
+   */
+  avatarKey?: string;
+  /** GameChanger's own season record when last pulled — a check on the games read, never rated. */
+  record?: { win: number; loss: number; tie: number };
+  /** When this id's schedule was last pulled, ISO timestamp. */
+  importedAt?: string;
+};
+
+/** Where a game came from, when it was not typed in here. */
+export type ScoutGameSource = {
+  kind: "gamechanger";
+  /** The GameChanger team whose schedule listed the game. */
+  teamId: string;
+  /** GameChanger's id for the game on that team's schedule — what a re-pull matches on. */
+  gameId: string;
 };
 
 export type ScoutGame = {
@@ -80,6 +125,20 @@ export type ScoutGame = {
   date?: string;
   event?: string;
   note?: string;
+  /**
+   * The age level each side was playing at, when the source said (8 for 8U). Absent means the
+   * level of the age group the game is filed under. They differ when a team plays up or down —
+   * an 8U entering a 9U tournament — and that difference is what the rating model reads as an
+   * age gap: see `AGE_GAP_RUNS_PER_YEAR` in powerRating.ts. Recorded per game rather than per
+   * team because a team's level is a fact about a season, while what the source knows is which
+   * level each game was played at.
+   */
+  ageLevelA?: number;
+  ageLevelB?: number;
+  /** Season label from the source, as in "Fall 2026" — display and filtering only. */
+  season?: string;
+  /** Present when the game was pulled from GameChanger rather than typed in. */
+  source?: ScoutGameSource;
 };
 
 /** A game only counts toward ratings/records once both scores are recorded. */
@@ -103,6 +162,12 @@ export type ScoutRankingRow = {
   rawMargin: number;
   strengthOfSchedule: number;
   sosRank: number;
+  /** Home level of this team in the pool's year, when known. */
+  ageLevel?: number;
+  /** Counted games against a side at a different level. */
+  crossAgeGames: number;
+  /** True when the team is pinned to at least one GameChanger id. */
+  fromGameChanger: boolean;
 };
 
 export type MatchupTier = "Favored" | "Toss-up" | "Underdog";
@@ -180,6 +245,12 @@ export const resolveOrCreateTeam = (
     return { teams: next, teamId: existing.id };
   }
 
+  const uniqueId = mintScoutTeamId(display, teams);
+  return { teams: [...teams, { id: uniqueId, name: display }], teamId: uniqueId };
+};
+
+/** A fresh scout id for this name that no team in the pool already has. */
+const mintScoutTeamId = (display: string, teams: ScoutTeam[]): string => {
   const existingIds = new Set(teams.map((team) => team.id));
   const id = `${SCOUT_ID_PREFIX}${createTeamId(display, new Set())}`;
   let uniqueId = id;
@@ -188,7 +259,32 @@ export const resolveOrCreateTeam = (
     uniqueId = `${id}${counter}`;
     counter += 1;
   }
-  return { teams: [...teams, { id: uniqueId, name: display }], teamId: uniqueId };
+  return uniqueId;
+};
+
+/**
+ * Creates a team without looking for one by name first. The GameChanger importer decides identity
+ * itself — a team pulled by id *is* that id, and a name-only opponent is only ever matched after
+ * the level and year have been checked — so it needs a way to add a team that will not quietly
+ * fold "Yankees" into whichever other Yankees was stored first. Same id minting and age-label
+ * stripping as `resolveOrCreateTeam`, so the two produce indistinguishable teams. `extras` fills
+ * the optional fields (state, city, links); the id and name always come from here, and an
+ * undefined extra adds no key, so a caller can pass what it has without checking each field.
+ */
+export const createScoutTeam = (
+  name: string,
+  teams: ScoutTeam[],
+  extras: Partial<ScoutTeam> = {}
+): { teams: ScoutTeam[]; teamId: string; team: ScoutTeam } => {
+  const display = stripAgeLabel(name).trim();
+  const teamId = mintScoutTeamId(display, teams);
+  const team: ScoutTeam = { id: teamId, name: display };
+  (Object.keys(extras) as (keyof ScoutTeam)[]).forEach((key) => {
+    if (key === "id" || key === "name") return;
+    const value = extras[key];
+    if (value !== undefined) Object.assign(team, { [key]: value });
+  });
+  return { teams: [...teams, team], teamId, team };
 };
 
 const scoreFor = (log: GameLog | undefined, side: "away" | "home") =>
@@ -287,6 +383,16 @@ export const teamsInAgeGroup = (
 /** Youngest age level offered. Below 8U there are no standings worth ranking. */
 export const MIN_AGE_LEVEL = 8;
 /**
+ * Youngest age level that gets a ranking table. 8U teams can exist — their games are evidence
+ * about the 9U teams that played down against them, and an 8U squad that plays up needs an
+ * identity — but 8U itself is not ranked: at that age the results say more about which league
+ * is machine pitch than about the teams.
+ */
+export const MIN_RANKED_AGE_LEVEL = 9;
+/** Whether an age level gets a ranking table of its own. */
+export const isRankedAgeLevel = (ageLevel: number | undefined): boolean =>
+  ageLevel === undefined || ageLevel >= MIN_RANKED_AGE_LEVEL;
+/**
  * Oldest age level offered. 18U is the top of the youth pipeline — there is nothing to age up
  * into — so `nextSeason` holds an 18U squad there rather than inventing a 19U, which is also the
  * real-world case: a player can spend two years at 18U.
@@ -345,6 +451,35 @@ export const ageGroupSeason = (group: AgeGroup): Partial<AgeGroupSeason> => {
   };
 };
 
+/** Level of a group: stored field, else parsed from its name. */
+export const ageGroupLevel = (group: AgeGroup | undefined): number | undefined =>
+  group ? ageGroupSeason(group).ageLevel : undefined;
+
+/** Season year of a group (stored or parsed). */
+export const ageGroupYear = (group: AgeGroup | undefined): number | undefined =>
+  group ? ageGroupSeason(group).year : undefined;
+
+/** Levels sort youngest first; a group whose level cannot be read goes after the ladder. */
+const levelSortKey = (group: AgeGroup): number => ageGroupLevel(group) ?? MAX_AGE_LEVEL + 1;
+
+/**
+ * Every group rated together with this one: all groups sharing its season year, itself included,
+ * youngest level first. A season year is one calendar of tournaments, and a 9U that enters a 10U
+ * bracket in it produces a result about both squads — so the year's groups form one rating pool,
+ * with the age-gap term (`AGE_GAP_RUNS_PER_YEAR` in powerRating.ts) accounting for the level
+ * difference. A group with no year stands alone: there is nothing to say which other groups it
+ * played alongside. The sort is stable, so groups at one level keep their stored order.
+ */
+export const rankingPoolGroupIds = (ageGroupId: string, ageGroups: AgeGroup[]): string[] => {
+  const year = ageGroupYear(ageGroups.find((group) => group.id === ageGroupId));
+  if (year === undefined) return [ageGroupId];
+  return ageGroups
+    .filter((group) => ageGroupYear(group) === year)
+    .slice()
+    .sort((a, b) => levelSortKey(a) - levelSortKey(b))
+    .map((group) => group.id);
+};
+
 /**
  * The years the picker offers: a fixed run forward from `MIN_SEASON_YEAR`, plus any year an age
  * group already sits in. The union matters in both directions — a season imported from an older
@@ -382,6 +517,48 @@ export const findAgeGroupForSeason = (
 /** Ids are minted here so every caller that creates an age group produces the same shape. */
 export const createAgeGroupId = (): string =>
   `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+// ---------- GameChanger seasons and links ----------
+
+/**
+ * The squad year a GameChanger season belongs to. Youth baseball's year runs Fall through the
+ * following Summer — Fall 2026 and Spring 2027 are the same squad, and this app already calls that
+ * squad "9U 2027" — so fall/winter roll forward and spring/summer keep their calendar year. An
+ * unrecognised season keeps its year too, which is the least surprising reading of a label nobody
+ * expected.
+ */
+export const squadYearForGcSeason = (season: string | undefined, seasonYear: number): number => {
+  const name = (season ?? "").trim().toLowerCase();
+  return name === "fall" || name === "winter" ? seasonYear + 1 : seasonYear;
+};
+
+/** "Fall 2026" from a link's season and year; "" when either half is unknown. */
+export const gcSeasonLabel = (link: Pick<GcTeamLink, "season" | "seasonYear">): string => {
+  const name = (link.season ?? "").trim();
+  if (!name || link.seasonYear === undefined) return "";
+  return `${name.charAt(0).toUpperCase()}${name.slice(1).toLowerCase()} ${link.seasonYear}`;
+};
+
+/** The team carrying this GameChanger id, and the link itself. A GameChanger id lives on one team. */
+export const findGcLink = (
+  gcTeamId: string,
+  teams: ScoutTeam[]
+): { team: ScoutTeam; link: GcTeamLink } | null => {
+  for (const team of teams) {
+    const link = team.gcTeams?.find((candidate) => candidate.teamId === gcTeamId);
+    if (link) return { team, link };
+  }
+  return null;
+};
+
+/**
+ * Teams whose links carry this avatar key. Usually one; two means two GameChanger ids sharing an
+ * image that the user has not paired, which is itself worth surfacing.
+ */
+export const findTeamsByAvatarKey = (avatarKey: string, teams: ScoutTeam[]): ScoutTeam[] =>
+  avatarKey
+    ? teams.filter((team) => team.gcTeams?.some((link) => link.avatarKey === avatarKey))
+    : [];
 
 /**
  * The age group that carries a squad into its next season: a year older, a year later, pointed at
@@ -422,10 +599,11 @@ export const ageGroupChain = (ageGroupId: string, ageGroups: AgeGroup[]): string
 };
 
 /**
- * The team names to offer when logging a game in this age group: everyone played in it, plus
- * everyone played in the age groups it continues from. Scoped rather than global so a 9U opponent
- * never shows up in the 11U ranking's name list — the two squads share a roster store but play
- * nobody in common.
+ * The team names to offer when logging a game in this age group: everyone played in it, everyone
+ * played in the age groups it continues from, and everyone whose home level this year is this
+ * group's level — a team pulled from GameChanger onto the 9U page is a 9U team before it has
+ * played anyone here. Scoped rather than global so a 9U opponent never shows up in the 11U
+ * ranking's name list — the two squads share a roster store but play nobody in common.
  */
 export const teamNameSuggestions = (
   ageGroupId: string,
@@ -440,6 +618,16 @@ export const teamNameSuggestions = (
     active.add(game.teamAId);
     active.add(game.teamBId);
   });
+  const group = ageGroups.find((candidate) => candidate.id === ageGroupId);
+  const level = ageGroupLevel(group);
+  const year = ageGroupYear(group);
+  // Only a group with a year has a pool to be at home in; a legacy group stands alone.
+  if (level !== undefined && year !== undefined) {
+    const homeLevels = homeLevelsForYear(year, teams, games, ageGroups);
+    teams.forEach((team) => {
+      if (homeLevels.get(team.id) === level) active.add(team.id);
+    });
+  }
   return teams.filter((team) => active.has(team.id));
 };
 
@@ -461,12 +649,16 @@ const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
  * already supplied. Two scoreless scheduled games on the same date count as a match too, since
  * "no score yet" is the same on both sides.
  */
+/** The two sides of a game as one order-free key, so A-vs-B and B-vs-A compare equal. */
+const pairKeyOf = (game: ScoutGame): string =>
+  [game.teamAId, game.teamBId].slice().sort().join("|");
+
 export const findDuplicateGame = (candidate: ScoutGame, games: ScoutGame[]): ScoutGame | null => {
-  const pairKey = [candidate.teamAId, candidate.teamBId].slice().sort().join("|");
+  const pairKey = pairKeyOf(candidate);
   const found = games.find((game) => {
     if (game.id === candidate.id) return false;
     if (game.ageGroupId !== candidate.ageGroupId) return false;
-    if ([game.teamAId, game.teamBId].slice().sort().join("|") !== pairKey) return false;
+    if (pairKeyOf(game) !== pairKey) return false;
     if ((game.date ?? "") !== (candidate.date ?? "")) return false;
     return (
       scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
@@ -491,19 +683,299 @@ const recordFor = (teamId: string, playedGames: ScoutGame[]) => {
   return { wins, losses, ties };
 };
 
+// ---------- Levels, pools and cross-age games ----------
+
 /**
- * Ranks the given teams using only *completed* games tagged with `ageGroupId` (defensive filter —
- * callers should already be passing an age-group-scoped game list). Scheduled/unplayed games are
- * ignored here entirely; they exist only so a future opponent can be logged ahead of time. Every
- * team is rated by this exact same formula — which team is "ours" plays no part in the
- * computation; `myTeamId` (falling back to the legacy `ScoutTeam.isMine`) only sets a display flag.
+ * Age groups looked up once per call rather than once per game: a season-wide pool fed from
+ * GameChanger can hold tens of thousands of games, and a legacy group's level and year come from
+ * parsing its name.
+ */
+type GroupIndex = {
+  level: (ageGroupId: string) => number | undefined;
+  year: (ageGroupId: string) => number | undefined;
+};
+
+const indexGroups = (ageGroups: AgeGroup[]): GroupIndex => {
+  const levels = new Map(ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const years = new Map(ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  return { level: (id) => levels.get(id), year: (id) => years.get(id) };
+};
+
+type SideLevels = { a?: number; b?: number };
+
+const sideLevelsWith = (game: ScoutGame, index: GroupIndex): SideLevels => {
+  const filed = index.level(game.ageGroupId);
+  const a = game.ageLevelA ?? filed;
+  const b = game.ageLevelB ?? filed;
+  return { ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }) };
+};
+
+/** The level each side played a game at: recorded on the game, else the filed group's level. */
+export const gameSideLevels = (game: ScoutGame, ageGroups: AgeGroup[]): SideLevels =>
+  sideLevelsWith(game, indexGroups(ageGroups));
+
+/**
+ * Team A's level minus team B's — the age gap the rating model reads, with A in the home seat as
+ * every Team Rankings game is passed. Zero when either level is unknown: a game that cannot say
+ * who was older is treated as a same-level game rather than guessed at.
+ */
+const ageGapOf = (levels: SideLevels): number =>
+  levels.a === undefined || levels.b === undefined ? 0 : levels.a - levels.b;
+
+/** GameChanger's seasons in the order a squad year plays them, so the latest pulled season wins. */
+const GC_SEASON_ORDER: Record<string, number> = { fall: 0, winter: 1, spring: 2, summer: 3 };
+
+/**
+ * The squad year a link sits in: the year of the group it is filed under, since that is where the
+ * user (or the importer, with the user's approval) put it; otherwise what its GameChanger season
+ * implies. A link filed under a legacy group with no year and carrying no season has no year.
+ */
+const gcLinkYear = (link: GcTeamLink, index: GroupIndex): number | undefined => {
+  const filed = index.year(link.ageGroupId);
+  if (filed !== undefined) return filed;
+  return link.seasonYear === undefined
+    ? undefined
+    : squadYearForGcSeason(link.season, link.seasonYear);
+};
+
+/** The value seen most often, the first seen winning a tie; undefined when there are none. */
+const mostCommon = (values: (number | undefined)[]): number | undefined => {
+  const counts = new Map<number, number>();
+  values.forEach((value) => {
+    if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1);
+  });
+  let best: number | undefined;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+};
+
+/**
+ * The home-level rule, given a team's own games in the year. GameChanger's word comes first
+ * because it is the one source that states a team's level outright; the latest season wins
+ * because a squad that was 9U in the fall and is listed 10U in the spring has aged up. Failing a
+ * link, what the games recorded for this side; failing that, where the games were filed.
+ */
+const homeLevelOf = (
+  team: ScoutTeam | undefined,
+  teamId: string,
+  year: number | undefined,
+  teamGamesInYear: ScoutGame[],
+  index: GroupIndex
+): number | undefined => {
+  let linked: { order: number; level: number } | undefined;
+  for (const link of team?.gcTeams ?? []) {
+    if (gcLinkYear(link, index) !== year) continue;
+    const level = index.level(link.ageGroupId) ?? link.ageLevel;
+    if (level === undefined) continue;
+    const order = GC_SEASON_ORDER[(link.season ?? "").trim().toLowerCase()] ?? -1;
+    if (!linked || order > linked.order) linked = { order, level };
+  }
+  if (linked) return linked.level;
+
+  const recorded = mostCommon(
+    teamGamesInYear.map((game) => (game.teamAId === teamId ? game.ageLevelA : game.ageLevelB))
+  );
+  if (recorded !== undefined) return recorded;
+  return mostCommon(teamGamesInYear.map((game) => index.level(game.ageGroupId)));
+};
+
+/** Home level for every team at once — one pass over the games instead of one per team. */
+const homeLevelsForYear = (
+  year: number | undefined,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): Map<string, number | undefined> => {
+  const index = indexGroups(ageGroups);
+  const gamesByTeam = new Map<string, ScoutGame[]>();
+  games.forEach((game) => {
+    if (index.year(game.ageGroupId) !== year) return;
+    [game.teamAId, game.teamBId].forEach((id) => {
+      const list = gamesByTeam.get(id);
+      if (list) list.push(game);
+      else gamesByTeam.set(id, [game]);
+    });
+  });
+  return new Map(
+    teams.map((team) => [
+      team.id,
+      homeLevelOf(team, team.id, year, gamesByTeam.get(team.id) ?? [], index),
+    ])
+  );
+};
+
+/**
+ * A team's home level in a season year: the level of the age group its GameChanger link for that
+ * year is filed under (latest season wins: fall < winter < spring < summer within a squad year);
+ * else the level its games in that year most often record for it (ageLevelA/B); else the level
+ * most of its games that year are filed under; else undefined.
+ *
+ * "Home" is the level the team belongs to, as opposed to the level of any one game: a 9U squad
+ * that enters a 10U tournament is still a 9U team, ranked on the 9U page, with that tournament
+ * counted as playing up. `year` undefined asks about the legacy pool of groups with no year.
+ */
+export const teamHomeAgeLevel = (
+  teamId: string,
+  year: number | undefined,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): number | undefined => {
+  const index = indexGroups(ageGroups);
+  const team = teams.find((candidate) => candidate.id === teamId);
+  const teamGamesInYear = games.filter(
+    (game) =>
+      (game.teamAId === teamId || game.teamBId === teamId) && index.year(game.ageGroupId) === year
+  );
+  return homeLevelOf(team, teamId, year, teamGamesInYear, index);
+};
+
+/**
+ * Same pair (either order) on the same date in the same pool, ignoring score — what a re-pull or
+ * the other team's copy of a game matches. Unlike `findDuplicateGame`, the score is exactly what
+ * may have changed: a scheduled game is now final, or the other side's schedule reports the same
+ * result from its seat. The pool rather than the group, because the two sides of a cross-age game
+ * file it under different pages.
+ *
+ * When several games fit, the same GameChanger game id on the same schedule is certainly it, then
+ * one whose scores agree, then the first. Two different game ids on one schedule are never the
+ * same game — a doubleheader is two games on one date against one opponent, and a schedule lists
+ * each game once — so those are passed over rather than matched to each other.
+ */
+export const matchExistingGame = (
+  candidate: ScoutGame,
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): ScoutGame | null => {
+  const pool = new Set(rankingPoolGroupIds(candidate.ageGroupId, ageGroups));
+  const pairKey = pairKeyOf(candidate);
+  const date = candidate.date ?? "";
+  const source = candidate.source;
+
+  let best: { rank: number; game: ScoutGame } | null = null;
+  for (const game of games) {
+    if (game.id === candidate.id || !pool.has(game.ageGroupId)) continue;
+    if (pairKeyOf(game) !== pairKey || (game.date ?? "") !== date) continue;
+
+    let rank = 0;
+    if (source && game.source && game.source.teamId === source.teamId) {
+      if (game.source.gameId !== source.gameId) continue;
+      rank = 2;
+    } else if (
+      scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
+      scoreOf(game, candidate.teamBId) === candidate.teamBScore
+    ) {
+      rank = 1;
+    }
+    if (!best || rank > best.rank) best = { rank, game };
+    if (rank === 2) break;
+  }
+  return best ? best.game : null;
+};
+
+/**
+ * The teams with a counted game anywhere in this group's pool — the roster the pool is rated
+ * over, which is wider than `teamsInAgeGroup`: a 10U that only ever played down against 9Us is
+ * rated alongside them even though no game is filed under its own page.
+ */
+export const teamsInRankingPool = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): ScoutTeam[] => {
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  const active = new Set<string>();
+  games.forEach((game) => {
+    if (!pool.has(game.ageGroupId) || !countsTowardRating(game)) return;
+    active.add(game.teamAId);
+    active.add(game.teamBId);
+  });
+  return teams.filter((team) => active.has(team.id));
+};
+
+/**
+ * One team's record over every counted game in the pool, cross-age games included — the number
+ * the detail panel shows, and the one the ranking row shows, so the two agree.
+ */
+export const teamRecordInPool = (
+  teamId: string,
+  ageGroupId: string,
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): { wins: number; losses: number; ties: number; games: number; crossAgeGames: number } => {
+  const index = indexGroups(ageGroups);
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  const counted = games.filter(
+    (game) =>
+      pool.has(game.ageGroupId) &&
+      countsTowardRating(game) &&
+      (game.teamAId === teamId || game.teamBId === teamId)
+  );
+  const { wins, losses, ties } = recordFor(teamId, counted);
+  const crossAgeGames = counted.filter(
+    (game) => ageGapOf(sideLevelsWith(game, index)) !== 0
+  ).length;
+  return { wins, losses, ties, games: counted.length, crossAgeGames };
+};
+
+const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
+
+/** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
+const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
+  rows.sort(
+    (a, b) =>
+      b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
+  );
+  rows.forEach((row, index) => {
+    row.rank = index + 1;
+  });
+
+  const sosOrder = rows
+    .filter((row) => row.games > 0)
+    .slice()
+    .sort(
+      (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName)
+    );
+  const sosRankById = new Map(sosOrder.map((row, index) => [row.teamId, index + 1]));
+  rows.forEach((row) => {
+    row.sosRank = sosRankById.get(row.teamId) ?? 0;
+  });
+
+  return rows;
+};
+
+/**
+ * Ranks the given teams using only *completed* games. Scheduled/unplayed games are ignored here
+ * entirely; they exist only so a future opponent can be logged ahead of time. Every team is rated
+ * by this exact same formula — which team is "ours" plays no part in the computation; `myTeamId`
+ * (falling back to the legacy `ScoutTeam.isMine`) only sets a display flag.
+ *
+ * Without `ageGroups`, this is the one-group ranking it has always been: games tagged with
+ * `ageGroupId` (defensive filter — callers should already be passing an age-group-scoped game
+ * list), one row per team passed. With `ageGroups`, the group's whole season-year pool is rated
+ * together — see `rankingPoolGroupIds` — with each game's age gap passed to the model, and the
+ * rows are the teams at home on this page: those whose home level is this group's level, plus
+ * those of unknown level with a counted game filed here. A team that only played *up* onto this
+ * page is rated (it is a node in the same regression) but listed on its own page. Records count
+ * every counted game in the pool, so a 9U's win over a 10U is a win. A group below
+ * `MIN_RANKED_AGE_LEVEL` has no table at all.
  */
 export const buildTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
-  myTeamId?: string
+  myTeamId?: string,
+  ageGroups?: AgeGroup[]
 ): ScoutRankingRow[] => {
+  if (ageGroups) return buildPooledTeamRankings(ageGroupId, teams, games, myTeamId, ageGroups);
+
   const playedGames = games.filter(
     (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
   );
@@ -536,29 +1008,102 @@ export const buildTeamRankings = (
       rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
       strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
       sosRank: 0,
+      crossAgeGames: 0,
+      fromGameChanger: hasGcLinks(team),
     };
   });
 
-  rows.sort(
-    (a, b) =>
-      b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
+  return rankRows(rows);
+};
+
+const buildPooledTeamRankings = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  myTeamId: string | undefined,
+  ageGroups: AgeGroup[]
+): ScoutRankingRow[] => {
+  const index = indexGroups(ageGroups);
+  const level = index.level(ageGroupId);
+  if (!isRankedAgeLevel(level)) return [];
+  const year = index.year(ageGroupId);
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+
+  // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  const rated = games
+    .filter(
+      (game) =>
+        pool.has(game.ageGroupId) &&
+        countsTowardRating(game) &&
+        teamById.has(game.teamAId) &&
+        teamById.has(game.teamBId)
+    )
+    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+  const ratedGames = rated.map(({ game }) => game);
+
+  const active = new Set<string>();
+  const filedHere = new Set<string>();
+  ratedGames.forEach((game) => {
+    active.add(game.teamAId);
+    active.add(game.teamBId);
+    if (game.ageGroupId === ageGroupId) {
+      filedHere.add(game.teamAId);
+      filedHere.add(game.teamBId);
+    }
+  });
+  const nodes = teams.filter((team) => active.has(team.id));
+
+  const adjusted = buildOpponentAdjustedRatings(
+    nodes.map((team) => team.id),
+    rated.map(({ game, ageGap }) => ({
+      home: game.teamAId,
+      away: game.teamBId,
+      homeMargin: game.teamAScore! - game.teamBScore!,
+      // Team A is simply the side entered first, not the home team.
+      neutral: true,
+      ...(ageGap ? { ageGap } : {}),
+    })),
+    { cap: RATING_CAP }
   );
-  rows.forEach((row, index) => {
-    row.rank = index + 1;
-  });
 
-  const sosOrder = rows
-    .filter((row) => row.games > 0)
-    .slice()
-    .sort(
-      (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName)
-    );
-  const sosRankById = new Map(sosOrder.map((row, index) => [row.teamId, index + 1]));
-  rows.forEach((row) => {
-    row.sosRank = sosRankById.get(row.teamId) ?? 0;
-  });
+  const homeLevels = homeLevelsForYear(year, nodes, games, ageGroups);
+  // A page with no readable level (a legacy group) lists whoever played there, as it always has.
+  const belongsHere = (teamId: string): boolean => {
+    if (level === undefined) return filedHere.has(teamId);
+    const home = homeLevels.get(teamId);
+    return home === level || (home === undefined && filedHere.has(teamId));
+  };
 
-  return rows;
+  const rows = nodes
+    .filter((team) => belongsHere(team.id))
+    .map((team): ScoutRankingRow => {
+      const { wins, losses, ties } = recordFor(team.id, ratedGames);
+      const crossAgeGames = rated.filter(
+        ({ game, ageGap }) => ageGap !== 0 && (game.teamAId === team.id || game.teamBId === team.id)
+      ).length;
+      const ageLevel = homeLevels.get(team.id);
+      return {
+        teamId: team.id,
+        teamName: team.name,
+        isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
+        rank: 0,
+        rating: adjusted.ratings.get(team.id) ?? 0,
+        record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
+        wins,
+        losses,
+        ties,
+        games: adjusted.games.get(team.id) ?? 0,
+        rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
+        strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
+        sosRank: 0,
+        ...(ageLevel === undefined ? {} : { ageLevel }),
+        crossAgeGames,
+        fromGameChanger: hasGcLinks(team),
+      };
+    });
+
+  return rankRows(rows);
 };
 
 /** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
@@ -694,11 +1239,37 @@ export const renameScoutTeam = (
     };
   }
 
+  const merged = mergeScoutTeams(teamId, target.id, teams, games);
+  return { ...merged, mergedInto: target };
+};
+
+/**
+ * Folds one team into another, keeping the survivor's id. This is the manual override behind
+ * every identity decision the app cannot make on its own: pairing a Fall GameChanger id with the
+ * Spring one when the names differ, sending a name-only placeholder's games to the team it turned
+ * out to be, or undoing a wrong match by merging the pieces back together.
+ *
+ * Games are repointed at the survivor; a game between the two (a team playing itself once merged)
+ * is not a result and is dropped. GameChanger links are unioned by id, since both halves may have
+ * been pulled — that union is exactly what "the same squad across seasons" means here. Blank
+ * name, state and city on the survivor are filled from the team folded in; anything the survivor
+ * already has stands, because the user chose which one survives.
+ */
+export const mergeScoutTeams = (
+  fromId: string,
+  intoId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[]
+): { teams: ScoutTeam[]; games: ScoutGame[]; droppedGames: number } => {
+  const removed = teams.find((team) => team.id === fromId);
+  const survivor = teams.find((team) => team.id === intoId);
+  if (!removed || !survivor || fromId === intoId) return { teams, games, droppedGames: 0 };
+
   const repointed: ScoutGame[] = [];
   let droppedGames = 0;
   games.forEach((game) => {
-    const teamAId = game.teamAId === teamId ? target.id : game.teamAId;
-    const teamBId = game.teamBId === teamId ? target.id : game.teamBId;
+    const teamAId = game.teamAId === fromId ? intoId : game.teamAId;
+    const teamBId = game.teamBId === fromId ? intoId : game.teamBId;
     if (teamAId === teamBId) {
       droppedGames += 1;
       return;
@@ -708,13 +1279,53 @@ export const renameScoutTeam = (
     );
   });
 
+  const linkedIds = new Set((survivor.gcTeams ?? []).map((link) => link.teamId));
+  const gcTeams = [
+    ...(survivor.gcTeams ?? []),
+    ...(removed.gcTeams ?? []).filter((link) => !linkedIds.has(link.teamId)),
+  ];
+  const fillName = !survivor.name.trim() && removed.name.trim();
+  const fillState = !survivor.state && removed.state;
+  const fillCity = !survivor.city && removed.city;
+  // "Our team" is a fact about the club, so it survives whichever half carried it.
+  const fillMine = !survivor.isMine && removed.isMine;
+  const linksChanged = gcTeams.length !== (survivor.gcTeams?.length ?? 0);
+  const changed = fillName || fillState || fillCity || fillMine || linksChanged;
+
+  const merged: ScoutTeam = changed
+    ? {
+        ...survivor,
+        ...(fillName ? { name: removed.name } : {}),
+        ...(fillState ? { state: removed.state } : {}),
+        ...(fillCity ? { city: removed.city } : {}),
+        ...(fillMine ? { isMine: true } : {}),
+        ...(gcTeams.length ? { gcTeams } : {}),
+      }
+    : survivor;
+
   return {
-    teams: teams.filter((team) => team.id !== teamId),
+    teams: teams.flatMap((team) =>
+      team.id === fromId ? [] : team.id === intoId ? [merged] : [team]
+    ),
     games: repointed,
-    mergedInto: target,
     droppedGames,
   };
 };
+
+/**
+ * Removes one GameChanger link from a team. The games that link brought in stay: they happened,
+ * and they still belong to this team as far as the user has said. Unlinking is how a wrong pairing
+ * is taken apart (the id can then be pulled again onto a team of its own), so the last link coming
+ * off leaves a plain name-only team rather than one holding an empty list.
+ */
+export const unlinkGcTeam = (teamId: string, gcTeamId: string, teams: ScoutTeam[]): ScoutTeam[] =>
+  teams.map((team) => {
+    if (team.id !== teamId || !team.gcTeams?.some((link) => link.teamId === gcTeamId)) return team;
+    const remaining = team.gcTeams.filter((link) => link.teamId !== gcTeamId);
+    const next: ScoutTeam = { ...team, gcTeams: remaining };
+    if (!remaining.length) delete next.gcTeams;
+    return next;
+  });
 
 /** Every game this team has, newest first, across every age group. */
 export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
@@ -824,8 +1435,9 @@ export const normalizeState = (value: string): string | undefined => {
  * only ever offers a state that some team on the table actually has.
  */
 export const statesInUse = (teams: ScoutTeam[]): string[] =>
-  [...new Set(teams.map((team) => team.state).filter((state): state is string => Boolean(state)))]
-    .sort();
+  [
+    ...new Set(teams.map((team) => team.state).filter((state): state is string => Boolean(state))),
+  ].sort();
 
 /**
  * Narrows a ranking to one state, or to the teams whose state is unknown.

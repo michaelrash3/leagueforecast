@@ -31,7 +31,25 @@ import {
   stripAgeLabel,
   teamNameSuggestions,
   teamsInAgeGroup,
+  ageGroupLevel,
+  ageGroupYear,
+  createScoutTeam,
+  findGcLink,
+  findTeamsByAvatarKey,
+  gameSideLevels,
+  gcSeasonLabel,
+  isRankedAgeLevel,
+  matchExistingGame,
+  mergeScoutTeams,
+  MIN_RANKED_AGE_LEVEL,
+  rankingPoolGroupIds,
+  squadYearForGcSeason,
+  teamHomeAgeLevel,
+  teamRecordInPool,
+  teamsInRankingPool,
+  unlinkGcTeam,
   type AgeGroup,
+  type GcTeamLink,
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
@@ -870,5 +888,696 @@ describe("age group seasons", () => {
     const previous = group({ id: "a", name: "9U 2027", ageLevel: 9, year: 2027 });
     const next = advancedAgeGroup(previous, nextSeason({ ageLevel: 9, year: 2027 }));
     expect(ageGroupChain(next.id, [previous, next])).toEqual([next.id, "a"]);
+  });
+});
+
+// ---------- Season-year pools, GameChanger links and cross-age games ----------
+
+const season = (
+  id: string,
+  ageLevel: number,
+  year: number,
+  extra: Partial<AgeGroup> = {}
+): AgeGroup => ({
+  id,
+  name: formatAgeGroupName(ageLevel, year),
+  ageLevel,
+  year,
+  seasonIds: [],
+  ...extra,
+});
+
+const link = (teamId: string, ageGroupId: string, over: Partial<GcTeamLink> = {}): GcTeamLink => ({
+  teamId,
+  name: `${teamId} 9U`,
+  ageGroupId,
+  ...over,
+});
+
+const withLevels = (base: ScoutGame, levels: { a?: number; b?: number }): ScoutGame => ({
+  ...base,
+  ...(levels.a === undefined ? {} : { ageLevelA: levels.a }),
+  ...(levels.b === undefined ? {} : { ageLevelB: levels.b }),
+});
+
+const u8 = season("u8", 8, 2027);
+const u9 = season("u9", 9, 2027);
+const u10 = season("u10", 10, 2027);
+const u9next = season("u9next", 9, 2028);
+// A group saved before the picker: free text that says nothing about level or year.
+const legacy: AgeGroup = { id: "old", name: "Travel squad", seasonIds: [] };
+const pool: AgeGroup[] = [u8, u9, u10, u9next, legacy];
+
+describe("ageGroupLevel / ageGroupYear", () => {
+  it("reads the stored fields", () => {
+    expect(ageGroupLevel(u10)).toBe(10);
+    expect(ageGroupYear(u10)).toBe(2027);
+  });
+
+  it("parses a group named before the picker", () => {
+    const named: AgeGroup = { id: "n", name: "2027, 10U", seasonIds: [] };
+    expect(ageGroupLevel(named)).toBe(10);
+    expect(ageGroupYear(named)).toBe(2027);
+  });
+
+  it("is undefined for a group with nothing to read, or no group at all", () => {
+    expect(ageGroupLevel(legacy)).toBeUndefined();
+    expect(ageGroupYear(legacy)).toBeUndefined();
+    expect(ageGroupLevel(undefined)).toBeUndefined();
+    expect(ageGroupYear(undefined)).toBeUndefined();
+  });
+});
+
+describe("rankingPoolGroupIds", () => {
+  it("pools every group of the season year, itself included, youngest first", () => {
+    expect(rankingPoolGroupIds("u10", pool)).toEqual(["u8", "u9", "u10"]);
+    expect(rankingPoolGroupIds("u8", pool)).toEqual(["u8", "u9", "u10"]);
+  });
+
+  it("leaves a group with no year on its own", () => {
+    expect(rankingPoolGroupIds("old", pool)).toEqual(["old"]);
+  });
+
+  it("is just the id when the group is not known", () => {
+    expect(rankingPoolGroupIds("ghost", pool)).toEqual(["ghost"]);
+  });
+
+  it("pools a group whose year is only in its name", () => {
+    const named: AgeGroup = { id: "named", name: "2027 11U", seasonIds: [] };
+    expect(rankingPoolGroupIds("named", [u9, named])).toEqual(["u9", "named"]);
+  });
+
+  it("keeps the stored order of groups at the same level", () => {
+    const twinA = season("twinA", 9, 2027);
+    const twinB = season("twinB", 9, 2027);
+    expect(rankingPoolGroupIds("twinB", [twinA, twinB])).toEqual(["twinA", "twinB"]);
+    expect(rankingPoolGroupIds("twinB", [twinB, twinA])).toEqual(["twinB", "twinA"]);
+  });
+});
+
+describe("squadYearForGcSeason", () => {
+  it("rolls fall and winter into the following year", () => {
+    expect(squadYearForGcSeason("fall", 2026)).toBe(2027);
+    expect(squadYearForGcSeason("winter", 2026)).toBe(2027);
+    expect(squadYearForGcSeason("Fall", 2026)).toBe(2027);
+  });
+
+  it("keeps spring and summer in their own year", () => {
+    expect(squadYearForGcSeason("spring", 2027)).toBe(2027);
+    expect(squadYearForGcSeason("summer", 2027)).toBe(2027);
+  });
+
+  it("keeps the year for a season it does not recognise", () => {
+    expect(squadYearForGcSeason(undefined, 2027)).toBe(2027);
+    expect(squadYearForGcSeason("autumn", 2027)).toBe(2027);
+  });
+});
+
+describe("gcSeasonLabel", () => {
+  it("writes the season the way GameChanger shows it", () => {
+    expect(gcSeasonLabel({ season: "fall", seasonYear: 2026 })).toBe("Fall 2026");
+    expect(gcSeasonLabel({ season: "SPRING", seasonYear: 2027 })).toBe("Spring 2027");
+  });
+
+  it("is empty when either half is unknown", () => {
+    expect(gcSeasonLabel({ seasonYear: 2026 })).toBe("");
+    expect(gcSeasonLabel({ season: "fall" })).toBe("");
+    expect(gcSeasonLabel({ season: " ", seasonYear: 2026 })).toBe("");
+    expect(gcSeasonLabel({})).toBe("");
+  });
+});
+
+describe("findGcLink / findTeamsByAvatarKey", () => {
+  const teams: ScoutTeam[] = [
+    team("A", "Aces"),
+    { ...team("B", "Bears"), gcTeams: [link("gcB1", "u9", { avatarKey: "av-b" })] },
+    {
+      ...team("C", "Cubs"),
+      gcTeams: [link("gcC1", "u9", { avatarKey: "av-c" }), link("gcC2", "u10")],
+    },
+  ];
+
+  it("finds the team carrying a GameChanger id, and the link itself", () => {
+    const found = findGcLink("gcC2", teams);
+    expect(found?.team.id).toBe("C");
+    expect(found?.link.ageGroupId).toBe("u10");
+  });
+
+  it("is null for an id nobody carries", () => {
+    expect(findGcLink("nope", teams)).toBeNull();
+    expect(findGcLink("gcB1", [team("A", "Aces")])).toBeNull();
+  });
+
+  it("finds teams by the avatar on any of their links", () => {
+    expect(findTeamsByAvatarKey("av-c", teams).map((t) => t.id)).toEqual(["C"]);
+    expect(findTeamsByAvatarKey("av-b", teams).map((t) => t.id)).toEqual(["B"]);
+  });
+
+  it("matches nothing for an unknown or blank key", () => {
+    expect(findTeamsByAvatarKey("av-z", teams)).toEqual([]);
+    expect(findTeamsByAvatarKey("", teams)).toEqual([]);
+  });
+});
+
+describe("gameSideLevels", () => {
+  it("uses the level recorded on the game", () => {
+    const g = withLevels(game("A", "B", 5, 3, "u10"), { a: 9 });
+    expect(gameSideLevels(g, pool)).toEqual({ a: 9, b: 10 });
+  });
+
+  it("falls back to the filed group's level for both sides", () => {
+    expect(gameSideLevels(game("A", "B", 5, 3, "u9"), pool)).toEqual({ a: 9, b: 9 });
+  });
+
+  it("says nothing about a side it cannot read", () => {
+    expect(gameSideLevels(game("A", "B", 5, 3, "old"), pool)).toEqual({});
+    expect(gameSideLevels(withLevels(game("A", "B", 5, 3, "old"), { b: 8 }), pool)).toEqual({
+      b: 8,
+    });
+  });
+});
+
+describe("teamHomeAgeLevel", () => {
+  it("takes the level of the group a GameChanger link for that year is filed under", () => {
+    const teams = [{ ...team("C", "Cubs"), gcTeams: [link("gc1", "u10")] }];
+    // Three games recorded at 9U do not outvote GameChanger's word.
+    const games = [
+      withLevels(game("C", "A", 5, 3, "u9"), { a: 9 }),
+      withLevels(game("C", "A", 5, 3, "u9"), { a: 9 }),
+      withLevels(game("C", "A", 5, 3, "u9"), { a: 9 }),
+    ];
+    expect(teamHomeAgeLevel("C", 2027, teams, games, pool)).toBe(10);
+  });
+
+  it("lets the latest season of the squad year win, whatever order the links are in", () => {
+    const fall = link("gcFall", "u9", { season: "fall", seasonYear: 2026 });
+    const spring = link("gcSpring", "u10", { season: "spring", seasonYear: 2027 });
+    expect(
+      teamHomeAgeLevel("C", 2027, [{ ...team("C", "Cubs"), gcTeams: [fall, spring] }], [], pool)
+    ).toBe(10);
+    expect(
+      teamHomeAgeLevel("C", 2027, [{ ...team("C", "Cubs"), gcTeams: [spring, fall] }], [], pool)
+    ).toBe(10);
+  });
+
+  it("ignores a link from another season year", () => {
+    const teams = [{ ...team("C", "Cubs"), gcTeams: [link("gc1", "u9next")] }];
+    const games = [game("C", "A", 5, 3, "u10")];
+    expect(teamHomeAgeLevel("C", 2027, teams, games, pool)).toBe(10);
+    expect(teamHomeAgeLevel("C", 2028, teams, games, pool)).toBe(9);
+  });
+
+  it("uses the link's own level and season when its group is gone", () => {
+    const orphan = link("gc1", "deleted", { season: "fall", seasonYear: 2026, ageLevel: 11 });
+    expect(
+      teamHomeAgeLevel("C", 2027, [{ ...team("C", "Cubs"), gcTeams: [orphan] }], [], pool)
+    ).toBe(11);
+  });
+
+  it("falls back to the level the team's games most often record for it", () => {
+    const games = [
+      withLevels(game("C", "A", 5, 3, "u10"), { a: 9 }),
+      withLevels(game("A", "C", 5, 3, "u10"), { b: 9 }),
+      withLevels(game("C", "A", 5, 3, "u9"), { a: 10 }),
+    ];
+    expect(teamHomeAgeLevel("C", 2027, [team("C", "Cubs")], games, pool)).toBe(9);
+  });
+
+  it("then falls back to where the games are filed", () => {
+    const games = [
+      game("C", "A", 5, 3, "u10"),
+      game("A", "C", 5, 3, "u10"),
+      game("C", "A", 5, 3, "u9"),
+    ];
+    expect(teamHomeAgeLevel("C", 2027, [team("C", "Cubs")], games, pool)).toBe(10);
+  });
+
+  it("is undefined for a team with nothing in that year", () => {
+    const games = [game("C", "A", 5, 3, "u9next")];
+    expect(teamHomeAgeLevel("C", 2027, [team("C", "Cubs")], games, pool)).toBeUndefined();
+    expect(teamHomeAgeLevel("Z", 2027, [], games, pool)).toBeUndefined();
+  });
+
+  it("treats the groups with no year as a season of their own", () => {
+    const games = [withLevels(game("C", "A", 5, 3, "old"), { a: 12 }), game("C", "A", 5, 3, "u9")];
+    expect(teamHomeAgeLevel("C", undefined, [team("C", "Cubs")], games, pool)).toBe(12);
+  });
+});
+
+describe("matchExistingGame", () => {
+  const existing: ScoutGame = {
+    id: "g1",
+    teamAId: "A",
+    teamBId: "B",
+    teamAScore: 7,
+    teamBScore: 3,
+    ageGroupId: "u9",
+    date: "2026-08-22",
+  };
+
+  it("matches the same pair on the same date in either order, whatever the score", () => {
+    const swapped: ScoutGame = {
+      id: "g2",
+      teamAId: "B",
+      teamBId: "A",
+      ageGroupId: "u9",
+      date: "2026-08-22",
+    };
+    expect(matchExistingGame(swapped, [existing], pool)).toBe(existing);
+    // The scheduled entry now has a score: same game, not a new one.
+    expect(matchExistingGame({ ...swapped, teamAScore: 3, teamBScore: 8 }, [existing], pool)).toBe(
+      existing
+    );
+  });
+
+  it("matches across the groups of one pool, but not across years", () => {
+    const fromTheOtherPage: ScoutGame = { ...existing, id: "g2", ageGroupId: "u10" };
+    expect(matchExistingGame(fromTheOtherPage, [existing], pool)).toBe(existing);
+    expect(
+      matchExistingGame({ ...existing, id: "g2", ageGroupId: "u9next" }, [existing], pool)
+    ).toBeNull();
+  });
+
+  it("does not match a different date or pair, or itself", () => {
+    expect(
+      matchExistingGame({ ...existing, id: "g2", date: "2026-08-23" }, [existing], pool)
+    ).toBeNull();
+    expect(matchExistingGame({ ...existing, id: "g2", teamBId: "C" }, [existing], pool)).toBeNull();
+    expect(matchExistingGame(existing, [existing], pool)).toBeNull();
+  });
+
+  it("recognises the same GameChanger game id on the same schedule first", () => {
+    const source = { kind: "gamechanger" as const, teamId: "gcA", gameId: "x1" };
+    const sameDay: ScoutGame = { ...existing, id: "g1", teamAScore: 2, teamBScore: 1 };
+    const sourced: ScoutGame = { ...existing, id: "g2", source };
+    const candidate: ScoutGame = { ...existing, id: "cand", teamAScore: 2, teamBScore: 1, source };
+    expect(matchExistingGame(candidate, [sameDay, sourced], pool)).toBe(sourced);
+  });
+
+  it("never matches two different games off one schedule — a doubleheader is two games", () => {
+    const first: ScoutGame = {
+      ...existing,
+      source: { kind: "gamechanger", teamId: "gcA", gameId: "x1" },
+    };
+    const second: ScoutGame = {
+      ...existing,
+      id: "g2",
+      teamAScore: 5,
+      teamBScore: 4,
+      source: { kind: "gamechanger", teamId: "gcA", gameId: "x2" },
+    };
+    expect(matchExistingGame(second, [first], pool)).toBeNull();
+  });
+
+  it("prefers the copy whose score agrees when several fit", () => {
+    const gameOne: ScoutGame = { ...existing, id: "g1", teamAScore: 7, teamBScore: 3 };
+    const gameTwo: ScoutGame = { ...existing, id: "g2", teamAScore: 5, teamBScore: 4 };
+    // The other team's schedule reports the second game from its own seat.
+    const theirCopy: ScoutGame = {
+      id: "cand",
+      teamAId: "B",
+      teamBId: "A",
+      teamAScore: 4,
+      teamBScore: 5,
+      ageGroupId: "u9",
+      date: "2026-08-22",
+      source: { kind: "gamechanger", teamId: "gcB", gameId: "y2" },
+    };
+    expect(matchExistingGame(theirCopy, [gameOne, gameTwo], pool)).toBe(gameTwo);
+  });
+
+  it("matches two scoreless entries on the same date", () => {
+    const scheduled: ScoutGame = { id: "s1", teamAId: "A", teamBId: "B", ageGroupId: "u9" };
+    expect(matchExistingGame({ ...scheduled, id: "s2" }, [scheduled], pool)).toBe(scheduled);
+  });
+});
+
+describe("mergeScoutTeams", () => {
+  const fall = link("gcFall", "u9", { season: "fall", seasonYear: 2026, avatarKey: "av" });
+  const spring = link("gcSpring", "u9", { season: "spring", seasonYear: 2027 });
+  const teams: ScoutTeam[] = [
+    { ...team("A", "Aces"), state: "KY", gcTeams: [fall] },
+    { ...team("B", "Aces Spring"), city: "Georgetown", gcTeams: [spring, fall] },
+    team("C", "Cubs"),
+  ];
+
+  it("keeps the survivor's id and name, repoints the games and unions the links by id", () => {
+    const games = [game("B", "C", 4, 9, "u9"), game("A", "C", 3, 2, "u9")];
+    const out = mergeScoutTeams("B", "A", teams, games);
+
+    expect(out.teams.map((t) => t.id)).toEqual(["A", "C"]);
+    const survivor = out.teams.find((t) => t.id === "A")!;
+    expect(survivor.name).toBe("Aces");
+    expect(survivor.gcTeams?.map((l) => l.teamId)).toEqual(["gcFall", "gcSpring"]);
+    expect(out.games[0]?.teamAId).toBe("A");
+    // The untouched game keeps its identity.
+    expect(out.games[1]).toBe(games[1]);
+    expect(out.droppedGames).toBe(0);
+  });
+
+  it("fills a blank state or city from the team folded in, never overwriting one", () => {
+    const out = mergeScoutTeams("B", "A", teams, []);
+    const survivor = out.teams.find((t) => t.id === "A")!;
+    expect(survivor.state).toBe("KY");
+    expect(survivor.city).toBe("Georgetown");
+
+    const reverse = mergeScoutTeams("A", "B", [{ ...teams[1]!, state: "OH" }, teams[0]!], []);
+    expect(reverse.teams.find((t) => t.id === "B")?.state).toBe("OH");
+  });
+
+  it("drops a game between the two teams rather than keeping a self-match", () => {
+    const games = [game("A", "B", 4, 9, "u9"), game("B", "C", 1, 0, "u9")];
+    const out = mergeScoutTeams("B", "A", teams, games);
+    expect(out.droppedGames).toBe(1);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.teamAId).toBe("A");
+  });
+
+  it("carries the legacy 'my team' mark over", () => {
+    const out = mergeScoutTeams("B", "C", [...teams.slice(0, 2), team("C", "Cubs", true)], []);
+    expect(out.teams.find((t) => t.id === "C")?.isMine).toBe(true);
+    const other = mergeScoutTeams("C", "A", [teams[0]!, team("C", "Cubs", true)], []);
+    expect(other.teams.find((t) => t.id === "A")?.isMine).toBe(true);
+  });
+
+  it("does nothing for an unknown team or a team merged into itself", () => {
+    const games = [game("A", "C", 3, 2, "u9")];
+    expect(mergeScoutTeams("Z", "A", teams, games)).toEqual({ teams, games, droppedGames: 0 });
+    expect(mergeScoutTeams("A", "Z", teams, games)).toEqual({ teams, games, droppedGames: 0 });
+    expect(mergeScoutTeams("A", "A", teams, games).teams).toBe(teams);
+  });
+
+  it("leaves a survivor with nothing to gain as the same object", () => {
+    const out = mergeScoutTeams("C", "A", teams, []);
+    expect(out.teams.find((t) => t.id === "A")).toBe(teams[0]);
+  });
+
+  it("is what renameScoutTeam does when the new name is taken", () => {
+    const games = [game("B", "C", 4, 9, "u9")];
+    const renamed = renameScoutTeam("B", "Aces", teams, games);
+    const merged = mergeScoutTeams("B", "A", teams, games);
+    expect(renamed.mergedInto?.id).toBe("A");
+    expect(renamed.teams).toEqual(merged.teams);
+    expect(renamed.games).toEqual(merged.games);
+    // The links came along, which a plain rename-and-delete would have lost.
+    expect(renamed.teams.find((t) => t.id === "A")?.gcTeams).toHaveLength(2);
+  });
+});
+
+describe("unlinkGcTeam", () => {
+  const teams: ScoutTeam[] = [
+    { ...team("A", "Aces"), gcTeams: [link("gc1", "u9"), link("gc2", "u10")] },
+    { ...team("B", "Bears"), gcTeams: [link("gc3", "u9")] },
+  ];
+
+  it("removes one link and leaves the rest", () => {
+    const out = unlinkGcTeam("A", "gc1", teams);
+    expect(out.find((t) => t.id === "A")?.gcTeams?.map((l) => l.teamId)).toEqual(["gc2"]);
+    expect(out.find((t) => t.id === "B")).toBe(teams[1]);
+  });
+
+  it("leaves a plain name-only team when the last link comes off", () => {
+    const out = unlinkGcTeam("B", "gc3", teams);
+    expect(out.find((t) => t.id === "B")).toEqual({ id: "B", name: "Bears" });
+    expect("gcTeams" in out.find((t) => t.id === "B")!).toBe(false);
+  });
+
+  it("changes nothing when the team does not carry that id", () => {
+    const out = unlinkGcTeam("A", "gc3", teams);
+    expect(out[0]).toBe(teams[0]);
+    expect(out[1]).toBe(teams[1]);
+  });
+});
+
+describe("createScoutTeam", () => {
+  it("creates a team without matching an existing one by name", () => {
+    const first = createScoutTeam("Yankees", []);
+    const second = createScoutTeam("Yankees", first.teams);
+    expect(second.teams).toHaveLength(2);
+    expect(second.teamId).not.toBe(first.teamId);
+    expect(second.team.name).toBe("Yankees");
+  });
+
+  it("mints ids the way resolveOrCreateTeam does", () => {
+    const resolved = resolveOrCreateTeam("Thunder Hawks", []);
+    const created = createScoutTeam("Thunder Hawks", []);
+    expect(created.teamId).toBe(resolved.teamId);
+    expect(created.teamId.startsWith("S-")).toBe(true);
+  });
+
+  it("strips the age label and applies extras, but never the id or name", () => {
+    const { team: created } = createScoutTeam("NV Stars 9u Scout", [], {
+      id: "hijack",
+      name: "Other",
+      state: "KY",
+      city: "Georgetown",
+      gcTeams: [link("gc1", "u9")],
+    });
+    expect(created.name).toBe("NV Stars Scout");
+    expect(created.id).not.toBe("hijack");
+    expect(created.state).toBe("KY");
+    expect(created.city).toBe("Georgetown");
+    expect(created.gcTeams).toHaveLength(1);
+  });
+
+  it("adds no key for an extra that is undefined", () => {
+    const { team: created } = createScoutTeam("Aces", [], { state: undefined, city: undefined });
+    expect(created).toEqual({ id: created.id, name: "Aces" });
+    expect("state" in created).toBe(false);
+  });
+});
+
+describe("teamsInRankingPool / teamRecordInPool", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs"), team("D", "Ducks")];
+  const games = [
+    game("A", "B", 5, 3, "u9"),
+    withLevels(game("A", "C", 2, 6, "u10"), { a: 9 }),
+    game("C", "D", undefined, undefined, "u10"),
+    game("A", "D", 8, 1, "u9next"),
+  ];
+
+  it("lists every team with a counted game anywhere in the pool", () => {
+    expect(
+      teamsInRankingPool("u9", teams, games, pool)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B", "C"]);
+    // teamsInAgeGroup keeps its narrower meaning.
+    expect(
+      teamsInAgeGroup("u9", teams, games)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B"]);
+  });
+
+  it("counts a team's record across the pool, cross-age games included", () => {
+    expect(teamRecordInPool("A", "u9", games, pool)).toEqual({
+      wins: 1,
+      losses: 1,
+      ties: 0,
+      games: 2,
+      crossAgeGames: 1,
+    });
+    expect(teamRecordInPool("C", "u10", games, pool)).toEqual({
+      wins: 1,
+      losses: 0,
+      ties: 0,
+      games: 1,
+      crossAgeGames: 1,
+    });
+    expect(teamRecordInPool("A", "u9next", games, pool).games).toBe(1);
+  });
+});
+
+describe("buildTeamRankings with a season-year pool", () => {
+  const rowsById = (rows: ReturnType<typeof buildTeamRankings>) =>
+    new Map(rows.map((row) => [row.teamId, row]));
+
+  it("rates two groups of one year together", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [
+      game("A", "B", 6, 3, "u9"),
+      // B, a 9U, beat a 10U on the 10U page.
+      withLevels(game("B", "C", 5, 2, "u10"), { a: 9 }),
+    ];
+    const pooled = rowsById(buildTeamRankings("u9", teams, games, undefined, pool));
+    const alone = rowsById(buildTeamRankings("u9", teams, games));
+
+    expect([...pooled.keys()].sort()).toEqual(["A", "B"]);
+    expect(pooled.get("B")!.rating).toBeGreaterThan(alone.get("B")!.rating);
+    expect(pooled.get("B")!.record).toBe("1-1");
+    expect(pooled.get("B")!.games).toBe(2);
+    expect(pooled.get("B")!.crossAgeGames).toBe(1);
+    expect(pooled.get("A")!.crossAgeGames).toBe(0);
+    expect(pooled.get("A")!.ageLevel).toBe(9);
+  });
+
+  it("lists a team on the page of its home level, not where its games are filed", () => {
+    const teams = [
+      team("A", "Aces"),
+      team("B", "Bears"),
+      { ...team("C", "Cubs"), gcTeams: [link("gcC", "u10", { season: "fall", seasonYear: 2026 })] },
+    ];
+    // C played down in the 9U group and nothing is filed under its own page.
+    const games = [game("A", "B", 6, 3, "u9"), game("C", "A", 9, 2, "u9")];
+
+    const nine = buildTeamRankings("u9", teams, games, undefined, pool);
+    expect(nine.map((row) => row.teamId).sort()).toEqual(["A", "B"]);
+    // C is still a node: A's rating reflects the loss to it.
+    const aloneA = buildTeamRankings("u9", teams, [games[0]!]).find((r) => r.teamId === "A")!;
+    expect(nine.find((r) => r.teamId === "A")!.rating).not.toBeCloseTo(aloneA.rating, 6);
+
+    const ten = buildTeamRankings("u10", teams, games, undefined, pool);
+    expect(ten.map((row) => row.teamId)).toEqual(["C"]);
+    expect(ten[0]!.ageLevel).toBe(10);
+    expect(ten[0]!.fromGameChanger).toBe(true);
+    expect(ten[0]!.record).toBe("1-0");
+  });
+
+  it("returns no table for an 8U page, whose games still count as evidence", () => {
+    expect(isRankedAgeLevel(8)).toBe(false);
+    expect(isRankedAgeLevel(MIN_RANKED_AGE_LEVEL)).toBe(true);
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("E", "Eights")];
+    const games = [
+      game("A", "B", 4, 3, "u9"),
+      // A 9U playing down against an 8U, filed on the 8U page.
+      withLevels(game("A", "E", 10, 2, "u8"), { a: 9 }),
+    ];
+    expect(buildTeamRankings("u8", teams, games, undefined, pool)).toEqual([]);
+    expect(
+      teamsInRankingPool("u8", teams, games, pool)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B", "E"]);
+
+    const nine = rowsById(buildTeamRankings("u9", teams, games, undefined, pool));
+    expect([...nine.keys()].sort()).toEqual(["A", "B"]);
+    expect(nine.get("A")!.record).toBe("2-0");
+    expect(nine.get("A")!.crossAgeGames).toBe(1);
+  });
+
+  it("credits playing up in strength of schedule and debits playing down", () => {
+    const teams = [team("A", "Aces"), team("C", "Cubs"), team("D", "Ducks")];
+    const games = [
+      // Two evenly matched 10Us.
+      game("C", "D", 4, 4, "u10"),
+      game("D", "C", 3, 3, "u10"),
+      // A 9U loses to one of them by the two runs a year of age is expected to be worth.
+      withLevels(game("A", "C", 3, 5, "u10"), { a: 9 }),
+    ];
+    const nine = buildTeamRankings("u9", teams, games, undefined, pool);
+    const ten = rowsById(buildTeamRankings("u10", teams, games, undefined, pool));
+
+    expect(nine.map((row) => row.teamId)).toEqual(["A"]);
+    const a = nine[0]!;
+    // Losing by the expected margin is playing even, not losing.
+    expect(Math.abs(a.rating)).toBeLessThan(0.5);
+    expect(a.strengthOfSchedule).toBeGreaterThan(1);
+    expect(a.record).toBe("0-1");
+    expect(a.sosRank).toBe(1);
+
+    // From C's seat the 9U was worth about two runs less than its rating.
+    expect(ten.get("C")!.strengthOfSchedule).toBeLessThan(0);
+    expect(ten.get("C")!.strengthOfSchedule).toBeLessThan(ten.get("D")!.strengthOfSchedule);
+    expect(ten.get("C")!.crossAgeGames).toBe(1);
+    expect(ten.get("D")!.crossAgeGames).toBe(0);
+
+    // The same loss read as a same-level game would have counted against A.
+    const flat = buildTeamRankings("u10", teams, [
+      games[0]!,
+      games[1]!,
+      game("A", "C", 3, 5, "u10"),
+    ]);
+    expect(flat.find((row) => row.teamId === "A")!.rating).toBeLessThan(-0.5);
+  });
+
+  it("skips a game whose team is not in the roster", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const games = [game("A", "B", 6, 3, "u9"), game("A", "Z", 0, 9, "u9")];
+    const rows = buildTeamRankings("u9", teams, games, undefined, pool);
+    expect(rows.map((row) => row.teamId).sort()).toEqual(["A", "B"]);
+    expect(rows.find((row) => row.teamId === "A")!.games).toBe(1);
+    expect(rows.find((row) => row.teamId === "A")!.record).toBe("1-0");
+  });
+
+  it("lists only teams with a counted game in the pool", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [game("A", "B", 6, 3, "u9"), game("A", "C", undefined, undefined, "u9")];
+    expect(
+      buildTeamRankings("u9", teams, games, undefined, pool)
+        .map((row) => row.teamId)
+        .sort()
+    ).toEqual(["A", "B"]);
+  });
+
+  it("keeps a team of unknown level on the page its games are filed under", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    // Filed under a legacy group with no level: nothing says what level anyone is.
+    const games = [game("A", "B", 6, 3, "old")];
+    const rows = buildTeamRankings("old", teams, games, undefined, pool);
+    expect(rows.map((row) => row.teamId).sort()).toEqual(["A", "B"]);
+    rows.forEach((row) => expect(row.ageLevel).toBeUndefined());
+  });
+
+  it("agrees with the single-group ranking when the pool is one group with no cross-age games", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+    const games = [
+      game("A", "B", 10, 2, "u9next"),
+      game("A", "C", 8, 1, "u9next"),
+      game("B", "C", 4, 4, "u9next"),
+    ];
+    const pooled = buildTeamRankings("u9next", teams, games, undefined, pool);
+    const alone = buildTeamRankings("u9next", teams, games);
+    expect(pooled.map((row) => row.teamId)).toEqual(alone.map((row) => row.teamId));
+    pooled.forEach((row, index) => {
+      expect(row.rating).toBeCloseTo(alone[index]!.rating, 8);
+      expect(row.strengthOfSchedule).toBeCloseTo(alone[index]!.strengthOfSchedule, 8);
+      expect(row.record).toBe(alone[index]!.record);
+      expect(row.sosRank).toBe(alone[index]!.sosRank);
+    });
+  });
+
+  it("flags the page's own team the same way", () => {
+    const teams = [team("A", "Aces", true), team("B", "Bears")];
+    const games = [game("A", "B", 6, 3, "u9")];
+    const rows = buildTeamRankings("u9", teams, games, "B", pool);
+    expect(rows.filter((row) => row.isMine).map((row) => row.teamId)).toEqual(["B"]);
+  });
+});
+
+describe("buildTeamRankings without ageGroups", () => {
+  it("is the single-group ranking, with the new fields defaulted", () => {
+    const teams = [team("A", "Aces"), { ...team("B", "Bears"), gcTeams: [link("gcB", "ag1")] }];
+    // A recorded level makes no difference without age groups: nothing pools, nothing gaps.
+    const games = [withLevels(game("A", "B", 6, 3, "ag1"), { b: 8 })];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const byId = new Map(rows.map((row) => [row.teamId, row]));
+    expect(byId.get("A")!.crossAgeGames).toBe(0);
+    expect(byId.get("A")!.fromGameChanger).toBe(false);
+    expect(byId.get("B")!.fromGameChanger).toBe(true);
+    expect(byId.get("A")!.ageLevel).toBeUndefined();
+    expect(byId.get("A")!.rating).toBeCloseTo(-byId.get("B")!.rating, 10);
+  });
+});
+
+describe("teamNameSuggestions with a pool", () => {
+  it("offers a team pulled onto this page before it has played anyone here", () => {
+    const teams = [
+      team("A", "Aces"),
+      { ...team("B", "Bears"), gcTeams: [link("gcB", "u9", { season: "fall", seasonYear: 2026 })] },
+      { ...team("C", "Cubs"), gcTeams: [link("gcC", "u10", { season: "fall", seasonYear: 2026 })] },
+    ];
+    const games = [game("A", "D", 5, 2, "u9")];
+    expect(
+      teamNameSuggestions("u9", pool, teams, games)
+        .map((t) => t.id)
+        .sort()
+    ).toEqual(["A", "B"]);
+    expect(teamNameSuggestions("u10", pool, teams, games).map((t) => t.id)).toEqual(["C"]);
+  });
+
+  it("does not offer a team from another season year", () => {
+    const teams = [{ ...team("B", "Bears"), gcTeams: [link("gcB", "u9next")] }];
+    expect(teamNameSuggestions("u9", pool, teams, [])).toEqual([]);
   });
 });
