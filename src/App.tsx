@@ -2571,6 +2571,21 @@ export default function App() {
     [teams, matchups, deferredLogs, settings]
   );
 
+  /**
+   * This season's schedule in the shape `externalResultsForSeason` matches stored games against:
+   * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
+   * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
+   * team's schedule would feed this season's own games back in as if they were outside results.
+   */
+  const seasonFixtures = useMemo(() => {
+    const nameById = new Map(teams.map((team) => [team.id, team.name]));
+    return matchups.map((game) => ({
+      away: nameById.get(game.away) ?? "",
+      home: nameById.get(game.home) ?? "",
+      date: game.date,
+    }));
+  }, [teams, matchups]);
+
   // Tournament results logged in Team Rankings, for age groups that include this season. Read
   // from storage rather than held in state: Team Rankings owns them, this view only borrows.
   const externalResults = useMemo(() => {
@@ -2583,9 +2598,10 @@ export default function App() {
       loadAgeGroups(),
       loadScoutTeams(),
       loadScoutGames(),
-      liveTeams
+      liveTeams,
+      seasonFixtures
     );
-  }, [settings.useScoutResults, activeSeasonId, liveTeams, scoutRevision]);
+  }, [settings.useScoutResults, activeSeasonId, liveTeams, seasonFixtures, scoutRevision]);
 
   const predictionEngine = useMemo(
     () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings, externalResults),

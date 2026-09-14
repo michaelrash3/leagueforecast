@@ -2,6 +2,7 @@ import type { GameLog, Matchup, TeamBase } from "./types";
 import { buildOpponentAdjustedRatings } from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
 import { createTeamId } from "./sim";
+import { normalizeDateInput } from "./date";
 
 /**
  * Team Rankings is a separate, age-group-scoped-but-globally-rostered ranking pool: teams are a
@@ -690,6 +691,86 @@ export const findDuplicateGame = (candidate: ScoutGame, games: ScoutGame[]): Sco
   return found ?? null;
 };
 
+/**
+ * One fixture's identity: the age group, the two sides in either order, and the calendar day.
+ *
+ * The day is what decides it. Two clubs that meet again in October are not playing the same game
+ * over — that is a tournament meeting outside league play, and it has to stay a game of its own.
+ * Dates run through `normalizeDateInput` because the two sources spell a day differently: the
+ * league keeps month-and-day ("4/12") while a pulled game keeps an ISO date ("2027-04-12"), so a
+ * raw string compare would never match the pair it is meant to catch.
+ *
+ * Returns "" for a game with no readable date, which callers read as "this one cannot be matched"
+ * — better to leave a dateless game alone than to fold it into a fixture it may not belong to.
+ */
+const fixtureKeyOf = (game: ScoutGame): string => {
+  const day = normalizeDateInput(game.date ?? "");
+  return day ? `${game.ageGroupId}|${pairKeyOf(game)}|${day}` : "";
+};
+
+/**
+ * Collapses a league-derived game and the stored game that is the same real fixture down to one
+ * row.
+ *
+ * Team Rankings pools two sources: `deriveLeagueScoutGames` rebuilds a row for every League
+ * Standings matchup on every render, and a GameChanger pull stores rows of its own. A club that
+ * pulls the schedule of a team playing in a league it also tracks here ends up holding the same
+ * real fixture twice, and once it goes final both copies carry a score — so the rating fits it
+ * twice and the record counts the win twice. Filling in a league game from a pull is wanted;
+ * adding a second league game is not.
+ *
+ * Which copy survives follows from which one is actually evidence:
+ *  - Every league row for the fixture already scored: the league's own book is authoritative for
+ *    its own games, so the league rows stay and the stored duplicates go.
+ *  - Otherwise the stored row carries the only result anyone has, so it stays and the league row
+ *    it stands in for — an unscored one first, since that is the row with nothing in it — goes.
+ *    League rows beyond the number of stored rows stay put, so a fixture nobody has a result for
+ *    still shows up as scheduled.
+ *
+ * Only a league row triggers any of this. Two stored games between the same pair on the same day
+ * with no league row are a doubleheader somebody logged twice on purpose, and both are kept; a
+ * doubleheader that the league *does* carry is resolved by count rather than by guessing which
+ * stored row pairs with which league row, because nothing in either source says.
+ */
+export const dedupeLeagueFixtures = (games: ScoutGame[]): ScoutGame[] => {
+  // Indexed in a single pass rather than scanned per game: this runs on every render over a pool
+  // that can hold tens of thousands of rows, and comparing each game against all the others would
+  // not survive that.
+  const byFixture = new Map<string, { league: number[]; stored: number[] }>();
+  games.forEach((game, index) => {
+    const key = fixtureKeyOf(game);
+    if (!key) return;
+    let bucket = byFixture.get(key);
+    if (!bucket) {
+      bucket = { league: [], stored: [] };
+      byFixture.set(key, bucket);
+    }
+    (game.id.startsWith(LEAGUE_GAME_PREFIX) ? bucket.league : bucket.stored).push(index);
+  });
+
+  const dropped = new Set<number>();
+  byFixture.forEach(({ league, stored }) => {
+    // A fixture only one source knows about is not a duplicate of anything.
+    if (league.length === 0 || stored.length === 0) return;
+
+    if (league.every((index) => isScoutGamePlayed(games[index]!))) {
+      stored.forEach((index) => dropped.add(index));
+      return;
+    }
+
+    // Unscored league rows are the ones the stored rows are standing in for, so they go first.
+    const emptiestFirst = league
+      .slice()
+      .sort((a, b) => Number(isScoutGamePlayed(games[a]!)) - Number(isScoutGamePlayed(games[b]!)));
+    emptiestFirst.slice(0, stored.length).forEach((index) => dropped.add(index));
+  });
+
+  // The common case is a pool with nothing to collapse; hand back the same array so callers that
+  // memoize on identity are not re-run for a list that did not change.
+  if (dropped.size === 0) return games;
+  return games.filter((_, index) => !dropped.has(index));
+};
+
 const recordFor = (teamId: string, playedGames: ScoutGame[]) => {
   let wins = 0;
   let losses = 0;
@@ -1181,6 +1262,13 @@ export const buildScoutingReport = (
  * an age group that includes this season, minus the ones that came *from* the league schedule in
  * the first place. Counting those twice would quietly double the weight of every league game.
  *
+ * "Came from the league" covers two shapes. A row `deriveLeagueScoutGames` built carries the
+ * `league_` prefix and is easy to spot. A row a GameChanger pull stored for a league fixture does
+ * not — it looks exactly like a tournament result — so it is matched against `seasonFixtures` the
+ * way `dedupeLeagueFixtures` matches one: same two clubs by name, same calendar day. The day is
+ * again what decides it, so the same two clubs meeting at a fall tournament still comes back as
+ * the outside result it is.
+ *
  * Teams are matched to the league by name, since the two sides keep separate ids for the same club.
  * An opponent with no league counterpart keeps an id of its own, so the rating model can estimate
  * how good it was instead of assuming — which is the whole point: a shared tournament opponent is
@@ -1191,7 +1279,13 @@ export const externalResultsForSeason = (
   ageGroups: AgeGroup[],
   teams: ScoutTeam[],
   games: ScoutGame[],
-  leagueTeams: { id: string; name: string }[]
+  leagueTeams: { id: string; name: string }[],
+  /**
+   * This season's own schedule — league team *names* and the league's own date string — so a
+   * stored game that is really one of these fixtures can be recognised. Required rather than
+   * optional so a new caller has to answer the question instead of silently reopening the leak.
+   */
+  seasonFixtures: { away: string; home: string; date: string }[]
 ): { home: string; away: string; homeMargin: number }[] => {
   const linked = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
@@ -1200,6 +1294,28 @@ export const externalResultsForSeason = (
 
   const leagueIdByName = new Map(leagueTeams.map((team) => [teamNameKey(team.name), team.id]));
   const scoutNameById = new Map(teams.map((team) => [team.id, team.name]));
+
+  /** Two names and a day as one order-free key, so away-vs-home compares equal either way. */
+  const nameFixtureKey = (away: string, home: string, date: string): string => {
+    const day = normalizeDateInput(date ?? "");
+    if (!day) return "";
+    return `${[teamNameKey(away), teamNameKey(home)].sort().join("|")}|${day}`;
+  };
+
+  const fixtureKeys = new Set(
+    seasonFixtures
+      .map(({ away, home, date }) => nameFixtureKey(away, home, date))
+      .filter((key) => key !== "")
+  );
+
+  const isSeasonFixture = (game: ScoutGame): boolean => {
+    if (fixtureKeys.size === 0) return false;
+    const away = scoutNameById.get(game.teamAId);
+    const home = scoutNameById.get(game.teamBId);
+    if (!away || !home) return false;
+    const key = nameFixtureKey(away, home, game.date ?? "");
+    return key !== "" && fixtureKeys.has(key);
+  };
 
   // A league team's own id where the name matches; otherwise an id of this opponent's own that
   // cannot collide with a league one.
@@ -1214,6 +1330,7 @@ export const externalResultsForSeason = (
       (game) =>
         linked.has(game.ageGroupId) &&
         !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+        !isSeasonFixture(game) &&
         countsTowardRating(game)
     )
     .map((game) => ({

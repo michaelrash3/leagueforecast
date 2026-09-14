@@ -13,6 +13,7 @@ import {
   seasonYearOptions,
   buildScoutingReport,
   buildTeamRankings,
+  dedupeLeagueFixtures,
   deriveLeagueScoutGames,
   findDuplicateGame,
   isScoutGamePlayed,
@@ -483,6 +484,129 @@ describe("buildScoutingReport", () => {
   });
 });
 
+describe("dedupeLeagueFixtures", () => {
+  const leagueRow = (
+    id: string,
+    teamAId: string,
+    teamBId: string,
+    date: string,
+    teamAScore?: number,
+    teamBScore?: number
+  ): ScoutGame => ({
+    ...game(teamAId, teamBId, teamAScore, teamBScore),
+    id: `league_spring2027_${id}`,
+    date,
+  });
+
+  const storedRow = (
+    id: string,
+    teamAId: string,
+    teamBId: string,
+    date: string,
+    teamAScore?: number,
+    teamBScore?: number
+  ): ScoutGame => ({
+    ...game(teamAId, teamBId, teamAScore, teamBScore),
+    id: `gc_t1_${id}`,
+    date,
+  });
+
+  it("drops the pulled copy of a league game the league has already scored", () => {
+    // The league's own book is authoritative for its own games, and the pull is a second copy of
+    // the same fixture rather than a second game.
+    const league = leagueRow("m1", "A", "B", "4/12", 7, 3);
+    const pulled = storedRow("g1", "A", "B", "2027-04-12", 7, 3);
+
+    const out = dedupeLeagueFixtures([league, pulled]);
+    expect(out).toEqual([league]);
+  });
+
+  it("counts a fixture once in the ratings after the duplicate is dropped", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const pool = dedupeLeagueFixtures([
+      leagueRow("m1", "A", "B", "4/12", 7, 3),
+      storedRow("g1", "A", "B", "2027-04-12", 7, 3),
+    ]);
+    const rows = buildTeamRankings("ag1", teams, pool);
+    expect(rows.map((row) => row.games)).toEqual([1, 1]);
+    expect(rows.find((row) => row.teamId === "A")?.record).toBe("1-0");
+  });
+
+  it("keeps both when the same pair met on another day", () => {
+    // Two league opponents can meet at a tournament outside league play. That is a real second
+    // game and must not be folded into the league fixture.
+    const league = leagueRow("m1", "A", "B", "4/12", 7, 3);
+    const tournament = storedRow("g1", "A", "B", "2027-06-01", 2, 5);
+
+    expect(dedupeLeagueFixtures([league, tournament])).toEqual([league, tournament]);
+  });
+
+  it("keeps the pulled result when the league row has no score yet", () => {
+    // The pull is the only evidence the game was played, so it stands in for the empty league row.
+    const league = leagueRow("m1", "A", "B", "4/12");
+    const pulled = storedRow("g1", "B", "A", "2027-04-12", 3, 7);
+
+    expect(dedupeLeagueFixtures([league, pulled])).toEqual([pulled]);
+  });
+
+  it("resolves a doubleheader by count rather than by pairing rows off", () => {
+    const leagueOne = leagueRow("m1", "A", "B", "4/12", 7, 3);
+    const leagueTwo = leagueRow("m2", "A", "B", "4/12", 1, 2);
+    const pulledOne = storedRow("g1", "A", "B", "2027-04-12", 7, 3);
+    const pulledTwo = storedRow("g2", "A", "B", "2027-04-12", 1, 2);
+
+    const bothScored = dedupeLeagueFixtures([leagueOne, leagueTwo, pulledOne, pulledTwo]);
+    expect(bothScored).toEqual([leagueOne, leagueTwo]);
+
+    // With the league rows still empty the two pulled rows are the only results there are.
+    const empty = [leagueRow("m1", "A", "B", "4/12"), leagueRow("m2", "A", "B", "4/12")];
+    expect(dedupeLeagueFixtures([...empty, pulledOne, pulledTwo])).toEqual([pulledOne, pulledTwo]);
+  });
+
+  it("leaves a league row over for a fixture no stored row stands in for", () => {
+    // Two league games that day, one pulled result. The pulled row stands in for one of them; the
+    // other is left alone so the fixture nobody has a result for still shows as scheduled.
+    const first = leagueRow("m1", "A", "B", "4/12");
+    const second = leagueRow("m2", "A", "B", "4/12");
+    const pulled = storedRow("g1", "A", "B", "2027-04-12", 7, 3);
+
+    const out = dedupeLeagueFixtures([first, second, pulled]);
+    expect(out).toHaveLength(2);
+    expect(out.filter((row) => row.id.startsWith("league_"))).toHaveLength(1);
+    expect(out).toContain(pulled);
+  });
+
+  it("leaves two hand-logged games on one day alone when no league row claims them", () => {
+    // A doubleheader somebody logged twice on purpose. Only a league row triggers a collapse.
+    const first = storedRow("g1", "A", "B", "2027-04-12", 7, 3);
+    const second = storedRow("g2", "A", "B", "2027-04-12", 1, 2);
+
+    expect(dedupeLeagueFixtures([first, second])).toEqual([first, second]);
+  });
+
+  it("hands back the same array when there is nothing to collapse", () => {
+    const games = [
+      storedRow("g1", "A", "B", "2027-04-12", 7, 3),
+      storedRow("g2", "A", "C", "2027-04-19", 5, 4),
+    ];
+    expect(dedupeLeagueFixtures(games)).toBe(games);
+  });
+
+  it("does not fold together games filed under different age groups", () => {
+    const league = { ...leagueRow("m1", "A", "B", "4/12", 7, 3), ageGroupId: "ag1" };
+    const pulled = { ...storedRow("g1", "A", "B", "2027-04-12", 7, 3), ageGroupId: "ag2" };
+
+    expect(dedupeLeagueFixtures([league, pulled])).toEqual([league, pulled]);
+  });
+
+  it("leaves a dateless game alone, since nothing says which fixture it is", () => {
+    const league = leagueRow("m1", "A", "B", "", 7, 3);
+    const pulled = storedRow("g1", "A", "B", "", 7, 3);
+
+    expect(dedupeLeagueFixtures([league, pulled])).toEqual([league, pulled]);
+  });
+});
+
 describe("externalResultsForSeason", () => {
   const leagueTeams = [
     { id: "L-ACE", name: "Aces" },
@@ -496,7 +620,7 @@ describe("externalResultsForSeason", () => {
 
   it("maps a team to its league id by name and reports the margin", () => {
     const games = [game("A", "B", 7, 3, "ag1")];
-    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, [])).toEqual([
       { home: "L-ACE", away: "L-BEA", homeMargin: 4, neutral: true },
     ]);
   });
@@ -508,7 +632,7 @@ describe("externalResultsForSeason", () => {
       { ...game("A", "B", 7, 3, "ag1"), id: "league_spring2027_m1" },
       game("A", "B", 5, 4, "ag1"),
     ];
-    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, []);
     expect(out).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 1, neutral: true }]);
   });
 
@@ -516,7 +640,7 @@ describe("externalResultsForSeason", () => {
     // The point of including these: the model estimates how good the travel club was, rather than
     // assuming, which is what makes a shared opponent informative.
     const games = [game("A", "X", 2, 6, "ag1")];
-    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams);
+    const out = externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, []);
     expect(out).toHaveLength(1);
     expect(out[0]?.home).toBe("L-ACE");
     expect(out[0]?.away).not.toBe("L-BEA");
@@ -526,23 +650,51 @@ describe("externalResultsForSeason", () => {
 
   it("ignores age groups that do not include this season", () => {
     const games = [game("A", "B", 7, 3, "ag2")];
-    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, [])).toEqual(
+      []
+    );
   });
 
   it("returns nothing when no age group is linked to the season at all", () => {
     const games = [game("A", "B", 7, 3, "ag1")];
-    expect(externalResultsForSeason("winter2099", groups, teams, games, leagueTeams)).toEqual([]);
+    expect(externalResultsForSeason("winter2099", groups, teams, games, leagueTeams, [])).toEqual(
+      []
+    );
   });
 
   it("skips a scheduled game that has no score yet", () => {
     const games = [game("A", "B", undefined, undefined, "ag1")];
-    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, [])).toEqual(
+      []
+    );
+  });
+
+  it("skips a pulled game that is really one of this season's own fixtures", () => {
+    // A GameChanger row for a league game has no `league_` id to give it away, so without the
+    // season's schedule it would be fed back as an outside result and counted twice.
+    const games: ScoutGame[] = [
+      { ...game("A", "B", 7, 3, "ag1"), id: "gc_t1_g1", date: "2027-04-12" },
+    ];
+    const fixtures = [{ away: "Bears", home: "Aces", date: "4/12" }];
+    expect(
+      externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, fixtures)
+    ).toEqual([]);
+  });
+
+  it("still returns the same pair's tournament game on another date", () => {
+    const games: ScoutGame[] = [
+      { ...game("A", "B", 7, 3, "ag1"), id: "gc_t1_g2", date: "2027-06-01" },
+    ];
+    const fixtures = [{ away: "Aces", home: "Bears", date: "4/12" }];
+    expect(
+      externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, fixtures)
+    ).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 4, neutral: true }]);
   });
 
   it("matches names across age labels, as everything else here does", () => {
     const aged = [team("A", "Aces 9U"), team("B", "Bears")];
     const games = [game("A", "B", 7, 3, "ag1")];
-    const out = externalResultsForSeason("spring2027", groups, aged, games, leagueTeams);
+    const out = externalResultsForSeason("spring2027", groups, aged, games, leagueTeams, []);
     expect(out[0]?.home).toBe("L-ACE");
   });
 });
@@ -737,7 +889,9 @@ describe("games that do not count", () => {
       { id: "L-BEA", name: "Bears" },
     ];
     const games = [{ ...game("A", "B", 12, 1, "ag1"), excluded: true }];
-    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams)).toEqual([]);
+    expect(externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, [])).toEqual(
+      []
+    );
   });
 });
 

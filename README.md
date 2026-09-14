@@ -201,12 +201,32 @@ out of a table nobody can check:
 | Case                                 | What happens                                                                                               |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
+| The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                               |
 | A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
 | A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
+
+The league and GameChanger rarely agree on how long a club's name is — "Trash
+Pandas" against "Trash Pandas Baseball Club" — and a league game left unmatched
+looks exactly like one that has not been played, which is what makes silence
+here dangerous. So a game the names missed gets a second look against the
+results on its own day, under the looser rule the importer already uses, and
+anything that lines up is offered rather than applied. Correcting the name in
+Team Rankings makes it match on its own from then on. Two clubs close enough to
+be confused with each other on the same day are reported instead: "South
+Lexington Red" and "…Blue" are four characters apart and are two real teams.
 
 Games the league itself put into the pool are excluded on the way back, so a
 season can never confirm its own scores. Anything already typed into a game —
 hits, strikeouts, the innings it was stored with — survives the fill untouched.
+
+**One fixture, one game.** A club that tracks a league here and also pulls the
+GameChanger team playing in it has the same fixture twice over: once derived
+from the league schedule, once pulled. The pool counts it once, preferring the
+league's own record where the league has scored it, so a rating never counts a
+game twice. The day is what decides this — the same two clubs meeting on another
+date played outside league play, and that game stands on its own. Results
+carried back into the league's own forecasts skip its fixtures for the same
+reason.
 
 ### Names
 

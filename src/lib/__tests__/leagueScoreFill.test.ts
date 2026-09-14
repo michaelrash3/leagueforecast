@@ -180,6 +180,119 @@ describe("planLeagueScoreFill", () => {
     expect(defaultFillSelection(plan)).toEqual([]);
   });
 
+  it("offers a club the two halves spell differently, instead of saying nothing", () => {
+    // What a GameChanger pull actually stores: the club's full GameChanger name. A league typed by
+    // hand says "Trash Pandas". Left to an exact match this game silently reads as unplayed.
+    const plan = planLeagueScoreFill(
+      input({
+        teams: [
+          { id: "ACES", name: "Aces" },
+          { id: "TP", name: "Trash Pandas" },
+        ],
+        matchups: [matchup("g1", "9/5", "ACES", "TP")],
+        scoutTeams: [
+          { id: "S-ACES", name: "Aces" },
+          { id: "S-TP", name: "Trash Pandas Baseball Club" },
+        ],
+        scoutGames: [scoutGame("s1", "S-ACES", "S-TP", 13, 2, "2026-09-05")],
+      })
+    );
+    const row = plan.rows[0]!;
+    expect(row.action).toBe("suggested");
+    expect(row.awayRuns).toBe(13);
+    expect(row.homeRuns).toBe(2);
+    expect(row.poolHomeName).toBe("Trash Pandas Baseball Club");
+    expect(row.detail).toContain("Trash Pandas Baseball Club");
+    // Offered, never applied unasked — the reader decides whether it is the same club.
+    expect(defaultFillSelection(plan)).toEqual([]);
+    expect(plan.unmatched).toBe(0);
+  });
+
+  it("fills a suggested row once it is chosen", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: [
+          { id: "ACES", name: "Aces" },
+          { id: "TP", name: "Trash Pandas" },
+        ],
+        matchups: [matchup("g1", "9/5", "ACES", "TP")],
+        scoutTeams: [
+          { id: "S-ACES", name: "Aces" },
+          { id: "S-TP", name: "Trash Pandas Baseball Club" },
+        ],
+        scoutGames: [scoutGame("s1", "S-ACES", "S-TP", 13, 2, "2026-09-05")],
+      })
+    );
+    const result = applyLeagueScoreFill(plan, ["g1"], {}, 6);
+    expect(result.logs.g1!.awayRuns).toBe("13");
+    expect(result.logs.g1!.homeRuns).toBe("2");
+    expect(result.logs.g1!.isFinal).toBe(true);
+  });
+
+  it("keeps two genuinely different clubs apart", () => {
+    // Four characters apart and two real teams. Nothing here may offer one as the other.
+    const plan = planLeagueScoreFill(
+      input({
+        teams: [
+          { id: "ACES", name: "Aces" },
+          { id: "SLR", name: "South Lexington Red" },
+        ],
+        matchups: [matchup("g1", "9/5", "ACES", "SLR")],
+        scoutTeams: [
+          { id: "S-ACES", name: "Aces" },
+          { id: "S-SLB", name: "South Lexington Blue" },
+        ],
+        scoutGames: [scoutGame("s1", "S-ACES", "S-SLB", 13, 2, "2026-09-05")],
+      })
+    );
+    expect(plan.rows).toEqual([]);
+    expect(plan.unmatched).toBe(1);
+  });
+
+  it("will not resolve a near name when two on the day could be it", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: [
+          { id: "ACES", name: "Aces" },
+          { id: "TP", name: "Trash Pandas" },
+        ],
+        matchups: [matchup("g1", "9/5", "ACES", "TP")],
+        scoutTeams: [
+          { id: "S-ACES", name: "Aces" },
+          { id: "S-TP1", name: "Trash Pandas Baseball Club" },
+          { id: "S-TP2", name: "Trash Pandas Select" },
+        ],
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-TP1", 13, 2, "2026-09-05"),
+          scoutGame("s2", "S-ACES", "S-TP2", 4, 5, "2026-09-05"),
+        ],
+      })
+    );
+    expect(plan.rows[0]!.action).toBe("ambiguous");
+    expect(plan.rows[0]!.detail).toContain("could be this game");
+  });
+
+  it("leaves a close name on another day alone, since that is a game outside league play", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: [
+          { id: "ACES", name: "Aces" },
+          { id: "TP", name: "Trash Pandas" },
+        ],
+        matchups: [matchup("g1", "9/5", "ACES", "TP")],
+        scoutTeams: [
+          { id: "S-ACES", name: "Aces" },
+          { id: "S-TP", name: "Trash Pandas Baseball Club" },
+        ],
+        // A tournament meeting three weeks earlier is not this league game.
+        scoutGames: [scoutGame("s1", "S-ACES", "S-TP", 13, 2, "2026-08-15")],
+      })
+    );
+    expect(plan.rows).toEqual([]);
+    expect(plan.unmatched).toBe(1);
+    expect(plan.unusedResults).toBe(1);
+  });
+
   it("never feeds the league its own games back", () => {
     // The pool carries the league's schedule already; those rows must not become evidence here.
     const plan = planLeagueScoreFill(

@@ -1,5 +1,6 @@
 import { normalizeDateInput } from "./date";
 import {
+  findSimilarTeam,
   isScoutGamePlayed,
   LEAGUE_GAME_PREFIX,
   teamNameKey,
@@ -20,16 +21,26 @@ import { blankLog, isFinal } from "./util";
  * every result of its league season sitting in the pool, and typing those same scores a second
  * time into the league schedule is work the app can do.
  *
- * What it will not do is guess. Every row is shown before anything is written, a score that
- * disagrees with one already entered is never quietly replaced, and a game the evidence cannot
- * single out is reported rather than resolved — because the cost of a wrong score here is a wrong
- * standings table, and the person reading it has no way to tell.
+ * Two teams and a day is what makes a league game and a pool result the same game. The day is the
+ * part that matters: the same two clubs meeting on another date played each other outside league
+ * play, and that game belongs to the pool alone.
+ *
+ * What this will not do is guess silently. Every row is shown before anything is written, a score
+ * that disagrees with one already entered is never quietly replaced, and a game the evidence
+ * cannot single out is reported rather than resolved — because the cost of a wrong score here is a
+ * wrong standings table, and the person reading it has no way to tell.
  */
 
 /** What filling one league game from the pool would do. */
 export type LeagueFillAction =
-  /** Nothing recorded here yet; the pool's result goes in. */
+  /** Nothing recorded here yet, and the two sides are named the same; the result goes in. */
   | "fill"
+  /**
+   * The same, except a club is spelled differently on the two sides — "Trash Pandas" here,
+   * "Trash Pandas Baseball Club" on GameChanger. Offered, never applied unasked, because the
+   * difference between a longer name and a different team is a judgement only the reader can make.
+   */
+  | "suggested"
   /** A different score is already recorded. Never applied unless it is asked for by name. */
   | "overwrite"
   /** The same score is already recorded, so there is nothing to do. */
@@ -51,6 +62,9 @@ export type LeagueFillRow = {
   action: LeagueFillAction;
   /** Why, whenever the action is not a plain fill. */
   detail?: string;
+  /** What the pool calls each side, given only when it differs from the league's own name. */
+  poolAwayName?: string;
+  poolHomeName?: string;
   /** The pool game the runs came from. Absent when nothing could be singled out. */
   scoutGameId?: string;
   /** GameChanger's own ids, when the result came from a pull rather than something typed. */
@@ -94,6 +108,21 @@ const runsText = (log: GameLog | undefined, side: "away" | "home") =>
 const hasRecordedRuns = (log: GameLog | undefined) =>
   runsText(log, "away").trim() !== "" && runsText(log, "home").trim() !== "";
 
+/**
+ * Whether a league team and a pool team are the same club.
+ *
+ * "exact" is the same name once age labels and case are set aside, which is what the pool already
+ * does to every name it stores. "similar" is the case this whole second pass exists for: a league
+ * typed as "Trash Pandas" against a GameChanger team called "Trash Pandas Baseball Club". That is
+ * `findSimilarTeam`'s judgement, reused rather than re-derived so both halves of the app agree
+ * about what counts as close — and it is deliberately stricter than it looks, stopping short of
+ * "South Lexington Red" against "…Blue".
+ */
+const clubMatch = (leagueName: string, poolTeam: ScoutTeam): "exact" | "similar" | null => {
+  if (teamNameKey(leagueName) === teamNameKey(poolTeam.name)) return "exact";
+  return findSimilarTeam(leagueName, [poolTeam]) ? "similar" : null;
+};
+
 export type LeagueScoreFillInput = {
   seasonId: string;
   teams: TeamBase[];
@@ -102,6 +131,16 @@ export type LeagueScoreFillInput = {
   ageGroups: AgeGroup[];
   scoutTeams: ScoutTeam[];
   scoutGames: ScoutGame[];
+};
+
+/** The two sides of a pool result, lined up with a league game's away and home teams. */
+type Alignment = {
+  awayRuns: number;
+  homeRuns: number;
+  /** "similar" when either side needed the looser name rule to line up. */
+  strength: "exact" | "similar";
+  poolAwayName: string;
+  poolHomeName: string;
 };
 
 /**
@@ -125,7 +164,7 @@ export const planLeagueScoreFill = ({
   const seasonLinked = linkedGroups.size > 0;
 
   const leagueNameById = new Map(teams.map((team) => [team.id, team.name]));
-  const scoutKeyById = new Map(scoutTeams.map((team) => [team.id, teamNameKey(team.name)]));
+  const scoutTeamById = new Map(scoutTeams.map((team) => [team.id, team]));
 
   /**
    * Results that could fill a league game: played, filed under an age group that claims this
@@ -133,28 +172,38 @@ export const planLeagueScoreFill = ({
    * important one — the pool carries the league's own games, and letting those flow back would be
    * the app confirming its own scores.
    */
+  const usable: ScoutGame[] = [];
   const poolByKey = new Map<string, ScoutGame[]>();
-  let usableResults = 0;
+  const poolByDate = new Map<string, ScoutGame[]>();
   scoutGames.forEach((game) => {
     if (!linkedGroups.has(game.ageGroupId)) return;
     if (game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
     if (!isScoutGamePlayed(game)) return;
     const date = normalizeDateInput(game.date ?? "");
     if (!date) return;
-    const keyA = scoutKeyById.get(game.teamAId);
-    const keyB = scoutKeyById.get(game.teamBId);
-    if (!keyA || !keyB || keyA === keyB) return;
-    const key = matchKey(keyA, keyB, date);
-    const bucket = poolByKey.get(key);
-    if (bucket) bucket.push(game);
+    const teamA = scoutTeamById.get(game.teamAId);
+    const teamB = scoutTeamById.get(game.teamBId);
+    if (!teamA || !teamB || teamA.id === teamB.id) return;
+
+    usable.push(game);
+    const key = matchKey(teamNameKey(teamA.name), teamNameKey(teamB.name), date);
+    const keyed = poolByKey.get(key);
+    if (keyed) keyed.push(game);
     else poolByKey.set(key, [game]);
-    usableResults += 1;
+    // The same results indexed by day alone, for the second pass over the names that did not
+    // line up exactly.
+    const dated = poolByDate.get(date);
+    if (dated) dated.push(game);
+    else poolByDate.set(date, [game]);
   });
   // Stable order, so a doubleheader is zipped the same way every time this runs.
-  poolByKey.forEach((bucket) => bucket.sort((a, b) => a.id.localeCompare(b.id)));
+  const byId = (a: ScoutGame, b: ScoutGame) => a.id.localeCompare(b.id);
+  poolByKey.forEach((bucket) => bucket.sort(byId));
+  poolByDate.forEach((bucket) => bucket.sort(byId));
 
   /** League games grouped the same way, so both sides of a doubleheader can be counted. */
   const leagueByKey = new Map<string, Matchup[]>();
+  const leagueDates = new Map<string, string>();
   matchups.forEach((matchup) => {
     const date = normalizeDateInput(matchup.date ?? "");
     if (!date) return;
@@ -162,6 +211,7 @@ export const planLeagueScoreFill = ({
     const homeName = leagueNameById.get(matchup.home);
     if (!awayName || !homeName) return;
     const key = matchKey(teamNameKey(awayName), teamNameKey(homeName), date);
+    leagueDates.set(matchup.id, date);
     const bucket = leagueByKey.get(key);
     if (bucket) bucket.push(matchup);
     else leagueByKey.set(key, [matchup]);
@@ -169,12 +219,102 @@ export const planLeagueScoreFill = ({
 
   const rows: LeagueFillRow[] = [];
   const claimed = new Set<string>();
-  let unmatched = 0;
+  /** League games the exact pass could not speak to; the name pass gets a turn at these. */
+  const leftovers: Matchup[] = [];
+  /** And the ones neither pass could reach — nothing in the pool is this game. */
+  const unmatchedLeagueGames: Matchup[] = [];
+
+  /** Lines a pool result up with a league game, or says it is not that game. */
+  const align = (game: ScoutGame, awayName: string, homeName: string): Alignment | null => {
+    const teamA = scoutTeamById.get(game.teamAId);
+    const teamB = scoutTeamById.get(game.teamBId);
+    if (!teamA || !teamB) return null;
+
+    // The pool stores the pulled team first, not the home team, so both orders are tried and the
+    // sides are decided by who each team is rather than by where it sits.
+    const asListed = { away: clubMatch(awayName, teamA), home: clubMatch(homeName, teamB) };
+    const reversed = { away: clubMatch(awayName, teamB), home: clubMatch(homeName, teamA) };
+    const awayIsA = Boolean(asListed.away && asListed.home);
+    const fit = awayIsA ? asListed : reversed;
+    if (!fit.away || !fit.home) return null;
+
+    return {
+      awayRuns: (awayIsA ? game.teamAScore : game.teamBScore)!,
+      homeRuns: (awayIsA ? game.teamBScore : game.teamAScore)!,
+      strength: fit.away === "exact" && fit.home === "exact" ? "exact" : "similar",
+      poolAwayName: (awayIsA ? teamA : teamB).name,
+      poolHomeName: (awayIsA ? teamB : teamA).name,
+    };
+  };
+
+  /** Turns one aligned result into the row the panel shows. */
+  const rowFor = (matchup: Matchup, game: ScoutGame, fit: Alignment): LeagueFillRow => {
+    const awayName = leagueNameById.get(matchup.away) ?? matchup.away;
+    const homeName = leagueNameById.get(matchup.home) ?? matchup.home;
+    const log = logs[matchup.id];
+    const currentAway = runsText(log, "away");
+    const currentHome = runsText(log, "home");
+    const recorded = hasRecordedRuns(log);
+    const same =
+      recorded && Number(currentAway) === fit.awayRuns && Number(currentHome) === fit.homeRuns;
+
+    // A looser name match only ever holds back a fill. A game already scored still reads as a
+    // disagreement or as nothing to do, because that judgement is about the runs, not the names.
+    const action: LeagueFillAction = same
+      ? "unchanged"
+      : recorded
+        ? "overwrite"
+        : fit.strength === "exact"
+          ? "fill"
+          : "suggested";
+
+    const differing: string[] = [];
+    if (teamNameKey(fit.poolAwayName) !== teamNameKey(awayName)) {
+      differing.push(`${awayName} is “${fit.poolAwayName}” in the pool`);
+    }
+    if (teamNameKey(fit.poolHomeName) !== teamNameKey(homeName)) {
+      differing.push(`${homeName} is “${fit.poolHomeName}” in the pool`);
+    }
+
+    const detail =
+      action === "overwrite"
+        ? `Already recorded as ${currentAway}–${currentHome}${isFinal(log) ? " and marked final" : ""}.`
+        : action === "unchanged" && !isFinal(log)
+          ? "Same score, not yet marked final."
+          : differing.length > 0
+            ? `${differing.join("; ")}. Check this is the same club before filling it.`
+            : undefined;
+
+    return {
+      matchupId: matchup.id,
+      date: matchup.date,
+      awayTeamId: matchup.away,
+      awayName,
+      homeTeamId: matchup.home,
+      homeName,
+      awayRuns: fit.awayRuns,
+      homeRuns: fit.homeRuns,
+      action,
+      ...(detail ? { detail } : {}),
+      ...(teamNameKey(fit.poolAwayName) === teamNameKey(awayName)
+        ? {}
+        : { poolAwayName: fit.poolAwayName }),
+      ...(teamNameKey(fit.poolHomeName) === teamNameKey(homeName)
+        ? {}
+        : { poolHomeName: fit.poolHomeName }),
+      scoutGameId: game.id,
+      ...(game.source ? { gcTeamId: game.source.teamId, gcGameId: game.source.gameId } : {}),
+      ...(recorded ? { currentAwayRuns: currentAway, currentHomeRuns: currentHome } : {}),
+      ...(game.event ? { event: game.event } : {}),
+    };
+  };
+
+  // ---------- First pass: the names agree ----------
 
   leagueByKey.forEach((leagueGames, key) => {
     const results = poolByKey.get(key) ?? [];
     if (results.length === 0) {
-      unmatched += leagueGames.length;
+      leftovers.push(...leagueGames);
       return;
     }
 
@@ -184,24 +324,15 @@ export const planLeagueScoreFill = ({
      * side offers. When they do not, nothing here can say which result belongs to which game, and
      * a fifty-fifty guess about a score is not worth making.
      */
-    const zipped = results.length === leagueGames.length;
-
-    leagueGames.forEach((matchup, index) => {
-      const awayName = leagueNameById.get(matchup.away) ?? matchup.away;
-      const homeName = leagueNameById.get(matchup.home) ?? matchup.home;
-      const log = logs[matchup.id];
-      const base = {
-        matchupId: matchup.id,
-        date: matchup.date,
-        awayTeamId: matchup.away,
-        awayName,
-        homeTeamId: matchup.home,
-        homeName,
-      };
-
-      if (!zipped) {
+    if (results.length !== leagueGames.length) {
+      leagueGames.forEach((matchup) => {
         rows.push({
-          ...base,
+          matchupId: matchup.id,
+          date: matchup.date,
+          awayTeamId: matchup.away,
+          awayName: leagueNameById.get(matchup.away) ?? matchup.away,
+          homeTeamId: matchup.home,
+          homeName: leagueNameById.get(matchup.home) ?? matchup.home,
           awayRuns: 0,
           homeRuns: 0,
           action: "ambiguous",
@@ -210,45 +341,71 @@ export const planLeagueScoreFill = ({
               ? `${results.length} results for this pairing on this date, but ${leagueGames.length} game${leagueGames.length === 1 ? "" : "s"} on the schedule.`
               : `${leagueGames.length} games for this pairing on this date, but only ${results.length} result${results.length === 1 ? "" : "s"}.`,
         });
+      });
+      return;
+    }
+
+    leagueGames.forEach((matchup, index) => {
+      const result = results[index]!;
+      const awayName = leagueNameById.get(matchup.away) ?? matchup.away;
+      const homeName = leagueNameById.get(matchup.home) ?? matchup.home;
+      const fit = align(result, awayName, homeName);
+      if (!fit) {
+        leftovers.push(matchup);
         return;
       }
-
-      const result = results[index]!;
       claimed.add(result.id);
-
-      // The pool stores the pulled team first, not the home team, so the sides are read by
-      // identity rather than position.
-      const resultKeyA = scoutKeyById.get(result.teamAId);
-      const awayIsA = resultKeyA === teamNameKey(awayName);
-      const awayRuns = (awayIsA ? result.teamAScore : result.teamBScore)!;
-      const homeRuns = (awayIsA ? result.teamBScore : result.teamAScore)!;
-
-      const currentAway = runsText(log, "away");
-      const currentHome = runsText(log, "home");
-      const recorded = hasRecordedRuns(log);
-      const same = recorded && Number(currentAway) === awayRuns && Number(currentHome) === homeRuns;
-
-      const row: LeagueFillRow = {
-        ...base,
-        awayRuns,
-        homeRuns,
-        action: same ? "unchanged" : recorded ? "overwrite" : "fill",
-        scoutGameId: result.id,
-        ...(result.source
-          ? { gcTeamId: result.source.teamId, gcGameId: result.source.gameId }
-          : {}),
-        ...(recorded ? { currentAwayRuns: currentAway, currentHomeRuns: currentHome } : {}),
-        ...(result.event ? { event: result.event } : {}),
-      };
-      if (row.action === "overwrite") {
-        row.detail = `Already recorded as ${currentAway}–${currentHome}${isFinal(log) ? " and marked final" : ""}.`;
-      }
-      if (row.action === "unchanged" && !isFinal(log)) {
-        // The score agrees but the game was never verified, which is worth one more click.
-        row.detail = "Same score, not yet marked final.";
-      }
-      rows.push(row);
+      rows.push(rowFor(matchup, result, fit));
     });
+  });
+
+  // ---------- Second pass: the same club, spelled differently ----------
+
+  /**
+   * The league and GameChanger rarely agree on how long a club's name is, and a league game left
+   * unmatched is indistinguishable from one that simply has not been played — which is what makes
+   * the silence dangerous. So every leftover gets a second look against the results on its own
+   * day, under the looser name rule, and anything that lines up is offered rather than applied.
+   */
+  leftovers.forEach((matchup) => {
+    const date = leagueDates.get(matchup.id);
+    const awayName = leagueNameById.get(matchup.away) ?? matchup.away;
+    const homeName = leagueNameById.get(matchup.home) ?? matchup.home;
+    const sameDay = (date ? (poolByDate.get(date) ?? []) : []).filter(
+      (game) => !claimed.has(game.id)
+    );
+
+    const candidates = sameDay
+      .map((game) => ({ game, fit: align(game, awayName, homeName) }))
+      .filter((candidate): candidate is { game: ScoutGame; fit: Alignment } =>
+        Boolean(candidate.fit)
+      );
+
+    if (candidates.length === 0) {
+      unmatchedLeagueGames.push(matchup);
+      return;
+    }
+    if (candidates.length > 1) {
+      // Two clubs close enough to this game's names played on this day. Naming which is which is
+      // the reader's call, and there is nothing here to make it with.
+      rows.push({
+        matchupId: matchup.id,
+        date: matchup.date,
+        awayTeamId: matchup.away,
+        awayName,
+        homeTeamId: matchup.home,
+        homeName,
+        awayRuns: 0,
+        homeRuns: 0,
+        action: "ambiguous",
+        detail: `${candidates.length} results on this date could be this game, under names close to these.`,
+      });
+      return;
+    }
+
+    const only = candidates[0]!;
+    claimed.add(only.game.id);
+    rows.push(rowFor(matchup, only.game, only.fit));
   });
 
   // Schedule order, so the review reads the way the season does.
@@ -257,13 +414,16 @@ export const planLeagueScoreFill = ({
 
   return {
     rows,
-    unmatched,
-    unusedResults: usableResults - claimed.size,
+    unmatched: unmatchedLeagueGames.length,
+    unusedResults: usable.length - claimed.size,
     seasonLinked,
   };
 };
 
-/** The rows this would act on without being asked: a plain fill, and nothing else. */
+/**
+ * The rows this would act on without being asked: a plain fill, and nothing else. A suggestion
+ * rests on two names that are not the same string, so it waits to be ticked.
+ */
 export const defaultFillSelection = (plan: LeagueFillPlan): string[] =>
   plan.rows.filter((row) => row.action === "fill").map((row) => row.matchupId);
 
@@ -279,12 +439,12 @@ export const applyLeagueScoreFill = (
   defaultInnings: number
 ): { logs: Record<string, GameLog>; filled: number } => {
   const wanted = new Set(selected);
-  const byId = new Map(plan.rows.map((row) => [row.matchupId, row]));
+  const byMatchup = new Map(plan.rows.map((row) => [row.matchupId, row]));
   const next = { ...logs };
   let filled = 0;
 
   wanted.forEach((matchupId) => {
-    const row = byId.get(matchupId);
+    const row = byMatchup.get(matchupId);
     // Ambiguous rows carry no result, so there is nothing to write even if one is asked for.
     if (!row || row.action === "ambiguous") return;
     const current = next[matchupId] ?? blankLog(String(defaultInnings));
@@ -305,8 +465,10 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 /** One line for the toast, saying what was written and what was deliberately left alone. */
 export const summarizeLeagueFill = (plan: LeagueFillPlan, filled: number): string => {
   const left = plan.rows.filter((row) => row.action === "overwrite").length;
+  const offered = plan.rows.filter((row) => row.action === "suggested").length;
   const unclear = plan.rows.filter((row) => row.action === "ambiguous").length;
   const parts = [`Filled ${plural(filled, "game")}`];
+  if (offered > 0) parts.push(`${offered} still to confirm`);
   if (left > 0) parts.push(`${left} left as entered`);
   if (unclear > 0) parts.push(`${unclear} could not be told apart`);
   if (plan.unmatched > 0) parts.push(`${plan.unmatched} with no result yet`);

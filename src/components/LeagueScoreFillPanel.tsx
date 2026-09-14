@@ -17,8 +17,9 @@ type LeagueScoreFillPanelProps = {
   onClose: () => void;
 };
 
-const ACTION_TONE: Record<LeagueFillAction, "emerald" | "amber" | "neutral" | "red"> = {
+const ACTION_TONE: Record<LeagueFillAction, "emerald" | "blue" | "amber" | "neutral" | "red"> = {
   fill: "emerald",
+  suggested: "blue",
   overwrite: "amber",
   unchanged: "neutral",
   ambiguous: "red",
@@ -26,6 +27,7 @@ const ACTION_TONE: Record<LeagueFillAction, "emerald" | "amber" | "neutral" | "r
 
 const ACTION_LABEL: Record<LeagueFillAction, string> = {
   fill: "Fill",
+  suggested: "Check name",
   overwrite: "Disagrees",
   unchanged: "Already in",
   ambiguous: "Can't tell",
@@ -52,6 +54,7 @@ export function LeagueScoreFillPanel({
   const counts = useMemo(() => {
     const totals: Record<LeagueFillAction, number> = {
       fill: 0,
+      suggested: 0,
       overwrite: 0,
       unchanged: 0,
       ambiguous: 0,
@@ -106,7 +109,9 @@ export function LeagueScoreFillPanel({
           <p className="mt-1 text-xs text-slate-500">
             Runs only — which is all the standings, the records and every projection are built from.
             Hits and strikeouts are never guessed, and a game that already has a score keeps it
-            unless you say otherwise.
+            unless you say otherwise. A row marked <strong>Check name</strong> is a club the two
+            halves spell differently; tick it once you have read the name, or correct the name in
+            Team Rankings and it will match on its own from then on.
           </p>
 
           <div className="mt-3 overflow-x-auto">
@@ -148,6 +153,14 @@ export function LeagueScoreFillPanel({
                         <span className="font-bold text-slate-950 dark:text-white">
                           {displayName(row.homeName)}
                         </span>
+                        {(row.poolAwayName || row.poolHomeName) && (
+                          <span className="block text-[11px] text-slate-500">
+                            In the pool:{" "}
+                            {[row.poolAwayName ?? row.awayName, row.poolHomeName ?? row.homeName]
+                              .map(displayName)
+                              .join(" at ")}
+                          </span>
+                        )}
                         {row.event && (
                           <span className="ml-2 text-xs text-slate-500">{row.event}</span>
                         )}
@@ -173,8 +186,8 @@ export function LeagueScoreFillPanel({
           </div>
 
           <p className="mt-3 text-xs text-slate-500">
-            {counts.fill} to fill · {counts.unchanged} already in · {counts.overwrite} disagree ·{" "}
-            {counts.ambiguous} cannot be told apart
+            {counts.fill} to fill · {counts.suggested} to check · {counts.unchanged} already in ·{" "}
+            {counts.overwrite} disagree · {counts.ambiguous} cannot be told apart
             {plan.unmatched > 0 ? ` · ${plan.unmatched} with no result yet` : ""}
             {plan.unusedResults > 0
               ? ` · ${plural(plan.unusedResults, "pool result")} not on this schedule`

@@ -8,6 +8,7 @@ import {
   ageGroupYear,
   buildScoutingReport,
   createAgeGroupId,
+  dedupeLeagueFixtures,
   deriveLeagueScoutGames,
   findAgeGroupForSeason,
   findDuplicateGame,
@@ -500,7 +501,14 @@ export function TeamRankingsView({
       teams = derived.teams;
       derivedGames.push(...derived.games);
     });
-    return { teams, derivedGames, games: [...derivedGames, ...scoutGames] };
+    // `derivedGames` stays whole — `leagueGameTeamIds` reads it to decide which teams arrived from
+    // the league — while the pool every rating, record and page is built from gets one row per
+    // real fixture, so a pulled copy of a league game does not count the game twice.
+    return {
+      teams,
+      derivedGames,
+      games: dedupeLeagueFixtures([...derivedGames, ...scoutGames]),
+    };
   }, [ageGroups, scoutGames, scoutTeams]);
 
   const allKnownGames = allKnown.games;
