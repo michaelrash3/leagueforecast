@@ -45,7 +45,7 @@ separate teams.
 | Mode                 | What it is                                                                                                                                                                                   |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **League Standings** | One season of one league, on a fixed schedule, with full box scores. Standings, power ratings, playoff odds, magic numbers, a simulated forecast.                                            |
-| **Team Rankings**    | Any team from any source, scores only. Tournament games, another league's results, an opponent you are about to play. Everyone is rated against everyone else, adjusted for who they played. |
+| **Team Rankings**    | Any team from any source, scores only — entered by hand or pulled from GameChanger. Tournament games, another league's results, an opponent you are about to play. Everyone is rated against everyone else, adjusted for who they played and for the age level they played it at. |
 
 See [Team Rankings](#team-rankings) below for how the two connect.
 
@@ -62,7 +62,8 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 | **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                    |
 | **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                      |
 | **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                      |
-| **Team Rankings**    | Age groups, opponent-adjusted ratings, scouting report, CSV/paste import, team detail. |
+| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report, CSV/paste import, team detail. |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval. |
 
 ## Architecture
 
@@ -128,8 +129,8 @@ opponent-adjusted model the league uses.
 ### Age groups
 
 Nothing can be logged until an age group exists, because every game has to know
-which ranking it belongs to. A 9U score says nothing about an 11U game, so the
-two never mix.
+which ranking it belongs to. Each level has its own table, and a season year is
+fitted as one pool — see [Playing up and down](#playing-up-and-down).
 
 An age group is an **age level** (8U-18U) and a **year** (2027 on), zero or more
 League Standings seasons that belong to it, and optionally the age group it
@@ -142,11 +143,32 @@ of that name where it can.
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Assigned seasons  | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                      |
 | Advance to new season | Creates next year's group from this one — a year older, a year later (9U 2027 → 10U 2028), already continuing from it, already carrying "our team". Seasons are not copied: next year's don't exist yet. 18U stays 18U while the year moves, since a player can spend two years there. |
-| `continuesFromId` | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel** — results never pool, so a 10U group that continues from a 9U one starts at zero games. |
+| `continuesFromId` | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel across years** — a 10U group that continues from a 9U one starts at zero games. Levels within one season year do pool; across years they never do. |
 | `myTeamId`        | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                     |
 
 Two age groups running at the same time and not linked share no names, which is
 what stops a 9U opponent appearing while logging an 11U game.
+
+### A page per age level
+
+The season year is a picker and the levels below it are tabs: pick 2028, then
+move along 9U, 10U, 11U. Changing the year holds the level where the new year has
+one, so walking a squad forward is one control rather than two.
+
+Each page is a URL — `?view=rankings&age=10&year=2028` — so a page can be sent to
+somebody rather than described to them. The URL is what decides the open page,
+which is what makes Back and Forward move between them. A link naming only a year
+opens that year's youngest page; only a level opens it in whichever year has it;
+a link to a page that no longer exists leaves the view where it is and the URL is
+corrected rather than obeyed. `?view=` carries the mode too, so a link opens in
+Team Rankings instead of wherever that browser happened to be last.
+
+A page leads with a **national top 25** and a **state top 10**, the state being
+yours where it is known and otherwise whichever has the most teams there. The
+place shown in each is the place in *that* list: a state top ten is ten teams
+rated against the whole country and then listed together, so the second-best team
+in the state is #2. The full table is behind a toggle, for finding one particular
+team in a pool of thousands.
 
 ### How the two modes connect
 
@@ -204,6 +226,65 @@ Rows already logged here arrive flagged and excluded, placeholders (`TBD`,
 `Winner of Game 3`) are called out, and a name close to a team already known
 offers it as a one-click correction.
 
+### Pulling from GameChanger
+
+Team Rankings stops being hand-entered. Paste GameChanger team ids, team page
+links, or a whole spreadsheet export — the same reader handles all three, BOM,
+quoted names and tab-separated columns included. Each team's schedule is read and
+filed under its own age group and squad year, and the pages are created as they
+are needed, because a nationwide list cannot expect a page to exist for every
+level first.
+
+GameChanger's public API allows only its own site as an origin, so the browser
+cannot call it. `api/gc-team.ts` is a serverless function that reads a team's
+profile and games on the app's behalf and maps every failure to a reason the
+panel can explain. It sends the same `Accept` versions and `gc-app-name` header
+the site does. `GC_EXTRA_HEADERS` takes a JSON object of extra headers for the
+day AWS WAF starts challenging server traffic.
+
+**Identity is asymmetric, on purpose.**
+
+| | |
+| --- | --- |
+| A team pulled by id | *is* that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them. |
+| An opponent | has no id — GameChanger never gives one. The avatar is the only identifier that means the same thing on two schedules, so it is matched on that first, then on a name, and then only within one age level and season year. |
+| A club already here as an opponent | is adopted rather than duplicated when its own turn comes. In a full pull nearly every team appears as somebody's opponent first. |
+
+The same game is on both teams' schedules and a re-pull brings back a schedule
+almost entirely unchanged; both are matched rather than filed again, and only a
+score that has since been played is written.
+
+Pairings are **proposed, never applied**. At the end of a pull the panel offers
+the clubs that look like the same club a season on — same picture, or same name
+at the same level — and nothing is paired unless it is ticked. A team's own panel
+lists the GameChanger ids it is known by, unlinks one that was paired wrongly,
+and folds this team into another for one that arrived twice.
+
+A run of a few thousand teams takes a while and saves as it goes: the pool is
+written every twenty-five teams and the cursor only advances after the write, so
+stopping, reloading or closing the tab costs at most those twenty-five.
+
+#### The weekly rota
+
+Re-pulling a whole list nightly is thousands of requests for data that has mostly
+not moved, so each age group comes round once a week instead:
+
+| Day | | Day | |
+| --- | --- | --- | --- |
+| Sunday | 8U, 9U | Thursday | 12U, 13U |
+| Monday | 16U, 17U | Friday | catch up on failures |
+| Tuesday | 10U, 11U | Saturday | 14U, 15U |
+| Wednesday | 18U | | |
+
+Every level is at most seven days old and no day's run is long enough to be worth
+interrupting. `WEEKLY_ROTATION` in `src/lib/gameChangerSchedule.ts` is the whole
+of the schedule; nothing else reads a day or a level.
+
+Nothing fires by itself — there is no server here, and a browser cannot run while
+it is closed — so the panel answers "what is due?" when the app is next opened. A
+level is marked done only when its run actually finishes, so stopping half way
+leaves it due.
+
 ### States
 
 A team can carry a two-letter state, and the rankings can be narrowed to one — or
@@ -224,6 +305,30 @@ locks.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
+
+#### Playing up and down
+
+Fall tournaments routinely pair a team against the level above or below. Every
+age group sharing a **season year** is therefore fitted as one pool, with each
+game carrying the gap between the two sides: the older side is expected to win by
+about two runs per year of age, a prior the data then refines. An 8U losing by
+about that much to a 9U comes out even rather than punished. Strength of schedule
+is read from each team's own seat, so it weighs heavier for the team playing up
+and lighter for the one playing down.
+
+Each level still shows its own table. A team is listed on the page for the level
+it played most at, so a 10U that spent the year playing down is rated alongside
+the 9Us it played and listed on the 10U page. With no cross-age games in a pool,
+the arithmetic is exactly what it was before.
+
+Only 9U and up get a table. 8U results are kept as evidence about the 9U teams
+that played down against them, but at that age the results say more about which
+league is machine pitch than about the teams.
+
+Above 150 teams the fit switches from Gaussian elimination to conjugate gradient,
+which is what makes a nationwide pool solvable at all; the two agree to within
+1e-6 on a 300-team graph. It runs in a Web Worker, so the page does not lock up
+while it refits — the table keeps the last true answer and says it is refitting.
 
 The **?** beside "Full rankings" explains all of this in the app, with the
 constants read from the code so the explanation cannot drift from the maths.
@@ -279,11 +384,48 @@ explicitly that no cut line exists and to cover the race for the top instead.
 - `league_teams_v1`, `league_matchups_v1`, `league_logs_v1`, `league_settings_v1`
 - Team Rankings keeps its own keys, shared across seasons:
   `league_forecast_scout_teams_v1`, `league_forecast_scout_games_v1`,
-  `league_forecast_scout_age_groups_v1`
+  `league_forecast_scout_age_groups_v1`, plus `league_forecast_gc_pull_v1` (an
+  interrupted pull's place) and `league_forecast_gc_refresh_v1` (the rota's record)
 - `league_undo_snapshot_v1`
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
+
+### Where the Team Rankings pool lives
+
+League Standings stays in `localStorage`. The Team Rankings pool outgrew it once
+a GameChanger pull was possible, so it lives in **IndexedDB** — hundreds of
+megabytes, often as much as the disk allows, and free in exactly the way
+`localStorage` is free: it is the user's own machine.
+
+It is also written compactly. Rows are tuples and anything repeated is an index
+into a dictionary, so a game that read
+
+```json
+{"id":"gc_gcTEAM12_0-1-0","teamAId":"S-CLUB2","teamAScore":5,…,"source":{…}}
+```
+
+is stored as `[2,3,5,3,0,212,0,9,9,0,0,"0-1-0"]`. Measured across pools the size
+of a real pull, that is **5.3 to 5.7 times smaller**: four thousand teams take
+2.69 MB rather than 14.36.
+
+| | Pool it holds |
+| --- | --- |
+| `localStorage`, as objects | about 2,500 teams |
+| `localStorage`, compact | about 14,000 |
+| IndexedDB, compact | far past anything a browser will be asked to rank |
+
+IndexedDB is asynchronous and this app reads its pool during render, so the pool
+is read into memory once before anything mounts and the synchronous reads stay
+synchronous; writes go out behind them, coalesced per key. A write is therefore
+reported as *accepted* rather than as landed, and one that later fails surfaces
+as a toast, which is the only thing left that can still say so.
+
+Moving across is all or nothing: a value that will not write abandons the whole
+migration with `localStorage` untouched, and the old copies are dropped only once
+every value is known to be in the new store. A browser without IndexedDB — a
+private window, an old one, blocked site data — never leaves the `localStorage`
+path, which is unchanged.
 
 ### Backups
 
