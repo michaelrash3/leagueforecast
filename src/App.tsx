@@ -24,7 +24,12 @@ import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { TeamRankingsView } from "./components/TeamRankingsView";
 import { externalResultsForSeason } from "./lib/teamRankings";
-import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "./lib/teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadScoutGames,
+  loadScoutTeams,
+  onPoolWriteError,
+} from "./lib/teamRankingsStorage";
 import {
   coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
@@ -2176,6 +2181,17 @@ export default function App() {
 
   const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+
+  /**
+   * A pool write goes to IndexedDB behind the caller, so a quota failure surfaces long after the
+   * save was reported as accepted. This is the only place that can still say so.
+   */
+  useEffect(() => {
+    onPoolWriteError(() =>
+      showToast("Team Rankings could not be saved — storage is full.", { tone: "error" })
+    );
+    return () => onPoolWriteError(null);
+  }, [showToast]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
       if (!ok) showToast(errorMessage, { tone: "error" });
