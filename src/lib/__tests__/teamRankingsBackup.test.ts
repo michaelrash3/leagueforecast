@@ -145,7 +145,7 @@ describe("teamRankingsCsvSections", () => {
       ?.split(csvSectionMarker(CSV_SECTIONS.games))[0]
       ?.trim();
     const lines = teamsSection?.split("\n") ?? [];
-    expect(lines[0]).toBe("Team ID,Team Name,State,City,Is My Team,GameChanger Teams");
+    expect(lines[0]).toBe("Team ID,Team Name,State,City,Is My Team,Placeholder,GameChanger Teams");
     // One row per team, even though the first carries two links with quotes and commas inside.
     expect(lines).toHaveLength(3);
     expect(lines[1]).toContain("Columbus");
@@ -387,5 +387,28 @@ describe("splitCsvSections", () => {
     );
     expect(sections.get("schedule")).toBe("a,b\n1,2");
     expect(sections.get("team rankings teams")).toBe("Team ID\nS-ICEC");
+  });
+});
+
+describe("placeholder slots in a backup", () => {
+  it("round-trips the flag, so a slot does not come back as a team", () => {
+    const backup = {
+      ageGroups: [{ id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] }],
+      teams: [
+        { id: "S-ACES", name: "Aces" },
+        { id: "S-TBD", name: "TBD", placeholder: true as const },
+      ],
+      games: [],
+    };
+    const restored = parseTeamRankingsCsv(teamRankingsCsvSections(backup));
+    expect(restored?.teams).toEqual(backup.teams);
+  });
+
+  it("reads a file written before the column existed, leaving every team a team", () => {
+    const csv = [csvSectionMarker(CSV_SECTIONS.teams), "Team ID,Team Name", "S-ACES,Aces"].join(
+      "\n"
+    );
+    const restored = parseTeamRankingsCsv(csv);
+    expect(restored?.teams).toEqual([{ id: "S-ACES", name: "Aces" }]);
   });
 });

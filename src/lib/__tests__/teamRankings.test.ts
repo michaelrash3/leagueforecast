@@ -1803,3 +1803,104 @@ describe("scout ids minted for league teams depend on what came first", () => {
     expect(idOf("Lexington Lions", afterNine)).toBe("S-LEXI2");
   });
 });
+
+describe("placeholders are slots, not teams", () => {
+  const slotTeams = (names: string[]): { teams: ScoutTeam[]; ids: string[] } => {
+    let teams: ScoutTeam[] = [];
+    const ids: string[] = [];
+    names.forEach((name) => {
+      const made = resolveOrCreateTeam(name, teams);
+      teams = made.teams;
+      ids.push(made.teamId);
+    });
+    return { teams, ids };
+  };
+
+  it("never folds two placeholders into one team", () => {
+    // The whole point: one shared "TBD" would be an opponent that unrelated teams had all played.
+    const { teams, ids } = slotTeams(["TBD", "TBD", "Winner of Game 3"]);
+    expect(new Set(ids).size).toBe(3);
+    expect(teams).toHaveLength(3);
+    expect(teams.every((team) => team.placeholder)).toBe(true);
+  });
+
+  it("still matches real names to the team already there", () => {
+    const { ids } = slotTeams(["Aces", "Aces"]);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it("keeps a real name off a slot that happens to be near it", () => {
+    let teams: ScoutTeam[] = [];
+    const slot = resolveOrCreateTeam("TBD", teams);
+    teams = slot.teams;
+    const real = resolveOrCreateTeam("Aces", teams);
+    expect(real.teamId).not.toBe(slot.teamId);
+  });
+
+  it("does not rank a slot, but counts the game for the team that played it", () => {
+    const groups: AgeGroup[] = [
+      { id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+    ];
+    let teams: ScoutTeam[] = [team("A", "Aces"), team("B", "Bears")];
+    const slotA = resolveOrCreateTeam("TBD", teams);
+    teams = slotA.teams;
+    const slotB = resolveOrCreateTeam("TBD", teams);
+    teams = slotB.teams;
+
+    const games = [
+      game("A", "B", 6, 2, "ag1"),
+      game("A", slotA.teamId, 9, 1, "ag1"),
+      game("B", slotB.teamId, 1, 7, "ag1"),
+    ];
+    const rows = buildTeamRankings("ag1", teams, games, undefined, groups);
+
+    // Only the two real clubs are listed.
+    expect(rows.map((row) => row.teamName).sort()).toEqual(["Aces", "Bears"]);
+    // And the game against the slot is in the record, not discarded.
+    const aces = rows.find((row) => row.teamName === "Aces")!;
+    expect(aces.record).toBe("2-0");
+    expect(aces.games).toBe(2);
+    const bears = rows.find((row) => row.teamName === "Bears")!;
+    expect(bears.record).toBe("0-2");
+  });
+
+  it("does not let two slots carry a comparison between the teams that played them", () => {
+    const groups: AgeGroup[] = [
+      { id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+    ];
+    let teams: ScoutTeam[] = [team("A", "Aces"), team("B", "Bears")];
+    const slotA = resolveOrCreateTeam("TBD", teams);
+    teams = slotA.teams;
+    const slotB = resolveOrCreateTeam("TBD", teams);
+    teams = slotB.teams;
+
+    // Aces thrash their slot; Bears are thrashed by theirs. Nothing here says Aces beat Bears,
+    // because the two slots are different unknown clubs.
+    const rows = buildTeamRankings(
+      "ag1",
+      teams,
+      [game("A", slotA.teamId, 8, 0, "ag1"), game(slotB.teamId, "B", 8, 0, "ag1")],
+      undefined,
+      groups
+    );
+    const aces = rows.find((row) => row.teamName === "Aces")!;
+    const bears = rows.find((row) => row.teamName === "Bears")!;
+    // Each is judged on its own game, so neither has met the other even indirectly: their
+    // strengths of schedule are the mirror image rather than a chain through one shared opponent.
+    expect(aces.strengthOfSchedule).toBeCloseTo(-bears.strengthOfSchedule, 10);
+  });
+
+  it("keeps a slot out of the names offered when logging a game", () => {
+    const groups: AgeGroup[] = [
+      { id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+    ];
+    let teams: ScoutTeam[] = [team("A", "Aces")];
+    const slot = resolveOrCreateTeam("TBD", teams);
+    teams = slot.teams;
+    const names = teamNameSuggestions("ag1", groups, teams, [
+      game("A", slot.teamId, 5, 4, "ag1"),
+    ]).map((entry) => entry.name);
+    expect(names).toContain("Aces");
+    expect(names).not.toContain("TBD");
+  });
+});

@@ -50,7 +50,15 @@ const AGE_GROUP_HEADERS = [
  * reader has no reason to edit them by hand. `csvEscape` quotes the JSON's commas and doubles its
  * quotes, so the cell survives the trip like any other text.
  */
-const TEAM_HEADERS = ["Team ID", "Team Name", "State", "City", "Is My Team", "GameChanger Teams"];
+const TEAM_HEADERS = [
+  "Team ID",
+  "Team Name",
+  "State",
+  "City",
+  "Is My Team",
+  "Placeholder",
+  "GameChanger Teams",
+];
 
 const GAME_HEADERS = [
   "Game ID",
@@ -184,6 +192,7 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
       textCell(team.state),
       textCell(team.city),
       yesNo(team.isMine),
+      yesNo(team.placeholder),
       linksCell(team),
     ]
       .map(csvEscape)
@@ -274,6 +283,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         id,
         name,
         ...(isYes(cell("Is My Team")) ? { isMine: true as const } : {}),
+        ...(isYes(cell("Placeholder")) ? { placeholder: true as const } : {}),
         ...(state ? { state } : {}),
         ...(city ? { city } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),

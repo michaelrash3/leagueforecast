@@ -551,3 +551,51 @@ describe("levels this app does not rank", () => {
     expect(next.ageGroups).toEqual([]);
   });
 });
+
+describe("a placeholder opponent", () => {
+  const pull = (opponentName: string, gameId: string, state: GcImportState) =>
+    importGcSchedule(
+      {
+        profile: {
+          id: `gc${gameId}`,
+          name: `Club ${gameId} 9U`,
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: gameId,
+            date: "2026-09-05",
+            opponentName,
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    );
+
+  it("gets a slot of its own on every schedule, never one shared team", () => {
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = pull("TBD", "g1", state).state;
+    state = pull("TBD", "g2", state).state;
+
+    const slots = state.teams.filter((team) => team.placeholder);
+    expect(slots).toHaveLength(2);
+    expect(new Set(slots.map((slot) => slot.id)).size).toBe(2);
+    // Both games are kept — the result happened, whoever it was against.
+    expect(state.games).toHaveLength(2);
+    expect(state.games.every((game) => game.teamAScore === 7)).toBe(true);
+  });
+
+  it("is not mistaken for a real club with a similar-looking name", () => {
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = pull("Trash Pandas 9U", "g1", state).state;
+    state = pull("TBD", "g2", state).state;
+    const named = state.teams.filter((team) => !team.placeholder).map((team) => team.name);
+    expect(named).toContain("Trash Pandas");
+    expect(state.teams.filter((team) => team.placeholder)).toHaveLength(1);
+  });
+});

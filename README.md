@@ -237,6 +237,24 @@ date played outside league play, and that game stands on its own. Results
 carried back into the league's own forecasts skip its fixtures for the same
 reason.
 
+### Placeholders
+
+"TBD", "Winner of Game 3", a blank cell on a bracket: a schedule says these when
+nobody has decided who is playing yet. They are kept as **slots**, not teams.
+
+The game is real, so it is kept and it counts for the club that played it — a
+slot stands in the fit as one unknown opponent, and beating one reads much like
+beating an ordinary team. What a slot never does is gather. Every placeholder is
+its own slot, because a single shared "TBD" would sit in the rating graph as an
+opponent that dozens of unrelated clubs had all played, and the model would read
+that as evidence about how they compare to each other. Slots are not ranked,
+never offered as a name to log a game against, and never matched to a real club
+that looks similar.
+
+Naming one is the fix, and it is the ordinary rename: open the slot, type the
+club's real name, and the game moves there — merging into that club if it is
+already in the pool.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South

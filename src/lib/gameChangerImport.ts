@@ -29,6 +29,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   createAgeGroupId,
+  isPlaceholderName,
   MIN_AGE_LEVEL,
   buildScoutTeam,
   formatAgeGroupName,
@@ -455,6 +456,20 @@ const resolveOpponent = (
   teams: ScoutTeam[],
   index: ImportIndex
 ): OpponentMatch => {
+  /**
+   * "TBD", "Winner of Game 3", a blank cell on a bracket: a name that stands in for a team nobody
+   * had decided yet. Matching one to anything is the mistake — a single shared "TBD" would collect
+   * games from dozens of unrelated schedules and then sit in the rating graph as an opponent all
+   * of them had played, which the fit would read as evidence about how they compare. Each gets a
+   * slot of its own, marked as one, and the game is filed exactly as any other so it still counts
+   * for the team that played it.
+   */
+  if (isPlaceholderName(game.opponentName)) {
+    const slot = buildScoutTeam(game.opponentName, index.usedTeamIds, { placeholder: true });
+    addTeam(index, teams, slot);
+    return { teamId: slot.id, basis: "created" };
+  }
+
   if (game.opponentAvatarKey) {
     const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
     // Exactly one, or the picture is shared and says nothing about which team this is.

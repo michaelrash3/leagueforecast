@@ -168,6 +168,13 @@ export function TeamDetailPanel({
             A team is already called that. Saving moves every game from this one over to it and
             removes this one — which is how a placeholder gets routed to the real team.
           </p>
+        ) : team.placeholder ? (
+          <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+            This is a placeholder, not a team — the schedule said so rather than naming a club. The
+            game is kept and counts for whoever played it, and this slot is not ranked. Type the
+            club&apos;s real name here once you know it and the game moves to them; if that club is
+            already here, saving merges the two.
+          </p>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
             Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as

@@ -57,6 +57,23 @@ export type ScoutTeam = {
   /** City, when a source gave one. Display only, like `state`; it never reaches the maths. */
   city?: string;
   /**
+   * A name that stood in for a team nobody had decided yet — "TBD", "Winner of Game 3", a blank
+   * cell on a bracket. The game it came from is real and is kept, but the club on the other side
+   * of it is not known, so this entity is a slot rather than a team.
+   *
+   * Two things follow, and both matter. Each placeholder is its own slot, never pooled with
+   * another of the same name: one shared "TBD" would sit in the rating graph as an opponent that
+   * dozens of unrelated teams had all played, and the fit would read that as evidence about how
+   * they compare to each other. And a slot is never ranked, because there is no club to rank.
+   *
+   * It still stands in the fit as one unknown opponent of its own, which is how the game counts
+   * for the team that played it: beating a slot reads as beating an ordinary team, because a
+   * single game against a single opponent is pulled to the middle by the same shrinkage as any
+   * other. Naming it later — renaming the slot onto the real club, which merges the two — moves
+   * the game to where it always belonged.
+   */
+  placeholder?: true;
+  /**
    * The GameChanger teams this team is known by, one per GameChanger season: GameChanger mints a
    * new team id every season, so a club's Fall and Spring squads arrive as two ids that the user
    * has paired onto one team here. Identity by id is what keeps the country's many "Yankees" apart:
@@ -234,7 +251,18 @@ export const resolveOrCreateTeam = (
 ): { teams: ScoutTeam[]; teamId: string } => {
   const display = stripAgeLabel(name);
   const key = normalizeName(name);
-  const existingIndex = teams.findIndex((team) => normalizeName(team.name) === key);
+  // A placeholder names nobody, so two of them are not the same team and must never be matched
+  // onto one another. Each gets a slot of its own, marked as one.
+  if (isPlaceholderName(name)) {
+    const minted = mintScoutTeamId(display, teams);
+    return {
+      teams: [...teams, { id: minted, name: display, placeholder: true }],
+      teamId: minted,
+    };
+  }
+  const existingIndex = teams.findIndex(
+    (team) => !team.placeholder && normalizeName(team.name) === key
+  );
 
   if (existingIndex >= 0) {
     const existing = teams[existingIndex]!;
@@ -651,7 +679,9 @@ export const teamNameSuggestions = (
       if (homeLevels.get(team.id) === level) active.add(team.id);
     });
   }
-  return teams.filter((team) => active.has(team.id));
+  // A slot is never offered as a name to log a game against: picking one would attach this
+  // game to some other game's unknown opponent.
+  return teams.filter((team) => !team.placeholder && active.has(team.id));
 };
 
 /**
@@ -1179,7 +1209,8 @@ const buildPooledTeamRankings = (
   };
 
   const rows = nodes
-    .filter((team) => belongsHere(team.id))
+    // A slot is in the fit as somebody's unknown opponent, but there is no club here to rank.
+    .filter((team) => !team.placeholder && belongsHere(team.id))
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = recordFor(team.id, ratedGames);
       const crossAgeGames = rated.filter(

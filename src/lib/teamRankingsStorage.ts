@@ -357,6 +357,7 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
         ...(entry.isMine === true ? { isMine: true } : {}),
         ...(isString(entry.state) ? { state: entry.state } : {}),
         ...(isString(entry.city) ? { city: entry.city } : {}),
+        ...(entry.placeholder === true ? { placeholder: true as const } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
       };
     });
