@@ -1,4 +1,10 @@
-import { MATCHUP_MARGIN_CAP, MATCHUP_PROBABILITY_FLOOR, RATING_CAP } from "../lib/teamRankings";
+import {
+  MATCHUP_MARGIN_CAP,
+  MATCHUP_PROBABILITY_FLOOR,
+  MIN_RANKED_AGE_LEVEL,
+  RATING_CAP,
+} from "../lib/teamRankings";
+import { AGE_GAP_RUNS_PER_YEAR } from "../lib/powerRating";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -94,7 +100,24 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           One game does not earn a big rating. The more a team plays, the more its rating is its own
           — which is what stops a 1-0 team topping the table in April.
         </li>
+        <li>
+          <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A
+          season&apos;s age groups are rated together, so a game against the level above or below
+          counts. The older side is expected to win by about {AGE_GAP_RUNS_PER_YEAR} runs per year
+          of age, and the model starts from that and lets the season&apos;s cross-age games adjust
+          it. An 8U losing to a 9U by {AGE_GAP_RUNS_PER_YEAR} is treated as an even game, not a loss
+          that drags it down. Strength of schedule follows the same rule: playing up credits you for
+          the year of age you gave away, playing down debits you for the year you took.
+        </li>
       </ol>
+
+      <p className="mt-3">
+        <span className="font-bold text-slate-950 dark:text-white">
+          Only {MIN_RANKED_AGE_LEVEL}U and up are ranked.
+        </span>{" "}
+        Younger pages still hold games, and those results are still evidence about the ranked teams
+        that played down against them — they simply get no table of their own.
+      </p>
 
       <p className="mt-3">
         <span className="font-bold text-slate-950 dark:text-white">Win probability</span> comes from
@@ -107,7 +130,7 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
         <span className="font-bold text-slate-950 dark:text-white">What is left out:</span> wins and
         losses as such — only margins count; which team was listed first, since that carries no
         meaning here; games not yet played; games you have set not to count; and anything from
-        another age group.
+        another season year, which is a different squad rather than a different level.
       </p>
 
       <p className="mt-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
