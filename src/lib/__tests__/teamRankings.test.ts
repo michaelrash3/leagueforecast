@@ -29,7 +29,8 @@ import {
   isPlaceholderName,
   renameScoutTeam,
   resolveOrCreateTeam,
-  stripAgeLabel,
+  cleanTeamName,
+  teamNameKey,
   teamNameSuggestions,
   teamsInAgeGroup,
   ageGroupLevel,
@@ -77,24 +78,47 @@ const game = (
   ...(teamBScore !== undefined ? { teamBScore } : {}),
 });
 
-describe("stripAgeLabel", () => {
+describe("cleanTeamName", () => {
   it("drops an age label wherever it appears", () => {
-    expect(stripAgeLabel("South Lexington Red 9u")).toBe("South Lexington Red");
-    expect(stripAgeLabel("Velocirabbits 9U")).toBe("Velocirabbits");
-    expect(stripAgeLabel("NV Stars 9u Scout")).toBe("NV Stars Scout");
-    expect(stripAgeLabel("12U Thunder")).toBe("Thunder");
-    expect(stripAgeLabel("U10 Rockets")).toBe("Rockets");
-    expect(stripAgeLabel("Thunder - 9U")).toBe("Thunder");
+    expect(cleanTeamName("South Lexington Red 9u")).toBe("South Lexington Red");
+    expect(cleanTeamName("Velocirabbits 9U")).toBe("Velocirabbits");
+    expect(cleanTeamName("NV Stars 9u Scout")).toBe("NV Stars Scout");
+    expect(cleanTeamName("12U Thunder")).toBe("Thunder");
+    expect(cleanTeamName("U10 Rockets")).toBe("Rockets");
+    expect(cleanTeamName("Thunder - 9U")).toBe("Thunder");
   });
 
   it("leaves names that only look like an age label alone", () => {
-    expect(stripAgeLabel("The 9ers")).toBe("The 9ers");
+    expect(cleanTeamName("The 9ers")).toBe("The 9ers");
     // "12 U" here is the start of "United", not an age level.
-    expect(stripAgeLabel("Lexington 12 United")).toBe("Lexington 12 United");
+    expect(cleanTeamName("Lexington 12 United")).toBe("Lexington 12 United");
   });
 
   it("keeps something when the name is nothing but an age label", () => {
-    expect(stripAgeLabel("9U")).toBe("9U");
+    expect(cleanTeamName("9U")).toBe("9U");
+  });
+
+  it("drops an aside in brackets", () => {
+    expect(cleanTeamName("Trash Pandas (Black)")).toBe("Trash Pandas");
+    expect(cleanTeamName("Aces 11U (Fall 2026)")).toBe("Aces");
+    expect(cleanTeamName("(Pool B) Rampage")).toBe("Rampage");
+    // An aside inside an aside still comes apart.
+    expect(cleanTeamName("Comets (12U (AA))")).toBe("Comets");
+  });
+
+  /**
+   * A dash suffix is how a club tells its own squads apart, so it is the one thing standing
+   * between two teams that would otherwise read alike. It stays.
+   */
+  it("keeps a dash suffix, which is what tells two squads of one club apart", () => {
+    expect(cleanTeamName("9U North Oldham Knights - Navy")).toBe("North Oldham Knights - Navy");
+    // The division letters keep "11UAA" together, so it is left alone rather than half-stripped.
+    expect(cleanTeamName("Frisco Dodgers - Gomez 11UAA")).toBe("Frisco Dodgers - Gomez 11UAA");
+    expect(teamNameKey("Knights - Navy")).not.toBe(teamNameKey("Knights - Red"));
+  });
+
+  it("keeps something when the name is nothing but an aside", () => {
+    expect(cleanTeamName("(9U)")).toBe("(9U)");
   });
 });
 
