@@ -71,9 +71,10 @@ type Stage = "picking" | "pulling" | "review";
 /**
  * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
  * is the pool's size times the number of saves — often enough to dwarf the fetching. What a save
- * buys is how much a closed tab costs, and a couple of hundred teams is a minute of refetching.
+ * buys is how much a closed tab costs to redo, and a thousand teams is a couple of minutes of
+ * refetching against seven writes of the pool instead of thirty-five.
  */
-const SAVE_EVERY = 200;
+const SAVE_EVERY = 1000;
 
 /** Requests in flight. Four is what the client defaults to and what GameChanger seems content with. */
 /**
