@@ -10,6 +10,7 @@ import {
   MIN_SEASON_YEAR,
   nextSeason,
   parseAgeGroupName,
+  seasonAtAge,
   seasonYearOptions,
   buildScoutingReport,
   buildTeamRankings,
@@ -1130,6 +1131,47 @@ describe("age group seasons", () => {
     expect(next.myTeamId).toBe("S-mine");
     expect(next.seasonIds).toEqual([]);
     expect(next.id).not.toBe(previous.id);
+  });
+
+  it("makes the age group when the league season is put at an age that has no page yet", () => {
+    const result = seasonAtAge("spring-2027", { ageLevel: 9, year: 2027 }, []);
+    expect(result.created).toBe(true);
+    expect(result.group?.name).toBe("9U 2027");
+    expect(result.ageGroups).toHaveLength(1);
+    expect(result.ageGroups[0]?.seasonIds).toEqual(["spring-2027"]);
+  });
+
+  it("uses the page the import already made rather than a second one of the same name", () => {
+    const existing = group({ id: "a", name: "9U 2027", ageLevel: 9, year: 2027 });
+    const result = seasonAtAge("spring-2027", { ageLevel: 9, year: 2027 }, [existing]);
+    expect(result.created).toBe(false);
+    expect(result.group?.id).toBe("a");
+    expect(result.ageGroups).toHaveLength(1);
+    expect(result.ageGroups[0]?.seasonIds).toEqual(["spring-2027"]);
+  });
+
+  it("moves a league season rather than leaving it counted on two tables", () => {
+    const groups = [
+      group({ id: "a", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: ["spring-2027"] }),
+      group({ id: "b", name: "10U 2028", ageLevel: 10, year: 2028 }),
+    ];
+    const result = seasonAtAge("spring-2027", { ageLevel: 10, year: 2028 }, groups);
+    expect(result.group?.id).toBe("b");
+    expect(result.ageGroups.find((current) => current.id === "a")?.seasonIds).toEqual([]);
+    expect(result.ageGroups.find((current) => current.id === "b")?.seasonIds).toEqual([
+      "spring-2027",
+    ]);
+  });
+
+  it("takes a league season off Team Rankings without touching the page it was on", () => {
+    const groups = [
+      group({ id: "a", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: ["spring-2027"] }),
+    ];
+    const result = seasonAtAge("spring-2027", null, groups);
+    expect(result.group).toBeUndefined();
+    expect(result.created).toBe(false);
+    expect(result.ageGroups).toHaveLength(1);
+    expect(result.ageGroups[0]?.seasonIds).toEqual([]);
   });
 
   it("links the new season to the old one, so last year's opponents stay suggested", () => {

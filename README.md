@@ -134,6 +134,13 @@ squad year, made on the spot if it is not there. Setting one up by hand is for a
 league tracked without GameChanger — and nothing can be logged by hand until an
 age group exists, because every game has to know which ranking it belongs to.
 
+What a pull cannot work out is which page **your own** league season belongs on:
+nothing in a GameChanger schedule mentions your league. So Setup asks that
+directly — "what age does this League Standings season play?" — one row per
+season, and answering makes the page if the pull has not already. A season moves
+off whatever page held it before, since one league season is played at one age
+and leaving it on two would count its games twice.
+
 A team below the youngest level ranked here, or one GameChanger gives no age
 for, is skipped rather than filed: a nationwide list carries thousands of 6U and
 7U squads whose results say more about which league plays coach pitch than about
@@ -152,7 +159,7 @@ of that name where it can.
 
 | Concept               | What it does                                                                                                                                                                                                                                                                           |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Assigned seasons      | Those seasons' whole schedules fold in. Tick a Fall and a Spring season together when both are the same squad-year.                                                                                                                                                                    |
+| Assigned seasons      | Those seasons' whole schedules fold in. Put a Fall and a Spring season at the same age when both are the same squad-year.                                                                                                                                                              |
 | Advance to new season | Creates next year's group from this one — a year older, a year later (9U 2027 → 10U 2028), already continuing from it, already carrying "our team". Seasons are not copied: next year's don't exist yet. 18U stays 18U while the year moves, since a player can spend two years there. |
 | `continuesFromId`     | Last year's version of this squad. Its opponents keep appearing in the name dropdown as the squad ages up. **Only names travel across years** — a 10U group that continues from a 9U one starts at zero games. Levels within one season year do pool; across years they never do.      |
 | `myTeamId`            | "Our" team, per age group, so a club running a 9U and an 11U at once has one of each. Never touches the rating math.                                                                                                                                                                   |

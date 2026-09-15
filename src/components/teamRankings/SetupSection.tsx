@@ -3,8 +3,10 @@ import {
   formatAgeGroupName,
   isRankedAgeLevel,
   type AgeGroup,
+  type AgeGroupSeason,
 } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
+import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { ResetRankingsCard } from "./ResetRankingsCard";
 import { button, card } from "../../styles/tokens";
 
@@ -15,6 +17,10 @@ import { button, card } from "../../styles/tokens";
 export type AgeGroupDraft = {
   ageLevel: number;
   year: number;
+  /**
+   * League Standings seasons already on this group. Carried through an edit rather than chosen
+   * here — which season plays at which age is asked once, in `LeagueSeasonsCard`.
+   */
   seasonIds: string[];
   continuesFromId: string;
 };
@@ -26,7 +32,8 @@ type SetupSectionProps = {
   editingGroupId: string | null;
   draft: AgeGroupDraft;
   onDraftChange: (patch: Partial<AgeGroupDraft>) => void;
-  onToggleSeason: (seasonId: string) => void;
+  /** Puts a League Standings season at an age, or takes it off with `null`. */
+  onAssignSeason: (seasonId: string, season: AgeGroupSeason | null) => void;
   yearOptions: number[];
   onSave: () => void;
   onCancelEdit: () => void;
@@ -46,7 +53,7 @@ export function SetupSection({
   editingGroupId,
   draft,
   onDraftChange,
-  onToggleSeason,
+  onAssignSeason,
   yearOptions,
   onSave,
   onCancelEdit,
@@ -78,8 +85,19 @@ export function SetupSection({
         </p>
       </div>
 
+      <LeagueSeasonsCard
+        seasons={seasons}
+        ageGroups={ageGroups}
+        yearOptions={yearOptions}
+        onAssign={onAssignSeason}
+      />
+
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Age groups</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          These are made for you: answering the question above makes one, and so does a GameChanger
+          import — a 9U schedule lands on the 9U page whether or not you made it first.
+        </p>
         {ageGroups.length > 0 && (
           <ul className="mb-3 mt-3 divide-y divide-slate-100 dark:divide-slate-800">
             {ageGroups.map((group) => (
@@ -130,107 +148,94 @@ export function SetupSection({
             ))}
           </ul>
         )}
-        <p className="mb-2 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {editingGroupId ? "Edit age group" : "New age group"}
-        </p>
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <span className="flex flex-col gap-1">
-              <label
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                htmlFor="scout-group-age"
-              >
-                Age
-              </label>
-              <select
-                id="scout-group-age"
-                value={draft.ageLevel}
-                onChange={(event) => onDraftChange({ ageLevel: Number(event.target.value) })}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-              >
-                {AGE_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}U{isRankedAgeLevel(level) ? "" : " (not ranked)"}
+        <details open={editingGroupId !== null} className="mt-3">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {editingGroupId ? "Edit age group" : "Add an age group by hand"}
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <span className="flex flex-col gap-1">
+                <label
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  htmlFor="scout-group-age"
+                >
+                  Age
+                </label>
+                <select
+                  id="scout-group-age"
+                  value={draft.ageLevel}
+                  onChange={(event) => onDraftChange({ ageLevel: Number(event.target.value) })}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                >
+                  {AGE_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {level}U{isRankedAgeLevel(level) ? "" : " (not ranked)"}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <span className="flex flex-col gap-1">
+                <label
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  htmlFor="scout-group-year"
+                >
+                  Year
+                </label>
+                <select
+                  id="scout-group-year"
+                  value={draft.year}
+                  onChange={(event) => onDraftChange({ year: Number(event.target.value) })}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                >
+                  {yearOptions.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <span className="flex flex-col justify-end pb-2 text-sm font-bold text-slate-950 dark:text-white">
+                {formatAgeGroupName(draft.ageLevel, draft.year)}
+              </span>
+            </div>
+            <label
+              className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+              htmlFor="scout-continues-from"
+            >
+              Continues from
+            </label>
+            <select
+              id="scout-continues-from"
+              value={draft.continuesFromId}
+              onChange={(event) => onDraftChange({ continuesFromId: event.target.value })}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <option value="">Nothing — this is a new squad</option>
+              {ageGroups
+                .filter((group) => group.id !== editingGroupId)
+                .map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
                   </option>
                 ))}
-              </select>
-            </span>
-            <span className="flex flex-col gap-1">
-              <label
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                htmlFor="scout-group-year"
-              >
-                Year
-              </label>
-              <select
-                id="scout-group-year"
-                value={draft.year}
-                onChange={(event) => onDraftChange({ year: Number(event.target.value) })}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-              >
-                {yearOptions.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </span>
-            <span className="flex flex-col justify-end pb-2 text-sm font-bold text-slate-950 dark:text-white">
-              {formatAgeGroupName(draft.ageLevel, draft.year)}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {seasons.map((season) => (
-              <label
-                key={season.id}
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"
-              >
-                <input
-                  type="checkbox"
-                  checked={draft.seasonIds.includes(season.id)}
-                  onChange={() => onToggleSeason(season.id)}
-                />
-                {season.name}
-              </label>
-            ))}
-          </div>
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-            htmlFor="scout-continues-from"
-          >
-            Continues from
-          </label>
-          <select
-            id="scout-continues-from"
-            value={draft.continuesFromId}
-            onChange={(event) => onDraftChange({ continuesFromId: event.target.value })}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          >
-            <option value="">Nothing — this is a new squad</option>
-            {ageGroups
-              .filter((group) => group.id !== editingGroupId)
-              .map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-          </select>
-          <p className="text-xs text-slate-500">
-            Last year&apos;s version of this same squad — a 10U that used to be the 9U. Its
-            opponents keep showing up in the name list here, but its results stay out of these
-            rankings: a 9U score says nothing about a 10U game.
-          </p>
-          <div className="flex gap-2">
-            <button type="button" onClick={onSave} className={button.primary}>
-              {editingGroupId ? "Save changes" : "Create age group"}
-            </button>
-            {editingGroupId && (
-              <button type="button" onClick={onCancelEdit} className={button.ghost}>
-                Cancel
+            </select>
+            <p className="text-xs text-slate-500">
+              Last year&apos;s version of this same squad — a 10U that used to be the 9U. Its
+              opponents keep showing up in the name list here, but its results stay out of these
+              rankings: a 9U score says nothing about a 10U game.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={onSave} className={button.primary}>
+                {editingGroupId ? "Save changes" : "Create age group"}
               </button>
-            )}
+              {editingGroupId && (
+                <button type="button" onClick={onCancelEdit} className={button.ghost}>
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <ResetRankingsCard

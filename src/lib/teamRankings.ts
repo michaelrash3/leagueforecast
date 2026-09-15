@@ -620,6 +620,49 @@ export const findAgeGroupForSeason = (
 export const createAgeGroupId = (): string =>
   `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
+/**
+ * Puts one League Standings season at an age, making the age group if it is not there yet.
+ *
+ * This is the one thing about age groups nobody can work out for you. The groups themselves arrive
+ * with the GameChanger import — a 9U schedule makes the 9U page — but nothing in a GameChanger
+ * schedule mentions your league, so which page your own league season belongs on is yours to say.
+ *
+ * A season comes off whatever group held it before, because one league season is played at one
+ * age: leaving it on both would count its games twice, once on each table. `null` takes it off
+ * Team Rankings altogether.
+ */
+export const seasonAtAge = (
+  seasonId: string,
+  season: AgeGroupSeason | null,
+  ageGroups: AgeGroup[]
+): { ageGroups: AgeGroup[]; group?: AgeGroup; created: boolean } => {
+  const without = ageGroups.map((group) =>
+    group.seasonIds.includes(seasonId)
+      ? { ...group, seasonIds: group.seasonIds.filter((id) => id !== seasonId) }
+      : group
+  );
+  if (!season) return { ageGroups: without, created: false };
+
+  const existing = findAgeGroupForSeason(season, without);
+  if (existing) {
+    const group = { ...existing, seasonIds: [...existing.seasonIds, seasonId] };
+    return {
+      ageGroups: without.map((current) => (current.id === group.id ? group : current)),
+      group,
+      created: false,
+    };
+  }
+
+  const group: AgeGroup = {
+    id: createAgeGroupId(),
+    name: formatAgeGroupName(season.ageLevel, season.year),
+    ageLevel: season.ageLevel,
+    year: season.year,
+    seasonIds: [seasonId],
+  };
+  return { ageGroups: [...without, group], group, created: true };
+};
+
 // ---------- GameChanger seasons and links ----------
 
 /**
