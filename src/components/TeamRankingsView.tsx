@@ -827,7 +827,7 @@ export function TeamRankingsView({
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
     if (!from || !into) return;
-    const preview = mergeScoutTeams(fromId, intoId, scoutTeams, scoutGames);
+    const preview = mergeScoutTeams(fromId, intoId, scoutTeams, scoutGames, ageGroups);
     const confirmed = await requestConfirmation({
       title: `Fold ${from.name} into ${into.name}?`,
       message: `Every game moves to ${into.name} and ${from.name} is removed.${
@@ -855,7 +855,7 @@ export function TeamRankingsView({
    * misspelling can be routed to the real team rather than leaving its games stranded.
    */
   const renameTeam = async (teamId: string, nextName: string) => {
-    const preview = renameScoutTeam(teamId, nextName, allKnown.teams, scoutGames);
+    const preview = renameScoutTeam(teamId, nextName, allKnown.teams, scoutGames, ageGroups);
     if (preview.mergedInto) {
       const moved = scoutGames.filter(
         (game) => game.teamAId === teamId || game.teamBId === teamId

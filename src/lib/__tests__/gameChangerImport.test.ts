@@ -7,6 +7,7 @@ import {
   mergeSameSquadIds,
   importGcSchedule,
   resolveSlotGames,
+  tidyPool,
   importGcSchedules,
   proposeSeasonPairings,
   summarizeGcImport,
@@ -856,11 +857,53 @@ describe("one squad holding several GameChanger ids", () => {
     expect(settled.merged).toBe(1);
     const survivors = settled.state.teams.filter((team) => team.name === "Yeager Davis");
     expect(survivors).toHaveLength(1);
+    // And the 8-2 is one game, not the club's two copies of it.
+    expect(settled.state.games).toHaveLength(1);
     // Both GameChanger ids stay on the team that is left.
     expect(survivors[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
       "gcYEAGFALL00",
       "gcYEAGSPRG00",
     ]);
+  });
+
+  it("shows one 2-8 when the Raptors' schedule and a third Yeager id both filed it", () => {
+    // What the backup showed: the Raptors pulled first and named Yeager Davis as an opponent;
+    // a Yeager id with no games then adopted that entry; a third Yeager id with the game arrived
+    // as a team of its own. After the tidy: one club, three ids, one game.
+    let pool = importGcSchedule(
+      sched(
+        "gcRAPTORS0000",
+        "River City Raptors 11U",
+        [played("r1", "Yeager Davis 11U", "2026-09-11", 2, 8)],
+        fall
+      ),
+      empty
+    ).state;
+    pool = importGcSchedule(sched("gcYEAGSPRG10", "Yeager Davis 11U", [], spring), pool).state;
+    pool = importGcSchedule(
+      sched(
+        "gcYEAGSPRG20",
+        "Yeager Davis 11U",
+        [played("s1", "River City Raptors 11U", "2026-09-11", 8, 2)],
+        spring
+      ),
+      pool
+    ).state;
+
+    const tidy = tidyPool(pool);
+    const yeager = tidy.state.teams.filter((team) => team.name === "Yeager Davis");
+    expect(yeager).toHaveLength(1);
+    expect(yeager[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
+      "gcYEAGSPRG10",
+      "gcYEAGSPRG20",
+    ]);
+    const raptors = tidy.state.teams.find((team) => team.name === "River City Raptors");
+    const between = tidy.state.games.filter(
+      (game) =>
+        [game.teamAId, game.teamBId].includes(raptors!.id) &&
+        [game.teamAId, game.teamBId].includes(yeager[0]!.id)
+    );
+    expect(between).toHaveLength(1);
   });
 
   it("leaves two clubs of one name that never shared a game", () => {
