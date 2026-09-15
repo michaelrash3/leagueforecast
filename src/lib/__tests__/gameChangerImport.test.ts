@@ -277,19 +277,39 @@ describe("who an opponent is", () => {
     expect(pulled.state.teams.find((team) => team.name === "Xplosion")?.nameOnly).toBeUndefined();
   });
 
-  it("keeps two clubs of one name apart when their pictures differ", () => {
+  /**
+   * A picture is not an identifier. GameChanger mints a fresh one for every listing rather than
+   * giving a club one that follows it about: over a nationwide pull, 7,948 teams carried 7,948
+   * distinct pictures and not one was shared by two of them. Read as identity it says "different
+   * club" about every mention of the same club, which is how one River City Raptors became six.
+   */
+  it("is one club however many pictures its mentions carry", () => {
     const first = importGcSchedule(
-      schedule({}, [game({ opponentName: "Yankees", opponentAvatarKey: "av-ky" })]),
+      schedule({}, [game({ opponentName: "Yankees", opponentAvatarKey: "av-one" })]),
       empty
     );
     const second = importGcSchedule(
       schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
-        game({ id: "g2", opponentName: "Yankees", date: "2026-08-30", opponentAvatarKey: "av-ca" }),
+        game({
+          id: "g2",
+          opponentName: "Yankees",
+          date: "2026-08-30",
+          opponentAvatarKey: "av-two",
+        }),
       ]),
       first.state
     );
-    // A picture is the one thing that can tell them apart, and here it does.
-    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
+    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+  });
+
+  /** Two clubs somebody pulled by id are two clubs, whatever they are called. */
+  it("never folds one pulled club into a namesake", () => {
+    const first = importGcSchedule(schedule({ id: "gcY100000000", name: "Yankees 9U" }, []), empty);
+    const second = importGcSchedule(
+      schedule({ id: "gcY200000000", name: "Yankees 9U" }, []),
+      first.state
+    );
+    expect(second.outcome.createdTeam).toBe(true);
   });
 
   it("never mints a fourth entry for a name one schedule keeps repeating", () => {
@@ -438,7 +458,7 @@ describe("both sides of a game in one run", () => {
    * schedule cannot find it by name. The picture can: it is the one identifier that means the same
    * thing on both schedules.
    */
-  it("recognises a club that played up by its picture", () => {
+  it("recognises a club that played up by the game they both filed", () => {
     const { state } = importGcSchedules(
       [
         fixture(
@@ -461,8 +481,12 @@ describe("both sides of a game in one run", () => {
     expect(state.games).toHaveLength(1);
   });
 
-  /** Nothing but a name, and the two sides disagree on the level: two teams is the safe answer. */
-  it("leaves two teams when nothing but a disputed name connects them", () => {
+  /**
+   * The two sides disagree about the level, and there is no picture worth anything — but they
+   * agree about the game, and that is what settles it. This is the case the user kept asking for:
+   * go and look at the other club's schedule for that exact day and result.
+   */
+  it("joins them on the game when the two sides disagree about the level", () => {
     const { state } = importGcSchedules(
       [
         fixture("gcAAAAAAAAAA", "Aces 11U", [played("a1", "Comets", 10, 5)], { ageLevel: 11 }),
@@ -470,7 +494,20 @@ describe("both sides of a game in one run", () => {
       ],
       empty
     );
-    expect(state.teams).toHaveLength(4);
+    expect(state.teams).toHaveLength(2);
+    expect(state.games).toHaveLength(1);
+  });
+
+  /** Same day, same two names, results that contradict: not one game, and not one club either. */
+  it("keeps them apart when the results disagree", () => {
+    const { state } = importGcSchedules(
+      [
+        fixture("gcAAAAAAAAAA", "Aces 11U", [played("a1", "Comets", 10, 5)], { ageLevel: 11 }),
+        fixture("gcBBBBBBBBBB", "Comets 9U", [played("c1", "Aces", 9, 9)]),
+      ],
+      empty
+    );
+    expect(state.games).toHaveLength(2);
   });
 });
 
@@ -645,6 +682,56 @@ describe("the game itself as the identifier", () => {
       empty
     ).state;
     expect(state.teams.filter((team) => team.placeholder)).toHaveLength(1);
+  });
+});
+
+describe("a doubleheader only one side wrote down twice", () => {
+  const sched = (id: string, name: string, games: GcTeamSchedule["games"]): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 11, season: { season: "spring", year: 2027 } },
+    games,
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+  const played = (id: string, opponentName: string, a: number, b: number) => ({
+    id,
+    date: "2026-08-29",
+    opponentName,
+    status: "completed" as const,
+    teamScore: a,
+    opponentScore: b,
+  });
+
+  /**
+   * Same pair, same day, two results that contradict each other: a doubleheader, not one game
+   * written down twice. Matching them lost the second game whenever one schedule listed both and
+   * the other listed only the first.
+   */
+  it("keeps both games", () => {
+    let pool = importGcSchedule(
+      sched("gcLEGACY11U0", "Legacy 11U", [played("l2", "Raptors 11U", 14, 2)]),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched("gcRAPTORS110", "Raptors 11U", [
+        played("r1", "Legacy 11U", 5, 14),
+        played("r2", "Legacy 11U", 2, 14),
+      ]),
+      pool
+    ).state;
+
+    expect(pool.teams).toHaveLength(2);
+    expect(pool.games).toHaveLength(2);
+  });
+
+  it("still joins the copy that agrees about the result", () => {
+    let pool = importGcSchedule(
+      sched("gcLEGACY11U0", "Legacy 11U", [played("l2", "Raptors 11U", 14, 2)]),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched("gcRAPTORS110", "Raptors 11U", [played("r2", "Legacy 11U", 2, 14)]),
+      pool
+    ).state;
+    expect(pool.games).toHaveLength(1);
   });
 });
 

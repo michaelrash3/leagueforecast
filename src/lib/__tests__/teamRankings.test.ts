@@ -1383,7 +1383,7 @@ describe("matchExistingGame", () => {
     date: "2026-08-22",
   };
 
-  it("matches the same pair on the same date in either order, whatever the score", () => {
+  it("matches the same pair on the same date in either order", () => {
     const swapped: ScoutGame = {
       id: "g2",
       teamAId: "B",
@@ -1391,11 +1391,42 @@ describe("matchExistingGame", () => {
       ageGroupId: "u9",
       date: "2026-08-22",
     };
+    // Nothing to contradict: an unscored copy of a game already here is that game.
     expect(matchExistingGame(swapped, [existing], pool)).toBe(existing);
-    // The scheduled entry now has a score: same game, not a new one.
-    expect(matchExistingGame({ ...swapped, teamAScore: 3, teamBScore: 8 }, [existing], pool)).toBe(
+    // And the same result seen from the other side — 7-3 becomes 3-7 — is still the same game.
+    expect(matchExistingGame({ ...swapped, teamAScore: 3, teamBScore: 7 }, [existing], pool)).toBe(
       existing
     );
+  });
+
+  /**
+   * Two results that contradict each other are two games. Matching them lost the second half of a
+   * doubleheader whenever one club's schedule listed both and the other listed only the first.
+   */
+  it("is not the same game when the two rows disagree about the result", () => {
+    const other: ScoutGame = {
+      id: "g2",
+      teamAId: "B",
+      teamBId: "A",
+      teamAScore: 3,
+      teamBScore: 8,
+      ageGroupId: "u9",
+      date: "2026-08-22",
+    };
+    expect(matchExistingGame(other, [existing], pool)).toBeNull();
+  });
+
+  it("is not the same game when the two rows start at different times", () => {
+    const later: ScoutGame = {
+      id: "g2",
+      teamAId: "A",
+      teamBId: "B",
+      ageGroupId: "u9",
+      date: "2026-08-22",
+      startTs: "2026-08-22T18:00:00Z",
+    };
+    const morning = { ...existing, startTs: "2026-08-22T14:00:00Z" };
+    expect(matchExistingGame(later, [morning], pool)).toBeNull();
   });
 
   it("matches across the groups of one pool, but not across years", () => {

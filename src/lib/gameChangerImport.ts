@@ -87,6 +87,13 @@ type ImportIndex = {
    */
   teamIdsByGroupName: Map<string, string[]>;
   /**
+   * The same, without the level. Only the fixture check searches this: it is looking for a club
+   * whose schedule holds this very game, and a game is evidence enough to cross a level — which
+   * is the whole of how a club that played up is recognised, now that the picture has turned out
+   * to be no kind of identifier.
+   */
+  teamIdsByPoolName: Map<string, string[]>;
+  /**
    * What each page is, by id, behind the two lookups below.
    *
    * Maps rather than closures because the fold creates pages as it goes and both lookups have to
@@ -145,6 +152,7 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     teamsByAvatar: new Map(),
     teamIdsByGroup: new Map(),
     teamIdsByGroupName: new Map(),
+    teamIdsByPoolName: new Map(),
     opponentsByTeam: new Map(),
     gamesByTeamDate: new Map(),
   };
@@ -198,10 +206,17 @@ const noteInPool = (
 ) => {
   const team = index.teamsById.get(teamId);
   if (!team) return;
-  const key = nameSlotKey(index.poolKeyOf(ageGroupId), teamNameKey(team.name), level);
+  const pool = index.poolKeyOf(ageGroupId);
+  const name = teamNameKey(team.name);
+  const key = nameSlotKey(pool, name, level);
   const bucket = index.teamIdsByGroupName.get(key);
   if (!bucket) index.teamIdsByGroupName.set(key, [teamId]);
   else if (!bucket.includes(teamId)) bucket.push(teamId);
+
+  const anyLevel = `${pool}\u0000${name}`;
+  const wide = index.teamIdsByPoolName.get(anyLevel);
+  if (!wide) index.teamIdsByPoolName.set(anyLevel, [teamId]);
+  else if (!wide.includes(teamId)) wide.push(teamId);
 };
 
 /** Records that two teams have met, both ways round. */
@@ -490,11 +505,15 @@ const resolveOwnTeam = (
    * so creating a second would duplicate most of the pull. Only an entry with no GameChanger id
    * of its own qualifies, and only on this page, which is the same rule opponents are matched by.
    */
+  /*
+   * Any level, not just this club's own. An entry put here by somebody else's schedule was filed
+   * at whatever level *they* play at — the schedule that named it never said what level the club
+   * was — so matching on that level misses the club that played up, and mints a second team for
+   * it. What the level would have guarded against, one club's 9U and 11U squads folding together,
+   * is guarded instead by there being exactly one such entry to adopt.
+   */
   const key = teamNameKey(profile.name);
-  const sameName =
-    index.teamIdsByGroupName.get(
-      nameSlotKey(index.poolKeyOf(ageGroupId), key, profileAgeLevel(profile))
-    ) ?? [];
+  const sameName = index.teamIdsByPoolName.get(`${index.poolKeyOf(ageGroupId)}\u0000${key}`) ?? [];
   // Exactly one, or picking between them is a guess — and a wrong one folds a club's games into
   // somebody else's team.
   const placeholders = sameName.map((teamId) => index.teamsById.get(teamId)).filter(isStub);
@@ -536,6 +555,58 @@ type OpponentMatch = {
  * folded together in a few seconds, while a wrong merge silently pools two clubs' results into one
  * rating and leaves nothing behind to notice.
  */
+/**
+ * Whether this club's own schedule already holds the game being filed.
+ *
+ * This is the question a person would ask. The Raiders' schedule says they played the River City
+ * Raptors on the 2nd: go and look at the Raptors' schedule for a game that day and see whether it
+ * is the same one. A club that has it is the club that played it; a club that does not, is not.
+ *
+ * What counts as "the same one": the day has to match, a start time on both sides has to agree,
+ * and where both rows carry a result the results have to mirror. The other side of their row must
+ * be this very team, or a stand-in — a bracket slot, or a club nobody has pulled yet — because
+ * that is what their row looks like before this team's own turn comes round.
+ */
+const holdsThisGame = (
+  index: ImportIndex,
+  ownTeamId: string,
+  candidateId: string,
+  game: GcGame
+): boolean => {
+  if (!game.date) return false;
+  const sameDay = index.gamesByTeamDate.get(`${candidateId} ${game.date}`) ?? [];
+  return sameDay.some((existing) => {
+    if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
+    const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
+    const theirs = existing.teamAId === candidateId ? existing.teamAScore : existing.teamBScore;
+    const ours = existing.teamAId === candidateId ? existing.teamBScore : existing.teamAScore;
+    const resultsAgree =
+      theirs === undefined ||
+      ours === undefined ||
+      game.teamScore === undefined ||
+      game.opponentScore === undefined ||
+      (theirs === game.opponentScore && ours === game.teamScore);
+    if (!resultsAgree) return false;
+    if (other === ownTeamId) return true;
+    const stand = index.teamsById.get(other);
+    return Boolean(stand?.placeholder || stand?.nameOnly);
+  });
+};
+
+/**
+ * Of the clubs of this name, the one whose schedule holds this game. Exactly one, or the schedules
+ * cannot tell them apart either and the question is left to whatever comes after.
+ */
+const clubHoldingThisGame = (
+  index: ImportIndex,
+  ownTeamId: string,
+  candidates: readonly string[],
+  game: GcGame
+): string | undefined => {
+  const holders = candidates.filter((id) => holdsThisGame(index, ownTeamId, id, game));
+  return holders.length === 1 ? holders[0] : undefined;
+};
+
 const corroborates = (
   index: ImportIndex,
   ownTeamId: string,
@@ -692,8 +763,19 @@ const resolveOpponent = (
     index.teamIdsByGroupName.get(nameSlotKey(index.poolKeyOf(ageGroupId), key, theirLevel)) ?? [];
 
   /*
-   * Attaching this game to a club somebody has actually pulled is a claim about identity, so it
-   * takes more than a shared name: exactly one candidate, and something beyond the name agreeing.
+   * Of the clubs of this name, the one whose own schedule holds this game. This is the question
+   * worth asking and it beats every other test, because it is about this fixture rather than
+   * about the name: it tells a club apart from its namesakes however many of them there are.
+   */
+  const anyLevel =
+    index.teamIdsByPoolName.get(`${index.poolKeyOf(ageGroupId)}\u0000${key}`) ?? sameName;
+  const holder = clubHoldingThisGame(index, ownTeamId, anyLevel, game);
+  if (holder) return { teamId: holder, basis: "name" };
+
+  /*
+   * Failing that, attaching this game to a club somebody has actually pulled is a claim about
+   * identity, so it takes more than a shared name: exactly one candidate, and something beyond
+   * the name agreeing.
    */
   const only = sameName.length === 1 ? sameName[0] : undefined;
   if (only && corroborates(index, ownTeamId, only, game)) {
@@ -707,34 +789,20 @@ const resolveOpponent = (
    * so it mints a third, and a fourth, until one club is hundreds of teams and its games are
    * scattered across all of them. A pull of a few thousand schedules did exactly that.
    *
-   * A picture is what splits two clubs of one name, and it is checked above, before any of this.
-   * Here it can only rule an entry *out*, and only when there is a picture on both sides to
-   * disagree: GameChanger sends one for some opponents and not others, so a row with no picture
-   * contradicts nothing and must not be the reason a second entry of the name is created.
+   * Nothing about the picture enters into it. GameChanger mints a fresh one for every listing
+   * rather than giving a club one that follows it about — measured over a nationwide pull, 7,948
+   * teams carried 7,948 distinct pictures and not one was shared by two of them, while the clubs
+   * actually pulled by id often carried none at all. Read as identity it said "different club"
+   * about every mention of the same club, which is how one River City Raptors became six.
    */
   const reusable = sameName
     .map((teamId) => index.teamsById.get(teamId))
     .find(
-      (team): team is ScoutTeam =>
-        team !== undefined &&
-        !team.placeholder &&
-        !team.gcTeams?.length &&
-        (game.opponentAvatarKey === undefined ||
-          team.avatarKey === undefined ||
-          team.avatarKey === game.opponentAvatarKey)
+      (team): team is ScoutTeam => team !== undefined && !team.placeholder && !team.gcTeams?.length
     );
-  if (reusable) {
-    // The first schedule to give this club a picture leaves it here for the next one to find.
-    if (game.opponentAvatarKey && !reusable.avatarKey) {
-      replaceTeam(index, teams, { ...reusable, avatarKey: game.opponentAvatarKey });
-    }
-    return { teamId: reusable.id, basis: "name" };
-  }
+  if (reusable) return { teamId: reusable.id, basis: "name" };
 
-  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {
-    nameOnly: true,
-    ...(game.opponentAvatarKey ? { avatarKey: game.opponentAvatarKey } : {}),
-  });
+  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, { nameOnly: true });
   addTeam(index, teams, created);
   return { teamId: created.id, basis: "created" };
 };

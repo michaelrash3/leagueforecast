@@ -1056,6 +1056,20 @@ export const matchExistingGame = (
       scoreOf(game, candidate.teamBId) === candidate.teamBScore
     ) {
       rank = 1;
+    } else {
+      /*
+       * Same pair, same day, and two results that contradict each other: a doubleheader, not one
+       * game written down twice. Treating it as one lost the second game whenever the other side's
+       * schedule listed both and this one listed only the first. A start time settles it the same
+       * way, and earlier, when both rows carry one.
+       */
+      const bothScored =
+        candidate.teamAScore !== undefined &&
+        candidate.teamBScore !== undefined &&
+        game.teamAScore !== undefined &&
+        game.teamBScore !== undefined;
+      if (bothScored) continue;
+      if (candidate.startTs && game.startTs && candidate.startTs !== game.startTs) continue;
     }
     if (!best || rank > best.rank) best = { rank, game };
     if (rank === 2) break;
