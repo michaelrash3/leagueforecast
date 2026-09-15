@@ -382,7 +382,7 @@ export const decodeScoutTeams = (
   pool.r.forEach((row) => {
     if (!Array.isArray(row)) return;
     const id = str(row[0]);
-    // The name may legitimately be empty — `stripAgeLabel` leaves nothing behind for a team called
+    // The name may legitimately be empty — `cleanTeamName` leaves nothing behind for a team called
     // only "9U" — and dropping the team for that would lose it and every game pointing at it. An
     // id is the one thing a team cannot do without.
     const name = typeof row[1] === "string" ? row[1] : undefined;

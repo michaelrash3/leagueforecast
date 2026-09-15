@@ -283,7 +283,7 @@ describe("the size it is all for", () => {
 });
 
 describe("what the encoder accepts, the decoder keeps", () => {
-  // `stripAgeLabel` leaves nothing behind for a team called only "9U", so an empty name is a real
+  // `cleanTeamName` leaves nothing behind for a team called only "9U", so an empty name is a real
   // thing to store. It used to encode fine and vanish on the next load, taking its games' opponent
   // with it.
   it("keeps a team whose name is empty", () => {

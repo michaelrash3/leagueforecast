@@ -219,22 +219,41 @@ export const RATING_CAP = 8;
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
 
-/** "9U", "9u", "12 U", "U10" — an age level, anywhere in the name. */
-const AGE_LABEL = /\b(?:\d{1,2}\s*[uU]|[uU]\s*\d{1,2})\b/g;
+/**
+ * "9U", "9u", "12 U", "U10" — an age level, anywhere in the name — and the division letters that
+ * run straight on from it, as in "9UA" or "11UAA". The letters have to follow with no space, so
+ * "12 United" and "9u Scout" keep the word that happens to come next.
+ */
+const AGE_LABEL = /\b(?:\d{1,2}\s*[uU][A-Da-d]{0,3}|[uU]\s*\d{1,2})\b/g;
+
+/** An innermost bracketed aside, so nesting comes apart a layer at a time. */
+const PARENTHETICAL = /\([^()]*\)/;
 
 /**
- * Drops the age label from a team name: an age level describes *this year's* squad, not the club,
- * and the same club plays up a level every year ("South Lexington Red 9u" becomes "…10u"). Keeping
- * the label would fragment one real-world team into a new entity every season, which is exactly
- * what the age-group scoping already handles. Handles labels anywhere in the name, so
+ * Tidies a team name down to what the club is actually called.
+ *
+ * Two things come off. The **age label**, because an age level describes *this year's* squad, not
+ * the club, and the same club plays up a level every year ("South Lexington Red 9u" becomes
+ * "…10u") — keeping it would fragment one real-world team into a new entity every season, which
+ * is what the age-group scoping already handles — the division letters on "11UAA" go with it,
+ * since they are part of the same label. And anything in **parentheses**, which on a
+ * GameChanger schedule is an aside rather than part of the name: a season, a division, a
+ * tournament, a note somebody typed. Labels anywhere in the name are handled, so
  * "NV Stars 9u Scout" becomes "NV Stars Scout".
+ *
+ * What is *not* touched is a dash suffix — "9U North Oldham Knights - Navy", "Frisco Dodgers -
+ * Gomez 11UAA". That is how a club tells its own squads apart, and it is the only thing
+ * distinguishing two teams that would otherwise read alike, so it stays in the name and in the key
+ * two names are compared by.
  */
-export const stripAgeLabel = (name: string): string => {
-  const stripped = name
+export const cleanTeamName = (name: string): string => {
+  let stripped = name;
+  while (PARENTHETICAL.test(stripped)) stripped = stripped.replace(PARENTHETICAL, " ");
+  stripped = stripped
     .replace(AGE_LABEL, " ")
     .replace(/\s{2,}/g, " ")
     .replace(/^[\s\-–—,]+|[\s\-–—,]+$/g, "");
-  // A name that is *only* an age label still has to be called something.
+  // A name that is *only* an age label, or only an aside, still has to be called something.
   return stripped || name.trim();
 };
 
@@ -243,7 +262,7 @@ export const stripAgeLabel = (name: string): string => {
  * need to look a name up in the roster (the screenshot importer, for one) match names exactly the
  * way `resolveOrCreateTeam` does, instead of re-deriving the rule.
  */
-export const teamNameKey = (name: string) => stripAgeLabel(name).toLowerCase();
+export const teamNameKey = (name: string) => cleanTeamName(name).toLowerCase();
 
 const normalizeName = teamNameKey;
 
@@ -256,7 +275,7 @@ export const resolveOrCreateTeam = (
   name: string,
   teams: ScoutTeam[]
 ): { teams: ScoutTeam[]; teamId: string } => {
-  const display = stripAgeLabel(name);
+  const display = cleanTeamName(name);
   const key = normalizeName(name);
   // A placeholder names nobody, so two of them are not the same team and must never be matched
   // onto one another. Each gets a slot of its own, marked as one.
@@ -274,7 +293,7 @@ export const resolveOrCreateTeam = (
   if (existingIndex >= 0) {
     const existing = teams[existingIndex]!;
     // Clean the *stored* name rather than adopting the incoming one, so its capitalization stands.
-    const cleaned = stripAgeLabel(existing.name);
+    const cleaned = cleanTeamName(existing.name);
     if (cleaned === existing.name) return { teams, teamId: existing.id };
     const next = teams.slice();
     next[existingIndex] = { ...existing, name: cleaned };
@@ -335,7 +354,7 @@ export const buildScoutTeam = (
   existingIds: ReadonlySet<string>,
   extras: Partial<ScoutTeam> = {}
 ): ScoutTeam => {
-  const display = stripAgeLabel(name).trim();
+  const display = cleanTeamName(name).trim();
   const team: ScoutTeam = { id: mintScoutTeamIdFrom(display, existingIds), name: display };
   (Object.keys(extras) as (keyof ScoutTeam)[]).forEach((key) => {
     if (key === "id" || key === "name") return;
@@ -1401,7 +1420,7 @@ export const renameScoutTeam = (
   mergedInto: ScoutTeam | null;
   droppedGames: number;
 } => {
-  const display = stripAgeLabel(nextName).trim();
+  const display = cleanTeamName(nextName).trim();
   if (!display) return { teams, games, mergedInto: null, droppedGames: 0 };
 
   const key = teamNameKey(display);
@@ -1537,12 +1556,12 @@ const PLACEHOLDER_NAMES = new Set([
 export const isPlaceholderName = (name: string): boolean => {
   const raw = name.trim();
   if (!raw) return true;
-  // A name that is nothing but an age level names no team. `stripAgeLabel` keeps it rather than
+  // A name that is nothing but an age level names no team. `cleanTeamName` keeps it rather than
   // returning an empty string, so it has to be recognised here.
   if (/^(?:\d{1,2}\s*u|u\s*\d{1,2})$/i.test(raw)) return true;
 
   // Dots go so "T.B.D." reads as "tbd"; they are punctuation in an abbreviation, not a name.
-  const value = stripAgeLabel(raw)
+  const value = cleanTeamName(raw)
     .trim()
     .toLowerCase()
     .replace(/\./g, "")
