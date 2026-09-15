@@ -707,9 +707,10 @@ const resolveOpponent = (
    * so it mints a third, and a fourth, until one club is hundreds of teams and its games are
    * scattered across all of them. A pull of a few thousand schedules did exactly that.
    *
-   * A picture is what splits two clubs of one name, and it is checked above, before any of this:
-   * a stub carrying a different picture from the one in this game was never a candidate. So what
-   * is left to reuse is an entry with no picture to contradict this one.
+   * A picture is what splits two clubs of one name, and it is checked above, before any of this.
+   * Here it can only rule an entry *out*, and only when there is a picture on both sides to
+   * disagree: GameChanger sends one for some opponents and not others, so a row with no picture
+   * contradicts nothing and must not be the reason a second entry of the name is created.
    */
   const reusable = sameName
     .map((teamId) => index.teamsById.get(teamId))
@@ -718,7 +719,9 @@ const resolveOpponent = (
         team !== undefined &&
         !team.placeholder &&
         !team.gcTeams?.length &&
-        (team.avatarKey === undefined || team.avatarKey === game.opponentAvatarKey)
+        (game.opponentAvatarKey === undefined ||
+          team.avatarKey === undefined ||
+          team.avatarKey === game.opponentAvatarKey)
     );
   if (reusable) {
     // The first schedule to give this club a picture leaves it here for the next one to find.

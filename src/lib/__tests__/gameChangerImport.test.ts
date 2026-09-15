@@ -229,6 +229,54 @@ describe("who an opponent is", () => {
     expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
   });
 
+  /**
+   * GameChanger sends a picture for some opponents and not others. A row with no picture
+   * contradicts nothing, so it must not be the reason a second entry of the name appears — that
+   * is what left a nationwide pull with twelve "Xplosion" teams where there should be one.
+   */
+  it("reuses the entry when this row carries no picture", () => {
+    let state = importGcSchedule(
+      schedule({}, [game({ opponentName: "Xplosion", opponentAvatarKey: "av-x" })]),
+      empty
+    ).state;
+    state = importGcSchedule(
+      schedule({ id: "gcBBBBBBBBBB", name: "Bears 9U" }, [
+        game({ id: "b1", opponentName: "Xplosion", date: "2026-08-23" }),
+      ]),
+      state
+    ).state;
+    state = importGcSchedule(
+      schedule({ id: "gcCCCCCCCCCC", name: "Comets 9U" }, [
+        game({ id: "c1", opponentName: "Xplosion", date: "2026-08-24", opponentAvatarKey: "av-x" }),
+      ]),
+      state
+    ).state;
+
+    expect(state.teams.filter((team) => team.name === "Xplosion")).toHaveLength(1);
+  });
+
+  it("lets a club's own schedule adopt the entry others made for it", () => {
+    // Two schedules name the Xplosion, one with a picture and one without; then it is pulled.
+    let state = importGcSchedule(
+      schedule({}, [game({ opponentName: "Xplosion", opponentAvatarKey: "av-x" })]),
+      empty
+    ).state;
+    state = importGcSchedule(
+      schedule({ id: "gcBBBBBBBBBB", name: "Bears 9U" }, [
+        game({ id: "b1", opponentName: "Xplosion", date: "2026-08-23" }),
+      ]),
+      state
+    ).state;
+    const pulled = importGcSchedule(
+      schedule({ id: "gcXXXXXXXXXX", name: "Xplosion 9U", avatarKey: "av-x" }, []),
+      state
+    );
+
+    expect(pulled.outcome.createdTeam).toBe(false);
+    expect(pulled.state.teams.filter((team) => team.name === "Xplosion")).toHaveLength(1);
+    expect(pulled.state.teams.find((team) => team.name === "Xplosion")?.nameOnly).toBeUndefined();
+  });
+
   it("keeps two clubs of one name apart when their pictures differ", () => {
     const first = importGcSchedule(
       schedule({}, [game({ opponentName: "Yankees", opponentAvatarKey: "av-ky" })]),

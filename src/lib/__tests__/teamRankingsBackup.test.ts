@@ -145,7 +145,9 @@ describe("teamRankingsCsvSections", () => {
       ?.split(csvSectionMarker(CSV_SECTIONS.games))[0]
       ?.trim();
     const lines = teamsSection?.split("\n") ?? [];
-    expect(lines[0]).toBe("Team ID,Team Name,State,City,Is My Team,Placeholder,Name Only,GameChanger Teams");
+    expect(lines[0]).toBe(
+      "Team ID,Team Name,State,City,Is My Team,Placeholder,Name Only,Avatar Key,GameChanger Teams"
+    );
     // One row per team, even though the first carries two links with quotes and commas inside.
     expect(lines).toHaveLength(3);
     expect(lines[1]).toContain("Columbus");
