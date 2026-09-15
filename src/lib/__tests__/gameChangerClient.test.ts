@@ -241,7 +241,7 @@ describe("fetchGcTeams", () => {
     }
   });
 
-  it("uses the default backoff of one second then three when no delay is injected", async () => {
+  it("backs off 1s, 3s, 8s then 15s when no delay is injected", async () => {
     // Fake timers make the default backoff observable without waiting it out. Assertions run
     // straight after each advance (no waitFor, which would move the fake clock on its own).
     vi.useFakeTimers();
@@ -250,16 +250,50 @@ describe("fetchGcTeams", () => {
       const pending = fetchGcTeams([TEAM_ID], { fetchImpl });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchImpl.calls).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(999);
-      expect(fetchImpl.calls).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(fetchImpl.calls).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(2_999);
-      expect(fetchImpl.calls).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(fetchImpl.calls).toHaveLength(3);
+      for (const [wait, calls] of [
+        [1_000, 2],
+        [3_000, 3],
+        [8_000, 4],
+        [15_000, 5],
+      ] as const) {
+        await vi.advanceTimersByTimeAsync(wait - 1);
+        expect(fetchImpl.calls.length).toBeLessThan(calls);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(fetchImpl.calls).toHaveLength(calls);
+      }
       const results = await pending;
       expect(results.get(TEAM_ID)).toEqual(throttled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * One throttled answer is about the pull, not the team that happened to get it. Every worker
+   * holds off together, or the other seven keep the service that is already refusing us busy.
+   */
+  it("holds every worker back when one of them is throttled", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: string[] = [];
+      const fetchImpl = fakeFetch((url) => {
+        const id = new URL(url, "http://x").searchParams.get("id") ?? "";
+        seen.push(id);
+        return id === "Aaaaaaaa0001" ? jsonResponse(429, throttled) : jsonResponse(200, okBody);
+      });
+      const pending = fetchGcTeams(["Aaaaaaaa0001", "Bbbbbbbb0002", "Cccccccc0003"], {
+        fetchImpl,
+        concurrency: 1,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      // The first team is throttled, so the ones behind it wait rather than pile in.
+      expect(seen).toEqual(["Aaaaaaaa0001"]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(seen).toEqual(["Aaaaaaaa0001"]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const results = await pending;
+      expect(results.get("Bbbbbbbb0002")?.ok).toBe(true);
+      expect(results.get("Cccccccc0003")?.ok).toBe(true);
     } finally {
       vi.useRealTimers();
     }

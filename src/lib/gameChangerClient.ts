@@ -43,8 +43,8 @@ export type FetchGcTeamsOptions = {
 };
 
 const DEFAULT_CONCURRENCY = 4;
-const DEFAULT_RETRIES = 2;
-const DEFAULT_BACKOFF_MS = [1_000, 3_000];
+const DEFAULT_RETRIES = 4;
+const DEFAULT_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
 
 /** Failures that a second try can fix; a missing team or a bad id will fail the same way again. */
 const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "timeout"]);
@@ -169,18 +169,80 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", finish, { once: true });
   });
 
+/**
+ * How long GameChanger asked us to wait, when it said so.
+ *
+ * `Retry-After` is either a number of seconds or an HTTP date. Capped, because a pull should slow
+ * down rather than stop for an hour, and a nonsense value should not strand the run.
+ */
+const RETRY_AFTER_CAP_MS = 60_000;
+
+const retryAfterMs = (result: GcTeamResponse): number | undefined => {
+  const raw = result.ok ? undefined : result.diagnostics?.retryAfter;
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1_000, RETRY_AFTER_CAP_MS);
+  }
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return undefined;
+  return Math.min(Math.max(at - Date.now(), 0), RETRY_AFTER_CAP_MS);
+};
+
+/**
+ * A pause the whole pull shares.
+ *
+ * Backing off one request at a time does nothing when eight are in flight: the other seven carry
+ * on at full rate, GameChanger goes on throttling, and the retries are spent against a service
+ * that is still being hammered — so teams that only needed a breather are reported as failures.
+ *
+ * When any request is throttled, every worker holds off until the same moment, for as long as
+ * GameChanger asked for. That keeps the pull fast while it is welcome and slows all of it at once
+ * when it is not.
+ */
+type Brake = {
+  /** Waits out any hold currently in force. */
+  wait: (signal?: AbortSignal) => Promise<void>;
+  /** Holds every worker off for at least this long. */
+  hold: (ms: number) => void;
+};
+
+const createBrake = (): Brake => {
+  let until = 0;
+  return {
+    wait: (signal) => {
+      const remaining = until - Date.now();
+      return remaining > 0 ? sleep(remaining, signal) : Promise.resolve();
+    },
+    hold: (ms) => {
+      if (ms > 0) until = Math.max(until, Date.now() + ms);
+    },
+  };
+};
+
 const fetchWithRetries = async (
   teamId: string,
   retries: number,
   delayMs: (attempt: number) => number,
-  options: FetchGcTeamOptions
+  options: FetchGcTeamOptions,
+  brake: Brake
 ): Promise<GcTeamResponse> => {
+  await brake.wait(options.signal);
   let result = await fetchGcTeam(teamId, options);
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     if (result.ok || !RETRYABLE_REASONS.has(result.reason) || options.signal?.aborted) break;
-    await sleep(delayMs(attempt), options.signal);
+    const backoff = delayMs(attempt);
+    // A throttled answer is about the pull, not this team: hold everyone, not just this worker.
+    if (result.reason === "throttled") brake.hold(retryAfterMs(result) ?? backoff);
+    await sleep(backoff, options.signal);
+    if (options.signal?.aborted) break;
+    await brake.wait(options.signal);
     if (options.signal?.aborted) break;
     result = await fetchGcTeam(teamId, options);
+  }
+  // Still throttled after every try: the next team should not walk straight into it.
+  if (!result.ok && result.reason === "throttled") {
+    brake.hold(retryAfterMs(result) ?? delayMs(retries + 1));
   }
   return result;
 };
@@ -211,6 +273,7 @@ export const fetchGcTeams = async (
     ...(signal ? { signal } : {}),
   };
   const attempts = Math.max(0, Math.floor(retries));
+  const brake = createBrake();
   let next = 0;
   let done = 0;
 
@@ -220,7 +283,7 @@ export const fetchGcTeams = async (
       next += 1;
       const teamId = ids[index];
       if (teamId === undefined) return;
-      const result = await fetchWithRetries(teamId, attempts, delayMs, perTeam);
+      const result = await fetchWithRetries(teamId, attempts, delayMs, perTeam, brake);
       settled.set(teamId, result);
       done += 1;
       onProgress?.({ done, total, teamId, result });
