@@ -784,13 +784,20 @@ const resolveOpponent = (
   if (holder) return { teamId: holder, basis: "name" };
 
   /*
-   * Failing that, attaching this game to a club somebody has actually pulled is a claim about
-   * identity, so it takes more than a shared name: exactly one candidate, and something beyond
-   * the name agreeing.
+   * Failing that, one club of that name at that level in this pool — and a pool is one season year
+   * at one age, not the whole country. Insisting on more than that was making a second entry to
+   * stand beside a club already here and shadow it: the name matched, nothing corroborated because
+   * the two had not met yet, and the game went to a copy. A club a schedule names is nearly always
+   * the one club of that name here; where it is not, there is more than one and the tests below
+   * decide between them rather than inventing a third.
    */
   const only = sameName.length === 1 ? sameName[0] : undefined;
-  if (only && corroborates(index, ownTeamId, only, game)) {
-    return { teamId: only, basis: "name" };
+  if (only) return { teamId: only, basis: "name" };
+
+  // Several of that name: the one something beyond the name agrees with.
+  const corroborated = sameName.filter((id) => corroborates(index, ownTeamId, id, game));
+  if (corroborated.length === 1 && corroborated[0]) {
+    return { teamId: corroborated[0], basis: "name" };
   }
 
   /*

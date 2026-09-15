@@ -741,6 +741,73 @@ describe("a doubleheader only one side wrote down twice", () => {
  * belong to squad year 2027 — and each becomes its own team, so the table shows the club twice off
  * half a season each. Sharing a game is what proves they are one squad.
  */
+/**
+ * A club a schedule names is nearly always the one club of that name in this pool — a pool being
+ * one season year at one age level, not the whole country. Insisting on corroboration before using
+ * it made a second entry to stand beside the real club and shadow it, because two clubs that have
+ * not met yet corroborate nothing. That is how a nationwide pull ended up with twelve thousand
+ * name-only entries, thousands of them shadowing a club that had been pulled.
+ */
+describe("a club already here, named by somebody who has not met it", () => {
+  const sched = (id: string, name: string, games: GcTeamSchedule["games"]): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 9, season: { season: "fall", year: 2026 } },
+    games,
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+  const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: a,
+    opponentScore: b,
+  });
+
+  it("is that club, not a copy of it", () => {
+    // The Trash Pandas lose to Hopewell on the 5th; nobody has played the NV Stars yet.
+    let pool = importGcSchedule(
+      sched("gcTRASHPANDA", "Trash Pandas Baseball Club 9U", [
+        played("t1", "Hopewell Titans 9U", "2026-09-05", 3, 14),
+      ]),
+      empty
+    ).state;
+    // The NV Stars name them, on a day the Trash Pandas already have a different game.
+    pool = importGcSchedule(
+      sched("gcNVSTARS000", "NV Stars Scout 9U", [
+        played("n1", "Trash Pandas Baseball Club 9U", "2026-09-05", 13, 2),
+      ]),
+      pool
+    ).state;
+
+    const pandas = pool.teams.filter((team) => team.name === "Trash Pandas Baseball Club");
+    expect(pandas).toHaveLength(1);
+    // The one that is here is the club itself, not a name-only copy standing beside it.
+    expect(pandas[0]?.nameOnly).toBeUndefined();
+    expect(pandas[0]?.gcTeams?.[0]?.teamId).toBe("gcTRASHPANDA");
+    // Hopewell is still name-only: nobody pulled them, which is a different thing entirely.
+    expect(pool.teams.find((team) => team.name === "Hopewell Titans")?.nameOnly).toBe(true);
+  });
+
+  it("files the other club's copy of a game onto the club, not beside it", () => {
+    let pool = importGcSchedule(
+      sched("gcTRASHPANDA", "Trash Pandas Baseball Club 9U", [
+        played("t1", "Hopewell Titans 9U", "2026-09-05", 3, 14),
+      ]),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched("gcHOPEWELL00", "Hopewell Titans 9U", [
+        played("h1", "Trash Pandas Baseball Club 9U", "2026-09-05", 14, 3),
+      ]),
+      pool
+    ).state;
+
+    const settled = resolveSlotGames(pool).state;
+    expect(settled.teams.filter((team) => team.name === "Hopewell Titans")).toHaveLength(1);
+    expect(settled.games).toHaveLength(1);
+  });
+});
+
 describe("one squad holding several GameChanger ids", () => {
   const sched = (
     id: string,
