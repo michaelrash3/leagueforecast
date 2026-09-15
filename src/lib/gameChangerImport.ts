@@ -615,17 +615,44 @@ const resolveOpponent = (
   const theirLevel = ageLevelFromName(game.opponentName) ?? index.levelOf(ageGroupId);
   const sameName =
     index.teamIdsByGroupName.get(nameSlotKey(index.poolKeyOf(ageGroupId), key, theirLevel)) ?? [];
-  // More than one team of that name at that level says nothing about which this is.
+
+  /*
+   * Attaching this game to a club somebody has actually pulled is a claim about identity, so it
+   * takes more than a shared name: exactly one candidate, and something beyond the name agreeing.
+   */
   const only = sameName.length === 1 ? sameName[0] : undefined;
   if (only && corroborates(index, ownTeamId, only, game)) {
     return { teamId: only, basis: "name" };
   }
 
   /*
-   * The picture this club was listed with is kept on the stub. A schedule never gives an
-   * opponent's id, so without it the next schedule to name this club has only the name to go on —
-   * and a name is not enough to be sure, so it would make a second team and file the game again.
+   * Failing that, an entry nobody has pulled — a name some schedule wrote down, and no more than
+   * that. Reusing one is not the claim that attaching to a real club is, and refusing to reuse it
+   * is far worse than it sounds: the second entry of a name makes every later mention ambiguous,
+   * so it mints a third, and a fourth, until one club is hundreds of teams and its games are
+   * scattered across all of them. A pull of a few thousand schedules did exactly that.
+   *
+   * A picture is what splits two clubs of one name, and it is checked above, before any of this:
+   * a stub carrying a different picture from the one in this game was never a candidate. So what
+   * is left to reuse is an entry with no picture to contradict this one.
    */
+  const reusable = sameName
+    .map((teamId) => index.teamsById.get(teamId))
+    .find(
+      (team): team is ScoutTeam =>
+        team !== undefined &&
+        !team.placeholder &&
+        !team.gcTeams?.length &&
+        (team.avatarKey === undefined || team.avatarKey === game.opponentAvatarKey)
+    );
+  if (reusable) {
+    // The first schedule to give this club a picture leaves it here for the next one to find.
+    if (game.opponentAvatarKey && !reusable.avatarKey) {
+      replaceTeam(index, teams, { ...reusable, avatarKey: game.opponentAvatarKey });
+    }
+    return { teamId: reusable.id, basis: "name" };
+  }
+
   const created = buildScoutTeam(
     game.opponentName,
     index.usedTeamIds,
@@ -841,6 +868,47 @@ const importOne = (
 };
 
 /** Every schedule in turn, each seeing what the ones before it added. */
+/**
+ * A fold held open across schedules, for a caller that gets them one at a time.
+ *
+ * `importGcSchedule` is a whole fold in itself: it copies the pool and builds an index of it, uses
+ * them once, and throws the index away. That is right for one schedule and ruinous for thousands —
+ * a pull calls it per team as each answer lands, so the work is redone over a pool that is growing
+ * underneath it, and a run of several thousand spends most of its time rebuilding what it just
+ * built. `importGcSchedules` already avoids that, but only for a caller holding every schedule at
+ * once, which a pull never is: it folds each one in as it arrives so that stopping keeps what has
+ * already been fetched.
+ *
+ * So this is the same fold with the index kept. One copy, one index, and each schedule costs what
+ * it actually adds. `state` is the pool as it stands after everything folded in so far, safe to
+ * hand to a save at any point.
+ */
+export type GcImporter = {
+  /** Folds one schedule in and reports what happened to that team. */
+  add: (schedule: GcTeamSchedule) => GcImportOutcome;
+  /** The pool as it stands. The same arrays the fold is working in, not a copy. */
+  readonly state: GcImportState;
+};
+
+export const createGcImporter = (state: GcImportState): GcImporter => {
+  let next: GcImportState = {
+    ageGroups: state.ageGroups.slice(),
+    teams: state.teams.slice(),
+    games: state.games.slice(),
+  };
+  const index = buildIndex(next);
+  return {
+    add: (schedule) => {
+      const result = importOne(schedule, next, index);
+      next = result.state;
+      return result.outcome;
+    },
+    get state() {
+      return next;
+    },
+  };
+};
+
 export const importGcSchedules = (
   schedules: GcTeamSchedule[],
   state: GcImportState

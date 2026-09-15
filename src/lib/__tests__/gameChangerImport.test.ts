@@ -3,6 +3,7 @@ import gamesFixture from "./fixtures/gc-team-games.json";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
 import {
+  createGcImporter,
   importGcSchedule,
   resolveSlotGames,
   importGcSchedules,
@@ -210,9 +211,14 @@ describe("who an opponent is", () => {
     expect(elevenU.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
   });
 
-  it("is not matched on the name alone, however tempting it looks", () => {
-    // Aces played a Yankees in August; Comets played a Yankees a week later. Nothing says those
-    // are the same Yankees, and a nationwide pool holds a dozen clubs of that name at one level.
+  /**
+   * Two schedules naming a Yankees may well mean two different clubs, and there is no way to tell
+   * from a name. Reusing the entry anyway is the lesser error by a long way: a second entry makes
+   * every later mention of the name ambiguous, so the third mention mints a third entry and the
+   * fourth a fourth. A pull of a few thousand schedules turned 7,000 clubs into 28,000 teams that
+   * way, with one club's games scattered across dozens of them.
+   */
+  it("reuses a name-only entry rather than minting another of the same name", () => {
     const first = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty);
     const second = importGcSchedule(
       schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
@@ -220,8 +226,37 @@ describe("who an opponent is", () => {
       ]),
       first.state
     );
-    expect(second.outcome.opponentsMatchedByName).toBe(0);
+    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+  });
+
+  it("keeps two clubs of one name apart when their pictures differ", () => {
+    const first = importGcSchedule(
+      schedule({}, [game({ opponentName: "Yankees", opponentAvatarKey: "av-ky" })]),
+      empty
+    );
+    const second = importGcSchedule(
+      schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
+        game({ id: "g2", opponentName: "Yankees", date: "2026-08-30", opponentAvatarKey: "av-ca" }),
+      ]),
+      first.state
+    );
+    // A picture is the one thing that can tell them apart, and here it does.
     expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
+  });
+
+  it("never mints a fourth entry for a name one schedule keeps repeating", () => {
+    // What the real pull did: four games against one club on one day, four separate teams.
+    const state = importGcSchedule(
+      schedule({}, [
+        game({ id: "t1", opponentName: "Blueclaws", date: "2026-10-25" }),
+        game({ id: "t2", opponentName: "Blueclaws", date: "2026-10-25" }),
+        game({ id: "t3", opponentName: "Blueclaws", date: "2026-10-25" }),
+        game({ id: "t4", opponentName: "Blueclaws", date: "2026-10-25" }),
+      ]),
+      empty
+    ).state;
+    expect(state.teams.filter((team) => team.name === "Blueclaws")).toHaveLength(1);
+    expect(state.games).toHaveLength(4);
   });
 
   it("is matched by name once the two clubs have a game in common", () => {
@@ -235,9 +270,9 @@ describe("who an opponent is", () => {
       ]),
       state
     ).state;
-    // Bears matched nothing by name either, so there are two Yankees and two Aces by now.
-    const before = state.teams.filter((team) => team.name === "Yankees").length;
-    expect(before).toBe(2);
+    // Both name-only entries are reused rather than multiplied, so there is one of each.
+    expect(state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+    expect(state.teams.filter((team) => team.name === "Aces")).toHaveLength(1);
   });
 
   it("is matched by name when one schedule's game is the other's, same day", () => {
@@ -366,6 +401,79 @@ describe("both sides of a game in one run", () => {
       empty
     );
     expect(state.teams).toHaveLength(4);
+  });
+});
+
+describe("createGcImporter", () => {
+  const one = (id: string, name: string, opponent: string, gameId: string): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 9, season: { season: "fall", year: 2026 } },
+    games: [
+      {
+        id: gameId,
+        date: "2026-08-22",
+        opponentName: opponent,
+        status: "completed" as const,
+        teamScore: 7,
+        opponentScore: 3,
+      },
+    ],
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+
+  const schedules = [
+    one("gcAAAAAAAAAA", "Aces 9U", "Comets 9U", "a1"),
+    one("gcBBBBBBBBBB", "Comets 9U", "Bears 9U", "c1"),
+    one("gcCCCCCCCCCC", "Bears 9U", "Aces 9U", "b1"),
+  ];
+
+  /**
+   * The fold is held open so a pull does not rebuild an index per team, which is the whole point
+   * of it — but it has to reach the same pool as folding them one at a time, or it is just a
+   * faster way to be wrong.
+   */
+  it("reaches the same pool as folding one at a time", () => {
+    let alone = empty;
+    const byHand = schedules.map((schedule) => {
+      const result = importGcSchedule(schedule, alone);
+      alone = result.state;
+      return result.outcome;
+    });
+
+    const importer = createGcImporter(empty);
+    const held = schedules.map((schedule) => importer.add(schedule));
+
+    // A created page's id carries the moment it was made, so it is blanked before comparing.
+    const settle = (value: unknown, pageIds: string[]): unknown =>
+      JSON.parse(
+        pageIds.reduce(
+          (text, pageId) => text.split(pageId).join("PAGE"),
+          JSON.stringify(value)
+        ) as string
+      );
+    const heldPages = importer.state.ageGroups.map((group) => group.id);
+    const alonePages = alone.ageGroups.map((group) => group.id);
+
+    expect(settle(importer.state.teams, heldPages)).toEqual(settle(alone.teams, alonePages));
+    expect(settle(importer.state.games, heldPages)).toEqual(settle(alone.games, alonePages));
+    expect(settle(importer.state.ageGroups, heldPages)).toEqual(
+      settle(alone.ageGroups, alonePages)
+    );
+    expect(settle(held, heldPages)).toEqual(settle(byHand, alonePages));
+  });
+
+  it("builds on a pool that already has teams in it", () => {
+    const seeded = importGcSchedule(schedules[0]!, empty).state;
+    const importer = createGcImporter(seeded);
+    importer.add(schedules[1]!);
+    // Comets was already here as the Aces' opponent, so its own schedule joins it, not a second.
+    expect(importer.state.teams.filter((team) => team.name === "Comets")).toHaveLength(1);
+  });
+
+  it("leaves the pool it was handed alone", () => {
+    const importer = createGcImporter(empty);
+    importer.add(schedules[0]!);
+    expect(empty.teams).toHaveLength(0);
+    expect(empty.games).toHaveLength(0);
   });
 });
 
@@ -651,8 +759,8 @@ describe("a name two clubs share", () => {
     expect(state.games).toHaveLength(3);
   });
 
-  it("does not fold a club into a namesake by adopting an ambiguous placeholder", () => {
-    // Two name-only "Yankees" on the page, then a real Yankees pulled by id.
+  it("does not fold a second club of a name into the first that claimed it", () => {
+    // Two schedules naming a "Yankees", then two real Yankees pulled by id.
     const seeded = importGcSchedules(
       [
         schedule({ id: "gcP100000000", name: "Aces 9U" }, [
@@ -664,16 +772,24 @@ describe("a name two clubs share", () => {
       ],
       empty
     ).state;
-    // Two schedules naming a Yankees is not evidence they mean the same one, so there are two.
-    expect(seeded.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
+    // Two schedules naming a Yankees reuse the one entry rather than making a second.
+    expect(seeded.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
 
-    // And with two of them on the page, the real Yankees cannot know which it is, so it stays
-    // its own club rather than adopting one and taking the other club's games with it.
+    // A club pulled by id adopts that entry — it is a name nobody has claimed, not a rival club.
     const pulled = importGcSchedule(
       schedule({ id: "gcY900000000", name: "Yankees 9U" }, []),
       seeded
     );
-    expect(pulled.outcome.createdTeam).toBe(true);
+    expect(pulled.outcome.createdTeam).toBe(false);
+    expect(pulled.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+
+    // A *second* club of that name, pulled after the first has claimed it, stays its own team:
+    // adopting a club somebody has already been pulled as would take its games with it.
+    const rival = importGcSchedule(
+      schedule({ id: "gcY800000000", name: "Yankees 9U" }, []),
+      pulled.state
+    );
+    expect(rival.outcome.createdTeam).toBe(true);
   });
 });
 

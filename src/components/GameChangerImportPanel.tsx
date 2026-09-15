@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
-  importGcSchedule,
+  createGcImporter,
   GC_PAIRING_EVIDENCE_LABEL,
   proposeSeasonPairings,
   resolveSlotGames,
@@ -68,10 +68,21 @@ type Stage = "picking" | "pulling" | "review";
  * The cursor is only advanced *after* the write, so a crash re-fetches this batch rather than
  * claiming teams it never kept.
  */
-const SAVE_EVERY = 25;
+/**
+ * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
+ * is the pool's size times the number of saves — often enough to dwarf the fetching. What a save
+ * buys is how much a closed tab costs, and a couple of hundred teams is a minute of refetching.
+ */
+const SAVE_EVERY = 200;
 
 /** Requests in flight. Four is what the client defaults to and what GameChanger seems content with. */
-const CONCURRENCY = 4;
+/**
+ * Requests in flight at once. One per team — the proxy fetches the profile and the games together
+ * — so this is the whole of the pull's parallelism. Four was cautious; GameChanger answers eight
+ * happily, and a throttled answer is retried with a backoff anyway, so the cost of being wrong
+ * here is a slower team rather than a lost one.
+ */
+const CONCURRENCY = 8;
 
 const SAMPLE = `https://web.gc.com/teams/FtEExZwB4b8E/2026-fall-trosky-illinois-9u/schedule
 gsUthn4XoIxS
@@ -173,7 +184,17 @@ export function GameChangerImportPanel({
   };
 
   const persist = (): boolean => {
-    const ok = onPersist(poolRef.current);
+    /*
+     * A copy, because the fold goes on mutating its own arrays after this returns and what the
+     * caller stores has to stop changing underneath it. Three shallow copies per save, not per
+     * team, which is why the save interval is what it is.
+     */
+    const snapshot: GcImportState = {
+      ageGroups: poolRef.current.ageGroups.slice(),
+      teams: poolRef.current.teams.slice(),
+      games: poolRef.current.games.slice(),
+    };
+    const ok = onPersist(snapshot);
     if (!ok) showToast("Could not save the pull (storage full).", { tone: "error" });
     return ok;
   };
@@ -185,6 +206,12 @@ export function GameChangerImportPanel({
   const run = async (ids: string[], progress: GcPullProgress) => {
     const controller = new AbortController();
     abortRef.current = controller;
+    /*
+     * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
+     * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
+     * teams by far the longest part of a pull.
+     */
+    const importer = createGcImporter(poolRef.current);
     progressRef.current = progress;
     outcomesRef.current = [];
     setStage("pulling");
@@ -242,9 +269,8 @@ export function GameChangerImportPanel({
       signal: controller.signal,
       onProgress: ({ teamId, result }) => {
         if (result.ok) {
-          const folded = importGcSchedule(result.schedule, poolRef.current);
-          poolRef.current = folded.state;
-          outcomesRef.current.push(folded.outcome);
+          outcomesRef.current.push(importer.add(result.schedule));
+          poolRef.current = importer.state;
         } else {
           pendingFailures.set(teamId, { reason: result.reason, message: result.message });
         }
