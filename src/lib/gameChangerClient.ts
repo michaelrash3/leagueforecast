@@ -83,6 +83,51 @@ const readSchedule = (value: unknown): GcTeamSchedule | null => {
  * unknown path — as `reason: "unconfigured"`, which is the cue that the function is not
  * deployed rather than that GameChanger is down.
  */
+/**
+ * One team's answer, as the proxy states it, turned into a result. Shared by the single-team call
+ * and the batch, so both read a failure exactly the same way.
+ */
+const readTeamResult = (payload: unknown, endpoint: string, status?: number): GcTeamResponse => {
+  if (!isRecord(payload)) {
+    return {
+      ok: false,
+      reason: "unrecognized",
+      message: `${endpoint} answered with something that is not a result.`,
+      ...(status === undefined ? {} : { status }),
+    };
+  }
+  if (payload.ok === true) {
+    const schedule = readSchedule(payload.schedule);
+    if (!schedule) {
+      return {
+        ok: false,
+        reason: "unrecognized",
+        message: `${endpoint} answered ok but without a readable schedule.`,
+        ...(status === undefined ? {} : { status }),
+      };
+    }
+    return { ok: true, schedule };
+  }
+  const reason = isGcFetchErrorReason(payload.reason) ? payload.reason : "upstream-error";
+  const failure: Extract<GcTeamResponse, { ok: false }> = {
+    ok: false,
+    reason,
+    message:
+      typeof payload.message === "string" && payload.message
+        ? payload.message
+        : `${endpoint} failed${status === undefined ? "" : ` (HTTP ${status})`}.`,
+    ...(typeof payload.status === "number"
+      ? { status: payload.status }
+      : status === undefined
+        ? {}
+        : { status }),
+  };
+  if (isRecord(payload.diagnostics)) {
+    failure.diagnostics = payload.diagnostics as GcFetchDiagnostics;
+  }
+  return failure;
+};
+
 export const fetchGcTeam = async (
   teamId: string,
   { fetchImpl = fetch, signal, endpoint = GC_TEAM_ENDPOINT }: FetchGcTeamOptions = {}
@@ -114,33 +159,7 @@ export const fetchGcTeam = async (
       };
     }
 
-    if (payload.ok === true) {
-      const schedule = readSchedule(payload.schedule);
-      if (!schedule) {
-        return {
-          ok: false,
-          reason: "unrecognized",
-          message: `${endpoint} answered ok but without a readable schedule.`,
-          status: response.status,
-        };
-      }
-      return { ok: true, schedule };
-    }
-
-    const reason = isGcFetchErrorReason(payload.reason) ? payload.reason : "upstream-error";
-    const failure: Extract<GcTeamResponse, { ok: false }> = {
-      ok: false,
-      reason,
-      message:
-        typeof payload.message === "string" && payload.message
-          ? payload.message
-          : `${endpoint} failed (HTTP ${response.status}).`,
-      status: typeof payload.status === "number" ? payload.status : response.status,
-    };
-    if (isRecord(payload.diagnostics)) {
-      failure.diagnostics = payload.diagnostics as GcFetchDiagnostics;
-    }
-    return failure;
+    return readTeamResult(payload, endpoint, response.status);
   } catch (error) {
     if (isAbortError(error) || signal?.aborted) {
       return { ok: false, reason: "network", message: "GameChanger pull cancelled." };
@@ -175,6 +194,98 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
  * `Retry-After` is either a number of seconds or an HTTP date. Capped, because a pull should slow
  * down rather than stop for an hour, and a nonsense value should not strand the run.
  */
+/** Teams asked for in one request. Must not exceed what the proxy is willing to take. */
+const BATCH_SIZE = 10;
+
+/**
+ * A batch of teams in one request.
+ *
+ * A browser holds only a handful of connections open to one host at a time, so asking for a team
+ * per request caps a pull at that handful no matter how many workers are running — which on a
+ * list of several thousand is most of the wait. Ten to a request lifts that ceiling without asking
+ * GameChanger for anything more than before: the proxy fetches the same two pages per team, just
+ * without a round trip of its own for each one.
+ *
+ * A failure that is about the request rather than a team — the endpoint missing, the proxy
+ * throttling, the connection dropping — is handed back for every team in the batch, so each one
+ * retries as it would have on its own.
+ */
+const fetchGcTeamBatch = async (
+  teamIds: readonly string[],
+  { fetchImpl = fetch, signal, endpoint = GC_TEAM_ENDPOINT }: FetchGcTeamOptions = {}
+): Promise<Map<string, GcTeamResponse>> => {
+  const results = new Map<string, GcTeamResponse>();
+  const forAll = (failure: GcTeamResponse) => {
+    teamIds.forEach((teamId) => results.set(teamId, failure));
+    return results;
+  };
+
+  try {
+    const query = teamIds.map((teamId) => encodeURIComponent(teamId)).join(",");
+    const response = await fetchImpl(`${endpoint}?ids=${query}`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal,
+    });
+    const payload: unknown = await response.json().catch(() => null);
+
+    if (!isRecord(payload)) {
+      if (response.status === 404 || (response.status >= 200 && response.status < 300)) {
+        return forAll({
+          ok: false,
+          reason: "unconfigured",
+          message: UNCONFIGURED_MESSAGE,
+          status: response.status,
+        });
+      }
+      return forAll({
+        ok: false,
+        reason: "upstream-error",
+        message: `${endpoint} failed (HTTP ${response.status}) without a JSON body.`,
+        status: response.status,
+      });
+    }
+
+    // A failure for the request as a whole: the proxy's own throttle, a bad id list, a 5xx.
+    if (payload.ok !== true || !Array.isArray(payload.teams)) {
+      const reason = isGcFetchErrorReason(payload.reason) ? payload.reason : "upstream-error";
+      const message = typeof payload.message === "string" ? payload.message : `${endpoint} failed.`;
+      return forAll({
+        ok: false,
+        reason,
+        message,
+        ...(typeof payload.status === "number" ? { status: payload.status } : {}),
+        ...(isRecord(payload.diagnostics) ? { diagnostics: payload.diagnostics } : {}),
+      });
+    }
+
+    payload.teams.forEach((entry) => {
+      if (!isRecord(entry) || typeof entry.teamId !== "string") return;
+      results.set(entry.teamId, readTeamResult(entry.result, endpoint));
+    });
+
+    // A team the answer said nothing about is a failure for that team, not for the batch.
+    teamIds.forEach((teamId) => {
+      if (results.has(teamId)) return;
+      results.set(teamId, {
+        ok: false,
+        reason: "unrecognized",
+        message: `${endpoint} answered without a result for ${teamId}.`,
+      });
+    });
+    return results;
+  } catch (error) {
+    if (isAbortError(error)) {
+      return forAll({ ok: false, reason: "network", message: "GameChanger pull cancelled." });
+    }
+    return forAll({
+      ok: false,
+      reason: "network",
+      message: error instanceof Error ? error.message : "GameChanger pull failed.",
+    });
+  }
+};
+
 const RETRY_AFTER_CAP_MS = 60_000;
 
 const retryAfterMs = (result: GcTeamResponse): number | undefined => {
@@ -220,31 +331,60 @@ const createBrake = (): Brake => {
   };
 };
 
-const fetchWithRetries = async (
-  teamId: string,
+/**
+ * A batch, retried as a batch. Only the teams still failing for a reason another try could fix go
+ * round again, so one stubborn team does not drag the nine beside it through every attempt.
+ */
+const fetchBatchWithRetries = async (
+  teamIds: readonly string[],
   retries: number,
   delayMs: (attempt: number) => number,
   options: FetchGcTeamOptions,
   brake: Brake
-): Promise<GcTeamResponse> => {
-  await brake.wait(options.signal);
-  let result = await fetchGcTeam(teamId, options);
-  for (let attempt = 1; attempt <= retries; attempt += 1) {
-    if (result.ok || !RETRYABLE_REASONS.has(result.reason) || options.signal?.aborted) break;
-    const backoff = delayMs(attempt);
-    // A throttled answer is about the pull, not this team: hold everyone, not just this worker.
-    if (result.reason === "throttled") brake.hold(retryAfterMs(result) ?? backoff);
-    await sleep(backoff, options.signal);
-    if (options.signal?.aborted) break;
+): Promise<Map<string, GcTeamResponse>> => {
+  const settled = new Map<string, GcTeamResponse>();
+  let pending = [...teamIds];
+
+  // The wait before the next attempt, worked out when this one fails so the backoff is asked for
+  // once per attempt whether it is used to hold this worker, the whole pull, or both.
+  let backoff = 0;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (pending.length === 0 || options.signal?.aborted) break;
+    if (attempt > 0) {
+      await sleep(backoff, options.signal);
+      if (options.signal?.aborted) break;
+    }
     await brake.wait(options.signal);
     if (options.signal?.aborted) break;
-    result = await fetchGcTeam(teamId, options);
+
+    const answers = await fetchGcTeamBatch(pending, options);
+    const again: string[] = [];
+    let throttled = false;
+    pending.forEach((teamId) => {
+      const result = answers.get(teamId);
+      if (!result) return;
+      settled.set(teamId, result);
+      if (result.ok || !RETRYABLE_REASONS.has(result.reason)) return;
+      again.push(teamId);
+      if (result.reason === "throttled") throttled = true;
+    });
+    pending = again;
+    if (pending.length === 0) break;
+
+    // Only while there is another attempt to come: asking past the last one would count a
+    // backoff that is never waited out.
+    if (attempt < retries) backoff = delayMs(attempt + 1);
+    /*
+     * A throttled answer is about the pull, not this batch, so it holds every worker — including
+     * after the last attempt, so the batch behind this one does not walk straight into it.
+     */
+    if (throttled) {
+      const asked = answers.get(again[0]!);
+      brake.hold((asked && retryAfterMs(asked)) ?? backoff);
+    }
   }
-  // Still throttled after every try: the next team should not walk straight into it.
-  if (!result.ok && result.reason === "throttled") {
-    brake.hold(retryAfterMs(result) ?? delayMs(retries + 1));
-  }
-  return result;
+  return settled;
 };
 
 /**
@@ -279,18 +419,25 @@ export const fetchGcTeams = async (
 
   const worker = async (): Promise<void> => {
     while (!signal?.aborted) {
-      const index = next;
-      next += 1;
-      const teamId = ids[index];
-      if (teamId === undefined) return;
-      const result = await fetchWithRetries(teamId, attempts, delayMs, perTeam, brake);
-      settled.set(teamId, result);
-      done += 1;
-      onProgress?.({ done, total, teamId, result });
+      const from = next;
+      next += BATCH_SIZE;
+      const chunk = ids.slice(from, from + BATCH_SIZE);
+      if (chunk.length === 0) return;
+      const answers = await fetchBatchWithRetries(chunk, attempts, delayMs, perTeam, brake);
+      // Reported one at a time, in the order asked for: the caller folds each schedule in as it
+      // lands and has no reason to know the requests were grouped.
+      for (const teamId of chunk) {
+        const result = answers.get(teamId);
+        if (!result) continue;
+        settled.set(teamId, result);
+        done += 1;
+        onProgress?.({ done, total, teamId, result });
+      }
     }
   };
 
-  const workers = Math.max(1, Math.min(Math.floor(concurrency) || 1, total));
+  const batches = Math.ceil(total / BATCH_SIZE);
+  const workers = Math.max(1, Math.min(Math.floor(concurrency) || 1, batches));
   await Promise.all(Array.from({ length: workers }, () => worker()));
 
   // Rebuilt in input order: a Map remembers insertion order, and requests finish in any order.
