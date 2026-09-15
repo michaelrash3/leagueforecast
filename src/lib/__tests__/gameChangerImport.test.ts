@@ -276,7 +276,30 @@ describe("who an opponent is", () => {
   });
 
   it("is matched by name when one schedule's game is the other's, same day", () => {
-    // The case a bracket makes: one side posts the fixture, the other posts a placeholder.
+    // The case a bracket makes: one side posts the fixture, the other posts a placeholder. The
+    // two rows have to agree on how it finished, or they are not the same game.
+    const first = importGcSchedule(
+      schedule({ name: "Aces 9U" }, [game({ opponentName: "TBD", date: "2026-08-22" })]),
+      empty
+    );
+    const second = importGcSchedule(
+      schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
+        game({
+          id: "g2",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 2,
+          opponentScore: 12,
+        }),
+      ]),
+      first.state
+    );
+    expect(second.state.teams.filter((team) => team.name === "Aces")).toHaveLength(1);
+  });
+
+  it("is not matched when the two rows disagree about the score", () => {
+    // Aces beat a placeholder 12-2. Comets also won 12-2 that day, so whoever Comets beat, it was
+    // not the club that beat somebody else by the same margin on the same afternoon.
     const first = importGcSchedule(
       schedule({ name: "Aces 9U" }, [game({ opponentName: "TBD", date: "2026-08-22" })]),
       empty
@@ -287,8 +310,7 @@ describe("who an opponent is", () => {
       ]),
       first.state
     );
-    expect(second.outcome.opponentsMatchedByName).toBe(1);
-    expect(second.state.teams.filter((team) => team.name === "Aces")).toHaveLength(1);
+    expect(second.state.games).toHaveLength(2);
   });
 });
 
@@ -401,6 +423,180 @@ describe("both sides of a game in one run", () => {
       empty
     );
     expect(state.teams).toHaveLength(4);
+  });
+});
+
+/**
+ * Both clubs post the fixture, and the two rows agree on the day, the start time and the result.
+ * That identifies the opponent better than any name can: it needs no picture, it survives the two
+ * schedules spelling the club differently, and it answers a name that identifies nobody at all.
+ */
+describe("the game itself as the identifier", () => {
+  it("names a bracket slot from the other club's copy of the game", () => {
+    const first = importGcSchedule(
+      schedule({ id: "gcRRRRRRRRRR", name: "Rampage 9U" }, [
+        game({
+          id: "r1",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 5,
+          opponentScore: 10,
+        }),
+      ]),
+      empty
+    );
+    // The Aces' own schedule has not been told who they played — the bracket was still open.
+    const second = importGcSchedule(
+      schedule({ id: "gcAAAAAAAAAA", name: "Aces 9U" }, [
+        game({
+          id: "a1",
+          opponentName: "TBD",
+          date: "2026-08-22",
+          teamScore: 10,
+          opponentScore: 5,
+        }),
+      ]),
+      first.state
+    );
+
+    // No slot: the fixture says who it was, so the game joins the one already filed.
+    expect(second.state.teams.some((team) => team.placeholder)).toBe(false);
+    expect(second.state.games).toHaveLength(1);
+  });
+
+  it("matches a club whose two schedules spell it differently", () => {
+    const first = importGcSchedule(
+      schedule({ id: "gcRRRRRRRRRR", name: "Rampage 9U" }, [
+        game({
+          id: "r1",
+          opponentName: "Lexington Aces 9U",
+          date: "2026-08-22",
+          teamScore: 5,
+          opponentScore: 10,
+        }),
+      ]),
+      empty
+    );
+    const second = importGcSchedule(
+      schedule({ id: "gcAAAAAAAAAA", name: "Lexington Aces 9U" }, [
+        game({
+          id: "a1",
+          opponentName: "The Rampage",
+          date: "2026-08-22",
+          teamScore: 10,
+          opponentScore: 5,
+        }),
+      ]),
+      first.state
+    );
+    // "The Rampage" matches nothing by name, but the fixture does.
+    expect(second.outcome.opponentsCreated).toBe(0);
+    expect(second.state.games).toHaveLength(1);
+  });
+
+  it("keeps a doubleheader as two games, told apart by the score", () => {
+    const first = importGcSchedule(
+      schedule({ id: "gcRRRRRRRRRR", name: "Rampage 9U" }, [
+        game({
+          id: "r1",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 5,
+          opponentScore: 10,
+        }),
+        game({
+          id: "r2",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 3,
+          opponentScore: 14,
+        }),
+      ]),
+      empty
+    );
+    const second = importGcSchedule(
+      schedule({ id: "gcAAAAAAAAAA", name: "Aces 9U" }, [
+        game({
+          id: "a1",
+          opponentName: "TBD",
+          date: "2026-08-22",
+          teamScore: 10,
+          opponentScore: 5,
+        }),
+        game({
+          id: "a2",
+          opponentName: "TBD",
+          date: "2026-08-22",
+          teamScore: 14,
+          opponentScore: 3,
+        }),
+      ]),
+      first.state
+    );
+    expect(second.state.games).toHaveLength(2);
+    expect(second.state.teams.some((team) => team.placeholder)).toBe(false);
+  });
+
+  it("does not let one of a club's own games answer for another", () => {
+    // Two games in a day on one schedule are two games; neither names the other.
+    const state = importGcSchedule(
+      schedule({}, [
+        game({ id: "s1", opponentName: "TBD", date: "2026-08-22", teamScore: 4, opponentScore: 1 }),
+        game({ id: "s2", opponentName: "TBD", date: "2026-08-22", teamScore: 4, opponentScore: 1 }),
+      ]),
+      empty
+    ).state;
+    expect(state.games).toHaveLength(2);
+    expect(state.teams.filter((team) => team.placeholder)).toHaveLength(2);
+  });
+
+  /**
+   * The stand-in came first, so nothing could name it at the time. A pull that adds the real club
+   * later has to go back over them — which is what the end-of-run pass is for.
+   */
+  it("goes back over a name-only club once the real one is pulled", () => {
+    // The Aces play "Rampage", spelt in a way the Rampage's own page does not use.
+    const first = importGcSchedule(
+      schedule({ id: "gcAAAAAAAAAA", name: "Aces 9U" }, [
+        game({
+          id: "a1",
+          opponentName: "The Rampage",
+          date: "2026-08-22",
+          teamScore: 10,
+          opponentScore: 5,
+        }),
+      ]),
+      empty
+    );
+    expect(first.state.teams.filter((team) => team.nameOnly)).toHaveLength(1);
+
+    const second = importGcSchedule(
+      schedule({ id: "gcRRRRRRRRRR", name: "Rampage 9U" }, [
+        game({
+          id: "r1",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 5,
+          opponentScore: 10,
+        }),
+      ]),
+      first.state
+    );
+    const settled = resolveSlotGames(second.state);
+
+    // One fixture, between two clubs that were both pulled, and the stand-in gone with it.
+    expect(settled.resolved).toBe(1);
+    expect(settled.state.games).toHaveLength(1);
+    expect(settled.state.teams.filter((team) => team.nameOnly)).toHaveLength(0);
+    expect(settled.state.teams).toHaveLength(2);
+  });
+
+  it("leaves a slot alone when nothing else describes that day", () => {
+    const state = importGcSchedule(
+      schedule({}, [game({ opponentName: "TBD", date: "2026-08-22" })]),
+      empty
+    ).state;
+    expect(state.teams.filter((team) => team.placeholder)).toHaveLength(1);
   });
 });
 

@@ -554,7 +554,20 @@ const corroborates = (
     const couldBeThisGame = sameDay.some((existing) => {
       if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
       const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
-      return other === ownTeamId || index.teamsById.get(other)?.placeholder === true;
+      if (other === ownTeamId) return true;
+      /*
+       * The result, mirrored, from the two sides of one fixture. This is what settles it when the
+       * other row was filed against a stand-in — a bracket slot, or a club some schedule named
+       * before anybody pulled it — which is exactly what the row looks like before the club whose
+       * game this is has had its turn.
+       */
+      const stand = index.teamsById.get(other);
+      if (!stand?.placeholder && !stand?.nameOnly) return false;
+      const theirs = existing.teamAId === candidateId ? existing.teamAScore : existing.teamBScore;
+      const ours = existing.teamAId === candidateId ? existing.teamBScore : existing.teamAScore;
+      const scored = theirs !== undefined && ours !== undefined;
+      if (!scored) return true;
+      return theirs === game.opponentScore && ours === game.teamScore;
     });
     if (couldBeThisGame) return true;
   }
@@ -580,6 +593,56 @@ const corroborates = (
 };
 
 /**
+ * The club on the other side of this very game, found by the game rather than by the name.
+ *
+ * Both clubs post the fixture, and the two rows agree on the things a fixture actually is: the
+ * day, the time it started, and how it finished, mirrored. That is a far better identifier than a
+ * name — it needs no picture, survives the two schedules spelling the club differently, and works
+ * on a name that identifies nobody at all, which is what makes it the answer for a bracket's
+ * "TBD". Where exactly one game already filed for this team that day says the same thing, the club
+ * it was filed against is who this game was against.
+ *
+ * The row has to come from a *different* GameChanger schedule. A club's own schedule listing two
+ * games that day is listing two games, and letting one answer for the other would file them both
+ * against the same opponent and lose one.
+ */
+const opponentFromSameFixture = (
+  index: ImportIndex,
+  ownTeamId: string,
+  ageGroupId: string,
+  game: GcGame,
+  sourceTeamId: string
+): string | undefined => {
+  if (!game.date) return undefined;
+  const pool = index.poolKeyOf(ageGroupId);
+  const sameDay = index.gamesByTeamDate.get(`${ownTeamId}\u0000${game.date}`) ?? [];
+
+  const candidates = sameDay.filter((existing) => {
+    if (existing.source?.teamId === sourceTeamId) return false;
+    if (index.poolKeyOf(existing.ageGroupId) !== pool) return false;
+    // A time on both sides has to agree: two games in a day are two games.
+    if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
+
+    const ourScore = existing.teamAId === ownTeamId ? existing.teamAScore : existing.teamBScore;
+    const theirScore = existing.teamAId === ownTeamId ? existing.teamBScore : existing.teamAScore;
+    const scoresAgree =
+      ourScore !== undefined &&
+      theirScore !== undefined &&
+      ourScore === game.teamScore &&
+      theirScore === game.opponentScore;
+    // Either the result matches, or the day and the start time pin it on their own.
+    const timeAgrees = Boolean(game.startTs) && game.startTs === existing.startTs;
+    return scoresAgree || timeAgrees;
+  });
+
+  if (candidates.length !== 1) return undefined;
+  const found = candidates[0]!;
+  const other = found.teamAId === ownTeamId ? found.teamBId : found.teamAId;
+  // A slot answers for nobody; naming this game after one would put two games on one placeholder.
+  return index.teamsById.get(other)?.placeholder ? undefined : other;
+};
+
+/**
  * The team an opponent name refers to. The avatar first, because it is the only identifier
  * GameChanger gives that means the same thing on two different schedules. Failing that, a name —
  * but only among teams already on this page, since a name on its own says nothing across levels or
@@ -590,8 +653,25 @@ const resolveOpponent = (
   ageGroupId: string,
   teams: ScoutTeam[],
   index: ImportIndex,
-  ownTeamId: string
+  ownTeamId: string,
+  sourceTeamId: string
 ): OpponentMatch => {
+  // The picture is a direct identifier, so it is asked first when the game carries one.
+  if (game.opponentAvatarKey) {
+    const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
+    // Exactly one, or the picture is shared and says nothing about which team this is.
+    if (byAvatar.length === 1 && byAvatar[0]) {
+      return { teamId: byAvatar[0].id, basis: "avatar" };
+    }
+  }
+
+  /*
+   * Then the game itself, which beats the name even when the name is a real one — and is the only
+   * thing that can answer a name that identifies nobody, so it comes before the slot below.
+   */
+  const fromFixture = opponentFromSameFixture(index, ownTeamId, ageGroupId, game, sourceTeamId);
+  if (fromFixture) return { teamId: fromFixture, basis: "avatar" };
+
   /**
    * "TBD", "Winner of Game 3", a blank cell on a bracket: a name that stands in for a team nobody
    * had decided yet. Matching one to anything is the mistake — a single shared "TBD" would collect
@@ -604,14 +684,6 @@ const resolveOpponent = (
     const slot = buildScoutTeam(game.opponentName, index.usedTeamIds, { placeholder: true });
     addTeam(index, teams, slot);
     return { teamId: slot.id, basis: "created" };
-  }
-
-  if (game.opponentAvatarKey) {
-    const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
-    // Exactly one, or the picture is shared and says nothing about which team this is.
-    if (byAvatar.length === 1 && byAvatar[0]) {
-      return { teamId: byAvatar[0].id, basis: "avatar" };
-    }
   }
 
   const key = teamNameKey(game.opponentName);
@@ -799,7 +871,7 @@ const importOne = (
 
     let opponentId = knownOpponentId;
     if (opponentId === undefined) {
-      const opponent = resolveOpponent(game, group.id, teams, index, own.teamId);
+      const opponent = resolveOpponent(game, group.id, teams, index, own.teamId, profile.id);
       opponentId = opponent.teamId;
       if (opponent.basis === "created") outcome.opponentsCreated += 1;
       else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
@@ -954,7 +1026,16 @@ export const resolveSlotGames = (
   state: GcImportState
 ): { state: GcImportState; resolved: number } => {
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
-  const isSlot = (teamId: string) => teamById.get(teamId)?.placeholder === true;
+  /*
+   * A side nobody has vouched for: a bracket slot, or a club known only because some schedule
+   * wrote its name down. Both are stand-ins that a later schedule can turn out to have named
+   * properly, and both have to be reconsidered every time a pull adds teams — the club that
+   * settles a stand-in may not have been pulled when the stand-in was made.
+   */
+  const isSlot = (teamId: string) => {
+    const team = teamById.get(teamId);
+    return team?.placeholder === true || team?.nameOnly === true;
+  };
 
   const slotGames = state.games.filter(
     (game) => isSlot(game.teamAId) !== isSlot(game.teamBId) && Boolean(game.date)
@@ -1046,9 +1127,11 @@ export const resolveSlotGames = (
     .filter((game) => !merges.has(game.id))
     .map((game) => filled.get(game.id) ?? game);
 
-  // A slot nothing else references is not a club and should not linger in the roster.
+  // A stand-in nothing references any more is not a club and should not linger in the roster.
   const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
-  const teams = state.teams.filter((team) => !team.placeholder || stillUsed.has(team.id));
+  const teams = state.teams.filter(
+    (team) => (!team.placeholder && !team.nameOnly) || stillUsed.has(team.id)
+  );
 
   return { state: { ...state, teams, games }, resolved: merges.size };
 };
