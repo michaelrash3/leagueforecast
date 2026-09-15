@@ -10,7 +10,12 @@ import {
   summarizeGcImport,
   type GcImportState,
 } from "../gameChangerImport";
-import { countsTowardRating, isScoutGamePlayed, type ScoutTeam } from "../teamRankings";
+import {
+  countsTowardRating,
+  isScoutGamePlayed,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
 
