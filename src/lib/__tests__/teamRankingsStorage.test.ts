@@ -244,3 +244,16 @@ describe("coerceScoutGames with levels, seasons and sources", () => {
     ).toEqual([base]);
   });
 });
+
+describe("healing a pool saved before placeholders were understood", () => {
+  it("reads a placeholder-named team back as a slot", () => {
+    saveScoutTeams([
+      { id: "S-TBD1", name: "TBD- 08/04/26, 5:00 PM" },
+      { id: "S-ACES", name: "Aces" },
+    ]);
+    const loaded = loadScoutTeams();
+    expect(loaded.find((team) => team.id === "S-TBD1")!.placeholder).toBe(true);
+    // A real club is untouched, and gains no flag it did not have.
+    expect(loaded.find((team) => team.id === "S-ACES")).toEqual({ id: "S-ACES", name: "Aces" });
+  });
+});

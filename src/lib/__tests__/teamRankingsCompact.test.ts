@@ -321,3 +321,37 @@ describe("what the encoder accepts, the decoder keeps", () => {
     expect(decodeDate(-1e15)).toBeUndefined();
   });
 });
+
+describe("fields added after the format existed", () => {
+  it("carries a slot's flag through a round trip", () => {
+    const teams = [
+      { id: "S-ACES", name: "Aces", isMine: true as const },
+      { id: "S-TBD", name: "TBD- 08/04/26, 5:00 PM", placeholder: true as const },
+    ];
+    expect(decodeScoutTeams(encodeScoutTeams(teams), () => [])).toEqual(teams);
+  });
+
+  it("carries a game's start time through a round trip", () => {
+    const games = [
+      {
+        id: "g1",
+        teamAId: "S-ACES",
+        teamBId: "S-TBD",
+        ageGroupId: "ag1",
+        teamAScore: 7,
+        teamBScore: 3,
+        date: "2026-09-05",
+        startTs: "2026-09-05T18:00:00.000Z",
+      },
+    ];
+    expect(decodeScoutGames(encodeScoutGames(games), () => [])).toEqual(games);
+  });
+
+  it("still reads a pool written before either field existed", () => {
+    const teams = [{ id: "S-ACES", name: "Aces" }];
+    const older = encodeScoutTeams(teams);
+    // A row from before the flag existed simply stops earlier.
+    older.r = older.r.map((row) => row.slice(0, 2));
+    expect(decodeScoutTeams(older, () => [])).toEqual(teams);
+  });
+});

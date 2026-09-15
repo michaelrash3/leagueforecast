@@ -1,4 +1,11 @@
-import type { AgeGroup, GcTeamLink, ScoutGame, ScoutGameSource, ScoutTeam } from "./teamRankings";
+import {
+  isPlaceholderName,
+  type AgeGroup,
+  type GcTeamLink,
+  type ScoutGame,
+  type ScoutGameSource,
+  type ScoutTeam,
+} from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import type { RefreshLog } from "./gameChangerSchedule";
@@ -425,8 +432,25 @@ export const coerceAgeGroups = (raw: unknown): AgeGroup[] => {
  * A pool saved before that existed is an array, and is still read as one; the next save rewrites
  * it. The in-memory shape is unchanged either way, so nothing above this line knows.
  */
+/**
+ * Marks the teams that were never teams.
+ *
+ * A pool saved before placeholders were understood holds them as ordinary clubs, and GameChanger
+ * writes an undecided bracket slot as "TBD- 08/04/26, 5:00 PM" — a different string every time —
+ * so a season of them filled the rankings with a row apiece. Reading the name again on the way out
+ * drops them from the tables without asking anyone to import it all a second time. It happens here
+ * rather than in either decoder because a pool can arrive through either, and a slot missed by one
+ * path would be a slot ranked.
+ *
+ * The games they hold are untouched: the result happened, whoever it turned out to be against.
+ */
+const markPlaceholders = (teams: ScoutTeam[]): ScoutTeam[] =>
+  teams.map((team) =>
+    team.placeholder || !isPlaceholderName(team.name) ? team : { ...team, placeholder: true }
+  );
+
 export const loadScoutTeams = (): ScoutTeam[] =>
-  decodeScoutTeams(readValue(TEAMS_KEY), coerceScoutTeams);
+  markPlaceholders(decodeScoutTeams(readValue(TEAMS_KEY), coerceScoutTeams));
 export const saveScoutTeams = (teams: ScoutTeam[]): boolean =>
   writeValue(TEAMS_KEY, encodeScoutTeams(teams));
 

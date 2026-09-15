@@ -1804,6 +1804,26 @@ describe("scout ids minted for league teams depend on what came first", () => {
   });
 });
 
+describe("what counts as a placeholder", () => {
+  it("catches the shape GameChanger actually writes", () => {
+    // A bracket slot arrives with the date and kick-off appended, so every one is a different
+    // string — which is how a season of them ended up in the rankings as a row apiece.
+    expect(isPlaceholderName("TBD- 08/04/26, 5:00 PM")).toBe(true);
+    expect(isPlaceholderName("TBD- 08/30/26, 10:45 AM")).toBe(true);
+    expect(isPlaceholderName("TBA 9/1")).toBe(true);
+    expect(isPlaceholderName("T.B.D.")).toBe(true);
+    expect(isPlaceholderName("TBD")).toBe(true);
+  });
+
+  it("still leaves real clubs alone", () => {
+    expect(isPlaceholderName("Trash Pandas Baseball Club")).toBe(false);
+    expect(isPlaceholderName("Tigers")).toBe(false);
+    // "Bye" and "Team" are matched exactly and never as a prefix, since a club can begin with one.
+    expect(isPlaceholderName("Byers Bulldogs")).toBe(false);
+    expect(isPlaceholderName("Team Elite Premier")).toBe(false);
+  });
+});
+
 describe("placeholders are slots, not teams", () => {
   const slotTeams = (names: string[]): { teams: ScoutTeam[]; ids: string[] } => {
     let teams: ScoutTeam[] = [];

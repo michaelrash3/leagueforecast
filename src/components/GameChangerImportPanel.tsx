@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { gcTeamPageUrl, parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
+import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   importGcSchedule,
@@ -19,7 +19,6 @@ import {
   retryableIds,
   settleTeam,
   startPull,
-  type GcPullFailure,
   type GcPullProgress,
   type GcPullView,
 } from "../lib/gameChangerPull";
@@ -30,6 +29,12 @@ import {
   markRefreshed,
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
+import {
+  collectGcImportProblems,
+  describeGcProblems,
+  gcImportProblemsCsv,
+  type GcImportProblem,
+} from "../lib/gameChangerReport";
 import { flushPoolWrites } from "../lib/teamRankingsStorage";
 import { MIN_AGE_LEVEL, mergeScoutTeams } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
@@ -76,17 +81,19 @@ Team Name,Team ID,Age Group,Season,City,State
 
 const nowIso = () => new Date().toISOString();
 
-const REASON_LABEL: Record<string, string> = {
-  "invalid-id": "Not a GameChanger id",
-  "not-found": "No such team",
-  blocked: "GameChanger refused the request",
-  throttled: "Too many requests",
-  "upstream-error": "GameChanger errored",
-  unrecognized: "Unreadable answer",
-  network: "Could not reach it",
-  unconfigured: "Proxy not deployed",
-  timeout: "Timed out",
+/** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
+const downloadProblems = (problems: GcImportProblem[]) => {
+  const blob = new Blob([gcImportProblemsCsv(problems)], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "gamechanger-not-imported.csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
 };
+
+/** How many rows of the list are drawn; the rest are in the file the button writes. */
+const PROBLEMS_SHOWN = 200;
 
 export function GameChangerImportPanel({
   pool,
@@ -108,7 +115,8 @@ export function GameChangerImportPanel({
   /** What the run came to, worked out once when it finishes rather than on every render. */
   const [result, setResult] = useState<{
     summary: string[];
-    failures: GcPullFailure[];
+    /** Every team this run left out, fetch failures and unfilable schedules alike. */
+    problems: GcImportProblem[];
     canRetry: boolean;
   } | null>(null);
 
@@ -274,7 +282,11 @@ export function GameChangerImportPanel({
             ]
           : []),
       ],
-      failures: finished?.failures ?? [],
+      problems: collectGcImportProblems(
+        finished?.failures ?? [],
+        outcomesRef.current,
+        new Map(parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : [])))
+      ),
       canRetry: finished ? retryableIds(finished).length > 0 : false,
     });
     setPairings(proposeSeasonPairings(poolRef.current.teams));
@@ -549,36 +561,58 @@ export function GameChangerImportPanel({
             ))}
           </ul>
 
-          {result.failures.length > 0 && (
+          {result.problems.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Could not be reached
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Did not import ({result.problems.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadProblems(result.problems)}
+                  className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Download the list
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {describeGcProblems(result.problems)}. A team not reached is often worth another
+                try; one that could not be filed needs its age group or season fixed on GameChanger,
+                or is a level this app does not rank.
               </p>
-              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
-                {result.failures.slice(0, 50).map((failure) => (
-                  <li key={failure.teamId} className="flex flex-wrap gap-2">
-                    <a
-                      href={gcTeamPageUrl(failure.teamId)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono font-bold text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      {failure.teamId}
-                    </a>
-                    <span className="text-slate-500">
-                      {REASON_LABEL[failure.reason] ?? failure.reason}
+              <ul className="mt-2 max-h-72 space-y-1.5 overflow-y-auto text-xs">
+                {result.problems.slice(0, PROBLEMS_SHOWN).map((problem) => (
+                  <li key={`${problem.kind}-${problem.teamId}`}>
+                    <span className="flex flex-wrap items-baseline gap-2">
+                      <a
+                        href={problem.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono font-bold text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        {problem.teamId}
+                      </a>
+                      {problem.teamName && (
+                        <span className="font-bold text-slate-950 dark:text-white">
+                          {problem.teamName}
+                        </span>
+                      )}
+                      <span className={pill(problem.kind === "not-reached" ? "red" : "amber")}>
+                        {problem.reason}
+                      </span>
                     </span>
+                    <span className="block text-slate-500">{problem.detail}</span>
                   </li>
                 ))}
               </ul>
-              {result.failures.length > 50 && (
+              {result.problems.length > PROBLEMS_SHOWN && (
                 <p className="mt-1 text-xs text-slate-500">
-                  …and {result.failures.length - 50} more.
+                  Showing the first {PROBLEMS_SHOWN}. The download has all {result.problems.length}.
                 </p>
               )}
               {result.canRetry && (
                 <button type="button" onClick={retry} className={`${button.ghost} mt-3`}>
-                  Try those again
+                  Try the unreached ones again
                 </button>
               )}
             </div>
