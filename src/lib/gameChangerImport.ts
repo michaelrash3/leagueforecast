@@ -164,13 +164,17 @@ const buildIndex = (state: GcImportState): ImportIndex => {
 
 const indexTeam = (index: ImportIndex, team: ScoutTeam) => {
   index.teamsById.set(team.id, team);
+  const noteAvatar = (avatarKey: string | undefined) => {
+    if (!avatarKey) return;
+    const bucket = index.teamsByAvatar.get(avatarKey);
+    if (!bucket) index.teamsByAvatar.set(avatarKey, [team]);
+    else if (!bucket.some((entry) => entry.id === team.id)) bucket.push(team);
+  };
+  // A club named as somebody's opponent has no link to carry its picture, so it keeps its own.
+  noteAvatar(team.avatarKey);
   (team.gcTeams ?? []).forEach((link) => {
     index.teamByGcId.set(link.teamId, team);
-    if (link.avatarKey) {
-      const bucket = index.teamsByAvatar.get(link.avatarKey);
-      if (!bucket) index.teamsByAvatar.set(link.avatarKey, [team]);
-      else if (!bucket.some((entry) => entry.id === team.id)) bucket.push(team);
-    }
+    noteAvatar(link.avatarKey);
   });
 };
 
@@ -236,14 +240,16 @@ const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void 
 
 /** Takes a team out of the avatar index, so a key it no longer carries stops pointing at it. */
 const unindexAvatars = (index: ImportIndex, team: ScoutTeam): void => {
-  (team.gcTeams ?? []).forEach((link) => {
-    if (!link.avatarKey) return;
-    const bucket = index.teamsByAvatar.get(link.avatarKey);
+  const forget = (avatarKey: string | undefined) => {
+    if (!avatarKey) return;
+    const bucket = index.teamsByAvatar.get(avatarKey);
     if (!bucket) return;
     const at = bucket.findIndex((entry) => entry.id === team.id);
     if (at >= 0) bucket.splice(at, 1);
-    if (bucket.length === 0) index.teamsByAvatar.delete(link.avatarKey);
-  });
+    if (bucket.length === 0) index.teamsByAvatar.delete(avatarKey);
+  };
+  forget(team.avatarKey);
+  (team.gcTeams ?? []).forEach((link) => forget(link.avatarKey));
 };
 
 /**
@@ -615,14 +621,17 @@ const resolveOpponent = (
     return { teamId: only, basis: "name" };
   }
 
-  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {});
-  addTeam(index, teams, created);
   /*
-   * Remember the picture this club was listed with. A stub has no GameChanger id to hang a link
-   * on, so this lives in the index for the rest of the run rather than on the team — enough for
-   * the club's own schedule, arriving later in the same pull, to recognise itself here.
+   * The picture this club was listed with is kept on the stub. A schedule never gives an
+   * opponent's id, so without it the next schedule to name this club has only the name to go on —
+   * and a name is not enough to be sure, so it would make a second team and file the game again.
    */
-  if (game.opponentAvatarKey) push(index.teamsByAvatar, game.opponentAvatarKey, created);
+  const created = buildScoutTeam(
+    game.opponentName,
+    index.usedTeamIds,
+    game.opponentAvatarKey ? { avatarKey: game.opponentAvatarKey } : {}
+  );
+  addTeam(index, teams, created);
   return { teamId: created.id, basis: "created" };
 };
 

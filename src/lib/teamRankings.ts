@@ -74,6 +74,17 @@ export type ScoutTeam = {
    */
   placeholder?: true;
   /**
+   * The picture a club was listed with by whoever named it as their opponent.
+   *
+   * An opponent has no GameChanger id — a schedule never gives one — so there is no link to hang
+   * its avatar on, and a name is not an identity in a pool holding a dozen clubs called the same
+   * thing. The picture is, and it is the one thing that means the same on two schedules, so it is
+   * kept here: the next schedule to name this club recognises it, and so does the club itself when
+   * its own id is finally pulled. Without it a club named by two schedules becomes two teams and
+   * its games are filed twice.
+   */
+  avatarKey?: string;
+  /**
    * The GameChanger teams this team is known by, one per GameChanger season: GameChanger mints a
    * new team id every season, so a club's Fall and Spring squads arrive as two ids that the user
    * has paired onto one team here. Identity by id is what keeps the country's many "Yankees" apart:

@@ -287,7 +287,7 @@ export type CompactTeams = {
   v: number;
   g: string[];
   s: string[];
-  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links */
+  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 avatar */
   r: TeamRow[];
 };
 
@@ -327,6 +327,7 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
+      team.avatarKey ?? null,
     ];
     return trimTrailing(row);
   });
@@ -396,6 +397,9 @@ export const decodeScoutTeams = (
     if (state) team.state = state;
     const city = str(row[4]);
     if (city) team.city = city;
+
+    const avatarKey = str(row[6]);
+    if (avatarKey) team.avatarKey = avatarKey;
 
     const linkRows = row[5];
     if (Array.isArray(linkRows)) {
