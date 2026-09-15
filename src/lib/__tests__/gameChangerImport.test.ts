@@ -9,6 +9,9 @@ import {
   resolveSlotGames,
   tidyPool,
   importGcSchedules,
+  comparePairing,
+  isSettledPairing,
+  pairSettledSquads,
   proposeSeasonPairings,
   summarizeGcImport,
   type GcImportState,
@@ -1642,5 +1645,135 @@ describe("resolveSlotGames", () => {
   it("does nothing to a pool with no placeholders", () => {
     const state: GcImportState = { ageGroups: [], teams: [], games: [] };
     expect(resolveSlotGames(state)).toEqual({ state, resolved: 0 });
+  });
+});
+
+describe("settled pairings", () => {
+  const squad = (
+    id: string,
+    name: string,
+    season: "fall" | "winter" | "spring",
+    seasonYear: number,
+    place: { city?: string; state?: string } = {}
+  ): ScoutTeam => ({
+    id,
+    name,
+    ...place,
+    gcTeams: [
+      {
+        teamId: `gc-${id}`,
+        name: `${name} 9U`,
+        ageGroupId: "ag1",
+        ageLevel: 9,
+        season,
+        seasonYear,
+      },
+    ],
+  });
+  const state = (teams: ScoutTeam[], games: ScoutGame[] = []): GcImportState => ({
+    ageGroups: [{ id: "ag1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] }],
+    teams,
+    games,
+  });
+  const played = (
+    id: string,
+    teamAId: string,
+    teamBId: string,
+    date: string,
+    a: number,
+    b: number,
+    source: string
+  ): ScoutGame => ({
+    id,
+    teamAId,
+    teamBId,
+    ageGroupId: "ag1",
+    date,
+    teamAScore: a,
+    teamBScore: b,
+    source: { kind: "gamechanger", teamId: source, gameId: id },
+  });
+
+  it("is settled on the same name, town and state, and nothing less", () => {
+    const where = { city: "Butler", state: "PA" };
+    const [three] = proposeSeasonPairings([
+      squad("f", "Butler Baseball", "fall", 2026, where),
+      squad("s", "Butler Baseball", "spring", 2027, where),
+    ]);
+    expect(three && isSettledPairing(three)).toBe(true);
+
+    const [stateOnly] = proposeSeasonPairings([
+      squad("f", "Mustangs", "fall", 2026, { state: "OH" }),
+      squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
+    ]);
+    expect(stateOnly && isSettledPairing(stateOnly)).toBe(false);
+  });
+
+  it("pairs the settled ones on its own and leaves the rest for the user", () => {
+    const where = { city: "Butler", state: "PA" };
+    const teams = [
+      squad("bf", "Butler Baseball", "fall", 2026, where),
+      squad("bs", "Butler Baseball", "spring", 2027, where),
+      squad("mf", "Mustangs", "fall", 2026, { state: "OH" }),
+      squad("ms", "Mustangs", "spring", 2027, { state: "OH" }),
+    ];
+    const out = pairSettledSquads(state(teams));
+    expect(out.paired).toBe(1);
+    expect(out.state.teams.map((team) => team.id).sort()).toEqual(["bs", "mf", "ms"]);
+    const butler = out.state.teams.find((team) => team.id === "bs");
+    expect(butler?.gcTeams?.map((link) => link.teamId).sort()).toEqual(["gc-bf", "gc-bs"]);
+    // The Mustangs are still offered, not applied.
+    expect(proposeSeasonPairings(out.state.teams).map((p) => p.fromTeamId)).toEqual(["mf"]);
+  });
+
+  it("follows a chain, so Fall, Winter and Spring end as one team whatever the order", () => {
+    const where = { city: "Rillo", state: "TX" };
+    const teams = [
+      squad("w", "Rillo Dillos", "winter", 2026, where),
+      squad("s", "Rillo Dillos", "spring", 2027, where),
+      squad("f", "Rillo Dillos", "fall", 2026, where),
+    ];
+    const out = pairSettledSquads(state(teams));
+    expect(out.state.teams).toHaveLength(1);
+    expect(out.state.teams[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
+      "gc-f",
+      "gc-s",
+      "gc-w",
+    ]);
+  });
+
+  it("does not pair two clubs of one name in different towns", () => {
+    const teams = [
+      squad("f", "Yankees", "fall", 2026, { city: "Dayton", state: "OH" }),
+      squad("s", "Yankees", "spring", 2027, { city: "Toledo", state: "OH" }),
+    ];
+    expect(pairSettledSquads(state(teams)).paired).toBe(0);
+  });
+
+  it("lays the two clubs side by side with the opponents in common marked", () => {
+    const teams = [
+      squad("f", "Mustangs", "fall", 2026, { city: "Mason", state: "OH" }),
+      squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
+      { id: "a", name: "Aces" },
+      { id: "b", name: "Bandits" },
+      { id: "c", name: "Cubs" },
+    ];
+    const games = [
+      played("g1", "f", "a", "2026-09-05", 5, 4, "gc-f"),
+      played("g2", "f", "b", "2026-09-06", 2, 8, "gc-f"),
+      played("g3", "s", "b", "2027-04-10", 7, 1, "gc-s"),
+      played("g4", "c", "s", "2027-04-11", 3, 3, "gc-s"),
+    ];
+    const [pairing] = proposeSeasonPairings(teams, games);
+    expect(pairing).toBeDefined();
+    const side = comparePairing(pairing!, teams, games);
+    expect(side).toMatchObject({
+      from: { gcName: "Mustangs 9U", season: "Fall 2026", city: "Mason", state: "OH", games: 2 },
+      to: { gcName: "Mustangs 9U", season: "Spring 2027", state: "OH", games: 2 },
+      sharedOpponents: ["Bandits"],
+    });
+    expect(side?.from.opponents).toEqual(["Aces", "Bandits"]);
+    expect(side?.to.opponents).toEqual(["Bandits", "Cubs"]);
+    expect(side?.to.city).toBeUndefined();
   });
 });
