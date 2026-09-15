@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
+  comparePairing,
   createGcImporter,
   describeTidy,
   GC_PAIRING_EVIDENCE_LABEL,
@@ -10,6 +11,8 @@ import {
   tidyPool,
   type GcImportOutcome,
   type GcImportState,
+  type GcPairingComparison,
+  type GcPairingSide,
   type GcSeasonPairing,
 } from "../lib/gameChangerImport";
 import {
@@ -119,6 +122,11 @@ export function GameChangerImportPanel({
   const [stage, setStage] = useState<Stage>("picking");
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
+  /** The pairing opened side by side, if any, worked out when it was opened. */
+  const [openPair, setOpenPair] = useState<{
+    key: string;
+    comparison: GcPairingComparison | null;
+  } | null>(null);
   /** Counts for the bar. Numbers rather than the cursor itself, so a redraw copies almost nothing. */
   const [stats, setStats] = useState<GcPullView | null>(null);
   /** What the run came to, worked out once when it finishes rather than on every render. */
@@ -304,7 +312,7 @@ export function GameChangerImportPanel({
      * one game. A whole run is the first point at which both halves of each are certainly present.
      */
     const tidy = tidyPool(poolRef.current);
-    if (tidy.named + tidy.folded + tidy.collapsed > 0) {
+    if (tidy.named + tidy.folded + tidy.paired + tidy.collapsed > 0) {
       poolRef.current = tidy.state;
       if (persist()) await flushPoolWrites();
     }
@@ -321,6 +329,7 @@ export function GameChangerImportPanel({
     });
     setPairings(proposeSeasonPairings(poolRef.current.teams, poolRef.current.games));
     setApproved(new Set());
+    setOpenPair(null);
     setStage("review");
     syncStats();
   };
@@ -386,6 +395,8 @@ export function GameChangerImportPanel({
   };
 
   const pairKey = (pairing: GcSeasonPairing) => `${pairing.fromTeamId}>${pairing.toTeamId}`;
+  /** The pairings on screen; the rest can be paired from a team's own panel. */
+  const shown = pairings.slice(0, 100);
 
   const applyPairings = () => {
     if (approved.size === 0) {
@@ -696,44 +707,88 @@ export function GameChangerImportPanel({
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 GameChanger gives a club a new id every season, so these arrived as separate teams.
-                Pairing them makes one team with both seasons behind it. Nothing is paired unless
-                you tick it — two clubs that merely share a name are not the same club.
+                Pairs with the same name, town and state have been combined already. These share
+                less than that, so they are yours to call — tap a name to see the two side by side.
+                Pairing makes one team with both seasons behind it.
               </p>
-              <ul className="mt-2 max-h-56 space-y-2 overflow-y-auto">
-                {pairings.slice(0, 100).map((pairing) => {
+              <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={
+                    shown.length > 0 && shown.every((pairing) => approved.has(pairKey(pairing)))
+                  }
+                  onChange={(event) => {
+                    setApproved(
+                      event.target.checked
+                        ? new Set(shown.map((pairing) => pairKey(pairing)))
+                        : new Set()
+                    );
+                  }}
+                />
+                Tick all {shown.length}
+              </label>
+              <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto">
+                {shown.map((pairing) => {
                   const key = pairKey(pairing);
+                  const open = openPair?.key === key;
+                  const comparison = open ? openPair.comparison : null;
                   return (
-                    <li key={key} className="flex items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        id={`pair-${key}`}
-                        checked={approved.has(key)}
-                        onChange={(event) => {
-                          setApproved((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) next.add(key);
-                            else next.delete(key);
-                            return next;
-                          });
-                        }}
-                        className="mt-1"
-                      />
-                      <label htmlFor={`pair-${key}`} className="flex-1">
-                        <span className="font-bold text-slate-950 dark:text-white">
-                          {pairing.fromTeamName}
-                        </span>{" "}
-                        <span className="text-slate-500">
-                          {pairing.fromSeason} → {pairing.toSeason}
-                        </span>{" "}
-                        <span
-                          className={pill(pairing.confidence === "strong" ? "emerald" : "amber")}
-                        >
-                          {[
-                            ...(pairing.sameName ? ["same name"] : []),
-                            ...pairing.evidence.map((item) => GC_PAIRING_EVIDENCE_LABEL[item]),
-                          ].join(" · ")}
-                        </span>
-                      </label>
+                    <li key={key} className="text-sm">
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          id={`pair-${key}`}
+                          checked={approved.has(key)}
+                          onChange={(event) => {
+                            setApproved((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(key);
+                              else next.delete(key);
+                              return next;
+                            });
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenPair(
+                                open
+                                  ? null
+                                  : {
+                                      key,
+                                      comparison: comparePairing(
+                                        pairing,
+                                        poolRef.current.teams,
+                                        poolRef.current.games
+                                      ),
+                                    }
+                              )
+                            }
+                            aria-expanded={open}
+                            className="font-bold text-slate-950 hover:underline dark:text-white"
+                          >
+                            {pairing.fromTeamName}
+                          </button>{" "}
+                          <label htmlFor={`pair-${key}`}>
+                            <span className="text-slate-500">
+                              {pairing.fromSeason} → {pairing.toSeason}
+                            </span>{" "}
+                            <span
+                              className={pill(
+                                pairing.confidence === "strong" ? "emerald" : "amber"
+                              )}
+                            >
+                              {[
+                                ...(pairing.sameName ? ["same name"] : []),
+                                ...pairing.evidence.map((item) => GC_PAIRING_EVIDENCE_LABEL[item]),
+                              ].join(" · ")}
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                      {comparison && <PairingComparison comparison={comparison} />}
                     </li>
                   );
                 })}
@@ -794,6 +849,74 @@ function ParsedPreview({ entries }: { entries: GcTeamListEntry[] }) {
           …and {entries.length - sample.length} more.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The two clubs of a pairing side by side: what GameChanger calls each, where each says it is
+ * from, its record, and who it has played, with the opponents in common marked. An amber pill
+ * says only that the two share a name and one more thing; this is what there is to decide on.
+ */
+function PairingComparison({ comparison }: { comparison: GcPairingComparison }) {
+  const { from, to, sharedOpponents } = comparison;
+  const shared = new Set(sharedOpponents);
+  const record = (side: GcPairingSide) =>
+    side.record ? `${side.record.win}-${side.record.loss}-${side.record.tie}` : "—";
+  const rows: [string, string, string][] = [
+    ["GameChanger name", from.gcName, to.gcName],
+    ["Town", from.city ?? "—", to.city ?? "—"],
+    ["State", from.state ?? "—", to.state ?? "—"],
+    ["Record on GameChanger", record(from), record(to)],
+    ["Games here", String(from.games), String(to.games)],
+  ];
+  const opponents = (side: GcPairingSide) =>
+    side.opponents.length === 0 ? (
+      <span className="text-slate-500">none yet</span>
+    ) : (
+      <ul className="space-y-0.5">
+        {side.opponents.map((name) => (
+          <li
+            key={name}
+            className={shared.has(name) ? "font-bold text-emerald-700 dark:text-emerald-300" : ""}
+          >
+            {name}
+          </li>
+        ))}
+      </ul>
+    );
+  return (
+    <div className="ml-6 mt-2 overflow-x-auto rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800">
+      <table className="w-full">
+        <thead>
+          <tr className="text-left text-slate-500">
+            <th className="pb-1 pr-3 font-semibold" />
+            <th className="pb-1 pr-3 font-semibold">{from.season}</th>
+            <th className="pb-1 font-semibold">{to.season}</th>
+          </tr>
+        </thead>
+        <tbody className="align-top">
+          {rows.map(([label, a, b]) => (
+            <tr key={label}>
+              <td className="py-0.5 pr-3 text-slate-500">{label}</td>
+              <td className="py-0.5 pr-3 text-slate-950 dark:text-white">{a}</td>
+              <td className="py-0.5 text-slate-950 dark:text-white">{b}</td>
+            </tr>
+          ))}
+          <tr>
+            <td className="py-0.5 pr-3 text-slate-500">
+              Opponents
+              {sharedOpponents.length > 0 && (
+                <span className="block text-emerald-700 dark:text-emerald-300">
+                  {sharedOpponents.length} in common
+                </span>
+              )}
+            </td>
+            <td className="py-0.5 pr-3">{opponents(from)}</td>
+            <td className="py-0.5">{opponents(to)}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

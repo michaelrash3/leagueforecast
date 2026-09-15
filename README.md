@@ -363,15 +363,20 @@ The same game is on both teams' schedules and a re-pull brings back a schedule
 almost entirely unchanged; both are matched rather than filed again, and only a
 score that has since been played is written.
 
-Pairings are **proposed, never applied**. At the end of a pull the panel offers
-the clubs that look like the same club a season on — same picture, or same name
-at the same level — and nothing is paired unless it is ticked. A team's own panel
-lists the GameChanger ids it is known by, unlinks one that was paired wrongly,
-and folds this team into another for one that arrived twice.
+A pairing with the **same name, same town and same state**, a season apart at
+one level, is applied on its own at the end of a pull: that is a club, not a
+coincidence. Anything short of all three is **proposed, never applied** — the
+panel lists the clubs that look like the same club a season on (same name at the
+same level plus one more thing, or the same picture), with a tick-all for the
+list and a tap on any name to lay the two side by side: GameChanger's name for
+each, town, state, record, games held here, and every opponent, with the ones in
+common marked. A team's own panel lists the GameChanger ids it is known by,
+unlinks one that was paired wrongly, and folds this team into another for one
+that arrived twice.
 
 A run of a few thousand teams takes a while and saves as it goes: the pool is
-written every twenty-five teams and the cursor only advances after the write, so
-stopping, reloading or closing the tab costs at most those twenty-five.
+written every five hundred teams and the cursor only advances after the write,
+so stopping, reloading or closing the tab costs at most those five hundred.
 
 #### The weekly rota
 

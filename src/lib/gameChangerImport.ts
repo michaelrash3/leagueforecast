@@ -1263,9 +1263,31 @@ export const proposeSeasonPairings = (
     return false;
   };
 
+  /*
+   * Only a shared name or a shared picture can make a pairing, so those are the only ids worth
+   * looking at for each team. Comparing every id with every other was fine for one club's list
+   * and several seconds for a nationwide one, at the end of every pull.
+   */
+  const byName = new Map<string, typeof linked>();
+  const byAvatar = new Map<string, typeof linked>();
+  const file = (map: Map<string, typeof linked>, key: string, entry: (typeof linked)[number]) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(entry);
+    else map.set(key, [entry]);
+  };
+  linked.forEach((entry) => {
+    file(byName, teamNameKey(entry.link.name), entry);
+    if (entry.link.avatarKey) file(byAvatar, entry.link.avatarKey, entry);
+  });
+  const candidatesFor = (from: (typeof linked)[number]): typeof linked => {
+    const same = byName.get(teamNameKey(from.link.name)) ?? [];
+    const pictured = from.link.avatarKey ? (byAvatar.get(from.link.avatarKey) ?? []) : [];
+    return pictured.length === 0 ? same : [...new Set([...same, ...pictured])];
+  };
+
   const candidates: GcSeasonPairing[] = [];
   for (const from of linked) {
-    for (const to of linked) {
+    for (const to of candidatesFor(from)) {
       if (from.team.id === to.team.id) continue;
       if (!isNextSeason(from.link, to.link)) continue;
       // A level apart is an age-up, not the same squad carrying on through a season.
@@ -1320,6 +1342,115 @@ export const proposeSeasonPairings = (
       // Strongest first, so the ones worth approving in bulk are together at the top.
       .sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === "strong" ? -1 : 1))
   );
+};
+
+/**
+ * A pairing that needs nobody's say-so: the same name, the same town and the same state, a season
+ * apart at one level. That is a club, not a coincidence — two Butler Baseballs in one town in one
+ * state at 9U, one Fall and one Spring, are the same roster with a new GameChanger id. Anything
+ * short of all three is offered rather than applied: a name and a state alone still fit a dozen
+ * clubs across a state, and a name and a club in common fits any two teams from one league.
+ */
+export const isSettledPairing = (pairing: GcSeasonPairing): boolean =>
+  pairing.sameName && pairing.evidence.includes("city") && pairing.evidence.includes("state");
+
+/**
+ * Applies the settled pairings — earlier squad folded into the later one, as the panel does when
+ * a pairing is ticked. A squad paired on into a season that was itself paired on follows the
+ * chain to whichever entry survived, so Fall → Winter → Spring ends as one team whatever order
+ * the pairs come in.
+ */
+export const pairSettledSquads = (
+  state: GcImportState
+): { state: GcImportState; paired: number } => {
+  const settled = proposeSeasonPairings(state.teams, state.games).filter(isSettledPairing);
+  if (settled.length === 0) return { state, paired: 0 };
+
+  let teams = state.teams;
+  let games = state.games;
+  let paired = 0;
+  const movedTo = new Map<string, string>();
+  const survivorOf = (teamId: string): string => {
+    let current = teamId;
+    while (movedTo.has(current)) current = movedTo.get(current)!;
+    return current;
+  };
+  settled.forEach((pairing) => {
+    const from = survivorOf(pairing.fromTeamId);
+    const into = survivorOf(pairing.toTeamId);
+    if (from === into) return;
+    const result = mergeScoutTeams(from, into, teams, games, state.ageGroups);
+    if (result.teams === teams) return;
+    teams = result.teams;
+    games = result.games;
+    movedTo.set(from, into);
+    paired += 1;
+  });
+  return { state: { ...state, teams, games }, paired };
+};
+
+/** One side of a pairing, as the user would compare it with the other. */
+export type GcPairingSide = {
+  teamName: string;
+  /** The name exactly as GameChanger has it for this season's id. */
+  gcName: string;
+  season: string;
+  city?: string;
+  state?: string;
+  record?: { win: number; loss: number; tie: number };
+  /** Games this entry holds here. */
+  games: number;
+  /** Everyone this entry has played, by name. */
+  opponents: string[];
+};
+
+export type GcPairingComparison = {
+  from: GcPairingSide;
+  to: GcPairingSide;
+  /** Opponents both have played — the strongest thing two rosters a season apart can share. */
+  sharedOpponents: string[];
+};
+
+/**
+ * The two clubs of a pairing side by side: what GameChanger said about each, where each is from,
+ * and who each has played. This is what a person looks at before saying two rosters are one — the
+ * list offers a pill's worth of evidence, and a pill is not enough to decide an amber one on.
+ */
+export const comparePairing = (
+  pairing: GcSeasonPairing,
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[]
+): GcPairingComparison | null => {
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  const side = (teamId: string, season: string): GcPairingSide | null => {
+    const team = byId.get(teamId);
+    if (!team) return null;
+    const link =
+      team.gcTeams?.find((candidate) => gcSeasonLabel(candidate) === season) ?? team.gcTeams?.[0];
+    const opponents = new Set<string>();
+    let count = 0;
+    games.forEach((game) => {
+      if (game.teamAId !== teamId && game.teamBId !== teamId) return;
+      count += 1;
+      const other = byId.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
+      if (other) opponents.add(other.name);
+    });
+    return {
+      teamName: team.name,
+      gcName: link?.name ?? team.name,
+      season,
+      ...(team.city ? { city: team.city } : {}),
+      ...(team.state ? { state: team.state } : {}),
+      ...(link?.record ? { record: link.record } : {}),
+      games: count,
+      opponents: [...opponents].sort((a, b) => a.localeCompare(b)),
+    };
+  };
+  const from = side(pairing.fromTeamId, pairing.fromSeason);
+  const to = side(pairing.toTeamId, pairing.toSeason);
+  if (!from || !to) return null;
+  const theirs = new Set(to.opponents);
+  return { from, to, sharedOpponents: from.opponents.filter((name) => theirs.has(name)) };
 };
 
 /**
@@ -1481,6 +1612,8 @@ export type PoolTidy = {
   named: number;
   /** Teams folded into a club already here under another GameChanger id. */
   folded: number;
+  /** Squads paired on into their next season on the same name, town and state. */
+  paired: number;
   /** Rows that were the same game written twice, now one. */
   collapsed: number;
 };
@@ -1489,20 +1622,23 @@ export type PoolTidy = {
  * The passes that only make sense once a whole run is in, in the order they depend on each other.
  *
  * Naming the stand-ins first, because a slot the other side's schedule can now name is the pair
- * the next two passes match on. Then the clubs holding several GameChanger ids in one pool, folded
- * where they filed the same game. Then the rows that fold made into one game — and any other pair
- * of rows that has come to mean one game — collapsed. Each pass changes what the next one sees, so
+ * the next passes match on. Then the clubs holding several GameChanger ids in one pool, folded
+ * where they filed the same game. Then the squads whose next season is settled — same name, town
+ * and state — paired on. Then the rows those folds made into one game — and any other pair of
+ * rows that has come to mean one game — collapsed. Each pass changes what the next one sees, so
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
 export const tidyPool = (state: GcImportState): PoolTidy => {
   const named = resolveSlotGames(state);
   const squads = mergeSameSquadIds(named.state);
-  const same = collapseSameGames(squads.state.games, squads.state.ageGroups);
+  const seasons = pairSettledSquads(squads.state);
+  const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
   return {
-    state: same.collapsed > 0 ? { ...squads.state, games: same.games } : squads.state,
+    state: same.collapsed > 0 ? { ...seasons.state, games: same.games } : seasons.state,
     named: named.resolved,
     folded: squads.merged,
+    paired: seasons.paired,
     collapsed: same.collapsed,
   };
 };
@@ -1520,6 +1656,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.folded > 0
       ? [
           `${plural(tidy.folded, "team", "teams")} folded into a club already here under another GameChanger id.`,
+        ]
+      : []),
+    ...(tidy.paired > 0
+      ? [
+          `${plural(tidy.paired, "squad", "squads")} paired on into the next season — same name, same town, same state.`,
         ]
       : []),
     ...(tidy.collapsed > 0
