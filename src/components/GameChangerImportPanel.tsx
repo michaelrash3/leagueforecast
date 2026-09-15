@@ -84,6 +84,9 @@ const SAVE_EVERY = 500;
  */
 const CONCURRENCY = 8;
 
+/** How many pasted ids still count as a hand-typed list rather than an export. */
+const HANDFUL = 25;
+
 const SAMPLE = `https://web.gc.com/teams/FtEExZwB4b8E/2026-fall-trosky-illinois-9u/schedule
 gsUthn4XoIxS
 
@@ -173,7 +176,18 @@ export function GameChangerImportPanel({
   const split = useMemo(() => {
     const pulled = pulledGcTeamIds(pool.teams);
     const fresh = parsed.entries.filter((entry) => !pulled.has(entry.teamId));
-    return { fresh, seen: parsed.entries.length - fresh.length };
+    const seen = parsed.entries.length - fresh.length;
+    /*
+     * A handful pasted by hand is a different thing from an export. Somebody who types one team's
+     * id in wants that team pulled now, whether or not it is already here — that is how a schedule
+     * that changed today gets read before the rota comes round — so a short list with nothing new
+     * in it is offered as a refresh rather than refused.
+     */
+    const refresh =
+      fresh.length === 0 && parsed.entries.length > 0 && parsed.entries.length <= HANDFUL
+        ? parsed.entries
+        : [];
+    return { fresh, seen, refresh };
   }, [parsed.entries, pool.teams]);
 
   const due = useMemo(
@@ -363,7 +377,7 @@ export function GameChangerImportPanel({
   };
 
   const startNew = () => {
-    const ids = split.fresh.map((entry) => entry.teamId);
+    const ids = (split.fresh.length > 0 ? split.fresh : split.refresh).map((entry) => entry.teamId);
     if (ids.length === 0) {
       showToast(
         split.seen > 0 ? "Every team in that list is already here." : "No GameChanger ids in that.",
@@ -566,7 +580,9 @@ export function GameChangerImportPanel({
                   {parsed.entries.length} team{parsed.entries.length === 1 ? "" : "s"}
                 </span>
                 {split.seen > 0 && (
-                  <span className={pill("neutral")}>{split.seen} already here, skipped</span>
+                  <span className={pill("neutral")}>
+                    {split.seen} already here{split.refresh.length > 0 ? "" : ", skipped"}
+                  </span>
                 )}
                 {parsed.skipped.length > 0 && (
                   <span className={pill("amber")}>{parsed.skipped.length} line(s) ignored</span>
@@ -592,10 +608,12 @@ export function GameChangerImportPanel({
             <button
               type="button"
               onClick={startNew}
-              disabled={split.fresh.length === 0}
+              disabled={split.fresh.length === 0 && split.refresh.length === 0}
               className={button.primary}
             >
-              Pull {split.fresh.length || ""} schedule{split.fresh.length === 1 ? "" : "s"}
+              {split.fresh.length === 0 && split.refresh.length > 0
+                ? `Pull ${split.refresh.length === 1 ? "it" : split.refresh.length} again`
+                : `Pull ${split.fresh.length || ""} schedule${split.fresh.length === 1 ? "" : "s"}`}
             </button>
             {pool.games.length > 0 && (
               <button type="button" onClick={() => void tidyNow()} className={button.ghost}>
@@ -604,7 +622,9 @@ export function GameChangerImportPanel({
             )}
             {split.fresh.length === 0 && split.seen > 0 && (
               <span className="self-center text-xs text-slate-500">
-                Every team in that list is already here.
+                {split.refresh.length > 0
+                  ? "Already here — pulling again reads today's schedule."
+                  : "Every team in that list is already here."}
               </span>
             )}
           </div>
