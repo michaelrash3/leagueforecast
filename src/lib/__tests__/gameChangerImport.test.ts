@@ -4,6 +4,7 @@ import profileFixture from "./fixtures/gc-team-profile.json";
 import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
 import {
   createGcImporter,
+  mergeSameSquadIds,
   importGcSchedule,
   resolveSlotGames,
   importGcSchedules,
@@ -732,6 +733,108 @@ describe("a doubleheader only one side wrote down twice", () => {
       pool
     ).state;
     expect(pool.games).toHaveLength(1);
+  });
+});
+
+/**
+ * A club can hold several GameChanger ids inside one rating pool — a Fall id and a Spring id both
+ * belong to squad year 2027 — and each becomes its own team, so the table shows the club twice off
+ * half a season each. Sharing a game is what proves they are one squad.
+ */
+describe("one squad holding several GameChanger ids", () => {
+  const sched = (
+    id: string,
+    name: string,
+    games: GcTeamSchedule["games"],
+    season: { season: "fall" | "spring"; year: number }
+  ): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 11, season },
+    games,
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+  const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: a,
+    opponentScore: b,
+  });
+  const fall = { season: "fall" as const, year: 2026 };
+  const spring = { season: "spring" as const, year: 2027 };
+
+  it("folds two ids that filed the same game", () => {
+    let pool = importGcSchedule(
+      sched(
+        "gcYEAGFALL00",
+        "Yeager Davis 11U",
+        [played("f1", "Raptors 11U", "2026-09-11", 8, 2)],
+        fall
+      ),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched(
+        "gcYEAGSPRG00",
+        "Yeager Davis 11U",
+        [played("s1", "Raptors 11U", "2026-09-11", 8, 2)],
+        spring
+      ),
+      pool
+    ).state;
+    // Two ids, two teams, the same 8-2 twice: the table would show the club twice at 1-0.
+    expect(pool.teams.filter((team) => team.name === "Yeager Davis")).toHaveLength(2);
+
+    const settled = mergeSameSquadIds(pool);
+    expect(settled.merged).toBe(1);
+    const survivors = settled.state.teams.filter((team) => team.name === "Yeager Davis");
+    expect(survivors).toHaveLength(1);
+    // Both GameChanger ids stay on the team that is left.
+    expect(survivors[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
+      "gcYEAGFALL00",
+      "gcYEAGSPRG00",
+    ]);
+  });
+
+  it("leaves two clubs of one name that never shared a game", () => {
+    let pool = importGcSchedule(
+      sched(
+        "gcYEAG1000000",
+        "Yeager Davis 11U",
+        [played("a1", "Raptors 11U", "2026-09-11", 8, 2)],
+        fall
+      ),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched(
+        "gcYEAG2000000",
+        "Yeager Davis 11U",
+        [played("b1", "Hornets 11U", "2026-10-04", 3, 9)],
+        fall
+      ),
+      pool
+    ).state;
+    expect(mergeSameSquadIds(pool).merged).toBe(0);
+  });
+
+  it("does not fold on a fixture neither of them has played yet", () => {
+    const scheduled = (id: string, opponentName: string) => ({
+      id,
+      date: "2026-10-25",
+      opponentName,
+      status: "scheduled" as const,
+    });
+    let pool = importGcSchedule(
+      sched("gcYEAG1000000", "Yeager Davis 11U", [scheduled("a1", "Raptors 11U")], fall),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched("gcYEAG2000000", "Yeager Davis 11U", [scheduled("b1", "Raptors 11U")], spring),
+      pool
+    ).state;
+    // Two clubs can both be due to play the Raptors that day; only a result says they are one.
+    expect(mergeSameSquadIds(pool).merged).toBe(0);
   });
 });
 

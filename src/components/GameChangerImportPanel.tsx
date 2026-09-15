@@ -4,6 +4,7 @@ import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   createGcImporter,
   GC_PAIRING_EVIDENCE_LABEL,
+  mergeSameSquadIds,
   proposeSeasonPairings,
   resolveSlotGames,
   summarizeGcImport,
@@ -63,25 +64,20 @@ type GameChangerImportPanelProps = {
 type Stage = "picking" | "pulling" | "review";
 
 /**
- * How many schedules are folded in before the pool is written. Writing after every one would be
- * thousands of saves of a growing pool; waiting for the end would throw away an interrupted run.
- * The cursor is only advanced *after* the write, so a crash re-fetches this batch rather than
- * claiming teams it never kept.
- */
-/**
  * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
- * is the pool's size times the number of saves — often enough to dwarf the fetching. What a save
- * buys is how much a closed tab costs to redo, and a thousand teams is a couple of minutes of
- * refetching against seven writes of the pool instead of thirty-five.
+ * is the pool's size times the number of saves — often enough to dwarf the fetching. What it buys
+ * is how much an interrupted run has to redo, and five hundred teams is about a minute of that
+ * against fourteen writes of the pool rather than two hundred and eighty. The cursor is only
+ * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
+ * kept.
  */
 const SAVE_EVERY = 500;
 
-/** Requests in flight. Four is what the client defaults to and what GameChanger seems content with. */
 /**
- * Requests in flight at once. One per team — the proxy fetches the profile and the games together
- * — so this is the whole of the pull's parallelism. Four was cautious; GameChanger answers eight
- * happily, and a throttled answer is retried with a backoff anyway, so the cost of being wrong
- * here is a slower team rather than a lost one.
+ * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
+ * connections open to one host, so this is the real parallelism of the pull; the batching is what
+ * lets it be worth anything. A throttled answer holds every worker back rather than this one, so
+ * the cost of being wrong here is a slower pull rather than lost teams.
  */
 const CONCURRENCY = 8;
 
@@ -314,6 +310,18 @@ export function GameChangerImportPanel({
       if (persist()) await flushPoolWrites();
     }
 
+    /*
+     * And the clubs holding more than one GameChanger id inside one pool — a Fall id and a Spring
+     * id are both squad year 2027, so both land on the same table and the club appears twice off
+     * half a season each. Folded where they filed the same game, which is the only thing that
+     * proves one squad rather than two clubs of a name.
+     */
+    const squads = mergeSameSquadIds(poolRef.current);
+    if (squads.merged > 0) {
+      poolRef.current = squads.state;
+      if (persist()) await flushPoolWrites();
+    }
+
     const finished = progressRef.current;
     setResult({
       summary: [
@@ -321,6 +329,11 @@ export function GameChangerImportPanel({
         ...(named.resolved > 0
           ? [
               `${named.resolved} placeholder${named.resolved === 1 ? "" : "s"} named from the other team's schedule.`,
+            ]
+          : []),
+        ...(squads.merged > 0
+          ? [
+              `${squads.merged} team${squads.merged === 1 ? "" : "s"} folded into a club already here under another GameChanger id.`,
             ]
           : []),
       ],

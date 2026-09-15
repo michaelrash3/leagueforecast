@@ -36,6 +36,7 @@ import {
   gcSeasonLabel,
   isRankedAgeLevel,
   matchExistingGame,
+  mergeScoutTeams,
   normalizeState,
   squadYearForGcSeason,
   teamNameKey,
@@ -132,6 +133,16 @@ const noteAgeGroup = (index: ImportIndex, group: AgeGroup): void => {
   index.poolKeys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
   const level = ageGroupLevel(group);
   if (level !== undefined) index.levels.set(group.id, level);
+};
+
+/** The pool key rule, for a pass that runs outside the index: a season year is one pool. */
+const buildPoolKeyOf = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string) => {
+  const keys = new Map<string, string>();
+  ageGroups.forEach((group) => {
+    const year = ageGroupYear(group);
+    keys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
+  });
+  return (ageGroupId: string) => keys.get(ageGroupId) ?? `g:${ageGroupId}`;
 };
 
 const buildIndex = (state: GcImportState): ImportIndex => {
@@ -574,7 +585,7 @@ const holdsThisGame = (
   game: GcGame
 ): boolean => {
   if (!game.date) return false;
-  const sameDay = index.gamesByTeamDate.get(`${candidateId} ${game.date}`) ?? [];
+  const sameDay = index.gamesByTeamDate.get(`${candidateId}\u0000${game.date}`) ?? [];
   return sameDay.some((existing) => {
     if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
     const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
@@ -1364,4 +1375,93 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
 const ageLevelOfOutcome = (outcome: GcImportOutcome): number | undefined => {
   const match = /^(\d{1,2})U\b/.exec(outcome.ageGroupName);
   return match ? Number(match[1]) : undefined;
+};
+
+/**
+ * Folds together the GameChanger ids that turned out to be one squad.
+ *
+ * A team pulled by id *is* that id, and pairing a club's Fall roster to its Spring one is the
+ * user's call — that rule is right and it stays. What it was never meant to cover is one squad
+ * holding several ids inside a single rating pool: a nationwide list turned up "Yeager Davis" as
+ * a Fall 2026 id and two Spring 2027 ids, all 11U, all landing on the 11U 2027 table, two of them
+ * carrying the very same game. The table showed the club twice, each copy 1-0 off one half of its
+ * own season. That is not a pairing decision, it is one club the app failed to recognise.
+ *
+ * What proves it is the game, as ever: two ids that filed the same fixture — same day, same
+ * opponent, and the same result from their side of it — played that game, and only one team can
+ * have. Two clubs of one name that never met and never shared a result are left alone, which is
+ * what keeps this from being the name matching the user threw out.
+ *
+ * The survivor is the id with the most games, so the fold is towards whichever copy the pull knows
+ * best, and `mergeScoutTeams` carries the games and both ids across.
+ */
+export const mergeSameSquadIds = (
+  state: GcImportState
+): { state: GcImportState; merged: number } => {
+  const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const pulled = state.teams.filter((team) => team.gcTeams?.length);
+  if (pulled.length < 2) return { state, merged: 0 };
+
+  /** A game as the club that filed it would describe it: the day, who, and how it went. */
+  const fixtureKeys = new Map<string, Set<string>>();
+  const nameOf = new Map(state.teams.map((team) => [team.id, teamNameKey(team.name)]));
+  state.games.forEach((game) => {
+    if (!game.date) return;
+    [game.teamAId, game.teamBId].forEach((teamId, side) => {
+      const otherId = side === 0 ? game.teamBId : game.teamAId;
+      const other = nameOf.get(otherId);
+      if (!other) return;
+      const mine = side === 0 ? game.teamAScore : game.teamBScore;
+      const theirs = side === 0 ? game.teamBScore : game.teamAScore;
+      // Unscored rows say only that a fixture is planned, which two clubs can share.
+      if (mine === undefined || theirs === undefined) return;
+      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
+      const bucket = fixtureKeys.get(teamId);
+      if (bucket) bucket.add(key);
+      else fixtureKeys.set(teamId, new Set([key]));
+    });
+  });
+
+  /** Ids to fold, newest-known first, keyed by the id they fold into. */
+  const foldInto = new Map<string, string>();
+  const gamesFor = (teamId: string): number =>
+    state.games.filter((game) => game.teamAId === teamId || game.teamBId === teamId).length;
+
+  const byName = new Map<string, ScoutTeam[]>();
+  pulled.forEach((team) => {
+    const key = teamNameKey(team.name);
+    const bucket = byName.get(key);
+    if (bucket) bucket.push(team);
+    else byName.set(key, [team]);
+  });
+
+  byName.forEach((group) => {
+    if (group.length < 2) return;
+    const ranked = group.slice().sort((a, b) => gamesFor(b.id) - gamesFor(a.id));
+    ranked.forEach((team, index) => {
+      if (index === 0 || foldInto.has(team.id)) return;
+      const mine = fixtureKeys.get(team.id);
+      if (!mine || mine.size === 0) return;
+      for (const other of ranked.slice(0, index)) {
+        if (foldInto.has(other.id)) continue;
+        const theirs = fixtureKeys.get(other.id);
+        if (!theirs) continue;
+        const shared = [...mine].some((key) => theirs.has(key));
+        if (shared) {
+          foldInto.set(team.id, other.id);
+          break;
+        }
+      }
+    });
+  });
+
+  if (foldInto.size === 0) return { state, merged: 0 };
+  let teams = state.teams;
+  let games = state.games;
+  foldInto.forEach((intoId, fromId) => {
+    const result = mergeScoutTeams(fromId, intoId, teams, games);
+    teams = result.teams;
+    games = result.games;
+  });
+  return { state: { ...state, teams, games }, merged: foldInto.size };
 };
