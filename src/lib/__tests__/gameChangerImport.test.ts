@@ -257,6 +257,118 @@ describe("who an opponent is", () => {
   });
 });
 
+/**
+ * A pull of a whole list holds both sides of most games, so nearly every club arrives twice: once
+ * as somebody's opponent and once on its own turn. Recognising the second as the first is the
+ * difference between a pool and a pool with everything in it twice.
+ */
+describe("both sides of a game in one run", () => {
+  const fixture = (
+    id: string,
+    name: string,
+    games: GcTeamSchedule["games"],
+    profile: Partial<GcTeamSchedule["profile"]> = {}
+  ): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 9, season: { season: "fall", year: 2026 }, ...profile },
+    games,
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+
+  const played = (
+    id: string,
+    opponentName: string,
+    teamScore: number,
+    opponentScore: number,
+    over: Partial<GcTeamSchedule["games"][number]> = {}
+  ) => ({
+    id,
+    date: "2026-08-22",
+    opponentName,
+    status: "completed" as const,
+    teamScore,
+    opponentScore,
+    ...over,
+  });
+
+  it("files a game once when both schedules describe it", () => {
+    const { state } = importGcSchedules(
+      [
+        fixture("gcAAAAAAAAAA", "Aces 9U", [played("a1", "Comets", 10, 5)]),
+        fixture("gcBBBBBBBBBB", "Comets 9U", [played("c1", "Aces", 5, 10)]),
+      ],
+      empty
+    );
+
+    // Two clubs and one game, not four and two.
+    expect(state.teams).toHaveLength(2);
+    expect(state.games).toHaveLength(1);
+  });
+
+  /**
+   * The case that made a whole pull come out doubled: a page the run itself creates knew its pool
+   * but not its level, so every game filed under it was indexed at a level of "unknown" — and the
+   * club that page belonged to was then not found when its own schedule came round.
+   */
+  it("files a doubleheader once, on a page the run created", () => {
+    const { state } = importGcSchedules(
+      [
+        fixture("gcAAAAAAAAAA", "Aces 9U", [
+          played("a1", "Comets", 10, 5),
+          played("a2", "Comets", 14, 3),
+        ]),
+        fixture("gcBBBBBBBBBB", "Comets 9U", [
+          played("c1", "Aces", 5, 10),
+          played("c2", "Aces", 3, 14),
+        ]),
+      ],
+      empty
+    );
+
+    expect(state.teams).toHaveLength(2);
+    expect(state.games).toHaveLength(2);
+  });
+
+  /**
+   * A club that plays up is listed by the older team and filed at *that* team's level, so its own
+   * schedule cannot find it by name. The picture can: it is the one identifier that means the same
+   * thing on both schedules.
+   */
+  it("recognises a club that played up by its picture", () => {
+    const { state } = importGcSchedules(
+      [
+        fixture(
+          "gcAAAAAAAAAA",
+          "Aces 11U",
+          [played("a1", "Comets", 10, 5, { opponentAvatarKey: "av-comets" })],
+          { ageLevel: 11, avatarKey: "av-aces" }
+        ),
+        fixture(
+          "gcBBBBBBBBBB",
+          "Comets 9U",
+          [played("c1", "Aces", 5, 10, { opponentAvatarKey: "av-aces" })],
+          { avatarKey: "av-comets" }
+        ),
+      ],
+      empty
+    );
+
+    expect(state.teams).toHaveLength(2);
+    expect(state.games).toHaveLength(1);
+  });
+
+  /** Nothing but a name, and the two sides disagree on the level: two teams is the safe answer. */
+  it("leaves two teams when nothing but a disputed name connects them", () => {
+    const { state } = importGcSchedules(
+      [
+        fixture("gcAAAAAAAAAA", "Aces 11U", [played("a1", "Comets", 10, 5)], { ageLevel: 11 }),
+        fixture("gcBBBBBBBBBB", "Comets 9U", [played("c1", "Aces", 5, 10)]),
+      ],
+      empty
+    );
+    expect(state.teams).toHaveLength(4);
+  });
+});
+
 describe("a real schedule", () => {
   const real: GcTeamSchedule = {
     profile: normalizeGcTeamProfile(profileFixture)!,

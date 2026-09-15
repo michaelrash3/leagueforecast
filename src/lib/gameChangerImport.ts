@@ -86,6 +86,16 @@ type ImportIndex = {
    * where everyone is on one page is the whole pool, per game.
    */
   teamIdsByGroupName: Map<string, string[]>;
+  /**
+   * What each page is, by id, behind the two lookups below.
+   *
+   * Maps rather than closures because the fold creates pages as it goes and both lookups have to
+   * learn about one the moment it exists. A page whose level is still unknown files its games
+   * under a name key that says so, and then the club that page belongs to is not found when its
+   * own schedule arrives — which is a duplicate of every team in the run.
+   */
+  poolKeys: Map<string, string>;
+  levels: Map<string, number>;
   /** Pool key of an age group: its season year, or the group itself when it has none. */
   poolKeyOf: (ageGroupId: string) => string;
   /** Age level of an age group: the level half of a name match, and a side's fallback level. */
@@ -104,27 +114,27 @@ const push = <K, V>(map: Map<K, V[]>, key: K, value: V) => {
   else map.set(key, [value]);
 };
 
-const buildPoolKey = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string) => {
+/**
+ * Records what a page is, for both lookups at once — the pool it rates in and the level it is at.
+ * Called for the pages the pool already has and again for every page the fold creates.
+ */
+const noteAgeGroup = (index: ImportIndex, group: AgeGroup): void => {
   // Mirrors `rankingPoolGroupIds`: groups sharing a season year are one pool, and a group with no
   // year is a pool of one.
-  const keys = new Map<string, string>();
-  ageGroups.forEach((group) => {
-    const year = ageGroupYear(group);
-    keys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
-  });
-  return (ageGroupId: string) => keys.get(ageGroupId) ?? `g:${ageGroupId}`;
-};
-
-const buildLevelOf = (ageGroups: AgeGroup[]): ((ageGroupId: string) => number | undefined) => {
-  const levels = new Map<string, number | undefined>();
-  ageGroups.forEach((group) => levels.set(group.id, ageGroupLevel(group)));
-  return (ageGroupId: string) => levels.get(ageGroupId);
+  const year = ageGroupYear(group);
+  index.poolKeys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
+  const level = ageGroupLevel(group);
+  if (level !== undefined) index.levels.set(group.id, level);
 };
 
 const buildIndex = (state: GcImportState): ImportIndex => {
-  const poolKeyOf = buildPoolKey(state.ageGroups);
-  const levelOf = buildLevelOf(state.ageGroups);
+  const poolKeys = new Map<string, string>();
+  const levels = new Map<string, number>();
   const index: ImportIndex = {
+    poolKeys,
+    levels,
+    poolKeyOf: (ageGroupId: string) => poolKeys.get(ageGroupId) ?? `g:${ageGroupId}`,
+    levelOf: (ageGroupId: string) => levels.get(ageGroupId),
     gamesById: new Map(),
     gamePos: new Map(),
     teamPos: new Map(),
@@ -137,9 +147,9 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     teamIdsByGroupName: new Map(),
     opponentsByTeam: new Map(),
     gamesByTeamDate: new Map(),
-    poolKeyOf,
-    levelOf,
   };
+  // Before any game is indexed: a game's name keys are built from its page's level.
+  state.ageGroups.forEach((group) => noteAgeGroup(index, group));
   state.teams.forEach((team, position) => {
     index.teamPos.set(team.id, position);
     index.usedTeamIds.add(team.id);
@@ -259,14 +269,6 @@ const addGame = (index: ImportIndex, games: ScoutGame[], game: ScoutGame): void 
   index.gamePos.set(game.id, games.length);
   games.push(game);
   indexGame(index, game);
-};
-
-/** A page the fold has just created has no games yet, but its pool key must still resolve. */
-const indexAgeGroup = (index: ImportIndex, group: AgeGroup) => {
-  const previous = index.poolKeyOf;
-  const year = ageGroupYear(group);
-  const key = year === undefined ? `g:${group.id}` : `y:${year}`;
-  index.poolKeyOf = (ageGroupId: string) => (ageGroupId === group.id ? key : previous(ageGroupId));
 };
 
 /** The pool, as the importer reads and returns it. */
@@ -449,8 +451,31 @@ const resolveOwnTeam = (
     return { teamId: known.id, created: false };
   }
 
+  /** An entry put here by somebody else's schedule, with no GameChanger id of its own yet. */
+  const isStub = (team: ScoutTeam | undefined): team is ScoutTeam =>
+    Boolean(team) && !team?.gcTeams?.length;
+
+  /*
+   * The picture first, for the same reason opponents are matched on it first: it is the only
+   * identifier that means the same thing on two schedules. It also settles the case a name cannot
+   * — a club that plays up, listed as an opponent by an older team and so filed at that team's
+   * level, is still recognisably itself here when its own schedule arrives.
+   */
+  if (profile.avatarKey) {
+    const byAvatar = (index.teamsByAvatar.get(profile.avatarKey) ?? []).filter(isStub);
+    // Exactly one, or the picture is shared and says nothing about which of them this is.
+    if (byAvatar.length === 1 && byAvatar[0]) {
+      const adopted = withLink(byAvatar[0], link);
+      const avatarState = normalizeState(profile.state ?? "");
+      if (avatarState && !adopted.state) adopted.state = avatarState;
+      if (profile.city && !adopted.city) adopted.city = profile.city;
+      replaceTeam(index, teams, adopted);
+      return { teamId: byAvatar[0].id, created: false };
+    }
+  }
+
   /**
-   * Before minting one: this club is very likely already here as a name-only opponent, put there
+   * Failing that: this club is very likely already here as a name-only opponent, put there
    * by a schedule pulled earlier. Adopting that entry is what keeps one club one team — in a pull
    * of a whole list nearly every team appears as somebody's opponent before its own turn comes,
    * so creating a second would duplicate most of the pull. Only an entry with no GameChanger id
@@ -463,9 +488,7 @@ const resolveOwnTeam = (
     ) ?? [];
   // Exactly one, or picking between them is a guess — and a wrong one folds a club's games into
   // somebody else's team.
-  const placeholders = sameName
-    .map((teamId) => index.teamsById.get(teamId))
-    .filter((team): team is ScoutTeam => Boolean(team) && !team?.gcTeams?.length);
+  const placeholders = sameName.map((teamId) => index.teamsById.get(teamId)).filter(isStub);
   const placeholder = placeholders.length === 1 ? placeholders[0] : undefined;
   if (placeholder) {
     const updated = withLink(placeholder, link);
@@ -594,6 +617,12 @@ const resolveOpponent = (
 
   const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {});
   addTeam(index, teams, created);
+  /*
+   * Remember the picture this club was listed with. A stub has no GameChanger id to hang a link
+   * on, so this lives in the index for the rest of the run rather than on the team — enough for
+   * the club's own schedule, arriving later in the same pull, to recognise itself here.
+   */
+  if (game.opponentAvatarKey) push(index.teamsByAvatar, game.opponentAvatarKey, created);
   return { teamId: created.id, basis: "created" };
 };
 
@@ -695,7 +724,7 @@ const importOne = (
   }
 
   const { group, created: createdAgeGroup } = resolved;
-  if (createdAgeGroup) indexAgeGroup(index, group);
+  if (createdAgeGroup) noteAgeGroup(index, group);
   // The working arrays are mutated from here on; the public entry hands in copies.
   const teams = state.teams;
   const games = state.games;
@@ -892,7 +921,21 @@ export const resolveSlotGames = (
     const timed = candidates.filter(
       (named) => slotGame.startTs !== undefined && named.startTs === slotGame.startTs
     );
-    const shortlist = timed.length > 0 ? timed : candidates;
+    /*
+     * Failing a time, the score. A pool-play day against one club is two or three games with no
+     * times posted, and picking between them by the day alone is the guess this function refuses
+     * to make — but the same fixture written down twice agrees on what it finished, from each
+     * side's point of view. Where exactly one named row agrees, that is the one.
+     */
+    const agreeing = candidates.filter((named) => {
+      if (!isScored(slotGame) || !isScored(named)) return false;
+      const slotKnown = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
+      const slotOther = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+      const namedKnown = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
+      const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
+      return slotKnown === namedKnown && slotOther === namedOther;
+    });
+    const shortlist = timed.length > 0 ? timed : agreeing.length > 0 ? agreeing : candidates;
     if (shortlist.length !== 1) return;
 
     const named = shortlist[0]!;
