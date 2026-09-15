@@ -1122,7 +1122,11 @@ This cannot be undone. Cancel and download the backup first if there is any chan
           )}
         </div>
 
-        {ageGroups.length === 0 && (
+        {/*
+          The way in, for a browser with nothing in it yet. Not shown on the two sections it points
+          at: on Setup the form it offers is already on screen, and on Import so is the pull.
+        */}
+        {ageGroups.length === 0 && section !== "setup" && section !== "import" && (
           <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
             <p className="text-sm font-bold text-slate-950 dark:text-white">Nothing ranked yet.</p>
             <p className="mt-1 text-xs text-slate-500">
