@@ -1,20 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   AGE_PARAM,
+  SECTION_PARAM,
   VIEW_PARAM,
   YEAR_PARAM,
   parseRankingsRoute,
   rankingsSearch,
   sameRankingsRoute,
+  type RankingsSection,
 } from "../rankingsRoute";
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../teamRankings";
 
 describe("parseRankingsRoute", () => {
   it("reads a full page out of a query string", () => {
-    expect(parseRankingsRoute("?view=rankings&age=10&year=2028")).toEqual({
+    expect(parseRankingsRoute("?view=rankings&age=10&year=2028&section=games")).toEqual({
       mode: "rankings",
       ageLevel: 10,
       year: 2028,
+      section: "games",
     });
   });
 
@@ -30,6 +33,14 @@ describe("parseRankingsRoute", () => {
     expect(parseRankingsRoute("?year=2028")).toEqual({ year: 2028 });
     expect(parseRankingsRoute("?age=12")).toEqual({ ageLevel: 12 });
     expect(parseRankingsRoute("?view=league")).toEqual({ mode: "league" });
+    expect(parseRankingsRoute("?section=setup")).toEqual({ section: "setup" });
+  });
+
+  it("reads every section there is", () => {
+    const sections: RankingsSection[] = ["rankings", "games", "import", "scouting", "setup"];
+    sections.forEach((section) => {
+      expect(parseRankingsRoute(`?section=${section}`).section).toBe(section);
+    });
   });
 
   it("ignores parameters it does not own", () => {
@@ -57,27 +68,38 @@ describe("parseRankingsRoute", () => {
     expect(parseRankingsRoute("?age=-10")).toEqual({});
     expect(parseRankingsRoute("?year=99999999")).toEqual({});
     expect(parseRankingsRoute("?view=nonsense")).toEqual({});
+    expect(parseRankingsRoute("?section=nonsense")).toEqual({});
+    expect(parseRankingsRoute("?section=")).toEqual({});
   });
 
   it("reads a view in any case, with padding", () => {
     expect(parseRankingsRoute("?view=%20Rankings%20").mode).toBe("rankings");
   });
+
+  it("reads a section in any case, with padding", () => {
+    expect(parseRankingsRoute("?section=%20Scouting%20").section).toBe("scouting");
+  });
 });
 
 describe("rankingsSearch", () => {
   it("writes a page into an empty query string", () => {
-    expect(rankingsSearch("", { mode: "rankings", ageLevel: 10, year: 2028 })).toBe(
-      `?${VIEW_PARAM}=rankings&${AGE_PARAM}=10&${YEAR_PARAM}=2028`
-    );
+    expect(
+      rankingsSearch("", { mode: "rankings", ageLevel: 10, year: 2028, section: "import" })
+    ).toBe(`?${VIEW_PARAM}=rankings&${AGE_PARAM}=10&${YEAR_PARAM}=2028&${SECTION_PARAM}=import`);
   });
 
   it("round-trips through parse", () => {
-    const route = { mode: "rankings" as const, ageLevel: 11, year: 2030 };
+    const route = {
+      mode: "rankings" as const,
+      ageLevel: 11,
+      year: 2030,
+      section: "games" as const,
+    };
     expect(parseRankingsRoute(rankingsSearch("", route))).toEqual(route);
   });
 
   // The app is one page and other features may be using the query string, so this only ever
-  // touches its own three keys.
+  // touches its own four keys.
   it("leaves other parameters alone", () => {
     const next = rankingsSearch("?utm_source=text", { mode: "rankings", ageLevel: 9 });
     const params = new URLSearchParams(next.slice(1));
@@ -86,7 +108,9 @@ describe("rankingsSearch", () => {
   });
 
   it("removes the parameters a route leaves out", () => {
-    const next = rankingsSearch("?view=rankings&age=10&year=2028", { mode: "league" });
+    const next = rankingsSearch("?view=rankings&age=10&year=2028&section=setup", {
+      mode: "league",
+    });
     expect(next).toBe(`?${VIEW_PARAM}=league`);
   });
 
@@ -109,6 +133,13 @@ describe("sameRankingsRoute", () => {
     expect(sameRankingsRoute({ ageLevel: 10, year: 2028 }, { ageLevel: 10, year: 2028 })).toBe(
       true
     );
+  });
+
+  it("is false when the section differs", () => {
+    expect(
+      sameRankingsRoute({ ageLevel: 10, section: "games" }, { ageLevel: 10, section: "setup" })
+    ).toBe(false);
+    expect(sameRankingsRoute({ ageLevel: 10 }, { ageLevel: 10, section: "rankings" })).toBe(false);
   });
 
   it("is false when any half differs", () => {

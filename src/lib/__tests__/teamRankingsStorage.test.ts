@@ -1,21 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
 import {
+  clearTeamRankings,
   coerceGcTeamLink,
   coerceGcTeamLinks,
   coerceScoutGames,
   coerceScoutTeams,
+  initTeamRankingsStore,
   loadAgeGroups,
+  loadPullProgress,
+  loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
+  resetTeamRankingsStore,
   saveAgeGroups,
+  savePullProgress,
+  saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
+  type PoolStoreIo,
 } from "../teamRankingsStorage";
 
 const backing = new Map<string, string>();
 
 beforeEach(() => {
+  // A test that opened the IndexedDB path must not leave the next one on it.
+  resetTeamRankingsStore();
   backing.clear();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
@@ -152,6 +162,74 @@ describe("teamRankingsStorage", () => {
     expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
     expect(loadScoutGames()).toEqual([{ id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" }]);
     expect(loadAgeGroups()).toEqual([{ id: "ag1", name: "2027", seasonIds: ["fall2026"] }]);
+  });
+});
+
+describe("clearing Team Rankings", () => {
+  /** Everything the pool is made of, filled in so a reset has something to remove. */
+  const fillPool = () => {
+    saveAgeGroups([{ id: "ag1", name: "9U 2027", seasonIds: ["fall2026"] }]);
+    saveScoutTeams([{ id: "S-ICEC", name: "Ice Cats" }]);
+    saveScoutGames([{ id: "g1", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1" }]);
+    savePullProgress({
+      ids: ["gc1"],
+      settled: [],
+      failures: [],
+      startedAt: "2026-09-14T12:00:00.000Z",
+      updatedAt: "2026-09-14T12:00:00.000Z",
+    });
+    saveRefreshLog({ "9": "2026-09-14" });
+  };
+
+  /** Nothing of the pool is left — the state of a browser that has never opened Team Rankings. */
+  const expectEmptyPool = () => {
+    expect(loadAgeGroups()).toEqual([]);
+    expect(loadScoutTeams()).toEqual([]);
+    expect(loadScoutGames()).toEqual([]);
+    expect(loadPullProgress()).toBeNull();
+    expect(loadRefreshLog()).toEqual({});
+  };
+
+  it("clears every key the pool is made of", () => {
+    fillPool();
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
+  });
+
+  // League Standings keeps its own season-namespaced keys, and a reset here must not reach them.
+  it("leaves League Standings data where it is", () => {
+    fillPool();
+    backing.set("league_forecast_teams_v1_fall2026", JSON.stringify([{ id: "t1" }]));
+    backing.set("league_forecast_seasons_v1", JSON.stringify([{ id: "fall2026" }]));
+    clearTeamRankings();
+    expect(backing.get("league_forecast_teams_v1_fall2026")).toBe(JSON.stringify([{ id: "t1" }]));
+    expect(backing.get("league_forecast_seasons_v1")).toBe(JSON.stringify([{ id: "fall2026" }]));
+  });
+
+  it("is happy to clear a pool that was already empty", () => {
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
+  });
+
+  it("clears the pool on the IndexedDB path too", async () => {
+    const store = new Map<string, unknown>();
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    await initTeamRankingsStore(io);
+    fillPool();
+    // Saved to the cache, not to localStorage, so the reset has to reach the cache to be a reset.
+    expect(loadScoutTeams()).toHaveLength(1);
+
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
   });
 });
 

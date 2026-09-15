@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   advancedAgeGroup,
-  AGE_LEVELS,
   ageGroupChain,
   ageGroupLevel,
   ageGroupSeason,
@@ -23,7 +22,6 @@ import {
   rankingPoolGroupIds,
   resolveOrCreateTeam,
   seasonYearOptions,
-  UNKNOWN_STATE,
   filterRankingsByState,
   normalizeState,
   renameScoutTeam,
@@ -32,9 +30,7 @@ import {
   unlinkGcTeam,
   type AgeGroup,
   type LeagueSeasonSnapshot,
-  type MatchupTier,
   type ScoutGame,
-  type ScoutRankingRow,
   type ScoutTeam,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
@@ -46,6 +42,7 @@ import {
 } from "../lib/storage";
 import {
   clearPullProgress,
+  clearTeamRankings,
   loadAgeGroups,
   loadPullProgress,
   loadRefreshLog,
@@ -57,17 +54,28 @@ import {
   saveScoutGames,
   saveScoutTeams,
 } from "../lib/teamRankingsStorage";
-import { AiStoryPanel } from "./AiStoryPanel";
+import {
+  readTeamRankingsBackup,
+  summarizeTeamRankingsBackup,
+  teamRankingsCsvSections,
+} from "../lib/teamRankingsBackup";
+import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { ScheduleImportPanel } from "./ScheduleImportPanel";
-import { RankingMethodButton, RankingMethodPanel } from "./RankingMethodPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
-import { TeamNameCombobox } from "./TeamNameCombobox";
+import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
+import {
+  NATIONAL_TOP,
+  RankingsSection as RankingsBoards,
+  STATE_TOP,
+} from "./teamRankings/RankingsSection";
+import { ScoutingSection } from "./teamRankings/ScoutingSection";
+import { SectionNav, SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
+import { SetupSection, type AgeGroupDraft } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useRankingsRoute } from "../hooks/useRankingsRoute";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
-import { button, card, pill, tab } from "../styles/tokens";
+import { button, card, tab } from "../styles/tokens";
 
 type ConfirmOptions = {
   title: string;
@@ -93,61 +101,18 @@ type TeamRankingsViewProps = {
   onDataChange?: () => void;
 };
 
-const tierTone = (tier: MatchupTier) =>
-  tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
-
-/** How many teams a page leads with, nationally and within one state. */
-const NATIONAL_TOP = 25;
-const STATE_TOP = 10;
-
-const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
-const formatPct = (value: number) => `${Math.round(value * 100)}%`;
-
-/** A ranked list: place, team, its state when that adds something, record and rating. */
-function RankingList({
-  rows,
-  onOpen,
-  stateOf,
-  showState = false,
-}: {
-  rows: ScoutRankingRow[];
-  onOpen: (teamId: string) => void;
-  stateOf: (teamId: string) => string | undefined;
-  showState?: boolean;
-}) {
-  return (
-    <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-      {rows.map((row, index) => (
-        <li
-          key={row.teamId}
-          className={`flex items-center justify-between gap-3 px-2 py-2.5 text-sm ${
-            row.isMine ? "rounded-lg bg-blue-50 dark:bg-blue-950/40" : ""
-          }`}
-        >
-          <span className="flex min-w-0 items-center gap-3">
-            {/* The place in *this* list; a state top ten is not the national ranking renumbered. */}
-            <span className={pill(index === 0 ? "amber" : "neutral")}>#{index + 1}</span>
-            <button
-              type="button"
-              onClick={() => onOpen(row.teamId)}
-              className="truncate text-left font-bold text-slate-950 hover:underline dark:text-white"
-            >
-              {row.teamName}
-              {row.isMine ? " ★" : ""}
-            </button>
-            {showState && stateOf(row.teamId) && (
-              <span className="shrink-0 text-xs text-slate-500">{stateOf(row.teamId)}</span>
-            )}
-          </span>
-          <span className="shrink-0 text-slate-500">
-            {row.record} · {formatRating(row.rating)}
-          </span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
+/**
+ * Team Rankings, one area at a time.
+ *
+ * Everything used to render on a single scroll — the tables, the add-a-game form, the GameChanger
+ * pull, the scouting report and the age-group editor — which made the page long enough that the
+ * thing you came for was rarely the thing on screen. Each area now lives in its own file under
+ * `teamRankings/` and is reached through `?section=`, while this file keeps the state they all
+ * read from and the handlers that write it.
+ *
+ * The season-year picker and the age tabs stay above every section, because they scope all of them
+ * alike: a section is a view of one age group in one year, never of the pool at large.
+ */
 export function TeamRankingsView({
   seasons,
   activeSeasonId,
@@ -158,36 +123,26 @@ export function TeamRankingsView({
   const { route, push, replace } = useRankingsRoute();
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
-  /**
-   * Whether the age-group editor is showing. It used to open itself whenever the pool was empty,
-   * from a time when typing a group in was the only way to start. A GameChanger pull names the
-   * age level and the season itself and creates the page it needs, so opening a form the reader
-   * does not have to fill in read as a step they had to take first.
-   */
-  const [manageOpen, setManageOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  // Opens on the youngest level that actually ranks. 8U stays selectable — its games are evidence
-  // about the 9U teams that played down — but it is not what accepting the defaults gives you.
-  const [groupAgeLevel, setGroupAgeLevel] = useState(MIN_RANKED_AGE_LEVEL);
-  const [groupYear, setGroupYear] = useState(MIN_SEASON_YEAR);
-  const [groupSeasonIds, setGroupSeasonIds] = useState<string[]>(() =>
-    activeSeasonId ? [activeSeasonId] : []
-  );
-  const [groupContinuesFromId, setGroupContinuesFromId] = useState("");
+  /**
+   * The age-group form. Opens on the youngest level that actually ranks: 8U stays selectable — its
+   * games are evidence about the 9U teams that played down — but it is not what accepting the
+   * defaults gives you.
+   */
+  const [groupDraft, setGroupDraft] = useState<AgeGroupDraft>(() => ({
+    ageLevel: MIN_RANKED_AGE_LEVEL,
+    year: MIN_SEASON_YEAR,
+    seasonIds: activeSeasonId ? [activeSeasonId] : [],
+    continuesFromId: "",
+  }));
 
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
 
-  const [teamAName, setTeamAName] = useState("");
-  const [teamAScore, setTeamAScore] = useState("");
-  const [teamBName, setTeamBName] = useState("");
-  const [teamBScore, setTeamBScore] = useState("");
-  const [gameDate, setGameDate] = useState("");
-  const [gameEvent, setGameEvent] = useState("");
+  const [gameDraft, setGameDraft] = useState<AddGameDraft>(EMPTY_ADD_GAME_DRAFT);
 
   const [importOpen, setImportOpen] = useState(false);
-  const [gcOpen, setGcOpen] = useState(false);
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
@@ -195,8 +150,6 @@ export function TeamRankingsView({
   /** Which state the top ten shows; `null` means the one picked for you. */
   const [stateTop, setStateTop] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [methodOpen, setMethodOpen] = useState(false);
-  const methodPanelId = useId();
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
@@ -228,10 +181,16 @@ export function TeamRankingsView({
 
   const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
 
+  const patchGroupDraft = (patch: Partial<AgeGroupDraft>) =>
+    setGroupDraft((prev) => ({ ...prev, ...patch }));
+
   const toggleGroupSeason = (seasonId: string) => {
-    setGroupSeasonIds((prev) =>
-      prev.includes(seasonId) ? prev.filter((id) => id !== seasonId) : [...prev, seasonId]
-    );
+    setGroupDraft((prev) => ({
+      ...prev,
+      seasonIds: prev.seasonIds.includes(seasonId)
+        ? prev.seasonIds.filter((id) => id !== seasonId)
+        : [...prev.seasonIds, seasonId],
+    }));
   };
 
   const startEditGroup = (group: AgeGroup) => {
@@ -239,23 +198,26 @@ export function TeamRankingsView({
     // what can be read from it and leave the rest at the defaults rather than blanking the form.
     const season = ageGroupSeason(group);
     setEditingGroupId(group.id);
-    setGroupAgeLevel(season.ageLevel ?? MIN_RANKED_AGE_LEVEL);
-    setGroupYear(season.year ?? MIN_SEASON_YEAR);
-    setGroupSeasonIds(group.seasonIds);
-    setGroupContinuesFromId(group.continuesFromId ?? "");
-    setManageOpen(true);
+    setGroupDraft({
+      ageLevel: season.ageLevel ?? MIN_RANKED_AGE_LEVEL,
+      year: season.year ?? MIN_SEASON_YEAR,
+      seasonIds: group.seasonIds,
+      continuesFromId: group.continuesFromId ?? "",
+    });
   };
 
   const resetGroupForm = () => {
     setEditingGroupId(null);
-    setGroupAgeLevel(MIN_RANKED_AGE_LEVEL);
-    setGroupYear(MIN_SEASON_YEAR);
-    setGroupSeasonIds(activeSeasonId ? [activeSeasonId] : []);
-    setGroupContinuesFromId("");
+    setGroupDraft({
+      ageLevel: MIN_RANKED_AGE_LEVEL,
+      year: MIN_SEASON_YEAR,
+      seasonIds: activeSeasonId ? [activeSeasonId] : [],
+      continuesFromId: "",
+    });
   };
 
   const saveAgeGroup = () => {
-    const season = { ageLevel: groupAgeLevel, year: groupYear };
+    const season = { ageLevel: groupDraft.ageLevel, year: groupDraft.year };
     // Two age groups for the same 10U 2028 would split one squad's schedule across two rankings,
     // and neither would be right. The picker can't produce a typo, so this can only be a repeat.
     const clash = findAgeGroupForSeason(season, ageGroups);
@@ -266,7 +228,9 @@ export function TeamRankingsView({
     const name = formatAgeGroupName(season.ageLevel, season.year);
     // Pointing an age group at itself would make the chain meaningless, so drop that choice.
     const continuesFromId =
-      groupContinuesFromId && groupContinuesFromId !== editingGroupId ? groupContinuesFromId : "";
+      groupDraft.continuesFromId && groupDraft.continuesFromId !== editingGroupId
+        ? groupDraft.continuesFromId
+        : "";
     if (editingGroupId) {
       persistAgeGroups(
         ageGroups.map((group) =>
@@ -276,7 +240,7 @@ export function TeamRankingsView({
                 name,
                 ageLevel: season.ageLevel,
                 year: season.year,
-                seasonIds: groupSeasonIds,
+                seasonIds: groupDraft.seasonIds,
                 ...(continuesFromId ? { continuesFromId } : { continuesFromId: undefined }),
               }
             : group
@@ -289,7 +253,7 @@ export function TeamRankingsView({
         name,
         ageLevel: season.ageLevel,
         year: season.year,
-        seasonIds: groupSeasonIds,
+        seasonIds: groupDraft.seasonIds,
         ...(continuesFromId ? { continuesFromId } : {}),
       };
       persistAgeGroups([...ageGroups, newGroup]);
@@ -346,6 +310,9 @@ export function TeamRankingsView({
   };
 
   // ---------- Pages: one per age level, within one season year ----------
+
+  /** Which area is on screen. Read from the URL, so every section is a link somebody can send. */
+  const section = route.section ?? DEFAULT_RANKINGS_SECTION;
 
   const byLevel = (a: AgeGroup, b: AgeGroup) =>
     (ageGroupLevel(a) ?? MAX_AGE_LEVEL + 1) - (ageGroupLevel(b) ?? MAX_AGE_LEVEL + 1);
@@ -419,16 +386,34 @@ export function TeamRankingsView({
     return inYear.slice().sort(byLevel);
   }, [ageGroups, selectedYear, undatedGroups]);
 
+  /** The page currently on screen, as a route — every navigation is this with one part changed. */
+  const currentRoute = {
+    mode: "rankings" as const,
+    ...(ageGroupLevel(selectedGroup) === undefined
+      ? {}
+      : { ageLevel: ageGroupLevel(selectedGroup) }),
+    ...(ageGroupYear(selectedGroup) === undefined ? {} : { year: ageGroupYear(selectedGroup) }),
+    section,
+  };
+
   const openPage = (groupId: string) => {
     if (!groupId || groupId === selectedAgeGroupId) return;
     setPickedGroupId(groupId);
     const group = ageGroups.find((entry) => entry.id === groupId);
     // Pushed, not replaced: this is a page the user asked for, so Back should return to the last.
+    // The section rides along, so changing age level keeps you where you were reading.
     push({
       mode: "rankings",
       ...(ageGroupLevel(group) === undefined ? {} : { ageLevel: ageGroupLevel(group) }),
       ...(ageGroupYear(group) === undefined ? {} : { year: ageGroupYear(group) }),
+      section,
     });
+  };
+
+  /** Moving between areas is a page in its own right, so Back returns to the one before it. */
+  const openSection = (next: RankingsSection) => {
+    if (next === section) return;
+    push({ ...currentRoute, section: next });
   };
 
   /**
@@ -453,6 +438,9 @@ export function TeamRankingsView({
    * Keeps the URL honest about the page actually on screen — after a group is deleted, after the
    * first group is created, or when a link asked for a page that is not there. Replaced rather
    * than pushed: the app tidying up after itself is not somewhere Back should land.
+   *
+   * Only the page is corrected, never the section: a link naming no section is already showing the
+   * right one, and writing it in would be the app editing a URL the reader typed.
    */
   useEffect(() => {
     if (!selectedGroup) return;
@@ -463,8 +451,9 @@ export function TeamRankingsView({
       mode: "rankings",
       ...(level === undefined ? {} : { ageLevel: level }),
       ...(year === undefined ? {} : { year }),
+      ...(route.section ? { section: route.section } : {}),
     });
-  }, [selectedGroup, route.ageLevel, route.year, replace]);
+  }, [selectedGroup, route.ageLevel, route.year, route.section, replace]);
 
   // ---------- Ranking data for the selected age group ----------
 
@@ -739,12 +728,6 @@ export function TeamRankingsView({
   };
 
   /**
-   * Removes a team from *this* age group by dropping the games logged against them here. Their
-   * results in other age groups are left alone — the same club can be a 9U opponent and an 11U
-   * one, and removing a stray 11U entry shouldn't wipe the 9U history. The team record itself only
-   * goes when nothing is left of it anywhere.
-   */
-  /**
    * Whether this page has anything of its own to remove for a team. The pool can list a team whose
    * every game is filed under a sibling age group; `removeTeam` only touches games filed here, so
    * for that team it would delete nothing and still say it had. The button is not offered instead.
@@ -756,6 +739,12 @@ export function TeamRankingsView({
         (game.teamAId === teamId || game.teamBId === teamId)
     );
 
+  /**
+   * Removes a team from *this* age group by dropping the games logged against them here. Their
+   * results in other age groups are left alone — the same club can be a 9U opponent and an 11U
+   * one, and removing a stray 11U entry shouldn't wipe the 9U history. The team record itself only
+   * goes when nothing is left of it anywhere.
+   */
   const removeTeam = async (team: ScoutTeam) => {
     const isHere = (game: ScoutGame) =>
       game.ageGroupId === selectedAgeGroupId &&
@@ -794,6 +783,12 @@ export function TeamRankingsView({
         persistGames([...scoutGames.filter((game) => !isHere(game)), ...restored.games]);
       },
     });
+  };
+
+  /** The team behind a row in the full table, for the Remove button that table offers. */
+  const removeTeamById = (teamId: string) => {
+    const team = allKnown.teams.find((t) => t.id === teamId);
+    if (team) void removeTeam(team);
   };
 
   /**
@@ -885,19 +880,19 @@ export function TeamRankingsView({
 
   const myTeamName = rankings.find((row) => row.isMine)?.teamName ?? "";
 
-  const scoresBothBlank = teamAScore.trim() === "" && teamBScore.trim() === "";
+  const scoresBothBlank = gameDraft.teamAScore.trim() === "" && gameDraft.teamBScore.trim() === "";
   const scoresBothValid =
-    teamAScore.trim() !== "" &&
-    teamBScore.trim() !== "" &&
-    Number.isFinite(Number(teamAScore)) &&
-    Number(teamAScore) >= 0 &&
-    Number.isFinite(Number(teamBScore)) &&
-    Number(teamBScore) >= 0;
+    gameDraft.teamAScore.trim() !== "" &&
+    gameDraft.teamBScore.trim() !== "" &&
+    Number.isFinite(Number(gameDraft.teamAScore)) &&
+    Number(gameDraft.teamAScore) >= 0 &&
+    Number.isFinite(Number(gameDraft.teamBScore)) &&
+    Number(gameDraft.teamBScore) >= 0;
   const addGameValid =
     Boolean(selectedAgeGroupId) &&
-    teamAName.trim().length > 0 &&
-    teamBName.trim().length > 0 &&
-    teamAName.trim().toLowerCase() !== teamBName.trim().toLowerCase() &&
+    gameDraft.teamAName.trim().length > 0 &&
+    gameDraft.teamBName.trim().length > 0 &&
+    gameDraft.teamAName.trim().toLowerCase() !== gameDraft.teamBName.trim().toLowerCase() &&
     (scoresBothBlank || scoresBothValid);
 
   const addGame = async () => {
@@ -906,9 +901,9 @@ export function TeamRankingsView({
       return;
     }
     let teams = allKnown.teams;
-    const a = resolveOrCreateTeam(teamAName, teams);
+    const a = resolveOrCreateTeam(gameDraft.teamAName, teams);
     teams = a.teams;
-    const b = resolveOrCreateTeam(teamBName, teams);
+    const b = resolveOrCreateTeam(gameDraft.teamBName, teams);
     teams = b.teams;
     const newGame: ScoutGame = {
       id: `scout_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -916,10 +911,10 @@ export function TeamRankingsView({
       teamBId: b.teamId,
       ageGroupId: selectedAgeGroupId,
       ...(scoresBothValid
-        ? { teamAScore: Number(teamAScore), teamBScore: Number(teamBScore) }
+        ? { teamAScore: Number(gameDraft.teamAScore), teamBScore: Number(gameDraft.teamBScore) }
         : {}),
-      ...(gameDate ? { date: gameDate } : {}),
-      ...(gameEvent.trim() ? { event: gameEvent.trim() } : {}),
+      ...(gameDraft.date ? { date: gameDraft.date } : {}),
+      ...(gameDraft.event.trim() ? { event: gameDraft.event.trim() } : {}),
     };
 
     // Same teams, same date, same score as something already here (logged by hand, imported, or
@@ -941,12 +936,7 @@ export function TeamRankingsView({
 
     persistTeams(teams);
     persistGames([...scoutGames, newGame]);
-    setTeamAName("");
-    setTeamAScore("");
-    setTeamBName("");
-    setTeamBScore("");
-    setGameDate("");
-    setGameEvent("");
+    setGameDraft(EMPTY_ADD_GAME_DRAFT);
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
   };
 
@@ -984,6 +974,12 @@ export function TeamRankingsView({
     showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
   };
 
+  const startEditScore = (gameId: string) => {
+    setEditingGameId(gameId);
+    setEditScoreA("");
+    setEditScoreB("");
+  };
+
   const saveGameScore = (gameId: string) => {
     const a = Number(editScoreA);
     const b = Number(editScoreB);
@@ -1002,6 +998,82 @@ export function TeamRankingsView({
     showToast("Score saved.", { tone: "success" });
   };
 
+  // ---------- Starting over ----------
+
+  /**
+   * The whole pool as one CSV file. The same sections the app's own CSV export appends after a
+   * schedule, so importing this file is how the data comes back — which is the only reason the
+   * reset below can be offered at all.
+   */
+  const downloadPoolBackup = () => {
+    const csv = teamRankingsCsvSections(readTeamRankingsBackup());
+    if (!csv) {
+      showToast("Nothing to back up yet.", { tone: "error" });
+      return;
+    }
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `Team_Rankings_Backup_${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    showToast("Backup downloaded.", { tone: "success" });
+  };
+
+  /**
+   * Empties Team Rankings: every age group, team and game, plus the cursor of any interrupted
+   * GameChanger pull and the weekly refresh log. The counts go into the confirmation because the
+   * number of games about to disappear is the whole of what makes this decision easy or hard.
+   *
+   * Afterwards the view is put back to its first-visit state by hand rather than by reloading the
+   * page — a reload would throw away a League Standings edit the user has not saved yet, and
+   * everything here that came out of storage is named right below.
+   */
+  const resetEverything = async () => {
+    const going = readTeamRankingsBackup();
+    const confirmed = await requestConfirmation({
+      title: "Delete everything in Team Rankings?",
+      message: `${summarizeTeamRankingsBackup(going)}
+
+All of it goes, along with where any interrupted GameChanger pull had got to. League Standings — your seasons, schedules and scores — is not touched.
+
+This cannot be undone. Cancel and download the backup first if there is any chance you will want this data again.`,
+      confirmLabel: "Delete everything",
+    });
+    if (!confirmed) return;
+
+    if (!clearTeamRankings()) {
+      showToast(
+        "Could not clear Team Rankings — this browser cannot reach where the pool is kept.",
+        {
+          tone: "error",
+        }
+      );
+      return;
+    }
+
+    setAgeGroups([]);
+    setScoutTeams([]);
+    setScoutGames([]);
+    setPullProgress(null);
+    setRefreshLog({});
+    setPickedGroupId("");
+    setOpenTeamId(null);
+    setReportTeamId("");
+    setStateFilter("");
+    setStateTop(null);
+    setShowAll(false);
+    setImportOpen(false);
+    setEditingGameId(null);
+    setEditScoreA("");
+    setEditScoreB("");
+    setGameDraft(EMPTY_ADD_GAME_DRAFT);
+    resetGroupForm();
+    onDataChange?.();
+    showToast("Team Rankings cleared. Nothing left but a blank slate.", { tone: "success" });
+  };
+
   // Scoped to this age group and the ones it continues from: a 9U opponent has no business being
   // suggested while logging an 11U game, even though both squads share one roster store.
   const suggestedTeams = useMemo(
@@ -1016,18 +1088,6 @@ export function TeamRankingsView({
         <h1 className="text-xl font-black tracking-tight text-slate-950 dark:text-white">
           Team Rankings
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Separate from League Standings: log any team&apos;s scores as they come up in a tournament
-          or another league, and see how everyone stacks up. An age group&apos;s whole League
-          Standings schedule (every season you assign to it — Fall, Spring, whatever your club runs)
-          is folded in automatically, no need to re-enter those — an upcoming league game shows its
-          opponent here right away, and once it&apos;s scored in League Standings it counts here as
-          a final result too. Each age group keeps to itself, so a 9U opponent never turns up while
-          you&apos;re logging an 11U game; point an age group at last year&apos;s to carry that
-          squad&apos;s opponents forward as it ages up. Marking a team &ldquo;mine&rdquo; is just a
-          shortcut for the scouting report and for adding your own schedule ahead of time — it never
-          changes how any team, including yours, is rated.
-        </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
             className="text-xs font-semibold uppercase tracking-wide text-slate-500"
@@ -1060,20 +1120,13 @@ export function TeamRankingsView({
               </span>
             )
           )}
-          <button
-            type="button"
-            onClick={() => setManageOpen((v) => !v)}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {manageOpen
-              ? "Hide age groups"
-              : ageGroups.length === 0
-                ? "Set up an age group"
-                : "Manage age groups"}
-          </button>
         </div>
 
-        {ageGroups.length === 0 && !manageOpen && (
+        {/*
+          The way in, for a browser with nothing in it yet. Not shown on the two sections it points
+          at: on Setup the form it offers is already on screen, and on Import so is the pull.
+        */}
+        {ageGroups.length === 0 && section !== "setup" && section !== "import" && (
           <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
             <p className="text-sm font-bold text-slate-950 dark:text-white">Nothing ranked yet.</p>
             <p className="mt-1 text-xs text-slate-500">
@@ -1083,10 +1136,14 @@ export function TeamRankingsView({
               you are tracking without GameChanger.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setGcOpen(true)} className={button.primary}>
+              <button
+                type="button"
+                onClick={() => openSection("import")}
+                className={button.primary}
+              >
                 Pull from GameChanger
               </button>
-              <button type="button" onClick={() => setManageOpen(true)} className={button.ghost}>
+              <button type="button" onClick={() => openSection("setup")} className={button.ghost}>
                 Set one up by hand
               </button>
             </div>
@@ -1114,222 +1171,147 @@ export function TeamRankingsView({
           </nav>
         )}
 
-        {manageOpen && (
-          <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            {ageGroups.length > 0 && (
-              <ul className="mb-3 divide-y divide-slate-100 dark:divide-slate-800">
-                {ageGroups.map((group) => (
-                  <li
-                    key={group.id}
-                    className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
-                  >
-                    <span>
-                      <span className="font-bold text-slate-950 dark:text-white">{group.name}</span>{" "}
-                      <span className="text-slate-500">
-                        {group.seasonIds.length
-                          ? group.seasonIds
-                              .map((id) => seasons.find((s) => s.id === id)?.name ?? id)
-                              .join(", ")
-                          : "No seasons assigned yet"}
-                        {group.continuesFromId
-                          ? ` · continues ${
-                              ageGroups.find((g) => g.id === group.continuesFromId)?.name ??
-                              "an age group that no longer exists"
-                            }`
-                          : ""}
-                      </span>
-                    </span>
-                    <span className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => advanceSeason(group)}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        Advance to new season
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => startEditGroup(group)}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void removeAgeGroup(group)}
-                        className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
-                      >
-                        Delete
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {editingGroupId ? "Edit age group" : "New age group"}
-            </p>
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-2">
-                <span className="flex flex-col gap-1">
-                  <label
-                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    htmlFor="scout-group-age"
-                  >
-                    Age
-                  </label>
-                  <select
-                    id="scout-group-age"
-                    value={groupAgeLevel}
-                    onChange={(event) => setGroupAgeLevel(Number(event.target.value))}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-                  >
-                    {AGE_LEVELS.map((level) => (
-                      <option key={level} value={level}>
-                        {level}U{isRankedAgeLevel(level) ? "" : " (not ranked)"}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-                <span className="flex flex-col gap-1">
-                  <label
-                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    htmlFor="scout-group-year"
-                  >
-                    Year
-                  </label>
-                  <select
-                    id="scout-group-year"
-                    value={groupYear}
-                    onChange={(event) => setGroupYear(Number(event.target.value))}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-                  >
-                    {yearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-                <span className="flex flex-col justify-end pb-2 text-sm font-bold text-slate-950 dark:text-white">
-                  {formatAgeGroupName(groupAgeLevel, groupYear)}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {seasons.map((season) => (
-                  <label
-                    key={season.id}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={groupSeasonIds.includes(season.id)}
-                      onChange={() => toggleGroupSeason(season.id)}
-                    />
-                    {season.name}
-                  </label>
-                ))}
-              </div>
-              <label
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                htmlFor="scout-continues-from"
-              >
-                Continues from
-              </label>
-              <select
-                id="scout-continues-from"
-                value={groupContinuesFromId}
-                onChange={(event) => setGroupContinuesFromId(event.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-              >
-                <option value="">Nothing — this is a new squad</option>
-                {ageGroups
-                  .filter((group) => group.id !== editingGroupId)
-                  .map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-              </select>
-              <p className="text-xs text-slate-500">
-                Last year&apos;s version of this same squad — a 10U that used to be the 9U. Its
-                opponents keep showing up in the name list here, but its results stay out of these
-                rankings: a 9U score says nothing about a 10U game.
-              </p>
-              <div className="flex gap-2">
-                <button type="button" onClick={saveAgeGroup} className={button.primary}>
-                  {editingGroupId ? "Save changes" : "Create age group"}
-                </button>
-                {editingGroupId && (
-                  <button type="button" onClick={resetGroupForm} className={button.ghost}>
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <SectionNav current={section} onSelect={openSection} />
       </div>
 
-      {rankings.length === 0 ? (
-        <div className={`${card} p-5`}>
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-            {selectedGroupName || "Rankings"}
-          </h2>
-          <p className="mt-3 text-sm text-slate-500">
-            {unrankedLevelNote
-              ? unrankedLevelNote
-              : ageGroups.length === 0
-                ? "Set up an age group above, then add a game to start ranking teams."
-                : "Add a game below to start ranking teams for this age group."}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className={`${card} p-5`}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                National top {NATIONAL_TOP}
-              </h2>
-              <span className="text-xs text-slate-500">
-                {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
-              </span>
-            </div>
-            <RankingList rows={nationalTop} onOpen={setOpenTeamId} stateOf={stateOf} showState />
-          </div>
+      <div
+        id={SECTION_PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={sectionTabId(section)}
+        className="flex flex-col gap-6"
+      >
+        {section === "rankings" && (
+          <RankingsBoards
+            groupName={selectedGroupName}
+            hasAgeGroups={ageGroups.length > 0}
+            unrankedLevelNote={unrankedLevelNote}
+            rankings={rankings}
+            rankingsStale={rankingsStale}
+            nationalTop={nationalTop}
+            stateTopRows={stateTopRows}
+            visibleRankings={visibleRankings}
+            availableStates={availableStates}
+            shownState={shownState}
+            onShownStateChange={setStateTop}
+            unknownStateCount={unknownStateCount}
+            stateFilter={stateFilter}
+            onStateFilterChange={setStateFilter}
+            showAll={showAll}
+            onToggleShowAll={() => setShowAll((value) => !value)}
+            stateOf={stateOf}
+            isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
+            hasGamesFiledHere={hasGamesFiledHere}
+            onOpenTeam={setOpenTeamId}
+            onMarkMine={setMyTeam}
+            onRemoveTeam={removeTeamById}
+          />
+        )}
 
-          <div className={`${card} p-5`}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                State top {STATE_TOP}
-              </h2>
-              {availableStates.length > 0 && (
-                <select
-                  aria-label="State"
-                  value={shownState}
-                  onChange={(event) => setStateTop(event.target.value)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                >
-                  {availableStates.map((state) => (
-                    <option key={state} value={state}>
-                      {state}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            {stateTopRows.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">
-                {availableStates.length === 0
-                  ? "No team here has a state yet. Add one from a team's panel, or pull from GameChanger, which brings the state with it."
-                  : `No ranked teams in ${shownState} yet.`}
-              </p>
-            ) : (
-              <RankingList rows={stateTopRows} onOpen={setOpenTeamId} stateOf={stateOf} />
-            )}
-          </div>
-        </div>
-      )}
+        {section === "games" && (
+          <GamesSection
+            groupName={selectedGroupName}
+            ageGroupId={selectedAgeGroupId}
+            hasAgeGroups={ageGroups.length > 0}
+            draft={gameDraft}
+            onDraftChange={(patch) => setGameDraft((prev) => ({ ...prev, ...patch }))}
+            teamNameOptions={teamNameOptions}
+            myTeamName={myTeamName}
+            addGameValid={addGameValid}
+            onAddGame={() => void addGame()}
+            onGoToImport={() => openSection("import")}
+            importOpen={importOpen}
+            onOpenImport={() => setImportOpen(true)}
+            onCloseImport={() => setImportOpen(false)}
+            allTeams={allKnown.teams}
+            suggestedTeams={suggestedTeams}
+            existingGames={ageGroupGames}
+            onImportGames={importGames}
+            showToast={showToast}
+            loggedGames={ageGroupManualGames}
+            teamNameById={teamNameById}
+            editingGameId={editingGameId}
+            editScoreA={editScoreA}
+            editScoreB={editScoreB}
+            onEditScoreA={setEditScoreA}
+            onEditScoreB={setEditScoreB}
+            onStartEditScore={startEditScore}
+            onSaveScore={saveGameScore}
+            onToggleExcluded={toggleGameExcluded}
+            onRemoveGame={(game) => void removeGame(game)}
+          />
+        )}
+
+        {section === "import" && (
+          <GameChangerImportPanel
+            /*
+             * The stored pool only — not the merged roster. League-derived teams and games are
+             * rebuilt from League Standings on every render and must never be written back here, or
+             * a pull would persist a second copy of every league game it happened to see.
+             */
+            pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
+            savedProgress={pullProgress}
+            onPersist={(next) => {
+              const savedGroups = saveAgeGroups(next.ageGroups);
+              const savedTeams = saveScoutTeams(next.teams);
+              const savedGames = saveScoutGames(next.games);
+              setAgeGroups(next.ageGroups);
+              setScoutTeams(next.teams);
+              setScoutGames(next.games);
+              onDataChange?.();
+              return savedGroups && savedTeams && savedGames;
+            }}
+            onSaveProgress={(progress) => {
+              setPullProgress(progress);
+              savePullProgress(progress);
+            }}
+            onClearProgress={() => {
+              setPullProgress(null);
+              clearPullProgress();
+            }}
+            refreshLog={refreshLog}
+            onRefreshLog={(log) => {
+              setRefreshLog(log);
+              saveRefreshLog(log);
+            }}
+            /* The panel closes itself when a pull finishes; there is nowhere to close to but the
+               tables it has just filled. */
+            onClose={() => openSection("rankings")}
+            showToast={showToast}
+          />
+        )}
+
+        {section === "scouting" && (
+          <ScoutingSection
+            rankings={rankings}
+            reportForId={reportForId}
+            onReportTeamChange={setReportTeamId}
+            reportRow={reportRow}
+            reportRows={reportRows}
+            explanation={explanation}
+          />
+        )}
+
+        {section === "setup" && (
+          <SetupSection
+            seasons={seasons}
+            ageGroups={ageGroups}
+            editingGroupId={editingGroupId}
+            draft={groupDraft}
+            onDraftChange={patchGroupDraft}
+            onToggleSeason={toggleGroupSeason}
+            yearOptions={yearOptions}
+            onSave={saveAgeGroup}
+            onCancelEdit={resetGroupForm}
+            onEditGroup={startEditGroup}
+            onAdvanceGroup={advanceSeason}
+            onDeleteGroup={(group) => void removeAgeGroup(group)}
+            teamCount={scoutTeams.length}
+            gameCount={scoutGames.length}
+            onDownloadBackup={downloadPoolBackup}
+            onReset={() => void resetEverything()}
+          />
+        )}
+      </div>
 
       {openTeam && (
         <TeamDetailPanel
@@ -1352,503 +1334,6 @@ export function TeamRankingsView({
           onClose={() => setOpenTeamId(null)}
         />
       )}
-
-      {gcOpen && (
-        <GameChangerImportPanel
-          /*
-           * The stored pool only — not the merged roster. League-derived teams and games are
-           * rebuilt from League Standings on every render and must never be written back here, or
-           * a pull would persist a second copy of every league game it happened to see.
-           */
-          pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
-          savedProgress={pullProgress}
-          onPersist={(next) => {
-            const savedGroups = saveAgeGroups(next.ageGroups);
-            const savedTeams = saveScoutTeams(next.teams);
-            const savedGames = saveScoutGames(next.games);
-            setAgeGroups(next.ageGroups);
-            setScoutTeams(next.teams);
-            setScoutGames(next.games);
-            onDataChange?.();
-            return savedGroups && savedTeams && savedGames;
-          }}
-          onSaveProgress={(progress) => {
-            setPullProgress(progress);
-            savePullProgress(progress);
-          }}
-          onClearProgress={() => {
-            setPullProgress(null);
-            clearPullProgress();
-          }}
-          refreshLog={refreshLog}
-          onRefreshLog={(log) => {
-            setRefreshLog(log);
-            saveRefreshLog(log);
-          }}
-          onClose={() => setGcOpen(false)}
-          showToast={showToast}
-        />
-      )}
-
-      {importOpen && selectedAgeGroupId && (
-        <ScheduleImportPanel
-          ageGroupId={selectedAgeGroupId}
-          ageGroupName={selectedGroupName}
-          teams={allKnown.teams}
-          suggestedTeams={suggestedTeams}
-          existingGames={ageGroupGames}
-          defaultSubjectTeam={myTeamName}
-          onImport={importGames}
-          onClose={() => setImportOpen(false)}
-          showToast={showToast}
-        />
-      )}
-
-      <div className={`${card} p-5`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
-          {selectedAgeGroupId && !importOpen && (
-            <button
-              type="button"
-              onClick={() => setImportOpen(true)}
-              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-            >
-              Import games
-            </button>
-          )}
-          {!gcOpen && (
-            <button
-              type="button"
-              onClick={() => setGcOpen(true)}
-              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-            >
-              Pull from GameChanger
-            </button>
-          )}
-        </div>
-        <p className="mt-1 text-xs text-slate-500">
-          {ageGroups.length === 0
-            ? "Pulling from GameChanger creates the pages it needs. To log a game by hand instead, set up an age group above first — every game needs one to know which ranking it belongs to."
-            : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
-        </p>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <TeamNameCombobox
-                id="scout-team-a-name"
-                value={teamAName}
-                onChange={setTeamAName}
-                options={teamNameOptions}
-                placeholder="Team name"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-              />
-            </div>
-            {myTeamName && (
-              <button
-                type="button"
-                onClick={() => setTeamAName(myTeamName)}
-                className="shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Use my team
-              </button>
-            )}
-          </div>
-          <input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={teamAScore}
-            onChange={(event) => setTeamAScore(event.target.value)}
-            placeholder="Score"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          />
-          <TeamNameCombobox
-            id="scout-team-b-name"
-            value={teamBName}
-            onChange={setTeamBName}
-            options={teamNameOptions}
-            placeholder="Opponent name"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          />
-          <input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={teamBScore}
-            onChange={(event) => setTeamBScore(event.target.value)}
-            placeholder="Score"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          />
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input
-            type="date"
-            value={gameDate}
-            onChange={(event) => setGameDate(event.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          />
-          <input
-            type="text"
-            value={gameEvent}
-            onChange={(event) => setGameEvent(event.target.value)}
-            placeholder="Tournament / event (optional)"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => void addGame()}
-          disabled={!addGameValid}
-          className={`${button.primary} mt-3`}
-        >
-          Add Game
-        </button>
-      </div>
-
-      <div className={`${card} p-5`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-            Full rankings
-            <RankingMethodButton
-              open={methodOpen}
-              onToggle={() => setMethodOpen((value) => !value)}
-              panelId={methodPanelId}
-            />
-          </h2>
-          {/*
-            Collapsed by default now that the page leads with the two lists worth reading. A
-            nationwide pool is thousands of rows; they are here to find a team in, not to scroll.
-          */}
-          <button
-            type="button"
-            onClick={() => setShowAll((value) => !value)}
-            aria-expanded={showAll}
-            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {showAll ? "Hide the full table" : `Show all ${rankings.length} teams`}
-          </button>
-          {showAll && (availableStates.length > 0 || unknownStateCount > 0) && (
-            <span className="flex items-center gap-2">
-              <label
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                htmlFor="scout-state-filter"
-              >
-                State
-              </label>
-              <select
-                id="scout-state-filter"
-                value={stateFilter}
-                onChange={(event) => setStateFilter(event.target.value)}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-              >
-                <option value="">All states</option>
-                {availableStates.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-                {unknownStateCount > 0 && (
-                  <option value={UNKNOWN_STATE}>No state set ({unknownStateCount})</option>
-                )}
-              </select>
-            </span>
-          )}
-        </div>
-        {methodOpen && (
-          <RankingMethodPanel id={methodPanelId} onClose={() => setMethodOpen(false)} />
-        )}
-        {showAll && stateFilter && (
-          <p className="mt-2 text-xs text-slate-500">
-            {rankingsStale ? "Refitting the ratings… " : ""}Showing {visibleRankings.length} of{" "}
-            {rankings.length} teams. Ratings still come from every game — filtering changes who is
-            listed, not how anyone is rated, so the <strong>#</strong> here is the position within
-            this list and the grey number is the place in the full table.
-          </p>
-        )}
-        {showAll && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="py-2">Rank</th>
-                  <th>Team</th>
-                  <th>Record</th>
-                  <th>Rating</th>
-                  <th>Games</th>
-                  <th>SOS</th>
-                  <th className="sr-only">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRankings.map((row) => (
-                  <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-3 font-black">
-                      #{row.rank}
-                      {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                        <span className="ml-1 text-xs font-bold text-slate-400">
-                          #{row.overallRank}
-                        </span>
-                      )}
-                    </td>
-                    <td className="font-bold text-slate-950 dark:text-white">
-                      <button
-                        type="button"
-                        onClick={() => setOpenTeamId(row.teamId)}
-                        className="text-left font-bold hover:underline"
-                        title="Every game logged for this team"
-                      >
-                        {row.teamName}
-                      </button>
-                      {leagueGameTeamIds.has(row.teamId) && (
-                        <span className={`ml-2 ${pill("blue")}`}>League</span>
-                      )}
-                    </td>
-                    <td>{row.record}</td>
-                    <td>{formatRating(row.rating)}</td>
-                    <td>{row.games}</td>
-                    <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
-                    <td className="space-x-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setMyTeam(row.teamId)}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                        aria-pressed={row.isMine}
-                        title="Mark as my team"
-                      >
-                        {row.isMine ? "★ My team" : "☆ Mark mine"}
-                      </button>
-                      {!leagueGameTeamIds.has(row.teamId) && hasGamesFiledHere(row.teamId) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const team = allKnown.teams.find((t) => t.id === row.teamId);
-                            if (team) void removeTeam(team);
-                          }}
-                          className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {rankings.length === 0 && (
-              <p className="py-6 text-center text-sm text-slate-500">
-                {unrankedLevelNote ?? "No teams yet for this age group."}
-              </p>
-            )}
-          </div>
-        )}
-        <p className="mt-3 text-xs text-slate-500">
-          Ratings only become meaningful once teams&apos; schedules connect, directly or through
-          common opponents — a team with no shared opponents will show a plain, less certain rating.
-          This model always uses a flat run-margin cap, independent of any one season&apos;s own
-          settings.
-        </p>
-      </div>
-
-      <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-          Scouting report
-        </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-            htmlFor="scout-report-team"
-          >
-            How would
-          </label>
-          <select
-            id="scout-report-team"
-            value={reportForId}
-            onChange={(event) => setReportTeamId(event.target.value)}
-            className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-          >
-            {rankings.map((row) => (
-              <option key={row.teamId} value={row.teamId}>
-                {row.teamName}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            fare against everyone?
-          </span>
-        </div>
-        {reportRow && (
-          <div className="mt-3">
-            <AiStoryPanel
-              title="Why this ranking"
-              text={explanation.status === "ready" ? explanation.summary : ""}
-              source={explanation.status === "ready" ? "gemini" : "local"}
-              model={explanation.model}
-              loading={explanation.status === "loading"}
-              loadingLabel="Writing rank explanation…"
-              unavailableReason={explanation.reason}
-              errorMessage={explanation.message}
-              onRetry={explanation.retry}
-            />
-          </div>
-        )}
-        <div className="mt-3 overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="py-2">Opponent</th>
-                <th>Opponent rank</th>
-                <th>Projected margin</th>
-                <th>Win probability</th>
-                <th>Outlook</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportRows.map((preview) => (
-                <tr
-                  key={preview.opponentId}
-                  className="border-t border-slate-100 dark:border-slate-800"
-                >
-                  <td className="py-3 font-bold text-slate-950 dark:text-white">
-                    {preview.opponentName}
-                  </td>
-                  <td>#{preview.opponentRank}</td>
-                  <td>
-                    {preview.projectedMargin >= 0 ? "+" : ""}
-                    {preview.projectedMargin.toFixed(1)}
-                  </td>
-                  <td>{formatPct(preview.winProb)}</td>
-                  <td>
-                    <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {reportRows.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">
-              Add at least two teams to this age group to see scouting projections.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-          Logged games{selectedGroupName ? ` (${selectedGroupName})` : ""}
-        </h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Only games you&apos;ve entered here — this age group&apos;s League Standings schedule
-          (played and upcoming) appears in the rankings and scouting report above automatically but
-          isn&apos;t listed here.
-        </p>
-        <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-          {ageGroupManualGames.map((game) => {
-            const played = isScoutGamePlayed(game);
-            return (
-              <li
-                key={game.id}
-                className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <span>
-                  {played ? (
-                    <>
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamAId) ?? "?"} {game.teamAScore}
-                      </span>
-                      {" – "}
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamBId) ?? "?"} {game.teamBScore}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-bold text-slate-950 dark:text-white">
-                        {teamNameById.get(game.teamAId) ?? "?"} vs{" "}
-                        {teamNameById.get(game.teamBId) ?? "?"}
-                      </span>
-                      <span className={`ml-2 ${pill("neutral")}`}>Scheduled</span>
-                    </>
-                  )}
-                  {game.excluded && (
-                    <span className={`ml-2 ${pill("amber")}`} title="Kept, but not counted">
-                      Not counted
-                    </span>
-                  )}
-                  {game.event && <span className="ml-2 text-slate-500">{game.event}</span>}
-                  {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
-                </span>
-                <span className="flex items-center gap-2">
-                  {!played && editingGameId === game.id ? (
-                    <span className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        value={editScoreA}
-                        onChange={(event) => setEditScoreA(event.target.value)}
-                        placeholder="Score"
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        value={editScoreB}
-                        onChange={(event) => setEditScoreB(event.target.value)}
-                        placeholder="Score"
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => saveGameScore(game.id)}
-                        className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
-                      >
-                        Save
-                      </button>
-                    </span>
-                  ) : (
-                    !played && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingGameId(game.id);
-                          setEditScoreA("");
-                          setEditScoreB("");
-                        }}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        Enter score
-                      </button>
-                    )
-                  )}
-                  {played && (
-                    <button
-                      type="button"
-                      onClick={() => toggleGameExcluded(game)}
-                      className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
-                      title={
-                        game.excluded
-                          ? "Count this game toward the rankings again"
-                          : "Keep this game logged, but leave it out of the rankings"
-                      }
-                    >
-                      {game.excluded ? "Count it" : "Don't count"}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void removeGame(game)}
-                    className={button.danger}
-                  >
-                    Remove
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        {ageGroupManualGames.length === 0 && (
-          <p className="py-6 text-center text-sm text-slate-500">No games logged yet.</p>
-        )}
-      </div>
     </div>
   );
 }

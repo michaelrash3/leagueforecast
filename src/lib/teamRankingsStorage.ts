@@ -284,6 +284,26 @@ export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => 
   }
 };
 
+/**
+ * Empties Team Rankings outright: every age group, every team, every game, the cursor an
+ * interrupted GameChanger pull left behind and the weekly rotation's log. Afterwards this browser
+ * is in the state of one that has never opened Team Rankings.
+ *
+ * It walks `POOL_KEYS` rather than naming the five keys again, so a key added to the pool later is
+ * cleared by this too — a reset that quietly left one key behind would be worse than no reset at
+ * all. League Standings lives in its own season-namespaced keys (see `storage.ts`) and is not
+ * touched, and neither is the crumb that records the pool has moved into IndexedDB: where the pool
+ * lives is not part of what the pool holds.
+ *
+ * `false` means the pool is in a store this session cannot reach, so nothing was cleared and the
+ * data is still there — the caller must say so rather than reporting an empty pool as a reset one.
+ */
+export const clearTeamRankings = (): boolean => {
+  if (poolUnavailable) return false;
+  POOL_KEYS.forEach((key) => forgetValue(key));
+  return true;
+};
+
 /** Only for tests: forgets the cache and goes back to reading storage directly. */
 export const resetTeamRankingsStore = (): void => {
   cache.clear();

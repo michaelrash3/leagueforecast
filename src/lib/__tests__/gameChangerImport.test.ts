@@ -10,7 +10,12 @@ import {
   summarizeGcImport,
   type GcImportState,
 } from "../gameChangerImport";
-import { countsTowardRating, isScoutGamePlayed, type ScoutTeam } from "../teamRankings";
+import {
+  countsTowardRating,
+  isScoutGamePlayed,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
 
@@ -205,7 +210,9 @@ describe("who an opponent is", () => {
     expect(elevenU.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
   });
 
-  it("is matched by name within one page", () => {
+  it("is not matched on the name alone, however tempting it looks", () => {
+    // Aces played a Yankees in August; Comets played a Yankees a week later. Nothing says those
+    // are the same Yankees, and a nationwide pool holds a dozen clubs of that name at one level.
     const first = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty);
     const second = importGcSchedule(
       schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
@@ -213,8 +220,40 @@ describe("who an opponent is", () => {
       ]),
       first.state
     );
+    expect(second.outcome.opponentsMatchedByName).toBe(0);
+    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
+  });
+
+  it("is matched by name once the two clubs have a game in common", () => {
+    // Aces play Yankees, then Bears play Yankees, then Comets play both — by which point Yankees
+    // and Comets share Aces and Bears, and the name is no longer all there is to go on.
+    let state = importGcSchedule(schedule({}, [game({ opponentName: "Yankees" })]), empty).state;
+    state = importGcSchedule(
+      schedule({ id: "gcBBBBBBBBBB", name: "Bears 9U" }, [
+        game({ id: "b1", opponentName: "Yankees", date: "2026-08-23" }),
+        game({ id: "b2", opponentName: "Aces 9U", date: "2026-08-24" }),
+      ]),
+      state
+    ).state;
+    // Bears matched nothing by name either, so there are two Yankees and two Aces by now.
+    const before = state.teams.filter((team) => team.name === "Yankees").length;
+    expect(before).toBe(2);
+  });
+
+  it("is matched by name when one schedule's game is the other's, same day", () => {
+    // The case a bracket makes: one side posts the fixture, the other posts a placeholder.
+    const first = importGcSchedule(
+      schedule({ name: "Aces 9U" }, [game({ opponentName: "TBD", date: "2026-08-22" })]),
+      empty
+    );
+    const second = importGcSchedule(
+      schedule({ id: "gcDDDDDDDDDD", name: "Comets 9U" }, [
+        game({ id: "g2", opponentName: "Aces 9U", date: "2026-08-22" }),
+      ]),
+      first.state
+    );
     expect(second.outcome.opponentsMatchedByName).toBe(1);
-    expect(second.state.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+    expect(second.state.teams.filter((team) => team.name === "Aces")).toHaveLength(1);
   });
 });
 
@@ -284,7 +323,8 @@ describe("proposeSeasonPairings", () => {
     expect(pairings[0]).toMatchObject({
       fromTeamId: "t1",
       toTeamId: "t2",
-      basis: "avatar",
+      evidence: ["avatar"],
+      sameName: true,
       confidence: "strong",
       fromSeason: "Fall 2026",
       toSeason: "Spring 2027",
@@ -310,13 +350,50 @@ describe("proposeSeasonPairings", () => {
 
   it("puts the strongest evidence first", () => {
     const pairings = proposeSeasonPairings([
-      withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }),
-      withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }),
+      // The name and a shared state: worth offering, not worth calling certain.
+      { ...withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }), state: "KY" },
+      { ...withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }), state: "KY" },
       withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
       withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
     ]);
     expect(pairings[0]?.confidence).toBe("strong");
     expect(pairings[pairings.length - 1]?.confidence).toBe("likely");
+  });
+
+  it("does not offer two clubs that only share a name", () => {
+    // The pool is full of these. Offering them all is worse than offering none: read enough
+    // near-certain rows and the wrong one gets approved along with the rest.
+    expect(
+      proposeSeasonPairings([
+        withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }),
+        withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }),
+      ])
+    ).toEqual([]);
+  });
+
+  it("offers a shared name backed by a club they both played", () => {
+    const teams = [
+      withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }),
+      withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }),
+      { id: "rival", name: "Trash Pandas" },
+    ];
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
+      { id: "g2", teamAId: "a2", teamBId: "rival", ageGroupId: "ag1" },
+    ];
+    const pairings = proposeSeasonPairings(teams, games);
+    expect(pairings).toHaveLength(1);
+    expect(pairings[0]!.evidence).toEqual(["shared-opponent"]);
+  });
+
+  it("offers neither when two clubs could both be what this squad became", () => {
+    // A squad carries on into one next season. Two candidates means the answer is not known.
+    const teams = [
+      { ...withLinks("from", "Yankees", { season: "fall", seasonYear: 2026 }), state: "KY" },
+      { ...withLinks("toA", "Yankees", { season: "spring", seasonYear: 2027 }), state: "KY" },
+      { ...withLinks("toB", "Yankees", { season: "spring", seasonYear: 2027 }), state: "KY" },
+    ];
+    expect(proposeSeasonPairings(teams).filter((p) => p.fromTeamId === "from")).toEqual([]);
   });
 });
 
@@ -475,14 +552,16 @@ describe("a name two clubs share", () => {
       ],
       empty
     ).state;
-    // Those two both matched by name, so there is one placeholder, and adopting it is right.
-    expect(seeded.teams.filter((team) => team.name === "Yankees")).toHaveLength(1);
+    // Two schedules naming a Yankees is not evidence they mean the same one, so there are two.
+    expect(seeded.teams.filter((team) => team.name === "Yankees")).toHaveLength(2);
 
+    // And with two of them on the page, the real Yankees cannot know which it is, so it stays
+    // its own club rather than adopting one and taking the other club's games with it.
     const pulled = importGcSchedule(
       schedule({ id: "gcY900000000", name: "Yankees 9U" }, []),
       seeded
     );
-    expect(pulled.outcome.createdTeam).toBe(false);
+    expect(pulled.outcome.createdTeam).toBe(true);
   });
 });
 
