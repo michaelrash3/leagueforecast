@@ -346,6 +346,38 @@ describe("buildTeamRankings", () => {
     expect(byId.get("A")!.rating).toBeGreaterThan(byId.get("C")!.rating);
   });
 
+  /**
+   * A club known only from somebody else's schedule has no id anybody pulled and a record made of
+   * whichever fraction of its season faced a team that was. Ranking that against clubs whose whole
+   * season is here is not a comparison, so it is left out of the table — while the game it played
+   * still counts for the club that played it.
+   */
+  it("leaves a name-only club out of the table but keeps its game in the fit", () => {
+    const teams = [
+      team("A", "Aces"),
+      team("B", "Bears"),
+      { id: "N", name: "Nomads", nameOnly: true as const },
+    ];
+    const games = [game("A", "B", 6, 2), game("A", "N", 9, 1), game("B", "N", 3, 2)];
+    const rows = buildTeamRankings("ag1", teams, games);
+
+    expect(rows.map((row) => row.teamId).sort()).toEqual(["A", "B"]);
+    // Beating the Nomads is still a win, and still counted.
+    expect(rows.find((row) => row.teamId === "A")!.record).toBe("2-0");
+    expect(rows.find((row) => row.teamId === "B")!.record).toBe("1-1");
+  });
+
+  it("ranks a club the moment somebody vouches for it", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears"), team("N", "Nomads")];
+    const games = [game("A", "B", 6, 2), game("A", "N", 9, 1), game("B", "N", 3, 2)];
+    // The same pool with the mark off — a club pulled by id, or one added by hand.
+    expect(
+      buildTeamRankings("ag1", teams, games)
+        .map((row) => row.teamId)
+        .sort()
+    ).toEqual(["A", "B", "N"]);
+  });
+
   it("ignores scheduled games with no score yet", () => {
     const teams = [team("A", "Aces"), team("B", "Bears")];
     const games = [game("A", "B", undefined, undefined)];

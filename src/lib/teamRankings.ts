@@ -74,6 +74,20 @@ export type ScoutTeam = {
    */
   placeholder?: true;
   /**
+   * A club known only because somebody else's schedule named it as their opponent.
+   *
+   * There is no club behind it yet, only a name and perhaps a picture: no id anybody pulled, no
+   * town, no state, and a record made of whatever fraction of its season happens to face a team
+   * that *was* pulled. Rating that against clubs whose whole schedule is here would put a team
+   * with one recorded win above teams that played thirty games, so it is left out of the tables —
+   * exactly as a bracket slot is, and for the same reason.
+   *
+   * It still stands in the fit as the opponent it was, which is how the game counts for the club
+   * that played it. Pull the club's own id, or add it by hand, and the mark comes off: at that
+   * point it is a team somebody has vouched for, and it is ranked like any other.
+   */
+  nameOnly?: true;
+  /**
    * The picture a club was listed with by whoever named it as their opponent.
    *
    * An opponent has no GameChanger id — a schedule never gives one — so there is no link to hang
@@ -1161,27 +1175,34 @@ export const buildTeamRankings = (
     { cap: RATING_CAP }
   );
 
-  const rows = teams.map((team): ScoutRankingRow => {
-    const { wins, losses, ties } = recordFor(team.id, playedGames);
-    const gamesPlayed = adjusted.games.get(team.id) ?? 0;
-    return {
-      teamId: team.id,
-      teamName: team.name,
-      isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
-      rank: 0,
-      rating: adjusted.ratings.get(team.id) ?? 0,
-      record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
-      wins,
-      losses,
-      ties,
-      games: gamesPlayed,
-      rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
-      strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
-      sosRank: 0,
-      crossAgeGames: 0,
-      fromGameChanger: hasGcLinks(team),
-    };
-  });
+  const rows = teams
+    /*
+     * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
+     * go in the table: not a slot, which names nobody, and not a club known only from somebody
+     * else's schedule, whose record here is a fraction of a season it would be ranked on.
+     */
+    .filter((team) => !team.placeholder && !team.nameOnly)
+    .map((team): ScoutRankingRow => {
+      const { wins, losses, ties } = recordFor(team.id, playedGames);
+      const gamesPlayed = adjusted.games.get(team.id) ?? 0;
+      return {
+        teamId: team.id,
+        teamName: team.name,
+        isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
+        rank: 0,
+        rating: adjusted.ratings.get(team.id) ?? 0,
+        record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
+        wins,
+        losses,
+        ties,
+        games: gamesPlayed,
+        rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
+        strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
+        sosRank: 0,
+        crossAgeGames: 0,
+        fromGameChanger: hasGcLinks(team),
+      };
+    });
 
   return rankRows(rows);
 };
@@ -1246,8 +1267,12 @@ const buildPooledTeamRankings = (
   };
 
   const rows = nodes
-    // A slot is in the fit as somebody's unknown opponent, but there is no club here to rank.
-    .filter((team) => !team.placeholder && belongsHere(team.id))
+    /*
+     * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
+     * nobody, and a club known only from somebody else's schedule, whose record here is a fraction
+     * of its season and would rank against clubs whose whole season is present.
+     */
+    .filter((team) => !team.placeholder && !team.nameOnly && belongsHere(team.id))
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = recordFor(team.id, ratedGames);
       const crossAgeGames = rated.filter(

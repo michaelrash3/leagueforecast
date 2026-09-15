@@ -57,6 +57,7 @@ const TEAM_HEADERS = [
   "City",
   "Is My Team",
   "Placeholder",
+  "Name Only",
   "GameChanger Teams",
 ];
 
@@ -193,6 +194,7 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
       textCell(team.city),
       yesNo(team.isMine),
       yesNo(team.placeholder),
+      yesNo(team.nameOnly),
       linksCell(team),
     ]
       .map(csvEscape)
@@ -284,6 +286,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         name,
         ...(isYes(cell("Is My Team")) ? { isMine: true as const } : {}),
         ...(isYes(cell("Placeholder")) ? { placeholder: true as const } : {}),
+        ...(isYes(cell("Name Only")) ? { nameOnly: true as const } : {}),
         ...(state ? { state } : {}),
         ...(city ? { city } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),

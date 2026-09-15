@@ -435,7 +435,10 @@ const linkFor = (profile: GcTeamProfile, ageGroupId: string, fetchedAt: string):
 
 const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
   const rest = (team.gcTeams ?? []).filter((entry) => entry.teamId !== link.teamId);
-  return { ...team, gcTeams: [...rest, link] };
+  const linked: ScoutTeam = { ...team, gcTeams: [...rest, link] };
+  // Its own schedule is here now, so it is a club rather than a name on somebody else's.
+  delete linked.nameOnly;
+  return linked;
 };
 
 /**
@@ -653,11 +656,10 @@ const resolveOpponent = (
     return { teamId: reusable.id, basis: "name" };
   }
 
-  const created = buildScoutTeam(
-    game.opponentName,
-    index.usedTeamIds,
-    game.opponentAvatarKey ? { avatarKey: game.opponentAvatarKey } : {}
-  );
+  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {
+    nameOnly: true,
+    ...(game.opponentAvatarKey ? { avatarKey: game.opponentAvatarKey } : {}),
+  });
   addTeam(index, teams, created);
   return { teamId: created.id, basis: "created" };
 };
