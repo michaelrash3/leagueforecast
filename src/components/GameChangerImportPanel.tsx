@@ -74,7 +74,7 @@ type Stage = "picking" | "pulling" | "review";
  * buys is how much a closed tab costs to redo, and a thousand teams is a couple of minutes of
  * refetching against seven writes of the pool instead of thirty-five.
  */
-const SAVE_EVERY = 1000;
+const SAVE_EVERY = 500;
 
 /** Requests in flight. Four is what the client defaults to and what GameChanger seems content with. */
 /**

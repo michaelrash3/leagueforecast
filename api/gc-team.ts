@@ -76,12 +76,19 @@ const BODY_PREVIEW_CHARS = 300;
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 /**
- * Imports are bursty by design: the panel pulls a pasted list four teams at a time with retries,
- * so a few hundred requests in a minute is one person doing what the feature is for. This cap
- * stops a runaway loop, not normal use — GameChanger's own limits are the real ceiling, and they
- * come back as "throttled" with a Retry-After the client honours.
+ * This cap is here to stop a runaway loop, and it has to stay well clear of what the feature
+ * actually does or it becomes the thing that breaks it.
+ *
+ * It was set at 240 a minute when the panel pulled four teams at a time. A nationwide list is
+ * thousands of teams pulled eight at a time, which is something like twenty a second — so the
+ * import spent its life tripping this app's own limiter, reported the refusals as failed teams,
+ * and was held to 240 teams a minute whatever else was tuned. That is a cap of half an hour on a
+ * seven-thousand team list, and none of it was GameChanger's doing.
+ *
+ * GameChanger's own limits are the real ceiling. Those come back as "throttled" with a
+ * Retry-After, and the client now holds the whole pull back when it sees one.
  */
-const RATE_LIMIT_MAX_REQUESTS = 240;
+const RATE_LIMIT_MAX_REQUESTS = 3_000;
 
 /** What web.gc.com sends; GameChanger's WAF is happier with a request that looks like the page. */
 const BROWSER_USER_AGENT =
