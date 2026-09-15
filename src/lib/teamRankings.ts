@@ -219,8 +219,12 @@ export const RATING_CAP = 8;
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
 
-/** "9U", "9u", "12 U", "U10" — an age level, anywhere in the name. */
-const AGE_LABEL = /\b(?:\d{1,2}\s*[uU]|[uU]\s*\d{1,2})\b/g;
+/**
+ * "9U", "9u", "12 U", "U10" — an age level, anywhere in the name — and the division letters that
+ * run straight on from it, as in "9UA" or "11UAA". The letters have to follow with no space, so
+ * "12 United" and "9u Scout" keep the word that happens to come next.
+ */
+const AGE_LABEL = /\b(?:\d{1,2}\s*[uU][A-Da-d]{0,3}|[uU]\s*\d{1,2})\b/g;
 
 /** An innermost bracketed aside, so nesting comes apart a layer at a time. */
 const PARENTHETICAL = /\([^()]*\)/;
@@ -231,7 +235,8 @@ const PARENTHETICAL = /\([^()]*\)/;
  * Two things come off. The **age label**, because an age level describes *this year's* squad, not
  * the club, and the same club plays up a level every year ("South Lexington Red 9u" becomes
  * "…10u") — keeping it would fragment one real-world team into a new entity every season, which
- * is what the age-group scoping already handles. And anything in **parentheses**, which on a
+ * is what the age-group scoping already handles — the division letters on "11UAA" go with it,
+ * since they are part of the same label. And anything in **parentheses**, which on a
  * GameChanger schedule is an aside rather than part of the name: a season, a division, a
  * tournament, a note somebody typed. Labels anywhere in the name are handled, so
  * "NV Stars 9u Scout" becomes "NV Stars Scout".

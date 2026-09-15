@@ -88,10 +88,19 @@ describe("cleanTeamName", () => {
     expect(cleanTeamName("Thunder - 9U")).toBe("Thunder");
   });
 
+  it("drops the division letters that run on from the age", () => {
+    expect(cleanTeamName("9UA Tortugas")).toBe("Tortugas");
+    expect(cleanTeamName("Bandits 10UAA")).toBe("Bandits");
+    expect(cleanTeamName("Rangers 9ud")).toBe("Rangers");
+  });
+
   it("leaves names that only look like an age label alone", () => {
     expect(cleanTeamName("The 9ers")).toBe("The 9ers");
     // "12 U" here is the start of "United", not an age level.
     expect(cleanTeamName("Lexington 12 United")).toBe("Lexington 12 United");
+    // A word running straight on from the age is a word, not division letters.
+    expect(cleanTeamName("NV Stars 9u Scout")).toBe("NV Stars Scout");
+    expect(cleanTeamName("9Ublah Raiders")).toBe("9Ublah Raiders");
   });
 
   it("keeps something when the name is nothing but an age label", () => {
@@ -112,8 +121,7 @@ describe("cleanTeamName", () => {
    */
   it("keeps a dash suffix, which is what tells two squads of one club apart", () => {
     expect(cleanTeamName("9U North Oldham Knights - Navy")).toBe("North Oldham Knights - Navy");
-    // The division letters keep "11UAA" together, so it is left alone rather than half-stripped.
-    expect(cleanTeamName("Frisco Dodgers - Gomez 11UAA")).toBe("Frisco Dodgers - Gomez 11UAA");
+    expect(cleanTeamName("Frisco Dodgers - Gomez 11UAA")).toBe("Frisco Dodgers - Gomez");
     expect(teamNameKey("Knights - Navy")).not.toBe(teamNameKey("Knights - Red"));
   });
 
