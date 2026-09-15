@@ -2,14 +2,25 @@ import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings";
 import type { AppMode } from "./preferences";
 
 /**
- * Which page of Team Rankings the URL is asking for. Both halves are optional and independent: a
+ * The areas Team Rankings is divided into. One at a time is on screen, the season year and age
+ * tabs above them scoping all of them alike.
+ */
+export type RankingsSection = "rankings" | "games" | "import" | "scouting" | "setup";
+
+/** What a link with no `?section=` opens on: the tables, which is what people come here for. */
+export const DEFAULT_RANKINGS_SECTION: RankingsSection = "rankings";
+
+/**
+ * Which page of Team Rankings the URL is asking for. Every part is optional and independent: a
  * link can name a season year without an age level ("show me 2028, whichever level you were on")
- * or a level without a year, and the view fills the rest in from what exists.
+ * or a level without a year, and the view fills the rest in from what exists. A link naming no
+ * section opens on `DEFAULT_RANKINGS_SECTION`.
  */
 export type RankingsRoute = {
   mode?: AppMode;
   ageLevel?: number;
   year?: number;
+  section?: RankingsSection;
 };
 
 /** `?view=rankings` — which of the two modes the link opens in. */
@@ -18,6 +29,8 @@ export const VIEW_PARAM = "view";
 export const AGE_PARAM = "age";
 /** `?year=2028` — the season year, as the app labels squads. */
 export const YEAR_PARAM = "year";
+/** `?section=games` — which area of Team Rankings is on screen. */
+export const SECTION_PARAM = "section";
 
 /**
  * The value `?view=` takes for each mode. Spelled out rather than reusing the stored `AppMode`
@@ -32,6 +45,26 @@ const VIEW_VALUES: Record<string, AppMode> = {
 const MODE_VIEWS: Record<AppMode, string> = {
   rankings: "rankings",
   league: "league",
+};
+
+/**
+ * The value `?section=` takes for each area, and back again. Spelled out the same way the views
+ * are, so the names in the URL are free to read well without pinning the internal ones.
+ */
+const SECTION_VALUES: Record<string, RankingsSection> = {
+  rankings: "rankings",
+  games: "games",
+  import: "import",
+  scouting: "scouting",
+  setup: "setup",
+};
+
+const SECTION_URLS: Record<RankingsSection, string> = {
+  rankings: "rankings",
+  games: "games",
+  import: "import",
+  scouting: "scouting",
+  setup: "setup",
 };
 
 /**
@@ -78,13 +111,19 @@ export const parseRankingsRoute = (search: string): RankingsRoute => {
   const year = readInt(params.get(YEAR_PARAM));
   if (isRouteYear(year)) route.year = year;
 
+  // Left out rather than defaulted, like everything else here: a link naming a section nobody has
+  // heard of should open the section the app would have opened anyway.
+  const section = params.get(SECTION_PARAM)?.trim().toLowerCase();
+  const named = section ? SECTION_VALUES[section] : undefined;
+  if (named) route.section = named;
+
   return route;
 };
 
 /**
  * Writes a route back into a query string, preserving every other parameter already there — the
  * app is one page and other features may be using the query string too, so this only ever touches
- * its own three keys. A field left `undefined` removes its parameter, which is how the league mode
+ * its own four keys. A field left `undefined` removes its parameter, which is how the league mode
  * drops `age` and `year` on the way out.
  *
  * Returns the string including its leading `?`, or `""` when nothing is left, so the result can be
@@ -103,6 +142,7 @@ export const rankingsSearch = (currentSearch: string, route: RankingsRoute): str
   set(VIEW_PARAM, route.mode ? MODE_VIEWS[route.mode] : undefined);
   set(AGE_PARAM, isRouteAgeLevel(route.ageLevel) ? String(route.ageLevel) : undefined);
   set(YEAR_PARAM, isRouteYear(route.year) ? String(route.year) : undefined);
+  set(SECTION_PARAM, route.section ? SECTION_URLS[route.section] : undefined);
 
   const next = params.toString();
   return next ? `?${next}` : "";
@@ -110,4 +150,4 @@ export const rankingsSearch = (currentSearch: string, route: RankingsRoute): str
 
 /** Whether two routes name the same page — used to avoid pushing a history entry for a no-op. */
 export const sameRankingsRoute = (a: RankingsRoute, b: RankingsRoute): boolean =>
-  a.mode === b.mode && a.ageLevel === b.ageLevel && a.year === b.year;
+  a.mode === b.mode && a.ageLevel === b.ageLevel && a.year === b.year && a.section === b.section;
