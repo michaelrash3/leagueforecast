@@ -1523,6 +1523,20 @@ export const unlinkGcTeam = (teamId: string, gcTeamId: string, teams: ScoutTeam[
     return next;
   });
 
+/**
+ * Every GameChanger id the pool has already been pulled by.
+ *
+ * A team list grows rather than changes: a few dozen clubs are added to an export of several
+ * thousand, and fetching the whole file again to find them costs the same minutes as the first
+ * run did. What is already here is exactly what carries one of these ids, so this is what the
+ * import panel subtracts to leave the teams it has never seen.
+ */
+export const pulledGcTeamIds = (teams: readonly ScoutTeam[]): Set<string> => {
+  const ids = new Set<string>();
+  teams.forEach((team) => (team.gcTeams ?? []).forEach((link) => ids.add(link.teamId)));
+  return ids;
+};
+
 /** Every game this team has, newest first, across every age group. */
 export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
   games

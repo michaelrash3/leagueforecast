@@ -30,6 +30,7 @@ import {
   renameScoutTeam,
   resolveOrCreateTeam,
   cleanTeamName,
+  pulledGcTeamIds,
   teamNameKey,
   teamNameSuggestions,
   teamsInAgeGroup,
@@ -127,6 +128,35 @@ describe("cleanTeamName", () => {
 
   it("keeps something when the name is nothing but an aside", () => {
     expect(cleanTeamName("(9U)")).toBe("(9U)");
+  });
+});
+
+describe("pulledGcTeamIds", () => {
+  const linked = (id: string, ...gcIds: string[]): ScoutTeam => ({
+    id,
+    name: id,
+    gcTeams: gcIds.map((teamId) => ({
+      teamId,
+      name: id,
+      ageGroupId: "ag1",
+      importedAt: "2026-09-14T12:00:00.000Z",
+    })),
+  });
+
+  it("collects every id a team was pulled as", () => {
+    // A club pulled across two seasons carries two ids, and both have been fetched.
+    const ids = pulledGcTeamIds([linked("S-ACES", "gcFall", "gcSpring"), linked("S-COMT", "gcC")]);
+    expect([...ids].sort()).toEqual(["gcC", "gcFall", "gcSpring"]);
+  });
+
+  it("is empty for a pool of teams nobody pulled", () => {
+    expect(pulledGcTeamIds([{ id: "S-ACES", name: "Aces" }]).size).toBe(0);
+  });
+
+  it("leaves a list of new teams alone and subtracts the rest", () => {
+    const pulled = pulledGcTeamIds([linked("S-ACES", "gcA")]);
+    const list = ["gcA", "gcB", "gcC"];
+    expect(list.filter((id) => !pulled.has(id))).toEqual(["gcB", "gcC"]);
   });
 });
 

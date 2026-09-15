@@ -37,7 +37,7 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { flushPoolWrites } from "../lib/teamRankingsStorage";
-import { MIN_AGE_LEVEL, mergeScoutTeams } from "../lib/teamRankings";
+import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
 
@@ -145,6 +145,20 @@ export function GameChangerImportPanel({
     );
     return { ...read, entries, tooYoung: read.entries.length - entries.length };
   }, [text]);
+
+  /**
+   * The list less the teams already here.
+   *
+   * A team list grows rather than changes — a few dozen clubs added to an export of several
+   * thousand — so an import is for the ones nobody has pulled yet. Re-fetching the rest would cost
+   * the same minutes the first run did to learn nothing: keeping a schedule current is the weekly
+   * rota's job, and it is a separate thing from adding a club to the pool.
+   */
+  const split = useMemo(() => {
+    const pulled = pulledGcTeamIds(pool.teams);
+    const fresh = parsed.entries.filter((entry) => !pulled.has(entry.teamId));
+    return { fresh, seen: parsed.entries.length - fresh.length };
+  }, [parsed.entries, pool.teams]);
 
   const due = useMemo(
     () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams),
@@ -305,9 +319,12 @@ export function GameChangerImportPanel({
   };
 
   const startNew = () => {
-    const ids = parsed.entries.map((entry) => entry.teamId);
+    const ids = split.fresh.map((entry) => entry.teamId);
     if (ids.length === 0) {
-      showToast("No GameChanger ids in that.", { tone: "error" });
+      showToast(
+        split.seen > 0 ? "Every team in that list is already here." : "No GameChanger ids in that.",
+        { tone: "error" }
+      );
       return;
     }
     const progress = startPull(ids, nowIso(), savedProgress);
@@ -496,6 +513,9 @@ export function GameChangerImportPanel({
                 <span className={pill(parsed.entries.length ? "emerald" : "red")}>
                   {parsed.entries.length} team{parsed.entries.length === 1 ? "" : "s"}
                 </span>
+                {split.seen > 0 && (
+                  <span className={pill("neutral")}>{split.seen} already here, skipped</span>
+                )}
                 {parsed.skipped.length > 0 && (
                   <span className={pill("amber")}>{parsed.skipped.length} line(s) ignored</span>
                 )}
@@ -504,9 +524,9 @@ export function GameChangerImportPanel({
                     {parsed.tooYoung} under {MIN_AGE_LEVEL}U, skipped
                   </span>
                 )}
-                {parsed.entries.length > 200 && (
+                {split.fresh.length > 200 && (
                   <span>
-                    About {Math.ceil((parsed.entries.length * 2) / CONCURRENCY / 60)} minute(s) of
+                    About {Math.ceil((split.fresh.length * 2) / CONCURRENCY / 60)} minute(s) of
                     requests.
                   </span>
                 )}
@@ -520,12 +540,16 @@ export function GameChangerImportPanel({
             <button
               type="button"
               onClick={startNew}
-              disabled={parsed.entries.length === 0}
+              disabled={split.fresh.length === 0}
               className={button.primary}
             >
-              Pull {parsed.entries.length || ""} schedule
-              {parsed.entries.length === 1 ? "" : "s"}
+              Pull {split.fresh.length || ""} schedule{split.fresh.length === 1 ? "" : "s"}
             </button>
+            {split.fresh.length === 0 && split.seen > 0 && (
+              <span className="self-center text-xs text-slate-500">
+                Every team in that list is already here.
+              </span>
+            )}
           </div>
         </div>
       )}
