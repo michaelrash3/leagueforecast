@@ -895,20 +895,32 @@ export const dedupeLeagueFixtures = (games: ScoutGame[]): ScoutGame[] => {
   return games.filter((_, index) => !dropped.has(index));
 };
 
-const recordFor = (teamId: string, playedGames: ScoutGame[]) => {
-  let wins = 0;
-  let losses = 0;
-  let ties = 0;
+type WinLoss = { wins: number; losses: number; ties: number };
+
+/**
+ * Every team's record in one pass. Asking per team meant a scan of the games for each ranked row,
+ * which on a nationwide pool is the table's whole cost several times over.
+ */
+const recordsFor = (playedGames: ScoutGame[]): Map<string, WinLoss> => {
+  const records = new Map<string, WinLoss>();
+  const tally = (teamId: string, own: number, opp: number) => {
+    let record = records.get(teamId);
+    if (!record) {
+      record = { wins: 0, losses: 0, ties: 0 };
+      records.set(teamId, record);
+    }
+    if (own > opp) record.wins += 1;
+    else if (own < opp) record.losses += 1;
+    else record.ties += 1;
+  };
   playedGames.forEach((game) => {
-    if (game.teamAId !== teamId && game.teamBId !== teamId) return;
-    const own = (game.teamAId === teamId ? game.teamAScore : game.teamBScore)!;
-    const opp = (game.teamAId === teamId ? game.teamBScore : game.teamAScore)!;
-    if (own > opp) wins += 1;
-    else if (own < opp) losses += 1;
-    else ties += 1;
+    tally(game.teamAId, game.teamAScore!, game.teamBScore!);
+    tally(game.teamBId, game.teamBScore!, game.teamAScore!);
   });
-  return { wins, losses, ties };
+  return records;
 };
+
+const NO_RECORD: WinLoss = { wins: 0, losses: 0, ties: 0 };
 
 // ---------- Levels, pools and cross-age games ----------
 
@@ -1238,7 +1250,7 @@ export const teamRecordInPool = (
       countsTowardRating(game) &&
       (game.teamAId === teamId || game.teamBId === teamId)
   );
-  const { wins, losses, ties } = recordFor(teamId, counted);
+  const { wins, losses, ties } = recordsFor(counted).get(teamId) ?? NO_RECORD;
   const crossAgeGames = counted.filter(
     (game) => ageGapOf(sideLevelsWith(game, index)) !== 0
   ).length;
@@ -1311,6 +1323,7 @@ export const buildTeamRankings = (
     { cap: RATING_CAP }
   );
 
+  const records = recordsFor(playedGames);
   const rows = teams
     /*
      * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
@@ -1319,7 +1332,7 @@ export const buildTeamRankings = (
      */
     .filter((team) => !team.placeholder && !team.nameOnly)
     .map((team): ScoutRankingRow => {
-      const { wins, losses, ties } = recordFor(team.id, playedGames);
+      const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
       return {
         teamId: team.id,
@@ -1402,6 +1415,14 @@ const buildPooledTeamRankings = (
     return home === level || (home === undefined && filedHere.has(teamId));
   };
 
+  const records = recordsFor(ratedGames);
+  // Likewise counted once: how many of each team's games crossed a level.
+  const crossAgeCounts = new Map<string, number>();
+  rated.forEach(({ game, ageGap }) => {
+    if (ageGap === 0) return;
+    crossAgeCounts.set(game.teamAId, (crossAgeCounts.get(game.teamAId) ?? 0) + 1);
+    crossAgeCounts.set(game.teamBId, (crossAgeCounts.get(game.teamBId) ?? 0) + 1);
+  });
   const rows = nodes
     /*
      * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
@@ -1410,10 +1431,8 @@ const buildPooledTeamRankings = (
      */
     .filter((team) => !team.placeholder && !team.nameOnly && belongsHere(team.id))
     .map((team): ScoutRankingRow => {
-      const { wins, losses, ties } = recordFor(team.id, ratedGames);
-      const crossAgeGames = rated.filter(
-        ({ game, ageGap }) => ageGap !== 0 && (game.teamAId === team.id || game.teamBId === team.id)
-      ).length;
+      const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
+      const crossAgeGames = crossAgeCounts.get(team.id) ?? 0;
       const ageLevel = homeLevels.get(team.id);
       return {
         teamId: team.id,

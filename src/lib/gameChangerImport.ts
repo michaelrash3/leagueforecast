@@ -1198,8 +1198,9 @@ export const resolveSlotGames = (
   // The named row keeps its id and its side order; only a score it does not have is taken from the
   // slot's row, since a placeholder's schedule can carry a result the other's has not posted yet.
   const filled = new Map<string, ScoutGame>();
+  const gamesById = new Map(state.games.map((game) => [game.id, game]));
   merges.forEach((named, slotId) => {
-    const slotGame = state.games.find((game) => game.id === slotId);
+    const slotGame = gamesById.get(slotId);
     if (!slotGame || !isScored(slotGame) || isScored(named)) return;
     const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
     const knownScore = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
@@ -1563,8 +1564,14 @@ export const mergeSameSquadIds = (
 
   /** Ids to fold, newest-known first, keyed by the id they fold into. */
   const foldInto = new Map<string, string>();
-  const gamesFor = (teamId: string): number =>
-    state.games.filter((game) => game.teamAId === teamId || game.teamBId === teamId).length;
+  // Counted once. Counting by scanning the games for each team made this pass quadratic, and it
+  // runs at the end of every pull over the whole pool.
+  const gameCounts = new Map<string, number>();
+  state.games.forEach((game) => {
+    gameCounts.set(game.teamAId, (gameCounts.get(game.teamAId) ?? 0) + 1);
+    gameCounts.set(game.teamBId, (gameCounts.get(game.teamBId) ?? 0) + 1);
+  });
+  const gamesFor = (teamId: string): number => gameCounts.get(teamId) ?? 0;
 
   const byName = new Map<string, ScoutTeam[]>();
   pulled.forEach((team) => {
