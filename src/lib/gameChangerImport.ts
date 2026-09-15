@@ -35,6 +35,7 @@ import {
   formatAgeGroupName,
   gcSeasonLabel,
   isRankedAgeLevel,
+  collapseSameGames,
   matchExistingGame,
   mergeScoutTeams,
   normalizeState,
@@ -1466,9 +1467,63 @@ export const mergeSameSquadIds = (
   let teams = state.teams;
   let games = state.games;
   foldInto.forEach((intoId, fromId) => {
-    const result = mergeScoutTeams(fromId, intoId, teams, games);
+    const result = mergeScoutTeams(fromId, intoId, teams, games, state.ageGroups);
     teams = result.teams;
     games = result.games;
   });
   return { state: { ...state, teams, games }, merged: foldInto.size };
+};
+
+/** What one tidy of the pool did, in the order it did it. */
+export type PoolTidy = {
+  state: GcImportState;
+  /** Bracket slots and name-only stand-ins settled from the other team's schedule. */
+  named: number;
+  /** Teams folded into a club already here under another GameChanger id. */
+  folded: number;
+  /** Rows that were the same game written twice, now one. */
+  collapsed: number;
+};
+
+/**
+ * The passes that only make sense once a whole run is in, in the order they depend on each other.
+ *
+ * Naming the stand-ins first, because a slot the other side's schedule can now name is the pair
+ * the next two passes match on. Then the clubs holding several GameChanger ids in one pool, folded
+ * where they filed the same game. Then the rows that fold made into one game — and any other pair
+ * of rows that has come to mean one game — collapsed. Each pass changes what the next one sees, so
+ * they run together, and they run over everything rather than the schedules just pulled: the half
+ * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
+ */
+export const tidyPool = (state: GcImportState): PoolTidy => {
+  const named = resolveSlotGames(state);
+  const squads = mergeSameSquadIds(named.state);
+  const same = collapseSameGames(squads.state.games, squads.state.ageGroups);
+  return {
+    state: same.collapsed > 0 ? { ...squads.state, games: same.games } : squads.state,
+    named: named.resolved,
+    folded: squads.merged,
+    collapsed: same.collapsed,
+  };
+};
+
+/** One line per thing the tidy did; nothing for a pass that found nothing. */
+export const describeTidy = (tidy: PoolTidy): string[] => {
+  const plural = (count: number, one: string, many: string) =>
+    `${count} ${count === 1 ? one : many}`;
+  return [
+    ...(tidy.named > 0
+      ? [
+          `${plural(tidy.named, "placeholder", "placeholders")} named from the other team's schedule.`,
+        ]
+      : []),
+    ...(tidy.folded > 0
+      ? [
+          `${plural(tidy.folded, "team", "teams")} folded into a club already here under another GameChanger id.`,
+        ]
+      : []),
+    ...(tidy.collapsed > 0
+      ? [`${plural(tidy.collapsed, "game", "games")} that had been written down twice, now once.`]
+      : []),
+  ];
 };

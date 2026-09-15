@@ -14,6 +14,7 @@ import {
   seasonYearOptions,
   buildScoutingReport,
   buildTeamRankings,
+  collapseSameGames,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
   findDuplicateGame,
@@ -798,20 +799,20 @@ describe("renameScoutTeam", () => {
   const teams = [team("A", "Aces"), team("B", "Bears"), team("T", "TBD")];
 
   it("renames in place when the name is free", () => {
-    const out = renameScoutTeam("A", "Aces Red", teams, []);
+    const out = renameScoutTeam("A", "Aces Red", teams, [], []);
     expect(out.mergedInto).toBeNull();
     expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces Red");
   });
 
   it("strips an age label from the new name, like every other entry point", () => {
-    const out = renameScoutTeam("A", "Aces 10U", teams, []);
+    const out = renameScoutTeam("A", "Aces 10U", teams, [], []);
     expect(out.teams.find((t) => t.id === "A")?.name).toBe("Aces");
   });
 
   it("merges into the existing team when the name is taken, routing its games over", () => {
     // This is how a placeholder gets sent to the team it really was.
     const games = [game("T", "B", 4, 9, "ag1"), game("A", "B", 3, 2, "ag1")];
-    const out = renameScoutTeam("T", "Aces", teams, games);
+    const out = renameScoutTeam("T", "Aces", teams, games, []);
 
     expect(out.mergedInto?.id).toBe("A");
     expect(out.teams.map((t) => t.id).sort()).toEqual(["A", "B"]);
@@ -824,20 +825,20 @@ describe("renameScoutTeam", () => {
 
   it("drops a game between the two teams being merged rather than keeping a self-match", () => {
     const games = [game("T", "A", 4, 9, "ag1"), game("T", "B", 1, 0, "ag1")];
-    const out = renameScoutTeam("T", "Aces", teams, games);
+    const out = renameScoutTeam("T", "Aces", teams, games, []);
     expect(out.droppedGames).toBe(1);
     expect(out.games).toHaveLength(1);
     expect(out.games[0]?.teamAId).toBe("A");
   });
 
   it("refuses a name that is empty once the age label comes off", () => {
-    const out = renameScoutTeam("A", "   ", teams, []);
+    const out = renameScoutTeam("A", "   ", teams, [], []);
     expect(out.teams).toBe(teams);
     expect(out.mergedInto).toBeNull();
   });
 
   it("is a no-op rename when the name only differs by case or age label", () => {
-    const out = renameScoutTeam("A", "aces 9u", teams, []);
+    const out = renameScoutTeam("A", "aces 9u", teams, [], []);
     // Matching itself is not a merge; the stored spelling just updates.
     expect(out.mergedInto).toBeNull();
     expect(out.teams.find((t) => t.id === "A")?.name).toBe("aces");
@@ -1533,6 +1534,53 @@ describe("matchExistingGame", () => {
   });
 });
 
+describe("collapseSameGames", () => {
+  const u9: AgeGroup = { id: "u9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] };
+  const u10: AgeGroup = { id: "u10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] };
+  const row = (
+    teamAId: string,
+    teamBId: string,
+    a: number,
+    b: number,
+    ageGroupId: string,
+    source: string
+  ): ScoutGame => ({
+    ...game(teamAId, teamBId, a, b, ageGroupId),
+    id: `gc_${source}`,
+    date: "2026-09-11",
+    source: { kind: "gamechanger", teamId: source, gameId: "1" },
+  });
+
+  it("folds the two copies of a cross-age game, filed under different pages of one pool", () => {
+    const games = [row("A", "B", 5, 4, "u9", "gcA"), row("B", "A", 4, 5, "u10", "gcB")];
+    const out = collapseSameGames(games, [u9, u10]);
+    expect(out.collapsed).toBe(1);
+    expect(out.games.map((g) => g.id)).toEqual(["gc_gcA"]);
+  });
+
+  it("does not reach across pages that share no year", () => {
+    const games = [row("A", "B", 5, 4, "u9", "gcA"), row("B", "A", 4, 5, "u10", "gcB")];
+    expect(collapseSameGames(games, []).collapsed).toBe(0);
+  });
+
+  it("narrowed to one team, leaves everyone else's rows as they are", () => {
+    const games = [
+      row("A", "B", 5, 4, "u9", "gcA"),
+      row("B", "A", 4, 5, "u9", "gcB"),
+      row("C", "D", 1, 0, "u9", "gcC"),
+      row("D", "C", 0, 1, "u9", "gcD"),
+    ];
+    const out = collapseSameGames(games, [u9], "A");
+    expect(out.collapsed).toBe(1);
+    expect(out.games).toHaveLength(3);
+  });
+
+  it("hands back the same array when there is nothing to fold", () => {
+    const games = [row("A", "B", 5, 4, "u9", "gcA")];
+    expect(collapseSameGames(games, [u9]).games).toBe(games);
+  });
+});
+
 describe("mergeScoutTeams", () => {
   const fall = link("gcFall", "u9", { season: "fall", seasonYear: 2026, avatarKey: "av" });
   const spring = link("gcSpring", "u9", { season: "spring", seasonYear: 2027 });
@@ -1544,7 +1592,7 @@ describe("mergeScoutTeams", () => {
 
   it("keeps the survivor's id and name, repoints the games and unions the links by id", () => {
     const games = [game("B", "C", 4, 9, "u9"), game("A", "C", 3, 2, "u9")];
-    const out = mergeScoutTeams("B", "A", teams, games);
+    const out = mergeScoutTeams("B", "A", teams, games, []);
 
     expect(out.teams.map((t) => t.id)).toEqual(["A", "C"]);
     const survivor = out.teams.find((t) => t.id === "A")!;
@@ -1556,47 +1604,115 @@ describe("mergeScoutTeams", () => {
     expect(out.droppedGames).toBe(0);
   });
 
+  const filed = (
+    teamAId: string,
+    teamBId: string,
+    teamAScore: number | undefined,
+    teamBScore: number | undefined,
+    source: { teamId: string; gameId: string },
+    ageGroupId = "u9"
+  ): ScoutGame => ({
+    ...game(teamAId, teamBId, teamAScore, teamBScore, ageGroupId),
+    id: `gc_${source.teamId}_${source.gameId}`,
+    date: "2026-09-11",
+    source: { kind: "gamechanger", ...source },
+  });
+
+  it("makes one row of the game both halves filed against the same opponent", () => {
+    // Fall id and Spring id each pulled their own schedule; both had the 3-2 over the Cubs.
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("C", "B", 2, 3, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.id).toBe("gc_gcFall_f1");
+    expect(out.collapsedGames).toBe(1);
+    expect(out.droppedGames).toBe(0);
+  });
+
+  it("keeps a doubleheader apart: two results that contradict are two games", () => {
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("C", "B", 7, 1, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games).toHaveLength(2);
+    expect(out.collapsedGames).toBe(0);
+  });
+
+  it("fills a result from the copy folded in when the kept row had none", () => {
+    const games = [
+      filed("A", "C", undefined, undefined, { teamId: "gcFall", gameId: "f1" }),
+      filed("C", "B", 2, 3, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]).toMatchObject({ id: "gc_gcFall_f1", teamAScore: 3, teamBScore: 2 });
+  });
+
+  it("never folds two game ids off one schedule, even with the same score", () => {
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f2" }),
+      filed("B", "C", 9, 0, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games).toHaveLength(3);
+    expect(out.collapsedGames).toBe(0);
+  });
+
   it("fills a blank state or city from the team folded in, never overwriting one", () => {
-    const out = mergeScoutTeams("B", "A", teams, []);
+    const out = mergeScoutTeams("B", "A", teams, [], []);
     const survivor = out.teams.find((t) => t.id === "A")!;
     expect(survivor.state).toBe("KY");
     expect(survivor.city).toBe("Georgetown");
 
-    const reverse = mergeScoutTeams("A", "B", [{ ...teams[1]!, state: "OH" }, teams[0]!], []);
+    const reverse = mergeScoutTeams("A", "B", [{ ...teams[1]!, state: "OH" }, teams[0]!], [], []);
     expect(reverse.teams.find((t) => t.id === "B")?.state).toBe("OH");
   });
 
   it("drops a game between the two teams rather than keeping a self-match", () => {
     const games = [game("A", "B", 4, 9, "u9"), game("B", "C", 1, 0, "u9")];
-    const out = mergeScoutTeams("B", "A", teams, games);
+    const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.droppedGames).toBe(1);
     expect(out.games).toHaveLength(1);
     expect(out.games[0]?.teamAId).toBe("A");
   });
 
   it("carries the legacy 'my team' mark over", () => {
-    const out = mergeScoutTeams("B", "C", [...teams.slice(0, 2), team("C", "Cubs", true)], []);
+    const out = mergeScoutTeams("B", "C", [...teams.slice(0, 2), team("C", "Cubs", true)], [], []);
     expect(out.teams.find((t) => t.id === "C")?.isMine).toBe(true);
-    const other = mergeScoutTeams("C", "A", [teams[0]!, team("C", "Cubs", true)], []);
+    const other = mergeScoutTeams("C", "A", [teams[0]!, team("C", "Cubs", true)], [], []);
     expect(other.teams.find((t) => t.id === "A")?.isMine).toBe(true);
   });
 
   it("does nothing for an unknown team or a team merged into itself", () => {
     const games = [game("A", "C", 3, 2, "u9")];
-    expect(mergeScoutTeams("Z", "A", teams, games)).toEqual({ teams, games, droppedGames: 0 });
-    expect(mergeScoutTeams("A", "Z", teams, games)).toEqual({ teams, games, droppedGames: 0 });
-    expect(mergeScoutTeams("A", "A", teams, games).teams).toBe(teams);
+    expect(mergeScoutTeams("Z", "A", teams, games, [])).toEqual({
+      teams,
+      games,
+      droppedGames: 0,
+      collapsedGames: 0,
+    });
+    expect(mergeScoutTeams("A", "Z", teams, games, [])).toEqual({
+      teams,
+      games,
+      droppedGames: 0,
+      collapsedGames: 0,
+    });
+    expect(mergeScoutTeams("A", "A", teams, games, []).teams).toBe(teams);
   });
 
   it("leaves a survivor with nothing to gain as the same object", () => {
-    const out = mergeScoutTeams("C", "A", teams, []);
+    const out = mergeScoutTeams("C", "A", teams, [], []);
     expect(out.teams.find((t) => t.id === "A")).toBe(teams[0]);
   });
 
   it("is what renameScoutTeam does when the new name is taken", () => {
     const games = [game("B", "C", 4, 9, "u9")];
-    const renamed = renameScoutTeam("B", "Aces", teams, games);
-    const merged = mergeScoutTeams("B", "A", teams, games);
+    const renamed = renameScoutTeam("B", "Aces", teams, games, []);
+    const merged = mergeScoutTeams("B", "A", teams, games, []);
     expect(renamed.mergedInto?.id).toBe("A");
     expect(renamed.teams).toEqual(merged.teams);
     expect(renamed.games).toEqual(merged.games);

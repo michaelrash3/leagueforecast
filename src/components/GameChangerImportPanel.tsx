@@ -3,11 +3,11 @@ import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   createGcImporter,
+  describeTidy,
   GC_PAIRING_EVIDENCE_LABEL,
-  mergeSameSquadIds,
   proposeSeasonPairings,
-  resolveSlotGames,
   summarizeGcImport,
+  tidyPool,
   type GcImportOutcome,
   type GcImportState,
   type GcSeasonPairing,
@@ -298,45 +298,20 @@ export function GameChangerImportPanel({
     }
     dueLevelsRef.current = [];
 
-    /**
-     * Now that every schedule in this run is in, the ones that named a fixture can answer the ones
-     * that only said "TBD". It runs here rather than per schedule because the naming half may
-     * arrive after the placeholder half, and a whole run is the first point at which both are
-     * certainly present.
-     */
-    const named = resolveSlotGames(poolRef.current);
-    if (named.resolved > 0) {
-      poolRef.current = named.state;
-      if (persist()) await flushPoolWrites();
-    }
-
     /*
-     * And the clubs holding more than one GameChanger id inside one pool — a Fall id and a Spring
-     * id are both squad year 2027, so both land on the same table and the club appears twice off
-     * half a season each. Folded where they filed the same game, which is the only thing that
-     * proves one squad rather than two clubs of a name.
+     * Now that every schedule in this run is in: name the stand-ins from the other side's schedule,
+     * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
+     * one game. A whole run is the first point at which both halves of each are certainly present.
      */
-    const squads = mergeSameSquadIds(poolRef.current);
-    if (squads.merged > 0) {
-      poolRef.current = squads.state;
+    const tidy = tidyPool(poolRef.current);
+    if (tidy.named + tidy.folded + tidy.collapsed > 0) {
+      poolRef.current = tidy.state;
       if (persist()) await flushPoolWrites();
     }
 
     const finished = progressRef.current;
     setResult({
-      summary: [
-        ...summarizeGcImport(outcomesRef.current),
-        ...(named.resolved > 0
-          ? [
-              `${named.resolved} placeholder${named.resolved === 1 ? "" : "s"} named from the other team's schedule.`,
-            ]
-          : []),
-        ...(squads.merged > 0
-          ? [
-              `${squads.merged} team${squads.merged === 1 ? "" : "s"} folded into a club already here under another GameChanger id.`,
-            ]
-          : []),
-      ],
+      summary: [...summarizeGcImport(outcomesRef.current), ...describeTidy(tidy)],
       problems: collectGcImportProblems(
         finished?.failures ?? [],
         outcomesRef.current,
@@ -356,6 +331,26 @@ export function GameChangerImportPanel({
     onSaveProgress(progress);
     dueLevelsRef.current = due.ageLevels;
     void run(remainingIds(progress), progress);
+  };
+
+  /**
+   * The end-of-run tidy on its own. Doubles are a state of the data, not of the list: the checks
+   * that stop new ones being made do nothing for the ones already saved, and a list with nothing
+   * new in it never reaches the end of a run.
+   */
+  const tidyNow = async () => {
+    // From the pool as saved, not the ref: nothing has been pulled since it was handed in.
+    const tidy = tidyPool(pool);
+    const lines = describeTidy(tidy);
+    if (lines.length === 0) {
+      showToast("Nothing doubled up, nothing to fold.");
+      return;
+    }
+    poolRef.current = tidy.state;
+    if (persist()) {
+      await flushPoolWrites();
+      showToast(lines.join(" "), { tone: "success" });
+    }
   };
 
   const startNew = () => {
@@ -406,7 +401,13 @@ export function GameChangerImportPanel({
       const from = next.teams.find((team) => team.id === pairing.fromTeamId);
       const to = next.teams.find((team) => team.id === pairing.toTeamId);
       if (!from || !to) return;
-      const result = mergeScoutTeams(pairing.fromTeamId, pairing.toTeamId, next.teams, next.games);
+      const result = mergeScoutTeams(
+        pairing.fromTeamId,
+        pairing.toTeamId,
+        next.teams,
+        next.games,
+        next.ageGroups
+      );
       next = { ...next, teams: result.teams, games: result.games };
       merged += 1;
     });
@@ -585,6 +586,11 @@ export function GameChangerImportPanel({
             >
               Pull {split.fresh.length || ""} schedule{split.fresh.length === 1 ? "" : "s"}
             </button>
+            {pool.games.length > 0 && (
+              <button type="button" onClick={() => void tidyNow()} className={button.ghost}>
+                Check for doubles
+              </button>
+            )}
             {split.fresh.length === 0 && split.seen > 0 && (
               <span className="self-center text-xs text-slate-500">
                 Every team in that list is already here.

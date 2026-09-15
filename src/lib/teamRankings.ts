@@ -1121,6 +1121,85 @@ export const matchExistingGame = (
 };
 
 /**
+ * A row's place in the rating pool, so two copies of a cross-age game — each side files it under
+ * its own page — land in one bucket. A group with no year stands alone, as `rankingPoolGroupIds`
+ * has it.
+ */
+const poolKeyFor = (ageGroupId: string, index: GroupIndex): string => {
+  const year = index.year(ageGroupId);
+  return year === undefined ? `g${ageGroupId}` : `y${year}`;
+};
+
+/** A result on the row being dropped fills a blank on the one kept; a result already there stands. */
+const filledFrom = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
+  const scored = (game: ScoutGame) =>
+    game.teamAScore !== undefined && game.teamBScore !== undefined;
+  if (scored(keep) || !scored(drop)) return keep;
+  return {
+    ...keep,
+    teamAScore: scoreOf(drop, keep.teamAId),
+    teamBScore: scoreOf(drop, keep.teamBId),
+  };
+};
+
+/**
+ * Folds together rows that describe one game.
+ *
+ * Same rule as the import applies to each row as it arrives (`matchExistingGame`): the same two
+ * teams on the same day in the same pool, results that mirror or a side with none, and never two
+ * game ids off one schedule, which is a doubleheader. Applying it on arrival is enough for as long
+ * as the two teams stay the two teams. It stops being enough the moment two entries are folded
+ * into one club — a squad's Fall and Spring ids proving to be one squad, or the user's own "same
+ * team as" — because each id filed its own row for the game, against the same opponent, and those
+ * rows only *become* the same game once the pair matches, which is after both were already here.
+ * Yeager Davis held three GameChanger ids and showed its 8-2 loss twice.
+ *
+ * The earlier row is kept, so ids and side order stay put. `teamId` narrows the pass to the rows
+ * one team is on, which is all a single fold can have changed.
+ */
+export const collapseSameGames = (
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  teamId?: string
+): { games: ScoutGame[]; collapsed: number } => {
+  const index = indexGroups(ageGroups);
+  const buckets = new Map<string, ScoutGame[]>();
+  games.forEach((game) => {
+    if (teamId !== undefined && game.teamAId !== teamId && game.teamBId !== teamId) return;
+    const key = `${poolKeyFor(game.ageGroupId, index)}|${pairKeyOf(game)}|${game.date ?? ""}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(game);
+    else buckets.set(key, [game]);
+  });
+
+  const replaced = new Map<string, ScoutGame>();
+  const dropped = new Set<string>();
+  buckets.forEach((bucket) => {
+    if (bucket.length < 2) return;
+    const kept: ScoutGame[] = [];
+    bucket.forEach((game) => {
+      const same = matchExistingGame(game, kept, ageGroups);
+      if (!same) {
+        kept.push(game);
+        return;
+      }
+      const filled = filledFrom(same, game);
+      if (filled !== same) {
+        kept[kept.indexOf(same)] = filled;
+        replaced.set(same.id, filled);
+      }
+      dropped.add(game.id);
+    });
+  });
+
+  if (dropped.size === 0) return { games, collapsed: 0 };
+  return {
+    games: games.flatMap((game) => (dropped.has(game.id) ? [] : [replaced.get(game.id) ?? game])),
+    collapsed: dropped.size,
+  };
+};
+
+/**
  * The teams with a counted game anywhere in this group's pool — the roster the pool is rated
  * over, which is wider than `teamsInAgeGroup`: a 10U that only ever played down against 9Us is
  * rated alongside them even though no game is filed under its own page.
@@ -1506,15 +1585,17 @@ export const renameScoutTeam = (
   teamId: string,
   nextName: string,
   teams: ScoutTeam[],
-  games: ScoutGame[]
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
 ): {
   teams: ScoutTeam[];
   games: ScoutGame[];
   mergedInto: ScoutTeam | null;
   droppedGames: number;
+  collapsedGames: number;
 } => {
   const display = cleanTeamName(nextName).trim();
-  if (!display) return { teams, games, mergedInto: null, droppedGames: 0 };
+  if (!display) return { teams, games, mergedInto: null, droppedGames: 0, collapsedGames: 0 };
 
   const key = teamNameKey(display);
   const target = teams.find((team) => team.id !== teamId && teamNameKey(team.name) === key);
@@ -1525,10 +1606,11 @@ export const renameScoutTeam = (
       games,
       mergedInto: null,
       droppedGames: 0,
+      collapsedGames: 0,
     };
   }
 
-  const merged = mergeScoutTeams(teamId, target.id, teams, games);
+  const merged = mergeScoutTeams(teamId, target.id, teams, games, ageGroups);
   return { ...merged, mergedInto: target };
 };
 
@@ -1539,20 +1621,25 @@ export const renameScoutTeam = (
  * out to be, or undoing a wrong match by merging the pieces back together.
  *
  * Games are repointed at the survivor; a game between the two (a team playing itself once merged)
- * is not a result and is dropped. GameChanger links are unioned by id, since both halves may have
- * been pulled — that union is exactly what "the same squad across seasons" means here. Blank
- * name, state and city on the survivor are filled from the team folded in; anything the survivor
+ * is not a result and is dropped. Two rows that were each half's copy of one game — both ids
+ * filed the same fixture, which is usually what proved them one squad — are one row afterwards
+ * (`collapseSameGames`). GameChanger links are unioned by id, since both halves may have been
+ * pulled — that union is exactly what "the same squad across seasons" means here. Blank name,
+ * state and city on the survivor are filled from the team folded in; anything the survivor
  * already has stands, because the user chose which one survives.
  */
 export const mergeScoutTeams = (
   fromId: string,
   intoId: string,
   teams: ScoutTeam[],
-  games: ScoutGame[]
-): { teams: ScoutTeam[]; games: ScoutGame[]; droppedGames: number } => {
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): { teams: ScoutTeam[]; games: ScoutGame[]; droppedGames: number; collapsedGames: number } => {
   const removed = teams.find((team) => team.id === fromId);
   const survivor = teams.find((team) => team.id === intoId);
-  if (!removed || !survivor || fromId === intoId) return { teams, games, droppedGames: 0 };
+  if (!removed || !survivor || fromId === intoId) {
+    return { teams, games, droppedGames: 0, collapsedGames: 0 };
+  }
 
   const repointed: ScoutGame[] = [];
   let droppedGames = 0;
@@ -1592,12 +1679,14 @@ export const mergeScoutTeams = (
       }
     : survivor;
 
+  const collapsed = collapseSameGames(repointed, ageGroups, intoId);
   return {
     teams: teams.flatMap((team) =>
       team.id === fromId ? [] : team.id === intoId ? [merged] : [team]
     ),
-    games: repointed,
+    games: collapsed.games,
     droppedGames,
+    collapsedGames: collapsed.collapsed,
   };
 };
 
