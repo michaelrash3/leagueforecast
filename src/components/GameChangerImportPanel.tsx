@@ -2,8 +2,9 @@ import { useMemo, useRef, useState } from "react";
 import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
-  importGcSchedule,
+  createGcImporter,
   GC_PAIRING_EVIDENCE_LABEL,
+  mergeSameSquadIds,
   proposeSeasonPairings,
   resolveSlotGames,
   summarizeGcImport,
@@ -37,7 +38,7 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { flushPoolWrites } from "../lib/teamRankingsStorage";
-import { MIN_AGE_LEVEL, mergeScoutTeams } from "../lib/teamRankings";
+import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
 
@@ -63,15 +64,22 @@ type GameChangerImportPanelProps = {
 type Stage = "picking" | "pulling" | "review";
 
 /**
- * How many schedules are folded in before the pool is written. Writing after every one would be
- * thousands of saves of a growing pool; waiting for the end would throw away an interrupted run.
- * The cursor is only advanced *after* the write, so a crash re-fetches this batch rather than
- * claiming teams it never kept.
+ * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
+ * is the pool's size times the number of saves — often enough to dwarf the fetching. What it buys
+ * is how much an interrupted run has to redo, and five hundred teams is about a minute of that
+ * against fourteen writes of the pool rather than two hundred and eighty. The cursor is only
+ * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
+ * kept.
  */
-const SAVE_EVERY = 25;
+const SAVE_EVERY = 500;
 
-/** Requests in flight. Four is what the client defaults to and what GameChanger seems content with. */
-const CONCURRENCY = 4;
+/**
+ * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
+ * connections open to one host, so this is the real parallelism of the pull; the batching is what
+ * lets it be worth anything. A throttled answer holds every worker back rather than this one, so
+ * the cost of being wrong here is a slower pull rather than lost teams.
+ */
+const CONCURRENCY = 8;
 
 const SAMPLE = `https://web.gc.com/teams/FtEExZwB4b8E/2026-fall-trosky-illinois-9u/schedule
 gsUthn4XoIxS
@@ -146,6 +154,20 @@ export function GameChangerImportPanel({
     return { ...read, entries, tooYoung: read.entries.length - entries.length };
   }, [text]);
 
+  /**
+   * The list less the teams already here.
+   *
+   * A team list grows rather than changes — a few dozen clubs added to an export of several
+   * thousand — so an import is for the ones nobody has pulled yet. Re-fetching the rest would cost
+   * the same minutes the first run did to learn nothing: keeping a schedule current is the weekly
+   * rota's job, and it is a separate thing from adding a club to the pool.
+   */
+  const split = useMemo(() => {
+    const pulled = pulledGcTeamIds(pool.teams);
+    const fresh = parsed.entries.filter((entry) => !pulled.has(entry.teamId));
+    return { fresh, seen: parsed.entries.length - fresh.length };
+  }, [parsed.entries, pool.teams]);
+
   const due = useMemo(
     () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams),
     [refreshLog, pool.ageGroups, pool.teams]
@@ -159,7 +181,17 @@ export function GameChangerImportPanel({
   };
 
   const persist = (): boolean => {
-    const ok = onPersist(poolRef.current);
+    /*
+     * A copy, because the fold goes on mutating its own arrays after this returns and what the
+     * caller stores has to stop changing underneath it. Three shallow copies per save, not per
+     * team, which is why the save interval is what it is.
+     */
+    const snapshot: GcImportState = {
+      ageGroups: poolRef.current.ageGroups.slice(),
+      teams: poolRef.current.teams.slice(),
+      games: poolRef.current.games.slice(),
+    };
+    const ok = onPersist(snapshot);
     if (!ok) showToast("Could not save the pull (storage full).", { tone: "error" });
     return ok;
   };
@@ -171,6 +203,12 @@ export function GameChangerImportPanel({
   const run = async (ids: string[], progress: GcPullProgress) => {
     const controller = new AbortController();
     abortRef.current = controller;
+    /*
+     * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
+     * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
+     * teams by far the longest part of a pull.
+     */
+    const importer = createGcImporter(poolRef.current);
     progressRef.current = progress;
     outcomesRef.current = [];
     setStage("pulling");
@@ -228,9 +266,8 @@ export function GameChangerImportPanel({
       signal: controller.signal,
       onProgress: ({ teamId, result }) => {
         if (result.ok) {
-          const folded = importGcSchedule(result.schedule, poolRef.current);
-          poolRef.current = folded.state;
-          outcomesRef.current.push(folded.outcome);
+          outcomesRef.current.push(importer.add(result.schedule));
+          poolRef.current = importer.state;
         } else {
           pendingFailures.set(teamId, { reason: result.reason, message: result.message });
         }
@@ -273,6 +310,18 @@ export function GameChangerImportPanel({
       if (persist()) await flushPoolWrites();
     }
 
+    /*
+     * And the clubs holding more than one GameChanger id inside one pool — a Fall id and a Spring
+     * id are both squad year 2027, so both land on the same table and the club appears twice off
+     * half a season each. Folded where they filed the same game, which is the only thing that
+     * proves one squad rather than two clubs of a name.
+     */
+    const squads = mergeSameSquadIds(poolRef.current);
+    if (squads.merged > 0) {
+      poolRef.current = squads.state;
+      if (persist()) await flushPoolWrites();
+    }
+
     const finished = progressRef.current;
     setResult({
       summary: [
@@ -280,6 +329,11 @@ export function GameChangerImportPanel({
         ...(named.resolved > 0
           ? [
               `${named.resolved} placeholder${named.resolved === 1 ? "" : "s"} named from the other team's schedule.`,
+            ]
+          : []),
+        ...(squads.merged > 0
+          ? [
+              `${squads.merged} team${squads.merged === 1 ? "" : "s"} folded into a club already here under another GameChanger id.`,
             ]
           : []),
       ],
@@ -305,9 +359,12 @@ export function GameChangerImportPanel({
   };
 
   const startNew = () => {
-    const ids = parsed.entries.map((entry) => entry.teamId);
+    const ids = split.fresh.map((entry) => entry.teamId);
     if (ids.length === 0) {
-      showToast("No GameChanger ids in that.", { tone: "error" });
+      showToast(
+        split.seen > 0 ? "Every team in that list is already here." : "No GameChanger ids in that.",
+        { tone: "error" }
+      );
       return;
     }
     const progress = startPull(ids, nowIso(), savedProgress);
@@ -496,6 +553,9 @@ export function GameChangerImportPanel({
                 <span className={pill(parsed.entries.length ? "emerald" : "red")}>
                   {parsed.entries.length} team{parsed.entries.length === 1 ? "" : "s"}
                 </span>
+                {split.seen > 0 && (
+                  <span className={pill("neutral")}>{split.seen} already here, skipped</span>
+                )}
                 {parsed.skipped.length > 0 && (
                   <span className={pill("amber")}>{parsed.skipped.length} line(s) ignored</span>
                 )}
@@ -504,9 +564,9 @@ export function GameChangerImportPanel({
                     {parsed.tooYoung} under {MIN_AGE_LEVEL}U, skipped
                   </span>
                 )}
-                {parsed.entries.length > 200 && (
+                {split.fresh.length > 200 && (
                   <span>
-                    About {Math.ceil((parsed.entries.length * 2) / CONCURRENCY / 60)} minute(s) of
+                    About {Math.ceil((split.fresh.length * 2) / CONCURRENCY / 60)} minute(s) of
                     requests.
                   </span>
                 )}
@@ -520,12 +580,16 @@ export function GameChangerImportPanel({
             <button
               type="button"
               onClick={startNew}
-              disabled={parsed.entries.length === 0}
+              disabled={split.fresh.length === 0}
               className={button.primary}
             >
-              Pull {parsed.entries.length || ""} schedule
-              {parsed.entries.length === 1 ? "" : "s"}
+              Pull {split.fresh.length || ""} schedule{split.fresh.length === 1 ? "" : "s"}
             </button>
+            {split.fresh.length === 0 && split.seen > 0 && (
+              <span className="self-center text-xs text-slate-500">
+                Every team in that list is already here.
+              </span>
+            )}
           </div>
         </div>
       )}

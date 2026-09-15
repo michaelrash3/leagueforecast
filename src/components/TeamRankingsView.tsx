@@ -21,6 +21,7 @@ import {
   nextSeason,
   rankingPoolGroupIds,
   resolveOrCreateTeam,
+  seasonAtAge,
   seasonYearOptions,
   filterRankingsByState,
   normalizeState,
@@ -29,6 +30,7 @@ import {
   teamNameSuggestions,
   unlinkGcTeam,
   type AgeGroup,
+  type AgeGroupSeason,
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
@@ -184,15 +186,6 @@ export function TeamRankingsView({
   const patchGroupDraft = (patch: Partial<AgeGroupDraft>) =>
     setGroupDraft((prev) => ({ ...prev, ...patch }));
 
-  const toggleGroupSeason = (seasonId: string) => {
-    setGroupDraft((prev) => ({
-      ...prev,
-      seasonIds: prev.seasonIds.includes(seasonId)
-        ? prev.seasonIds.filter((id) => id !== seasonId)
-        : [...prev.seasonIds, seasonId],
-    }));
-  };
-
   const startEditGroup = (group: AgeGroup) => {
     // A group saved before the season picker existed has only the name the user typed, so read
     // what can be read from it and leave the rest at the defaults rather than blanking the form.
@@ -214,6 +207,29 @@ export function TeamRankingsView({
       seasonIds: activeSeasonId ? [activeSeasonId] : [],
       continuesFromId: "",
     });
+  };
+
+  /**
+   * Answers "what age does this league season play?" — the only age-group question left to ask.
+   *
+   * The pages themselves arrive with the GameChanger pull, so asking somebody to type one in first
+   * is asking them to repeat what the import is about to say. What no import can know is which
+   * page your own league belongs on: nothing in a GameChanger schedule mentions your league at all.
+   */
+  const assignSeasonToAge = (seasonId: string, season: AgeGroupSeason | null) => {
+    const result = seasonAtAge(seasonId, season, ageGroups);
+    persistAgeGroups(result.ageGroups);
+    if (!result.group) {
+      showToast("League season taken off Team Rankings.");
+      return;
+    }
+    setPickedGroupId(result.group.id);
+    showToast(
+      result.created
+        ? `${result.group.name} created, with your league season on it.`
+        : `League season added to ${result.group.name}.`,
+      { tone: "success" }
+    );
   };
 
   const saveAgeGroup = () => {
@@ -1298,7 +1314,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             editingGroupId={editingGroupId}
             draft={groupDraft}
             onDraftChange={patchGroupDraft}
-            onToggleSeason={toggleGroupSeason}
+            onAssignSeason={assignSeasonToAge}
             yearOptions={yearOptions}
             onSave={saveAgeGroup}
             onCancelEdit={resetGroupForm}

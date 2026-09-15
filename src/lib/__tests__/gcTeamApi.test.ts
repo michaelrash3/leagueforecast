@@ -338,10 +338,15 @@ describe("GET /api/gc-team", () => {
     });
   });
 
-  it("throttles one client after 240 requests in a minute", async () => {
+  /**
+   * The cap is a runaway-loop guard, so it sits well above what a real import does: a nationwide
+   * list is thousands of teams eight at a time, and a cap it can reach is a cap that reports the
+   * feature working as teams that failed.
+   */
+  it("throttles one client only well past what an import does", async () => {
     stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
     const req = makeReq(`/api/gc-team?id=${TEAM_ID}`);
-    for (let index = 0; index < 240; index += 1) {
+    for (let index = 0; index < 3_000; index += 1) {
       const { res, recorded } = makeRes();
       await handler(req, res);
       expect(recorded.statusCode).toBe(200);

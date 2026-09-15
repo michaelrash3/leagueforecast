@@ -287,7 +287,7 @@ export type CompactTeams = {
   v: number;
   g: string[];
   s: string[];
-  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links */
+  /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 avatar */
   r: TeamRow[];
 };
 
@@ -299,6 +299,8 @@ type CompactLink = (number | string | null)[];
 const MINE = 1;
 /** A name that stood in for a club nobody had decided yet; never a team, never ranked. */
 const PLACEHOLDER = 2;
+/** Known only from somebody else's schedule: in the fit as an opponent, never in a table. */
+const NAME_ONLY = 4;
 
 export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
   const groups = interner();
@@ -323,10 +325,13 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
     const row: TeamRow = [
       team.id,
       team.name,
-      (team.isMine ? MINE : 0) | (team.placeholder ? PLACEHOLDER : 0),
+      (team.isMine ? MINE : 0) |
+        (team.placeholder ? PLACEHOLDER : 0) |
+        (team.nameOnly ? NAME_ONLY : 0),
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
+      team.avatarKey ?? null,
     ];
     return trimTrailing(row);
   });
@@ -392,10 +397,14 @@ export const decodeScoutTeams = (
     const flags = num(row[2]) ?? 0;
     if (flags & MINE) team.isMine = true;
     if (flags & PLACEHOLDER) team.placeholder = true;
+    if (flags & NAME_ONLY) team.nameOnly = true;
     const state = str(row[3]);
     if (state) team.state = state;
     const city = str(row[4]);
     if (city) team.city = city;
+
+    const avatarKey = str(row[6]);
+    if (avatarKey) team.avatarKey = avatarKey;
 
     const linkRows = row[5];
     if (Array.isArray(linkRows)) {

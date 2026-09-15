@@ -52,7 +52,23 @@ const fakeFetch = (
   return impl;
 };
 
-const idOf = (url: string): string => new URL(url, "http://localhost").searchParams.get("id") ?? "";
+/** The ids one batch request asked for, in order. */
+const idsOf = (url: string): string[] => {
+  const raw = new URL(url, "http://localhost").searchParams.get("ids");
+  return raw ? raw.split(",").map((id) => decodeURIComponent(id)) : [];
+};
+
+/**
+ * A proxy that answers a batch the way the real one does: one entry per id, each carrying that
+ * team's own result, so a failure for one team is not a failure for the request.
+ */
+const batchFetch = (perTeam: (teamId: string) => GcTeamResponse): FakeFetch =>
+  fakeFetch((url) =>
+    jsonResponse(200, {
+      ok: true,
+      teams: idsOf(url).map((teamId) => ({ teamId, result: perTeam(teamId) })),
+    })
+  );
 
 describe("fetchGcTeam", () => {
   it("asks the proxy for the id and returns the schedule", async () => {
@@ -149,60 +165,72 @@ describe("fetchGcTeams", () => {
     status: 429,
   };
 
-  it("pulls every id and keys the map in input order regardless of completion order", async () => {
+  it("asks for the teams in one request and reports them one at a time, in order", async () => {
     const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002", "Cccccccc0003"];
-    const resolvers = new Map<string, () => void>();
-    const fetchImpl = fakeFetch(
-      (url) =>
-        new Promise<Response>((resolve) => {
-          resolvers.set(idOf(url), () => resolve(jsonResponse(200, okBody)));
-        })
-    );
+    const fetchImpl = batchFetch(() => okBody);
     const progress: { done: number; total: number; teamId: string }[] = [];
-    const pending = fetchGcTeams(ids, {
+    const results = await fetchGcTeams(ids, {
       fetchImpl,
       delayMs: () => 0,
       onProgress: ({ done, total, teamId }) => progress.push({ done, total, teamId }),
     });
 
-    // All three start at once (concurrency 4); finish them back to front.
-    await vi.waitFor(() => expect(resolvers.size).toBe(3));
-    resolvers.get("Cccccccc0003")?.();
-    await vi.waitFor(() => expect(progress).toHaveLength(1));
-    resolvers.get("Aaaaaaaa0001")?.();
-    await vi.waitFor(() => expect(progress).toHaveLength(2));
-    resolvers.get("Bbbbbbbb0002")?.();
-
-    const results = await pending;
+    // One request for all three, and the caller still sees a team at a time.
+    expect(fetchImpl.calls).toHaveLength(1);
+    expect(idsOf(fetchImpl.calls[0]!.url)).toEqual(ids);
     expect([...results.keys()]).toEqual(ids);
     expect([...results.values()].every((result) => result.ok)).toBe(true);
     expect(progress).toEqual([
-      { done: 1, total: 3, teamId: "Cccccccc0003" },
-      { done: 2, total: 3, teamId: "Aaaaaaaa0001" },
-      { done: 3, total: 3, teamId: "Bbbbbbbb0002" },
+      { done: 1, total: 3, teamId: "Aaaaaaaa0001" },
+      { done: 2, total: 3, teamId: "Bbbbbbbb0002" },
+      { done: 3, total: 3, teamId: "Cccccccc0003" },
     ]);
   });
 
-  it("never has more than `concurrency` requests in flight", async () => {
+  it("gives one team's failure to that team and leaves the rest of the batch alone", async () => {
+    const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002", "Cccccccc0003"];
+    const missing: GcTeamResponse = {
+      ok: false,
+      reason: "not-found" satisfies GcFetchErrorReason,
+      message: "no such team",
+    };
+    const fetchImpl = batchFetch((teamId) => (teamId === "Bbbbbbbb0002" ? missing : okBody));
+    const results = await fetchGcTeams(ids, { fetchImpl, delayMs: () => 0 });
+    expect(results.get("Aaaaaaaa0001")?.ok).toBe(true);
+    expect(results.get("Bbbbbbbb0002")).toMatchObject({ ok: false, reason: "not-found" });
+    expect(results.get("Cccccccc0003")?.ok).toBe(true);
+    expect(fetchImpl.calls).toHaveLength(1);
+  });
+
+  it("never has more than `concurrency` batches in flight", async () => {
     let inFlight = 0;
     let peak = 0;
-    const fetchImpl = fakeFetch(async () => {
+    const fetchImpl = fakeFetch(async (url) => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 2));
       inFlight -= 1;
-      return jsonResponse(200, okBody);
+      return jsonResponse(200, {
+        ok: true,
+        teams: idsOf(url).map((teamId) => ({ teamId, result: okBody })),
+      });
     });
-    const ids = Array.from({ length: 9 }, (_, index) => `Team${String(index).padStart(8, "0")}`);
+    const ids = Array.from({ length: 45 }, (_, index) => `Team${String(index).padStart(8, "0")}`);
     const results = await fetchGcTeams(ids, { fetchImpl, concurrency: 2, delayMs: () => 0 });
-    expect(results.size).toBe(9);
+    expect(results.size).toBe(45);
     expect(peak).toBe(2);
-    expect(fetchImpl.calls).toHaveLength(9);
+    // Ten to a request: five requests, not forty-five.
+    expect(fetchImpl.calls).toHaveLength(5);
   });
 
   it("retries a throttled answer with the injected backoff and keeps the eventual success", async () => {
-    const fetchImpl = fakeFetch((_url, call) =>
-      call === 1 ? jsonResponse(429, throttled) : jsonResponse(200, okBody)
+    const fetchImpl = fakeFetch((url, call) =>
+      call === 1
+        ? jsonResponse(429, throttled)
+        : jsonResponse(200, {
+            ok: true,
+            teams: idsOf(url).map((teamId) => ({ teamId, result: okBody })),
+          })
     );
     const delayMs = vi.fn(() => 0);
     const results = await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs });
@@ -241,7 +269,7 @@ describe("fetchGcTeams", () => {
     }
   });
 
-  it("uses the default backoff of one second then three when no delay is injected", async () => {
+  it("backs off 1s, 3s, 8s then 15s when no delay is injected", async () => {
     // Fake timers make the default backoff observable without waiting it out. Assertions run
     // straight after each advance (no waitFor, which would move the fake clock on its own).
     vi.useFakeTimers();
@@ -250,14 +278,17 @@ describe("fetchGcTeams", () => {
       const pending = fetchGcTeams([TEAM_ID], { fetchImpl });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchImpl.calls).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(999);
-      expect(fetchImpl.calls).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(fetchImpl.calls).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(2_999);
-      expect(fetchImpl.calls).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(fetchImpl.calls).toHaveLength(3);
+      for (const [wait, calls] of [
+        [1_000, 2],
+        [3_000, 3],
+        [8_000, 4],
+        [15_000, 5],
+      ] as const) {
+        await vi.advanceTimersByTimeAsync(wait - 1);
+        expect(fetchImpl.calls.length).toBeLessThan(calls);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(fetchImpl.calls).toHaveLength(calls);
+      }
       const results = await pending;
       expect(results.get(TEAM_ID)).toEqual(throttled);
     } finally {
@@ -265,12 +296,49 @@ describe("fetchGcTeams", () => {
     }
   });
 
-  it("stops starting new requests once aborted and leaves the rest out of the map", async () => {
+  /**
+   * One throttled answer is about the pull, not the team that happened to get it. Every worker
+   * holds off together, or the other seven keep the service that is already refusing us busy.
+   */
+  it("holds every worker back when one batch is throttled", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: string[][] = [];
+      const fetchImpl = fakeFetch((url, call) => {
+        seen.push(idsOf(url));
+        return call === 1
+          ? jsonResponse(429, throttled)
+          : jsonResponse(200, {
+              ok: true,
+              teams: idsOf(url).map((teamId) => ({ teamId, result: okBody })),
+            });
+      });
+      // Twenty teams is two batches; one worker, so the second waits on the first.
+      const ids = Array.from({ length: 20 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+      const pending = fetchGcTeams(ids, { fetchImpl, concurrency: 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(seen).toHaveLength(1);
+      // The first batch was refused, so nothing else goes out until the hold expires.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(seen).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const results = await pending;
+      expect(results.size).toBe(20);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops starting new batches once aborted and leaves the rest out of the map", async () => {
     const controller = new AbortController();
-    const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002", "Cccccccc0003", "Dddddddd0004"];
-    const fetchImpl = fakeFetch((_url, call) => {
+    // Thirty teams is three batches; abort while the second is answering.
+    const ids = Array.from({ length: 30 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+    const fetchImpl = fakeFetch((url, call) => {
       if (call === 2) controller.abort();
-      return jsonResponse(200, okBody);
+      return jsonResponse(200, {
+        ok: true,
+        teams: idsOf(url).map((teamId) => ({ teamId, result: okBody })),
+      });
     });
     const results = await fetchGcTeams(ids, {
       fetchImpl,
@@ -279,7 +347,7 @@ describe("fetchGcTeams", () => {
       signal: controller.signal,
     });
     expect(fetchImpl.calls).toHaveLength(2);
-    expect([...results.keys()]).toEqual(["Aaaaaaaa0001", "Bbbbbbbb0002"]);
+    expect([...results.keys()]).toEqual(ids.slice(0, 20));
   });
 
   it("cuts a backoff short on abort instead of waiting it out", async () => {
@@ -298,12 +366,13 @@ describe("fetchGcTeams", () => {
   });
 
   it("dedupes repeated ids and skips blanks", async () => {
-    const fetchImpl = fakeFetch(() => jsonResponse(200, okBody));
+    const fetchImpl = batchFetch(() => okBody);
     const results = await fetchGcTeams([TEAM_ID, " ", TEAM_ID, "Bbbbbbbb0002"], {
       fetchImpl,
       delayMs: () => 0,
     });
-    expect(fetchImpl.calls).toHaveLength(2);
+    // One request, and it asks for each team once.
+    expect(idsOf(fetchImpl.calls[0]!.url)).toEqual([TEAM_ID, "Bbbbbbbb0002"]);
     expect([...results.keys()]).toEqual([TEAM_ID, "Bbbbbbbb0002"]);
   });
 

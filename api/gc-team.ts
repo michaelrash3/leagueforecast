@@ -76,12 +76,19 @@ const BODY_PREVIEW_CHARS = 300;
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 /**
- * Imports are bursty by design: the panel pulls a pasted list four teams at a time with retries,
- * so a few hundred requests in a minute is one person doing what the feature is for. This cap
- * stops a runaway loop, not normal use — GameChanger's own limits are the real ceiling, and they
- * come back as "throttled" with a Retry-After the client honours.
+ * This cap is here to stop a runaway loop, and it has to stay well clear of what the feature
+ * actually does or it becomes the thing that breaks it.
+ *
+ * It was set at 240 a minute when the panel pulled four teams at a time. A nationwide list is
+ * thousands of teams pulled eight at a time, which is something like twenty a second — so the
+ * import spent its life tripping this app's own limiter, reported the refusals as failed teams,
+ * and was held to 240 teams a minute whatever else was tuned. That is a cap of half an hour on a
+ * seven-thousand team list, and none of it was GameChanger's doing.
+ *
+ * GameChanger's own limits are the real ceiling. Those come back as "throttled" with a
+ * Retry-After, and the client now holds the whole pull back when it sees one.
  */
-const RATE_LIMIT_MAX_REQUESTS = 240;
+const RATE_LIMIT_MAX_REQUESTS = 3_000;
 
 /** What web.gc.com sends; GameChanger's WAF is happier with a request that looks like the page. */
 const BROWSER_USER_AGENT =
@@ -349,6 +356,57 @@ const sendProbe = (res: ApiResponse, config: UpstreamConfig): void => {
   });
 };
 
+/** Teams one request may ask for. Enough to be worth batching, few enough to finish in time. */
+const MAX_BATCH = 10;
+
+type PulledTeam = { teamId: string; result: GcTeamResponse; retryAfter?: string };
+
+/**
+ * One team's profile and schedule, fetched together. Separated from the request handling so a
+ * batch can run several of these at once and report on each of them independently: one team
+ * GameChanger will not answer for must not cost the other nine in the same request.
+ */
+const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledTeam> => {
+  const [profileResult, gamesResult] = await Promise.all([
+    fetchUpstream(gcProfileApiUrl(teamId, config.base), GC_PROFILE_ACCEPT, config),
+    fetchUpstream(gcGamesApiUrl(teamId, config.base), GC_GAMES_ACCEPT, config),
+  ]);
+
+  const profileFailure = failureFor(profileResult, "profile");
+  if (profileFailure) {
+    return {
+      teamId,
+      result: profileFailure,
+      ...(profileResult.retryAfter ? { retryAfter: profileResult.retryAfter } : {}),
+    };
+  }
+
+  const profile: GcTeamProfile | null = normalizeGcTeamProfile(profileResult.json, teamId);
+  if (!profile) return { teamId, result: unrecognized(profileResult, "profile") };
+
+  // A team with a profile but no schedule endpoint yet (nothing scheduled) is still a team.
+  let games: GcGame[] = [];
+  if (gamesResult.status !== 404) {
+    const gamesFailure = failureFor(gamesResult, "schedule");
+    if (gamesFailure) {
+      return {
+        teamId,
+        result: gamesFailure,
+        ...(gamesResult.retryAfter ? { retryAfter: gamesResult.retryAfter } : {}),
+      };
+    }
+    if (!gcGameListFrom(gamesResult.json)) {
+      return { teamId, result: unrecognized(gamesResult, "schedule") };
+    }
+    games = normalizeGcGames(gamesResult.json);
+  }
+
+  return {
+    teamId,
+    result: { ok: true, schedule: { profile, games, fetchedAt: new Date().toISOString() } },
+  };
+};
+
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -360,6 +418,52 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const url = new URL(typeof req.url === "string" ? req.url : "/", "http://localhost");
   if (url.searchParams.get("probe") === "1") {
     sendProbe(res, config);
+    return;
+  }
+
+  // This app's own throttle, not GameChanger's, so it gets a message saying so.
+  if (isRateLimited(clientKey(req))) {
+    sendError(res, 429, {
+      ok: false,
+      reason: "throttled",
+      message: `Too many GameChanger pulls from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit. Wait a minute and retry.`,
+      status: 429,
+    });
+    return;
+  }
+
+  /*
+   * A list of ids in one request. A browser will only hold a handful of connections open to one
+   * host at a time, so asking for a team per request caps a pull at that handful however many
+   * workers there are. Ten teams to a request lifts the ceiling without changing how much
+   * GameChanger is asked for.
+   */
+  const rawIds = url.searchParams.get("ids");
+  if (rawIds !== null) {
+    const wanted = rawIds
+      .split(",")
+      .map((entry) => parseGcTeamId(entry))
+      .filter((id): id is string => Boolean(id));
+    const unique = Array.from(new Set(wanted)).slice(0, MAX_BATCH);
+    if (unique.length === 0) {
+      sendError(res, 400, {
+        ok: false,
+        reason: "invalid-id",
+        message: "None of those are GameChanger team ids.",
+        status: 400,
+      });
+      return;
+    }
+
+    const pulled = await Promise.all(unique.map((teamId) => pullTeam(teamId, config)));
+    const throttled = pulled.find((entry) => entry.retryAfter);
+    if (throttled?.retryAfter) res.setHeader("retry-after", throttled.retryAfter);
+    // Schedules change whenever a score is entered, so this must never be cached.
+    res.setHeader("cache-control", "no-store");
+    res.status(200).json({
+      ok: true,
+      teams: pulled.map(({ teamId, result }) => ({ teamId, result })),
+    });
     return;
   }
 
@@ -377,60 +481,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     return;
   }
 
-  // This app's own throttle, not GameChanger's, so it gets a message saying so.
-  if (isRateLimited(clientKey(req))) {
-    sendError(res, 429, {
-      ok: false,
-      reason: "throttled",
-      message: `Too many GameChanger pulls from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit. Wait a minute and retry.`,
-      status: 429,
-    });
+  const { result, retryAfter } = await pullTeam(teamId, config);
+  if (!result.ok) {
+    if (retryAfter) res.setHeader("retry-after", retryAfter);
+    sendError(res, result.status ?? 502, result);
     return;
-  }
-
-  const [profileResult, gamesResult] = await Promise.all([
-    fetchUpstream(gcProfileApiUrl(teamId, config.base), GC_PROFILE_ACCEPT, config),
-    fetchUpstream(gcGamesApiUrl(teamId, config.base), GC_GAMES_ACCEPT, config),
-  ]);
-
-  const profileFailure = failureFor(profileResult, "profile");
-  if (profileFailure) {
-    if (profileFailure.reason === "throttled" && profileResult.retryAfter) {
-      res.setHeader("retry-after", profileResult.retryAfter);
-    }
-    sendError(res, profileFailure.status ?? 502, profileFailure);
-    return;
-  }
-
-  const profile: GcTeamProfile | null = normalizeGcTeamProfile(profileResult.json, teamId);
-  if (!profile) {
-    sendError(res, 502, unrecognized(profileResult, "profile"));
-    return;
-  }
-
-  // A team with a profile but no schedule endpoint yet (nothing scheduled) is still a team.
-  let games: GcGame[] = [];
-  if (gamesResult.status !== 404) {
-    const gamesFailure = failureFor(gamesResult, "schedule");
-    if (gamesFailure) {
-      if (gamesFailure.reason === "throttled" && gamesResult.retryAfter) {
-        res.setHeader("retry-after", gamesResult.retryAfter);
-      }
-      sendError(res, gamesFailure.status ?? 502, gamesFailure);
-      return;
-    }
-    if (!gcGameListFrom(gamesResult.json)) {
-      sendError(res, 502, unrecognized(gamesResult, "schedule"));
-      return;
-    }
-    games = normalizeGcGames(gamesResult.json);
   }
 
   // Schedules change whenever a score is entered, so this must never be cached.
   res.setHeader("cache-control", "no-store");
-  const body: GcTeamResponse = {
-    ok: true,
-    schedule: { profile, games, fetchedAt: new Date().toISOString() },
-  };
-  res.status(200).json(body);
+  res.status(200).json(result);
 }

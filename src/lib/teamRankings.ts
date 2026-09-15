@@ -74,6 +74,31 @@ export type ScoutTeam = {
    */
   placeholder?: true;
   /**
+   * A club known only because somebody else's schedule named it as their opponent.
+   *
+   * There is no club behind it yet, only a name and perhaps a picture: no id anybody pulled, no
+   * town, no state, and a record made of whatever fraction of its season happens to face a team
+   * that *was* pulled. Rating that against clubs whose whole schedule is here would put a team
+   * with one recorded win above teams that played thirty games, so it is left out of the tables —
+   * exactly as a bracket slot is, and for the same reason.
+   *
+   * It still stands in the fit as the opponent it was, which is how the game counts for the club
+   * that played it. Pull the club's own id, or add it by hand, and the mark comes off: at that
+   * point it is a team somebody has vouched for, and it is ranked like any other.
+   */
+  nameOnly?: true;
+  /**
+   * The picture a club was listed with by whoever named it as their opponent.
+   *
+   * An opponent has no GameChanger id — a schedule never gives one — so there is no link to hang
+   * its avatar on, and a name is not an identity in a pool holding a dozen clubs called the same
+   * thing. The picture is, and it is the one thing that means the same on two schedules, so it is
+   * kept here: the next schedule to name this club recognises it, and so does the club itself when
+   * its own id is finally pulled. Without it a club named by two schedules becomes two teams and
+   * its games are filed twice.
+   */
+  avatarKey?: string;
+  /**
    * The GameChanger teams this team is known by, one per GameChanger season: GameChanger mints a
    * new team id every season, so a club's Fall and Spring squads arrive as two ids that the user
    * has paired onto one team here. Identity by id is what keeps the country's many "Yankees" apart:
@@ -595,6 +620,49 @@ export const findAgeGroupForSeason = (
 export const createAgeGroupId = (): string =>
   `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
+/**
+ * Puts one League Standings season at an age, making the age group if it is not there yet.
+ *
+ * This is the one thing about age groups nobody can work out for you. The groups themselves arrive
+ * with the GameChanger import — a 9U schedule makes the 9U page — but nothing in a GameChanger
+ * schedule mentions your league, so which page your own league season belongs on is yours to say.
+ *
+ * A season comes off whatever group held it before, because one league season is played at one
+ * age: leaving it on both would count its games twice, once on each table. `null` takes it off
+ * Team Rankings altogether.
+ */
+export const seasonAtAge = (
+  seasonId: string,
+  season: AgeGroupSeason | null,
+  ageGroups: AgeGroup[]
+): { ageGroups: AgeGroup[]; group?: AgeGroup; created: boolean } => {
+  const without = ageGroups.map((group) =>
+    group.seasonIds.includes(seasonId)
+      ? { ...group, seasonIds: group.seasonIds.filter((id) => id !== seasonId) }
+      : group
+  );
+  if (!season) return { ageGroups: without, created: false };
+
+  const existing = findAgeGroupForSeason(season, without);
+  if (existing) {
+    const group = { ...existing, seasonIds: [...existing.seasonIds, seasonId] };
+    return {
+      ageGroups: without.map((current) => (current.id === group.id ? group : current)),
+      group,
+      created: false,
+    };
+  }
+
+  const group: AgeGroup = {
+    id: createAgeGroupId(),
+    name: formatAgeGroupName(season.ageLevel, season.year),
+    ageLevel: season.ageLevel,
+    year: season.year,
+    seasonIds: [seasonId],
+  };
+  return { ageGroups: [...without, group], group, created: true };
+};
+
 // ---------- GameChanger seasons and links ----------
 
 /**
@@ -1031,6 +1099,20 @@ export const matchExistingGame = (
       scoreOf(game, candidate.teamBId) === candidate.teamBScore
     ) {
       rank = 1;
+    } else {
+      /*
+       * Same pair, same day, and two results that contradict each other: a doubleheader, not one
+       * game written down twice. Treating it as one lost the second game whenever the other side's
+       * schedule listed both and this one listed only the first. A start time settles it the same
+       * way, and earlier, when both rows carry one.
+       */
+      const bothScored =
+        candidate.teamAScore !== undefined &&
+        candidate.teamBScore !== undefined &&
+        game.teamAScore !== undefined &&
+        game.teamBScore !== undefined;
+      if (bothScored) continue;
+      if (candidate.startTs && game.startTs && candidate.startTs !== game.startTs) continue;
     }
     if (!best || rank > best.rank) best = { rank, game };
     if (rank === 2) break;
@@ -1150,27 +1232,34 @@ export const buildTeamRankings = (
     { cap: RATING_CAP }
   );
 
-  const rows = teams.map((team): ScoutRankingRow => {
-    const { wins, losses, ties } = recordFor(team.id, playedGames);
-    const gamesPlayed = adjusted.games.get(team.id) ?? 0;
-    return {
-      teamId: team.id,
-      teamName: team.name,
-      isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
-      rank: 0,
-      rating: adjusted.ratings.get(team.id) ?? 0,
-      record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
-      wins,
-      losses,
-      ties,
-      games: gamesPlayed,
-      rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
-      strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
-      sosRank: 0,
-      crossAgeGames: 0,
-      fromGameChanger: hasGcLinks(team),
-    };
-  });
+  const rows = teams
+    /*
+     * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
+     * go in the table: not a slot, which names nobody, and not a club known only from somebody
+     * else's schedule, whose record here is a fraction of a season it would be ranked on.
+     */
+    .filter((team) => !team.placeholder && !team.nameOnly)
+    .map((team): ScoutRankingRow => {
+      const { wins, losses, ties } = recordFor(team.id, playedGames);
+      const gamesPlayed = adjusted.games.get(team.id) ?? 0;
+      return {
+        teamId: team.id,
+        teamName: team.name,
+        isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
+        rank: 0,
+        rating: adjusted.ratings.get(team.id) ?? 0,
+        record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
+        wins,
+        losses,
+        ties,
+        games: gamesPlayed,
+        rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
+        strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
+        sosRank: 0,
+        crossAgeGames: 0,
+        fromGameChanger: hasGcLinks(team),
+      };
+    });
 
   return rankRows(rows);
 };
@@ -1235,8 +1324,12 @@ const buildPooledTeamRankings = (
   };
 
   const rows = nodes
-    // A slot is in the fit as somebody's unknown opponent, but there is no club here to rank.
-    .filter((team) => !team.placeholder && belongsHere(team.id))
+    /*
+     * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
+     * nobody, and a club known only from somebody else's schedule, whose record here is a fraction
+     * of its season and would rank against clubs whose whole season is present.
+     */
+    .filter((team) => !team.placeholder && !team.nameOnly && belongsHere(team.id))
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = recordFor(team.id, ratedGames);
       const crossAgeGames = rated.filter(
@@ -1522,6 +1615,20 @@ export const unlinkGcTeam = (teamId: string, gcTeamId: string, teams: ScoutTeam[
     if (!remaining.length) delete next.gcTeams;
     return next;
   });
+
+/**
+ * Every GameChanger id the pool has already been pulled by.
+ *
+ * A team list grows rather than changes: a few dozen clubs are added to an export of several
+ * thousand, and fetching the whole file again to find them costs the same minutes as the first
+ * run did. What is already here is exactly what carries one of these ids, so this is what the
+ * import panel subtracts to leave the teams it has never seen.
+ */
+export const pulledGcTeamIds = (teams: readonly ScoutTeam[]): Set<string> => {
+  const ids = new Set<string>();
+  teams.forEach((team) => (team.gcTeams ?? []).forEach((link) => ids.add(link.teamId)));
+  return ids;
+};
 
 /** Every game this team has, newest first, across every age group. */
 export const gamesForTeam = (teamId: string, games: ScoutGame[]): ScoutGame[] =>
