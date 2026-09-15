@@ -74,6 +74,13 @@ type ImportIndex = {
   /** Team ids with a game filed on a page, for the "on this page" that name matching needs. */
   teamIdsByGroup: Map<string, Set<string>>;
   /**
+   * Who each team has played. A name on its own cannot say which of the country's many clubs of
+   * that name this is; having met, or having a club in common, can.
+   */
+  opponentsByTeam: Map<string, Set<string>>;
+  /** A team's games on one day, for asking whether an arriving game is one it already has. */
+  gamesByTeamDate: Map<string, ScoutGame[]>;
+  /**
    * The same, keyed by page *and* name. Name matching asks "is there a team called this on this
    * page?", and walking the page's whole roster to answer it is a scan per game — which for a pool
    * where everyone is on one page is the whole pool, per game.
@@ -128,6 +135,8 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     teamsByAvatar: new Map(),
     teamIdsByGroup: new Map(),
     teamIdsByGroupName: new Map(),
+    opponentsByTeam: new Map(),
+    gamesByTeamDate: new Map(),
     poolKeyOf,
     levelOf,
   };
@@ -181,6 +190,13 @@ const noteInPool = (
   else if (!bucket.includes(teamId)) bucket.push(teamId);
 };
 
+/** Records that two teams have met, both ways round. */
+const noteOpponent = (index: ImportIndex, teamId: string, opponentId: string) => {
+  const met = index.opponentsByTeam.get(teamId);
+  if (met) met.add(opponentId);
+  else index.opponentsByTeam.set(teamId, new Set([opponentId]));
+};
+
 const indexGame = (index: ImportIndex, game: ScoutGame) => {
   index.gamesById.set(game.id, game);
   push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
@@ -188,6 +204,12 @@ const indexGame = (index: ImportIndex, game: ScoutGame) => {
   onPage.add(game.teamAId);
   onPage.add(game.teamBId);
   index.teamIdsByGroup.set(game.ageGroupId, onPage);
+  noteOpponent(index, game.teamAId, game.teamBId);
+  noteOpponent(index, game.teamBId, game.teamAId);
+  if (game.date) {
+    push(index.gamesByTeamDate, `${game.teamAId}\u0000${game.date}`, game);
+    push(index.gamesByTeamDate, `${game.teamBId}\u0000${game.date}`, game);
+  }
   // A side's level is what the game recorded for it, falling back to the page it is filed under.
   const pageLevel = index.levelOf(game.ageGroupId);
   noteInPool(index, game.ageGroupId, game.teamAId, game.ageLevelA ?? pageLevel);
@@ -291,10 +313,34 @@ export type GcSeasonPairing = {
   toTeamId: string;
   toTeamName: string;
   toSeason: string;
-  /** Why these two are being offered, in the order the evidence was found. */
-  basis: "avatar" | "name";
-  /** Same picture and same name is as strong as this gets; either alone is weaker. */
+  /**
+   * What says these are one club, beyond the name. Never empty: a shared name alone is not
+   * evidence, because the country is full of clubs that share one.
+   */
+  evidence: GcPairingEvidence[];
+  /** Whether the name matches too, which is corroboration rather than the case on its own. */
+  sameName: boolean;
+  /** A picture, or a name plus a place they both give, is as strong as this gets. */
   confidence: "strong" | "likely";
+};
+
+/** The things that are not coincidences when two GameChanger teams are the same club. */
+export type GcPairingEvidence =
+  /** The same badge. GameChanger keeps a club's picture across seasons; nobody else has it. */
+  | "avatar"
+  /** Both give the same town. */
+  | "city"
+  /** Both give the same state. */
+  | "state"
+  /** They played a club in common. */
+  | "shared-opponent";
+
+/** What the panel calls each piece of evidence. */
+export const GC_PAIRING_EVIDENCE_LABEL: Record<GcPairingEvidence, string> = {
+  avatar: "same picture",
+  city: "same town",
+  state: "same state",
+  "shared-opponent": "a club in common",
 };
 
 /** Seasons in the order a squad plays them, so "the next one" has a meaning. */
@@ -445,6 +491,63 @@ type OpponentMatch = {
 };
 
 /**
+ * Whether anything beyond a shared name says these two are the same club.
+ *
+ * A name is not an identity. A nationwide pool holds twenty clubs called the Yankees and a dozen
+ * Trash Pandas, and at one age level in one season year there can easily be two — so a bare name
+ * match is a coin toss dressed up as a fact. These are the things that are not coincidences: two
+ * clubs that have played each other, two that have a club in common, and two that give the same
+ * town or state.
+ *
+ * Where none of them holds, the importer makes a separate team instead. That leaves duplicates,
+ * which is the cheaper mistake by a distance: a duplicate is visible in the table and can be
+ * folded together in a few seconds, while a wrong merge silently pools two clubs' results into one
+ * rating and leaves nothing behind to notice.
+ */
+const corroborates = (
+  index: ImportIndex,
+  ownTeamId: string,
+  candidateId: string,
+  game: GcGame
+): boolean => {
+  /**
+   * The strongest of the lot, and the one that makes a bracket work: the club of that name already
+   * has a game on this day that this could be — against this very team, or against a placeholder
+   * that nobody has named yet. Two schedules describing one fixture is not a coincidence. Where
+   * both give a start time they have to agree on it, so the two halves of a doubleheader cannot
+   * stand in for each other.
+   */
+  if (game.date) {
+    const sameDay = index.gamesByTeamDate.get(`${candidateId}\u0000${game.date}`) ?? [];
+    const couldBeThisGame = sameDay.some((existing) => {
+      if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
+      const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
+      return other === ownTeamId || index.teamsById.get(other)?.placeholder === true;
+    });
+    if (couldBeThisGame) return true;
+  }
+
+  const met = index.opponentsByTeam.get(candidateId);
+  // They have played each other, so the club on the other side of that game is this one.
+  if (met?.has(ownTeamId)) return true;
+
+  const ours = index.opponentsByTeam.get(ownTeamId);
+  if (ours && met) {
+    for (const opponent of met) {
+      if (ours.has(opponent)) return true;
+    }
+  }
+
+  const own = index.teamsById.get(ownTeamId);
+  const candidate = index.teamsById.get(candidateId);
+  if (!own || !candidate) return false;
+  if (own.city && candidate.city && own.city.toLowerCase() === candidate.city.toLowerCase()) {
+    return true;
+  }
+  return Boolean(own.state && candidate.state && own.state === candidate.state);
+};
+
+/**
  * The team an opponent name refers to. The avatar first, because it is the only identifier
  * GameChanger gives that means the same thing on two different schedules. Failing that, a name —
  * but only among teams already on this page, since a name on its own says nothing across levels or
@@ -454,7 +557,8 @@ const resolveOpponent = (
   game: GcGame,
   ageGroupId: string,
   teams: ScoutTeam[],
-  index: ImportIndex
+  index: ImportIndex,
+  ownTeamId: string
 ): OpponentMatch => {
   /**
    * "TBD", "Winner of Game 3", a blank cell on a bracket: a name that stands in for a team nobody
@@ -483,8 +587,9 @@ const resolveOpponent = (
   const sameName =
     index.teamIdsByGroupName.get(nameSlotKey(index.poolKeyOf(ageGroupId), key, theirLevel)) ?? [];
   // More than one team of that name at that level says nothing about which this is.
-  if (sameName.length === 1 && sameName[0]) {
-    return { teamId: sameName[0], basis: "name" };
+  const only = sameName.length === 1 ? sameName[0] : undefined;
+  if (only && corroborates(index, ownTeamId, only, game)) {
+    return { teamId: only, basis: "name" };
   }
 
   const created = buildScoutTeam(game.opponentName, index.usedTeamIds, {});
@@ -627,7 +732,7 @@ const importOne = (
 
     let opponentId = knownOpponentId;
     if (opponentId === undefined) {
-      const opponent = resolveOpponent(game, group.id, teams, index);
+      const opponent = resolveOpponent(game, group.id, teams, index, own.teamId);
       opponentId = opponent.teamId;
       if (opponent.basis === "created") outcome.opponentsCreated += 1;
       else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
@@ -835,10 +940,35 @@ export const resolveSlotGames = (
  * Teams already paired onto one entry are not offered again, since they are the same team here
  * already.
  */
-export const proposeSeasonPairings = (teams: ScoutTeam[]): GcSeasonPairing[] => {
-  const pairings: GcSeasonPairing[] = [];
+export const proposeSeasonPairings = (
+  teams: ScoutTeam[],
+  games: readonly ScoutGame[] = []
+): GcSeasonPairing[] => {
   const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
+  if (linked.length === 0) return [];
 
+  /** Who each team has played, so "a club in common" can be asked without scanning the games. */
+  const opponents = new Map<string, Set<string>>();
+  const note = (teamId: string, opponentId: string) => {
+    const met = opponents.get(teamId);
+    if (met) met.add(opponentId);
+    else opponents.set(teamId, new Set([opponentId]));
+  };
+  games.forEach((game) => {
+    note(game.teamAId, game.teamBId);
+    note(game.teamBId, game.teamAId);
+  });
+  const shareAnOpponent = (a: string, b: string): boolean => {
+    const mine = opponents.get(a);
+    const theirs = opponents.get(b);
+    if (!mine || !theirs) return false;
+    for (const opponent of mine) {
+      if (theirs.has(opponent)) return true;
+    }
+    return false;
+  };
+
+  const candidates: GcSeasonPairing[] = [];
   for (const from of linked) {
     for (const to of linked) {
       if (from.team.id === to.team.id) continue;
@@ -846,26 +976,54 @@ export const proposeSeasonPairings = (teams: ScoutTeam[]): GcSeasonPairing[] => 
       // A level apart is an age-up, not the same squad carrying on through a season.
       if (from.link.ageLevel !== to.link.ageLevel) continue;
 
-      const sameAvatar = Boolean(from.link.avatarKey && from.link.avatarKey === to.link.avatarKey);
       const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
-      if (!sameAvatar && !sameName) continue;
+      const evidence: GcPairingEvidence[] = [];
+      if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
+      const city = from.team.city?.toLowerCase();
+      if (city && city === to.team.city?.toLowerCase()) evidence.push("city");
+      if (from.team.state && from.team.state === to.team.state) evidence.push("state");
+      if (shareAnOpponent(from.team.id, to.team.id)) evidence.push("shared-opponent");
 
-      pairings.push({
+      /**
+       * A shared name is not enough on its own, and this is where that used to be the whole test.
+       * A pool pulled from a nationwide list holds dozens of clubs called the same thing, so a
+       * name-only rule offered a page of pairings that were mostly wrong, which is worse than
+       * offering none: read enough of them and they all start looking approvable.
+       */
+      if (evidence.length === 0) continue;
+      if (!sameName && !evidence.includes("avatar")) continue;
+
+      candidates.push({
         fromTeamId: from.team.id,
         fromTeamName: from.team.name,
         fromSeason: gcSeasonLabel(from.link) || "an unlabelled season",
         toTeamId: to.team.id,
         toTeamName: to.team.name,
         toSeason: gcSeasonLabel(to.link) || "an unlabelled season",
-        basis: sameAvatar ? "avatar" : "name",
-        confidence: sameAvatar && sameName ? "strong" : "likely",
+        evidence,
+        sameName,
+        confidence:
+          evidence.includes("avatar") || (sameName && evidence.length > 1) ? "strong" : "likely",
       });
     }
   }
 
-  // Strongest first, so the ones worth approving in bulk are together at the top.
-  return pairings.sort((a, b) =>
-    a.confidence === b.confidence ? 0 : a.confidence === "strong" ? -1 : 1
+  /**
+   * A squad carries on into exactly one next season. Where two clubs both qualify as the one this
+   * team became, neither is offered: the whole point of asking is that the answer is not obvious,
+   * and a list that offers both invites picking whichever was read first.
+   */
+  const outgoing = new Map<string, number>();
+  candidates.forEach((pairing) => {
+    const key = `${pairing.fromTeamId}\u0000${pairing.toSeason}`;
+    outgoing.set(key, (outgoing.get(key) ?? 0) + 1);
+  });
+
+  return (
+    candidates
+      .filter((pairing) => outgoing.get(`${pairing.fromTeamId}\u0000${pairing.toSeason}`) === 1)
+      // Strongest first, so the ones worth approving in bulk are together at the top.
+      .sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === "strong" ? -1 : 1))
   );
 };
 

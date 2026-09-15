@@ -3,6 +3,7 @@ import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   importGcSchedule,
+  GC_PAIRING_EVIDENCE_LABEL,
   proposeSeasonPairings,
   resolveSlotGames,
   summarizeGcImport,
@@ -289,7 +290,7 @@ export function GameChangerImportPanel({
       ),
       canRetry: finished ? retryableIds(finished).length > 0 : false,
     });
-    setPairings(proposeSeasonPairings(poolRef.current.teams));
+    setPairings(proposeSeasonPairings(poolRef.current.teams, poolRef.current.games));
     setApproved(new Set());
     setStage("review");
     syncStats();
@@ -657,7 +658,10 @@ export function GameChangerImportPanel({
                         <span
                           className={pill(pairing.confidence === "strong" ? "emerald" : "amber")}
                         >
-                          {pairing.basis === "avatar" ? "same picture" : "same name"}
+                          {[
+                            ...(pairing.sameName ? ["same name"] : []),
+                            ...pairing.evidence.map((item) => GC_PAIRING_EVIDENCE_LABEL[item]),
+                          ].join(" · ")}
                         </span>
                       </label>
                     </li>
