@@ -41,6 +41,7 @@ import {
   gcImportProblemsCsv,
   type GcImportProblem,
 } from "../lib/gameChangerReport";
+import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
 import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
@@ -197,6 +198,29 @@ export function GameChangerImportPanel({
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
+
+  /**
+   * The GameChanger pages that may not be teams, and which are worth asking about again.
+   *
+   * It takes nine to field a side, and roughly one page in thirty-six has fewer — a page somebody
+   * made and did not finish, or a squad still being assembled. None are thrown away, because a
+   * squad of six in September is twelve in October and the roster count is the only thing that
+   * ever says which. They are simply asked about again, a fortnight later.
+   */
+  const rosterWatch = useMemo(
+    () =>
+      rosterWatchList(
+        pool.teams.flatMap((team) =>
+          (team.gcTeams ?? []).map((link) => ({
+            teamId: link.teamId,
+            ...(link.playerCount === undefined ? {} : { playerCount: link.playerCount }),
+            ...(link.countedAt ? { countedAt: link.countedAt } : {}),
+          }))
+        )
+      ),
+    [pool.teams]
+  );
+  const rosterDue = rosterWatch.filter((entry) => entry.due);
 
   /** Copies the counts out of the live cursor so React has something it can see change. */
   const syncStats = () => {
@@ -385,6 +409,27 @@ export function GameChangerImportPanel({
     syncStats();
   };
 
+  /**
+   * Pulls the under-strength pages again, and nothing else.
+   *
+   * Its own button rather than part of the rota: these are a few hundred pages at most and the
+   * question about them is different from keeping a schedule current. A page whose roster has
+   * grown past nine comes back from this as an ordinary team, and one that has not is asked about
+   * again in another fortnight.
+   */
+  const recheckRosters = () => {
+    if (rosterDue.length === 0) return;
+    const progress = startPull(
+      rosterDue.map((entry) => entry.teamId),
+      nowIso(),
+      null
+    );
+    onSaveProgress(progress);
+    // Not a rota run, so nothing is marked refreshed when it finishes.
+    dueLevelsRef.current = [];
+    void run(remainingIds(progress), progress);
+  };
+
   const runDue = () => {
     if (due.teamIds.length === 0) return;
     const progress = startPull(due.teamIds, nowIso(), null);
@@ -536,6 +581,36 @@ export function GameChangerImportPanel({
               </button>
             )}
           </div>
+
+          {rosterWatch.length > 0 && (
+            <div className="mb-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+              <p className="font-bold text-slate-950 dark:text-white">
+                {rosterWatch.length} page{rosterWatch.length === 1 ? "" : "s"} may not be a team yet
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                It takes {MIN_REAL_ROSTER} players to field a side, and{" "}
+                {rosterWatch.length === 1 ? "this one has" : "these have"} fewer — a page somebody
+                made and did not finish, or a squad still being assembled. Nothing is thrown away: a
+                squad of six in September is twelve in October, and the roster count is the only
+                thing that says which.
+              </p>
+              {rosterDue.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={recheckRosters}
+                  className={`${button.ghost} mt-3 text-sm`}
+                >
+                  Check{" "}
+                  {rosterDue.length === rosterWatch.length ? "them" : `${rosterDue.length} of them`}{" "}
+                  again
+                </button>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">
+                  All counted recently. They come round again in a fortnight.
+                </p>
+              )}
+            </div>
+          )}
 
           {resumable.length > 0 && (
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/70 dark:bg-amber-950/40">
