@@ -10,12 +10,14 @@ import {
   loadAgeGroups,
   loadPullProgress,
   loadRefreshLog,
+  loadTidyStamp,
   loadScoutGames,
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
   savePullProgress,
   saveRefreshLog,
+  saveTidyStamp,
   saveScoutGames,
   saveScoutTeams,
   type PoolStoreIo,
@@ -333,5 +335,13 @@ describe("healing a pool saved before placeholders were understood", () => {
     expect(loaded.find((team) => team.id === "S-TBD1")!.placeholder).toBe(true);
     // A real club is untouched, and gains no flag it did not have.
     expect(loaded.find((team) => team.id === "S-ACES")).toEqual({ id: "S-ACES", name: "Aces" });
+  });
+});
+
+describe("the tidy stamp", () => {
+  it("remembers the shape of the pool the tidy last saw", () => {
+    expect(loadTidyStamp()).toBeNull();
+    expect(saveTidyStamp("1|2|3|2026-09-15T18:02:58.539Z")).toBe(true);
+    expect(loadTidyStamp()).toBe("1|2|3|2026-09-15T18:02:58.539Z");
   });
 });

@@ -7,17 +7,16 @@ import { pill } from "../../styles/tokens";
  */
 export const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
-/** A ranked list: place, team, its state when that adds something, record and rating. */
+/** A ranked list: place, team, where it is from, record and rating. */
 export function RankingList({
   rows,
   onOpen,
-  stateOf,
-  showState = false,
+  placeOf,
 }: {
   rows: ScoutRankingRow[];
   onOpen: (teamId: string) => void;
-  stateOf: (teamId: string) => string | undefined;
-  showState?: boolean;
+  /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
+  placeOf: (teamId: string) => string | undefined;
 }) {
   return (
     <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -39,8 +38,10 @@ export function RankingList({
               {row.teamName}
               {row.isMine ? " ★" : ""}
             </button>
-            {showState && stateOf(row.teamId) && (
-              <span className="shrink-0 text-xs text-slate-500">{stateOf(row.teamId)}</span>
+            {placeOf(row.teamId) && (
+              <span className="shrink-0 truncate text-xs text-slate-500">
+                {placeOf(row.teamId)}
+              </span>
             )}
           </span>
           <span className="shrink-0 text-slate-500">

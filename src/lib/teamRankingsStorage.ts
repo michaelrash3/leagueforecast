@@ -29,6 +29,8 @@ const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
 /** When each age level last had its turn in the weekly rotation. */
 const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
+/** The shape of the pool the last time it was tidied, so a load can tell whether it needs to be. */
+const GC_TIDY_KEY = "league_forecast_gc_tidy_v1";
 /**
  * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
  * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is
@@ -157,7 +159,7 @@ const parseJson = (raw: string | null): unknown => {
 };
 
 /** The keys the pool is made of. The cursor rides along; it is small and belongs with them. */
-const POOL_KEYS = [TEAMS_KEY, GAMES_KEY, AGE_GROUPS_KEY, GC_PULL_KEY, GC_REFRESH_KEY];
+const POOL_KEYS = [TEAMS_KEY, GAMES_KEY, AGE_GROUPS_KEY, GC_PULL_KEY, GC_REFRESH_KEY, GC_TIDY_KEY];
 
 /**
  * A stored value. From the cache once the store has been opened, and straight off `localStorage`
@@ -509,3 +511,15 @@ export const loadRefreshLog = (): RefreshLog => {
 };
 
 export const saveRefreshLog = (log: RefreshLog): boolean => writeValue(GC_REFRESH_KEY, log);
+
+/**
+ * The pool as it stood when it was last tidied (`poolSignature`). The tidy runs at the end of
+ * every pull; this is how the app knows, on opening, whether the pool has changed since — a
+ * restored backup, a pull that was closed mid-tidy, a pool from before the tidy existed — and
+ * runs it again unasked.
+ */
+export const loadTidyStamp = (): string | null => {
+  const raw = readValue(GC_TIDY_KEY);
+  return isString(raw) ? raw : null;
+};
+export const saveTidyStamp = (stamp: string): boolean => writeValue(GC_TIDY_KEY, stamp);

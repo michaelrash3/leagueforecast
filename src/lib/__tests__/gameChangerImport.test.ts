@@ -6,6 +6,9 @@ import {
   createGcImporter,
   mergeSameSquadIds,
   importGcSchedule,
+  describeTidy,
+  poolSignature,
+  refileStandIns,
   resolveSlotGames,
   tidyPool,
   importGcSchedules,
@@ -894,19 +897,124 @@ describe("one squad holding several GameChanger ids", () => {
     ).state;
 
     const tidy = tidyPool(pool);
-    const yeager = tidy.state.teams.filter((team) => team.name === "Yeager Davis");
-    expect(yeager).toHaveLength(1);
-    expect(yeager[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
-      "gcYEAGSPRG10",
-      "gcYEAGSPRG20",
-    ]);
-    const raptors = tidy.state.teams.find((team) => team.name === "River City Raptors");
-    const between = tidy.state.games.filter(
-      (game) =>
-        [game.teamAId, game.teamBId].includes(raptors!.id) &&
-        [game.teamAId, game.teamBId].includes(yeager[0]!.id)
+    // The Raptors' row was attached by name to the id that adopted the stand-in; the third id's
+    // own schedule holds the game, so the row moves there and the two copies become one. The
+    // empty id is not folded on an opponent's row — only its own schedule could prove it.
+    expect(tidy.reclaimed).toBe(1);
+    const raptors = tidy.state.teams.find((team) => team.name === "River City Raptors")!;
+    const between = tidy.state.games.filter((game) =>
+      [game.teamAId, game.teamBId].includes(raptors.id)
     );
     expect(between).toHaveLength(1);
+    const holder = tidy.state.teams.find(
+      (team) =>
+        [between[0]!.teamAId, between[0]!.teamBId].includes(team.id) && team.id !== raptors.id
+    );
+    expect(holder?.gcTeams?.map((link) => link.teamId)).toEqual(["gcYEAGSPRG20"]);
+  });
+
+  it("does not fold two ids on a fixture that only an opponent's schedule filed", () => {
+    // Chico Aces (CA) and Pansey Aces (AL): the Sandlot Syndicate's schedule named "Aces" and
+    // the row landed on the wrong one. That row proves nothing about the two Aces being one.
+    const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+      id,
+      date,
+      opponentName,
+      status: "completed" as const,
+      teamScore: a,
+      opponentScore: b,
+    });
+    let pool = importGcSchedule(
+      {
+        profile: { id: "gcACESCHICO0", name: "Aces 10U", ageLevel: 10, season: fall, state: "CA" },
+        games: [played("c1", "Chico Nuts 10U", "2026-09-05", 4, 1)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcSANDLOT000",
+          name: "Sandlot Syndicate 10U",
+          ageLevel: 10,
+          season: fall,
+          state: "AL",
+        },
+        games: [played("s1", "Aces 10U", "2026-09-12", 3, 5)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: { id: "gcACESPANSEY", name: "ACES 10U", ageLevel: 10, season: fall, state: "AL" },
+        games: [played("p1", "Sandlot Syndicate 10U", "2026-09-12", 5, 3)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    const tidy = tidyPool(pool);
+    expect(tidy.folded).toBe(0);
+    const aces = tidy.state.teams.filter((team) => team.name.toLowerCase() === "aces");
+    expect(aces).toHaveLength(2);
+    // And the Sandlot row went to the Aces whose schedule holds it.
+    const pansey = aces.find((team) => team.gcTeams?.[0]?.teamId === "gcACESPANSEY")!;
+    const sandlot = tidy.state.teams.find((team) => team.name === "Sandlot Syndicate")!;
+    const rows = tidy.state.games.filter((game) =>
+      [game.teamAId, game.teamBId].includes(sandlot.id)
+    );
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.teamAId, rows[0]!.teamBId]).toContain(pansey.id);
+  });
+
+  it("does not fold a club's two squads told apart by a parenthetical, nor two levels", () => {
+    const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+      id,
+      date,
+      opponentName,
+      status: "completed" as const,
+      teamScore: a,
+      opponentScore: b,
+    });
+    // Both Heat squads really did play the Outlaws 6-2 on the same day (two fields, one club).
+    let pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcHEATEALEY0",
+          name: "Heat 9U (Ealey)",
+          ageLevel: 9,
+          season: fall,
+          state: "CA",
+        },
+        games: [played("e1", "Outlaws 9U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcHEATCAMPAN",
+          name: "Heat 9U (Campana)",
+          ageLevel: 9,
+          season: fall,
+          state: "CA",
+        },
+        games: [played("k1", "Outlaws 9U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: { id: "gcHEAT10U000", name: "Heat 10U", ageLevel: 10, season: fall, state: "CA" },
+        games: [played("t1", "Outlaws 10U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    expect(mergeSameSquadIds(pool).merged).toBe(0);
   });
 
   it("leaves two clubs of one name that never shared a game", () => {
@@ -1116,15 +1224,31 @@ describe("proposeSeasonPairings", () => {
   });
 
   it("puts the strongest evidence first", () => {
-    const pairings = proposeSeasonPairings([
-      // The name and a shared state: worth offering, not worth calling certain.
-      { ...withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }), state: "KY" },
-      { ...withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }), state: "KY" },
-      withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
-      withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
-    ]);
+    const pairings = proposeSeasonPairings(
+      [
+        // The name and a pulled club they both played: worth offering, not worth calling certain.
+        withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }),
+        withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }),
+        withLinks("rival", "Trash Pandas", { season: "fall", seasonYear: 2026 }),
+        withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
+        withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
+      ],
+      [
+        { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
+        { id: "g2", teamAId: "a2", teamBId: "rival", ageGroupId: "ag1" },
+      ]
+    );
     expect(pairings[0]?.confidence).toBe("strong");
     expect(pairings[pairings.length - 1]?.confidence).toBe("likely");
+  });
+
+  it("does not offer two clubs on a shared name and state alone", () => {
+    // Every rec league in a state has a Yankees; a state is not where a club is from.
+    const pairings = proposeSeasonPairings([
+      { ...withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }), state: "KY" },
+      { ...withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }), state: "KY" },
+    ]);
+    expect(pairings).toEqual([]);
   });
 
   it("does not offer two clubs that only share a name", () => {
@@ -1138,11 +1262,11 @@ describe("proposeSeasonPairings", () => {
     ).toEqual([]);
   });
 
-  it("offers a shared name backed by a club they both played", () => {
+  it("offers a shared name backed by a pulled club they both played", () => {
     const teams = [
       withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }),
       withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }),
-      { id: "rival", name: "Trash Pandas" },
+      withLinks("rival", "Trash Pandas", { season: "fall", seasonYear: 2026 }),
     ];
     const games: ScoutGame[] = [
       { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
@@ -1151,6 +1275,20 @@ describe("proposeSeasonPairings", () => {
     const pairings = proposeSeasonPairings(teams, games);
     expect(pairings).toHaveLength(1);
     expect(pairings[0]!.evidence).toEqual(["shared-opponent"]);
+  });
+
+  it("does not count a stand-in as a club in common", () => {
+    // Two Warriors that both list a "Briarcliffe Blazers" nobody pulled have not met anyone.
+    const teams = [
+      withLinks("a1", "Warriors", { season: "fall", seasonYear: 2026 }),
+      withLinks("a2", "Warriors", { season: "spring", seasonYear: 2027 }),
+      { id: "stub", name: "Briarcliffe Blazers", nameOnly: true as const },
+    ];
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "a1", teamBId: "stub", ageGroupId: "ag1" },
+      { id: "g2", teamAId: "a2", teamBId: "stub", ageGroupId: "ag1" },
+    ];
+    expect(proposeSeasonPairings(teams, games)).toEqual([]);
   });
 
   it("offers neither when two clubs could both be what this squad became", () => {
@@ -1545,12 +1683,96 @@ describe("resolveSlotGames", () => {
     expect(resolved).toBe(1);
   });
 
-  it("will not join two games of a doubleheader that kicked off at different times", () => {
+  it("lets a mirrored result settle a slot even when the two schedules disagree on the time", () => {
+    // One game on each schedule that day, the same 7-3 from each side, typed at 6:00 by one coach
+    // and 8:30 by the other. That is one game; a thousand of them stood unsettled on the time.
     const { state, resolved } = resolveSlotGames(
       bothSides({ slotTime: "2026-09-05T18:00:00.000Z", namedTime: "2026-09-05T20:30:00.000Z" })
     );
+    expect(resolved).toBe(1);
+    expect(state.games).toHaveLength(1);
+  });
+
+  it("never folds a slot into a named row whose result contradicts it", () => {
+    // Aces beat TBD 7-3; Bears say they beat Aces 9-2 that day. Two games, whatever the count.
+    let state = bothSides({});
+    state = {
+      ...state,
+      games: state.games.map((game) =>
+        game.source?.teamId === "gcB" ? { ...game, teamAScore: 9, teamBScore: 2 } : game
+      ),
+    };
+    const { state: after, resolved } = resolveSlotGames(state);
     expect(resolved).toBe(0);
-    expect(state.games).toHaveLength(2);
+    expect(after.games).toHaveLength(2);
+  });
+
+  it("gives a doubleheader's mirrored row to the slot whose time matches", () => {
+    // Aces list two "TBD"s that day, both 7-3, at 6:00 and 8:30; Bears list one game vs Aces,
+    // 3-7 at 8:30. The 8:30 slot is the Bears game; the 6:00 one stays a slot.
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            startTs: "2026-09-05T18:00:00.000Z",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+          {
+            id: "a2",
+            date: "2026-09-05",
+            startTs: "2026-09-05T20:30:00.000Z",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcB",
+          name: "Bears 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "b1",
+            date: "2026-09-05",
+            startTs: "2026-09-05T20:30:00.000Z",
+            opponentName: "Aces 9U",
+            teamScore: 3,
+            opponentScore: 7,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    const { state: after, resolved } = resolveSlotGames(state);
+    expect(resolved).toBe(1);
+    const slots = after.games.filter(
+      (game) => after.teams.find((t) => t.id === game.teamBId)?.placeholder
+    );
+    expect(slots).toHaveLength(1);
+    expect(slots[0]?.startTs).toBe("2026-09-05T18:00:00.000Z");
   });
 
   it("leaves a slot alone when the club's own schedule is the only evidence", () => {
@@ -1702,11 +1924,13 @@ describe("settled pairings", () => {
     ]);
     expect(three && isSettledPairing(three)).toBe(true);
 
-    const [stateOnly] = proposeSeasonPairings([
-      squad("f", "Mustangs", "fall", 2026, { state: "OH" }),
-      squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
-    ]);
-    expect(stateOnly && isSettledPairing(stateOnly)).toBe(false);
+    // Same name and same state is not even an offer, let alone settled.
+    expect(
+      proposeSeasonPairings([
+        squad("f", "Mustangs", "fall", 2026, { state: "OH" }),
+        squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
+      ])
+    ).toEqual([]);
   });
 
   it("pairs the settled ones on its own and leaves the rest for the user", () => {
@@ -1722,8 +1946,10 @@ describe("settled pairings", () => {
     expect(out.state.teams.map((team) => team.id).sort()).toEqual(["bs", "mf", "ms"]);
     const butler = out.state.teams.find((team) => team.id === "bs");
     expect(butler?.gcTeams?.map((link) => link.teamId).sort()).toEqual(["gc-bf", "gc-bs"]);
-    // The Mustangs are still offered, not applied.
-    expect(proposeSeasonPairings(out.state.teams).map((p) => p.fromTeamId)).toEqual(["mf"]);
+    // The Mustangs — same name, same state, no town in common — are neither applied nor
+    // offered: every rec league in Ohio has a Mustangs.
+    expect(proposeSeasonPairings(out.state.teams)).toEqual([]);
+    expect(out.state.teams.filter((team) => team.name === "Mustangs")).toHaveLength(2);
   });
 
   it("follows a chain, so Fall, Winter and Spring end as one team whatever the order", () => {
@@ -1755,7 +1981,8 @@ describe("settled pairings", () => {
       squad("f", "Mustangs", "fall", 2026, { city: "Mason", state: "OH" }),
       squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
       { id: "a", name: "Aces" },
-      { id: "b", name: "Bandits" },
+      // A pulled club both Mustangs played is what makes this an offer at all.
+      squad("b", "Bandits", "fall", 2026, { city: "Lebanon", state: "OH" }),
       { id: "c", name: "Cubs" },
     ];
     const games = [
@@ -1775,5 +2002,436 @@ describe("settled pairings", () => {
     expect(side?.from.opponents).toEqual(["Aces", "Bandits"]);
     expect(side?.to.opponents).toEqual(["Bandits", "Cubs"]);
     expect(side?.to.city).toBeUndefined();
+  });
+});
+
+describe("the squad year window", () => {
+  const fall = { season: "fall" as const, year: 2026 };
+  const played = (id: string, opponentName: string, date: string) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: 5,
+    opponentScore: 2,
+  });
+
+  it("leaves out a game dated before August 1 of the year the squad year starts", () => {
+    // A Fall 2026 id is squad year 2027, which began on 2026-08-01. May 2026 was last year's squad.
+    const { state, outcome } = importGcSchedule(
+      {
+        profile: { id: "gcWARRIORS0", name: "Alaska Warriors 11U", ageLevel: 11, season: fall },
+        games: [
+          played("g1", "Placer Grit 11U", "2026-05-02"),
+          played("g2", "North Star Vikings 11U", "2026-08-01"),
+          played("g3", "Last Autumn 11U", "2025-09-07"),
+        ],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    expect(outcome.gamesOutOfSeason).toBe(2);
+    expect(outcome.gamesAdded).toBe(1);
+    expect(state.games.map((game) => game.date)).toEqual(["2026-08-01"]);
+    // The clubs it played before the season are not minted as opponents either.
+    expect(state.teams.map((team) => team.name).sort()).toEqual([
+      "Alaska Warriors",
+      "North Star Vikings",
+    ]);
+  });
+
+  it("prunes an existing pool the same way, and the tidy reports it", () => {
+    const { state } = importGcSchedule(
+      {
+        profile: { id: "gcCARDS00000", name: "Alabama Cardinals 10U", ageLevel: 10, season: fall },
+        games: [played("g1", "OM Fire Hawks 10U", "2026-08-22")],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    // A row filed before the rule existed.
+    const stale = {
+      ...state,
+      games: [...state.games, { ...state.games[0]!, id: "old", date: "2025-09-07" }],
+    };
+    const tidy = tidyPool(stale);
+    expect(tidy.pruned).toBe(1);
+    expect(tidy.state.games.map((game) => game.date)).toEqual(["2026-08-22"]);
+    expect(describeTidy(tidy)[0]).toContain("dated before the season began (August 1)");
+  });
+
+  it("skips a team GameChanger lists above the oldest level ranked here", () => {
+    const { state, outcome } = importGcSchedule(
+      {
+        profile: {
+          id: "gcLEGION0000",
+          name: "Wentzville Legion AAA 19U",
+          ageLevel: 19,
+          season: fall,
+        },
+        games: [played("g1", "Somebody 19U", "2026-08-22")],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    expect(outcome.issue).toContain("above the oldest level");
+    expect(state.ageGroups).toHaveLength(0);
+    expect(state.teams).toHaveLength(0);
+  });
+});
+
+describe("tidy until dry", () => {
+  it("keeps going while a pass changes something, and says how many it took", () => {
+    const tidy = tidyPool(empty);
+    expect(tidy.passes).toBe(1);
+    expect(tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned).toBe(0);
+  });
+});
+
+describe("poolSignature", () => {
+  it("changes when a pull, a restore or a tidy changes the pool, and not otherwise", () => {
+    const { state } = importGcSchedule(
+      {
+        profile: {
+          id: "gcSIGN000000",
+          name: "Signers 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "g1",
+            date: "2026-09-05",
+            opponentName: "Others 9U",
+            status: "completed",
+            teamScore: 1,
+            opponentScore: 0,
+          },
+        ],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    const before = poolSignature(state);
+    expect(before).toBe(`1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
+    expect(poolSignature({ ...state, games: [] })).not.toBe(before);
+    expect(poolSignature(empty)).toBe("0|0|0|");
+  });
+});
+
+describe("who a name belongs to: level, state and the game", () => {
+  const fall = { season: "fall" as const, year: 2026 };
+  const played = (
+    id: string,
+    opponentName: string,
+    date: string,
+    a: number,
+    b: number,
+    startTs?: string
+  ) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: a,
+    opponentScore: b,
+    ...(startTs ? { startTs } : {}),
+  });
+  const club = (
+    id: string,
+    name: string,
+    ageLevel: number,
+    state: string,
+    games: ReturnType<typeof played>[],
+    city?: string
+  ): GcTeamSchedule => ({
+    profile: { id, name, ageLevel, season: fall, state, ...(city ? { city } : {}) },
+    games,
+    fetchedAt: "2026-09-15T12:00:00.000Z",
+  });
+  const fold = (schedules: GcTeamSchedule[]): GcImportState => {
+    const importer = createGcImporter(empty);
+    schedules.forEach((schedule) => importer.add(schedule));
+    return importer.state;
+  };
+  const named = (state: GcImportState, name: string) =>
+    state.teams.filter((team) => team.name === name);
+
+  it("adopts the stand-in at its own level when the name has stand-ins at several", () => {
+    // Two FL schedules name JCB Diamond Kings Elite, one at 9U and one at 10U, before the 9U club
+    // is pulled. The 9U club is the 9U stand-in; the 10U one is its older squad.
+    const pool = fold([
+      club("gcFLA9000000", "Boca Pirates 9U", 9, "FL", [
+        played("a1", "JCB Diamond Kings Elite 9U", "2026-09-05", 2, 6),
+      ]),
+      club("gcFLB1000000", "Wellington Wolves 10U", 10, "FL", [
+        played("b1", "JCB Diamond Kings Elite 10U", "2026-09-05", 4, 4),
+      ]),
+      club("gcJCB9000000", "JCB Diamond Kings Elite 9U", 9, "FL", []),
+    ]);
+    const jcb = named(pool, "JCB Diamond Kings Elite");
+    expect(jcb).toHaveLength(2);
+    const pulled = jcb.find((team) => team.gcTeams?.length);
+    expect(pulled?.nameOnly).toBeUndefined();
+    // The 9U stand-in's game is on the pulled club now; the 10U stand-in still holds its own.
+    const pirates = named(pool, "Boca Pirates")[0]!;
+    const row = pool.games.find((game) => [game.teamAId, game.teamBId].includes(pirates.id))!;
+    expect([row.teamAId, row.teamBId]).toContain(pulled!.id);
+  });
+
+  it("adopts the stand-in its own schedule confirms, even at another level", () => {
+    // A CA schedule named "Inferno" at 8U and lost 2-5 to them; the Inferno pulled is a 9U whose
+    // own schedule holds that 5-2. The game says which stand-in is theirs.
+    const pool = fold([
+      club("gcCAA8000000", "Sharks 8U", 8, "CA", [played("a1", "Inferno 8U", "2026-09-05", 2, 5)]),
+      club("gcCAB9000000", "Rays 9U", 9, "CA", [played("b1", "Inferno 9U", "2026-09-12", 1, 9)]),
+      club("gcINFERNO900", "Inferno 9U", 9, "MD", [played("i1", "Sharks 8U", "2026-09-05", 5, 2)]),
+    ]);
+    const inferno = named(pool, "Inferno");
+    const pulled = inferno.find((team) => team.gcTeams?.length)!;
+    const sharks = named(pool, "Sharks")[0]!;
+    const rows = pool.games.filter((game) => [game.teamAId, game.teamBId].includes(sharks.id));
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.teamAId, rows[0]!.teamBId]).toContain(pulled.id);
+  });
+
+  it("does not adopt a lone stand-in that only clubs in other states named", () => {
+    // Three Texas schedules name "Grit"; the only Grit pulled is in New York and never played them.
+    const pool = fold([
+      club("gcTXA9000000", "Colleyville Cubs 9U", 9, "TX", [
+        played("a1", "Grit 9U", "2026-09-05", 3, 4),
+      ]),
+      club("gcTXB9000000", "Denton Dawgs 9U", 9, "TX", [
+        played("b1", "Grit 9U", "2026-09-06", 1, 8),
+      ]),
+      club("gcGRITNY9000", "Grit 9U", 9, "NY", [
+        played("g1", "Chestnut Ridge 9U", "2026-09-05", 6, 0),
+      ]),
+    ]);
+    const grit = named(pool, "Grit");
+    expect(grit).toHaveLength(2);
+    expect(grit.filter((team) => team.nameOnly)).toHaveLength(1);
+    expect(grit.filter((team) => team.gcTeams?.length)).toHaveLength(1);
+  });
+
+  it("still matches a club whose schedule was empty when a neighbour names it", () => {
+    // Brazos Valley Bucks (TX) came back with no games at all; a Texas schedule then names them.
+    const pool = fold([
+      club("gcBRAZOS1100", "Brazos Valley Bucks Lemons 11U", 11, "TX", []),
+      club("gcTXC1100000", "Katy Krush 11U", 11, "TX", [
+        played("k1", "Brazos Valley Bucks Lemons 11U", "2026-09-05", 2, 3),
+      ]),
+    ]);
+    const bucks = named(pool, "Brazos Valley Bucks Lemons");
+    expect(bucks).toHaveLength(1);
+    expect(bucks[0]?.gcTeams?.[0]?.teamId).toBe("gcBRAZOS1100");
+    expect(pool.games).toHaveLength(1);
+  });
+
+  it("leaves a sole namesake in another state as a stand-in unless something vouches for it", () => {
+    // Hixson Braves (TN) list the Dodgers; the only Dodgers pulled so far are in Florida.
+    const pool = fold([
+      club("gcDODGFL0000", "Dodgers 10U", 10, "FL", [
+        played("d1", "Marlins 10U", "2026-09-01", 5, 1),
+      ]),
+      club("gcHIXSON0000", "Hixson Braves 10U", 10, "TN", [
+        played("h1", "Dodgers 10U", "2026-09-08", 7, 2),
+      ]),
+    ]);
+    const dodgers = named(pool, "Dodgers");
+    expect(dodgers).toHaveLength(2);
+    const fl = dodgers.find((team) => team.state === "FL")!;
+    const braves = named(pool, "Hixson Braves")[0]!;
+    const row = pool.games.find((game) => [game.teamAId, game.teamBId].includes(braves.id))!;
+    expect([row.teamAId, row.teamBId]).not.toContain(fl.id);
+  });
+
+  it("takes a sole namesake in another state when its own schedule holds the game", () => {
+    // Albertville Aggies (AL) really did play Douglas (OH), and Douglas' schedule says so.
+    const pool = fold([
+      club("gcDOUGLASOH0", "Douglas 9U", 9, "OH", [
+        played("d1", "Albertiville Aggies 9U", "2026-09-01", 1, 13),
+      ]),
+      club("gcAGGIESAL00", "Albertiville Aggies 9U", 9, "AL", [
+        played("a1", "Douglas 9U", "2026-09-01", 13, 1),
+      ]),
+    ]);
+    expect(named(pool, "Douglas")).toHaveLength(1);
+    expect(pool.games).toHaveLength(1);
+  });
+
+  it("keeps a stand-in per state for a name that is nobody in particular", () => {
+    const pool = fold([
+      club("gcTXD8000000", "Frisco Fury 8U", 8, "TX", [
+        played("a1", "Bandits 8U", "2026-09-05", 3, 4),
+      ]),
+      club("gcFLD8000000", "Tampa Terror 8U", 8, "FL", [
+        played("b1", "Bandits 8U", "2026-09-05", 1, 8),
+      ]),
+      club("gcTXE8000000", "Plano Power 8U", 8, "TX", [
+        played("c1", "Bandits 8U", "2026-09-12", 0, 6),
+      ]),
+    ]);
+    const bandits = named(pool, "Bandits");
+    expect(bandits).toHaveLength(2);
+    const games = (id: string) =>
+      pool.games.filter((game) => [game.teamAId, game.teamBId].includes(id)).length;
+    expect(bandits.map((team) => games(team.id)).sort()).toEqual([1, 2]);
+  });
+
+  it("files a stand-in's rows onto the one club of that name in the puller's state at tidy", () => {
+    // A pool filed before the rules above existed: two Mississippi schedules' games sit on a
+    // "Cubs" stand-in while a Grenada MS Cubs and a Texas Cubs were both pulled. Only the state
+    // can say which Cubs; the pass is order-independent, which nothing at arrival was.
+    const pool = fold([
+      club("gcCUBSTX0000", "Cubs 8U", 8, "TX", [
+        played("t1", "Wylie Wolves 8U", "2026-09-01", 9, 0),
+      ]),
+      club(
+        "gcCUBSMS0000",
+        "Cubs 8U",
+        8,
+        "MS",
+        [played("m1", "Delta Dogs 8U", "2026-09-05", 3, 3)],
+        "Grenada"
+      ),
+      club(
+        "gcMSA8000000",
+        "OES Mayhem 8U",
+        8,
+        "MS",
+        [played("a1", "Wylie Wolves 8U", "2026-08-27", 2, 5)],
+        "Grenada"
+      ),
+    ]);
+    const mayhem = named(pool, "OES Mayhem")[0]!;
+    const standIn: ScoutTeam = { id: "S-CUBS-STUB", name: "Cubs", nameOnly: true };
+    const stale: GcImportState = {
+      ...pool,
+      teams: [...pool.teams, standIn],
+      games: [
+        ...pool.games,
+        {
+          id: "gc_gcMSA8000000_old",
+          teamAId: mayhem.id,
+          teamBId: standIn.id,
+          ageGroupId: pool.games[0]!.ageGroupId,
+          date: "2026-08-15",
+          teamAScore: 4,
+          teamBScore: 6,
+          ageLevelA: 8,
+          ageLevelB: 8,
+          source: { kind: "gamechanger", teamId: "gcMSA8000000", gameId: "old" },
+        },
+      ],
+    };
+    const out = refileStandIns(stale);
+    expect(out.refiled).toBe(1);
+    const ms = named(out.state, "Cubs").find((team) => team.state === "MS")!;
+    const row = out.state.games.find((game) => game.id === "gc_gcMSA8000000_old")!;
+    expect(row.teamBId).toBe(ms.id);
+    expect(out.state.teams.find((team) => team.id === "S-CUBS-STUB")).toBeUndefined();
+  });
+
+  it("breaks a tie between two in-state clubs by the puller's own town", () => {
+    // Five Texas Rangers; the Prosper schedules keep naming "Rangers". The Prosper one it is.
+    const pool = fold([
+      club(
+        "gcRANGERSA00",
+        "Rangers 10U",
+        10,
+        "TX",
+        [played("r1", "Garland Gators 10U", "2026-09-01", 1, 0)],
+        "Garland"
+      ),
+      club(
+        "gcRANGERSB00",
+        "Rangers 10U",
+        10,
+        "TX",
+        [played("r2", "Celina Cubs 10U", "2026-09-01", 2, 0)],
+        "Prosper"
+      ),
+      club("gcPROSPER000", "Prosper Pride 10U", 10, "TX", [], "Prosper"),
+    ]);
+    const pride = named(pool, "Prosper Pride")[0]!;
+    const standIn: ScoutTeam = { id: "S-RANGERS-STUB", name: "Rangers", nameOnly: true };
+    const stale: GcImportState = {
+      ...pool,
+      teams: [...pool.teams, standIn],
+      games: [
+        ...pool.games,
+        {
+          id: "gc_gcPROSPER000_old",
+          teamAId: pride.id,
+          teamBId: standIn.id,
+          ageGroupId: pool.games[0]!.ageGroupId,
+          date: "2026-09-05",
+          teamAScore: 2,
+          teamBScore: 3,
+          ageLevelA: 10,
+          ageLevelB: 10,
+          source: { kind: "gamechanger", teamId: "gcPROSPER000", gameId: "old" },
+        },
+      ],
+    };
+    const out = refileStandIns(stale);
+    expect(out.refiled).toBe(1);
+    const prosper = named(out.state, "Rangers").find((team) => team.city === "Prosper")!;
+    expect(out.state.games.find((game) => game.id === "gc_gcPROSPER000_old")?.teamBId).toBe(
+      prosper.id
+    );
+  });
+
+  it("counts a shared town as pairing evidence only in the same state", () => {
+    const pairings = proposeSeasonPairings([
+      {
+        id: "in",
+        name: "Dragons Baseball Club",
+        city: "Lawrenceburg",
+        state: "IN",
+        gcTeams: [
+          {
+            teamId: "gc-in",
+            name: "Dragons Baseball Club 10U",
+            ageGroupId: "ag1",
+            ageLevel: 10,
+            season: "fall",
+            seasonYear: 2026,
+          },
+        ],
+      },
+      {
+        id: "ky",
+        name: "Dragons Baseball Club",
+        city: "Lawrenceburg",
+        state: "KY",
+        gcTeams: [
+          {
+            teamId: "gc-ky",
+            name: "Dragons Baseball Club 10U",
+            ageGroupId: "ag1",
+            ageLevel: 10,
+            season: "spring",
+            seasonYear: 2027,
+          },
+        ],
+      },
+    ]);
+    expect(pairings).toEqual([]);
+  });
+
+  it("leaves a stand-in alone when two clubs of the name share the puller's state", () => {
+    const pool = fold([
+      club("gcRANGERSA00", "Rangers 10U", 10, "TX", [], "Garland"),
+      club("gcRANGERSB00", "Rangers 10U", 10, "TX", [], "Prosper"),
+      club("gcTXF1000000", "Allen Aces 10U", 10, "TX", [
+        played("a1", "Rangers 10U", "2026-09-05", 2, 3),
+      ]),
+    ]);
+    const tidy = tidyPool(pool);
+    expect(tidy.refiled).toBe(0);
+    expect(named(tidy.state, "Rangers").filter((team) => team.nameOnly)).toHaveLength(1);
   });
 });
