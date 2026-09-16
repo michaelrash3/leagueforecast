@@ -5296,7 +5296,6 @@ This backup carries one season, so it replaces the current season data and saves
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <TeamRankingsView
                 seasons={seasons}
-                activeSeasonId={activeSeasonId}
                 showToast={showToast}
                 requestConfirmation={requestConfirmation}
                 onDataChange={noteScoutChange}

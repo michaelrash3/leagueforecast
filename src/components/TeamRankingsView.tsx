@@ -1,25 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  advancedAgeGroup,
   ageGroupChain,
   ageGroupLevel,
-  ageGroupSeason,
   ageGroupYear,
   buildScoutingReport,
   buildUpcomingSchedule,
-  createAgeGroupId,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
-  findAgeGroupForSeason,
   findDuplicateGame,
-  formatAgeGroupName,
   isRankedAgeLevel,
   isScoutGamePlayed,
   mergeScoutTeams,
   MAX_AGE_LEVEL,
   MIN_RANKED_AGE_LEVEL,
-  MIN_SEASON_YEAR,
-  nextSeason,
   rankingPoolGroupIds,
   resolveOrCreateTeam,
   seasonAtAge,
@@ -90,7 +83,7 @@ import {
 } from "./teamRankings/RankingsSection";
 import { ScoutingSection } from "./teamRankings/ScoutingSection";
 import { SectionNav, SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
-import { SetupSection, type AgeGroupDraft } from "./teamRankings/SetupSection";
+import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useRankingsRoute } from "../hooks/useRankingsRoute";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
@@ -106,7 +99,6 @@ type ConfirmOptions = {
 
 type TeamRankingsViewProps = {
   seasons: SeasonMeta[];
-  activeSeasonId: string;
   showToast: (
     message: string,
     options?: {
@@ -145,7 +137,6 @@ const sectionLabel = (section: RankingsSection): string =>
 
 export function TeamRankingsView({
   seasons,
-  activeSeasonId,
   showToast,
   requestConfirmation,
   onDataChange,
@@ -153,19 +144,6 @@ export function TeamRankingsView({
   const { route, push, replace } = useRankingsRoute();
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  /**
-   * The age-group form. Opens on the youngest level that actually ranks: 8U stays selectable — its
-   * games are evidence about the 9U teams that played down — but it is not what accepting the
-   * defaults gives you.
-   */
-  const [groupDraft, setGroupDraft] = useState<AgeGroupDraft>(() => ({
-    ageLevel: MIN_RANKED_AGE_LEVEL,
-    year: MIN_SEASON_YEAR,
-    seasonIds: activeSeasonId ? [activeSeasonId] : [],
-    continuesFromId: "",
-  }));
-
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
@@ -294,32 +272,6 @@ export function TeamRankingsView({
 
   const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
 
-  const patchGroupDraft = (patch: Partial<AgeGroupDraft>) =>
-    setGroupDraft((prev) => ({ ...prev, ...patch }));
-
-  const startEditGroup = (group: AgeGroup) => {
-    // A group saved before the season picker existed has only the name the user typed, so read
-    // what can be read from it and leave the rest at the defaults rather than blanking the form.
-    const season = ageGroupSeason(group);
-    setEditingGroupId(group.id);
-    setGroupDraft({
-      ageLevel: season.ageLevel ?? MIN_RANKED_AGE_LEVEL,
-      year: season.year ?? MIN_SEASON_YEAR,
-      seasonIds: group.seasonIds,
-      continuesFromId: group.continuesFromId ?? "",
-    });
-  };
-
-  const resetGroupForm = () => {
-    setEditingGroupId(null);
-    setGroupDraft({
-      ageLevel: MIN_RANKED_AGE_LEVEL,
-      year: MIN_SEASON_YEAR,
-      seasonIds: activeSeasonId ? [activeSeasonId] : [],
-      continuesFromId: "",
-    });
-  };
-
   /**
    * Answers "what age does this league season play?" — the only age-group question left to ask.
    *
@@ -341,99 +293,6 @@ export function TeamRankingsView({
         : `League season added to ${result.group.name}.`,
       { tone: "success" }
     );
-  };
-
-  const saveAgeGroup = () => {
-    const season = { ageLevel: groupDraft.ageLevel, year: groupDraft.year };
-    // Two age groups for the same 10U 2028 would split one squad's schedule across two rankings,
-    // and neither would be right. The picker can't produce a typo, so this can only be a repeat.
-    const clash = findAgeGroupForSeason(season, ageGroups);
-    if (clash && clash.id !== editingGroupId) {
-      showToast(`${clash.name} already exists.`, { tone: "error" });
-      return;
-    }
-    const name = formatAgeGroupName(season.ageLevel, season.year);
-    // Pointing an age group at itself would make the chain meaningless, so drop that choice.
-    const continuesFromId =
-      groupDraft.continuesFromId && groupDraft.continuesFromId !== editingGroupId
-        ? groupDraft.continuesFromId
-        : "";
-    if (editingGroupId) {
-      persistAgeGroups(
-        ageGroups.map((group) =>
-          group.id === editingGroupId
-            ? {
-                ...group,
-                name,
-                ageLevel: season.ageLevel,
-                year: season.year,
-                seasonIds: groupDraft.seasonIds,
-                ...(continuesFromId ? { continuesFromId } : { continuesFromId: undefined }),
-              }
-            : group
-        )
-      );
-      showToast("Age group updated.", { tone: "success" });
-    } else {
-      const newGroup: AgeGroup = {
-        id: createAgeGroupId(),
-        name,
-        ageLevel: season.ageLevel,
-        year: season.year,
-        seasonIds: groupDraft.seasonIds,
-        ...(continuesFromId ? { continuesFromId } : {}),
-      };
-      persistAgeGroups([...ageGroups, newGroup]);
-      setPickedGroupId(newGroup.id);
-      showToast("Age group created.", { tone: "success" });
-    }
-    resetGroupForm();
-  };
-
-  /**
-   * Rolls a squad into next season: a year older, a year later, continuing from the one it came
-   * from so this year's opponents are already suggested when logging next year's games. Results
-   * stay behind — a 9U score says nothing about a 10U game — and so do the League Standings
-   * seasons, which don't exist yet for a year that hasn't started.
-   */
-  const advanceSeason = (group: AgeGroup) => {
-    const season = ageGroupSeason(group);
-    if (season.ageLevel === undefined || season.year === undefined) {
-      showToast("Set this group's age and year first, then advance it.", { tone: "error" });
-      startEditGroup(group);
-      return;
-    }
-    const next = nextSeason({ ageLevel: season.ageLevel, year: season.year });
-    const existing = findAgeGroupForSeason(next, ageGroups);
-    if (existing) {
-      setPickedGroupId(existing.id);
-      showToast(`${existing.name} already exists — switched to it.`);
-      return;
-    }
-    const created = advancedAgeGroup(group, next);
-    persistAgeGroups([...ageGroups, created]);
-    setPickedGroupId(created.id);
-    resetGroupForm();
-    showToast(`${created.name} created from ${group.name}.`, { tone: "success" });
-  };
-
-  const removeAgeGroup = async (group: AgeGroup) => {
-    const confirmed = await requestConfirmation({
-      title: `Delete "${group.name}"?`,
-      message:
-        "This removes the age group and any games logged here that were tagged to it. League Standings data itself is untouched.",
-      confirmLabel: "Delete",
-    });
-    if (!confirmed) return;
-    // Anything that carried on from this group now continues from nothing, rather than pointing
-    // at an age group that no longer exists.
-    const remaining = ageGroups
-      .filter((g) => g.id !== group.id)
-      .map((g) => (g.continuesFromId === group.id ? { ...g, continuesFromId: undefined } : g));
-    persistAgeGroups(remaining);
-    persistGames(scoutGames.filter((g) => g.ageGroupId !== group.id));
-    if (selectedAgeGroupId === group.id) setPickedGroupId(remaining[0]?.id ?? "");
-    showToast(`"${group.name}" deleted.`, { tone: "success" });
   };
 
   // ---------- Pages: one per age level, within one season year ----------
@@ -1323,7 +1182,6 @@ This cannot be undone. Cancel and download the backup first if there is any chan
     setEditScoreA("");
     setEditScoreB("");
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
-    resetGroupForm();
     onDataChange?.();
     showToast("Team Rankings cleared. Nothing left but a blank slate.", { tone: "success" });
   };
@@ -1560,16 +1418,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             <SetupSection
               seasons={seasons}
               ageGroups={ageGroups}
-              editingGroupId={editingGroupId}
-              draft={groupDraft}
-              onDraftChange={patchGroupDraft}
               onAssignSeason={assignSeasonToAge}
               yearOptions={yearOptions}
-              onSave={saveAgeGroup}
-              onCancelEdit={resetGroupForm}
-              onEditGroup={startEditGroup}
-              onAdvanceGroup={advanceSeason}
-              onDeleteGroup={(group) => void removeAgeGroup(group)}
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
               onDownloadBackup={() => void downloadPoolBackup()}

@@ -26,7 +26,6 @@ export type Pool = {
   teams: ScoutTeam[];
   games: ScoutGame[];
   seasons?: SeasonMeta[];
-  activeSeasonId?: string;
   /** Starting URL query, as a user arriving on a link would have. */
   search?: string;
 };
@@ -112,7 +111,6 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   const result = render(
     <TeamRankingsView
       seasons={pool.seasons ?? []}
-      activeSeasonId={pool.activeSeasonId ?? ""}
       showToast={showToast}
       requestConfirmation={requestConfirmation}
       onDataChange={onDataChange}
