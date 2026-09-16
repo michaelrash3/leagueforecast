@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
-import handler from "../../../api/gc-team";
+import handler, { clearProfileCache } from "../../../api/gc-team";
 import { GC_GAMES_ACCEPT, GC_PROFILE_ACCEPT, type GcTeamResponse } from "../gameChangerApi";
 
 const TEAM_ID = "gsUthn4XoIxS";
@@ -30,6 +30,14 @@ const makeRes = () => {
   };
   return { res, recorded };
 };
+
+/**
+ * A team's profile is cached for ten minutes inside the handler, so without this one test's
+ * profile answers the next one's request and the fetch under test never goes out.
+ */
+beforeEach(() => {
+  clearProfileCache();
+});
 
 let nextClient = 0;
 
@@ -356,5 +364,76 @@ describe("GET /api/gc-team", () => {
     expect(recorded.statusCode).toBe(429);
     expect(recorded.body).toMatchObject({ ok: false, reason: "throttled" });
     expect((recorded.body as { message: string }).message).toMatch(/this app's own limit/);
+  });
+});
+
+describe("the profile cache", () => {
+  const pathsOf = (captured: { url: string }[]) =>
+    captured.map((call) => new URL(call.url).pathname);
+
+  it("asks for the profile once and the schedule every time", async () => {
+    const captured = stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+
+    await run(`/api/gc-team?id=${TEAM_ID}`);
+    await run(`/api/gc-team?id=${TEAM_ID}`);
+
+    // A schedule changes the moment somebody enters a score; a profile changes once a season.
+    expect(pathsOf(captured).filter((path) => path.endsWith("/games"))).toHaveLength(2);
+    expect(pathsOf(captured).filter((path) => !path.endsWith("/games"))).toHaveLength(1);
+  });
+
+  it("still answers with the whole team the second time", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+
+    const first = (await run(`/api/gc-team?id=${TEAM_ID}`)).body as GcTeamResponse;
+    const second = (await run(`/api/gc-team?id=${TEAM_ID}`)).body as GcTeamResponse;
+
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.schedule.profile).toEqual(first.schedule.profile);
+  });
+
+  it("picks up a fresh schedule while the profile is held", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    await run(`/api/gc-team?id=${TEAM_ID}`);
+
+    // The score that was entered between the two requests.
+    stubUpstream({ profile: { body: profileFixture }, games: { body: gamesFixture } });
+    const second = (await run(`/api/gc-team?id=${TEAM_ID}`)).body as GcTeamResponse;
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.schedule.games.length).toBeGreaterThan(0);
+  });
+
+  it("keeps each team's own profile apart", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    await run(`/api/gc-team?id=${TEAM_ID}`);
+
+    const captured = stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    await run(`/api/gc-team?id=FtEExZwB4b8E`);
+
+    // Another team is another profile, not a cache hit on the first one.
+    expect(pathsOf(captured).filter((path) => !path.endsWith("/games"))).toHaveLength(1);
+  });
+
+  it("does not cache a profile it could not get", async () => {
+    stubUpstream({ profile: { status: 503, body: "upstream is down" }, games: { body: [] } });
+    expect((await run(`/api/gc-team?id=${TEAM_ID}`)).statusCode).toBe(502);
+
+    const captured = stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    const second = await run(`/api/gc-team?id=${TEAM_ID}`);
+
+    // The next request is the one that finds out whether GameChanger has stopped refusing.
+    expect(pathsOf(captured).filter((path) => !path.endsWith("/games"))).toHaveLength(1);
+    expect(second.statusCode).toBe(200);
+  });
+
+  it("says how warm it is on the probe", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    expect((await run("/api/gc-team?probe=1")).body).toMatchObject({ cachedProfiles: 0 });
+
+    await run(`/api/gc-team?id=${TEAM_ID}`);
+    expect((await run("/api/gc-team?probe=1")).body).toMatchObject({ cachedProfiles: 1 });
   });
 });

@@ -34,6 +34,7 @@ import {
   type GcTeamProfile,
   type GcTeamResponse,
 } from "../src/lib/gameChangerApi.js";
+import { createTtlCache } from "../src/lib/ttlCache.js";
 
 /**
  * The one Node global this function needs. Declared here rather than via `@types/node`: installing
@@ -353,8 +354,39 @@ const sendProbe = (res: ApiResponse, config: UpstreamConfig): void => {
     base: config.base,
     extraHeaderNames: Object.keys(config.extraHeaders),
     hasToken: Boolean(config.token),
+    // How warm this instance is. Zero on a cold start, which is how it should read.
+    cachedProfiles: profileCache.size(),
   });
 };
+
+/**
+ * A team's profile, kept for a little while.
+ *
+ * Every request fetches two things: the profile — the club's name, city, state and season — and
+ * the schedule. Only the second of those actually moves: a schedule changes the moment somebody
+ * enters a score, while a profile changes perhaps once a season. Fetching both every time asked
+ * GameChanger for a name it had just given us.
+ *
+ * It matters most exactly when it is most wanted. A pull that is being throttled retries, and a
+ * retry that already has the profile asks for one thing instead of two — so the request that goes
+ * out while GameChanger is telling us to slow down is half the size. A weekly rota that re-pulls
+ * the same age level, and a batch that happens to name a team twice, are the other cases.
+ *
+ * Ten minutes, because a serverless instance rarely outlives that by much and a profile corrected
+ * upstream should not be pinned to a stale copy for longer than a pull takes. Two thousand
+ * entries, so a pull of twenty thousand teams cannot grow the instance by twenty thousand
+ * profiles; the oldest go first.
+ */
+const PROFILE_TTL_MS = 10 * 60_000;
+const MAX_CACHED_PROFILES = 2_000;
+const profileCache = createTtlCache<GcTeamProfile>(PROFILE_TTL_MS, MAX_CACHED_PROFILES);
+
+/**
+ * Empties the profile cache. Vercel routes only the default export, so this is here for tests —
+ * without it one test's cached profile answers the next one's request and the fetch under test
+ * never happens.
+ */
+export const clearProfileCache = (): void => profileCache.clear();
 
 /** Teams one request may ask for. Enough to be worth batching, few enough to finish in time. */
 const MAX_BATCH = 10;
@@ -367,22 +399,49 @@ type PulledTeam = { teamId: string; result: GcTeamResponse; retryAfter?: string 
  * GameChanger will not answer for must not cost the other nine in the same request.
  */
 const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledTeam> => {
+  const cachedProfile = profileCache.get(teamId);
+
+  // The schedule is always fetched; the profile only when it is not already here.
   const [profileResult, gamesResult] = await Promise.all([
-    fetchUpstream(gcProfileApiUrl(teamId, config.base), GC_PROFILE_ACCEPT, config),
+    cachedProfile
+      ? Promise.resolve(null)
+      : fetchUpstream(gcProfileApiUrl(teamId, config.base), GC_PROFILE_ACCEPT, config),
     fetchUpstream(gcGamesApiUrl(teamId, config.base), GC_GAMES_ACCEPT, config),
   ]);
 
-  const profileFailure = failureFor(profileResult, "profile");
-  if (profileFailure) {
-    return {
-      teamId,
-      result: profileFailure,
-      ...(profileResult.retryAfter ? { retryAfter: profileResult.retryAfter } : {}),
+  let profile: GcTeamProfile;
+  if (cachedProfile) {
+    profile = cachedProfile;
+  } else {
+    // Not cached, so `profileResult` is the fetch above; the fallback keeps the non-strict Vercel
+    // check happy about a value it cannot see is always present here.
+    const fetched = profileResult ?? {
+      url: gcProfileApiUrl(teamId, config.base),
+      status: 0,
+      contentType: "",
+      text: "",
+      json: undefined,
+      isJson: false,
+      timedOut: false,
+      networkError: "profile fetch did not run",
+      retryAfter: "",
     };
-  }
+    const profileFailure = failureFor(fetched, "profile");
+    if (profileFailure) {
+      return {
+        teamId,
+        result: profileFailure,
+        ...(fetched.retryAfter ? { retryAfter: fetched.retryAfter } : {}),
+      };
+    }
 
-  const profile: GcTeamProfile | null = normalizeGcTeamProfile(profileResult.json, teamId);
-  if (!profile) return { teamId, result: unrecognized(profileResult, "profile") };
+    const normalized: GcTeamProfile | null = normalizeGcTeamProfile(fetched.json, teamId);
+    if (!normalized) return { teamId, result: unrecognized(fetched, "profile") };
+    profile = normalized;
+    // Only a profile we actually got and understood. A failure is never cached: the next request
+    // is the one that should find out whether GameChanger has stopped refusing.
+    profileCache.set(teamId, profile);
+  }
 
   // A team with a profile but no schedule endpoint yet (nothing scheduled) is still a team.
   let games: GcGame[] = [];
