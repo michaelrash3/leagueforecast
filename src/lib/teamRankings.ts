@@ -1583,6 +1583,81 @@ export const buildScoutingReport = (
     .sort((a, b) => a.opponentRank - b.opponentRank);
 };
 
+/** A game on a team's schedule that has not been played yet, with the projection for it. */
+export type UpcomingMatchup = {
+  gameId: string;
+  /** As the source gave it, "2026-09-20". Empty when the schedule carries no date. */
+  date: string;
+  event?: string;
+  opponentId: string;
+  opponentName: string;
+  /**
+   * Absent when the opponent has no rating on this page — a stand-in nobody has pulled, a club
+   * whose own games are all on another page, or one that has not played yet. The game is still
+   * listed, because a schedule is a fact and "we cannot rate them yet" is the honest answer.
+   */
+  opponentRank?: number;
+  projectedMargin?: number;
+  winProb?: number;
+  tier?: MatchupTier;
+};
+
+/**
+ * The games still to be played on one team's schedule, each with the projection for it.
+ *
+ * This is the question a coach actually asks — not "how would we do against the country", but
+ * "what happens on Saturday". A pulled GameChanger schedule carries its future fixtures with no
+ * score, which is exactly what an unplayed game looks like here, so the answer is already in the
+ * pool. Games with no date sort last: a schedule that forgot to say when is still a schedule.
+ */
+export const buildUpcomingSchedule = (
+  forTeamId: string,
+  rows: ScoutRankingRow[],
+  games: ScoutGame[],
+  teams: ScoutTeam[],
+  /** Today, as "2026-09-16". Anything before it has been played, whatever the score says. */
+  today: string
+): UpcomingMatchup[] => {
+  const forRow = rows.find((row) => row.teamId === forTeamId);
+  if (!forRow) return [];
+  const rowByTeamId = new Map(rows.map((row) => [row.teamId, row]));
+  const nameById = new Map(teams.map((team) => [team.id, team.name]));
+
+  return games
+    .filter((game) => {
+      if (game.teamAId !== forTeamId && game.teamBId !== forTeamId) return false;
+      if (isScoutGamePlayed(game)) return false;
+      // A dateless row could be any day, so it is kept; a dated one has to be today or later.
+      return !game.date || game.date >= today;
+    })
+    .map((game): UpcomingMatchup => {
+      const opponentId = game.teamAId === forTeamId ? game.teamBId : game.teamAId;
+      const opponent = rowByTeamId.get(opponentId);
+      const base = {
+        gameId: game.id,
+        date: game.date ?? "",
+        ...(game.event ? { event: game.event } : {}),
+        opponentId,
+        opponentName: nameById.get(opponentId) ?? "Unknown team",
+      };
+      if (!opponent) return base;
+      const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
+      return {
+        ...base,
+        opponentRank: opponent.rank,
+        projectedMargin,
+        winProb: winProbA,
+        tier: tierFor(winProbA),
+      };
+    })
+    .sort(
+      (a, b) =>
+        (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
+        a.date.localeCompare(b.date) ||
+        a.opponentName.localeCompare(b.opponentName)
+    );
+};
+
 /**
  * The results this season's league does not already know about: games logged in Team Rankings for
  * an age group that includes this season, minus the ones that came *from* the league schedule in

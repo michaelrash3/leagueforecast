@@ -51,19 +51,19 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Features
 
-| Area                 | Highlights                                                                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                          |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                     |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                            |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                      |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                     |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                        |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                          |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                          |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report, CSV/paste import, team detail. |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                 |
+| Area                 | Highlights                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                     |
+| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                |
+| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                           |
+| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                       |
+| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                 |
+| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                |
+| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                   |
+| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                     |
+| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                     |
+| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail. |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                            |
 
 ## Architecture
 
@@ -187,6 +187,20 @@ place shown in each is the place in _that_ list: a state top ten is ten teams
 rated against the whole country and then listed together, so the second-best team
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
+
+### Scouting report
+
+Pick a team and it answers two questions. **Next up** is the games still on that
+team's schedule — a pulled GameChanger schedule carries its future fixtures with
+no score, so they are already in the pool and nothing has to be typed — each with
+the date, the opponent's rank, the projected margin and a win probability. An
+opponent nobody has pulled has no rating, and the row says "not rated here yet"
+rather than inventing one. Below it, the same projection against every ranked
+team on the page, which is the question to ask before entering a tournament.
+
+The projection is the rating difference, capped at 14 runs, put through a
+logistic curve; no home-field term, because at this level which side is "home" is
+a coin flip.
 
 ### How the two modes connect
 

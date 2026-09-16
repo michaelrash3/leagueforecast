@@ -13,6 +13,7 @@ import {
   seasonAtAge,
   seasonYearOptions,
   buildScoutingReport,
+  buildUpcomingSchedule,
   buildTeamRankings,
   collapseSameGames,
   dedupeLeagueFixtures,
@@ -579,6 +580,70 @@ describe("buildScoutingReport", () => {
 
   it("returns an empty list for an unknown team id", () => {
     expect(buildScoutingReport("nope", [])).toEqual([]);
+  });
+});
+
+describe("buildUpcomingSchedule", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+  const played = [game("A", "B", 10, 1), game("A", "C", 9, 2), game("B", "C", 5, 4)];
+  const rows = () => buildTeamRankings("ag1", teams, played);
+
+  const scheduled = (id: string, teamAId: string, teamBId: string, date: string): ScoutGame => ({
+    id,
+    teamAId,
+    teamBId,
+    ageGroupId: "ag1",
+    date,
+  });
+
+  it("lists only games with no score, dated today or later, soonest first", () => {
+    const games = [
+      ...played,
+      scheduled("g-late", "C", "A", "2026-09-27"),
+      scheduled("g-soon", "C", "B", "2026-09-20"),
+      scheduled("g-past", "C", "A", "2026-09-01"),
+    ];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, teams, "2026-09-16");
+    expect(upcoming.map((row) => row.gameId)).toEqual(["g-soon", "g-late"]);
+    expect(upcoming[0]!.opponentName).toBe("Bears");
+  });
+
+  it("projects each game from the two ratings, as the all-comers report does", () => {
+    const games = [...played, scheduled("g1", "C", "A", "2026-09-20")];
+    const ranked = rows();
+    const upcoming = buildUpcomingSchedule("C", ranked, games, teams, "2026-09-16");
+    const everyone = buildScoutingReport("C", ranked);
+    const vsA = everyone.find((preview) => preview.opponentId === "A")!;
+    expect(upcoming[0]!.projectedMargin).toBeCloseTo(vsA.projectedMargin, 10);
+    expect(upcoming[0]!.winProb).toBeCloseTo(vsA.winProb, 10);
+    expect(upcoming[0]!.tier).toBe(vsA.tier);
+    expect(upcoming[0]!.opponentRank).toBe(vsA.opponentRank);
+  });
+
+  it("still lists a game against a team with no rating, and projects nothing", () => {
+    // Nine opponents in ten arrive as a name somebody wrote down. A made-up number for them
+    // would be worse than none.
+    const standIn: ScoutTeam = { id: "S-STUB", name: "Somebody", nameOnly: true };
+    const games = [...played, scheduled("g1", "C", "S-STUB", "2026-09-20")];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, [...teams, standIn], "2026-09-16");
+    expect(upcoming).toHaveLength(1);
+    expect(upcoming[0]!.opponentName).toBe("Somebody");
+    expect(upcoming[0]!.projectedMargin).toBeUndefined();
+    expect(upcoming[0]!.tier).toBeUndefined();
+  });
+
+  it("keeps a dateless fixture, and puts it after the dated ones", () => {
+    const games = [
+      ...played,
+      { ...scheduled("g-nodate", "C", "A", ""), date: undefined },
+      scheduled("g-dated", "C", "B", "2026-09-20"),
+    ];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, teams, "2026-09-16");
+    expect(upcoming.map((row) => row.gameId)).toEqual(["g-dated", "g-nodate"]);
+  });
+
+  it("returns an empty list for a team with no rating row", () => {
+    expect(buildUpcomingSchedule("nope", rows(), played, teams, "2026-09-16")).toEqual([]);
   });
 });
 
