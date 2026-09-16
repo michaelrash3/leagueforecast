@@ -537,9 +537,8 @@ export function TeamRankingsView({
   );
 
   /**
-   * Marks (or unmarks) "our" team *for this age group only* — a club running a 9U and an 11U squad
-   * at the same time needs one of each, and the old global flag could only hold one. The team is
-   * persisted first so the mark survives even if it was only ever a league-derived name.
+   * Sets or clears the state a team plays in, which is what the state leaderboard files it under.
+   * A team not in the pool at all is ignored rather than created.
    */
   const setTeamState = (teamId: string, nextState: string) => {
     const state = normalizeState(nextState);
@@ -553,6 +552,11 @@ export function TeamRankingsView({
     showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
   };
 
+  /**
+   * Marks (or unmarks) "our" team *for this age group only* — a club running a 9U and an 11U squad
+   * at the same time needs one of each, and the old global flag could only hold one. The team is
+   * persisted first so the mark survives even if it was only ever a league-derived name.
+   */
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
     if (!scoutTeams.some((team) => team.id === teamId)) {
