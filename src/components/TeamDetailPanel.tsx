@@ -126,6 +126,11 @@ export function TeamDetailPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">{team.name}</h2>
+          {(team.city || team.state) && (
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              {[team.city, team.state].filter(Boolean).join(", ")}
+            </p>
+          )}
           <p className="mt-1 text-xs text-slate-500">
             {played.length === 0
               ? `No completed games in ${ageGroupName || "this age group"} yet.`

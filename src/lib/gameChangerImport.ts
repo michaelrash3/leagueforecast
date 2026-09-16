@@ -36,8 +36,11 @@ import {
   gcSeasonLabel,
   isRankedAgeLevel,
   collapseSameGames,
+  inSquadYear,
   matchExistingGame,
+  MAX_AGE_LEVEL,
   mergeScoutTeams,
+  squadNameKey,
   normalizeState,
   squadYearForGcSeason,
   teamNameKey,
@@ -331,6 +334,8 @@ export type GcImportOutcome = {
   gamesUnchanged: number;
   /** Listed by GameChanger but not filed: cancelled, or missing the date a game is matched on. */
   gamesIgnored: number;
+  /** Dated before this squad year began (or after it ends): last year's squad's games. */
+  gamesOutOfSeason: number;
   opponentsCreated: number;
   opponentsMatchedByAvatar: number;
   opponentsMatchedByName: number;
@@ -417,7 +422,8 @@ const resolveAgeGroup = (
   // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
   // about any team, and filing them would mint pages nobody asked for and fetch schedules nobody
   // reads. They are skipped outright rather than ranked or half-created.
-  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || !profile.season) return null;
+  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || ageLevel > MAX_AGE_LEVEL) return null;
+  if (!profile.season) return null;
   const year = squadYearForGcSeason(profile.season.season, profile.season.year);
 
   // Few enough age groups that a scan is honest here — one per level per year, not one per team.
@@ -445,6 +451,9 @@ const skipReason = (profile: GcTeamProfile): string => {
   if (ageLevel < MIN_AGE_LEVEL) {
     return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
   }
+  if (ageLevel > MAX_AGE_LEVEL) {
+    return `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`;
+  }
   return "GameChanger gave no season for this team, so there is no squad year to file it under.";
 };
 
@@ -469,18 +478,65 @@ const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
 };
 
 /**
+ * The states of the pulled clubs whose schedules named this stand-in. A stand-in has no state of
+ * its own — a schedule names an opponent and says nothing about where it is from — but the clubs
+ * that named it do, and a club is nearly always named by neighbours: of known-correct pairs in a
+ * nationwide pull, nine in ten were in one state.
+ */
+const pullerStates = (index: ImportIndex, teamId: string): Set<string> => {
+  const states = new Set<string>();
+  index.opponentsByTeam.get(teamId)?.forEach((opponentId) => {
+    const opponent = index.teamsById.get(opponentId);
+    if (opponent?.gcTeams?.length && opponent.state) states.add(opponent.state);
+  });
+  return states;
+};
+
+/** Whether a club in `state` could be the one these pullers named: nobody knows, or somebody agrees. */
+const stateFits = (state: string | undefined, pullers: Set<string>): boolean =>
+  !state || pullers.size === 0 || pullers.has(state);
+
+/** Lower-cased for comparing; GameChanger's towns arrive as typed. */
+const townKey = (city: string | undefined): string | undefined =>
+  city?.trim().toLowerCase() || undefined;
+
+/**
+ * Whether the schedule in hand holds a game that a stand-in's row is the other half of: the same
+ * day, an opponent of the name the stand-in's row was filed against, and the result mirrored
+ * where both sides have one. Run from the club's own side as its schedule arrives, this is the
+ * same fixture test `holdsThisGame` runs from the opponent's — and it is what tells a club's own
+ * stand-in from a namesake's when several share the name.
+ */
+const scheduleConfirms = (index: ImportIndex, standInId: string, games: GcGame[]): boolean =>
+  games.some((game) => {
+    if (!game.date) return false;
+    const rows = index.gamesByTeamDate.get(`${standInId}\u0000${game.date}`) ?? [];
+    const opponentKey = teamNameKey(game.opponentName);
+    return rows.some((row) => {
+      const otherId = row.teamAId === standInId ? row.teamBId : row.teamAId;
+      const other = index.teamsById.get(otherId);
+      if (!other || teamNameKey(other.name) !== opponentKey) return false;
+      const mine = row.teamAId === standInId ? row.teamAScore : row.teamBScore;
+      const theirs = row.teamAId === standInId ? row.teamBScore : row.teamAScore;
+      if (mine === undefined || theirs === undefined) return true;
+      if (game.teamScore === undefined || game.opponentScore === undefined) return true;
+      return mine === game.teamScore && theirs === game.opponentScore;
+    });
+  });
+
+/**
  * The team a pulled schedule belongs to. By GameChanger id and nothing else: a team pulled by id
  * *is* that id, and pairing a Fall squad to a Spring one is the user's call, not a guess made
  * here.
  */
 const resolveOwnTeam = (
-  profile: GcTeamProfile,
+  schedule: GcTeamSchedule,
   ageGroupId: string,
-  fetchedAt: string,
   teams: ScoutTeam[],
   index: ImportIndex
 ): { teamId: string; created: boolean } => {
-  const link = linkFor(profile, ageGroupId, fetchedAt);
+  const { profile } = schedule;
+  const link = linkFor(profile, ageGroupId, schedule.fetchedAt);
   const known = index.teamByGcId.get(profile.id);
   if (known) {
     replaceTeam(index, teams, withLink(known, link));
@@ -525,26 +581,56 @@ const resolveOwnTeam = (
    * is guarded instead by there being exactly one such entry to adopt.
    */
   const key = teamNameKey(profile.name);
-  const sameName = index.teamIdsByPoolName.get(`${index.poolKeyOf(ageGroupId)}\u0000${key}`) ?? [];
-  // Exactly one, or picking between them is a guess — and a wrong one folds a club's games into
-  // somebody else's team.
+  const pool = index.poolKeyOf(ageGroupId);
+  const sameName = index.teamIdsByPoolName.get(`${pool}\u0000${key}`) ?? [];
   const placeholders = sameName.map((teamId) => index.teamsById.get(teamId)).filter(isStub);
-  const placeholder = placeholders.length === 1 ? placeholders[0] : undefined;
+  const level = profileAgeLevel(profile);
+  const ownState = normalizeState(profile.state ?? "") || undefined;
+
+  /*
+   * Which of them is this club. The game first: a stand-in whose row this schedule holds — same
+   * day, that opponent, the result mirrored — was made for this club. Then the level, since the
+   * stand-in a schedule named at 9U is not the club's 10U squad. Then the state: a stand-in named
+   * only by clubs in other states is somebody else's namesake, however lonely it looks. Refusing
+   * whenever two stand-ins shared the name, which is what this did before, left 1,589 clubs
+   * standing beside their own stand-in — 4,283 games on an entry with no id — because a club
+   * named at two levels is two stand-ins.
+   */
+  const confirmed = placeholders.filter((stub) => scheduleConfirms(index, stub.id, schedule.games));
+  const atLevel =
+    level === undefined
+      ? placeholders
+      : placeholders.filter((stub) =>
+          (index.teamIdsByGroupName.get(nameSlotKey(pool, key, level)) ?? []).includes(stub.id)
+        );
+  const inState = (stubs: ScoutTeam[]) =>
+    stubs.filter((stub) => stateFits(ownState, pullerStates(index, stub.id)));
+  const pick = (stubs: ScoutTeam[]): ScoutTeam | undefined =>
+    stubs.length === 1 ? stubs[0] : undefined;
+  const placeholder =
+    pick(confirmed) ??
+    pick(inState(atLevel)) ??
+    (placeholders.length === 1 ? pick(inState(placeholders)) : undefined);
   if (placeholder) {
     const updated = withLink(placeholder, link);
-    const placeholderState = normalizeState(profile.state ?? "");
-    if (placeholderState && !updated.state) updated.state = placeholderState;
+    if (ownState && !updated.state) updated.state = ownState;
     if (profile.city && !updated.city) updated.city = profile.city;
     replaceTeam(index, teams, updated);
+    noteInPool(index, ageGroupId, placeholder.id, level);
     return { teamId: placeholder.id, created: false };
   }
 
   const extras: Partial<ScoutTeam> = { gcTeams: [link] };
-  const state = normalizeState(profile.state ?? "");
-  if (state) extras.state = state;
+  if (ownState) extras.state = ownState;
   if (profile.city) extras.city = profile.city;
   const team = buildScoutTeam(profile.name, index.usedTeamIds, extras);
   addTeam(index, teams, team);
+  /*
+   * Named in the index now, not when its first game is filed: a club whose schedule is empty or
+   * entirely in the future is still the club its neighbours' schedules name, and a pull carried
+   * 3,272 of those with nothing to file — each of which then got a stand-in beside it.
+   */
+  noteInPool(index, ageGroupId, team.id, level);
   return { teamId: team.id, created: true };
 };
 
@@ -792,8 +878,25 @@ const resolveOpponent = (
    * the one club of that name here; where it is not, there is more than one and the tests below
    * decide between them rather than inventing a third.
    */
+  const own = index.teamsById.get(ownTeamId);
   const only = sameName.length === 1 ? sameName[0] : undefined;
-  if (only) return { teamId: only, basis: "name" };
+  if (only) {
+    /*
+     * ...provided it is where this club's opponents are. A sole club of the name in another state
+     * is, four times in ten, not the one this schedule played but a namesake pulled first, with
+     * the real one — in the puller's own state — arriving later or not at all. A schedule's
+     * opponents are in its own state nine times in ten; the tenth needs the game or a club in
+     * common to vouch for it, and otherwise waits as a stand-in for the tidy to settle.
+     */
+    const candidate = index.teamsById.get(only);
+    // A pulled club is where it says; a stand-in is where the clubs that named it are.
+    const sameState = candidate?.gcTeams?.length
+      ? !own?.state || !candidate.state || own.state === candidate.state
+      : stateFits(own?.state, pullerStates(index, only));
+    if (sameState || corroborates(index, ownTeamId, only, game)) {
+      return { teamId: only, basis: "name" };
+    }
+  }
 
   // Several of that name: the one something beyond the name agrees with.
   const corroborated = sameName.filter((id) => corroborates(index, ownTeamId, id, game));
@@ -817,7 +920,17 @@ const resolveOpponent = (
   const reusable = sameName
     .map((teamId) => index.teamsById.get(teamId))
     .find(
-      (team): team is ScoutTeam => team !== undefined && !team.placeholder && !team.gcTeams?.length
+      (team): team is ScoutTeam =>
+        team !== undefined &&
+        !team.placeholder &&
+        !team.gcTeams?.length &&
+        /*
+         * ...named by this club's neighbours. One "Red Sox" stand-in shared by twenty-nine clubs
+         * in ten states is not a club; it is a knot in the rating graph that ties every one of
+         * them to every other. A stand-in per state keeps a name that is nobody in particular
+         * from being everybody's opponent.
+         */
+        stateFits(own?.state, pullerStates(index, team.id))
     );
   if (reusable) return { teamId: reusable.id, basis: "name" };
 
@@ -907,6 +1020,7 @@ const importOne = (
     gamesUpdated: 0,
     gamesUnchanged: 0,
     gamesIgnored: 0,
+    gamesOutOfSeason: 0,
     opponentsCreated: 0,
     opponentsMatchedByAvatar: 0,
     opponentsMatchedByName: 0,
@@ -928,7 +1042,7 @@ const importOne = (
   // The working arrays are mutated from here on; the public entry hands in copies.
   const teams = state.teams;
   const games = state.games;
-  const own = resolveOwnTeam(profile, group.id, schedule.fetchedAt, teams, index);
+  const own = resolveOwnTeam(schedule, group.id, teams, index);
   const ourLevel = profileAgeLevel(profile);
   const outcome: GcImportOutcome = {
     ...base,
@@ -941,9 +1055,16 @@ const importOne = (
 
   const ageGroups = resolved.ageGroups;
 
+  const squadYear = ageGroupYear(group);
   for (const game of schedule.games) {
     if (!isFilable(game)) {
       outcome.gamesIgnored += 1;
+      continue;
+    }
+    // A game before August 1 of the year the squad year starts is last year's squad's, however
+    // GameChanger lists it. Filed nowhere: it would count on this year's table at this level.
+    if (!inSquadYear(game.date, squadYear)) {
+      outcome.gamesOutOfSeason += 1;
       continue;
     }
 
@@ -1153,45 +1274,68 @@ export const resolveSlotGames = (
   /** Slot rows to drop, and the named row each one's scores were folded into. */
   const merges = new Map<string, ScoutGame>();
 
-  slotGames.forEach((slotGame) => {
+  /**
+   * Settles one slot. `exact` asks for a start time that agrees as well; the exact round runs
+   * first over every slot, so that where two slots on one day could both take the same named row
+   * — a doubleheader against one club, written as two "TBD"s with the same score — the one whose
+   * time matches claims it, and the other is left rather than given the wrong half.
+   */
+  const settle = (slotGame: ScoutGame, exact: boolean) => {
+    if (merges.has(slotGame.id)) return;
     const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const slotKnown = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
+    const slotOther = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+    /** The two rows give the same result from the known club's seat. */
+    const mirrors = (named: ScoutGame): boolean => {
+      if (!isScored(slotGame) || !isScored(named)) return false;
+      const namedKnown = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
+      const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
+      return slotKnown === namedKnown && slotOther === namedOther;
+    };
+    const sameTime = (named: ScoutGame): boolean =>
+      slotGame.startTs !== undefined && named.startTs === slotGame.startTs;
+    const timeAgrees = (named: ScoutGame): boolean =>
+      slotGame.startTs === undefined || named.startTs === undefined || sameTime(named);
+
     const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
       (named) =>
         !spoken.has(named.id) &&
         // The other club's schedule, never the same one this slot came from.
         sourceOf(named) !== undefined &&
         sourceOf(named) !== sourceOf(slotGame) &&
-        // A time on both sides has to agree; a doubleheader is two games, not one.
-        (slotGame.startTs === undefined ||
-          named.startTs === undefined ||
-          slotGame.startTs === named.startTs)
+        /*
+         * Two results that contradict are two games, full stop. Folding the slot into the one
+         * named row of the day regardless was deleting real results: on a pool with no start
+         * times to hold it back, that fallback threw away 1,976 scored games in one tidy.
+         */
+        !(isScored(slotGame) && isScored(named) && !mirrors(named))
     );
 
-    // With times on both rows, an exact time is the answer even on a day holding several games.
-    const timed = candidates.filter(
-      (named) => slotGame.startTs !== undefined && named.startTs === slotGame.startTs
-    );
     /*
-     * Failing a time, the score. A pool-play day against one club is two or three games with no
-     * times posted, and picking between them by the day alone is the guess this function refuses
-     * to make — but the same fixture written down twice agrees on what it finished, from each
-     * side's point of view. Where exactly one named row agrees, that is the one.
+     * The score first. The same fixture written down twice agrees on what it finished, from each
+     * side's point of view, and that is true even when the two coaches typed different start
+     * times — which they do often enough that requiring the time to agree left a thousand
+     * settled games standing as stand-ins. Where exactly one named row mirrors the result, that
+     * is the one; where several do, the time picks between them. Failing a result on both sides,
+     * the day — provided a time on both sides agrees. A pool-play day against one club is two or
+     * three games with no times posted, and picking between them by the day alone is the guess
+     * this function refuses to make.
      */
-    const agreeing = candidates.filter((named) => {
-      if (!isScored(slotGame) || !isScored(named)) return false;
-      const slotKnown = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
-      const slotOther = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
-      const namedKnown = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
-      const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
-      return slotKnown === namedKnown && slotOther === namedOther;
-    });
-    const shortlist = timed.length > 0 ? timed : agreeing.length > 0 ? agreeing : candidates;
+    const agreeing = candidates.filter(mirrors);
+    const pool = agreeing.length > 0 ? agreeing : candidates;
+    const shortlist = exact
+      ? pool.filter(sameTime)
+      : agreeing.length === 1
+        ? agreeing
+        : pool.filter(timeAgrees);
     if (shortlist.length !== 1) return;
 
     const named = shortlist[0]!;
     spoken.add(named.id);
     merges.set(slotGame.id, named);
-  });
+  };
+  slotGames.forEach((slotGame) => settle(slotGame, true));
+  slotGames.forEach((slotGame) => settle(slotGame, false));
 
   if (merges.size === 0) return { state, resolved: 0 };
 
@@ -1243,9 +1387,15 @@ export const proposeSeasonPairings = (
   const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
   if (linked.length === 0) return [];
 
-  /** Who each team has played, so "a club in common" can be asked without scanning the games. */
+  /**
+   * Who each team has played, so "a club in common" can be asked without scanning the games. Only
+   * pulled clubs count as an opponent in common: a stand-in called "Warriors" that two schedules
+   * both named is two clubs' rec-league neighbours, not one club both of them met.
+   */
+  const pulledIds = new Set(teams.filter((team) => team.gcTeams?.length).map((team) => team.id));
   const opponents = new Map<string, Set<string>>();
   const note = (teamId: string, opponentId: string) => {
+    if (!pulledIds.has(opponentId)) return;
     const met = opponents.get(teamId);
     if (met) met.add(opponentId);
     else opponents.set(teamId, new Set([opponentId]));
@@ -1297,8 +1447,11 @@ export const proposeSeasonPairings = (
       const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
       const evidence: GcPairingEvidence[] = [];
       if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
-      const city = from.team.city?.toLowerCase();
-      if (city && city === to.team.city?.toLowerCase()) evidence.push("city");
+      // A town is evidence only in its own state: Lawrenceburg IN is not Lawrenceburg KY.
+      const city = townKey(from.team.city);
+      if (city && city === townKey(to.team.city) && from.team.state === to.team.state) {
+        evidence.push("city");
+      }
       if (from.team.state && from.team.state === to.team.state) evidence.push("state");
       if (shareAnOpponent(from.team.id, to.team.id)) evidence.push("shared-opponent");
 
@@ -1310,6 +1463,12 @@ export const proposeSeasonPairings = (
        */
       if (evidence.length === 0) continue;
       if (!sameName && !evidence.includes("avatar")) continue;
+      /*
+       * Same name and same state alone is no offer. Two GameChanger accounts a season apart with
+       * one name in one state are, as often as not, two rec-league teams in two towns; a town in
+       * common, a pulled club in common, or the same picture is what makes one squad.
+       */
+      if (evidence.every((item) => item === "state")) continue;
 
       candidates.push({
         fromTeamId: from.team.id,
@@ -1471,6 +1630,12 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
     }.`
   );
 
+  const outOfSeason = sum((outcome) => outcome.gamesOutOfSeason);
+  if (outOfSeason > 0) {
+    lines.push(
+      `${outOfSeason} game${outOfSeason === 1 ? "" : "s"} dated before the season began (August 1) left out.`
+    );
+  }
   const added = sum((outcome) => outcome.gamesAdded);
   const updated = sum((outcome) => outcome.gamesUpdated);
   const unchanged = sum((outcome) => outcome.gamesUnchanged);
@@ -1542,12 +1707,24 @@ export const mergeSameSquadIds = (
   const pulled = state.teams.filter((team) => team.gcTeams?.length);
   if (pulled.length < 2) return { state, merged: 0 };
 
-  /** A game as the club that filed it would describe it: the day, who, and how it went. */
+  /** The GameChanger ids each team is known by, so a row can be told to be its own schedule's. */
+  const ownIds = new Map(
+    pulled.map((team) => [team.id, new Set((team.gcTeams ?? []).map((link) => link.teamId))])
+  );
+
+  /**
+   * A game as the club that filed it would describe it: the day, who, and how it went — counted
+   * only from the team's own schedule. A row that somebody else's schedule filed against this
+   * team by name is the very thing that may be wrong, and reading it as this team's account of
+   * the game let a misfiled row "prove" two clubs one squad: ten 8U Dodgers in ten states were
+   * folded on fixtures none of them had filed.
+   */
   const fixtureKeys = new Map<string, Set<string>>();
   const nameOf = new Map(state.teams.map((team) => [team.id, teamNameKey(team.name)]));
   state.games.forEach((game) => {
-    if (!game.date) return;
+    if (!game.date || !game.source) return;
     [game.teamAId, game.teamBId].forEach((teamId, side) => {
+      if (!ownIds.get(teamId)?.has(game.source!.teamId)) return;
       const otherId = side === 0 ? game.teamBId : game.teamAId;
       const other = nameOf.get(otherId);
       if (!other) return;
@@ -1555,12 +1732,26 @@ export const mergeSameSquadIds = (
       const theirs = side === 0 ? game.teamBScore : game.teamAScore;
       // Unscored rows say only that a fixture is planned, which two clubs can share.
       if (mine === undefined || theirs === undefined) return;
-      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
+      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
       const bucket = fixtureKeys.get(teamId);
       if (bucket) bucket.add(key);
       else fixtureKeys.set(teamId, new Set([key]));
     });
   });
+
+  /**
+   * Whether two pulled teams could even be one squad: the same level on every id, the same state
+   * where both give one, and the same listing name once only the age label is removed. A club's
+   * 9U and 10U are two rosters; so are "Heat 9U (Ealey)" and "Heat 9U (Campana)"; and a Chico
+   * Aces and a Pansey Aces are two clubs whatever they filed.
+   */
+  const couldBeOneSquad = (a: ScoutTeam, b: ScoutTeam): boolean => {
+    const links = [...(a.gcTeams ?? []), ...(b.gcTeams ?? [])];
+    const levels = new Set(links.map((link) => link.ageLevel));
+    if (levels.size !== 1 || levels.has(undefined)) return false;
+    if (a.state && b.state && a.state !== b.state) return false;
+    return new Set(links.map((link) => squadNameKey(link.name))).size === 1;
+  };
 
   /** Ids to fold, newest-known first, keyed by the id they fold into. */
   const foldInto = new Map<string, string>();
@@ -1590,6 +1781,7 @@ export const mergeSameSquadIds = (
       if (!mine || mine.size === 0) return;
       for (const other of ranked.slice(0, index)) {
         if (foldInto.has(other.id)) continue;
+        if (!couldBeOneSquad(team, other)) continue;
         const theirs = fixtureKeys.get(other.id);
         if (!theirs) continue;
         const shared = [...mine].some((key) => theirs.has(key));
@@ -1612,6 +1804,171 @@ export const mergeSameSquadIds = (
   return { state: { ...state, teams, games }, merged: foldInto.size };
 };
 
+/**
+ * Moves a game filed by name onto the namesake whose own schedule holds it.
+ *
+ * A schedule names an opponent; the import attaches the row to a pulled club of that name. When
+ * a second club of the name is pulled later and *its* own schedule lists this very game — same
+ * day, this puller, the result mirrored — the row was on the wrong club, and nothing at arrival
+ * time could have known. The fixture beats the name, order-independently: the row moves to the
+ * club that filed it, where the collapse then makes one game of the two. Only where exactly one
+ * namesake holds it and the club it sits on does not; anything less stays as it is.
+ */
+export const reclaimMisfiled = (
+  state: GcImportState
+): { state: GcImportState; reclaimed: number } => {
+  const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const ownIds = new Map<string, Set<string>>();
+  const namesakes = new Map<string, string[]>();
+  state.teams.forEach((team) => {
+    if (!team.gcTeams?.length) return;
+    ownIds.set(team.id, new Set(team.gcTeams.map((link) => link.teamId)));
+    const key = teamNameKey(team.name);
+    const bucket = namesakes.get(key);
+    if (bucket) bucket.push(team.id);
+    else namesakes.set(key, [team.id]);
+  });
+  if (namesakes.size === 0) return { state, reclaimed: 0 };
+
+  const isOwnRow = (game: ScoutGame, teamId: string): boolean =>
+    game.source !== undefined && (ownIds.get(teamId)?.has(game.source.teamId) ?? false);
+  /** Each pulled team's own-schedule rows by day. */
+  const ownByDay = new Map<string, ScoutGame[]>();
+  state.games.forEach((game) => {
+    if (!game.date) return;
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      if (!isOwnRow(game, teamId)) return;
+      const key = `${teamId}\u0000${game.date}`;
+      const bucket = ownByDay.get(key);
+      if (bucket) bucket.push(game);
+      else ownByDay.set(key, [game]);
+    });
+  });
+
+  const score = (game: ScoutGame, teamId: string) =>
+    game.teamAId === teamId ? game.teamAScore : game.teamBScore;
+  /** Whether this club's own schedule has a row that day against `pullerId` that could be `row`. */
+  const holds = (clubId: string, pullerId: string, row: ScoutGame): boolean =>
+    (ownByDay.get(`${clubId}\u0000${row.date}`) ?? []).some((own) => {
+      const other = own.teamAId === clubId ? own.teamBId : own.teamAId;
+      if (other !== pullerId) return false;
+      const ownClub = score(own, clubId);
+      const ownPuller = score(own, pullerId);
+      if (ownClub === undefined || ownPuller === undefined) return true;
+      const rowClub = score(row, clubId === row.teamAId ? row.teamAId : row.teamBId);
+      const rowPuller = score(row, pullerId);
+      if (rowClub === undefined || rowPuller === undefined) return true;
+      return ownClub === rowClub && ownPuller === rowPuller;
+    });
+
+  let reclaimed = 0;
+  const games = state.games.map((game) => {
+    if (!game.date || !game.source) return game;
+    // The puller is the side whose schedule filed the row; the other side was attached by name.
+    const pullerId = isOwnRow(game, game.teamAId)
+      ? game.teamAId
+      : isOwnRow(game, game.teamBId)
+        ? game.teamBId
+        : undefined;
+    if (!pullerId) return game;
+    const namedId = pullerId === game.teamAId ? game.teamBId : game.teamAId;
+    const named = teamById.get(namedId);
+    if (!named?.gcTeams?.length) return game;
+    // Attached by name only: the club it sits on did not file it, and its own schedule does not
+    // hold a row that could be it.
+    if (isOwnRow(game, namedId) || holds(namedId, pullerId, game)) return game;
+    const pool = poolKeyOf(game.ageGroupId);
+    const holders = (namesakes.get(teamNameKey(named.name)) ?? []).filter((clubId) => {
+      if (clubId === namedId) return false;
+      const club = teamById.get(clubId);
+      const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
+      return Boolean(inPool) && holds(clubId, pullerId, game);
+    });
+    if (holders.length !== 1) return game;
+    reclaimed += 1;
+    const holder = holders[0]!;
+    return game.teamAId === namedId ? { ...game, teamAId: holder } : { ...game, teamBId: holder };
+  });
+  return reclaimed === 0 ? { state, reclaimed: 0 } : { state: { ...state, games }, reclaimed };
+};
+
+/**
+ * Files a stand-in's rows onto the one pulled club of that name in the puller's state.
+ *
+ * A stand-in is a name a schedule wrote down before — or instead of — the club being pulled. Once
+ * the whole pool is in, most of them have a pulled namesake, and where exactly one of those is in
+ * the state of the club that named it, that is the club: right in about nine cases in ten on
+ * known pairs, and the tenth is a traveller the game itself will usually settle first. Two in the
+ * state, or none, stays a stand-in — a guess between namesakes is what made six River City
+ * Raptors — and a lone namesake in another state is refused for the same reason. Nothing at
+ * arrival time could do this, because the namesake was pulled after the mention 70 times in 100.
+ */
+export const refileStandIns = (state: GcImportState): { state: GcImportState; refiled: number } => {
+  const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  /** Pulled clubs by pool, name and level. */
+  const clubs = new Map<string, ScoutTeam[]>();
+  state.teams.forEach((team) => {
+    if (!team.gcTeams?.length) return;
+    const key = teamNameKey(team.name);
+    new Set(
+      team.gcTeams.map((link) => `${poolKeyOf(link.ageGroupId)}\u0000${key}\u0000${link.ageLevel}`)
+    ).forEach((slot) => {
+      const bucket = clubs.get(slot);
+      if (bucket) bucket.push(team);
+      else clubs.set(slot, [team]);
+    });
+  });
+  if (clubs.size === 0) return { state, refiled: 0 };
+
+  let refiled = 0;
+  const games = state.games.map((game) => {
+    const a = teamById.get(game.teamAId);
+    const b = teamById.get(game.teamBId);
+    const standIn = a?.nameOnly ? a : b?.nameOnly ? b : undefined;
+    const puller = standIn === a ? b : a;
+    if (!standIn || !puller?.gcTeams?.length || !puller.state) return game;
+    const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
+    const slot = `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}\u0000${level}`;
+    const inState = (clubs.get(slot) ?? []).filter((club) => club.state === puller.state);
+    // Two in the state: the one in the puller's own town, if exactly one is.
+    const pullerTown = townKey(puller.city);
+    const chosen =
+      inState.length === 1
+        ? inState
+        : pullerTown
+          ? inState.filter((club) => townKey(club.city) === pullerTown)
+          : [];
+    if (chosen.length !== 1) return game;
+    refiled += 1;
+    const club = chosen[0]!;
+    return standIn === a ? { ...game, teamAId: club.id } : { ...game, teamBId: club.id };
+  });
+  if (refiled === 0) return { state, refiled: 0 };
+
+  // A stand-in with nothing left on it is not a club and should not linger in the roster.
+  const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
+  const teams = state.teams.filter((team) => !team.nameOnly || stillUsed.has(team.id));
+  return { state: { ...state, teams, games }, refiled };
+};
+
+/**
+ * Drops the games dated outside their page's squad year — last year's squad's results, which
+ * GameChanger lists under this year's id often enough that a nationwide pull carried three
+ * thousand of them. The import refuses them on arrival now; this is the same rule applied to a
+ * pool filed before it did, so "Check for doubles" cleans an existing pool the same way.
+ */
+export const pruneOutOfSeason = (
+  state: GcImportState
+): { state: GcImportState; pruned: number } => {
+  const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const games = state.games.filter((game) => inSquadYear(game.date, yearOf.get(game.ageGroupId)));
+  if (games.length === state.games.length) return { state, pruned: 0 };
+  return { state: { ...state, games }, pruned: state.games.length - games.length };
+};
+
 /** What one tidy of the pool did, in the order it did it. */
 export type PoolTidy = {
   state: GcImportState;
@@ -1623,7 +1980,18 @@ export type PoolTidy = {
   paired: number;
   /** Rows that were the same game written twice, now one. */
   collapsed: number;
+  /** Rows dated outside their squad year, dropped. */
+  pruned: number;
+  /** Rows moved to the namesake whose own schedule holds the game. */
+  reclaimed: number;
+  /** Stand-in rows filed onto the one club of that name in the puller's state. */
+  refiled: number;
+  /** How many passes it took to find nothing more. */
+  passes: number;
 };
+
+/** The most times the tidy repeats itself. Four passes were enough on a twenty-thousand-team pool. */
+const TIDY_MAX_PASSES = 6;
 
 /**
  * The passes that only make sense once a whole run is in, in the order they depend on each other.
@@ -1636,9 +2004,12 @@ export type PoolTidy = {
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
-export const tidyPool = (state: GcImportState): PoolTidy => {
-  const named = resolveSlotGames(state);
-  const squads = mergeSameSquadIds(named.state);
+const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
+  const season = pruneOutOfSeason(state);
+  const named = resolveSlotGames(season.state);
+  const moved = reclaimMisfiled(named.state);
+  const placed = refileStandIns(moved.state);
+  const squads = mergeSameSquadIds(placed.state);
   const seasons = pairSettledSquads(squads.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
   return {
@@ -1647,7 +2018,67 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     folded: squads.merged,
     paired: seasons.paired,
     collapsed: same.collapsed,
+    pruned: season.pruned,
+    reclaimed: moved.reclaimed,
+    refiled: placed.refiled,
   };
+};
+
+/**
+ * Runs the passes until a pass finds nothing. Each one changes what the next can see — a slot
+ * settled in pass one is the row that lets a second slot settle in pass two — so a single pass
+ * left 416 stand-ins that the next pass found, then 54, then 5.
+ */
+export const tidyPool = (state: GcImportState): PoolTidy => {
+  const total: PoolTidy = {
+    state,
+    named: 0,
+    folded: 0,
+    paired: 0,
+    collapsed: 0,
+    pruned: 0,
+    reclaimed: 0,
+    refiled: 0,
+    passes: 0,
+  };
+  for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
+    const step = tidyOnce(total.state);
+    total.passes += 1;
+    total.state = step.state;
+    total.named += step.named;
+    total.folded += step.folded;
+    total.paired += step.paired;
+    total.collapsed += step.collapsed;
+    total.pruned += step.pruned;
+    total.reclaimed += step.reclaimed;
+    total.refiled += step.refiled;
+    const changed =
+      step.named +
+      step.folded +
+      step.paired +
+      step.collapsed +
+      step.pruned +
+      step.reclaimed +
+      step.refiled;
+    if (changed === 0) break;
+  }
+  return total;
+};
+
+/**
+ * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
+ * is not", without hashing forty thousand rows. Counts and the newest GameChanger fetch cover a
+ * pull, a restore and a reset; a hand edit that keeps every count the same and lands on an
+ * already-tidied pool has nothing for the tidy to do anyway.
+ */
+export const poolSignature = (state: GcImportState): string => {
+  let latest = "";
+  state.teams.forEach((team) => {
+    team.gcTeams?.forEach((link) => {
+      if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
+    });
+  });
+  return `${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
 };
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
@@ -1655,9 +2086,24 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
   const plural = (count: number, one: string, many: string) =>
     `${count} ${count === 1 ? one : many}`;
   return [
+    ...(tidy.pruned > 0
+      ? [
+          `${plural(tidy.pruned, "game", "games")} dated before the season began (August 1), left out.`,
+        ]
+      : []),
     ...(tidy.named > 0
       ? [
           `${plural(tidy.named, "placeholder", "placeholders")} named from the other team's schedule.`,
+        ]
+      : []),
+    ...(tidy.reclaimed > 0
+      ? [
+          `${plural(tidy.reclaimed, "game", "games")} moved to the club of that name whose own schedule holds it.`,
+        ]
+      : []),
+    ...(tidy.refiled > 0
+      ? [
+          `${plural(tidy.refiled, "game", "games")} filed onto the one club of that name in the same state.`,
         ]
       : []),
     ...(tidy.folded > 0

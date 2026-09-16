@@ -642,3 +642,35 @@ describe("parseGcTeamList against a real export", () => {
     expect(enFuego?.season).toEqual({ season: "winter", year: 2026 });
   });
 });
+
+describe("a 0-0 score", () => {
+  it("is no result: GameChanger writes 0-0 where nobody entered a score", () => {
+    const [game] = normalizeGcGames([
+      {
+        id: "z1",
+        opponent_team: { name: "Smashers 9U" },
+        start_ts: "2026-08-27T18:00:00.000Z",
+        timezone: "America/New_York",
+        score: { team: 0, opponent_team: 0 },
+        game_status: "completed",
+      },
+    ]);
+    expect(game?.teamScore).toBeUndefined();
+    expect(game?.opponentScore).toBeUndefined();
+  });
+
+  it("leaves a real shutout alone", () => {
+    const [game] = normalizeGcGames([
+      {
+        id: "z2",
+        opponent_team: { name: "Smashers 9U" },
+        start_ts: "2026-08-27T18:00:00.000Z",
+        timezone: "America/New_York",
+        score: { team: 0, opponent_team: 6 },
+        game_status: "completed",
+      },
+    ]);
+    expect(game?.teamScore).toBe(0);
+    expect(game?.opponentScore).toBe(6);
+  });
+});

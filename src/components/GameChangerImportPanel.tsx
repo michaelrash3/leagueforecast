@@ -6,6 +6,7 @@ import {
   createGcImporter,
   describeTidy,
   GC_PAIRING_EVIDENCE_LABEL,
+  poolSignature,
   proposeSeasonPairings,
   summarizeGcImport,
   tidyPool,
@@ -40,7 +41,7 @@ import {
   gcImportProblemsCsv,
   type GcImportProblem,
 } from "../lib/gameChangerReport";
-import { flushPoolWrites } from "../lib/teamRankingsStorage";
+import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -326,7 +327,18 @@ export function GameChangerImportPanel({
      * one game. A whole run is the first point at which both halves of each are certainly present.
      */
     const tidy = tidyPool(poolRef.current);
-    if (tidy.named + tidy.folded + tidy.paired + tidy.collapsed > 0) {
+    // Stamped before the save lands, so the page does not read the tidied pool as untidied.
+    saveTidyStamp(poolSignature(tidy.state));
+    if (
+      tidy.named +
+        tidy.folded +
+        tidy.paired +
+        tidy.collapsed +
+        tidy.pruned +
+        tidy.reclaimed +
+        tidy.refiled >
+      0
+    ) {
       poolRef.current = tidy.state;
       if (persist()) await flushPoolWrites();
     }
@@ -357,13 +369,13 @@ export function GameChangerImportPanel({
   };
 
   /**
-   * The end-of-run tidy on its own. Doubles are a state of the data, not of the list: the checks
-   * that stop new ones being made do nothing for the ones already saved, and a list with nothing
-   * new in it never reaches the end of a run.
+   * The end-of-run tidy on its own. It also runs by itself whenever the app opens on a pool it has
+   * not tidied, so this is for the person who wants to see it happen now.
    */
   const tidyNow = async () => {
     // From the pool as saved, not the ref: nothing has been pulled since it was handed in.
     const tidy = tidyPool(pool);
+    saveTidyStamp(poolSignature(tidy.state));
     const lines = describeTidy(tidy);
     if (lines.length === 0) {
       showToast("Nothing doubled up, nothing to fold.");
@@ -617,7 +629,7 @@ export function GameChangerImportPanel({
             </button>
             {pool.games.length > 0 && (
               <button type="button" onClick={() => void tidyNow()} className={button.ghost}>
-                Check for doubles
+                Tidy now
               </button>
             )}
             {split.fresh.length === 0 && split.seen > 0 && (

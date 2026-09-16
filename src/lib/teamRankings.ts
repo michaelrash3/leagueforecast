@@ -287,7 +287,33 @@ export const cleanTeamName = (name: string): string => {
  * need to look a name up in the roster (the screenshot importer, for one) match names exactly the
  * way `resolveOrCreateTeam` does, instead of re-deriving the rule.
  */
-export const teamNameKey = (name: string) => cleanTeamName(name).toLowerCase();
+export const teamNameKey = (name: string) =>
+  cleanTeamName(name)
+    .toLowerCase()
+    // Punctuation between words is spacing, not spelling: "Wheaton Warriors - Grey", "Wheaton
+    // Warriors Grey" and "Wheaton Warriors/Grey" are one name written three ways, and a pull
+    // reads all three off different schedules. The suffix words themselves stay, so "Frisco
+    // Dodgers Gomez" is still not "Frisco Dodgers".
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/\s*[-\u2013\u2014/]+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+/**
+ * The key two GameChanger *listings* are compared by when asking whether they are one squad: the
+ * age label off, everything else kept. `teamNameKey` drops a parenthetical because "Heat 9U
+ * (Ealey)" and "Heat 9U" are one *club* for an opponent to have played — but they are two squads,
+ * and the fold that decides whether two ids are one roster has to see the difference.
+ */
+export const squadNameKey = (listingName: string): string =>
+  listingName
+    .replace(AGE_LABEL, " ")
+    .toLowerCase()
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/\s*[-\u2013\u2014/]+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
 
 const normalizeName = teamNameKey;
 
@@ -615,6 +641,25 @@ export const findAgeGroupForSeason = (
     const current = ageGroupSeason(group);
     return current.ageLevel === season.ageLevel && current.year === season.year;
   });
+
+/**
+ * When a squad year runs: August 1 of the year before to July 31. "9U 2027" is the squad that
+ * plays Fall 2026 and Spring 2027, and its season starts on August 1, 2026 — a game dated before
+ * that belongs to last year's squad, whatever schedule it turned up on. GameChanger lists a club's
+ * older games under a new id often enough that a nationwide pull carried three thousand rows from
+ * the previous spring and the autumn before it, all counting on the 2027 tables.
+ */
+export const squadYearWindow = (year: number): { start: string; end: string } => ({
+  start: `${year - 1}-08-01`,
+  end: `${year}-07-31`,
+});
+
+/** Whether a game's date falls in its squad year. A game with no date, or a page with no year, passes. */
+export const inSquadYear = (date: string | undefined, year: number | undefined): boolean => {
+  if (year === undefined || !date) return true;
+  const { start, end } = squadYearWindow(year);
+  return date >= start && date <= end;
+};
 
 /** Ids are minted here so every caller that creates an age group produces the same shape. */
 export const createAgeGroupId = (): string =>
@@ -1202,6 +1247,37 @@ export const collapseSameGames = (
       }
       dropped.add(game.id);
     });
+
+    /*
+     * Same game, two scorekeepers. Two results that contradict are a doubleheader only if one of
+     * the two schedules lists two games against this club that day. When each schedule lists
+     * exactly one and the results differ, that is one game two coaches scored differently — 1,076
+     * such pairs on a nationwide pull, 654 of them a single run apart — not two games. The first
+     * row stands and carries what the other side reported.
+     */
+    if (kept.length === 2) {
+      const [first, second] = kept as [ScoutGame, ScoutGame];
+      const scored = (game: ScoutGame) =>
+        game.teamAScore !== undefined && game.teamBScore !== undefined;
+      const sourceOf = (game: ScoutGame) => game.source?.teamId;
+      const oneEach =
+        sourceOf(first) !== undefined &&
+        sourceOf(second) !== undefined &&
+        sourceOf(first) !== sourceOf(second) &&
+        bucket.filter((game) => sourceOf(game) === sourceOf(first)).length === 1 &&
+        bucket.filter((game) => sourceOf(game) === sourceOf(second)).length === 1;
+      if (oneEach && scored(first) && scored(second)) {
+        const theirA = scoreOf(second, first.teamAId);
+        const theirB = scoreOf(second, first.teamBId);
+        const noted: ScoutGame = {
+          ...first,
+          note: [first.note, `Other side reported ${theirA}-${theirB}.`].filter(Boolean).join(" "),
+        };
+        kept[0] = noted;
+        replaced.set(first.id, noted);
+        dropped.add(second.id);
+      }
+    }
   });
 
   if (dropped.size === 0) return { games, collapsed: 0 };
@@ -1376,6 +1452,8 @@ const buildPooledTeamRankings = (
       (game) =>
         pool.has(game.ageGroupId) &&
         countsTowardRating(game) &&
+        // Last year's squad's games, listed under this year's id, are not this squad's results.
+        inSquadYear(game.date, index.year(game.ageGroupId)) &&
         teamById.has(game.teamAId) &&
         teamById.has(game.teamBId)
     )
@@ -1768,6 +1846,14 @@ const PLACEHOLDER_NAMES = new Set([
   "--",
 ]);
 
+/**
+ * A name that is the round, not the opponent: "Tournament", "Playoffs", "Bracket Play", "DH". A
+ * nationwide pull carried a hundred of these as shared clubs, each one "played" by up to nine
+ * unrelated schedules.
+ */
+const ROUND_WORDS =
+  /^(?:tournament|tourney|playoffs?|championships?|bracket(?: play)?|pool play|scrimmage|practice|double ?header|dh|semis?|semi-?finals?|finals?|consolation|elimination)\b/;
+
 export const isPlaceholderName = (name: string): boolean => {
   const raw = name.trim();
   if (!raw) return true;
@@ -1783,6 +1869,7 @@ export const isPlaceholderName = (name: string): boolean => {
     .replace(/\s{2,}/g, " ");
   if (!value) return true;
   if (PLACEHOLDER_NAMES.has(value)) return true;
+  if (ROUND_WORDS.test(value)) return true;
   /**
    * A placeholder rarely arrives on its own. GameChanger writes an undecided bracket slot as
    * "TBD- 08/04/26, 5:00 PM", so the date and the start time are part of the name, and every one

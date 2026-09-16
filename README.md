@@ -353,21 +353,42 @@ day AWS WAF starts challenging server traffic.
 
 **Identity is asymmetric, on purpose.**
 
-|                                    |                                                                                                                                                                                                                            |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A team pulled by id                | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                     |
-| An opponent                        | has no id — GameChanger never gives one. The avatar is the only identifier that means the same thing on two schedules, so it is matched on that first, then on a name, and then only within one age level and season year. |
-| A club already here as an opponent | is adopted rather than duplicated when its own turn comes. In a full pull nearly every team appears as somebody's opponent first.                                                                                          |
+|                                   |                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A team pulled by id               | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                                                                                                                                                                                          |
+| An opponent                       | has no id — GameChanger never gives one, and its picture is different on every listing, so it identifies nobody. The game itself is matched first: a club whose own schedule holds this fixture is the club. Failing that, the name — at that level, in that season year, and in the puller's own state, since nine opponents in ten are; a sole namesake in another state waits as a stand-in. |
+| A stand-in                        | is a name a schedule wrote down and nobody has pulled. One per name, level and state: a "Red Sox" named by clubs in ten states is ten stand-ins, not one club they all played.                                                                                                                                                                                                                  |
+| A club already here as a stand-in | is adopted rather than duplicated when its own turn comes: the stand-in its own schedule confirms, else the one at its level whose namers are in its state. In a full pull nearly every team appears as somebody's opponent first.                                                                                                                                                              |
 
 The same game is on both teams' schedules and a re-pull brings back a schedule
 almost entirely unchanged; both are matched rather than filed again, and only a
-score that has since been played is written.
+score that has since been played is written. A 0-0 is read as no score entered,
+which is what GameChanger means by it.
+
+**A squad year runs August 1 to July 31.** "2027" is the squad that plays Fall
+2026 and Spring 2027, and its season began on 2026-08-01. GameChanger lists a
+club's older games under its new id often enough that a nationwide pull carried
+three thousand of them; a game dated outside its squad year is left out on
+arrival and deleted from a pool that already holds one.
+
+**The tidy runs by itself.** At the end of every pull, and whenever the app opens
+on a pool whose shape differs from the one it last tidied, the whole pool is
+gone over until a pass finds nothing more: games outside their squad year are
+deleted; a stand-in is settled by the other club's schedule (a mirrored result
+settles it even when the two coaches typed different start times, and two
+results that contradict are never folded into one); a game sitting by name on
+one club moves to the namesake whose own schedule holds it; a stand-in's rows
+are filed onto the one club of that name in the puller's state (two in the state:
+the one in the puller's own town); two ids are one
+squad only when their _own_ schedules filed the same fixture, at one level, in
+one state, under one listing name; and two schedules that each list one game
+against the other that day with different scores are one game two coaches scored
+differently, kept once with the other side's score noted. "Tidy now" on the
+import panel runs the same thing for whoever wants to watch.
 
 A pairing with the **same name, same town and same state**, a season apart at
 one level, is applied on its own at the end of a pull: that is a club, not a
-coincidence. Anything short of all three is **proposed, never applied** — the
-panel lists the clubs that look like the same club a season on (same name at the
-same level plus one more thing, or the same picture), with a tick-all for the
+coincidence. Anything short of all three is **proposed, never applied** — the panel lists the clubs that look like the same club a season on (same name at the same level plus a pulled club in common, or the same picture; a shared name and state alone is no offer, since every rec league in a state has a Yankees), with a tick-all for the
 list and a tap on any name to lay the two side by side: GameChanger's name for
 each, town, state, record, games held here, and every opponent, with the ones in
 common marked. A team's own panel lists the GameChanger ids it is known by,

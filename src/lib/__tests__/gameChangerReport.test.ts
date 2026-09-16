@@ -25,6 +25,7 @@ const outcome = (over: Partial<GcImportOutcome>): GcImportOutcome => ({
   gamesUpdated: 0,
   gamesUnchanged: 0,
   gamesIgnored: 0,
+  gamesOutOfSeason: 0,
   opponentsCreated: 0,
   opponentsMatchedByAvatar: 0,
   opponentsMatchedByName: 0,
