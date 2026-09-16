@@ -1,3 +1,4 @@
+import type { RecapItem } from "./insights";
 export type TeamBase = {
   id: string;
   name: string;
@@ -265,4 +266,25 @@ export const MODEL_AGGRESSION: Record<ModelAggression, number> = {
   Conservative: 0.6,
   Balanced: 1.0,
   Aggressive: 1.4,
+};
+
+/**
+ * What the last score entry changed: the headline, the scores, what moved and why.
+ *
+ * Here rather than in App.tsx because both the app that builds it and the views that show it need
+ * to name it, and a type that only one file can name is a type that pins everything to that file.
+ */
+export type LastImpact = {
+  title: string;
+  scores: string[];
+  messages: string[];
+  recapItems: RecapItem[];
+  projectionExplanations?: ProjectionExplanationEntry[];
+};
+
+/** Why one team's projection moved, in the words the standings row shows. */
+export type ProjectionExplanationEntry = {
+  teamId: string;
+  teamName: string;
+  items: string[];
 };
