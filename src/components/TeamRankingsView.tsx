@@ -3,6 +3,7 @@ import {
   ageGroupChain,
   ageGroupLevel,
   buildScoutingReport,
+  EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
@@ -486,9 +487,21 @@ export function TeamRankingsView({
 
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
+  /** Opponents asked for by name in the scouting report, beyond the two lists it shows by default. */
+  const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>([]);
+  const report = useMemo(
+    () =>
+      reportForId
+        ? buildScoutingReport(reportForId, rankings, rankedTeams, {
+            pickedIds: pickedOpponentIds,
+          })
+        : EMPTY_SCOUTING_REPORT,
+    [reportForId, rankings, rankedTeams, pickedOpponentIds]
+  );
+  /** Everyone the report names, for the panel that has to explain where a rank comes from. */
   const reportRows = useMemo(
-    () => (reportForId ? buildScoutingReport(reportForId, rankings) : []),
-    [reportForId, rankings]
+    () => [...report.national, ...report.state, ...report.picked],
+    [report]
   );
 
   /**
@@ -1117,7 +1130,13 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               reportForId={reportForId}
               onReportTeamChange={setReportTeamId}
               reportRow={reportRow}
-              reportRows={reportRows}
+              report={report}
+              onPickOpponent={(id) =>
+                setPickedOpponentIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
+              }
+              onDropOpponent={(id) =>
+                setPickedOpponentIds((prev) => prev.filter((entry) => entry !== id))
+              }
               upcomingRows={upcomingRows}
               explanation={explanation}
               placeOf={placeOf}

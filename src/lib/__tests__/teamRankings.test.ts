@@ -13,6 +13,7 @@ import {
   seasonAtAge,
   seasonYearOptions,
   buildScoutingReport,
+  EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   leagueScoutBridge,
   scoutLinkCandidates,
@@ -570,19 +571,105 @@ describe("predictMatchup", () => {
 });
 
 describe("buildScoutingReport", () => {
+  const inState = (id: string, name: string, state: string): ScoutTeam => ({
+    ...team(id, name),
+    state,
+  });
+
   it("returns one tiered preview per other team, sorted by opponent rank", () => {
     const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
     const games = [game("A", "B", 10, 1), game("A", "C", 9, 2), game("B", "C", 5, 4)];
     const rows = buildTeamRankings("ag1", teams, games);
 
-    const report = buildScoutingReport("C", rows);
-    expect(report).toHaveLength(2);
-    expect(report.map((r) => r.opponentId)).toEqual(["A", "B"]);
-    expect(report.every((r) => ["Favored", "Toss-up", "Underdog"].includes(r.tier))).toBe(true);
+    const report = buildScoutingReport("C", rows, teams);
+    expect(report.national).toHaveLength(2);
+    expect(report.national.map((r) => r.opponentId)).toEqual(["A", "B"]);
+    expect(report.national.every((r) => ["Favored", "Toss-up", "Underdog"].includes(r.tier))).toBe(
+      true
+    );
+    expect(report.opponentCount).toBe(2);
   });
 
-  it("returns an empty list for an unknown team id", () => {
-    expect(buildScoutingReport("nope", [])).toEqual([]);
+  it("returns an empty report for an unknown team id", () => {
+    expect(buildScoutingReport("nope", [])).toEqual(EMPTY_SCOUTING_REPORT);
+  });
+
+  it("shows the top of the table rather than all of it", () => {
+    // A nationwide pool puts thousands of clubs on one page; a row each is a list nobody reads.
+    const teams = Array.from({ length: 40 }, (_, i) => team(`T${i}`, `Team ${i}`));
+    const games = teams
+      .slice(1)
+      .map((opponent, i) => game("T0", opponent.id, 10 - (i % 9), i % 9, "ag1"));
+    const rows = buildTeamRankings("ag1", teams, games);
+
+    const report = buildScoutingReport("T0", rows, teams, { nationalTop: 25 });
+    expect(report.national).toHaveLength(25);
+    expect(report.opponentCount).toBe(39);
+    // In rank order, and never the team the report is about.
+    expect(report.national.map((r) => r.opponentRank)).toEqual(
+      [...report.national.map((r) => r.opponentRank)].sort((a, b) => a - b)
+    );
+    expect(report.national.some((r) => r.opponentId === "T0")).toBe(false);
+  });
+
+  it("adds the scouted team's own state, ranked within the state", () => {
+    const teams = [
+      inState("ME", "Mine", "TX"),
+      inState("TX1", "Texans", "TX"),
+      inState("TX2", "Longhorns", "TX"),
+      inState("CA1", "Bears", "CA"),
+    ];
+    const games = [
+      game("ME", "TX1", 3, 2),
+      game("TX1", "TX2", 8, 1),
+      game("CA1", "TX2", 9, 0),
+      game("CA1", "ME", 7, 1),
+    ];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const report = buildScoutingReport("ME", rows, teams);
+
+    expect(report.stateName).toBe("TX");
+    expect(report.state.map((r) => r.opponentId).sort()).toEqual(["TX1", "TX2"]);
+    // Their rank *within the state*, not their national one, and not renumbered to close the gap
+    // where the scouted team itself sits: Mine is #2 in TX, so its opponents really are #1 and #3.
+    expect(report.state.map((r) => r.opponentRank)).toEqual([1, 3]);
+    // The California team is in the national list and not the state one.
+    expect(report.national.some((r) => r.opponentId === "CA1")).toBe(true);
+    expect(report.state.some((r) => r.opponentId === "CA1")).toBe(false);
+  });
+
+  it("leaves out the state list for a team with no state on it", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const rows = buildTeamRankings("ag1", teams, [game("A", "B", 4, 1)]);
+    const report = buildScoutingReport("A", rows, teams);
+
+    expect(report.stateName).toBeUndefined();
+    expect(report.state).toEqual([]);
+  });
+
+  it("names anyone asked for, however far down they rank", () => {
+    const teams = Array.from({ length: 40 }, (_, i) => team(`T${i}`, `Team ${i}`));
+    const games = teams
+      .slice(1)
+      .map((opponent, i) => game("T0", opponent.id, 10 - (i % 9), i % 9, "ag1"));
+    const rows = buildTeamRankings("ag1", teams, games);
+    const bottom = rows[rows.length - 1]!.teamId;
+
+    const report = buildScoutingReport("T0", rows, teams, {
+      nationalTop: 5,
+      pickedIds: [bottom],
+    });
+    expect(report.national).toHaveLength(5);
+    expect(report.national.some((r) => r.opponentId === bottom)).toBe(false);
+    expect(report.picked.map((r) => r.opponentId)).toEqual([bottom]);
+  });
+
+  it("will not let a team be its own opponent, however it is asked for", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const rows = buildTeamRankings("ag1", teams, [game("A", "B", 4, 1)]);
+    const report = buildScoutingReport("A", rows, teams, { pickedIds: ["A", "B"] });
+
+    expect(report.picked.map((r) => r.opponentId)).toEqual(["B"]);
   });
 });
 
@@ -615,8 +702,8 @@ describe("buildUpcomingSchedule", () => {
     const games = [...played, scheduled("g1", "C", "A", "2026-09-20")];
     const ranked = rows();
     const upcoming = buildUpcomingSchedule("C", ranked, games, teams, "2026-09-16");
-    const everyone = buildScoutingReport("C", ranked);
-    const vsA = everyone.find((preview) => preview.opponentId === "A")!;
+    const everyone = buildScoutingReport("C", ranked, teams);
+    const vsA = everyone.national.find((preview) => preview.opponentId === "A")!;
     expect(upcoming[0]!.projectedMargin).toBeCloseTo(vsA.projectedMargin, 10);
     expect(upcoming[0]!.winProb).toBeCloseTo(vsA.winProb, 10);
     expect(upcoming[0]!.tier).toBe(vsA.tier);
@@ -1069,7 +1156,7 @@ describe("externalResultsForSeason", () => {
     const fixtures = [{ away: "Aces", home: "Bears", date: "4/12" }];
     expect(
       externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, fixtures)
-    ).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 4, neutral: true }]);
+    ).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 4, date: "2027-06-01", neutral: true }]);
   });
 
   it("matches names across age labels, as everything else here does", () => {

@@ -1718,26 +1718,97 @@ const tierFor = (winProb: number): MatchupTier =>
 
 /** For the given team, project the result against every other team in the same ranked pool,
  * ordered by opponent rank. */
+/** How many of the national table the scouting report shows without being asked. */
+export const SCOUT_REPORT_NATIONAL_TOP = 25;
+/** And how many of the scouted team's own state. */
+export const SCOUT_REPORT_STATE_TOP = 10;
+
+export type ScoutingReport = {
+  /** The best in the pool, by rank. */
+  national: MatchupPreview[];
+  /** The best in the scouted team's own state, by rank within it. */
+  state: MatchupPreview[];
+  /** Which state those are, so the heading can say. Absent when the team has no state on it. */
+  stateName?: string;
+  /** Opponents asked for by name, whatever they rank. */
+  picked: MatchupPreview[];
+  /** Ranked teams besides this one — what the two lists are a slice of. */
+  opponentCount: number;
+};
+
+/** A report for nobody: no team picked, or one that is not in this page's table. */
+export const EMPTY_SCOUTING_REPORT: ScoutingReport = Object.freeze({
+  national: [],
+  state: [],
+  picked: [],
+  opponentCount: 0,
+});
+
+/**
+ * One team against the opposition worth naming: the top of the national table, the top of its own
+ * state, and anyone else asked for.
+ *
+ * It used to be every ranked team, which on a league of ten was a useful page and on a nationwide
+ * pool is thousands of rows in rank order — a list nobody reads and nobody can find anything in.
+ * The two that answer a real question are "how do we sit against the best" and "how do we sit
+ * against the ones we might actually draw", and for the rest a name is faster than a scroll.
+ *
+ * A team in the national top 25 and in its own state's top 10 appears in both, because both lists
+ * are answering their own question and a gap where a team should be is worse than a repeat.
+ */
 export const buildScoutingReport = (
   forTeamId: string,
-  rows: ScoutRankingRow[]
-): MatchupPreview[] => {
+  rows: ScoutRankingRow[],
+  teams: ScoutTeam[] = [],
+  options: { pickedIds?: string[]; nationalTop?: number; stateTop?: number } = {}
+): ScoutingReport => {
   const forRow = rows.find((row) => row.teamId === forTeamId);
-  if (!forRow) return [];
-  return rows
-    .filter((row) => row.teamId !== forTeamId)
-    .map((opponent): MatchupPreview => {
-      const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
-      return {
-        opponentId: opponent.teamId,
-        opponentName: opponent.teamName,
-        opponentRank: opponent.rank,
-        projectedMargin,
-        winProb: winProbA,
-        tier: tierFor(winProbA),
-      };
-    })
-    .sort((a, b) => a.opponentRank - b.opponentRank);
+  if (!forRow) return EMPTY_SCOUTING_REPORT;
+
+  const nationalTop = options.nationalTop ?? SCOUT_REPORT_NATIONAL_TOP;
+  const stateTop = options.stateTop ?? SCOUT_REPORT_STATE_TOP;
+  const opponents = rows.filter((row) => row.teamId !== forTeamId);
+
+  const preview = (opponent: ScoutRankingRow): MatchupPreview => {
+    const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
+    return {
+      opponentId: opponent.teamId,
+      opponentName: opponent.teamName,
+      opponentRank: opponent.rank,
+      projectedMargin,
+      winProb: winProbA,
+      tier: tierFor(winProbA),
+    };
+  };
+  const byRank = (a: MatchupPreview, b: MatchupPreview) => a.opponentRank - b.opponentRank;
+
+  const state = teams.find((team) => team.id === forTeamId)?.state;
+  const stateRows = state
+    ? filterRankingsByState(rows, teams, state)
+        .filter((row) => row.teamId !== forTeamId)
+        .slice(0, stateTop)
+    : [];
+
+  // Ranked by the state table, shown with their place in it: a state list numbered by national
+  // rank would read #4, #87, #212 and mean nothing. The scouted team's own place is left as a gap
+  // rather than closed up, because #1 and #3 is what its opponents are and renumbering them would
+  // say otherwise.
+  const picked = new Set(options.pickedIds ?? []);
+  return {
+    national: opponents
+      .slice()
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, nationalTop)
+      .map(preview)
+      .sort(byRank),
+    state: stateRows.map(preview).sort(byRank),
+    ...(state ? { stateName: state } : {}),
+    picked: opponents
+      .filter((row) => picked.has(row.teamId))
+      .map(preview)
+      .sort(byRank),
+    opponentCount: opponents.length,
+  };
 };
 
 /** A game on a team's schedule that has not been played yet, with the projection for it. */
@@ -1826,6 +1897,14 @@ export type ScoutBridgeResult = {
   home: string;
   away: string;
   homeMargin: number;
+  /**
+   * When it was played, in the league's own date format. Carried so the parts of the forecast that
+   * care *when* — elo, which walks a season in order, and recent form — can place a tournament
+   * game among the league's own. Optional exactly as the game's own date is: an undated result
+   * still rates, because the rating does not care about order, and is left out of the two that do
+   * rather than guessed into a position.
+   */
+  date?: string;
   /** The pair order is the order it was typed, so this must not reach the home-field estimate. */
   neutral: true;
 };
@@ -2144,6 +2223,7 @@ export const leagueScoutBridge = (
         home: ratingId(game.teamAId),
         away: ratingId(game.teamBId),
         homeMargin: game.teamAScore! - game.teamBScore!,
+        ...(game.date ? { date: game.date } : {}),
         neutral: true as const,
       }));
 

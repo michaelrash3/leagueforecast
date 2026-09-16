@@ -138,6 +138,12 @@ export type ExternalResult = {
   home: string;
   away: string;
   homeMargin: number;
+  /**
+   * When it was played, in the same format as a league game's date. Optional: a caller with no
+   * date still gets the rating, which does not care about order — only elo and recent form do,
+   * and an undated result is left out of those rather than guessed into a position.
+   */
+  date?: string;
   /** These are tournament games with no home side; see `RatingGame.neutral`. */
   neutral?: boolean;
 };
@@ -165,9 +171,10 @@ export const buildPredictionEngine = (
   // the same tournament opponent, become comparable through it. Those outside opponents are given
   // ids of their own so the regression can estimate their strength rather than assuming it.
   //
-  // Only the ratings see them. Records, elo, recent form and strength of schedule below stay
-  // league-only — they describe a team's season in *this* league, and a tournament in March is not
-  // part of that.
+  // What stays league-only is the *record*: W-L, runs for and against describe a team's season in
+  // this league, and a tournament in March is not part of that. Everything that is a claim about
+  // how good a team is — the rating, its strength of schedule, elo, recent form, and how much the
+  // model reckons it knows — counts them, because a game is a game.
   const ratingIds = new Set(teams.map((team) => team.id));
   externalResults.forEach((game) => {
     ratingIds.add(game.home);
@@ -195,16 +202,61 @@ export const buildPredictionEngine = (
     { cap: runDiffCap }
   );
 
+  /**
+   * Tournament results in the same shape the league's own games are read in, for the parts below
+   * that walk a season in date order.
+   *
+   * Only the ones that name a date and touch a league team: an undated result cannot be placed
+   * among the league's games, and a game between two outside clubs says nothing about form here
+   * (it still counts in the fit above, where order does not matter and a third party is exactly
+   * how two league teams become comparable).
+   */
+  const leagueIds = new Set(teams.map((team) => team.id));
+  const externalByDate = externalResults
+    .filter((game) => game.date && (leagueIds.has(game.home) || leagueIds.has(game.away)))
+    .map((game) => ({
+      date: game.date!,
+      away: game.away,
+      home: game.home,
+      margin: -game.homeMargin,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  /** A team's finished games, league and tournament together, oldest first. */
+  const gamesFor = (teamId: string) =>
+    [
+      ...completedGames
+        .filter((game) => game.away === teamId || game.home === teamId)
+        .map((game) => ({
+          date: game.date,
+          margin: game.away === teamId ? game.margin : -game.margin,
+        })),
+      ...externalByDate
+        .filter((game) => game.away === teamId || game.home === teamId)
+        .map((game) => ({
+          date: game.date,
+          margin: game.away === teamId ? game.margin : -game.margin,
+        })),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
   const elo = new Map(teams.map((team) => [team.id, 1500]));
-  completedGames
-    .slice()
+  // Tournament opponents start at 1500 like everyone else, so beating one moves a league team the
+  // way beating an unknown should: some, and less than beating a team that has proved itself here.
+  [
+    ...completedGames.map((game) => ({
+      date: game.date,
+      away: game.away,
+      home: game.home,
+      margin: game.margin,
+    })),
+    ...externalByDate,
+  ]
     .sort((a, b) => a.date.localeCompare(b.date))
     .forEach((game) => {
       const awayElo = elo.get(game.away) ?? 1500;
       const homeElo = elo.get(game.home) ?? 1500;
       const expectedAway = 1 / (1 + 10 ** ((homeElo - awayElo) / 400));
-      const actualAway =
-        game.awayScore === game.homeScore ? 0.5 : game.awayScore > game.homeScore ? 1 : 0;
+      const actualAway = game.margin === 0 ? 0.5 : game.margin > 0 ? 1 : 0;
       const marginMultiplier = Math.log(Math.abs(game.margin) + 1) * 1.15;
       const change = clamp(22 * marginMultiplier * (actualAway - expectedAway), -34, 34);
       elo.set(game.away, awayElo + change);
@@ -213,17 +265,16 @@ export const buildPredictionEngine = (
 
   const powerRatings = teams
     .map((team): PowerRating => {
-      const recentGames = completedGames
-        .filter((game) => game.away === team.id || game.home === team.id)
-        .slice(-5);
-      const weightedRecent = recentGames.reduce((sum, game, index) => {
-        const gameMargin = game.away === team.id ? game.margin : -game.margin;
-        return sum + gameMargin * ((index + 1) / recentGames.length);
-      }, 0);
+      // Form is form: a tournament last weekend is how this team is playing now, and leaving it
+      // out was how a team could go 0-4 in June and still read "Stable" here.
+      const played = gamesFor(team.id);
+      const recentGames = played.slice(-5);
+      const weightedRecent = recentGames.reduce(
+        (sum, game, index) => sum + game.margin * ((index + 1) / recentGames.length),
+        0
+      );
       const recentForm = recentGames.length ? weightedRecent / recentGames.length : 0;
-      const margins = completedGames
-        .filter((game) => game.away === team.id || game.home === team.id)
-        .map((game) => (game.away === team.id ? game.margin : -game.margin));
+      const margins = played.map((game) => game.margin);
       const avgMargin = margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : 0;
       const volatility = margins.length
         ? Math.sqrt(
@@ -246,7 +297,7 @@ export const buildPredictionEngine = (
         recentForm,
         volatility,
         trend:
-          team.games === 0
+          played.length === 0
             ? "New"
             : recentForm > avgMargin + 1
               ? "Up"
@@ -302,7 +353,13 @@ export const buildPredictionEngine = (
     const margin = clamp(ar.rating - br.rating - adjusted.homeAdvantage + h2hEdge, -14, 14);
     const probA = clamp(1 / (1 + Math.exp(-margin / 2.8)), 0.08, 0.92);
     const projectedWinnerId = margin >= 0 ? a.id : b.id;
-    const samplePenalty = Math.max(0, 3 - Math.min(a.games, b.games)) * 13;
+    // Games the rating was fitted from, not league games alone. The margin above is a difference
+    // of two ratings, so what the confidence in it turns on is how well *those* are pinned down —
+    // and a team with one league game and eight tournament results is not a one-game unknown.
+    const knownA = Math.max(a.games, adjusted.games.get(a.id) ?? 0);
+    const knownB = Math.max(b.games, adjusted.games.get(b.id) ?? 0);
+    const knownGames = Math.min(knownA, knownB);
+    const samplePenalty = Math.max(0, 3 - knownGames) * 13;
     const volatilityPenalty = clamp((ar.volatility + br.volatility) * 1.1, 0, 20);
     const qualityBonus = {
       Insufficient: -35,
@@ -321,7 +378,7 @@ export const buildPredictionEngine = (
       tier: confidenceTier(confidenceScore),
       reasons: [] as string[],
     };
-    if (Math.min(a.games, b.games) < 3)
+    if (knownGames < 3)
       confidence.reasons.push(
         "Confidence is reduced because at least one team has fewer than three completed games."
       );
@@ -344,8 +401,7 @@ export const buildPredictionEngine = (
         "Head-to-head results are included but capped so one game does not dominate."
       );
     const riskFactors = [...dataQuality.warnings];
-    if (Math.min(a.games, b.games) < 3)
-      riskFactors.push("Small sample size can make ratings unstable.");
+    if (knownGames < 3) riskFactors.push("Small sample size can make ratings unstable.");
     if (Math.abs(margin) < 3) riskFactors.push("Similar team ratings create a close-game risk.");
     return {
       gameId: game.id,
