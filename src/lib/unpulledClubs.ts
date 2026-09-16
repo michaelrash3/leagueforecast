@@ -1,5 +1,12 @@
 import type { GcImportState } from "./gameChangerImport";
-import { ageGroupLevel, ageGroupYear, isScoutGamePlayed, type ScoutGame } from "./teamRankings";
+import {
+  ageGroupLevel,
+  ageGroupYear,
+  isScoutGamePlayed,
+  teamNameKey,
+  type ScoutGame,
+} from "./teamRankings";
+import type { GcTeamListEntry } from "./gameChangerApi";
 import { csvEscape } from "./csv";
 
 /**
@@ -154,3 +161,54 @@ export const unpulledClubsCsv = (clubs: UnpulledClub[]): string =>
         .join(",")
     ),
   ].join("\n");
+
+/** What a team list would do for the clubs the pool only knows by name. */
+export type ListCoverage = {
+  /** Entries naming a club that is currently a stand-in here. */
+  standIns: number;
+  /** Results those stand-ins are holding — what pulling them would turn into real games. */
+  resultsWaiting: number;
+  /** Entries naming a club nothing here has heard of at all. New ground rather than backlog. */
+  unheardOf: number;
+};
+
+/**
+ * How much of the backlog a team list clears.
+ *
+ * The clubs-to-pull list cannot be worked through automatically: GameChanger has no id for any of
+ * them, which is why they are on it, and turning a name into an id means somebody searching. What
+ * can be automatic is saying what a list is worth before it is pulled — how many of its entries
+ * are clubs already standing in for results here, and how many results that would settle.
+ *
+ * Matching is by name alone, which is right for this and wrong for identity: here a wrong match
+ * costs an estimate being a little off, where in the pool it would cost a club its history.
+ */
+export const listCoverage = (
+  entries: readonly GcTeamListEntry[],
+  clubs: readonly UnpulledClub[]
+): ListCoverage => {
+  const waiting = new Map<string, number>();
+  clubs.forEach((club) => {
+    const key = teamNameKey(club.name);
+    if (!key) return;
+    waiting.set(key, (waiting.get(key) ?? 0) + club.played);
+  });
+
+  let standIns = 0;
+  let resultsWaiting = 0;
+  let unheardOf = 0;
+  const counted = new Set<string>();
+  entries.forEach((entry) => {
+    const key = entry.name ? teamNameKey(entry.name) : "";
+    if (!key || !waiting.has(key)) {
+      unheardOf += 1;
+      return;
+    }
+    standIns += 1;
+    // A name counts its waiting results once, however many listings carry it.
+    if (counted.has(key)) return;
+    counted.add(key);
+    resultsWaiting += waiting.get(key) ?? 0;
+  });
+  return { standIns, resultsWaiting, unheardOf };
+};

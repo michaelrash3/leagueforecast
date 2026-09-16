@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
+import { listCoverage, unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
 import type { GcImportState } from "../gameChangerImport";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
@@ -120,5 +120,69 @@ describe("the list as a file", () => {
       )
     );
     expect(unpulledClubsCsv(clubs)).toContain('"Raptors, Junior"');
+  });
+});
+
+describe("what a team list would clear", () => {
+  const backlog = () =>
+    unpulledClubs(
+      pool(
+        [
+          pulled("S-HOME", "Home Club", "KY"),
+          heard("S-HEARD", "Heard Of Only"),
+          heard("S-ONE", "One Game Only"),
+        ],
+        [
+          game("g1", "ag_11_2027", "S-HOME", "S-HEARD", { teamAScore: 6, teamBScore: 2 }),
+          game("g2", "ag_11_2027", "S-HOME", "S-HEARD", { teamAScore: 4, teamBScore: 3 }),
+          game("g3", "ag_11_2027", "S-HOME", "S-ONE", { teamAScore: 1, teamBScore: 0 }),
+        ]
+      )
+    );
+
+  it("counts the entries that are clubs already standing in here", () => {
+    const found = listCoverage(
+      [
+        { teamId: "gc1", name: "Heard Of Only" },
+        { teamId: "gc2", name: "Somebody New" },
+      ],
+      backlog()
+    );
+    expect(found).toMatchObject({ standIns: 1, unheardOf: 1 });
+  });
+
+  it("adds up the results those clubs are holding", () => {
+    const found = listCoverage(
+      [
+        { teamId: "gc1", name: "Heard Of Only" },
+        { teamId: "gc2", name: "One Game Only" },
+      ],
+      backlog()
+    );
+    // Two results waiting on one, one on the other.
+    expect(found.resultsWaiting).toBe(3);
+  });
+
+  it("counts a club's waiting results once however many listings name it", () => {
+    const found = listCoverage(
+      [
+        { teamId: "gc1", name: "Heard Of Only" },
+        { teamId: "gc2", name: "Heard Of Only" },
+      ],
+      backlog()
+    );
+    expect(found).toMatchObject({ standIns: 2, resultsWaiting: 2 });
+  });
+
+  it("says nothing is waiting when the list is all new ground", () => {
+    const found = listCoverage([{ teamId: "gc1", name: "Nobody Here Knows Them" }], backlog());
+    expect(found).toMatchObject({ standIns: 0, resultsWaiting: 0, unheardOf: 1 });
+  });
+
+  it("treats an entry with no name as new ground rather than a match", () => {
+    expect(listCoverage([{ teamId: "gc1" }], backlog())).toMatchObject({
+      standIns: 0,
+      unheardOf: 1,
+    });
   });
 });
