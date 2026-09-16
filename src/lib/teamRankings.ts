@@ -287,7 +287,17 @@ export const cleanTeamName = (name: string): string => {
  * need to look a name up in the roster (the screenshot importer, for one) match names exactly the
  * way `resolveOrCreateTeam` does, instead of re-deriving the rule.
  */
-export const teamNameKey = (name: string) => cleanTeamName(name).toLowerCase();
+export const teamNameKey = (name: string) =>
+  cleanTeamName(name)
+    .toLowerCase()
+    // Punctuation between words is spacing, not spelling: "Wheaton Warriors - Grey", "Wheaton
+    // Warriors Grey" and "Wheaton Warriors/Grey" are one name written three ways, and a pull
+    // reads all three off different schedules. The suffix words themselves stay, so "Frisco
+    // Dodgers Gomez" is still not "Frisco Dodgers".
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/\s*[-\u2013\u2014/]+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
 const normalizeName = teamNameKey;
 
@@ -615,6 +625,25 @@ export const findAgeGroupForSeason = (
     const current = ageGroupSeason(group);
     return current.ageLevel === season.ageLevel && current.year === season.year;
   });
+
+/**
+ * When a squad year runs: August 1 of the year before to July 31. "9U 2027" is the squad that
+ * plays Fall 2026 and Spring 2027, and its season starts on August 1, 2026 — a game dated before
+ * that belongs to last year's squad, whatever schedule it turned up on. GameChanger lists a club's
+ * older games under a new id often enough that a nationwide pull carried three thousand rows from
+ * the previous spring and the autumn before it, all counting on the 2027 tables.
+ */
+export const squadYearWindow = (year: number): { start: string; end: string } => ({
+  start: `${year - 1}-08-01`,
+  end: `${year}-07-31`,
+});
+
+/** Whether a game's date falls in its squad year. A game with no date, or a page with no year, passes. */
+export const inSquadYear = (date: string | undefined, year: number | undefined): boolean => {
+  if (year === undefined || !date) return true;
+  const { start, end } = squadYearWindow(year);
+  return date >= start && date <= end;
+};
 
 /** Ids are minted here so every caller that creates an age group produces the same shape. */
 export const createAgeGroupId = (): string =>
@@ -1376,6 +1405,8 @@ const buildPooledTeamRankings = (
       (game) =>
         pool.has(game.ageGroupId) &&
         countsTowardRating(game) &&
+        // Last year's squad's games, listed under this year's id, are not this squad's results.
+        inSquadYear(game.date, index.year(game.ageGroupId)) &&
         teamById.has(game.teamAId) &&
         teamById.has(game.teamBId)
     )
@@ -1768,6 +1799,14 @@ const PLACEHOLDER_NAMES = new Set([
   "--",
 ]);
 
+/**
+ * A name that is the round, not the opponent: "Tournament", "Playoffs", "Bracket Play", "DH". A
+ * nationwide pull carried a hundred of these as shared clubs, each one "played" by up to nine
+ * unrelated schedules.
+ */
+const ROUND_WORDS =
+  /^(?:tournament|tourney|playoffs?|championships?|bracket(?: play)?|pool play|scrimmage|practice|double ?header|dh|semis?|semi-?finals?|finals?|consolation|elimination)\b/;
+
 export const isPlaceholderName = (name: string): boolean => {
   const raw = name.trim();
   if (!raw) return true;
@@ -1783,6 +1822,7 @@ export const isPlaceholderName = (name: string): boolean => {
     .replace(/\s{2,}/g, " ");
   if (!value) return true;
   if (PLACEHOLDER_NAMES.has(value)) return true;
+  if (ROUND_WORDS.test(value)) return true;
   /**
    * A placeholder rarely arrives on its own. GameChanger writes an undecided bracket slot as
    * "TBD- 08/04/26, 5:00 PM", so the date and the start time are part of the name, and every one

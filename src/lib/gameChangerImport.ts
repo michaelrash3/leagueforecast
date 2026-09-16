@@ -36,7 +36,9 @@ import {
   gcSeasonLabel,
   isRankedAgeLevel,
   collapseSameGames,
+  inSquadYear,
   matchExistingGame,
+  MAX_AGE_LEVEL,
   mergeScoutTeams,
   normalizeState,
   squadYearForGcSeason,
@@ -331,6 +333,8 @@ export type GcImportOutcome = {
   gamesUnchanged: number;
   /** Listed by GameChanger but not filed: cancelled, or missing the date a game is matched on. */
   gamesIgnored: number;
+  /** Dated before this squad year began (or after it ends): last year's squad's games. */
+  gamesOutOfSeason: number;
   opponentsCreated: number;
   opponentsMatchedByAvatar: number;
   opponentsMatchedByName: number;
@@ -417,7 +421,8 @@ const resolveAgeGroup = (
   // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
   // about any team, and filing them would mint pages nobody asked for and fetch schedules nobody
   // reads. They are skipped outright rather than ranked or half-created.
-  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || !profile.season) return null;
+  if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || ageLevel > MAX_AGE_LEVEL) return null;
+  if (!profile.season) return null;
   const year = squadYearForGcSeason(profile.season.season, profile.season.year);
 
   // Few enough age groups that a scan is honest here — one per level per year, not one per team.
@@ -444,6 +449,9 @@ const skipReason = (profile: GcTeamProfile): string => {
   }
   if (ageLevel < MIN_AGE_LEVEL) {
     return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
+  }
+  if (ageLevel > MAX_AGE_LEVEL) {
+    return `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`;
   }
   return "GameChanger gave no season for this team, so there is no squad year to file it under.";
 };
@@ -907,6 +915,7 @@ const importOne = (
     gamesUpdated: 0,
     gamesUnchanged: 0,
     gamesIgnored: 0,
+    gamesOutOfSeason: 0,
     opponentsCreated: 0,
     opponentsMatchedByAvatar: 0,
     opponentsMatchedByName: 0,
@@ -941,9 +950,16 @@ const importOne = (
 
   const ageGroups = resolved.ageGroups;
 
+  const squadYear = ageGroupYear(group);
   for (const game of schedule.games) {
     if (!isFilable(game)) {
       outcome.gamesIgnored += 1;
+      continue;
+    }
+    // A game before August 1 of the year the squad year starts is last year's squad's, however
+    // GameChanger lists it. Filed nowhere: it would count on this year's table at this level.
+    if (!inSquadYear(game.date, squadYear)) {
+      outcome.gamesOutOfSeason += 1;
       continue;
     }
 
@@ -1153,45 +1169,68 @@ export const resolveSlotGames = (
   /** Slot rows to drop, and the named row each one's scores were folded into. */
   const merges = new Map<string, ScoutGame>();
 
-  slotGames.forEach((slotGame) => {
+  /**
+   * Settles one slot. `exact` asks for a start time that agrees as well; the exact round runs
+   * first over every slot, so that where two slots on one day could both take the same named row
+   * — a doubleheader against one club, written as two "TBD"s with the same score — the one whose
+   * time matches claims it, and the other is left rather than given the wrong half.
+   */
+  const settle = (slotGame: ScoutGame, exact: boolean) => {
+    if (merges.has(slotGame.id)) return;
     const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    const slotKnown = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
+    const slotOther = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+    /** The two rows give the same result from the known club's seat. */
+    const mirrors = (named: ScoutGame): boolean => {
+      if (!isScored(slotGame) || !isScored(named)) return false;
+      const namedKnown = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
+      const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
+      return slotKnown === namedKnown && slotOther === namedOther;
+    };
+    const sameTime = (named: ScoutGame): boolean =>
+      slotGame.startTs !== undefined && named.startTs === slotGame.startTs;
+    const timeAgrees = (named: ScoutGame): boolean =>
+      slotGame.startTs === undefined || named.startTs === undefined || sameTime(named);
+
     const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
       (named) =>
         !spoken.has(named.id) &&
         // The other club's schedule, never the same one this slot came from.
         sourceOf(named) !== undefined &&
         sourceOf(named) !== sourceOf(slotGame) &&
-        // A time on both sides has to agree; a doubleheader is two games, not one.
-        (slotGame.startTs === undefined ||
-          named.startTs === undefined ||
-          slotGame.startTs === named.startTs)
+        /*
+         * Two results that contradict are two games, full stop. Folding the slot into the one
+         * named row of the day regardless was deleting real results: on a pool with no start
+         * times to hold it back, that fallback threw away 1,976 scored games in one tidy.
+         */
+        !(isScored(slotGame) && isScored(named) && !mirrors(named))
     );
 
-    // With times on both rows, an exact time is the answer even on a day holding several games.
-    const timed = candidates.filter(
-      (named) => slotGame.startTs !== undefined && named.startTs === slotGame.startTs
-    );
     /*
-     * Failing a time, the score. A pool-play day against one club is two or three games with no
-     * times posted, and picking between them by the day alone is the guess this function refuses
-     * to make — but the same fixture written down twice agrees on what it finished, from each
-     * side's point of view. Where exactly one named row agrees, that is the one.
+     * The score first. The same fixture written down twice agrees on what it finished, from each
+     * side's point of view, and that is true even when the two coaches typed different start
+     * times — which they do often enough that requiring the time to agree left a thousand
+     * settled games standing as stand-ins. Where exactly one named row mirrors the result, that
+     * is the one; where several do, the time picks between them. Failing a result on both sides,
+     * the day — provided a time on both sides agrees. A pool-play day against one club is two or
+     * three games with no times posted, and picking between them by the day alone is the guess
+     * this function refuses to make.
      */
-    const agreeing = candidates.filter((named) => {
-      if (!isScored(slotGame) || !isScored(named)) return false;
-      const slotKnown = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
-      const slotOther = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
-      const namedKnown = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
-      const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
-      return slotKnown === namedKnown && slotOther === namedOther;
-    });
-    const shortlist = timed.length > 0 ? timed : agreeing.length > 0 ? agreeing : candidates;
+    const agreeing = candidates.filter(mirrors);
+    const pool = agreeing.length > 0 ? agreeing : candidates;
+    const shortlist = exact
+      ? pool.filter(sameTime)
+      : agreeing.length === 1
+        ? agreeing
+        : pool.filter(timeAgrees);
     if (shortlist.length !== 1) return;
 
     const named = shortlist[0]!;
     spoken.add(named.id);
     merges.set(slotGame.id, named);
-  });
+  };
+  slotGames.forEach((slotGame) => settle(slotGame, true));
+  slotGames.forEach((slotGame) => settle(slotGame, false));
 
   if (merges.size === 0) return { state, resolved: 0 };
 
@@ -1471,6 +1510,12 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
     }.`
   );
 
+  const outOfSeason = sum((outcome) => outcome.gamesOutOfSeason);
+  if (outOfSeason > 0) {
+    lines.push(
+      `${outOfSeason} game${outOfSeason === 1 ? "" : "s"} dated before the season began (August 1) left out.`
+    );
+  }
   const added = sum((outcome) => outcome.gamesAdded);
   const updated = sum((outcome) => outcome.gamesUpdated);
   const unchanged = sum((outcome) => outcome.gamesUnchanged);
@@ -1612,6 +1657,21 @@ export const mergeSameSquadIds = (
   return { state: { ...state, teams, games }, merged: foldInto.size };
 };
 
+/**
+ * Drops the games dated outside their page's squad year — last year's squad's results, which
+ * GameChanger lists under this year's id often enough that a nationwide pull carried three
+ * thousand of them. The import refuses them on arrival now; this is the same rule applied to a
+ * pool filed before it did, so "Check for doubles" cleans an existing pool the same way.
+ */
+export const pruneOutOfSeason = (
+  state: GcImportState
+): { state: GcImportState; pruned: number } => {
+  const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const games = state.games.filter((game) => inSquadYear(game.date, yearOf.get(game.ageGroupId)));
+  if (games.length === state.games.length) return { state, pruned: 0 };
+  return { state: { ...state, games }, pruned: state.games.length - games.length };
+};
+
 /** What one tidy of the pool did, in the order it did it. */
 export type PoolTidy = {
   state: GcImportState;
@@ -1623,7 +1683,14 @@ export type PoolTidy = {
   paired: number;
   /** Rows that were the same game written twice, now one. */
   collapsed: number;
+  /** Rows dated outside their squad year, dropped. */
+  pruned: number;
+  /** How many passes it took to find nothing more. */
+  passes: number;
 };
+
+/** The most times the tidy repeats itself. Four passes were enough on a twenty-thousand-team pool. */
+const TIDY_MAX_PASSES = 6;
 
 /**
  * The passes that only make sense once a whole run is in, in the order they depend on each other.
@@ -1636,8 +1703,9 @@ export type PoolTidy = {
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
-export const tidyPool = (state: GcImportState): PoolTidy => {
-  const named = resolveSlotGames(state);
+const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
+  const season = pruneOutOfSeason(state);
+  const named = resolveSlotGames(season.state);
   const squads = mergeSameSquadIds(named.state);
   const seasons = pairSettledSquads(squads.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
@@ -1647,7 +1715,37 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     folded: squads.merged,
     paired: seasons.paired,
     collapsed: same.collapsed,
+    pruned: season.pruned,
   };
+};
+
+/**
+ * Runs the passes until a pass finds nothing. Each one changes what the next can see — a slot
+ * settled in pass one is the row that lets a second slot settle in pass two — so a single pass
+ * left 416 stand-ins that the next pass found, then 54, then 5.
+ */
+export const tidyPool = (state: GcImportState): PoolTidy => {
+  const total: PoolTidy = {
+    state,
+    named: 0,
+    folded: 0,
+    paired: 0,
+    collapsed: 0,
+    pruned: 0,
+    passes: 0,
+  };
+  for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
+    const step = tidyOnce(total.state);
+    total.passes += 1;
+    total.state = step.state;
+    total.named += step.named;
+    total.folded += step.folded;
+    total.paired += step.paired;
+    total.collapsed += step.collapsed;
+    total.pruned += step.pruned;
+    if (step.named + step.folded + step.paired + step.collapsed + step.pruned === 0) break;
+  }
+  return total;
 };
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
@@ -1655,6 +1753,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
   const plural = (count: number, one: string, many: string) =>
     `${count} ${count === 1 ? one : many}`;
   return [
+    ...(tidy.pruned > 0
+      ? [
+          `${plural(tidy.pruned, "game", "games")} dated before the season began (August 1), left out.`,
+        ]
+      : []),
     ...(tidy.named > 0
       ? [
           `${plural(tidy.named, "placeholder", "placeholders")} named from the other team's schedule.`,

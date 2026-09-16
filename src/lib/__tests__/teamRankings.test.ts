@@ -28,11 +28,13 @@ import {
   statesInUse,
   findSimilarTeam,
   gamesForTeam,
+  inSquadYear,
   isPlaceholderName,
   renameScoutTeam,
   resolveOrCreateTeam,
   cleanTeamName,
   pulledGcTeamIds,
+  squadYearWindow,
   teamNameKey,
   teamNameSuggestions,
   teamsInAgeGroup,
@@ -863,7 +865,70 @@ describe("gamesForTeam", () => {
   });
 });
 
+describe("the squad year window", () => {
+  it("runs from August 1 of the year before to July 31", () => {
+    expect(squadYearWindow(2027)).toEqual({ start: "2026-08-01", end: "2027-07-31" });
+    expect(inSquadYear("2026-08-01", 2027)).toBe(true);
+    expect(inSquadYear("2027-07-31", 2027)).toBe(true);
+    expect(inSquadYear("2026-07-31", 2027)).toBe(false);
+    expect(inSquadYear("2025-09-07", 2027)).toBe(false);
+    expect(inSquadYear("2027-08-01", 2027)).toBe(false);
+  });
+
+  it("passes a game with no date, and any game on a page with no year", () => {
+    expect(inSquadYear(undefined, 2027)).toBe(true);
+    expect(inSquadYear("2019-01-01", undefined)).toBe(true);
+  });
+
+  it("keeps last year's squad's games out of this year's table", () => {
+    const groups: AgeGroup[] = [
+      { id: "u11", name: "11U 2027", ageLevel: 11, year: 2027, seasonIds: [] },
+    ];
+    const teams = [team("A", "Alaska Warriors"), team("B", "Placer Grit"), team("C", "Vikings")];
+    const games = [
+      { ...game("A", "B", 15, 0, "u11"), date: "2026-04-25" },
+      { ...game("A", "C", 3, 2, "u11"), date: "2026-09-05" },
+    ];
+    const rows = buildTeamRankings("u11", teams, games, undefined, groups);
+    const warriors = rows.find((row) => row.teamId === "A");
+    expect(warriors?.games).toBe(1);
+    expect(warriors?.record).toBe("1-0");
+  });
+});
+
+describe("teamNameKey spacing", () => {
+  it("reads a dash, a slash or a curly quote between words as spacing", () => {
+    expect(teamNameKey("Wheaton Warriors - Grey")).toBe(teamNameKey("Wheaton Warriors Grey"));
+    expect(teamNameKey("Snyder Bucks Orange")).toBe(teamNameKey("Snyder Bucks - Orange"));
+    expect(teamNameKey("Hit House/Ghost")).toBe(teamNameKey("Hit House Ghost"));
+    expect(teamNameKey("O\u2019Neal Prospects")).toBe(teamNameKey("O'Neal Prospects"));
+  });
+
+  it("still tells a suffixed squad from the bare club", () => {
+    expect(teamNameKey("Frisco Dodgers - Gomez")).not.toBe(teamNameKey("Frisco Dodgers"));
+    expect(teamNameKey("Cam Town")).not.toBe(teamNameKey("CamTown"));
+  });
+});
+
 describe("isPlaceholderName", () => {
+  it("treats a name that is the round, not a club, as a slot", () => {
+    for (const name of [
+      "Tournament",
+      "PLAYOFFS",
+      "Bracket Play",
+      "Pool Play",
+      "Championship Game",
+      "DH",
+      "Semi-Finals",
+      "Scrimmage",
+    ]) {
+      expect(isPlaceholderName(name), name).toBe(true);
+    }
+    expect(isPlaceholderName("Tournament Titans")).toBe(true);
+    expect(isPlaceholderName("Dallas Tigers")).toBe(false);
+    expect(isPlaceholderName("Finals Baseball Club")).toBe(true);
+  });
+
   it("catches the ways a schedule says nobody has decided yet", () => {
     [
       "TBD",

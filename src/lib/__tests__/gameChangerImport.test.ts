@@ -6,6 +6,7 @@ import {
   createGcImporter,
   mergeSameSquadIds,
   importGcSchedule,
+  describeTidy,
   resolveSlotGames,
   tidyPool,
   importGcSchedules,
@@ -1545,12 +1546,96 @@ describe("resolveSlotGames", () => {
     expect(resolved).toBe(1);
   });
 
-  it("will not join two games of a doubleheader that kicked off at different times", () => {
+  it("lets a mirrored result settle a slot even when the two schedules disagree on the time", () => {
+    // One game on each schedule that day, the same 7-3 from each side, typed at 6:00 by one coach
+    // and 8:30 by the other. That is one game; a thousand of them stood unsettled on the time.
     const { state, resolved } = resolveSlotGames(
       bothSides({ slotTime: "2026-09-05T18:00:00.000Z", namedTime: "2026-09-05T20:30:00.000Z" })
     );
+    expect(resolved).toBe(1);
+    expect(state.games).toHaveLength(1);
+  });
+
+  it("never folds a slot into a named row whose result contradicts it", () => {
+    // Aces beat TBD 7-3; Bears say they beat Aces 9-2 that day. Two games, whatever the count.
+    let state = bothSides({});
+    state = {
+      ...state,
+      games: state.games.map((game) =>
+        game.source?.teamId === "gcB" ? { ...game, teamAScore: 9, teamBScore: 2 } : game
+      ),
+    };
+    const { state: after, resolved } = resolveSlotGames(state);
     expect(resolved).toBe(0);
-    expect(state.games).toHaveLength(2);
+    expect(after.games).toHaveLength(2);
+  });
+
+  it("gives a doubleheader's mirrored row to the slot whose time matches", () => {
+    // Aces list two "TBD"s that day, both 7-3, at 6:00 and 8:30; Bears list one game vs Aces,
+    // 3-7 at 8:30. The 8:30 slot is the Bears game; the 6:00 one stays a slot.
+    let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            startTs: "2026-09-05T18:00:00.000Z",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+          {
+            id: "a2",
+            date: "2026-09-05",
+            startTs: "2026-09-05T20:30:00.000Z",
+            opponentName: "TBD",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    state = importGcSchedule(
+      {
+        profile: {
+          id: "gcB",
+          name: "Bears 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "b1",
+            date: "2026-09-05",
+            startTs: "2026-09-05T20:30:00.000Z",
+            opponentName: "Aces 9U",
+            teamScore: 3,
+            opponentScore: 7,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      },
+      state
+    ).state;
+    const { state: after, resolved } = resolveSlotGames(state);
+    expect(resolved).toBe(1);
+    const slots = after.games.filter(
+      (game) => after.teams.find((t) => t.id === game.teamBId)?.placeholder
+    );
+    expect(slots).toHaveLength(1);
+    expect(slots[0]?.startTs).toBe("2026-09-05T18:00:00.000Z");
   });
 
   it("leaves a slot alone when the club's own schedule is the only evidence", () => {
@@ -1775,5 +1860,88 @@ describe("settled pairings", () => {
     expect(side?.from.opponents).toEqual(["Aces", "Bandits"]);
     expect(side?.to.opponents).toEqual(["Bandits", "Cubs"]);
     expect(side?.to.city).toBeUndefined();
+  });
+});
+
+describe("the squad year window", () => {
+  const fall = { season: "fall" as const, year: 2026 };
+  const played = (id: string, opponentName: string, date: string) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: 5,
+    opponentScore: 2,
+  });
+
+  it("leaves out a game dated before August 1 of the year the squad year starts", () => {
+    // A Fall 2026 id is squad year 2027, which began on 2026-08-01. May 2026 was last year's squad.
+    const { state, outcome } = importGcSchedule(
+      {
+        profile: { id: "gcWARRIORS0", name: "Alaska Warriors 11U", ageLevel: 11, season: fall },
+        games: [
+          played("g1", "Placer Grit 11U", "2026-05-02"),
+          played("g2", "North Star Vikings 11U", "2026-08-01"),
+          played("g3", "Last Autumn 11U", "2025-09-07"),
+        ],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    expect(outcome.gamesOutOfSeason).toBe(2);
+    expect(outcome.gamesAdded).toBe(1);
+    expect(state.games.map((game) => game.date)).toEqual(["2026-08-01"]);
+    // The clubs it played before the season are not minted as opponents either.
+    expect(state.teams.map((team) => team.name).sort()).toEqual([
+      "Alaska Warriors",
+      "North Star Vikings",
+    ]);
+  });
+
+  it("prunes an existing pool the same way, and the tidy reports it", () => {
+    const { state } = importGcSchedule(
+      {
+        profile: { id: "gcCARDS00000", name: "Alabama Cardinals 10U", ageLevel: 10, season: fall },
+        games: [played("g1", "OM Fire Hawks 10U", "2026-08-22")],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    // A row filed before the rule existed.
+    const stale = {
+      ...state,
+      games: [...state.games, { ...state.games[0]!, id: "old", date: "2025-09-07" }],
+    };
+    const tidy = tidyPool(stale);
+    expect(tidy.pruned).toBe(1);
+    expect(tidy.state.games.map((game) => game.date)).toEqual(["2026-08-22"]);
+    expect(describeTidy(tidy)[0]).toContain("dated before the season began (August 1)");
+  });
+
+  it("skips a team GameChanger lists above the oldest level ranked here", () => {
+    const { state, outcome } = importGcSchedule(
+      {
+        profile: {
+          id: "gcLEGION0000",
+          name: "Wentzville Legion AAA 19U",
+          ageLevel: 19,
+          season: fall,
+        },
+        games: [played("g1", "Somebody 19U", "2026-08-22")],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    expect(outcome.issue).toContain("above the oldest level");
+    expect(state.ageGroups).toHaveLength(0);
+    expect(state.teams).toHaveLength(0);
+  });
+});
+
+describe("tidy until dry", () => {
+  it("keeps going while a pass changes something, and says how many it took", () => {
+    const tidy = tidyPool(empty);
+    expect(tidy.passes).toBe(1);
+    expect(tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned).toBe(0);
   });
 });

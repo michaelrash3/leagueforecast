@@ -441,7 +441,15 @@ const normalizeGcGame = (raw: unknown): GcGame | null => {
   const score = isRecord(raw.score) ? raw.score : {};
   const teamScore = asNumber(score.team);
   const opponentScore = asNumber(score.opponent_team ?? score.opponent);
-  const hasScores = teamScore !== undefined && opponentScore !== undefined;
+  /*
+   * 0-0 is GameChanger's "nobody entered a score", not a tie: its own season record leaves these
+   * games out, and a pull of twenty thousand schedules carried 852 of them — none a real 0-0 in
+   * a sport where that scarcely happens — each one counted here as a draw.
+   */
+  const hasScores =
+    teamScore !== undefined &&
+    opponentScore !== undefined &&
+    !(teamScore === 0 && opponentScore === 0);
 
   const game: GcGame = {
     id,
