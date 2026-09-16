@@ -7,6 +7,7 @@ import {
   mergeSameSquadIds,
   importGcSchedule,
   describeTidy,
+  poolSignature,
   resolveSlotGames,
   tidyPool,
   importGcSchedules,
@@ -2048,5 +2049,37 @@ describe("tidy until dry", () => {
     const tidy = tidyPool(empty);
     expect(tidy.passes).toBe(1);
     expect(tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned).toBe(0);
+  });
+});
+
+describe("poolSignature", () => {
+  it("changes when a pull, a restore or a tidy changes the pool, and not otherwise", () => {
+    const { state } = importGcSchedule(
+      {
+        profile: {
+          id: "gcSIGN000000",
+          name: "Signers 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "g1",
+            date: "2026-09-05",
+            opponentName: "Others 9U",
+            status: "completed",
+            teamScore: 1,
+            opponentScore: 0,
+          },
+        ],
+        fetchedAt: "2026-09-15T12:00:00.000Z",
+      },
+      empty
+    );
+    const before = poolSignature(state);
+    expect(before).toBe(`1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
+    expect(poolSignature({ ...state, games: [] })).not.toBe(before);
+    expect(poolSignature(empty)).toBe("0|0|0|");
   });
 });

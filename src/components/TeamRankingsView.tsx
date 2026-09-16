@@ -37,6 +37,13 @@ import {
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
+  describeTidy,
+  poolSignature,
+  tidyPool,
+  type GcImportState,
+} from "../lib/gameChangerImport";
+import { remainingIds } from "../lib/gameChangerPull";
+import {
   loadLogsForSeason,
   loadMatchupsForSeason,
   loadTeamsForSeason,
@@ -50,11 +57,13 @@ import {
   loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
+  loadTidyStamp,
   saveAgeGroups,
   savePullProgress,
   saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
+  saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import {
   readTeamRankingsBackup,
@@ -160,24 +169,74 @@ export function TeamRankingsView({
   const lastDeletedGameRef = useRef<ScoutGame | null>(null);
   const lastDeletedTeamRef = useRef<{ team: ScoutTeam; games: ScoutGame[] } | null>(null);
 
-  const persistTeams = (teams: ScoutTeam[]) => {
-    setScoutTeams(teams);
-    if (!saveScoutTeams(teams))
-      showToast("Could not save teams (storage full).", { tone: "error" });
-    onDataChange?.();
-  };
-  const persistGames = (games: ScoutGame[]) => {
-    setScoutGames(games);
-    if (!saveScoutGames(games))
-      showToast("Could not save games (storage full).", { tone: "error" });
-    onDataChange?.();
-  };
-  const persistAgeGroups = (groups: AgeGroup[]) => {
-    setAgeGroups(groups);
-    if (!saveAgeGroups(groups))
-      showToast("Could not save age groups (storage full).", { tone: "error" });
-    onDataChange?.();
-  };
+  // Stable, so the effects that save through them do not re-run on every render.
+  const persistTeams = useCallback(
+    (teams: ScoutTeam[]) => {
+      setScoutTeams(teams);
+      if (!saveScoutTeams(teams))
+        showToast("Could not save teams (storage full).", { tone: "error" });
+      onDataChange?.();
+    },
+    [showToast, onDataChange]
+  );
+  const persistGames = useCallback(
+    (games: ScoutGame[]) => {
+      setScoutGames(games);
+      if (!saveScoutGames(games))
+        showToast("Could not save games (storage full).", { tone: "error" });
+      onDataChange?.();
+    },
+    [showToast, onDataChange]
+  );
+  const persistAgeGroups = useCallback(
+    (groups: AgeGroup[]) => {
+      setAgeGroups(groups);
+      if (!saveAgeGroups(groups))
+        showToast("Could not save age groups (storage full).", { tone: "error" });
+      onDataChange?.();
+    },
+    [showToast, onDataChange]
+  );
+
+  /**
+   * Tidies a pool the tidy has not seen. It runs at the end of every pull; opening the app on a
+   * pool whose shape differs from the one it last tidied — a restored backup, a pull closed
+   * mid-tidy, a pool from before the tidy existed — runs it again, unasked, once the page has
+   * painted. Nothing to press: games outside their squad year are deleted, doubles collapsed,
+   * stand-ins settled, exactly as at the end of a pull.
+   */
+  const tidyingRef = useRef(false);
+  useEffect(() => {
+    if (scoutGames.length === 0 || tidyingRef.current) return;
+    // A pull still running tidies when it finishes; two tidies at once would race the saves.
+    if (pullProgress && remainingIds(pullProgress).length > 0) return;
+    const pool: GcImportState = { ageGroups, teams: scoutTeams, games: scoutGames };
+    if (poolSignature(pool) === loadTidyStamp()) return;
+    tidyingRef.current = true;
+    const handle = window.setTimeout(() => {
+      const tidy = tidyPool(pool);
+      saveTidyStamp(poolSignature(tidy.state));
+      if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
+      if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
+      if (tidy.state.games !== pool.games) persistGames(tidy.state.games);
+      const lines = describeTidy(tidy);
+      if (lines.length > 0) showToast(lines.join(" "));
+      tidyingRef.current = false;
+    }, 0);
+    return () => {
+      window.clearTimeout(handle);
+      tidyingRef.current = false;
+    };
+  }, [
+    ageGroups,
+    scoutTeams,
+    scoutGames,
+    pullProgress,
+    persistAgeGroups,
+    persistTeams,
+    persistGames,
+    showToast,
+  ]);
 
   // ---------- Age group management ----------
 

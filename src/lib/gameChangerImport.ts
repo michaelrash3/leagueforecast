@@ -1876,6 +1876,22 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
   return total;
 };
 
+/**
+ * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
+ * is not", without hashing forty thousand rows. Counts and the newest GameChanger fetch cover a
+ * pull, a restore and a reset; a hand edit that keeps every count the same and lands on an
+ * already-tidied pool has nothing for the tidy to do anyway.
+ */
+export const poolSignature = (state: GcImportState): string => {
+  let latest = "";
+  state.teams.forEach((team) => {
+    team.gcTeams?.forEach((link) => {
+      if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
+    });
+  });
+  return `${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
+};
+
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
 export const describeTidy = (tidy: PoolTidy): string[] => {
   const plural = (count: number, one: string, many: string) =>
