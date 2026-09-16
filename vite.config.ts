@@ -69,6 +69,18 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        /*
+         * React and React DOM go in a chunk of their own. They are a third of what a first visit
+         * downloads and they change only when the dependency is upgraded, so keeping them apart
+         * means a deploy of our own code re-downloads our own code and nothing else — every
+         * returning visit after a release is that much lighter.
+         */
+        manualChunks: (id) =>
+          /node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id) ? "react" : undefined,
+      },
+    },
   },
   test: {
     // Two projects rather than one environment, because they want different ones. The lib tests are
