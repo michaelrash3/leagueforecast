@@ -3691,7 +3691,18 @@ export default function App() {
     };
     undoRef.current = snapshot;
     if (!saveUndoSnapshot(snapshot)) {
-      showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+      /*
+       * The undo itself is fine — it is in memory, which is where Undo reads from first. What
+       * failed is the copy that would survive a reload, and at a nationwide pool size that copy
+       * simply does not fit in localStorage. Saying "storage full" as an error made a working
+       * undo read as a broken one; say what is actually true instead, and only for the snapshots
+       * that carry the pool, since a plain one failing really is a storage problem.
+       */
+      if (options?.withTeamRankings) {
+        showToast("Undo is ready, but this pool is too big to keep it past a reload.");
+      } else {
+        showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+      }
     }
   };
 

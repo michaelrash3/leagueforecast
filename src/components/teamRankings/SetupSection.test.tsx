@@ -1,7 +1,13 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
-import { ageGroup, renderTeamRankings } from "../../test/teamRankingsHarness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  ageGroup,
+  game,
+  renderTeamRankings,
+  seasonDate,
+  team,
+} from "../../test/teamRankingsHarness";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Setup" }));
@@ -82,5 +88,40 @@ describe("editing an age group saved before the season picker", () => {
 
     expect(screen.getByRole("button", { name: "11U" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "9U" })).toBeNull();
+  });
+});
+
+describe("downloading a backup", () => {
+  /** jsdom has no object URLs and no real downloads; this is enough for the click to complete. */
+  const stubDownload = () => {
+    const created: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      created.push(blob as Blob);
+      return "blob:stub";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    return created;
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("just downloads a pool one league's size", async () => {
+    const user = userEvent.setup();
+    const created = stubDownload();
+    const harness = renderTeamRankings({
+      ageGroups: [ageGroup(10, 2027)],
+      teams: [team("S-A", "Aces"), team("S-B", "Badgers")],
+      games: [game("g1", "ag_10u_2027", "S-A", "S-B", 5, 1, { date: seasonDate(2027) })],
+    });
+    await openSetup(user);
+
+    await user.click(screen.getByRole("button", { name: /download/i }));
+
+    expect(harness.requestConfirmation).not.toHaveBeenCalled();
+    expect(created).toHaveLength(1);
+    expect(harness.toasts().join(" ")).toMatch(/backup downloaded/i);
   });
 });

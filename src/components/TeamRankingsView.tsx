@@ -68,9 +68,12 @@ import {
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import {
+  estimateBackupBytes,
+  formatBytes,
+  LARGE_BACKUP_BYTES,
   readTeamRankingsBackup,
   summarizeTeamRankingsBackup,
-  teamRankingsCsvSections,
+  teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -1135,20 +1138,43 @@ export function TeamRankingsView({
    * schedule, so importing this file is how the data comes back — which is the only reason the
    * reset below can be offered at all.
    */
-  const downloadPoolBackup = () => {
-    const csv = teamRankingsCsvSections(readTeamRankingsBackup());
-    if (!csv) {
+  const downloadPoolBackup = async () => {
+    const backup = readTeamRankingsBackup();
+    const estimate = estimateBackupBytes(backup);
+
+    // A nationwide pool makes a file that takes a moment to put together and will not open in
+    // every spreadsheet. Somebody who pressed this meaning to glance at their own league's rows
+    // should hear that before waiting for it.
+    if (estimate >= LARGE_BACKUP_BYTES) {
+      const go = await requestConfirmation({
+        title: "That is a large backup",
+        message: `${summarizeTeamRankingsBackup(backup)}
+
+The file will be around ${formatBytes(estimate)}. It will take a moment to put together, and a file that size opens slowly in a spreadsheet — some will not open it at all.`,
+        confirmLabel: "Download anyway",
+      });
+      if (!go) return;
+    }
+
+    /*
+     * Written in pieces rather than as one string. At twenty thousand teams the joined copy is
+     * tens of megabytes and exists alongside the rows it was built from at the moment of the join,
+     * which is exactly the peak a phone cannot afford. A Blob is assembled from parts perfectly
+     * well, so the join never happens.
+     */
+    const parts = teamRankingsCsvParts(backup);
+    if (parts.length === 0) {
       showToast("Nothing to back up yet.", { tone: "error" });
       return;
     }
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob(parts, { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `Team_Rankings_Backup_${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showToast("Backup downloaded.", { tone: "success" });
+    showToast(`Backup downloaded (${formatBytes(blob.size)}).`, { tone: "success" });
   };
 
   /**
@@ -1446,7 +1472,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onDeleteGroup={(group) => void removeAgeGroup(group)}
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
-              onDownloadBackup={downloadPoolBackup}
+              onDownloadBackup={() => void downloadPoolBackup()}
               onReset={() => void resetEverything()}
             />
           )}

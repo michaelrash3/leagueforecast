@@ -1,4 +1,11 @@
-import { CSV_SECTIONS, csvEscape, csvSection, readCsvSection, splitCsvSections } from "./csv";
+import {
+  CSV_SECTIONS,
+  csvEscape,
+  csvSection,
+  csvSectionMarker,
+  readCsvSection,
+  splitCsvSections,
+} from "./csv";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings";
 import {
   coerceAgeGroups,
@@ -164,12 +171,15 @@ const parseLinksCell = (value: string) => {
   }
 };
 
+type CsvBackupSection = { name: string; headers: string[]; rows: string[] };
+
 /**
- * Render the pool as CSV sections to append to a schedule export. Empty string when there is
- * nothing to carry, which keeps the CSV of a league that never opened Team Rankings unchanged.
+ * The three sections a backup is made of, as headers and rows rather than as text.
+ *
+ * Kept separate from the joining so the same rows can be written straight into a file in pieces,
+ * which is what a pool of twenty thousand teams needs — see `teamRankingsCsvParts`.
  */
-export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
-  if (teamRankingsBackupIsEmpty(backup)) return "";
+const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
   const teamNameById = new Map(backup.teams.map((team) => [team.id, team.name]));
   const ageGroupNameById = new Map(backup.ageGroups.map((group) => [group.id, group.name]));
 
@@ -231,11 +241,83 @@ export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
   );
 
   return [
-    csvSection(CSV_SECTIONS.ageGroups, AGE_GROUP_HEADERS, ageGroupRows),
-    csvSection(CSV_SECTIONS.teams, TEAM_HEADERS, teamRows),
-    csvSection(CSV_SECTIONS.games, GAME_HEADERS, gameRows),
-  ].join("\n\n");
+    { name: CSV_SECTIONS.ageGroups, headers: AGE_GROUP_HEADERS, rows: ageGroupRows },
+    { name: CSV_SECTIONS.teams, headers: TEAM_HEADERS, rows: teamRows },
+    { name: CSV_SECTIONS.games, headers: GAME_HEADERS, rows: gameRows },
+  ];
 };
+
+/**
+ * Render the pool as CSV sections to append to a schedule export. Empty string when there is
+ * nothing to carry, which keeps the CSV of a league that never opened Team Rankings unchanged.
+ */
+export const teamRankingsCsvSections = (backup: TeamRankingsBackup): string => {
+  if (teamRankingsBackupIsEmpty(backup)) return "";
+  return csvBackupSections(backup)
+    .map(({ name, headers, rows }) => csvSection(name, headers, rows))
+    .join("\n\n");
+};
+
+/**
+ * How many rows go into one piece of a chunked backup. Small enough that no single piece is large,
+ * big enough that a pool of three hundred thousand games is a few hundred pieces rather than a
+ * few hundred thousand.
+ */
+const CHUNK_ROWS = 2_000;
+
+/**
+ * The same CSV, in pieces, for handing to a `Blob`.
+ *
+ * `teamRankingsCsvSections` joins everything into one string, which at twenty thousand teams means
+ * holding the whole export twice over — once as the rows and once as the joined copy — at the
+ * moment the join happens. A Blob is assembled from parts perfectly well, so the join is simply
+ * never done: the peak is the rows alone, and the browser writes the file from the pieces.
+ *
+ * Concatenated, these are byte for byte what `teamRankingsCsvSections` returns.
+ */
+export const teamRankingsCsvParts = (backup: TeamRankingsBackup): string[] => {
+  if (teamRankingsBackupIsEmpty(backup)) return [];
+  const parts: string[] = [];
+
+  csvBackupSections(backup).forEach(({ name, headers, rows }, index) => {
+    if (index > 0) parts.push("\n\n");
+    parts.push([csvSectionMarker(name), headers.join(",")].join("\n"));
+    for (let from = 0; from < rows.length; from += CHUNK_ROWS) {
+      // Each piece carries the newline that joins it to the last, so concatenating the parts is
+      // exactly the string the unchunked version returns.
+      parts.push(`\n${rows.slice(from, from + CHUNK_ROWS).join("\n")}`);
+    }
+  });
+
+  return parts;
+};
+
+/**
+ * Roughly how many bytes a backup file will be, without building it.
+ *
+ * Used to warn before a download that would take a while, so the numbers only have to be the
+ * right order of magnitude. Measured against an export of a pulled pool, where a team row runs to
+ * about a hundred and fifty characters once its GameChanger links are in and a game row to about
+ * two hundred and twenty with both names, the event and the source spelled out. A pool typed in by
+ * hand has shorter rows than that, so the estimate leans high, which is the safe way for something
+ * that decides whether to warn.
+ */
+export const estimateBackupBytes = (backup: TeamRankingsBackup): number =>
+  backup.ageGroups.length * 60 + backup.teams.length * 150 + backup.games.length * 220;
+
+/** That estimate as something to put in a sentence: "2.7 MB", "840 KB". */
+export const formatBytes = (bytes: number): string => {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  if (bytes >= 1_000) return `${Math.round(bytes / 1_000)} KB`;
+  return `${bytes} bytes`;
+};
+
+/**
+ * Past this, a download is worth asking about first. A file this size takes a noticeable moment to
+ * put together and will not open in every spreadsheet, and somebody who pressed the button meaning
+ * to glance at their own league's rows should hear that before waiting for it.
+ */
+export const LARGE_BACKUP_BYTES = 20_000_000;
 
 /**
  * Read the pool back out of a backup CSV. `null` when the file carries none of the Team Rankings
