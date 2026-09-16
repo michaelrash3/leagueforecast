@@ -1,25 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  advancedAgeGroup,
   ageGroupChain,
   ageGroupLevel,
-  ageGroupSeason,
-  ageGroupYear,
   buildScoutingReport,
   buildUpcomingSchedule,
-  createAgeGroupId,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
-  findAgeGroupForSeason,
   findDuplicateGame,
-  formatAgeGroupName,
   isRankedAgeLevel,
   isScoutGamePlayed,
   mergeScoutTeams,
-  MAX_AGE_LEVEL,
   MIN_RANKED_AGE_LEVEL,
-  MIN_SEASON_YEAR,
-  nextSeason,
   rankingPoolGroupIds,
   resolveOrCreateTeam,
   seasonAtAge,
@@ -75,11 +66,11 @@ import {
   summarizeTeamRankingsBackup,
   teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
-import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
-import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
+import { type RankingsSection } from "../lib/rankingsRoute";
+import { TIDY_UNASKED_LIMIT } from "../lib/poolHealth";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TeamDetailPanel, type MergeCandidate } from "./TeamDetailPanel";
+import { TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import {
   NATIONAL_TOP,
@@ -87,13 +78,14 @@ import {
   STATE_TOP,
 } from "./teamRankings/RankingsSection";
 import { ScoutingSection } from "./teamRankings/ScoutingSection";
-import { SectionNav, SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
-import { SetupSection, type AgeGroupDraft } from "./teamRankings/SetupSection";
+import { RankingsHeader } from "./teamRankings/RankingsHeader";
+import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
+import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
-import { useRankingsRoute } from "../hooks/useRankingsRoute";
+import { useClubSearch } from "../hooks/useClubSearch";
+import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
-import { button, card, tab } from "../styles/tokens";
 
 type ConfirmOptions = {
   title: string;
@@ -104,7 +96,6 @@ type ConfirmOptions = {
 
 type TeamRankingsViewProps = {
   seasons: SeasonMeta[];
-  activeSeasonId: string;
   showToast: (
     message: string,
     options?: {
@@ -143,27 +134,22 @@ const sectionLabel = (section: RankingsSection): string =>
 
 export function TeamRankingsView({
   seasons,
-  activeSeasonId,
   showToast,
   requestConfirmation,
   onDataChange,
 }: TeamRankingsViewProps) {
-  const { route, push, replace } = useRankingsRoute();
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
-  const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  /**
-   * The age-group form. Opens on the youngest level that actually ranks: 8U stays selectable — its
-   * games are evidence about the 9U teams that played down — but it is not what accepting the
-   * defaults gives you.
-   */
-  const [groupDraft, setGroupDraft] = useState<AgeGroupDraft>(() => ({
-    ageLevel: MIN_RANKED_AGE_LEVEL,
-    year: MIN_SEASON_YEAR,
-    seasonIds: activeSeasonId ? [activeSeasonId] : [],
-    continuesFromId: "",
-  }));
-
+  const {
+    section,
+    selectedAgeGroupId,
+    selectedYear,
+    groupsInYear,
+    yearChoices,
+    openPage,
+    openSection,
+    openYear,
+    pickPage,
+  } = useRankingsPages(ageGroups);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
@@ -249,6 +235,15 @@ export function TeamRankingsView({
   const tidyingRef = useRef(false);
   useEffect(() => {
     if (scoutGames.length === 0 || tidyingRef.current) return;
+    /*
+     * Past a certain size this stops being something to do behind somebody's back. Five passes over
+     * two hundred thousand games is twenty-odd seconds on the main thread; the tab freezes, gets
+     * reloaded, the cleanup below cancels the run, and the stamp is never written — so it tries
+     * again next time and never finishes. A real pool was found with eleven thousand results still
+     * filed against "TBD" for exactly that reason. Above the limit it is offered instead, by the
+     * pool health card in Setup, which runs it in a worker and says what it fixed.
+     */
+    if (scoutGames.length > TIDY_UNASKED_LIMIT) return;
     // A pull still running tidies when it finishes; two tidies at once would race the saves.
     if (pullProgress && remainingIds(pullProgress).length > 0) return;
     const pool: GcImportState = { ageGroups, teams: scoutTeams, games: scoutGames };
@@ -283,32 +278,6 @@ export function TeamRankingsView({
 
   const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
 
-  const patchGroupDraft = (patch: Partial<AgeGroupDraft>) =>
-    setGroupDraft((prev) => ({ ...prev, ...patch }));
-
-  const startEditGroup = (group: AgeGroup) => {
-    // A group saved before the season picker existed has only the name the user typed, so read
-    // what can be read from it and leave the rest at the defaults rather than blanking the form.
-    const season = ageGroupSeason(group);
-    setEditingGroupId(group.id);
-    setGroupDraft({
-      ageLevel: season.ageLevel ?? MIN_RANKED_AGE_LEVEL,
-      year: season.year ?? MIN_SEASON_YEAR,
-      seasonIds: group.seasonIds,
-      continuesFromId: group.continuesFromId ?? "",
-    });
-  };
-
-  const resetGroupForm = () => {
-    setEditingGroupId(null);
-    setGroupDraft({
-      ageLevel: MIN_RANKED_AGE_LEVEL,
-      year: MIN_SEASON_YEAR,
-      seasonIds: activeSeasonId ? [activeSeasonId] : [],
-      continuesFromId: "",
-    });
-  };
-
   /**
    * Answers "what age does this league season play?" — the only age-group question left to ask.
    *
@@ -323,7 +292,7 @@ export function TeamRankingsView({
       showToast("League season taken off Team Rankings.");
       return;
     }
-    setPickedGroupId(result.group.id);
+    pickPage(result.group.id);
     showToast(
       result.created
         ? `${result.group.name} created, with your league season on it.`
@@ -331,245 +300,6 @@ export function TeamRankingsView({
       { tone: "success" }
     );
   };
-
-  const saveAgeGroup = () => {
-    const season = { ageLevel: groupDraft.ageLevel, year: groupDraft.year };
-    // Two age groups for the same 10U 2028 would split one squad's schedule across two rankings,
-    // and neither would be right. The picker can't produce a typo, so this can only be a repeat.
-    const clash = findAgeGroupForSeason(season, ageGroups);
-    if (clash && clash.id !== editingGroupId) {
-      showToast(`${clash.name} already exists.`, { tone: "error" });
-      return;
-    }
-    const name = formatAgeGroupName(season.ageLevel, season.year);
-    // Pointing an age group at itself would make the chain meaningless, so drop that choice.
-    const continuesFromId =
-      groupDraft.continuesFromId && groupDraft.continuesFromId !== editingGroupId
-        ? groupDraft.continuesFromId
-        : "";
-    if (editingGroupId) {
-      persistAgeGroups(
-        ageGroups.map((group) =>
-          group.id === editingGroupId
-            ? {
-                ...group,
-                name,
-                ageLevel: season.ageLevel,
-                year: season.year,
-                seasonIds: groupDraft.seasonIds,
-                ...(continuesFromId ? { continuesFromId } : { continuesFromId: undefined }),
-              }
-            : group
-        )
-      );
-      showToast("Age group updated.", { tone: "success" });
-    } else {
-      const newGroup: AgeGroup = {
-        id: createAgeGroupId(),
-        name,
-        ageLevel: season.ageLevel,
-        year: season.year,
-        seasonIds: groupDraft.seasonIds,
-        ...(continuesFromId ? { continuesFromId } : {}),
-      };
-      persistAgeGroups([...ageGroups, newGroup]);
-      setPickedGroupId(newGroup.id);
-      showToast("Age group created.", { tone: "success" });
-    }
-    resetGroupForm();
-  };
-
-  /**
-   * Rolls a squad into next season: a year older, a year later, continuing from the one it came
-   * from so this year's opponents are already suggested when logging next year's games. Results
-   * stay behind — a 9U score says nothing about a 10U game — and so do the League Standings
-   * seasons, which don't exist yet for a year that hasn't started.
-   */
-  const advanceSeason = (group: AgeGroup) => {
-    const season = ageGroupSeason(group);
-    if (season.ageLevel === undefined || season.year === undefined) {
-      showToast("Set this group's age and year first, then advance it.", { tone: "error" });
-      startEditGroup(group);
-      return;
-    }
-    const next = nextSeason({ ageLevel: season.ageLevel, year: season.year });
-    const existing = findAgeGroupForSeason(next, ageGroups);
-    if (existing) {
-      setPickedGroupId(existing.id);
-      showToast(`${existing.name} already exists — switched to it.`);
-      return;
-    }
-    const created = advancedAgeGroup(group, next);
-    persistAgeGroups([...ageGroups, created]);
-    setPickedGroupId(created.id);
-    resetGroupForm();
-    showToast(`${created.name} created from ${group.name}.`, { tone: "success" });
-  };
-
-  const removeAgeGroup = async (group: AgeGroup) => {
-    const confirmed = await requestConfirmation({
-      title: `Delete "${group.name}"?`,
-      message:
-        "This removes the age group and any games logged here that were tagged to it. League Standings data itself is untouched.",
-      confirmLabel: "Delete",
-    });
-    if (!confirmed) return;
-    // Anything that carried on from this group now continues from nothing, rather than pointing
-    // at an age group that no longer exists.
-    const remaining = ageGroups
-      .filter((g) => g.id !== group.id)
-      .map((g) => (g.continuesFromId === group.id ? { ...g, continuesFromId: undefined } : g));
-    persistAgeGroups(remaining);
-    persistGames(scoutGames.filter((g) => g.ageGroupId !== group.id));
-    if (selectedAgeGroupId === group.id) setPickedGroupId(remaining[0]?.id ?? "");
-    showToast(`"${group.name}" deleted.`, { tone: "success" });
-  };
-
-  // ---------- Pages: one per age level, within one season year ----------
-
-  /** Which area is on screen. Read from the URL, so every section is a link somebody can send. */
-  const section = route.section ?? DEFAULT_RANKINGS_SECTION;
-
-  const byLevel = (a: AgeGroup, b: AgeGroup) =>
-    (ageGroupLevel(a) ?? MAX_AGE_LEVEL + 1) - (ageGroupLevel(b) ?? MAX_AGE_LEVEL + 1);
-
-  /**
-   * The page the URL names, if it names one that exists. A link giving both halves names one page
-   * exactly; a link giving only a level opens it in whichever year has it; a link giving only a
-   * year opens that year's youngest page. A link to a page that is not there resolves to nothing
-   * and the last picked page stands, with the URL corrected afterwards rather than obeyed.
-   */
-  const routeGroupId = useMemo(() => {
-    if (route.ageLevel === undefined && route.year === undefined) return undefined;
-    const matches = ageGroups.filter(
-      (group) =>
-        (route.ageLevel === undefined || ageGroupLevel(group) === route.ageLevel) &&
-        (route.year === undefined || ageGroupYear(group) === route.year)
-    );
-    return matches.slice().sort(byLevel)[0]?.id;
-  }, [route.ageLevel, route.year, ageGroups]);
-
-  /**
-   * Which page is open. Derived rather than stored, so Back and Forward move between pages without
-   * anything having to notice and write state back. The picked id is the fallback for a URL that
-   * names no page, and it is checked against the groups that still exist so a deleted page cannot
-   * leave the view pointing at nothing.
-   */
-  const selectedAgeGroupId =
-    routeGroupId ??
-    (ageGroups.some((group) => group.id === pickedGroupId)
-      ? pickedGroupId
-      : (ageGroups[0]?.id ?? ""));
-
-  /**
-   * The season years that have a page — the years age groups actually sit in, not a forward run of
-   * every year the create form offers, because a year with no age group has nothing to show.
-   */
-  const pageYears = useMemo(() => {
-    const years = new Set<number>();
-    ageGroups.forEach((group) => {
-      const year = ageGroupYear(group);
-      if (year !== undefined) years.add(year);
-    });
-    return [...years].sort((a, b) => a - b);
-  }, [ageGroups]);
-
-  /**
-   * Groups whose season year cannot be read — a legacy "Travel squad" named before the season
-   * picker existed. They still need somewhere to live, so the year picker gains an entry for them
-   * rather than leaving them unreachable.
-   */
-  const undatedGroups = useMemo(
-    () => ageGroups.filter((group) => ageGroupYear(group) === undefined),
-    [ageGroups]
-  );
-
-  /** Season-picker options, `undefined` standing for the groups with no year of their own. */
-  const yearChoices = useMemo<(number | undefined)[]>(
-    () => [...pageYears, ...(undatedGroups.length > 0 ? [undefined] : [])],
-    [pageYears, undatedGroups]
-  );
-
-  const selectedGroup = ageGroups.find((group) => group.id === selectedAgeGroupId);
-  const selectedYear = ageGroupYear(selectedGroup);
-
-  /** The tabs: every age group in the season year on screen, youngest level first. */
-  const groupsInYear = useMemo(() => {
-    const inYear =
-      selectedYear === undefined
-        ? undatedGroups
-        : ageGroups.filter((group) => ageGroupYear(group) === selectedYear);
-    return inYear.slice().sort(byLevel);
-  }, [ageGroups, selectedYear, undatedGroups]);
-
-  /** The page currently on screen, as a route — every navigation is this with one part changed. */
-  const currentRoute = {
-    mode: "rankings" as const,
-    ...(ageGroupLevel(selectedGroup) === undefined
-      ? {}
-      : { ageLevel: ageGroupLevel(selectedGroup) }),
-    ...(ageGroupYear(selectedGroup) === undefined ? {} : { year: ageGroupYear(selectedGroup) }),
-    section,
-  };
-
-  const openPage = (groupId: string) => {
-    if (!groupId || groupId === selectedAgeGroupId) return;
-    setPickedGroupId(groupId);
-    const group = ageGroups.find((entry) => entry.id === groupId);
-    // Pushed, not replaced: this is a page the user asked for, so Back should return to the last.
-    // The section rides along, so changing age level keeps you where you were reading.
-    push({
-      mode: "rankings",
-      ...(ageGroupLevel(group) === undefined ? {} : { ageLevel: ageGroupLevel(group) }),
-      ...(ageGroupYear(group) === undefined ? {} : { year: ageGroupYear(group) }),
-      section,
-    });
-  };
-
-  /** Moving between areas is a page in its own right, so Back returns to the one before it. */
-  const openSection = (next: RankingsSection) => {
-    if (next === section) return;
-    push({ ...currentRoute, section: next });
-  };
-
-  /**
-   * Changing the season year keeps the level on screen where that level exists in the new year —
-   * moving from 10U 2028 to 2029 lands on 10U 2029 — and otherwise opens that year's youngest
-   * page, which is the closest thing to "the same place" a year without that level has.
-   */
-  const openYear = (year: number | undefined) => {
-    const candidates =
-      year === undefined
-        ? undatedGroups
-        : ageGroups.filter((group) => ageGroupYear(group) === year);
-    if (candidates.length === 0) return;
-    const sameLevel = candidates.find(
-      (group) => ageGroupLevel(group) === ageGroupLevel(selectedGroup)
-    );
-    const next = sameLevel ?? candidates.slice().sort(byLevel)[0];
-    if (next) openPage(next.id);
-  };
-
-  /**
-   * Keeps the URL honest about the page actually on screen — after a group is deleted, after the
-   * first group is created, or when a link asked for a page that is not there. Replaced rather
-   * than pushed: the app tidying up after itself is not somewhere Back should land.
-   *
-   * Only the page is corrected, never the section: a link naming no section is already showing the
-   * right one, and writing it in would be the app editing a URL the reader typed.
-   */
-  useEffect(() => {
-    if (!selectedGroup) return;
-    const level = ageGroupLevel(selectedGroup);
-    const year = ageGroupYear(selectedGroup);
-    if (route.ageLevel === level && route.year === year) return;
-    replace({
-      mode: "rankings",
-      ...(level === undefined ? {} : { ageLevel: level }),
-      ...(year === undefined ? {} : { year }),
-      ...(route.section ? { section: route.section } : {}),
-    });
-  }, [selectedGroup, route.ageLevel, route.year, route.section, replace]);
 
   // ---------- Ranking data for the selected age group ----------
 
@@ -807,9 +537,8 @@ export function TeamRankingsView({
   );
 
   /**
-   * Marks (or unmarks) "our" team *for this age group only* — a club running a 9U and an 11U squad
-   * at the same time needs one of each, and the old global flag could only hold one. The team is
-   * persisted first so the mark survives even if it was only ever a league-derived name.
+   * Sets or clears the state a team plays in, which is what the state leaderboard files it under.
+   * A team not in the pool at all is ignored rather than created.
    */
   const setTeamState = (teamId: string, nextState: string) => {
     const state = normalizeState(nextState);
@@ -823,6 +552,11 @@ export function TeamRankingsView({
     showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
   };
 
+  /**
+   * Marks (or unmarks) "our" team *for this age group only* — a club running a 9U and an 11U squad
+   * at the same time needs one of each, and the old global flag could only hold one. The team is
+   * persisted first so the mark survives even if it was only ever a league-derived name.
+   */
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
     if (!scoutTeams.some((team) => team.id === teamId)) {
@@ -962,53 +696,18 @@ export function TeamRankingsView({
     showToast(`Folded into ${into.name}.`, { tone: "success" });
   };
 
-  /** Everyone else rated on this page — who a team could plausibly be the same club as. */
-  /**
-   * Who coaches each team, gathered from every GameChanger id it is linked to.
-   *
-   * The staff comes off the user's own team list, not from GameChanger, so a pool built by hand or
-   * pulled before the list carried it simply has none and everything below falls back to the plain
-   * alphabetical picker it always was.
-   */
-  const staffIndex = useMemo(
-    () =>
-      buildStaffIndex(
-        allKnown.teams.map((team) => ({
-          teamId: team.id,
-          staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
-        }))
-      ),
-    [allKnown.teams]
-  );
+  const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
+    teams: allKnown.teams,
+    games: allKnown.games,
+    ageGroups,
+    rankedTeams,
+  });
 
-  /**
-   * What to offer as "same team as", with the clubs first.
-   *
-   * It used to offer every other team on the page in name order, which at a nationwide pool is
-   * thousands of names and no help at all. Two teams sharing two coaches are the same club 98% of
-   * the time by state — see `gcStaff.ts` — so those go to the top with a line saying why, and
-   * everyone else follows as before. Nothing is hidden: a proposal this strong is still only a
-   * proposal, and the person merging is the one who knows.
-   */
-  const mergeCandidatesFor = (teamId: string): MergeCandidate[] => {
-    const others = rankedTeams.filter((team) => team.id !== teamId);
-    const relations = clubRelations(teamId, staffIndex);
-    if (relations.length === 0) return others;
-
-    const hintById = new Map(
-      relations.map((relation) => [relation.teamId, describeRelation(relation)])
-    );
-    const related: MergeCandidate[] = [];
-    const rest: MergeCandidate[] = [];
-    others.forEach((team) => {
-      const hint = hintById.get(team.id);
-      if (hint) related.push({ ...team, clubHint: hint });
-      else rest.push(team);
-    });
-    // `clubRelations` is already strongest first; this puts the candidates in that same order.
-    const order = new Map(relations.map((relation, index) => [relation.teamId, index]));
-    related.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    return [...related, ...rest];
+  /** Goes to the page a team is on and opens it, whichever season and level that turns out to be. */
+  const openSearchedTeam = (teamId: string) => {
+    const page = pageOf(teamId);
+    if (page) openPage(page.ageGroupId);
+    setOpenTeamId(teamId);
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
@@ -1260,7 +959,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
     setScoutGames([]);
     setPullProgress(null);
     setRefreshLog({});
-    setPickedGroupId("");
+    pickPage("");
     setOpenTeamId(null);
     setReportTeamId("");
     setStateFilter("");
@@ -1271,7 +970,6 @@ This cannot be undone. Cancel and download the backup first if there is any chan
     setEditScoreA("");
     setEditScoreB("");
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
-    resetGroupForm();
     onDataChange?.();
     showToast("Team Rankings cleared. Nothing left but a blank slate.", { tone: "success" });
   };
@@ -1286,95 +984,17 @@ This cannot be undone. Cancel and download the backup first if there is any chan
 
   return (
     <div className="flex flex-col gap-6">
-      <div className={`${card} p-5`}>
-        <h1 className="text-xl font-black tracking-tight text-slate-950 dark:text-white">
-          Team Rankings
-        </h1>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-            htmlFor="scout-season-year"
-          >
-            Season
-          </label>
-          {yearChoices.length > 1 ? (
-            <select
-              id="scout-season-year"
-              value={selectedYear === undefined ? "" : String(selectedYear)}
-              onChange={(event) =>
-                openYear(event.target.value === "" ? undefined : Number(event.target.value))
-              }
-              className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-            >
-              {yearChoices.map((year) => (
-                <option key={year === undefined ? "" : year} value={year === undefined ? "" : year}>
-                  {year === undefined ? "No season set" : year}
-                </option>
-              ))}
-            </select>
-          ) : (
-            ageGroups.length > 0 && (
-              <span
-                id="scout-season-year"
-                className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200"
-              >
-                {selectedYear ?? "No season set"}
-              </span>
-            )
-          )}
-        </div>
-
-        {/*
-          The way in, for a browser with nothing in it yet. Not shown on the two sections it points
-          at: on Setup the form it offers is already on screen, and on Import so is the pull.
-        */}
-        {ageGroups.length === 0 && section !== "setup" && section !== "import" && (
-          <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
-            <p className="text-sm font-bold text-slate-950 dark:text-white">Nothing ranked yet.</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Pull a team list from GameChanger and the pages make themselves: every team says which
-              age level and season it belongs to, and each one is filed under the page for that
-              squad year — created if it is not there yet. Setting a page up by hand is for a league
-              you are tracking without GameChanger.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => openSection("import")}
-                className={button.primary}
-              >
-                Pull from GameChanger
-              </button>
-              <button type="button" onClick={() => openSection("setup")} className={button.ghost}>
-                Set one up by hand
-              </button>
-            </div>
-          </div>
-        )}
-
-        {groupsInYear.length > 0 && (
-          <nav aria-label="Age level" className="mt-3 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-            {groupsInYear.map((group) => {
-              const level = ageGroupLevel(group);
-              const active = group.id === selectedAgeGroupId;
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => openPage(group.id)}
-                  aria-current={active ? "page" : undefined}
-                  className={tab(active)}
-                >
-                  {level === undefined ? group.name : `${level}U`}
-                  {isRankedAgeLevel(level) ? "" : " ·"}
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        <SectionNav current={section} onSelect={openSection} />
-      </div>
+      <RankingsHeader
+        ageGroups={ageGroups}
+        section={section}
+        selectedYear={selectedYear}
+        selectedAgeGroupId={selectedAgeGroupId}
+        groupsInYear={groupsInYear}
+        yearChoices={yearChoices}
+        onOpenYear={openYear}
+        onOpenPage={openPage}
+        onOpenSection={openSection}
+      />
 
       <div
         id={SECTION_PANEL_ID}
@@ -1392,6 +1012,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
           {section === "rankings" && (
             <RankingsBoards
               groupName={selectedGroupName}
+              searchOptions={searchOptions}
+              onSearchTeam={openSearchedTeam}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
               rankings={rankings}
@@ -1506,19 +1128,25 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             <SetupSection
               seasons={seasons}
               ageGroups={ageGroups}
-              editingGroupId={editingGroupId}
-              draft={groupDraft}
-              onDraftChange={patchGroupDraft}
               onAssignSeason={assignSeasonToAge}
               yearOptions={yearOptions}
-              onSave={saveAgeGroup}
-              onCancelEdit={resetGroupForm}
-              onEditGroup={startEditGroup}
-              onAdvanceGroup={advanceSeason}
-              onDeleteGroup={(group) => void removeAgeGroup(group)}
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
               onDownloadBackup={() => void downloadPoolBackup()}
+              /*
+              The stored pool, not the merged roster: league-derived games are rebuilt from League
+              Standings every render and must never be written back here.
+            */
+              poolHealth={{
+                pool: { ageGroups, teams: scoutTeams, games: scoutGames },
+                tidyStamp: loadTidyStamp() ?? "",
+                onTidied: ({ state: tidied }) => {
+                  saveTidyStamp(poolSignature(tidied));
+                  if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
+                  if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
+                  if (tidied.games !== scoutGames) persistGames(tidied.games);
+                },
+              }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
               a check over anything narrower would be measuring a different model than the one the

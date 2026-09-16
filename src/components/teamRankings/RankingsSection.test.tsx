@@ -122,7 +122,7 @@ describe("section navigation", () => {
   it("opens the section a link names", () => {
     renderTeamRankings({ ...bigPool(), search: "?section=setup" });
     expect(screen.getByRole("tab", { name: "Setup", selected: true })).toBeInTheDocument();
-    expect(screen.getByText(/add an age group by hand/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Age groups" })).toBeInTheDocument();
   });
 
   it("puts the section in the URL when one is opened", async () => {

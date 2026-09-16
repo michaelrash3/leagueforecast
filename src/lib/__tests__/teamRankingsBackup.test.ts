@@ -169,10 +169,12 @@ describe("teamRankingsCsvSections", () => {
       [
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
+        "Also From",
       ].join(",")
     );
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43$/);
-    expect(lines[2]).toMatch(/,,,,,$/);
+    // The trailing empty cell is a game no stand-in was ever folded into, which is nearly all of them.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,$/);
+    expect(lines[2]).toMatch(/,,,,,,$/);
   });
 });
 

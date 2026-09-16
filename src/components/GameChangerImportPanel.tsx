@@ -42,6 +42,7 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
+import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
@@ -221,6 +222,19 @@ export function GameChangerImportPanel({
     [pool.teams]
   );
   const rosterDue = rosterWatch.filter((entry) => entry.due);
+
+  /**
+   * What the pasted list is worth against the backlog.
+   *
+   * The clubs the pool knows only by name cannot be worked through automatically — GameChanger has
+   * no id for any of them, which is why they are a backlog at all. What can be automatic is saying
+   * what a list clears before it is pulled, so the work directs itself.
+   */
+  const coverage = useMemo(() => {
+    if (parsed.entries.length === 0) return null;
+    const found = listCoverage(parsed.entries, unpulledClubs(pool));
+    return found.standIns === 0 ? null : found;
+  }, [parsed.entries, pool]);
 
   /** Copies the counts out of the live cursor so React has something it can see change. */
   const syncStats = () => {
@@ -713,6 +727,15 @@ export function GameChangerImportPanel({
               </>
             )}
           </div>
+
+          {coverage && (
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200">
+              <strong>{coverage.standIns}</strong> of these are clubs this pool only knows by name.
+              Pulling them turns <strong>{coverage.resultsWaiting}</strong> result
+              {coverage.resultsWaiting === 1 ? "" : "s"} it is already holding into games with two
+              real sides.
+            </p>
+          )}
 
           {parsed.entries.length > 0 && <ParsedPreview entries={parsed.entries} />}
 

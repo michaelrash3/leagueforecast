@@ -106,12 +106,13 @@ const EXCLUDED = 1;
  * 6 flags      7 level A     8 level B    9 season     10 source team 11 source game
  * 12 event    13 note       14 id (only when it cannot be rebuilt from the source)
  * 15 start time (the instant the source gave, when it gave one)
+ * 16 also-from (other GameChanger schedules that listed this game, as source indexes)
  *
  * Positions are only ever appended to. An older file simply stops earlier, and every reader below
  * treats a missing position as the field being absent, so a pool written before a position existed
  * still reads.
  */
-type GameRow = (number | string | null)[];
+type GameRow = (number | string | null | number[])[];
 
 export type CompactPool = {
   v: number;
@@ -171,6 +172,13 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       game.note ?? null,
       canDerive ? null : game.id,
       game.startTs ?? null,
+      // Load-bearing rather than trivia: it is what tells a doubleheader from a disputed score.
+      game.alsoFrom?.length
+        ? game.alsoFrom.flatMap((teamId) => {
+            const index = sources.index(teamId);
+            return index === null ? [] : [index];
+          })
+        : null,
     ]);
   });
 
@@ -235,6 +243,13 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
 
   const startTs = str(row[15]);
   if (startTs) game.startTs = startTs;
+  const alsoFrom = Array.isArray(row[16])
+    ? row[16].flatMap((index) => {
+        const teamId = at(pool.c, index);
+        return teamId ? [teamId] : [];
+      })
+    : [];
+  if (alsoFrom.length > 0) game.alsoFrom = alsoFrom;
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };

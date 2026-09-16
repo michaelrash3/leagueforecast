@@ -195,6 +195,18 @@ export type ScoutGame = {
    */
   ageLevelA?: number;
   ageLevelB?: number;
+  /**
+   * Other GameChanger schedules that also listed this game, by their team id.
+   *
+   * Written when a stand-in row is folded into this one: the fold removes a row, and with it the
+   * fact that the schedule it came from listed this opponent that day. That fact is load-bearing.
+   * Two clubs that meet twice in a day are often written as one named game and one "TBD" on the
+   * same schedule, and once the TBD is settled the two results look exactly like one game two
+   * scorekeepers disagreed about — which is how a real doubleheader result came to be deleted.
+   * Keeping the source here lets `collapseSameGames` see that the schedule accounted for two
+   * meetings and leave both alone.
+   */
+  alsoFrom?: string[];
   /** Season label from the source, as in "Fall 2026" — display and filtering only. */
   season?: string;
   /**
@@ -1111,6 +1123,105 @@ const homeLevelsForYear = (
   );
 };
 
+/** The page a team is found on: its age group, and that group's level and year for display. */
+export type TeamPage = {
+  ageGroupId: string;
+  level: number | undefined;
+  year: number | undefined;
+};
+
+/**
+ * Where to find each team — the one page in the whole pool that team belongs on.
+ *
+ * Searching for a club is the one thing the age tabs cannot help with: "Canes Triad Black" is on
+ * exactly one page and you have to already know which season and which level to get there, which
+ * is the opposite of what searching is for. This answers it once for every team, so a search box
+ * can take a name and go.
+ *
+ * A team's page is its home level in the most recent year it played, rather than the level of any
+ * one game: a 9U squad that entered a 10U tournament is a 9U team with a game played up, and
+ * landing somebody on the 10U page because of it would be wrong. Most recent, because a club that
+ * has been pulled for three seasons should be found where it is now.
+ *
+ * A team with no page — nothing but games in groups that no longer exist — is absent rather than
+ * guessed at. So is a placeholder, which names nobody, and a club known only from somebody else's
+ * schedule, which has no page of its own to be on.
+ */
+export const teamPages = (
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): Map<string, TeamPage> => {
+  const index = indexGroups(ageGroups);
+  const pages = new Map<string, TeamPage>();
+  if (ageGroups.length === 0) return pages;
+
+  /** Age group by level and year, so a home level can be turned back into a page. */
+  const groupAt = new Map<string, AgeGroup>();
+  ageGroups.forEach((group) => {
+    const level = ageGroupLevel(group);
+    const year = ageGroupYear(group);
+    groupAt.set(`${level ?? "?"}|${year ?? "?"}`, group);
+  });
+
+  // The years each team has games in, and the group of its most recent game as a fallback.
+  const yearsByTeam = new Map<string, Set<number | undefined>>();
+  const latestGroupByTeam = new Map<string, { at: string; ageGroupId: string }>();
+  games.forEach((game) => {
+    const year = index.year(game.ageGroupId);
+    const at = game.date ?? "";
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      const years = yearsByTeam.get(teamId);
+      if (years) years.add(year);
+      else yearsByTeam.set(teamId, new Set([year]));
+      const latest = latestGroupByTeam.get(teamId);
+      if (!latest || at > latest.at)
+        latestGroupByTeam.set(teamId, { at, ageGroupId: game.ageGroupId });
+    });
+  });
+
+  // One home-level pass per distinct year rather than one per team.
+  const eligible = teams.filter((team) => !team.placeholder && !team.nameOnly);
+  const years = new Set<number | undefined>();
+  yearsByTeam.forEach((teamYears) => teamYears.forEach((year) => years.add(year)));
+  const homeLevels = new Map<number | undefined, Map<string, number | undefined>>();
+  years.forEach((year) =>
+    homeLevels.set(year, homeLevelsForYear(year, eligible, games, ageGroups))
+  );
+
+  eligible.forEach((team) => {
+    const teamYears = [...(yearsByTeam.get(team.id) ?? [])];
+    if (teamYears.length === 0) return;
+    // The most recent year it played; a group with no year sorts below every year that has one.
+    const latestYear = teamYears.reduce((best, year) =>
+      best === undefined ? year : year === undefined ? best : Math.max(best, year)
+    );
+    const level = homeLevels.get(latestYear)?.get(team.id);
+    const group = groupAt.get(`${level ?? "?"}|${latestYear ?? "?"}`);
+    if (group) {
+      pages.set(team.id, {
+        ageGroupId: group.id,
+        level: ageGroupLevel(group),
+        year: ageGroupYear(group),
+      });
+      return;
+    }
+    // No page at that level — a team whose only games are filed somewhere unexpected. Its most
+    // recent game's own group is where somebody looking for it would actually find its results.
+    const fallbackId = latestGroupByTeam.get(team.id)?.ageGroupId;
+    const fallback = ageGroups.find((entry) => entry.id === fallbackId);
+    if (fallback) {
+      pages.set(team.id, {
+        ageGroupId: fallback.id,
+        level: ageGroupLevel(fallback),
+        year: ageGroupYear(fallback),
+      });
+    }
+  });
+
+  return pages;
+};
+
 /**
  * A team's home level in a season year: the level of the age group its GameChanger link for that
  * year is filed under (latest season wins: fall < winter < spring < summer within a squad year);
@@ -1277,12 +1388,24 @@ export const collapseSameGames = (
       const scored = (game: ScoutGame) =>
         game.teamAScore !== undefined && game.teamBScore !== undefined;
       const sourceOf = (game: ScoutGame) => game.source?.teamId;
+      /**
+       * How many of this day's meetings one schedule accounted for — its own rows, plus the rows
+       * folded into them when a stand-in was settled. A schedule that listed the same opponent
+       * twice, once by name and once as "TBD", has said these are two games, and saying so is the
+       * whole reason the fold records where it came from.
+       */
+      const rowsFrom = (source: string | undefined) =>
+        source === undefined
+          ? 0
+          : bucket.filter(
+              (game) => sourceOf(game) === source || (game.alsoFrom ?? []).includes(source)
+            ).length;
       const oneEach =
         sourceOf(first) !== undefined &&
         sourceOf(second) !== undefined &&
         sourceOf(first) !== sourceOf(second) &&
-        bucket.filter((game) => sourceOf(game) === sourceOf(first)).length === 1 &&
-        bucket.filter((game) => sourceOf(game) === sourceOf(second)).length === 1;
+        rowsFrom(sourceOf(first)) === 1 &&
+        rowsFrom(sourceOf(second)) === 1;
       if (oneEach && scored(first) && scored(second)) {
         const theirA = scoreOf(second, first.teamAId);
         const theirB = scoreOf(second, first.teamBId);
@@ -1974,22 +2097,55 @@ export const leagueScoutBridge = (
     return key !== "" && fixtureKeys.has(key);
   };
 
+  /** Whether a pool club is one of this league's teams, rather than a stranger on the same page. */
+  const isLeagueClub = (scoutTeamId: string): boolean =>
+    !ratingId(scoutTeamId).startsWith(SCOUT_ID_PREFIX);
+
+  const onLinkedPage = games.filter(
+    (game) =>
+      linked.has(game.ageGroupId) &&
+      !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+      !isSeasonFixture(game) &&
+      countsTowardRating(game)
+  );
+
+  /**
+   * Clubs a league team has actually played. Their other results are what place the league on the
+   * same scale as everyone else — beating a club that beat a good club is the evidence an
+   * opponent-adjusted rating runs on — so they come too, one step out and no further.
+   */
+  const played = new Set<string>();
+  onLinkedPage.forEach((game) => {
+    if (isLeagueClub(game.teamAId)) played.add(game.teamBId);
+    if (isLeagueClub(game.teamBId)) played.add(game.teamAId);
+  });
+
+  /**
+   * Only the games that touch the league.
+   *
+   * A linked page used to mean "this league's own age group", where every game on it was about
+   * these teams. A GameChanger pull files the whole country there instead: on a real pool the page
+   * a ten-team league was linked to held 8,689 clubs and 9,266 scored games, every one of which
+   * was handed to the forecast. They carry nothing — a club in another state never played anyone
+   * here, so the fit cannot learn anything about the league from it — and they cost, because ridge
+   * shrinkage then pulls each league team toward the mean of a national pool it has no connection
+   * to. What is kept is the league's own results and its opponents', which is the whole of what
+   * the graph can reach.
+   */
+  const touchesLeague = (game: ScoutGame): boolean =>
+    isLeagueClub(game.teamAId) ||
+    isLeagueClub(game.teamBId) ||
+    played.has(game.teamAId) ||
+    played.has(game.teamBId);
+
   const results: ScoutBridgeResult[] = !seasonLinked
     ? []
-    : games
-        .filter(
-          (game) =>
-            linked.has(game.ageGroupId) &&
-            !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
-            !isSeasonFixture(game) &&
-            countsTowardRating(game)
-        )
-        .map((game) => ({
-          home: ratingId(game.teamAId),
-          away: ratingId(game.teamBId),
-          homeMargin: game.teamAScore! - game.teamBScore!,
-          neutral: true as const,
-        }));
+    : onLinkedPage.filter(touchesLeague).map((game) => ({
+        home: ratingId(game.teamAId),
+        away: ratingId(game.teamBId),
+        homeMargin: game.teamAScore! - game.teamBScore!,
+        neutral: true as const,
+      }));
 
   return {
     results,

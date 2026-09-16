@@ -510,6 +510,9 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),
         ...(isString(entry.startTs) ? { startTs: entry.startTs } : {}),
+        ...(Array.isArray(entry.alsoFrom) && entry.alsoFrom.some(isString)
+          ? { alsoFrom: entry.alsoFrom.filter(isString) }
+          : {}),
         ...(source ? { source } : {}),
       };
     });
