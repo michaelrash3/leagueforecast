@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import { describeTidy } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
+import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -37,12 +38,14 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
   const [health, setHealth] = useState<PoolHealth | null>(null);
   const [settleable, setSettleable] = useState(0);
   const [lastTidy, setLastTidy] = useState<string[] | null>(null);
+  const [toPull, setToPull] = useState<ReturnType<typeof unpulledClubs> | null>(null);
 
   const look = async () => {
     const found = await inspect(pool, tidyStamp);
     setHealth(found.health);
     setSettleable(found.settleable);
     setLastTidy(null);
+    setToPull(unpulledClubs(pool));
   };
 
   const run = async () => {
@@ -52,6 +55,22 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
     const found = await inspect(outcome.state, "");
     setHealth(found.health);
     setSettleable(found.settleable);
+    setToPull(unpulledClubs(outcome.state));
+  };
+
+  /**
+   * The list as a file. A to-do rather than an import format: GameChanger has no id for any of
+   * these — that is why they are on the list — so it carries what it takes to find them.
+   */
+  const downloadToPull = () => {
+    if (!toPull || toPull.length === 0) return;
+    const blob = new Blob([unpulledClubsCsv(toPull)], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "Clubs_To_Pull.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -145,6 +164,40 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
             ) : (
               <>Nothing is waiting.</>
             )}
+          </p>
+        </div>
+      )}
+
+      {toPull && toPull.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Clubs worth pulling next
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(toPull.length)}</strong> clubs are named on schedules you have pulled and
+            have no schedule of their own here. Nothing in the pool can identify them — only pulling
+            them can. Each one you add turns its games into a real result on both sides.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+            {toPull.slice(0, 5).map((club) => (
+              <li key={club.teamId}>
+                <span className="font-bold text-slate-700 dark:text-slate-200">{club.name}</span>
+                {" — "}
+                {club.played} result{club.played === 1 ? "" : "s"} waiting
+                {club.states.length > 0 ? ` · ${club.states.join(", ")}` : ""}
+                {club.levels.length > 0
+                  ? ` · ${club.levels.map((level) => `${level}U`).join(", ")}`
+                  : ""}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={downloadToPull} className={`${button.ghost} mt-3 text-sm`}>
+            Download the list ({count(toPull.length)})
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Ordered by how much each is holding up. The file carries the name, where the clubs that
+            named it are from, the age level and season, and who played it — enough to find the team
+            on GameChanger and paste its id into the next pull.
           </p>
         </div>
       )}

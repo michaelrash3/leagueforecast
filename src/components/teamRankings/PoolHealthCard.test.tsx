@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -108,5 +108,76 @@ describe("seeing what the pool is made of", () => {
     // The harness stamps the pool as tidied, so this is the tidied branch; the other is covered in
     // the poolHealth tests, where the stamp can be set to something else.
     expect(await screen.findByText("Tidied")).toBeInTheDocument();
+  });
+});
+
+describe("the clubs worth pulling next", () => {
+  const stubDownload = () => {
+    const created: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      created.push(blob as Blob);
+      return "blob:stub";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    return created;
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A club named on a pulled schedule whose own schedule nobody has. */
+  const withUnpulled = () => {
+    const base = withStandIn();
+    return {
+      ...base,
+      teams: [...base.teams, team("S-HEARD", "Heard Of Only", { nameOnly: true })],
+      games: [
+        ...base.games,
+        game("heard", "ag_10u_2027", "S-HOME", "S-HEARD", 5, 1, { date: seasonDate(2027) }),
+      ],
+    };
+  };
+
+  it("says how many there are and why only pulling them helps", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(withUnpulled());
+    await openSetup(user);
+    await look(user);
+
+    expect(await screen.findByText(/clubs worth pulling next/i)).toBeInTheDocument();
+    expect(screen.getByText(/only pulling them can/i)).toBeInTheDocument();
+  });
+
+  it("names the ones holding up the most", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(withUnpulled());
+    await openSetup(user);
+    await look(user);
+
+    expect(await screen.findByText("Heard Of Only")).toBeInTheDocument();
+  });
+
+  it("hands the list over as a file", async () => {
+    const user = userEvent.setup();
+    const created = stubDownload();
+    renderTeamRankings(withUnpulled());
+    await openSetup(user);
+    await look(user);
+
+    await user.click(await screen.findByRole("button", { name: /download the list/i }));
+    expect(created).toHaveLength(1);
+  });
+
+  it("stays quiet when every club has been pulled", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(withStandIn());
+    await openSetup(user);
+    await look(user);
+
+    // The stand-in in this pool is a TBD, which names nobody and cannot be looked up.
+    expect(await screen.findByText("Tidied")).toBeInTheDocument();
+    expect(screen.queryByText(/clubs worth pulling next/i)).toBeNull();
   });
 });
