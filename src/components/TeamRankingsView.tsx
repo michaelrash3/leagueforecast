@@ -72,6 +72,7 @@ import {
   teamRankingsCsvSections,
 } from "../lib/teamRankingsBackup";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
@@ -125,6 +126,16 @@ type TeamRankingsViewProps = {
  * The season-year picker and the age tabs stay above every section, because they scope all of them
  * alike: a section is a view of one age group in one year, never of the pool at large.
  */
+/** What a section is called when a boundary has to say which one could not be drawn. */
+const sectionLabel = (section: RankingsSection): string =>
+  ({
+    rankings: "The rankings",
+    games: "The games list",
+    import: "The GameChanger import",
+    scouting: "The scouting report",
+    setup: "Setup",
+  })[section];
+
 export function TeamRankingsView({
   seasons,
   activeSeasonId,
@@ -1274,139 +1285,147 @@ This cannot be undone. Cancel and download the backup first if there is any chan
         aria-labelledby={sectionTabId(section)}
         className="flex flex-col gap-6"
       >
-        {section === "rankings" && (
-          <RankingsBoards
-            groupName={selectedGroupName}
-            hasAgeGroups={ageGroups.length > 0}
-            unrankedLevelNote={unrankedLevelNote}
-            rankings={rankings}
-            rankingsStale={rankingsStale}
-            nationalTop={nationalTop}
-            stateTopRows={stateTopRows}
-            visibleRankings={visibleRankings}
-            availableStates={availableStates}
-            shownState={shownState}
-            onShownStateChange={setStateTop}
-            unknownStateCount={unknownStateCount}
-            stateFilter={stateFilter}
-            onStateFilterChange={setStateFilter}
-            showAll={showAll}
-            onToggleShowAll={() => setShowAll((value) => !value)}
-            placeOf={placeOf}
-            isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
-            hasGamesFiledHere={hasGamesFiledHere}
-            onOpenTeam={setOpenTeamId}
-            onMarkMine={setMyTeam}
-            onRemoveTeam={removeTeamById}
-          />
-        )}
+        {/*
+          One boundary per section, keyed by section, so a section that throws leaves the tabs and
+          the age picker above it usable — you can still get to Setup and take a backup out. Keying
+          it clears the caught error on the way to another section, which is what makes leaving a
+          broken one possible at all.
+        */}
+        <ErrorBoundary key={section} area={sectionLabel(section)}>
+          {section === "rankings" && (
+            <RankingsBoards
+              groupName={selectedGroupName}
+              hasAgeGroups={ageGroups.length > 0}
+              unrankedLevelNote={unrankedLevelNote}
+              rankings={rankings}
+              rankingsStale={rankingsStale}
+              nationalTop={nationalTop}
+              stateTopRows={stateTopRows}
+              visibleRankings={visibleRankings}
+              availableStates={availableStates}
+              shownState={shownState}
+              onShownStateChange={setStateTop}
+              unknownStateCount={unknownStateCount}
+              stateFilter={stateFilter}
+              onStateFilterChange={setStateFilter}
+              showAll={showAll}
+              onToggleShowAll={() => setShowAll((value) => !value)}
+              placeOf={placeOf}
+              isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
+              hasGamesFiledHere={hasGamesFiledHere}
+              onOpenTeam={setOpenTeamId}
+              onMarkMine={setMyTeam}
+              onRemoveTeam={removeTeamById}
+            />
+          )}
 
-        {section === "games" && (
-          <GamesSection
-            groupName={selectedGroupName}
-            ageGroupId={selectedAgeGroupId}
-            hasAgeGroups={ageGroups.length > 0}
-            draft={gameDraft}
-            onDraftChange={(patch) => setGameDraft((prev) => ({ ...prev, ...patch }))}
-            teamNameOptions={teamNameOptions}
-            myTeamName={myTeamName}
-            addGameValid={addGameValid}
-            onAddGame={() => void addGame()}
-            onGoToImport={() => openSection("import")}
-            importOpen={importOpen}
-            onOpenImport={() => setImportOpen(true)}
-            onCloseImport={() => setImportOpen(false)}
-            allTeams={allKnown.teams}
-            suggestedTeams={suggestedTeams}
-            existingGames={ageGroupGames}
-            onImportGames={importGames}
-            showToast={showToast}
-            loggedGames={ageGroupManualGames}
-            teamNameById={teamNameById}
-            editingGameId={editingGameId}
-            editScoreA={editScoreA}
-            editScoreB={editScoreB}
-            onEditScoreA={setEditScoreA}
-            onEditScoreB={setEditScoreB}
-            onStartEditScore={startEditScore}
-            onSaveScore={saveGameScore}
-            onToggleExcluded={toggleGameExcluded}
-            onRemoveGame={(game) => void removeGame(game)}
-          />
-        )}
+          {section === "games" && (
+            <GamesSection
+              groupName={selectedGroupName}
+              ageGroupId={selectedAgeGroupId}
+              hasAgeGroups={ageGroups.length > 0}
+              draft={gameDraft}
+              onDraftChange={(patch) => setGameDraft((prev) => ({ ...prev, ...patch }))}
+              teamNameOptions={teamNameOptions}
+              myTeamName={myTeamName}
+              addGameValid={addGameValid}
+              onAddGame={() => void addGame()}
+              onGoToImport={() => openSection("import")}
+              importOpen={importOpen}
+              onOpenImport={() => setImportOpen(true)}
+              onCloseImport={() => setImportOpen(false)}
+              allTeams={allKnown.teams}
+              suggestedTeams={suggestedTeams}
+              existingGames={ageGroupGames}
+              onImportGames={importGames}
+              showToast={showToast}
+              loggedGames={ageGroupManualGames}
+              teamNameById={teamNameById}
+              editingGameId={editingGameId}
+              editScoreA={editScoreA}
+              editScoreB={editScoreB}
+              onEditScoreA={setEditScoreA}
+              onEditScoreB={setEditScoreB}
+              onStartEditScore={startEditScore}
+              onSaveScore={saveGameScore}
+              onToggleExcluded={toggleGameExcluded}
+              onRemoveGame={(game) => void removeGame(game)}
+            />
+          )}
 
-        {section === "import" && (
-          <GameChangerImportPanel
-            /*
-             * The stored pool only — not the merged roster. League-derived teams and games are
-             * rebuilt from League Standings on every render and must never be written back here, or
-             * a pull would persist a second copy of every league game it happened to see.
-             */
-            pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
-            savedProgress={pullProgress}
-            onPersist={(next) => {
-              const savedGroups = saveAgeGroups(next.ageGroups);
-              const savedTeams = saveScoutTeams(next.teams);
-              const savedGames = saveScoutGames(next.games);
-              setAgeGroups(next.ageGroups);
-              setScoutTeams(next.teams);
-              setScoutGames(next.games);
-              onDataChange?.();
-              return savedGroups && savedTeams && savedGames;
-            }}
-            onSaveProgress={(progress) => {
-              setPullProgress(progress);
-              savePullProgress(progress);
-            }}
-            onClearProgress={() => {
-              setPullProgress(null);
-              clearPullProgress();
-            }}
-            refreshLog={refreshLog}
-            onRefreshLog={(log) => {
-              setRefreshLog(log);
-              saveRefreshLog(log);
-            }}
-            /* The panel closes itself when a pull finishes; there is nowhere to close to but the
+          {section === "import" && (
+            <GameChangerImportPanel
+              /*
+               * The stored pool only — not the merged roster. League-derived teams and games are
+               * rebuilt from League Standings on every render and must never be written back here, or
+               * a pull would persist a second copy of every league game it happened to see.
+               */
+              pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
+              savedProgress={pullProgress}
+              onPersist={(next) => {
+                const savedGroups = saveAgeGroups(next.ageGroups);
+                const savedTeams = saveScoutTeams(next.teams);
+                const savedGames = saveScoutGames(next.games);
+                setAgeGroups(next.ageGroups);
+                setScoutTeams(next.teams);
+                setScoutGames(next.games);
+                onDataChange?.();
+                return savedGroups && savedTeams && savedGames;
+              }}
+              onSaveProgress={(progress) => {
+                setPullProgress(progress);
+                savePullProgress(progress);
+              }}
+              onClearProgress={() => {
+                setPullProgress(null);
+                clearPullProgress();
+              }}
+              refreshLog={refreshLog}
+              onRefreshLog={(log) => {
+                setRefreshLog(log);
+                saveRefreshLog(log);
+              }}
+              /* The panel closes itself when a pull finishes; there is nowhere to close to but the
                tables it has just filled. */
-            onClose={() => openSection("rankings")}
-            showToast={showToast}
-          />
-        )}
+              onClose={() => openSection("rankings")}
+              showToast={showToast}
+            />
+          )}
 
-        {section === "scouting" && (
-          <ScoutingSection
-            rankings={rankings}
-            reportForId={reportForId}
-            onReportTeamChange={setReportTeamId}
-            reportRow={reportRow}
-            reportRows={reportRows}
-            upcomingRows={upcomingRows}
-            explanation={explanation}
-            placeOf={placeOf}
-          />
-        )}
+          {section === "scouting" && (
+            <ScoutingSection
+              rankings={rankings}
+              reportForId={reportForId}
+              onReportTeamChange={setReportTeamId}
+              reportRow={reportRow}
+              reportRows={reportRows}
+              upcomingRows={upcomingRows}
+              explanation={explanation}
+              placeOf={placeOf}
+            />
+          )}
 
-        {section === "setup" && (
-          <SetupSection
-            seasons={seasons}
-            ageGroups={ageGroups}
-            editingGroupId={editingGroupId}
-            draft={groupDraft}
-            onDraftChange={patchGroupDraft}
-            onAssignSeason={assignSeasonToAge}
-            yearOptions={yearOptions}
-            onSave={saveAgeGroup}
-            onCancelEdit={resetGroupForm}
-            onEditGroup={startEditGroup}
-            onAdvanceGroup={advanceSeason}
-            onDeleteGroup={(group) => void removeAgeGroup(group)}
-            teamCount={scoutTeams.length}
-            gameCount={scoutGames.length}
-            onDownloadBackup={downloadPoolBackup}
-            onReset={() => void resetEverything()}
-          />
-        )}
+          {section === "setup" && (
+            <SetupSection
+              seasons={seasons}
+              ageGroups={ageGroups}
+              editingGroupId={editingGroupId}
+              draft={groupDraft}
+              onDraftChange={patchGroupDraft}
+              onAssignSeason={assignSeasonToAge}
+              yearOptions={yearOptions}
+              onSave={saveAgeGroup}
+              onCancelEdit={resetGroupForm}
+              onEditGroup={startEditGroup}
+              onAdvanceGroup={advanceSeason}
+              onDeleteGroup={(group) => void removeAgeGroup(group)}
+              teamCount={scoutTeams.length}
+              gameCount={scoutGames.length}
+              onDownloadBackup={downloadPoolBackup}
+              onReset={() => void resetEverything()}
+            />
+          )}
+        </ErrorBoundary>
       </div>
 
       {openTeam && (
