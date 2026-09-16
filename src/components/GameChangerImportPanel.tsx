@@ -296,9 +296,22 @@ export function GameChangerImportPanel({
       signal: controller.signal,
       onProgress: ({ teamId, result }) => {
         if (result.ok) {
-          outcomesRef.current.push(importer.add(result.schedule));
-          poolRef.current = importer.state;
           const entry = claimed.get(teamId);
+          /*
+           * The staff and the roster size come from the user's own list, not from GameChanger —
+           * its public API returns neither. Attached here, where both halves are in hand, so the
+           * link the import records carries them.
+           */
+          const listed =
+            entry && (entry.staff?.length || entry.playerCount !== undefined)
+              ? {
+                  ...(entry.staff?.length ? { staff: entry.staff } : {}),
+                  ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+                }
+              : undefined;
+          const schedule = listed ? { ...result.schedule, listed } : result.schedule;
+          outcomesRef.current.push(importer.add(schedule));
+          poolRef.current = importer.state;
           if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
         } else {
           pendingFailures.set(teamId, { reason: result.reason, message: result.message });

@@ -355,3 +355,80 @@ describe("fields added after the format existed", () => {
     expect(decodeScoutTeams(older, () => [])).toEqual(teams);
   });
 });
+
+describe("the coaches and the roster size on a link", () => {
+  const withStaff = (teamId: string, staff: string[], playerCount?: number): ScoutTeam => ({
+    id: teamId,
+    name: `Team ${teamId}`,
+    gcTeams: [
+      {
+        teamId: `gc-${teamId}`,
+        name: `GC ${teamId}`,
+        ageGroupId: "ag_1",
+        staff,
+        ...(playerCount === undefined
+          ? {}
+          : { playerCount, countedAt: "2026-09-16T12:00:00.000Z" }),
+      },
+    ],
+  });
+
+  const roundTrip = (teams: ScoutTeam[]): ScoutTeam[] =>
+    decodeScoutTeams(encodeScoutTeams(teams), () => []);
+
+  it("comes back exactly as it went in", () => {
+    const teams = [withStaff("a", ["Eric Varela", "Sam Wilson"], 23)];
+    expect(roundTrip(teams)).toEqual(teams);
+  });
+
+  it("writes a name shared across a club once", () => {
+    const encoded = encodeScoutTeams([
+      withStaff("a", ["Eric Varela", "Sam Wilson"]),
+      withStaff("b", ["Eric Varela", "Sam Wilson"]),
+      withStaff("c", ["Eric Varela", "Cyndee Varela"]),
+    ]);
+    // A club's officer sits on every team it runs; three links, three distinct names.
+    expect(encoded.p).toEqual(["Eric Varela", "Sam Wilson", "Cyndee Varela"]);
+  });
+
+  it("leaves the dictionary off a pool that has no staff", () => {
+    const encoded = encodeScoutTeams([{ id: "a", name: "Aces" }]);
+    // A pool typed in by hand is written exactly as it was before staff was stored.
+    expect(encoded.p).toBeUndefined();
+  });
+
+  it("reads a pool written before staff existed as having none", () => {
+    const encoded = encodeScoutTeams([withStaff("a", ["Eric Varela"], 12)]);
+    // What an older writer produced: the first eleven slots and no dictionary.
+    const older = {
+      ...encoded,
+      p: undefined,
+      r: encoded.r.map((row) =>
+        row.map((cell) =>
+          Array.isArray(cell)
+            ? (cell as unknown[]).map((link) => (Array.isArray(link) ? link.slice(0, 11) : link))
+            : cell
+        )
+      ),
+    };
+    const [team] = decodeScoutTeams(older, () => []);
+    expect(team?.gcTeams?.[0]?.staff).toBeUndefined();
+    expect(team?.gcTeams?.[0]?.playerCount).toBeUndefined();
+    // Everything that was always there is still there.
+    expect(team?.gcTeams?.[0]?.teamId).toBe("gc-a");
+  });
+
+  it("keeps a roster of zero rather than reading it as no roster", () => {
+    const teams = [withStaff("a", [], 0)];
+    expect(roundTrip(teams)[0]?.gcTeams?.[0]?.playerCount).toBe(0);
+  });
+
+  it("drops a staff index pointing at a name that is not there", () => {
+    const encoded = encodeScoutTeams([withStaff("a", ["Eric Varela"])]);
+    const broken = { ...encoded, p: [] };
+    // A truncated dictionary loses the names, never the link they were on.
+    const [team] = decodeScoutTeams(broken, () => []);
+    expect(team?.gcTeams?.[0]?.staff).toBeUndefined();
+    expect(team?.gcTeams?.[0]?.teamId).toBe("gc-a");
+  });
+});

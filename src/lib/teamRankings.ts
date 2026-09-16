@@ -130,6 +130,23 @@ export type GcTeamLink = {
   avatarKey?: string;
   /** GameChanger's own season record when last pulled — a check on the games read, never rated. */
   record?: { win: number; loss: number; tie: number };
+  /**
+   * The coaches the user's team list named for this id.
+   *
+   * Two GameChanger ids sharing two of these are nearly always one club — see `gcStaff.ts` for the
+   * measurements. It is the only thing in the data that says so: GameChanger never names an
+   * organisation, and club names are written differently on every page it owns.
+   */
+  staff?: string[];
+  /**
+   * Players on the roster when the list was taken, and when that was.
+   *
+   * It takes nine to field a side, so fewer means this is probably a page rather than a team yet.
+   * The timestamp is what makes coming back to it possible: a squad of six in September is twelve
+   * in October, and only a second count can say which.
+   */
+  playerCount?: number;
+  countedAt?: string;
   /** When this id's schedule was last pulled, ISO timestamp. */
   importedAt?: string;
 };

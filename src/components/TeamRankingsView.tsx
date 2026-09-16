@@ -76,9 +76,10 @@ import {
   teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
+import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TeamDetailPanel } from "./TeamDetailPanel";
+import { TeamDetailPanel, type MergeCandidate } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import {
   NATIONAL_TOP,
@@ -962,8 +963,53 @@ export function TeamRankingsView({
   };
 
   /** Everyone else rated on this page — who a team could plausibly be the same club as. */
-  const mergeCandidatesFor = (teamId: string): ScoutTeam[] =>
-    rankedTeams.filter((team) => team.id !== teamId);
+  /**
+   * Who coaches each team, gathered from every GameChanger id it is linked to.
+   *
+   * The staff comes off the user's own team list, not from GameChanger, so a pool built by hand or
+   * pulled before the list carried it simply has none and everything below falls back to the plain
+   * alphabetical picker it always was.
+   */
+  const staffIndex = useMemo(
+    () =>
+      buildStaffIndex(
+        allKnown.teams.map((team) => ({
+          teamId: team.id,
+          staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
+        }))
+      ),
+    [allKnown.teams]
+  );
+
+  /**
+   * What to offer as "same team as", with the clubs first.
+   *
+   * It used to offer every other team on the page in name order, which at a nationwide pool is
+   * thousands of names and no help at all. Two teams sharing two coaches are the same club 98% of
+   * the time by state — see `gcStaff.ts` — so those go to the top with a line saying why, and
+   * everyone else follows as before. Nothing is hidden: a proposal this strong is still only a
+   * proposal, and the person merging is the one who knows.
+   */
+  const mergeCandidatesFor = (teamId: string): MergeCandidate[] => {
+    const others = rankedTeams.filter((team) => team.id !== teamId);
+    const relations = clubRelations(teamId, staffIndex);
+    if (relations.length === 0) return others;
+
+    const hintById = new Map(
+      relations.map((relation) => [relation.teamId, describeRelation(relation)])
+    );
+    const related: MergeCandidate[] = [];
+    const rest: MergeCandidate[] = [];
+    others.forEach((team) => {
+      const hint = hintById.get(team.id);
+      if (hint) related.push({ ...team, clubHint: hint });
+      else rest.push(team);
+    });
+    // `clubRelations` is already strongest first; this puts the candidates in that same order.
+    const order = new Map(relations.map((relation, index) => [relation.teamId, index]));
+    related.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return [...related, ...rest];
+  };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
 

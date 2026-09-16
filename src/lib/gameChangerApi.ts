@@ -50,7 +50,19 @@ export type GcGame = {
   rawStatus?: string;
 };
 
-export type GcTeamSchedule = { profile: GcTeamProfile; games: GcGame[]; fetchedAt: string };
+export type GcTeamSchedule = {
+  profile: GcTeamProfile;
+  games: GcGame[];
+  fetchedAt: string;
+  /**
+   * What the user's own team list said about this team, when they pasted one that carried it.
+   *
+   * Never from GameChanger's API: its public endpoints return neither the staff nor the roster
+   * size, and both come from the list export instead. Kept apart from `profile` for exactly that
+   * reason — a field in there is something GameChanger said, and these are not.
+   */
+  listed?: { staff?: string[]; playerCount?: number };
+};
 
 export type GcFetchErrorReason =
   | "invalid-id"
