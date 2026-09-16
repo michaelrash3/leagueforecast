@@ -88,6 +88,8 @@ const GAME_HEADERS = [
   "Team B Age",
   "Source Team ID",
   "Source Game ID",
+  /** Other GameChanger schedules that listed this game — what tells a doubleheader from a dispute. */
+  "Also From",
 ];
 
 /**
@@ -235,6 +237,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.ageLevelB ?? "",
       game.source?.teamId ?? "",
       game.source?.gameId ?? "",
+      (game.alsoFrom ?? []).join(" "),
     ]
       .map(csvEscape)
       .join(",")
@@ -396,6 +399,9 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const ageLevelB = parseLevel(cell("Team B Age"));
     const sourceTeamId = cell("Source Team ID");
     const sourceGameId = cell("Source Game ID");
+    // Space-separated, because a GameChanger team id never contains one and a comma would need
+    // quoting in a cell this is only ever read back from.
+    const alsoFrom = cell("Also From").split(/\s+/).filter(Boolean);
     return [
       {
         id,
@@ -411,6 +417,9 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),
+        // Lost on a restore, a settled stand-in looks like a disputed score again and a real
+        // result gets deleted a second time — so it is carried in the file rather than rebuilt.
+        ...(alsoFrom.length > 0 ? { alsoFrom } : {}),
         // Half a source names nothing a re-pull could match, so it takes both ids or neither.
         ...(sourceTeamId && sourceGameId
           ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }

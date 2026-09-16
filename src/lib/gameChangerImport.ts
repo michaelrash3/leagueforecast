@@ -1353,16 +1353,39 @@ export const resolveSlotGames = (
   const gamesById = new Map(state.games.map((game) => [game.id, game]));
   merges.forEach((named, slotId) => {
     const slotGame = gamesById.get(slotId);
-    if (!slotGame || !isScored(slotGame) || isScored(named)) return;
+    if (!slotGame) return;
+    const current = filled.get(named.id) ?? named;
+
+    /*
+     * Where the settled row came from, remembered on the row that survives.
+     *
+     * The fold is about to remove a row, and with it the fact that its schedule listed this
+     * opponent that day. That fact decides whether a later contradicting result is a second game
+     * or a scorekeeping dispute: a club writing one named game and one "TBD" against the same
+     * opponent is saying they met twice, and without this the two results are indistinguishable
+     * from one game written down differently — which is how a real result came to be deleted.
+     */
+    const slotSource = slotGame.source?.teamId;
+    const alsoFrom =
+      slotSource !== undefined && slotSource !== current.source?.teamId
+        ? [...new Set([...(current.alsoFrom ?? []), slotSource])]
+        : current.alsoFrom;
+
+    // A score is only taken from the stand-in's row when the surviving row has none: the other
+    // schedule may have posted a result this one has not.
+    const fillScore = isScored(slotGame) && !isScored(named);
     const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
     const knownScore = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
     const otherScore = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
-    const current = filled.get(named.id) ?? named;
+
     filled.set(named.id, {
       ...current,
-      ...(named.teamAId === knownId
-        ? { teamAScore: knownScore, teamBScore: otherScore }
-        : { teamAScore: otherScore, teamBScore: knownScore }),
+      ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
+      ...(fillScore
+        ? named.teamAId === knownId
+          ? { teamAScore: knownScore, teamBScore: otherScore }
+          : { teamAScore: otherScore, teamBScore: knownScore }
+        : {}),
     });
   });
 

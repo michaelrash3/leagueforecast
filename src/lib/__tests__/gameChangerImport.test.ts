@@ -2435,3 +2435,120 @@ describe("who a name belongs to: level, state and the game", () => {
     expect(named(tidy.state, "Rangers").filter((team) => team.nameOnly)).toHaveLength(1);
   });
 });
+
+/**
+ * Taken from a real pool, where the result went missing.
+ *
+ * River City Raptors beat Legacy Baseball Club 15-7 on 22 August 2026. The pool kept Legacy's
+ * "13-10 River City Raptors" with a note reading "Other side reported 7-15." and nothing else —
+ * the Raptors' win was gone. They had played twice that day, and Legacy's scorekeeper entered the
+ * second one against "TBD".
+ */
+describe("a club met twice in one day", () => {
+  const legacySchedule = () =>
+    schedule({ id: "5pK3fIt1gYIR", name: "Legacy Baseball Club 11U" }, [
+      // The first meeting, which Legacy won.
+      game({
+        id: "027f019e",
+        opponentName: "River City Raptors",
+        date: "2026-08-22",
+        teamScore: 13,
+        opponentScore: 10,
+      }),
+      // The second, which Legacy's scorekeeper left unnamed.
+      game({
+        id: "62c9ff4f",
+        opponentName: "TBD- 08/22/26, 3:00 PM",
+        date: "2026-08-22",
+        teamScore: 7,
+        opponentScore: 15,
+      }),
+    ]);
+
+  const raptorsSchedule = () =>
+    schedule({ id: "T1P0KzfKw4QY", name: "River City Raptors 11U" }, [
+      game({
+        id: "7d923672",
+        opponentName: "Legacy Baseball Club",
+        date: "2026-08-22",
+        teamScore: 15,
+        opponentScore: 7,
+      }),
+    ]);
+
+  const bothPulled = () => {
+    const first = importGcSchedule(legacySchedule(), empty);
+    return importGcSchedule(raptorsSchedule(), first.state).state;
+  };
+
+  const scoresBetween = (state: GcImportState) => {
+    const legacy = state.teams.find((team) => team.name.startsWith("Legacy"));
+    const raptors = state.teams.find((team) => team.name.startsWith("River City"));
+    return state.games
+      .filter(
+        (g) =>
+          [g.teamAId, g.teamBId].includes(legacy?.id ?? "") &&
+          [g.teamAId, g.teamBId].includes(raptors?.id ?? "")
+      )
+      .map((g) =>
+        g.teamAId === legacy?.id
+          ? `${g.teamAScore}-${g.teamBScore}`
+          : `${g.teamBScore}-${g.teamAScore}`
+      )
+      .sort();
+  };
+
+  it("keeps both results through the tidy", () => {
+    const tidied = tidyPool(bothPulled()).state;
+    // Legacy won one and lost one. Before this, the 7-15 was deleted as a disputed score.
+    expect(scoresBetween(tidied)).toEqual(["13-10", "7-15"]);
+  });
+
+  it("settles the stand-in rather than leaving it standing", () => {
+    const tidied = tidyPool(bothPulled()).state;
+    expect(tidied.teams.some((team) => team.placeholder)).toBe(false);
+    expect(tidied.games.some((g) => g.note?.includes("Other side reported"))).toBe(false);
+  });
+
+  it("remembers that the settled row came from the other schedule", () => {
+    const tidied = tidyPool(bothPulled()).state;
+    // The fold removed a row; without this the collapse cannot tell two meetings from one dispute.
+    const second = tidied.games.find(
+      (g) => g.teamAScore === 15 || (g.teamBScore === 15 && g.teamAScore === 7)
+    );
+    expect(second?.alsoFrom).toContain("5pK3fIt1gYIR");
+  });
+
+  it("still collapses a genuine disagreement about one game", () => {
+    // Each schedule lists the other once, with different scores, and neither posted a stand-in:
+    // that is one game two coaches scored differently, and it stays one game.
+    const first = importGcSchedule(
+      schedule({ id: "gcHOMEHOMEHO", name: "Aces 9U" }, [
+        game({
+          id: "h1",
+          opponentName: "Badgers 9U",
+          date: "2026-08-22",
+          teamScore: 6,
+          opponentScore: 4,
+        }),
+      ]),
+      empty
+    );
+    const both = importGcSchedule(
+      schedule({ id: "gcAWAYAWAYAW", name: "Badgers 9U" }, [
+        game({
+          id: "a1",
+          opponentName: "Aces 9U",
+          date: "2026-08-22",
+          teamScore: 5,
+          opponentScore: 6,
+        }),
+      ]),
+      first.state
+    ).state;
+
+    const tidied = tidyPool(both).state;
+    expect(tidied.games).toHaveLength(1);
+    expect(tidied.games[0]?.note).toMatch(/Other side reported/);
+  });
+});

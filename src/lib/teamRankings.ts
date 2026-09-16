@@ -195,6 +195,18 @@ export type ScoutGame = {
    */
   ageLevelA?: number;
   ageLevelB?: number;
+  /**
+   * Other GameChanger schedules that also listed this game, by their team id.
+   *
+   * Written when a stand-in row is folded into this one: the fold removes a row, and with it the
+   * fact that the schedule it came from listed this opponent that day. That fact is load-bearing.
+   * Two clubs that meet twice in a day are often written as one named game and one "TBD" on the
+   * same schedule, and once the TBD is settled the two results look exactly like one game two
+   * scorekeepers disagreed about — which is how a real doubleheader result came to be deleted.
+   * Keeping the source here lets `collapseSameGames` see that the schedule accounted for two
+   * meetings and leave both alone.
+   */
+  alsoFrom?: string[];
   /** Season label from the source, as in "Fall 2026" — display and filtering only. */
   season?: string;
   /**
@@ -1376,12 +1388,24 @@ export const collapseSameGames = (
       const scored = (game: ScoutGame) =>
         game.teamAScore !== undefined && game.teamBScore !== undefined;
       const sourceOf = (game: ScoutGame) => game.source?.teamId;
+      /**
+       * How many of this day's meetings one schedule accounted for — its own rows, plus the rows
+       * folded into them when a stand-in was settled. A schedule that listed the same opponent
+       * twice, once by name and once as "TBD", has said these are two games, and saying so is the
+       * whole reason the fold records where it came from.
+       */
+      const rowsFrom = (source: string | undefined) =>
+        source === undefined
+          ? 0
+          : bucket.filter(
+              (game) => sourceOf(game) === source || (game.alsoFrom ?? []).includes(source)
+            ).length;
       const oneEach =
         sourceOf(first) !== undefined &&
         sourceOf(second) !== undefined &&
         sourceOf(first) !== sourceOf(second) &&
-        bucket.filter((game) => sourceOf(game) === sourceOf(first)).length === 1 &&
-        bucket.filter((game) => sourceOf(game) === sourceOf(second)).length === 1;
+        rowsFrom(sourceOf(first)) === 1 &&
+        rowsFrom(sourceOf(second)) === 1;
       if (oneEach && scored(first) && scored(second)) {
         const theirA = scoreOf(second, first.teamAId);
         const theirB = scoreOf(second, first.teamBId);
