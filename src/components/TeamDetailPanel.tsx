@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   countsTowardRating,
   gamesForTeam,
@@ -115,6 +115,8 @@ export function TeamDetailPanel({
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
+  const headingId = useId();
+
   const wouldMerge =
     renamed &&
     [...teamNameById.entries()].some(
@@ -122,10 +124,14 @@ export function TeamDetailPanel({
     );
 
   return (
-    <div className={`${card} p-5`}>
+    // A region rather than a plain box: this opens in answer to a click somewhere else on the
+    // page, and naming it after the team is what tells a screen-reader user which team arrived.
+    <section aria-labelledby={headingId} className={`${card} p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">{team.name}</h2>
+          <h2 id={headingId} className="text-sm font-black uppercase tracking-wide text-slate-500">
+            {team.name}
+          </h2>
           {(team.city || team.state) && (
             <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
               {[team.city, team.state].filter(Boolean).join(", ")}
@@ -345,6 +351,6 @@ export function TeamDetailPanel({
           })}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
