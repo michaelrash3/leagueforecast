@@ -53,6 +53,19 @@ export type Team = TeamBase & {
   totalK6: number | null;
   machineDifficulty: number;
   headToHead?: Record<string, HeadToHeadRecord>;
+  /**
+   * Opponent-adjusted power rating in runs (see `buildOpponentAdjustedRatings`): the expected
+   * margin against a league-average team, so the difference between two teams' ratings *is* their
+   * expected run margin. It is the one number here that knows who a team played rather than only
+   * what it scored, and where Team Rankings results are counted it knows about games this league
+   * never saw.
+   *
+   * Optional on purpose. A league that has never built one leaves this undefined, and every
+   * forecast then stays exactly the number it was before this field existed.
+   */
+  adjustedRating?: number;
+  /** Games that rating was fitted from: this league's, plus any counted Team Rankings results. */
+  ratedGames?: number;
   rank?: number;
 };
 

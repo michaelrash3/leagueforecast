@@ -115,6 +115,7 @@ import { buildProjectionExplanations } from "./lib/projectionExplanation";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import {
   applyResult,
+  attachAdjustedRatings,
   calculateTeams,
   createTeamId,
   getMathGoldStatus,
@@ -2424,9 +2425,114 @@ export default function App() {
 
   // ---------- Derived state ----------
 
-  const liveTeams = useMemo(
+  const baseTeams = useMemo(
     () => calculateTeams(teams, matchups, deferredLogs, settings),
     [teams, matchups, deferredLogs, settings]
+  );
+
+  /**
+   * This season's schedule in the shape `leagueScoutBridge` matches stored games against:
+   * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
+   * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
+   * team's schedule would feed this season's own games back in as if they were outside results.
+   */
+  const seasonFixtures = useMemo(() => {
+    const nameById = new Map(teams.map((team) => [team.id, team.name]));
+    return matchups.map((game) => ({
+      away: nameById.get(game.away) ?? "",
+      home: nameById.get(game.home) ?? "",
+      date: game.date,
+    }));
+  }, [teams, matchups]);
+
+  // Tournament results logged in Team Rankings, for age groups that include this season. Read
+  // from storage rather than held in state: Team Rankings owns them, this view only borrows.
+  const scoutBridge = useMemo(() => {
+    // Storage is not reactive, so the counter is the signal that it changed. Referenced rather
+    // than merely listed, so it reads as the dependency it is.
+    void scoutRevision;
+    const empty = {
+      results: [],
+      seasonLinked: false,
+      rows: [],
+      linkedCount: 0,
+      countedResults: 0,
+    };
+    if (!activeSeasonId) return empty;
+    return leagueScoutBridge(
+      activeSeasonId,
+      loadAgeGroups(),
+      loadScoutTeams(),
+      loadScoutGames(),
+      // The roster, not the computed teams: the bridge reads a team's id, name and stored pick,
+      // all of which live on the roster row, and reading the computed teams here would need them
+      // to exist before the rating that this feeds could be attached to them.
+      teams,
+      seasonFixtures
+    );
+  }, [activeSeasonId, teams, seasonFixtures, scoutRevision]);
+
+  /**
+   * The bridge is read whether or not the setting lets it count, so the panel can say how much is
+   * ready and waiting; only the results are withheld.
+   */
+  const externalResults = useMemo(
+    () => (settings.useScoutResults ? scoutBridge.results : []),
+    [settings.useScoutResults, scoutBridge]
+  );
+
+  /** The clubs that could be a given league team, best evidence first: who they have both played. */
+  const scoutCandidatesFor = useCallback(
+    (leagueTeamName: string) => {
+      void scoutRevision;
+      if (!activeSeasonId) return [];
+      return scoutLinkCandidates(
+        leagueTeamName,
+        activeSeasonId,
+        loadAgeGroups(),
+        loadScoutTeams(),
+        loadScoutGames(),
+        seasonFixtures
+      );
+    },
+    [activeSeasonId, seasonFixtures, scoutRevision]
+  );
+
+  const allScoutClubs = useCallback(() => {
+    void scoutRevision;
+    return loadScoutTeams().filter((team) => !team.placeholder);
+  }, [scoutRevision]);
+
+  /** Stores which Team Rankings club a league team is, or clears the answer. */
+  const setScoutLink = useCallback(
+    (leagueTeamId: string, scoutTeamId: string | undefined) => {
+      setTeams((prev) =>
+        prev.map((team) =>
+          team.id === leagueTeamId
+            ? scoutTeamId
+              ? { ...team, scoutTeamId }
+              : (({ scoutTeamId: _dropped, ...rest }) => rest)(team)
+            : team
+        )
+      );
+    },
+    [setTeams]
+  );
+
+  const predictionEngine = useMemo(
+    () => buildPredictionEngine(baseTeams, matchups, deferredLogs, settings, externalResults),
+    [baseTeams, matchups, deferredLogs, settings, externalResults]
+  );
+
+  /**
+   * The teams every forecast reads, each carrying the opponent-adjusted rating the Power Ratings
+   * table is built from — so a game pick knows who a team played and not only what it scored, and
+   * knows about the tournament games Team Rankings brought in. A team the fit never saw carries no
+   * rating and its forecast is exactly the number it was before any of this.
+   */
+  const liveTeams = useMemo(
+    () => attachAdjustedRatings(baseTeams, predictionEngine.ratings),
+    [baseTeams, predictionEngine]
   );
   const liveById = useMemo(() => {
     const map = new Map<string, Team>();
@@ -2570,97 +2676,6 @@ export default function App() {
   const backtestResult = useMemo(
     () => backtestPredictions(teams, matchups, deferredLogs, settings),
     [teams, matchups, deferredLogs, settings]
-  );
-
-  /**
-   * This season's schedule in the shape `leagueScoutBridge` matches stored games against:
-   * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
-   * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
-   * team's schedule would feed this season's own games back in as if they were outside results.
-   */
-  const seasonFixtures = useMemo(() => {
-    const nameById = new Map(teams.map((team) => [team.id, team.name]));
-    return matchups.map((game) => ({
-      away: nameById.get(game.away) ?? "",
-      home: nameById.get(game.home) ?? "",
-      date: game.date,
-    }));
-  }, [teams, matchups]);
-
-  // Tournament results logged in Team Rankings, for age groups that include this season. Read
-  // from storage rather than held in state: Team Rankings owns them, this view only borrows.
-  const scoutBridge = useMemo(() => {
-    // Storage is not reactive, so the counter is the signal that it changed. Referenced rather
-    // than merely listed, so it reads as the dependency it is.
-    void scoutRevision;
-    const empty = {
-      results: [],
-      seasonLinked: false,
-      rows: [],
-      linkedCount: 0,
-      countedResults: 0,
-    };
-    if (!activeSeasonId) return empty;
-    return leagueScoutBridge(
-      activeSeasonId,
-      loadAgeGroups(),
-      loadScoutTeams(),
-      loadScoutGames(),
-      liveTeams,
-      seasonFixtures
-    );
-  }, [activeSeasonId, liveTeams, seasonFixtures, scoutRevision]);
-
-  /**
-   * The bridge is read whether or not the setting lets it count, so the panel can say how much is
-   * ready and waiting; only the results are withheld.
-   */
-  const externalResults = useMemo(
-    () => (settings.useScoutResults ? scoutBridge.results : []),
-    [settings.useScoutResults, scoutBridge]
-  );
-
-  /** The clubs that could be a given league team, best evidence first: who they have both played. */
-  const scoutCandidatesFor = useCallback(
-    (leagueTeamName: string) => {
-      void scoutRevision;
-      if (!activeSeasonId) return [];
-      return scoutLinkCandidates(
-        leagueTeamName,
-        activeSeasonId,
-        loadAgeGroups(),
-        loadScoutTeams(),
-        loadScoutGames(),
-        seasonFixtures
-      );
-    },
-    [activeSeasonId, seasonFixtures, scoutRevision]
-  );
-
-  const allScoutClubs = useCallback(() => {
-    void scoutRevision;
-    return loadScoutTeams().filter((team) => !team.placeholder);
-  }, [scoutRevision]);
-
-  /** Stores which Team Rankings club a league team is, or clears the answer. */
-  const setScoutLink = useCallback(
-    (leagueTeamId: string, scoutTeamId: string | undefined) => {
-      setTeams((prev) =>
-        prev.map((team) =>
-          team.id === leagueTeamId
-            ? scoutTeamId
-              ? { ...team, scoutTeamId }
-              : (({ scoutTeamId: _dropped, ...rest }) => rest)(team)
-            : team
-        )
-      );
-    },
-    [setTeams]
-  );
-
-  const predictionEngine = useMemo(
-    () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings, externalResults),
-    [liveTeams, matchups, deferredLogs, settings, externalResults]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -7656,15 +7671,20 @@ function SettingsView({
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
               Tournament games logged in Team Rankings, for an age group that includes this season,
-              sharpen this league&apos;s <strong>opponent-adjusted power ratings</strong> and the
-              matchup analysis built on them. They help most where the schedule is thin: two teams
-              who never played each other become comparable through an opponent they both faced
-              elsewhere. Records, standings and strength of schedule are always league-only.
+              sharpen this league&apos;s <strong>opponent-adjusted power ratings</strong>, the
+              matchup analysis built on them, and — through those ratings — the Forecast
+              board&apos;s game picks and the simulated season. They help most where the schedule is
+              thin: two teams who never played each other become comparable through an opponent they
+              both faced elsewhere. Records, standings and strength of schedule are always
+              league-only.
             </p>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              The Forecast board&apos;s game picks and the simulated season come from a different
-              model, built on per-game runs, hits, walks and errors. Team Rankings holds final
-              scores only, so it has nothing to give that model and leaves it unchanged.
+              Every forecast leans partly on the opponent-adjusted rating and partly on this
+              league&apos;s own per-game runs, hits, walks and errors, weighted by how many games
+              the rating rests on. On simulated seasons with known team strengths the rating
+              deserved most of the weight: its spread matches real run margins, while the stats
+              model&apos;s is about twice as wide. Switching this off leaves the rating in place but
+              built from league games alone.
             </p>
           </label>
 

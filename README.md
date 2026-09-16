@@ -209,10 +209,9 @@ whole schedule: upcoming games show their opponent right away, and once a game i
 scored in League Standings it counts as a final here too.
 
 **Team Rankings → League, by choice.** Tournament results sharpen that league's
-_opponent-adjusted power ratings_ and the matchup analysis built on them — see
-the `useScoutResults` setting. (They do not reach the Forecast board's game
-picks or the simulated season, which are built on per-game runs, hits, walks and
-errors that Team Rankings does not hold.) They help most where a
+_opponent-adjusted power ratings_, the matchup analysis built on them, and —
+through those ratings — the Forecast board's game picks, the simulated season,
+playoff odds and the bracket. See the `useScoutResults` setting. They help most where a
 schedule is thin: two teams who never met become comparable through an opponent
 they both played elsewhere. Records, standings, elo, recent form and strength of
 schedule stay league-only. Games carried in from the league are excluded on the
@@ -496,6 +495,51 @@ schedule. An imported state never overwrites one already there.
 
 Filtering is presentational. Ratings come from every game regardless, so a
 filtered table renumbers but keeps each row's place in the full table alongside.
+
+### The rating in a forecast
+
+Every game pick blends two views. The league's own per-game stats — runs scored
+and allowed, walks, hits, errors, strikeouts, recent form — and the
+opponent-adjusted rating, which is the only number that knows _who_ a team
+played, and which counts tournament results where Team Rankings is switched on.
+
+How far it leans on the rating depends on how many games that rating rests on:
+0.40 with none, 0.52 at one game, 0.70 at four, 0.80 at eight. The floor is not
+zero because a rating of 0 means "league average", which is a better guess than
+a record built from a single game. The count is of _rated_ games, league plus
+tournament, so a team with two league games and five tournament results is
+trusted like the known quantity it is.
+
+That the rating deserves most of the weight was measured, not assumed: 400
+simulated leagues per case with known true team strengths, swept over the weight,
+walk-forward so no pick ever saw its own result. Every measure improved the
+further the pick leaned on the rating, in all six schedule-by-pitch-mode cases.
+The reason is spread rather than direction — the stats model's expected margin
+swings about twice as wide as real margins do, while the rating's is about right.
+
+Measured on the shipped code, 200 leagues a case, against the same code with the
+rating withheld:
+
+| Schedule                   | Pitch   | Brier           | Winner accuracy | Margin error, runs |
+| -------------------------- | ------- | --------------- | --------------- | ------------------ |
+| Balanced                   | player  | 0.2377 → 0.2267 | 63.2% → 63.7%   | 3.82 → 3.66        |
+| Balanced                   | machine | 0.2275 → 0.2255 | 63.6% → 63.7%   | 4.22 → 3.71        |
+| Unbalanced                 | player  | 0.2376 → 0.2268 | 62.5% → 63.0%   | 3.89 → 3.70        |
+| Unbalanced                 | machine | 0.2282 → 0.2258 | 62.5% → 63.0%   | 4.32 → 3.74        |
+| Unbalanced + Team Rankings | player  | 0.2376 → 0.2243 | 62.5% → 64.1%   | 3.89 → 3.64        |
+| Unbalanced + Team Rankings | machine | 0.2282 → 0.2234 | 62.5% → 63.9%   | 4.32 → 3.67        |
+
+The last two rows are the point of the bridge: the same unbalanced schedule, with
+the tournament results counted, picks about a point of accuracy more.
+
+Two honest limits. The simulation draws margins the way the rating model assumes
+they work, so it cannot tell you whether real baseball has structure the stats
+model catches and the rating misses. And the walk-forward backtest reports a
+floor rather than the shipped model's accuracy, because an outside result carries
+no date and cannot be placed on the league's timeline without leaking the future.
+
+A team the fit never rated carries no rating at all, and its forecast is exactly
+the number it was before any of this existed.
 
 ### Ratings
 

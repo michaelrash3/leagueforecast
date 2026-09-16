@@ -1,9 +1,16 @@
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
 import { parseDateValue } from "./date";
-import { calculateTeams, predictGame } from "./sim";
+import { attachAdjustedRatings, calculateTeams, predictGame } from "./sim";
+import { buildPredictionEngine } from "./predictionEngine";
 import { isFinal } from "./util";
 
-export type CalibrationBucket = { min: number; max: number; predicted: number; actual: number; samples: number };
+export type CalibrationBucket = {
+  min: number;
+  max: number;
+  predicted: number;
+  actual: number;
+  samples: number;
+};
 export type BacktestResult = {
   brierScore: number;
   upsetCaptureRate: number;
@@ -47,7 +54,12 @@ export const backtestPredictions = (
     const finalLog = logs[game.id];
     if (!finalLog || !isFinal(finalLog)) return;
 
-    const state = calculateTeams(teamBases, ordered, progressiveLogs);
+    // Fitted on the games played so far, like everything else here: a rating that had seen the
+    // game being predicted would flatter every number this returns. League games only — an outside
+    // result carries no date, so it cannot be placed on this timeline without leaking the future.
+    const base = calculateTeams(teamBases, ordered, progressiveLogs, settings);
+    const engine = buildPredictionEngine(base, ordered, progressiveLogs, settings);
+    const state = attachAdjustedRatings(base, engine.ratings);
     const prediction = predictGame(game, state, settings);
     const awayRuns = Number(finalLog.awayRuns);
     const homeRuns = Number(finalLog.homeRuns);
@@ -86,7 +98,9 @@ export const backtestPredictions = (
     };
   const brierScore = rows.reduce((sum, r) => sum + (r.p - r.y) ** 2, 0) / rows.length;
   const upsetRows = rows.filter((r) => r.upset);
-  const upsetCaptureRate = upsetRows.length ? upsetRows.filter((r) => r.captured).length / upsetRows.length : 0;
+  const upsetCaptureRate = upsetRows.length
+    ? upsetRows.filter((r) => r.captured).length / upsetRows.length
+    : 0;
   const winnerAccuracy = rows.filter((r) => r.correct).length / rows.length;
   const averageMarginError = rows.reduce((sum, r) => sum + r.marginError, 0) / rows.length;
   const highConfidenceRows = rows.filter((r) => r.highConfidence);
@@ -104,13 +118,15 @@ export const backtestPredictions = (
     buckets.set(idx, bucket);
   });
 
-  const calibration: CalibrationBucket[] = [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([idx, bucket]) => ({
-    min: idx * bucketSize,
-    max: (idx + 1) * bucketSize,
-    predicted: bucket.predictedSum / bucket.samples,
-    actual: bucket.actualSum / bucket.samples,
-    samples: bucket.samples,
-  }));
+  const calibration: CalibrationBucket[] = [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([idx, bucket]) => ({
+      min: idx * bucketSize,
+      max: (idx + 1) * bucketSize,
+      predicted: bucket.predictedSum / bucket.samples,
+      actual: bucket.actualSum / bucket.samples,
+      samples: bucket.samples,
+    }));
 
   return {
     brierScore,

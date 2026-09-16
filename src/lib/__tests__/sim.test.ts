@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyResult,
+  attachAdjustedRatings,
   calculateTeams,
   emptyTeam,
   isSeedingLocked,
@@ -730,4 +731,118 @@ it("allows run differential to be uncapped when configured", () => {
 
 it("defaults to scoring errors", () => {
   expect(DEFAULT_SETTINGS.trackErrors).toBe(true);
+});
+
+describe("the opponent-adjusted rating in a forecast", () => {
+  /** A team with a real record, so neither predictor takes its thin-sample early return. */
+  const played = (id: string, over: Partial<Team> = {}): Team => ({
+    ...emptyTeam({ id, name: id }),
+    w: 5,
+    l: 5,
+    games: 10,
+    pct: 0.5,
+    rs: 80,
+    ra: 80,
+    rsg: 8,
+    rag: 8,
+    runDiff: 0,
+    ...over,
+  });
+  const fixture: Matchup = { id: "g1", date: "5/1", away: "A", home: "B" };
+  const modes: Settings["pitchMode"][] = ["player", "machine"];
+
+  it("attaches nothing to a team the fit never saw a game for", () => {
+    const fitted = attachAdjustedRatings([played("A"), played("B")], {
+      byTeam: new Map([["A", 2.5]]),
+      games: new Map([["A", 6]]),
+    });
+    expect(fitted[0]).toMatchObject({ adjustedRating: 2.5, ratedGames: 6 });
+    expect("adjustedRating" in fitted[1]!).toBe(false);
+  });
+
+  it("attaches nothing when the fit saw the team but rated no games", () => {
+    // A rating of 0 off zero games is "league average because we know nothing", not a measurement.
+    const fitted = attachAdjustedRatings([played("A")], {
+      byTeam: new Map([["A", 0]]),
+      games: new Map([["A", 0]]),
+    });
+    expect("adjustedRating" in fitted[0]!).toBe(false);
+  });
+
+  modes.forEach((pitchMode) => {
+    const settings: Settings = { ...DEFAULT_SETTINGS, pitchMode };
+
+    it(`leaves a ${pitchMode}-pitch forecast untouched when neither side has a rating`, () => {
+      // This is what keeps every league that has never built a rating on the numbers it has now.
+      const plain = [played("A"), played("B")];
+      const halfRated = attachAdjustedRatings(plain, {
+        byTeam: new Map([["A", 4]]),
+        games: new Map([["A", 10]]),
+      });
+      expect(predictGame(fixture, halfRated, settings)).toEqual(
+        predictGame(fixture, plain, settings)
+      );
+    });
+
+    it(`moves a ${pitchMode}-pitch forecast toward the better-rated side`, () => {
+      const rated = attachAdjustedRatings([played("A"), played("B")], {
+        byTeam: new Map([
+          ["A", 3],
+          ["B", -3],
+        ]),
+        games: new Map([
+          ["A", 12],
+          ["B", 12],
+        ]),
+      });
+      const before = predictGame(fixture, [played("A"), played("B")], settings);
+      const after = predictGame(fixture, rated, settings);
+      expect(after.awayWinPct).toBeGreaterThan(before.awayWinPct);
+      expect(after.awayScore - after.homeScore).toBeGreaterThan(
+        before.awayScore - before.homeScore
+      );
+      expect(after.winnerId).toBe("A");
+    });
+
+    it(`leans harder on a ${pitchMode}-pitch rating the more games are behind it`, () => {
+      const at = (rated: number) =>
+        predictGame(
+          fixture,
+          attachAdjustedRatings([played("A"), played("B")], {
+            byTeam: new Map([
+              ["A", 3],
+              ["B", -3],
+            ]),
+            games: new Map([
+              ["A", rated],
+              ["B", rated],
+            ]),
+          }),
+          settings
+        ).awayWinPct;
+      expect(at(20)).toBeGreaterThan(at(4));
+      expect(at(4)).toBeGreaterThan(at(1));
+    });
+
+    it(`keeps the expected total runs of a ${pitchMode}-pitch forecast`, () => {
+      // Only the gap between the two sides moves, so a blend cannot turn a 9-7 into a 2-0.
+      const plain = [played("A"), played("B")];
+      const rated = attachAdjustedRatings(plain, {
+        byTeam: new Map([
+          ["A", 5],
+          ["B", -5],
+        ]),
+        games: new Map([
+          ["A", 12],
+          ["B", 12],
+        ]),
+      });
+      const before = predictGame(fixture, plain, settings);
+      const after = predictGame(fixture, rated, settings);
+      const total = (p: { awayScore: number; homeScore: number }) => p.awayScore + p.homeScore;
+      expect(Math.abs(total(after) - total(before))).toBeLessThanOrEqual(1);
+      expect(after.awayScore).toBeGreaterThanOrEqual(1);
+      expect(after.homeScore).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
