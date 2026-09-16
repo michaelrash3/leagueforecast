@@ -10,6 +10,9 @@ import {
 import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { ModelCheckCard } from "./ModelCheckCard";
+import { PoolHealthCard } from "./PoolHealthCard";
+import type { GcImportState } from "../../lib/gameChangerImport";
+import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import { ResetRankingsCard } from "./ResetRankingsCard";
 import { button, card } from "../../styles/tokens";
 
@@ -47,6 +50,12 @@ type SetupSectionProps = {
   gameCount: number;
   onDownloadBackup: () => void;
   onReset: () => void;
+  /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
+  poolHealth: {
+    pool: GcImportState;
+    tidyStamp: string;
+    onTidied: (outcome: TidyOutcome) => void;
+  };
   /** Everything the model check needs to refit this page's pool on demand. */
   modelCheck: {
     ageGroupId: string;
@@ -74,6 +83,7 @@ export function SetupSection({
   gameCount,
   onDownloadBackup,
   onReset,
+  poolHealth,
   modelCheck,
 }: SetupSectionProps) {
   return (
@@ -248,6 +258,12 @@ export function SetupSection({
           </div>
         </details>
       </div>
+
+      <PoolHealthCard
+        pool={poolHealth.pool}
+        tidyStamp={poolHealth.tidyStamp}
+        onTidied={poolHealth.onTidied}
+      />
 
       <ModelCheckCard
         ageGroupId={modelCheck.ageGroupId}

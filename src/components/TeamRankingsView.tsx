@@ -78,6 +78,7 @@ import {
 } from "../lib/teamRankingsBackup";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
 import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
+import { TIDY_UNASKED_LIMIT } from "../lib/poolHealth";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TeamDetailPanel, type MergeCandidate } from "./TeamDetailPanel";
@@ -250,6 +251,15 @@ export function TeamRankingsView({
   const tidyingRef = useRef(false);
   useEffect(() => {
     if (scoutGames.length === 0 || tidyingRef.current) return;
+    /*
+     * Past a certain size this stops being something to do behind somebody's back. Five passes over
+     * two hundred thousand games is twenty-odd seconds on the main thread; the tab freezes, gets
+     * reloaded, the cleanup below cancels the run, and the stamp is never written — so it tries
+     * again next time and never finishes. A real pool was found with eleven thousand results still
+     * filed against "TBD" for exactly that reason. Above the limit it is offered instead, by the
+     * pool health card in Setup, which runs it in a worker and says what it fixed.
+     */
+    if (scoutGames.length > TIDY_UNASKED_LIMIT) return;
     // A pull still running tidies when it finishes; two tidies at once would race the saves.
     if (pullProgress && remainingIds(pullProgress).length > 0) return;
     const pool: GcImportState = { ageGroups, teams: scoutTeams, games: scoutGames };
@@ -1563,6 +1573,20 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
               onDownloadBackup={() => void downloadPoolBackup()}
+              /*
+              The stored pool, not the merged roster: league-derived games are rebuilt from League
+              Standings every render and must never be written back here.
+            */
+              poolHealth={{
+                pool: { ageGroups, teams: scoutTeams, games: scoutGames },
+                tidyStamp: loadTidyStamp() ?? "",
+                onTidied: ({ state: tidied }) => {
+                  saveTidyStamp(poolSignature(tidied));
+                  if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
+                  if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
+                  if (tidied.games !== scoutGames) persistGames(tidied.games);
+                },
+              }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
               a check over anything narrower would be measuring a different model than the one the
