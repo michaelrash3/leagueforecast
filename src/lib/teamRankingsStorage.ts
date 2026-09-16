@@ -11,6 +11,12 @@ import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import type { RefreshLog } from "./gameChangerSchedule";
 import { idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import {
+  listenForLocalPoolWrites,
+  openPoolBroadcast,
+  SILENT_BROADCAST,
+  type PoolBroadcast,
+} from "./poolSync";
+import {
   decodeScoutGames,
   decodeScoutTeams,
   encodeScoutGames,
@@ -74,6 +80,65 @@ export const onPoolWriteError = (handler: ((key: string) => void) | null): void 
 };
 
 /**
+ * Told when another tab changes the pool, so a view holding it in component state can read it
+ * again. Nothing here re-renders anything; it only says the thing you are holding is old now.
+ */
+const poolListeners = new Set<() => void>();
+
+/**
+ * Subscribes to changes made by *other* tabs. Returns the unsubscribe.
+ *
+ * Deliberately not called for this tab's own writes: the caller made those and already has the
+ * value, and telling it would only send it back through its own state for no reason.
+ */
+export const onPoolChangedElsewhere = (handler: () => void): (() => void) => {
+  poolListeners.add(handler);
+  return () => {
+    poolListeners.delete(handler);
+  };
+};
+
+const announceChange = () => {
+  poolListeners.forEach((handler) => {
+    // One listener that throws must not stop the others hearing about it.
+    try {
+      handler();
+    } catch {
+      /* a view that cannot cope with a refresh is not this module's problem */
+    }
+  });
+};
+
+/** How this tab tells the others. Set up by `initTeamRankingsStore`; silent until then. */
+let broadcast: PoolBroadcast = SILENT_BROADCAST;
+/**
+ * The store this session is actually talking to, fixed once at startup.
+ *
+ * Every read and write below goes through it rather than calling IndexedDB directly, so standing
+ * in for the store in a test stands in for all of it and not merely for the migration.
+ */
+let activeIo: PoolStoreIo | null = null;
+let stopLocalListener: (() => void) | null = null;
+
+/**
+ * Another tab changed a key. On IndexedDB the cache is now wrong, so it is re-read before anyone
+ * is told — a listener that reads during the notification must get the new value, not the old one.
+ */
+export const notePoolChangedElsewhere = async (key: string): Promise<void> => {
+  if (usingIdb && key) cache.set(key, await (activeIo ?? browserIo).get(key));
+  announceChange();
+};
+
+/** Only for tests and for starting over: drops the listeners and closes the channel. */
+export const resetPoolSync = (): void => {
+  poolListeners.clear();
+  broadcast.close();
+  broadcast = SILENT_BROADCAST;
+  stopLocalListener?.();
+  stopLocalListener = null;
+};
+
+/**
  * Writes are coalesced per key. A pull saves the whole pool every twenty-five teams, and each save
  * supersedes the last — queueing them all would mean writing the same growing value a hundred
  * times over.
@@ -92,7 +157,7 @@ const flushWrites = async (): Promise<void> => {
       const batch = [...pendingWrites.entries()];
       pendingWrites.clear();
       for (const [key, value] of batch) {
-        const ok = await idbSet(key, value);
+        const ok = await (activeIo ?? browserIo).set(key, value);
         if (ok) continue;
         landed = false;
         // A handler that throws must not take the rest of the batch down with it.
@@ -185,10 +250,15 @@ const readValue = (key: string): unknown => {
 const writeValue = (key: string, value: unknown): boolean => {
   // Refused rather than written somewhere nothing will read it back.
   if (poolUnavailable) return false;
+  // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
+  // to send: the value is already shared and the notification comes free.
   if (!usingIdb) return safeSet(key, JSON.stringify(value));
   cache.set(key, value);
   pendingWrites.set(key, value);
   void flushWrites();
+  // Announced on acceptance rather than after the flush. A tab told a moment early re-reads and
+  // finds either the new value or the old one; a tab told late can have written over it by then.
+  broadcast.post(key);
   return true;
 };
 
@@ -200,6 +270,7 @@ const forgetValue = (key: string): void => {
   cache.set(key, null);
   pendingWrites.set(key, null);
   void flushWrites();
+  broadcast.post(key);
 };
 
 /**
@@ -277,13 +348,28 @@ export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => 
     return;
   }
   try {
-    const filled = await fillPoolCache(io ?? browserIo);
+    activeIo = io ?? browserIo;
+    const filled = await fillPoolCache(activeIo);
     filled.forEach((value, key) => cache.set(key, value));
     usingIdb = true;
     if (!io) safeSet(MIGRATED_KEY, "1");
   } catch {
     // Anything unexpected leaves `usingIdb` false, which is the working localStorage path.
   }
+  startPoolSync();
+};
+
+/**
+ * Starts hearing from the other tabs. Both paths are wired up because which one is in use is
+ * decided per browser, not per build: IndexedDB needs a channel of its own, since its values are
+ * cached per tab, and localStorage needs only the `storage` event the browser already sends.
+ */
+const startPoolSync = (): void => {
+  broadcast = openPoolBroadcast((key) => void notePoolChangedElsewhere(key)) ?? SILENT_BROADCAST;
+  stopLocalListener = listenForLocalPoolWrites(
+    () => announceChange(),
+    (key) => POOL_KEYS.includes(key)
+  );
 };
 
 /**
@@ -313,6 +399,8 @@ export const resetTeamRankingsStore = (): void => {
   usingIdb = false;
   poolUnavailable = false;
   landed = true;
+  activeIo = null;
+  resetPoolSync();
 };
 
 /** A string with something in it — an id made of whitespace identifies nothing. */

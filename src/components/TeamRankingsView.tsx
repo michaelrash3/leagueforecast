@@ -59,6 +59,7 @@ import {
   loadScoutGames,
   loadScoutTeams,
   loadTidyStamp,
+  onPoolChangedElsewhere,
   saveAgeGroups,
   savePullProgress,
   saveRefreshLog,
@@ -208,6 +209,30 @@ export function TeamRankingsView({
       onDataChange?.();
     },
     [showToast, onDataChange]
+  );
+
+  /**
+   * Another tab changed the pool, so what is held here is old.
+   *
+   * The pool is read once, at mount, into the state above. That is what makes a synchronous read
+   * of an asynchronous store possible, and it is also what made two tabs unsafe: open Team
+   * Rankings twice, start a pull in one and correct a score in the other, and the second tab saved
+   * the pool it read at startup over everything the pull had done, without erroring.
+   *
+   * Re-reading here closes it. The store has already taken the new value in by the time this runs,
+   * so every load below answers with what the other tab wrote, and the next save from this tab
+   * builds on that rather than on a pool from an hour ago.
+   */
+  useEffect(
+    () =>
+      onPoolChangedElsewhere(() => {
+        setAgeGroups(loadAgeGroups());
+        setScoutTeams(loadScoutTeams());
+        setScoutGames(loadScoutGames());
+        setPullProgress(loadPullProgress());
+        setRefreshLog(loadRefreshLog());
+      }),
+    []
   );
 
   /**

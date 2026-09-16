@@ -4,6 +4,8 @@ import {
   initTeamRankingsStore,
   loadScoutGames,
   loadScoutTeams,
+  notePoolChangedElsewhere,
+  onPoolChangedElsewhere,
   resetTeamRankingsStore,
   saveScoutGames,
   saveScoutTeams,
@@ -192,5 +194,78 @@ describe("a browser without IndexedDB", () => {
 
   it("starts up without complaint", async () => {
     await expect(initTeamRankingsStore()).resolves.toBeUndefined();
+  });
+});
+
+describe("two tabs on one pool", () => {
+  it("tells a listener when another tab changes a key", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    let told = 0;
+    onPoolChangedElsewhere(() => {
+      told += 1;
+    });
+
+    // What the channel's message handler does when the other tab says a key moved.
+    await notePoolChangedElsewhere(TEAMS_KEY);
+    expect(told).toBe(1);
+  });
+
+  it("re-reads the key before telling anyone, so a listener sees the new value", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    let seen: ScoutTeam[] = [];
+    onPoolChangedElsewhere(() => {
+      seen = loadScoutTeams();
+    });
+
+    // The other tab's write, landing in the store this tab shares but not in its cache.
+    io.store.set(TEAMS_KEY, { v: 2, r: [["S-OTHER", "Someone else"]] });
+    await notePoolChangedElsewhere(TEAMS_KEY);
+
+    // Told first and re-read second would hand the listener the pool from before the change, which
+    // is the stale copy this whole mechanism exists to stop being written back.
+    expect(seen.map((team) => team.name)).toEqual(["Someone else"]);
+  });
+
+  it("does not tell a listener about this tab's own writes", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    let told = 0;
+    onPoolChangedElsewhere(() => {
+      told += 1;
+    });
+
+    saveScoutTeams(teams);
+    // The caller made this change and already has the value; sending it back would be a loop.
+    expect(told).toBe(0);
+  });
+
+  it("stops telling a listener that has unsubscribed", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    let told = 0;
+    const stop = onPoolChangedElsewhere(() => {
+      told += 1;
+    });
+
+    stop();
+    await notePoolChangedElsewhere(TEAMS_KEY);
+    expect(told).toBe(0);
+  });
+
+  it("keeps telling the others when one listener throws", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    let told = 0;
+    onPoolChangedElsewhere(() => {
+      throw new Error("this view cannot cope");
+    });
+    onPoolChangedElsewhere(() => {
+      told += 1;
+    });
+
+    await notePoolChangedElsewhere(TEAMS_KEY);
+    expect(told).toBe(1);
   });
 });
