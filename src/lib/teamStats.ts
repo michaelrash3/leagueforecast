@@ -52,13 +52,22 @@ export type StatRankings = {
   metrics: StatRankingMetric[];
 };
 
+/**
+ * Balls in play: everything that was hit at, minus the ones that were struck out.
+ *
+ * Hits are the real measure and runs are the stand-in for a league that only records those, so a
+ * blank hits box falls back to runs and a blank innings box to a six-inning game. A blank has to be
+ * told apart from a zero for any of that to happen — `Number("")` is 0, and reading a box nobody
+ * filled in as a genuine zero is what made these fallbacks unreachable.
+ */
 export const calcBip = (hits: string, runs: string, strikeouts: string, innings: string) => {
-  const h = parseNumber(hits, NaN);
-  const r = parseNumber(runs, NaN);
-  const k = parseNumber(strikeouts, 0);
-  const inn = parseNumber(innings, 6);
+  const entered = (value: string) => (value.trim() === "" ? NaN : parseNumber(value, NaN));
+  const h = entered(hits);
+  const r = entered(runs);
+  const k = entered(strikeouts);
+  const inn = entered(innings);
   const contact = Number.isFinite(h) ? h : Number.isFinite(r) ? r : 0;
-  return contact + inn * 3 - k;
+  return contact + (Number.isFinite(inn) ? inn : 6) * 3 - (Number.isFinite(k) ? k : 0);
 };
 
 export const emptySplitLine = (label: string): TeamSplitLine => ({
