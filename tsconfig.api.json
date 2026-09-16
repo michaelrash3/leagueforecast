@@ -18,6 +18,8 @@
   },
   "include": [
     "api",
+    "scripts",
+    "src/lib/gcPullCheck.ts",
     "src/lib/geminiModels.ts",
     "src/lib/leagueSummary.ts",
     "src/lib/gameChangerApi.ts",

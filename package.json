@@ -14,7 +14,8 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"api/**/*.ts\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\" \"api/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,md}\" \"api/**/*.ts\"",
-    "test": "vitest"
+    "test": "vitest",
+    "verify:gc": "node --experimental-strip-types scripts/verify-gc-pull.ts"
   },
   "dependencies": {
     "react": "^19.3.0",
