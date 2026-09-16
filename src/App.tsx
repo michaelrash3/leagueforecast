@@ -153,9 +153,11 @@ import {
   calcBip,
   emptySplitLine,
 } from "./lib/teamStats";
+import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
+import { HeaderStatCard } from "./components/HeaderStatCard";
 import { DashboardView } from "./components/league/DashboardView";
 import { TeamDrawer } from "./components/league/TeamDrawer";
 import { EmptyState } from "./components/league/EmptyState";
@@ -176,28 +178,6 @@ type ConfirmState = {
   confirmLabel?: string;
   cancelLabel?: string;
 };
-
-function HeaderStatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950">
-      <div className={`absolute inset-x-0 top-0 h-0.5 bg-linear-to-r ${accent} opacity-90`} />
-      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-        {label}
-      </div>
-      <div className="mt-0.5 truncate text-lg font-black leading-tight tracking-tight text-slate-950 dark:text-white">
-        {value}
-      </div>
-    </div>
-  );
-}
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -235,80 +215,6 @@ const PROJECT_STANDINGS_REMAINING_GAME_LIMIT = 250;
 const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 const EMPTY_GAME_LOG = blankLog();
-
-const DEMO_TEAM_NAMES = [
-  "Northside Knockouts",
-  "River City Rockets",
-  "Metro Mashers",
-  "Lakeside Legends",
-  "Capital Crushers",
-  "East End Eagles",
-  "Westfield Whales",
-  "Southtown Sluggers",
-];
-
-const buildDemoSeason = () => {
-  const existingIds = new Set<string>();
-  const demoTeams: TeamBase[] = DEMO_TEAM_NAMES.map((name) => ({
-    id: createTeamId(name, existingIds),
-    name,
-  }));
-  const demoMatchups: Matchup[] = [];
-  const demoLogs: Record<string, GameLog> = {};
-  const dates = [
-    "2026-04-05",
-    "2026-04-12",
-    "2026-04-19",
-    "2026-04-26",
-    "2026-05-03",
-    "2026-05-10",
-    "2026-05-17",
-  ];
-  let gameIndex = 1;
-
-  for (let round = 0; round < demoTeams.length - 1; round += 1) {
-    for (let slot = 0; slot < demoTeams.length / 2; slot += 1) {
-      const awayIndex = (round + slot) % demoTeams.length;
-      const homeIndex = (demoTeams.length - 1 - slot + round) % demoTeams.length;
-      if (awayIndex === homeIndex) continue;
-      const away = demoTeams[awayIndex];
-      const home = demoTeams[homeIndex];
-      if (!away || !home) continue;
-      const id = `demo-${String(gameIndex).padStart(2, "0")}`;
-      demoMatchups.push({ id, date: dates[round] ?? "", away: away.id, home: home.id });
-
-      if (gameIndex <= 18) {
-        const awayRuns = 6 + ((gameIndex * 3 + awayIndex) % 9);
-        const homeRuns = 5 + ((gameIndex * 5 + homeIndex) % 9);
-        demoLogs[id] = {
-          innings: "6",
-          awayRuns: String(awayRuns === homeRuns ? awayRuns + 1 : awayRuns),
-          awayHits: String(Math.max(awayRuns + 3, 8 + ((gameIndex + awayIndex) % 8))),
-          awayK: String(2 + ((gameIndex + awayIndex) % 6)),
-          homeRuns: String(homeRuns),
-          homeHits: String(Math.max(homeRuns + 3, 8 + ((gameIndex + homeIndex) % 8))),
-          homeK: String(2 + ((gameIndex + homeIndex) % 6)),
-          isFinal: true,
-        };
-      } else {
-        demoLogs[id] = blankLog();
-      }
-      gameIndex += 1;
-    }
-  }
-
-  return {
-    teams: demoTeams,
-    matchups: demoMatchups,
-    logs: demoLogs,
-    settings: {
-      ...DEFAULT_SETTINGS,
-      seasonLabel: "Demo League Forecast",
-      goldCutoff: 4,
-      regularSeasonGamesPerTeam: demoTeams.length - 1,
-    },
-  };
-};
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
