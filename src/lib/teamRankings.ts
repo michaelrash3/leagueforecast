@@ -1432,6 +1432,36 @@ export const buildTeamRankings = (
   return rankRows(rows);
 };
 
+/**
+ * The games one page's rating is fitted over, each with the age gap between the two sides.
+ *
+ * Pulled out of the fit so that anything measuring the model — a hold-out backtest, a comparison
+ * of one age-gap prior against another — reads exactly the games the rankings read. A measurement
+ * over a different set of games than the thing it is measuring is not a measurement of it.
+ */
+export const scoutRatingGames = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): Array<{ game: ScoutGame; ageGap: number }> => {
+  const index = indexGroups(ageGroups);
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  return games
+    .filter(
+      (game) =>
+        pool.has(game.ageGroupId) &&
+        countsTowardRating(game) &&
+        // Last year's squad's games, listed under this year's id, are not this squad's results.
+        inSquadYear(game.date, index.year(game.ageGroupId)) &&
+        teamById.has(game.teamAId) &&
+        teamById.has(game.teamBId)
+    )
+    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+};
+
 const buildPooledTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
@@ -1443,21 +1473,8 @@ const buildPooledTeamRankings = (
   const level = index.level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
   const year = index.year(ageGroupId);
-  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
 
-  // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
-  const teamById = new Map(teams.map((team) => [team.id, team]));
-  const rated = games
-    .filter(
-      (game) =>
-        pool.has(game.ageGroupId) &&
-        countsTowardRating(game) &&
-        // Last year's squad's games, listed under this year's id, are not this squad's results.
-        inSquadYear(game.date, index.year(game.ageGroupId)) &&
-        teamById.has(game.teamAId) &&
-        teamById.has(game.teamBId)
-    )
-    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups);
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();

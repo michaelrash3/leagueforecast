@@ -4,9 +4,12 @@ import {
   isRankedAgeLevel,
   type AgeGroup,
   type AgeGroupSeason,
+  type ScoutGame,
+  type ScoutTeam,
 } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
+import { ModelCheckCard } from "./ModelCheckCard";
 import { ResetRankingsCard } from "./ResetRankingsCard";
 import { button, card } from "../../styles/tokens";
 
@@ -44,6 +47,13 @@ type SetupSectionProps = {
   gameCount: number;
   onDownloadBackup: () => void;
   onReset: () => void;
+  /** Everything the model check needs to refit this page's pool on demand. */
+  modelCheck: {
+    ageGroupId: string;
+    groupName: string;
+    teams: ScoutTeam[];
+    games: ScoutGame[];
+  };
 };
 
 /** The pages themselves — what exists, what continues from what — and the way to wipe the lot. */
@@ -64,6 +74,7 @@ export function SetupSection({
   gameCount,
   onDownloadBackup,
   onReset,
+  modelCheck,
 }: SetupSectionProps) {
   return (
     <>
@@ -237,6 +248,14 @@ export function SetupSection({
           </div>
         </details>
       </div>
+
+      <ModelCheckCard
+        ageGroupId={modelCheck.ageGroupId}
+        groupName={modelCheck.groupName}
+        teams={modelCheck.teams}
+        games={modelCheck.games}
+        ageGroups={ageGroups}
+      />
 
       <ResetRankingsCard
         ageGroupCount={ageGroups.length}

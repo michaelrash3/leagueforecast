@@ -1473,6 +1473,17 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
               onDownloadBackup={() => void downloadPoolBackup()}
+              /*
+              The whole known pool, not just this page's rows: the fit is over the season year, so
+              a check over anything narrower would be measuring a different model than the one the
+              table came from.
+            */
+              modelCheck={{
+                ageGroupId: selectedAgeGroupId,
+                groupName: selectedGroupName,
+                teams: allKnown.teams,
+                games: allKnownGames,
+              }}
               onReset={() => void resetEverything()}
             />
           )}
