@@ -1,6 +1,19 @@
 export type TeamBase = {
   id: string;
   name: string;
+  /**
+   * The Team Rankings club this league team *is*, chosen by a person rather than guessed from the
+   * name. Team Rankings keeps its own ids for the same clubs, and the two halves rarely agree on
+   * how long a club's name is — a league roster says "Trash Pandas" where GameChanger says "Trash
+   * Pandas Baseball Club" — so matching on the name alone sent that club's tournament results to
+   * an opponent of their own, where they sharpened nothing and nothing said so.
+   *
+   * Three states, and the third is the point. Absent means nobody has decided, so the name match
+   * still applies as a suggestion. A pool team's id means this club, whatever either side calls
+   * it. `NO_SCOUT_TEAM` means a person has said this team is not in Team Rankings at all, and it
+   * is then never matched by name either — an answer, not a gap.
+   */
+  scoutTeamId?: string;
 };
 
 export type HeadToHeadRecord = {
@@ -40,6 +53,19 @@ export type Team = TeamBase & {
   totalK6: number | null;
   machineDifficulty: number;
   headToHead?: Record<string, HeadToHeadRecord>;
+  /**
+   * Opponent-adjusted power rating in runs (see `buildOpponentAdjustedRatings`): the expected
+   * margin against a league-average team, so the difference between two teams' ratings *is* their
+   * expected run margin. It is the one number here that knows who a team played rather than only
+   * what it scored, and where Team Rankings results are counted it knows about games this league
+   * never saw.
+   *
+   * Optional on purpose. A league that has never built one leaves this undefined, and every
+   * forecast then stays exactly the number it was before this field existed.
+   */
+  adjustedRating?: number;
+  /** Games that rating was fitted from: this league's, plus any counted Team Rankings results. */
+  ratedGames?: number;
   rank?: number;
 };
 

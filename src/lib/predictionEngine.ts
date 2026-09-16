@@ -49,6 +49,15 @@ export type PredictionEngineResult = {
   accuracy: {
     gamesEvaluated: number;
   };
+  /**
+   * The opponent-adjusted fit itself, so the forecast can use the same numbers the Power Ratings
+   * table shows rather than fitting its own. `attachAdjustedRatings` puts these onto the teams
+   * that `predictGame` reads.
+   */
+  ratings: {
+    byTeam: Map<string, number>;
+    games: Map<string, number>;
+  };
 };
 
 type CompletedGame = Matchup & { awayScore: number; homeScore: number; margin: number };
@@ -365,5 +374,6 @@ export const buildPredictionEngine = (
     accuracy: {
       gamesEvaluated: completedGames.length,
     },
+    ratings: { byTeam: adjusted.ratings, games: adjusted.games },
   };
 };

@@ -6,6 +6,7 @@ import {
   ageGroupSeason,
   ageGroupYear,
   buildScoutingReport,
+  buildUpcomingSchedule,
   createAgeGroupId,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
@@ -713,13 +714,23 @@ export function TeamRankingsView({
     [allKnown.teams]
   );
 
-  const reportRows = useMemo(() => {
-    const forId = reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId;
-    if (!forId) return [];
-    return buildScoutingReport(forId, rankings);
-  }, [reportTeamId, rankings]);
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
+  const reportRows = useMemo(
+    () => (reportForId ? buildScoutingReport(reportForId, rankings) : []),
+    [reportForId, rankings]
+  );
+
+  /**
+   * The games still on this team's schedule. Read from the same pool the ratings are fitted over,
+   * so a fixture a GameChanger pull brought in with no score yet is already here — nothing has to
+   * be entered by hand for the next game to show up.
+   */
+  const upcomingRows = useMemo(() => {
+    if (!reportForId) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
+  }, [reportForId, rankings, poolGames, allKnown.teams]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
@@ -1370,6 +1381,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             onReportTeamChange={setReportTeamId}
             reportRow={reportRow}
             reportRows={reportRows}
+            upcomingRows={upcomingRows}
             explanation={explanation}
             placeOf={placeOf}
           />

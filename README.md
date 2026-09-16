@@ -51,19 +51,19 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Features
 
-| Area                 | Highlights                                                                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                          |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                     |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                            |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                      |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                     |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                        |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                          |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                          |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report, CSV/paste import, team detail. |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                 |
+| Area                 | Highlights                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                     |
+| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                |
+| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                           |
+| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                       |
+| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                 |
+| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                |
+| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                   |
+| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                     |
+| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                     |
+| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail. |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                            |
 
 ## Architecture
 
@@ -188,6 +188,20 @@ rated against the whole country and then listed together, so the second-best tea
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
 
+### Scouting report
+
+Pick a team and it answers two questions. **Next up** is the games still on that
+team's schedule — a pulled GameChanger schedule carries its future fixtures with
+no score, so they are already in the pool and nothing has to be typed — each with
+the date, the opponent's rank, the projected margin and a win probability. An
+opponent nobody has pulled has no rating, and the row says "not rated here yet"
+rather than inventing one. Below it, the same projection against every ranked
+team on the page, which is the question to ask before entering a tournament.
+
+The projection is the rating difference, capped at 14 runs, put through a
+logistic curve; no home-field term, because at this level which side is "home" is
+a coin flip.
+
 ### How the two modes connect
 
 **League → Team Rankings, always.** A season assigned to an age group brings its
@@ -195,11 +209,39 @@ whole schedule: upcoming games show their opponent right away, and once a game i
 scored in League Standings it counts as a final here too.
 
 **Team Rankings → League, by choice.** Tournament results sharpen that league's
-_game forecasts_ — see the `useScoutResults` setting. They help most where a
+_opponent-adjusted power ratings_, the matchup analysis built on them, and —
+through those ratings — the Forecast board's game picks, the simulated season,
+playoff odds and the bracket. See the `useScoutResults` setting. They help most where a
 schedule is thin: two teams who never met become comparable through an opponent
 they both played elsewhere. Records, standings, elo, recent form and strength of
 schedule stay league-only. Games carried in from the league are excluded on the
 way back, so nothing is counted twice.
+
+**Which club is which, answered once.** The two halves keep separate ids for the
+same club and rarely agree on how long a name is — a league roster saying "Trash
+Pandas" against a GameChanger team called "Trash Pandas Baseball Club". Matching
+on the name alone was a guess that failed silently: that club's tournament
+results were filed under an opponent of their own, where they sharpened nothing,
+and nothing anywhere said so.
+
+**Which Team Rankings club is each team?**, in Settings, asks once and keeps the
+answer. It offers the clubs that could be this team, ordered by how many of that
+team's own league opponents they have also played, since a schedule is far harder
+to coincide with than a name: "Trash Pandas Baseball Club — Hebron, KY · 2
+opponents in common: Bears, Cougars". Each row says where it stands — a **Guess**
+matched on the name and is not confirmed, **Which one?** means two clubs share
+the name and neither has played anyone you play, **Not here** is an answer rather
+than a gap, and **Clash** means two teams picked one club so neither counts.
+
+The same evidence settles the guess: where two clubs share a name, the one that
+has played the clubs you play is taken, and where that is not decisive the panel
+says so rather than crediting both clubs' games to whichever came first. The
+header counts what is linked and how many outside results are counting, so a
+league that is contributing nothing cannot look like one that is.
+
+A pick is stored on the league team, so it rides that season's backup, duplicate
+and undo. Share links deliberately leave it out: a pool id is minted in the
+browser that made it and means nothing in anyone else's.
 
 **Team Rankings → League scores, on request.** Once a club pulls its own
 GameChanger team, every result of its league season is already in the pool, and
@@ -276,15 +318,39 @@ Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.
 
-### What a pull could not import
+### What a pull left behind, and what to check
 
-A run over thousands of teams always leaves some behind, in two different
-ways, and a count hides both. **Did not import** lists every one of them:
+A run over thousands of teams always leaves some behind, and a count hides it.
+**Worth a look** lists every one, in three kinds:
 
-| Kind            | What it means                                                                                                     |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Not reached** | The schedule never arrived — no such team, a refusal, a timeout, the proxy not deployed. Often worth another try. |
-| **Not filed**   | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
+| Kind             | What it means                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Not reached**  | The schedule never arrived — no such team, a refusal, a timeout, the proxy not deployed. Often worth another try. |
+| **Not filed**    | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
+| **Check the id** | It arrived and was filed, but it is not the team the list named.                                                  |
+
+That last one exists because a twelve-character id is unreadable, so a wrong one
+is invisible: the pull fetches whatever the id really is, files it under its own
+name, and says nothing. The list already carries what each team was meant to be,
+and the profile carries what it turned out to be, so the two are compared.
+
+Which comparisons are worth making was measured on a real pull of 40,760 teams
+where both sides described the same teams. The rule for each is whatever fires
+on something worth seeing without burying it:
+
+| Compared                        | Disagreed   | Kept                                                                                                                   |
+| ------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Name shares no significant word | 1           | yes — and that one was "SWS" for "South Wake Storm"                                                                    |
+| Season                          | 0           | yes — free, and it catches an id reused for last year's squad                                                          |
+| State                           | 174 (0.43%) | yes                                                                                                                    |
+| Age level, by two or more       | 31 (0.08%)  | yes                                                                                                                    |
+| Age level, by one               | 343 (0.84%) | **no** — in 267 the team's own _name_ held the list's level, so it is GameChanger's age group that wanders, not the id |
+
+A name spelled two ways is never reported: "Trash Pandas" and "Trash Pandas
+Baseball Club" share two real words, and only a name with nothing in common is
+a different club. Nothing is corrected and nothing is held back — the schedule
+is filed either way, since the profile is the better authority on a team asked
+for by id. On that pull, 206 rows of 40,760 were flagged, one of them loudly.
 
 Each row gives the team id, the name where anything knew one, the reason in a
 few words, the sentence the failing layer wrote, and a link to the team on
@@ -429,6 +495,51 @@ schedule. An imported state never overwrites one already there.
 
 Filtering is presentational. Ratings come from every game regardless, so a
 filtered table renumbers but keeps each row's place in the full table alongside.
+
+### The rating in a forecast
+
+Every game pick blends two views. The league's own per-game stats — runs scored
+and allowed, walks, hits, errors, strikeouts, recent form — and the
+opponent-adjusted rating, which is the only number that knows _who_ a team
+played, and which counts tournament results where Team Rankings is switched on.
+
+How far it leans on the rating depends on how many games that rating rests on:
+0.40 with none, 0.52 at one game, 0.70 at four, 0.80 at eight. The floor is not
+zero because a rating of 0 means "league average", which is a better guess than
+a record built from a single game. The count is of _rated_ games, league plus
+tournament, so a team with two league games and five tournament results is
+trusted like the known quantity it is.
+
+That the rating deserves most of the weight was measured, not assumed: 400
+simulated leagues per case with known true team strengths, swept over the weight,
+walk-forward so no pick ever saw its own result. Every measure improved the
+further the pick leaned on the rating, in all six schedule-by-pitch-mode cases.
+The reason is spread rather than direction — the stats model's expected margin
+swings about twice as wide as real margins do, while the rating's is about right.
+
+Measured on the shipped code, 200 leagues a case, against the same code with the
+rating withheld:
+
+| Schedule                   | Pitch   | Brier           | Winner accuracy | Margin error, runs |
+| -------------------------- | ------- | --------------- | --------------- | ------------------ |
+| Balanced                   | player  | 0.2377 → 0.2267 | 63.2% → 63.7%   | 3.82 → 3.66        |
+| Balanced                   | machine | 0.2275 → 0.2255 | 63.6% → 63.7%   | 4.22 → 3.71        |
+| Unbalanced                 | player  | 0.2376 → 0.2268 | 62.5% → 63.0%   | 3.89 → 3.70        |
+| Unbalanced                 | machine | 0.2282 → 0.2258 | 62.5% → 63.0%   | 4.32 → 3.74        |
+| Unbalanced + Team Rankings | player  | 0.2376 → 0.2243 | 62.5% → 64.1%   | 3.89 → 3.64        |
+| Unbalanced + Team Rankings | machine | 0.2282 → 0.2234 | 62.5% → 63.9%   | 4.32 → 3.67        |
+
+The last two rows are the point of the bridge: the same unbalanced schedule, with
+the tournament results counted, picks about a point of accuracy more.
+
+Two honest limits. The simulation draws margins the way the rating model assumes
+they work, so it cannot tell you whether real baseball has structure the stats
+model catches and the rating misses. And the walk-forward backtest reports a
+floor rather than the shipped model's accuracy, because an outside result carries
+no date and cannot be placed on the league's timeline without leaking the future.
+
+A team the fit never rated carries no rating at all, and its forecast is exactly
+the number it was before any of this existed.
 
 ### Ratings
 

@@ -7,7 +7,7 @@ import { pill } from "../../styles/tokens";
  */
 export const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
-/** A ranked list: place, team, where it is from, record and rating. */
+/** A ranked list: place, team with its town under the name, record and rating. */
 export function RankingList({
   rows,
   onOpen,
@@ -30,19 +30,20 @@ export function RankingList({
           <span className="flex min-w-0 items-center gap-3">
             {/* The place in *this* list; a state top ten is not the national ranking renumbered. */}
             <span className={pill(index === 0 ? "amber" : "neutral")}>#{index + 1}</span>
-            <button
-              type="button"
-              onClick={() => onOpen(row.teamId)}
-              className="truncate text-left font-bold text-slate-950 hover:underline dark:text-white"
-            >
-              {row.teamName}
-              {row.isMine ? " ★" : ""}
-            </button>
-            {placeOf(row.teamId) && (
-              <span className="shrink-0 truncate text-xs text-slate-500">
-                {placeOf(row.teamId)}
-              </span>
-            )}
+            {/* The town sits under the name, not beside it: beside, a phone truncates the name. */}
+            <span className="flex min-w-0 flex-col">
+              <button
+                type="button"
+                onClick={() => onOpen(row.teamId)}
+                className="truncate text-left font-bold text-slate-950 hover:underline dark:text-white"
+              >
+                {row.teamName}
+                {row.isMine ? " ★" : ""}
+              </button>
+              {placeOf(row.teamId) && (
+                <span className="truncate text-xs text-slate-500">{placeOf(row.teamId)}</span>
+              )}
+            </span>
           </span>
           <span className="shrink-0 text-slate-500">
             {row.record} · {formatRating(row.rating)}

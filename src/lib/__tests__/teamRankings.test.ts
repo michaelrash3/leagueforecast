@@ -13,6 +13,10 @@ import {
   seasonAtAge,
   seasonYearOptions,
   buildScoutingReport,
+  buildUpcomingSchedule,
+  leagueScoutBridge,
+  scoutLinkCandidates,
+  NO_SCOUT_TEAM,
   buildTeamRankings,
   collapseSameGames,
   dedupeLeagueFixtures,
@@ -579,6 +583,287 @@ describe("buildScoutingReport", () => {
 
   it("returns an empty list for an unknown team id", () => {
     expect(buildScoutingReport("nope", [])).toEqual([]);
+  });
+});
+
+describe("buildUpcomingSchedule", () => {
+  const teams = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+  const played = [game("A", "B", 10, 1), game("A", "C", 9, 2), game("B", "C", 5, 4)];
+  const rows = () => buildTeamRankings("ag1", teams, played);
+
+  const scheduled = (id: string, teamAId: string, teamBId: string, date: string): ScoutGame => ({
+    id,
+    teamAId,
+    teamBId,
+    ageGroupId: "ag1",
+    date,
+  });
+
+  it("lists only games with no score, dated today or later, soonest first", () => {
+    const games = [
+      ...played,
+      scheduled("g-late", "C", "A", "2026-09-27"),
+      scheduled("g-soon", "C", "B", "2026-09-20"),
+      scheduled("g-past", "C", "A", "2026-09-01"),
+    ];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, teams, "2026-09-16");
+    expect(upcoming.map((row) => row.gameId)).toEqual(["g-soon", "g-late"]);
+    expect(upcoming[0]!.opponentName).toBe("Bears");
+  });
+
+  it("projects each game from the two ratings, as the all-comers report does", () => {
+    const games = [...played, scheduled("g1", "C", "A", "2026-09-20")];
+    const ranked = rows();
+    const upcoming = buildUpcomingSchedule("C", ranked, games, teams, "2026-09-16");
+    const everyone = buildScoutingReport("C", ranked);
+    const vsA = everyone.find((preview) => preview.opponentId === "A")!;
+    expect(upcoming[0]!.projectedMargin).toBeCloseTo(vsA.projectedMargin, 10);
+    expect(upcoming[0]!.winProb).toBeCloseTo(vsA.winProb, 10);
+    expect(upcoming[0]!.tier).toBe(vsA.tier);
+    expect(upcoming[0]!.opponentRank).toBe(vsA.opponentRank);
+  });
+
+  it("still lists a game against a team with no rating, and projects nothing", () => {
+    // Nine opponents in ten arrive as a name somebody wrote down. A made-up number for them
+    // would be worse than none.
+    const standIn: ScoutTeam = { id: "S-STUB", name: "Somebody", nameOnly: true };
+    const games = [...played, scheduled("g1", "C", "S-STUB", "2026-09-20")];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, [...teams, standIn], "2026-09-16");
+    expect(upcoming).toHaveLength(1);
+    expect(upcoming[0]!.opponentName).toBe("Somebody");
+    expect(upcoming[0]!.projectedMargin).toBeUndefined();
+    expect(upcoming[0]!.tier).toBeUndefined();
+  });
+
+  it("keeps a dateless fixture, and puts it after the dated ones", () => {
+    const games = [
+      ...played,
+      { ...scheduled("g-nodate", "C", "A", ""), date: undefined },
+      scheduled("g-dated", "C", "B", "2026-09-20"),
+    ];
+    const upcoming = buildUpcomingSchedule("C", rows(), games, teams, "2026-09-16");
+    expect(upcoming.map((row) => row.gameId)).toEqual(["g-dated", "g-nodate"]);
+  });
+
+  it("returns an empty list for a team with no rating row", () => {
+    expect(buildUpcomingSchedule("nope", rows(), played, teams, "2026-09-16")).toEqual([]);
+  });
+});
+
+describe("leagueScoutBridge", () => {
+  const groups: AgeGroup[] = [{ id: "ag1", name: "2027", seasonIds: ["spring2027"] }];
+  // The case this exists for: the league roster is short, GameChanger's listing is long.
+  const pool = [
+    team("S-TRAS", "Trash Pandas Baseball Club"),
+    team("S-BEAR", "Bears"),
+    team("S-OTHR", "Prosper Cougars"),
+  ];
+  const games = [game("S-TRAS", "S-OTHR", 7, 3, "ag1"), game("S-BEAR", "S-OTHR", 2, 5, "ag1")];
+  const league = (over: Partial<{ id: string; name: string; scoutTeamId: string }>[] = []) =>
+    [
+      { id: "L-TRA", name: "Trash Pandas" },
+      { id: "L-BEA", name: "Bears" },
+    ].map((base, index) => ({ ...base, ...(over[index] ?? {}) }));
+
+  it("gives a club's results to the league team that picked it, whatever either calls it", () => {
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      pool,
+      games,
+      league([{ scoutTeamId: "S-TRAS" }]),
+      []
+    );
+    expect(bridge.results).toContainEqual({
+      home: "L-TRA",
+      away: "S-S-OTHR",
+      homeMargin: 4,
+      neutral: true,
+    });
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-TRA")!;
+    expect(row.how).toBe("picked");
+    expect(row.suggestedName).toBe("Trash Pandas Baseball Club");
+    expect(bridge.linkedCount).toBe(2);
+  });
+
+  it("without a pick, that same club's results reach nobody", () => {
+    // The bug, pinned: the names do not key equal, so the result lands on an id of its own.
+    const bridge = leagueScoutBridge("spring2027", groups, pool, games, league(), []);
+    expect(bridge.results).toContainEqual({
+      home: "S-S-TRAS",
+      away: "S-S-OTHR",
+      homeMargin: 4,
+      neutral: true,
+    });
+    expect(bridge.rows.find((row) => row.leagueTeamId === "L-TRA")!.how).toBe("none");
+    expect(bridge.linkedCount).toBe(1);
+  });
+
+  it("still guesses by the name where nobody has answered", () => {
+    const bridge = leagueScoutBridge("spring2027", groups, pool, games, league(), []);
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-BEA")!;
+    expect(row.how).toBe("guessed");
+    expect(row.scoutTeamId).toBe("S-BEAR");
+  });
+
+  it("never matches by name a team said not to be in Team Rankings", () => {
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      pool,
+      games,
+      league([{}, { scoutTeamId: NO_SCOUT_TEAM }]),
+      []
+    );
+    expect(bridge.rows.find((row) => row.leagueTeamId === "L-BEA")!.how).toBe("off");
+    expect(bridge.results).toContainEqual({
+      home: "S-S-BEAR",
+      away: "S-S-OTHR",
+      homeMargin: -3,
+      neutral: true,
+    });
+    // Neither row is linked: this one is answered, and "Trash Pandas" is the very name that does
+    // not key equal to "Trash Pandas Baseball Club". An answered row must not flatter the count.
+    expect(bridge.linkedCount).toBe(0);
+  });
+
+  it("does not let a namesake stand in for a club already spoken for", () => {
+    // "Bears" is picked by the Trash Pandas row; the Bears row must not then claim it by name.
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      pool,
+      games,
+      league([{ scoutTeamId: "S-BEAR" }]),
+      []
+    );
+    expect(bridge.rows.find((row) => row.leagueTeamId === "L-TRA")!.how).toBe("picked");
+    expect(bridge.rows.find((row) => row.leagueTeamId === "L-BEA")!.how).toBe("none");
+  });
+
+  it("honours neither pick when two league teams claim one club", () => {
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      pool,
+      games,
+      league([{ scoutTeamId: "S-TRAS" }, { scoutTeamId: "S-TRAS" }]),
+      []
+    );
+    bridge.rows.forEach((row) => {
+      expect(row.how).toBe("none");
+      expect(row.conflictWith).toHaveLength(1);
+    });
+    expect(bridge.results).toContainEqual({
+      home: "S-S-TRAS",
+      away: "S-S-OTHR",
+      homeMargin: 4,
+      neutral: true,
+    });
+  });
+
+  it("falls back to the name and says so when a picked club has gone from the pool", () => {
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      pool,
+      games,
+      league([{}, { scoutTeamId: "S-GONE" }]),
+      []
+    );
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-BEA")!;
+    expect(row.staleScoutTeamId).toBe("S-GONE");
+    expect(row.how).toBe("guessed");
+    expect(row.scoutTeamId).toBe("S-BEAR");
+  });
+
+  it("declines a name two clubs on this season's pages share, and counts them", () => {
+    const twoBears = [...pool, team("S-BEA2", "Bears")];
+    const bridge = leagueScoutBridge(
+      "spring2027",
+      groups,
+      twoBears,
+      [...games, game("S-BEA2", "S-OTHR", 1, 1, "ag1")],
+      league(),
+      []
+    );
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-BEA")!;
+    expect(row.how).toBe("none");
+    expect(row.ambiguousCount).toBe(2);
+  });
+
+  it("says when no age group claims the season, and brings nothing across", () => {
+    const bridge = leagueScoutBridge("nobody2027", groups, pool, games, league(), []);
+    expect(bridge.seasonLinked).toBe(false);
+    expect(bridge.results).toEqual([]);
+    expect(bridge.countedResults).toBe(0);
+  });
+});
+
+describe("telling two clubs of one name apart by who they played", () => {
+  const groups: AgeGroup[] = [{ id: "ag1", name: "2027", seasonIds: ["spring2027"] }];
+  // Two Trash Pandas on this season's pages. Only one has played the clubs our league plays.
+  const pool = [
+    team("S-OURS", "Trash Pandas"),
+    team("S-THEIRS", "Trash Pandas"),
+    team("S-BEAR", "Bears"),
+    team("S-COUG", "Cougars"),
+    team("S-FARAWAY", "Rivercats"),
+  ];
+  const games = [
+    game("S-OURS", "S-BEAR", 5, 2, "ag1"),
+    game("S-OURS", "S-COUG", 3, 1, "ag1"),
+    game("S-THEIRS", "S-FARAWAY", 4, 4, "ag1"),
+  ];
+  const fixtures = [
+    { away: "Trash Pandas", home: "Bears", date: "5/1" },
+    { away: "Cougars", home: "Trash Pandas", date: "5/8" },
+  ];
+  const league = [
+    { id: "L-TRA", name: "Trash Pandas" },
+    { id: "L-BEA", name: "Bears" },
+    { id: "L-COU", name: "Cougars" },
+  ];
+
+  it("ranks the candidates by opponents in common, most first", () => {
+    const found = scoutLinkCandidates("Trash Pandas", "spring2027", groups, pool, games, fixtures);
+    expect(found[0]!.scoutTeamId).toBe("S-OURS");
+    expect(found[0]!.sharedOpponents).toEqual(["Bears", "Cougars"]);
+    const other = found.find((candidate) => candidate.scoutTeamId === "S-THEIRS")!;
+    expect(other.sharedOpponents).toEqual([]);
+  });
+
+  it("guesses the club whose schedule matches, where the name alone could not", () => {
+    const bridge = leagueScoutBridge("spring2027", groups, pool, games, league, fixtures);
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-TRA")!;
+    expect(row.how).toBe("guessed");
+    expect(row.scoutTeamId).toBe("S-OURS");
+    expect(row.sharedOpponents).toBe(2);
+  });
+
+  it("still declines when neither of the two has played anyone we play", () => {
+    const strangers = [
+      game("S-OURS", "S-FARAWAY", 5, 2, "ag1"),
+      game("S-THEIRS", "S-FARAWAY", 4, 4, "ag1"),
+    ];
+    const bridge = leagueScoutBridge("spring2027", groups, pool, strangers, league, fixtures);
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-TRA")!;
+    expect(row.how).toBe("none");
+    expect(row.ambiguousCount).toBe(2);
+  });
+
+  it("declines when both have played the same number of our opponents", () => {
+    const tied = [game("S-OURS", "S-BEAR", 5, 2, "ag1"), game("S-THEIRS", "S-COUG", 4, 4, "ag1")];
+    const bridge = leagueScoutBridge("spring2027", groups, pool, tied, league, fixtures);
+    const row = bridge.rows.find((candidate) => candidate.leagueTeamId === "L-TRA")!;
+    expect(row.how).toBe("none");
+    expect(row.ambiguousCount).toBe(2);
+  });
+
+  it("offers nothing when no age group claims the season", () => {
+    expect(scoutLinkCandidates("Trash Pandas", "nobody", groups, pool, games, fixtures)).toEqual(
+      []
+    );
   });
 });
 

@@ -1583,43 +1583,342 @@ export const buildScoutingReport = (
     .sort((a, b) => a.opponentRank - b.opponentRank);
 };
 
+/** A game on a team's schedule that has not been played yet, with the projection for it. */
+export type UpcomingMatchup = {
+  gameId: string;
+  /** As the source gave it, "2026-09-20". Empty when the schedule carries no date. */
+  date: string;
+  event?: string;
+  opponentId: string;
+  opponentName: string;
+  /**
+   * Absent when the opponent has no rating on this page — a stand-in nobody has pulled, a club
+   * whose own games are all on another page, or one that has not played yet. The game is still
+   * listed, because a schedule is a fact and "we cannot rate them yet" is the honest answer.
+   */
+  opponentRank?: number;
+  projectedMargin?: number;
+  winProb?: number;
+  tier?: MatchupTier;
+};
+
 /**
- * The results this season's league does not already know about: games logged in Team Rankings for
- * an age group that includes this season, minus the ones that came *from* the league schedule in
- * the first place. Counting those twice would quietly double the weight of every league game.
+ * The games still to be played on one team's schedule, each with the projection for it.
  *
- * "Came from the league" covers two shapes. A row `deriveLeagueScoutGames` built carries the
- * `league_` prefix and is easy to spot. A row a GameChanger pull stored for a league fixture does
- * not — it looks exactly like a tournament result — so it is matched against `seasonFixtures` the
- * way `dedupeLeagueFixtures` matches one: same two clubs by name, same calendar day. The day is
- * again what decides it, so the same two clubs meeting at a fall tournament still comes back as
- * the outside result it is.
- *
- * Teams are matched to the league by name, since the two sides keep separate ids for the same club.
- * An opponent with no league counterpart keeps an id of its own, so the rating model can estimate
- * how good it was instead of assuming — which is the whole point: a shared tournament opponent is
- * what lets two league teams that never met be compared.
+ * This is the question a coach actually asks — not "how would we do against the country", but
+ * "what happens on Saturday". A pulled GameChanger schedule carries its future fixtures with no
+ * score, which is exactly what an unplayed game looks like here, so the answer is already in the
+ * pool. Games with no date sort last: a schedule that forgot to say when is still a schedule.
  */
-export const externalResultsForSeason = (
+export const buildUpcomingSchedule = (
+  forTeamId: string,
+  rows: ScoutRankingRow[],
+  games: ScoutGame[],
+  teams: ScoutTeam[],
+  /** Today, as "2026-09-16". Anything before it has been played, whatever the score says. */
+  today: string
+): UpcomingMatchup[] => {
+  const forRow = rows.find((row) => row.teamId === forTeamId);
+  if (!forRow) return [];
+  const rowByTeamId = new Map(rows.map((row) => [row.teamId, row]));
+  const nameById = new Map(teams.map((team) => [team.id, team.name]));
+
+  return games
+    .filter((game) => {
+      if (game.teamAId !== forTeamId && game.teamBId !== forTeamId) return false;
+      if (isScoutGamePlayed(game)) return false;
+      // A dateless row could be any day, so it is kept; a dated one has to be today or later.
+      return !game.date || game.date >= today;
+    })
+    .map((game): UpcomingMatchup => {
+      const opponentId = game.teamAId === forTeamId ? game.teamBId : game.teamAId;
+      const opponent = rowByTeamId.get(opponentId);
+      const base = {
+        gameId: game.id,
+        date: game.date ?? "",
+        ...(game.event ? { event: game.event } : {}),
+        opponentId,
+        opponentName: nameById.get(opponentId) ?? "Unknown team",
+      };
+      if (!opponent) return base;
+      const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
+      return {
+        ...base,
+        opponentRank: opponent.rank,
+        projectedMargin,
+        winProb: winProbA,
+        tier: tierFor(winProbA),
+      };
+    })
+    .sort(
+      (a, b) =>
+        (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
+        a.date.localeCompare(b.date) ||
+        a.opponentName.localeCompare(b.opponentName)
+    );
+};
+
+/** A league team has said it is not in Team Rankings at all. Never a real pool id: those start "S-". */
+export const NO_SCOUT_TEAM = "__none__";
+
+/** A league team as this side of the app needs it: its id, its name, and its answer if it has one. */
+export type LeagueTeamLink = { id: string; name: string; scoutTeamId?: string };
+
+/** One outside result, in the shape `buildPredictionEngine` takes (`ExternalResult`). */
+export type ScoutBridgeResult = {
+  home: string;
+  away: string;
+  homeMargin: number;
+  /** The pair order is the order it was typed, so this must not reach the home-field estimate. */
+  neutral: true;
+};
+
+/** How a league team came to be pointed at a pool club, if it is. */
+export type ScoutLinkHow =
+  /** A person chose it. */
+  | "picked"
+  /** The name matched, and nobody has said otherwise. Shown as a guess, never as settled. */
+  | "guessed"
+  /** A person said this team is not in Team Rankings. */
+  | "off"
+  /** Nothing is behind it, for one of the reasons the fields below name. */
+  | "none";
+
+export type ScoutLinkRow = {
+  leagueTeamId: string;
+  leagueTeamName: string;
+  how: ScoutLinkHow;
+  /** The pool club behind it, for "picked" and "guessed". */
+  scoutTeamId?: string;
+  /** That club's name, so a guess can be shown rather than merely reported. */
+  suggestedName?: string;
+  /** The stored pick, when the pool no longer holds a club with that id. */
+  staleScoutTeamId?: string;
+  /** The other league teams that picked the same club. Set on every row of the clash. */
+  conflictWith?: string[];
+  /** How many pool clubs on this season's pages carry this name, when it is more than one. */
+  ambiguousCount?: number;
+  /**
+   * League opponents this club has also played. Set when that is what picked it out of several of
+   * one name, so a guess can say what convinced it rather than merely asserting.
+   */
+  sharedOpponents?: number;
+};
+
+export type LeagueScoutBridge = {
+  results: ScoutBridgeResult[];
+  /** Whether any age group claims this season. Nothing can come across when none does. */
+  seasonLinked: boolean;
+  /** One row per league team, in roster order. */
+  rows: ScoutLinkRow[];
+  /** Rows with a pool club behind them, chosen or guessed. */
+  linkedCount: number;
+  /** `results.length`, named so the UI does not have to explain what it is counting. */
+  countedResults: number;
+};
+
+/**
+ * Which Team Rankings club each league team is, and the outside results that follow from it.
+ *
+ * The results half is what the league's ratings read: games logged in Team Rankings for an age
+ * group that includes this season, minus the ones that came *from* the league schedule in the first
+ * place. Counting those twice would quietly double the weight of every league game. "Came from the
+ * league" covers two shapes: a row `deriveLeagueScoutGames` built carries the `league_` prefix, and
+ * a row a GameChanger pull stored for a league fixture does not — it looks exactly like a tournament
+ * result — so it is matched against `seasonFixtures` the way `dedupeLeagueFixtures` matches one:
+ * same two clubs by name, same calendar day.
+ *
+ * The linking half used to be a name match and nothing else, and it failed silently: the league
+ * roster says "Trash Pandas" where GameChanger says "Trash Pandas Baseball Club", so that club's
+ * results were filed under an opponent of its own and sharpened nothing, with no message anywhere.
+ * A person's answer (`TeamBase.scoutTeamId`) now decides it; the name match survives as the
+ * suggestion, and every row says which of the two it was — which is the point of returning `rows`
+ * rather than only the results.
+ *
+ * An opponent with no league counterpart still keeps an id of its own, so the rating model can
+ * estimate how good it was instead of assuming — that is the whole value of the bridge: a shared
+ * tournament opponent is what lets two league teams that never met be compared.
+ */
+export const leagueScoutBridge = (
   seasonId: string,
   ageGroups: AgeGroup[],
   teams: ScoutTeam[],
   games: ScoutGame[],
-  leagueTeams: { id: string; name: string }[],
+  leagueTeams: LeagueTeamLink[],
   /**
    * This season's own schedule — league team *names* and the league's own date string — so a
    * stored game that is really one of these fixtures can be recognised. Required rather than
    * optional so a new caller has to answer the question instead of silently reopening the leak.
    */
   seasonFixtures: { away: string; home: string; date: string }[]
-): { home: string; away: string; homeMargin: number }[] => {
+): LeagueScoutBridge => {
   const linked = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
   );
-  if (linked.size === 0) return [];
+  const seasonLinked = linked.size > 0;
+  const scoutById = new Map(teams.map((team) => [team.id, team]));
 
-  const leagueIdByName = new Map(leagueTeams.map((team) => [teamNameKey(team.name), team.id]));
-  const scoutNameById = new Map(teams.map((team) => [team.id, team.name]));
+  // Only clubs with a game on one of this season's pages can ever reach it, so only those are
+  // candidates for a name match — which also means two clubs of one name elsewhere in a nationwide
+  // pool are not an ambiguity here.
+  const inSeason = new Set<string>();
+  games.forEach((game) => {
+    if (!linked.has(game.ageGroupId)) return;
+    inSeason.add(game.teamAId);
+    inSeason.add(game.teamBId);
+  });
+  const scoutIdsByName = new Map<string, string[]>();
+  inSeason.forEach((scoutTeamId) => {
+    const team = scoutById.get(scoutTeamId);
+    // A slot names nobody; matching a league team onto one would attach it to another game's
+    // unknown opponent.
+    if (!team || team.placeholder) return;
+    const key = teamNameKey(team.name);
+    const bucket = scoutIdsByName.get(key);
+    if (bucket) bucket.push(scoutTeamId);
+    else scoutIdsByName.set(key, [scoutTeamId]);
+  });
+
+  /**
+   * Who each pool club on this season's pages has played, and who each league team plays, both by
+   * name key. Two clubs of one name are told apart by who they have played: a schedule is much
+   * harder to coincide with than a name, and it is the same reasoning the importer uses to decide
+   * which club an opponent's name belongs to.
+   */
+  const playedByScoutId = new Map<string, Set<string>>();
+  games.forEach((game) => {
+    if (!linked.has(game.ageGroupId)) return;
+    const note = (id: string, otherId: string) => {
+      const other = scoutById.get(otherId);
+      if (!other || other.placeholder) return;
+      const bucket = playedByScoutId.get(id) ?? new Set<string>();
+      bucket.add(teamNameKey(other.name));
+      playedByScoutId.set(id, bucket);
+    };
+    note(game.teamAId, game.teamBId);
+    note(game.teamBId, game.teamAId);
+  });
+  const leagueOpponentsByTeam = new Map<string, Set<string>>();
+  leagueTeams.forEach((team) => {
+    const key = teamNameKey(team.name);
+    const opponents = new Set<string>();
+    seasonFixtures.forEach((fixture) => {
+      if (teamNameKey(fixture.away) === key) opponents.add(teamNameKey(fixture.home));
+      else if (teamNameKey(fixture.home) === key) opponents.add(teamNameKey(fixture.away));
+    });
+    leagueOpponentsByTeam.set(team.id, opponents);
+  });
+  const sharedOpponents = (leagueTeamId: string, scoutTeamId: string): number => {
+    const mine = leagueOpponentsByTeam.get(leagueTeamId);
+    const theirs = playedByScoutId.get(scoutTeamId);
+    if (!mine || !theirs) return 0;
+    let shared = 0;
+    theirs.forEach((key) => {
+      if (mine.has(key)) shared += 1;
+    });
+    return shared;
+  };
+
+  // Who has picked what, so a club two league teams both claim can be refused rather than given to
+  // whichever happens to be first in the roster.
+  const claimedBy = new Map<string, string[]>();
+  leagueTeams.forEach((team) => {
+    const pick = team.scoutTeamId;
+    if (!pick || pick === NO_SCOUT_TEAM || !scoutById.has(pick)) return;
+    const holders = claimedBy.get(pick);
+    if (holders) holders.push(team.id);
+    else claimedBy.set(pick, [team.id]);
+  });
+
+  const rows: ScoutLinkRow[] = [];
+  const leagueIdByScoutId = new Map<string, string>();
+  /** The league teams still open to a name match, once every answer has been read. */
+  const unanswered: { team: LeagueTeamLink; key: string }[] = [];
+
+  leagueTeams.forEach((team) => {
+    const base = { leagueTeamId: team.id, leagueTeamName: team.name };
+    const pick = team.scoutTeamId;
+
+    if (pick === NO_SCOUT_TEAM) {
+      // An answer, so the name match is off for this team too.
+      rows.push({ ...base, how: "off" });
+      return;
+    }
+    if (pick && !scoutById.has(pick)) {
+      // A reset, a restore from elsewhere, or a tidy that folded this club into another. The fold
+      // keeps the name (see mergeSameSquadIds / isSettledPairing), so the name match is the right
+      // recovery — but the person is told, because the fold is not obliged to.
+      unanswered.push({ team, key: teamNameKey(team.name) });
+      rows.push({ ...base, how: "none", staleScoutTeamId: pick });
+      return;
+    }
+    if (pick) {
+      const holders = claimedBy.get(pick) ?? [];
+      if (holders.length > 1) {
+        // Two teams cannot be one club. Neither pick is honoured and neither falls back to a name:
+        // re-guessing what a person has answered contradictorily is the very thing this replaced.
+        rows.push({
+          ...base,
+          how: "none",
+          scoutTeamId: pick,
+          conflictWith: holders.filter((id) => id !== team.id),
+        });
+        return;
+      }
+      leagueIdByScoutId.set(pick, team.id);
+      rows.push({
+        ...base,
+        how: "picked",
+        scoutTeamId: pick,
+        ...(scoutById.get(pick) ? { suggestedName: scoutById.get(pick)!.name } : {}),
+      });
+      return;
+    }
+
+    unanswered.push({ team, key: teamNameKey(team.name) });
+    rows.push({ ...base, how: "none" });
+  });
+
+  const rowFor = new Map(rows.map((row) => [row.leagueTeamId, row]));
+  const leagueIdByName = new Map<string, string>();
+  unanswered.forEach(({ team, key }) => {
+    const row = rowFor.get(team.id)!;
+    // A club somebody has already chosen is spoken for; its namesake is not a substitute for it.
+    const candidates = (scoutIdsByName.get(key) ?? []).filter(
+      (scoutTeamId) => !leagueIdByScoutId.has(scoutTeamId)
+    );
+    if (candidates.length === 0) return;
+    let only = candidates[0]!;
+    if (candidates.length > 1) {
+      // Two clubs of one name: ask their schedules. The one that has played the clubs this league
+      // team plays is the one, and where that is not decisive the answer is to say so rather than
+      // to credit both clubs' games to whichever came first.
+      const scored = candidates
+        .map((scoutTeamId) => ({ scoutTeamId, shared: sharedOpponents(team.id, scoutTeamId) }))
+        .sort((a, b) => b.shared - a.shared);
+      const best = scored[0]!;
+      const tied = scored.filter((candidate) => candidate.shared === best.shared);
+      if (best.shared === 0 || tied.length > 1) {
+        row.ambiguousCount = candidates.length;
+        return;
+      }
+      only = best.scoutTeamId;
+      row.sharedOpponents = best.shared;
+    }
+    leagueIdByName.set(key, team.id);
+    row.how = "guessed";
+    row.scoutTeamId = only;
+    row.suggestedName = scoutById.get(only)?.name;
+  });
+
+  /** A league team's own id where one is behind this club; otherwise an id of this club's own. */
+  const ratingId = (scoutTeamId: string): string => {
+    const explicit = leagueIdByScoutId.get(scoutTeamId);
+    if (explicit) return explicit;
+    const team = scoutById.get(scoutTeamId);
+    const matched = team ? leagueIdByName.get(teamNameKey(team.name)) : undefined;
+    return matched ?? `${SCOUT_ID_PREFIX}${scoutTeamId}`;
+  };
 
   /** Two names and a day as one order-free key, so away-vs-home compares equal either way. */
   const nameFixtureKey = (away: string, home: string, date: string): string => {
@@ -1627,46 +1926,154 @@ export const externalResultsForSeason = (
     if (!day) return "";
     return `${[teamNameKey(away), teamNameKey(home)].sort().join("|")}|${day}`;
   };
-
   const fixtureKeys = new Set(
     seasonFixtures
       .map(({ away, home, date }) => nameFixtureKey(away, home, date))
       .filter((key) => key !== "")
   );
-
   const isSeasonFixture = (game: ScoutGame): boolean => {
     if (fixtureKeys.size === 0) return false;
-    const away = scoutNameById.get(game.teamAId);
-    const home = scoutNameById.get(game.teamBId);
+    const away = scoutById.get(game.teamAId)?.name;
+    const home = scoutById.get(game.teamBId)?.name;
     if (!away || !home) return false;
     const key = nameFixtureKey(away, home, game.date ?? "");
     return key !== "" && fixtureKeys.has(key);
   };
 
-  // A league team's own id where the name matches; otherwise an id of this opponent's own that
-  // cannot collide with a league one.
-  const ratingId = (scoutTeamId: string): string => {
-    const name = scoutNameById.get(scoutTeamId);
-    const matched = name ? leagueIdByName.get(teamNameKey(name)) : undefined;
-    return matched ?? `${SCOUT_ID_PREFIX}${scoutTeamId}`;
-  };
+  const results: ScoutBridgeResult[] = !seasonLinked
+    ? []
+    : games
+        .filter(
+          (game) =>
+            linked.has(game.ageGroupId) &&
+            !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+            !isSeasonFixture(game) &&
+            countsTowardRating(game)
+        )
+        .map((game) => ({
+          home: ratingId(game.teamAId),
+          away: ratingId(game.teamBId),
+          homeMargin: game.teamAScore! - game.teamBScore!,
+          neutral: true as const,
+        }));
 
-  return games
-    .filter(
-      (game) =>
-        linked.has(game.ageGroupId) &&
-        !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
-        !isSeasonFixture(game) &&
-        countsTowardRating(game)
-    )
-    .map((game) => ({
-      home: ratingId(game.teamAId),
-      away: ratingId(game.teamBId),
-      homeMargin: game.teamAScore! - game.teamBScore!,
-      // The pair order is the order it was typed, so this must not reach the home-field estimate.
-      neutral: true,
-    }));
+  return {
+    results,
+    seasonLinked,
+    rows,
+    linkedCount: rows.filter((row) => row.how === "picked" || row.how === "guessed").length,
+    countedResults: results.length,
+  };
 };
+
+/** A pool club that could be this league team, and the evidence for it. */
+export type ScoutLinkCandidate = {
+  scoutTeamId: string;
+  name: string;
+  city?: string;
+  state?: string;
+  /**
+   * Clubs this league team plays in its league, that this pool club has also played. This is the
+   * evidence that matters: two clubs of one name are told apart by who they have played, and a
+   * schedule is far harder to coincide with than a name.
+   */
+  sharedOpponents: string[];
+  /** Games it has on this season's pages at all, as a tiebreak when nobody shares an opponent. */
+  games: number;
+};
+
+/**
+ * Which pool clubs could be a given league team, best evidence first.
+ *
+ * The country is full of Trash Pandas, so a name cannot answer "which one". A schedule can. This
+ * league team plays a known set of opponents; a pool club has played a known set of opponents; the
+ * club that has played the same clubs is the club. One name in common is weak and three is close to
+ * certain, so the count is returned rather than a verdict — the panel shows it and a person decides.
+ *
+ * Opponents are compared by name because that is the only thing the two halves share: the league
+ * and Team Rankings keep separate ids for the same club, which is the very problem being solved.
+ */
+export const scoutLinkCandidates = (
+  leagueTeamName: string,
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  /** This season's own schedule, as league names: who this team plays. */
+  seasonFixtures: { away: string; home: string; date: string }[]
+): ScoutLinkCandidate[] => {
+  const pages = new Set(
+    ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
+  );
+  if (pages.size === 0) return [];
+  const scoutById = new Map(teams.map((team) => [team.id, team]));
+  const meKey = teamNameKey(leagueTeamName);
+
+  // Who this league team plays, by name key.
+  const leagueOpponents = new Set<string>();
+  seasonFixtures.forEach((fixture) => {
+    if (teamNameKey(fixture.away) === meKey) leagueOpponents.add(teamNameKey(fixture.home));
+    else if (teamNameKey(fixture.home) === meKey) leagueOpponents.add(teamNameKey(fixture.away));
+  });
+
+  // Who each pool club on this season's pages has played, by name key.
+  const played = new Map<string, Map<string, string>>();
+  const gameCount = new Map<string, number>();
+  const note = (id: string, otherId: string) => {
+    const other = scoutById.get(otherId);
+    gameCount.set(id, (gameCount.get(id) ?? 0) + 1);
+    if (!other || other.placeholder) return;
+    const bucket = played.get(id) ?? new Map<string, string>();
+    bucket.set(teamNameKey(other.name), other.name);
+    played.set(id, bucket);
+  };
+  games.forEach((game) => {
+    if (!pages.has(game.ageGroupId)) return;
+    note(game.teamAId, game.teamBId);
+    note(game.teamBId, game.teamAId);
+  });
+
+  const candidates: ScoutLinkCandidate[] = [];
+  gameCount.forEach((count, scoutTeamId) => {
+    const team = scoutById.get(scoutTeamId);
+    if (!team || team.placeholder) return;
+    const opponents = played.get(scoutTeamId);
+    const shared: string[] = [];
+    opponents?.forEach((name, key) => {
+      if (leagueOpponents.has(key)) shared.push(name);
+    });
+    shared.sort((a, b) => a.localeCompare(b));
+    candidates.push({
+      scoutTeamId,
+      name: team.name,
+      ...(team.city ? { city: team.city } : {}),
+      ...(team.state ? { state: team.state } : {}),
+      sharedOpponents: shared,
+      games: count,
+    });
+  });
+
+  return candidates.sort(
+    (a, b) =>
+      b.sharedOpponents.length - a.sharedOpponents.length ||
+      b.games - a.games ||
+      a.name.localeCompare(b.name)
+  );
+};
+
+/**
+ * The outside results alone. Kept as its own export because that is all the rating path wants, and
+ * because every test written against the old name still describes exactly what it does.
+ */
+export const externalResultsForSeason = (
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  leagueTeams: LeagueTeamLink[],
+  seasonFixtures: { away: string; home: string; date: string }[]
+): ScoutBridgeResult[] =>
+  leagueScoutBridge(seasonId, ageGroups, teams, games, leagueTeams, seasonFixtures).results;
 
 /**
  * Renames a team, merging it into an existing one when the new name is already taken.

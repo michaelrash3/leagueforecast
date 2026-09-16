@@ -226,3 +226,32 @@ describe("multi-season storage", () => {
     expect(loadMatchups()).toEqual([]);
   });
 });
+
+describe("a league team's Team Rankings pick", () => {
+  it("survives a save and a load", () => {
+    // It is stored on the team, so it rides the season key, duplicate, backup and undo with it.
+    // Before this, every load rebuilt each team as {id, name} and the answer vanished silently.
+    saveTeams([
+      { id: "A", name: "Trash Pandas", scoutTeamId: "S-TRAS" },
+      { id: "B", name: "Bears" },
+    ]);
+    expect(loadTeams()).toEqual([
+      { id: "A", name: "Trash Pandas", scoutTeamId: "S-TRAS" },
+      { id: "B", name: "Bears" },
+    ]);
+  });
+
+  it("is absent, not empty, on a team saved before the field existed", () => {
+    saveTeams([{ id: "A", name: "Aces" }]);
+    expect(loadTeams()[0]).toEqual({ id: "A", name: "Aces" });
+    expect("scoutTeamId" in loadTeams()[0]!).toBe(false);
+  });
+
+  it("drops a pick that is not a string", () => {
+    localStorage.setItem(
+      "league_season_default_teams_v1",
+      JSON.stringify([{ id: "A", name: "Aces", scoutTeamId: 7 }])
+    );
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+  });
+});
