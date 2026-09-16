@@ -11,6 +11,10 @@ export type SharedSnapshot = {
 export type ShareUiState = { view?: ActiveShareView; teamId?: string };
 export const MAX_SHARE_URL_PAYLOAD = 7000;
 
+/**
+ * Id and name only. A pool pick (`TeamBase.scoutTeamId`) is an id minted in the browser that
+ * made it, so in the browser opening the link it would point at another club or at nothing.
+ */
 type CompactTeam = [id: string, name: string];
 type CompactMatchup = [id: string, date: string, away: string, home: string];
 type CompactGameLog = [

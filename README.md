@@ -209,11 +209,40 @@ whole schedule: upcoming games show their opponent right away, and once a game i
 scored in League Standings it counts as a final here too.
 
 **Team Rankings → League, by choice.** Tournament results sharpen that league's
-_game forecasts_ — see the `useScoutResults` setting. They help most where a
+_opponent-adjusted power ratings_ and the matchup analysis built on them — see
+the `useScoutResults` setting. (They do not reach the Forecast board's game
+picks or the simulated season, which are built on per-game runs, hits, walks and
+errors that Team Rankings does not hold.) They help most where a
 schedule is thin: two teams who never met become comparable through an opponent
 they both played elsewhere. Records, standings, elo, recent form and strength of
 schedule stay league-only. Games carried in from the league are excluded on the
 way back, so nothing is counted twice.
+
+**Which club is which, answered once.** The two halves keep separate ids for the
+same club and rarely agree on how long a name is — a league roster saying "Trash
+Pandas" against a GameChanger team called "Trash Pandas Baseball Club". Matching
+on the name alone was a guess that failed silently: that club's tournament
+results were filed under an opponent of their own, where they sharpened nothing,
+and nothing anywhere said so.
+
+**Which Team Rankings club is each team?**, in Settings, asks once and keeps the
+answer. It offers the clubs that could be this team, ordered by how many of that
+team's own league opponents they have also played, since a schedule is far harder
+to coincide with than a name: "Trash Pandas Baseball Club — Hebron, KY · 2
+opponents in common: Bears, Cougars". Each row says where it stands — a **Guess**
+matched on the name and is not confirmed, **Which one?** means two clubs share
+the name and neither has played anyone you play, **Not here** is an answer rather
+than a gap, and **Clash** means two teams picked one club so neither counts.
+
+The same evidence settles the guess: where two clubs share a name, the one that
+has played the clubs you play is taken, and where that is not decisive the panel
+says so rather than crediting both clubs' games to whichever came first. The
+header counts what is linked and how many outside results are counting, so a
+league that is contributing nothing cannot look like one that is.
+
+A pick is stored on the league team, so it rides that season's backup, duplicate
+and undo. Share links deliberately leave it out: a pool id is minted in the
+browser that made it and means nothing in anyone else's.
 
 **Team Rankings → League scores, on request.** Once a club pulls its own
 GameChanger team, every result of its league season is already in the pool, and

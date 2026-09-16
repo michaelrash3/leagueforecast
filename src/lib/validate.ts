@@ -89,7 +89,12 @@ export const coerceTeams = (raw: unknown): TeamBase[] => {
     const name = cleanName(item.name);
     if (!id || !name || seen.has(id)) return;
     seen.add(id);
-    out.push({ id, name });
+    // A stored pick is kept as the opaque id it is. This side of the app cannot see the Team
+    // Rankings pool, so "does this club still exist" is a question only a reader of the pool can
+    // answer — `leagueScoutBridge` does, and reports it. Dropping the id here because the pool is
+    // not loaded yet would erase a person's answer every time the app opened.
+    const scoutTeamId = isString(item.scoutTeamId) ? cleanId(item.scoutTeamId) : "";
+    out.push({ id, name, ...(scoutTeamId ? { scoutTeamId } : {}) });
   });
   return out;
 };

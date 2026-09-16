@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import { CommandPalette, type Command } from "./components/CommandPalette";
+import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { AiStoryPanel } from "./components/AiStoryPanel";
 import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
@@ -30,7 +31,7 @@ import {
   summarizeLeagueFill,
   type LeagueFillPlan,
 } from "./lib/leagueScoreFill";
-import { externalResultsForSeason } from "./lib/teamRankings";
+import { leagueScoutBridge, scoutLinkCandidates } from "./lib/teamRankings";
 import {
   loadAgeGroups,
   loadScoutGames,
@@ -2572,7 +2573,7 @@ export default function App() {
   );
 
   /**
-   * This season's schedule in the shape `externalResultsForSeason` matches stored games against:
+   * This season's schedule in the shape `leagueScoutBridge` matches stored games against:
    * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
    * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
    * team's schedule would feed this season's own games back in as if they were outside results.
@@ -2588,12 +2589,19 @@ export default function App() {
 
   // Tournament results logged in Team Rankings, for age groups that include this season. Read
   // from storage rather than held in state: Team Rankings owns them, this view only borrows.
-  const externalResults = useMemo(() => {
+  const scoutBridge = useMemo(() => {
     // Storage is not reactive, so the counter is the signal that it changed. Referenced rather
     // than merely listed, so it reads as the dependency it is.
     void scoutRevision;
-    if (!settings.useScoutResults || !activeSeasonId) return [];
-    return externalResultsForSeason(
+    const empty = {
+      results: [],
+      seasonLinked: false,
+      rows: [],
+      linkedCount: 0,
+      countedResults: 0,
+    };
+    if (!activeSeasonId) return empty;
+    return leagueScoutBridge(
       activeSeasonId,
       loadAgeGroups(),
       loadScoutTeams(),
@@ -2601,7 +2609,54 @@ export default function App() {
       liveTeams,
       seasonFixtures
     );
-  }, [settings.useScoutResults, activeSeasonId, liveTeams, seasonFixtures, scoutRevision]);
+  }, [activeSeasonId, liveTeams, seasonFixtures, scoutRevision]);
+
+  /**
+   * The bridge is read whether or not the setting lets it count, so the panel can say how much is
+   * ready and waiting; only the results are withheld.
+   */
+  const externalResults = useMemo(
+    () => (settings.useScoutResults ? scoutBridge.results : []),
+    [settings.useScoutResults, scoutBridge]
+  );
+
+  /** The clubs that could be a given league team, best evidence first: who they have both played. */
+  const scoutCandidatesFor = useCallback(
+    (leagueTeamName: string) => {
+      void scoutRevision;
+      if (!activeSeasonId) return [];
+      return scoutLinkCandidates(
+        leagueTeamName,
+        activeSeasonId,
+        loadAgeGroups(),
+        loadScoutTeams(),
+        loadScoutGames(),
+        seasonFixtures
+      );
+    },
+    [activeSeasonId, seasonFixtures, scoutRevision]
+  );
+
+  const allScoutClubs = useCallback(() => {
+    void scoutRevision;
+    return loadScoutTeams().filter((team) => !team.placeholder);
+  }, [scoutRevision]);
+
+  /** Stores which Team Rankings club a league team is, or clears the answer. */
+  const setScoutLink = useCallback(
+    (leagueTeamId: string, scoutTeamId: string | undefined) => {
+      setTeams((prev) =>
+        prev.map((team) =>
+          team.id === leagueTeamId
+            ? scoutTeamId
+              ? { ...team, scoutTeamId }
+              : (({ scoutTeamId: _dropped, ...rest }) => rest)(team)
+            : team
+        )
+      );
+    },
+    [setTeams]
+  );
 
   const predictionEngine = useMemo(
     () => buildPredictionEngine(liveTeams, matchups, deferredLogs, settings, externalResults),
@@ -5329,6 +5384,16 @@ This backup carries one season, so it replaces the current season data and saves
                   onCreate={handleCreateSeason}
                   onDuplicate={handleDuplicateSeason}
                   onDelete={handleDeleteSeason}
+                />
+                {/* Above Settings because it answers the question the "Team Rankings results"
+                    setting down there raises: which club is which. */}
+                <ScoutLinkPanel
+                  bridge={scoutBridge}
+                  candidatesFor={scoutCandidatesFor}
+                  allClubs={allScoutClubs}
+                  seasonLabel={settings.seasonLabel}
+                  countingOn={settings.useScoutResults}
+                  onPick={setScoutLink}
                 />
                 <SettingsView
                   settings={settings}
