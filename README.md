@@ -290,15 +290,39 @@ Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.
 
-### What a pull could not import
+### What a pull left behind, and what to check
 
-A run over thousands of teams always leaves some behind, in two different
-ways, and a count hides both. **Did not import** lists every one of them:
+A run over thousands of teams always leaves some behind, and a count hides it.
+**Worth a look** lists every one, in three kinds:
 
-| Kind            | What it means                                                                                                     |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Not reached** | The schedule never arrived — no such team, a refusal, a timeout, the proxy not deployed. Often worth another try. |
-| **Not filed**   | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
+| Kind             | What it means                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Not reached**  | The schedule never arrived — no such team, a refusal, a timeout, the proxy not deployed. Often worth another try. |
+| **Not filed**    | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
+| **Check the id** | It arrived and was filed, but it is not the team the list named.                                                  |
+
+That last one exists because a twelve-character id is unreadable, so a wrong one
+is invisible: the pull fetches whatever the id really is, files it under its own
+name, and says nothing. The list already carries what each team was meant to be,
+and the profile carries what it turned out to be, so the two are compared.
+
+Which comparisons are worth making was measured on a real pull of 40,760 teams
+where both sides described the same teams. The rule for each is whatever fires
+on something worth seeing without burying it:
+
+| Compared                        | Disagreed   | Kept                                                                                                                   |
+| ------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Name shares no significant word | 1           | yes — and that one was "SWS" for "South Wake Storm"                                                                    |
+| Season                          | 0           | yes — free, and it catches an id reused for last year's squad                                                          |
+| State                           | 174 (0.43%) | yes                                                                                                                    |
+| Age level, by two or more       | 31 (0.08%)  | yes                                                                                                                    |
+| Age level, by one               | 343 (0.84%) | **no** — in 267 the team's own _name_ held the list's level, so it is GameChanger's age group that wanders, not the id |
+
+A name spelled two ways is never reported: "Trash Pandas" and "Trash Pandas
+Baseball Club" share two real words, and only a name with nothing in common is
+a different club. Nothing is corrected and nothing is held back — the schedule
+is filed either way, since the profile is the better authority on a team asked
+for by id. On that pull, 206 rows of 40,760 were flagged, one of them loudly.
 
 Each row gives the team id, the name where anything knew one, the reason in a
 few words, the sentence the failing layer wrote, and a link to the team on

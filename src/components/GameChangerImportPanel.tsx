@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { parseGcTeamList, type GcTeamListEntry } from "../lib/gameChangerApi";
+import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { fetchGcTeams } from "../lib/gameChangerClient";
 import {
   comparePairing,
@@ -234,6 +234,13 @@ export function GameChangerImportPanel({
     const importer = createGcImporter(poolRef.current);
     progressRef.current = progress;
     outcomesRef.current = [];
+    /**
+     * What the list claimed about each id, beside what GameChanger returned for it, so the report
+     * can say which ids do not look like the team that was asked for. Only ids the list described
+     * are kept; a bare pasted id claims nothing to check.
+     */
+    const claimed = new Map(parsed.entries.map((entry) => [entry.teamId, entry]));
+    const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
     setStage("pulling");
     setResult(null);
     syncStats();
@@ -291,6 +298,8 @@ export function GameChangerImportPanel({
         if (result.ok) {
           outcomesRef.current.push(importer.add(result.schedule));
           poolRef.current = importer.state;
+          const entry = claimed.get(teamId);
+          if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
         } else {
           pendingFailures.set(teamId, { reason: result.reason, message: result.message });
         }
@@ -349,7 +358,10 @@ export function GameChangerImportPanel({
       problems: collectGcImportProblems(
         finished?.failures ?? [],
         outcomesRef.current,
-        new Map(parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : [])))
+        new Map(
+          parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : []))
+        ),
+        pulledRef
       ),
       canRetry: finished ? retryableIds(finished).length > 0 : false,
     });
@@ -679,7 +691,7 @@ export function GameChangerImportPanel({
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Did not import ({result.problems.length})
+                  Worth a look ({result.problems.length})
                 </p>
                 <button
                   type="button"
@@ -692,7 +704,9 @@ export function GameChangerImportPanel({
               <p className="mt-1 text-xs text-slate-500">
                 {describeGcProblems(result.problems)}. A team not reached is often worth another
                 try; one that could not be filed needs its age group or season fixed on GameChanger,
-                or is a level this app does not rank.
+                or is a level this app does not rank. One to check did import — its id simply
+                returned a different team from the one your list named, which is what a wrong id
+                looks like.
               </p>
               <ul className="mt-2 max-h-72 space-y-1.5 overflow-y-auto text-xs">
                 {result.problems.slice(0, PROBLEMS_SHOWN).map((problem) => (
@@ -711,7 +725,15 @@ export function GameChangerImportPanel({
                           {problem.teamName}
                         </span>
                       )}
-                      <span className={pill(problem.kind === "not-reached" ? "red" : "amber")}>
+                      <span
+                        className={pill(
+                          problem.kind === "not-reached"
+                            ? "red"
+                            : problem.kind === "check-id"
+                              ? "blue"
+                              : "amber"
+                        )}
+                      >
                         {problem.reason}
                       </span>
                     </span>
