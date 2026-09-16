@@ -679,8 +679,16 @@ export function TeamRankingsView({
 
   const shownState = stateTop === null ? defaultState : stateTop;
 
-  const stateOf = useCallback(
-    (teamId: string) => rankedTeams.find((team) => team.id === teamId)?.state,
+  /**
+   * "Prosper, TX" — where a club is from, which is what tells five Rangers apart in a list. The
+   * town comes from GameChanger for a pulled club; a stand-in has neither and shows nothing.
+   */
+  const placeOf = useCallback(
+    (teamId: string) => {
+      const team = rankedTeams.find((candidate) => candidate.id === teamId);
+      if (!team) return undefined;
+      return [team.city, team.state].filter(Boolean).join(", ") || undefined;
+    },
     [rankedTeams]
   );
 
@@ -1273,7 +1281,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             onStateFilterChange={setStateFilter}
             showAll={showAll}
             onToggleShowAll={() => setShowAll((value) => !value)}
-            stateOf={stateOf}
+            placeOf={placeOf}
             isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
             hasGamesFiledHere={hasGamesFiledHere}
             onOpenTeam={setOpenTeamId}
@@ -1363,6 +1371,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             reportRow={reportRow}
             reportRows={reportRows}
             explanation={explanation}
+            placeOf={placeOf}
           />
         )}
 

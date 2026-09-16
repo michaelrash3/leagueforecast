@@ -378,7 +378,8 @@ deleted; a stand-in is settled by the other club's schedule (a mirrored result
 settles it even when the two coaches typed different start times, and two
 results that contradict are never folded into one); a game sitting by name on
 one club moves to the namesake whose own schedule holds it; a stand-in's rows
-are filed onto the one club of that name in the puller's state; two ids are one
+are filed onto the one club of that name in the puller's state (two in the state:
+the one in the puller's own town); two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
 one state, under one listing name; and two schedules that each list one game
 against the other that day with different scores are one game two coaches scored

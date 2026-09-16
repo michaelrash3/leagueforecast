@@ -27,7 +27,8 @@ type RankingsSectionProps = {
   onStateFilterChange: (state: string) => void;
   showAll: boolean;
   onToggleShowAll: () => void;
-  stateOf: (teamId: string) => string | undefined;
+  /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
+  placeOf: (teamId: string) => string | undefined;
   isLeagueTeam: (teamId: string) => boolean;
   hasGamesFiledHere: (teamId: string) => boolean;
   onOpenTeam: (teamId: string) => void;
@@ -56,7 +57,7 @@ export function RankingsSection({
   onStateFilterChange,
   showAll,
   onToggleShowAll,
-  stateOf,
+  placeOf,
   isLeagueTeam,
   hasGamesFiledHere,
   onOpenTeam,
@@ -96,7 +97,7 @@ export function RankingsSection({
                 {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
               </span>
             </div>
-            <RankingList rows={nationalTop} onOpen={onOpenTeam} stateOf={stateOf} showState />
+            <RankingList rows={nationalTop} onOpen={onOpenTeam} placeOf={placeOf} />
           </div>
 
           <div className={`${card} p-5`}>
@@ -126,7 +127,7 @@ export function RankingsSection({
                   : `No ranked teams in ${shownState} yet.`}
               </p>
             ) : (
-              <RankingList rows={stateTopRows} onOpen={onOpenTeam} stateOf={stateOf} />
+              <RankingList rows={stateTopRows} onOpen={onOpenTeam} placeOf={placeOf} />
             )}
           </div>
         </div>
@@ -228,6 +229,11 @@ export function RankingsSection({
                       </button>
                       {isLeagueTeam(row.teamId) && (
                         <span className={`ml-2 ${pill("blue")}`}>League</span>
+                      )}
+                      {placeOf(row.teamId) && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          {placeOf(row.teamId)}
+                        </span>
                       )}
                     </td>
                     <td>{row.record}</td>

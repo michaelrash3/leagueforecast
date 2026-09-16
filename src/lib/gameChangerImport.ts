@@ -496,6 +496,10 @@ const pullerStates = (index: ImportIndex, teamId: string): Set<string> => {
 const stateFits = (state: string | undefined, pullers: Set<string>): boolean =>
   !state || pullers.size === 0 || pullers.has(state);
 
+/** Lower-cased for comparing; GameChanger's towns arrive as typed. */
+const townKey = (city: string | undefined): string | undefined =>
+  city?.trim().toLowerCase() || undefined;
+
 /**
  * Whether the schedule in hand holds a game that a stand-in's row is the other half of: the same
  * day, an opponent of the name the stand-in's row was filed against, and the result mirrored
@@ -1437,8 +1441,11 @@ export const proposeSeasonPairings = (
       const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
       const evidence: GcPairingEvidence[] = [];
       if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
-      const city = from.team.city?.toLowerCase();
-      if (city && city === to.team.city?.toLowerCase()) evidence.push("city");
+      // A town is evidence only in its own state: Lawrenceburg IN is not Lawrenceburg KY.
+      const city = townKey(from.team.city);
+      if (city && city === townKey(to.team.city) && from.team.state === to.team.state) {
+        evidence.push("city");
+      }
       if (from.team.state && from.team.state === to.team.state) evidence.push("state");
       if (shareAnOpponent(from.team.id, to.team.id)) evidence.push("shared-opponent");
 
@@ -1914,9 +1921,17 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
     const slot = `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}\u0000${level}`;
     const inState = (clubs.get(slot) ?? []).filter((club) => club.state === puller.state);
-    if (inState.length !== 1) return game;
+    // Two in the state: the one in the puller's own town, if exactly one is.
+    const pullerTown = townKey(puller.city);
+    const chosen =
+      inState.length === 1
+        ? inState
+        : pullerTown
+          ? inState.filter((club) => townKey(club.city) === pullerTown)
+          : [];
+    if (chosen.length !== 1) return game;
     refiled += 1;
-    const club = inState[0]!;
+    const club = chosen[0]!;
     return standIn === a ? { ...game, teamAId: club.id } : { ...game, teamBId: club.id };
   });
   if (refiled === 0) return { state, refiled: 0 };

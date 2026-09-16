@@ -15,6 +15,8 @@ type ScoutingSectionProps = {
   reportRow: ScoutRankingRow | null;
   reportRows: MatchupPreview[];
   explanation: LeagueSummaryState;
+  /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
+  placeOf: (teamId: string) => string | undefined;
 };
 
 /**
@@ -31,6 +33,7 @@ export function ScoutingSection({
   reportRow,
   reportRows,
   explanation,
+  placeOf,
 }: ScoutingSectionProps) {
   return (
     <div className={`${card} p-5`}>
@@ -51,6 +54,7 @@ export function ScoutingSection({
           {rankings.map((row) => (
             <option key={row.teamId} value={row.teamId}>
               {row.teamName}
+              {placeOf(row.teamId) ? ` — ${placeOf(row.teamId)}` : ""}
             </option>
           ))}
         </select>
@@ -92,6 +96,11 @@ export function ScoutingSection({
               >
                 <td className="py-3 font-bold text-slate-950 dark:text-white">
                   {preview.opponentName}
+                  {placeOf(preview.opponentId) && (
+                    <span className="block text-xs font-normal text-slate-500">
+                      {placeOf(preview.opponentId)}
+                    </span>
+                  )}
                 </td>
                 <td>#{preview.opponentRank}</td>
                 <td>

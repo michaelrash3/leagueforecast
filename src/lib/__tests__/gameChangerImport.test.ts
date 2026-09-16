@@ -2294,6 +2294,94 @@ describe("who a name belongs to: level, state and the game", () => {
     expect(out.state.teams.find((team) => team.id === "S-CUBS-STUB")).toBeUndefined();
   });
 
+  it("breaks a tie between two in-state clubs by the puller's own town", () => {
+    // Five Texas Rangers; the Prosper schedules keep naming "Rangers". The Prosper one it is.
+    const pool = fold([
+      club(
+        "gcRANGERSA00",
+        "Rangers 10U",
+        10,
+        "TX",
+        [played("r1", "Garland Gators 10U", "2026-09-01", 1, 0)],
+        "Garland"
+      ),
+      club(
+        "gcRANGERSB00",
+        "Rangers 10U",
+        10,
+        "TX",
+        [played("r2", "Celina Cubs 10U", "2026-09-01", 2, 0)],
+        "Prosper"
+      ),
+      club("gcPROSPER000", "Prosper Pride 10U", 10, "TX", [], "Prosper"),
+    ]);
+    const pride = named(pool, "Prosper Pride")[0]!;
+    const standIn: ScoutTeam = { id: "S-RANGERS-STUB", name: "Rangers", nameOnly: true };
+    const stale: GcImportState = {
+      ...pool,
+      teams: [...pool.teams, standIn],
+      games: [
+        ...pool.games,
+        {
+          id: "gc_gcPROSPER000_old",
+          teamAId: pride.id,
+          teamBId: standIn.id,
+          ageGroupId: pool.games[0]!.ageGroupId,
+          date: "2026-09-05",
+          teamAScore: 2,
+          teamBScore: 3,
+          ageLevelA: 10,
+          ageLevelB: 10,
+          source: { kind: "gamechanger", teamId: "gcPROSPER000", gameId: "old" },
+        },
+      ],
+    };
+    const out = refileStandIns(stale);
+    expect(out.refiled).toBe(1);
+    const prosper = named(out.state, "Rangers").find((team) => team.city === "Prosper")!;
+    expect(out.state.games.find((game) => game.id === "gc_gcPROSPER000_old")?.teamBId).toBe(
+      prosper.id
+    );
+  });
+
+  it("counts a shared town as pairing evidence only in the same state", () => {
+    const pairings = proposeSeasonPairings([
+      {
+        id: "in",
+        name: "Dragons Baseball Club",
+        city: "Lawrenceburg",
+        state: "IN",
+        gcTeams: [
+          {
+            teamId: "gc-in",
+            name: "Dragons Baseball Club 10U",
+            ageGroupId: "ag1",
+            ageLevel: 10,
+            season: "fall",
+            seasonYear: 2026,
+          },
+        ],
+      },
+      {
+        id: "ky",
+        name: "Dragons Baseball Club",
+        city: "Lawrenceburg",
+        state: "KY",
+        gcTeams: [
+          {
+            teamId: "gc-ky",
+            name: "Dragons Baseball Club 10U",
+            ageGroupId: "ag1",
+            ageLevel: 10,
+            season: "spring",
+            seasonYear: 2027,
+          },
+        ],
+      },
+    ]);
+    expect(pairings).toEqual([]);
+  });
+
   it("leaves a stand-in alone when two clubs of the name share the puller's state", () => {
     const pool = fold([
       club("gcRANGERSA00", "Rangers 10U", 10, "TX", [], "Garland"),
