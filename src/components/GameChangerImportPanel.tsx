@@ -330,7 +330,13 @@ export function GameChangerImportPanel({
     // Stamped before the save lands, so the page does not read the tidied pool as untidied.
     saveTidyStamp(poolSignature(tidy.state));
     if (
-      tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned + tidy.reclaimed >
+      tidy.named +
+        tidy.folded +
+        tidy.paired +
+        tidy.collapsed +
+        tidy.pruned +
+        tidy.reclaimed +
+        tidy.refiled >
       0
     ) {
       poolRef.current = tidy.state;

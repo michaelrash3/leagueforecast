@@ -8,6 +8,7 @@ import {
   importGcSchedule,
   describeTidy,
   poolSignature,
+  refileStandIns,
   resolveSlotGames,
   tidyPool,
   importGcSchedules,
@@ -2081,5 +2082,228 @@ describe("poolSignature", () => {
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
     expect(poolSignature(empty)).toBe("0|0|0|");
+  });
+});
+
+describe("who a name belongs to: level, state and the game", () => {
+  const fall = { season: "fall" as const, year: 2026 };
+  const played = (
+    id: string,
+    opponentName: string,
+    date: string,
+    a: number,
+    b: number,
+    startTs?: string
+  ) => ({
+    id,
+    date,
+    opponentName,
+    status: "completed" as const,
+    teamScore: a,
+    opponentScore: b,
+    ...(startTs ? { startTs } : {}),
+  });
+  const club = (
+    id: string,
+    name: string,
+    ageLevel: number,
+    state: string,
+    games: ReturnType<typeof played>[],
+    city?: string
+  ): GcTeamSchedule => ({
+    profile: { id, name, ageLevel, season: fall, state, ...(city ? { city } : {}) },
+    games,
+    fetchedAt: "2026-09-15T12:00:00.000Z",
+  });
+  const fold = (schedules: GcTeamSchedule[]): GcImportState => {
+    const importer = createGcImporter(empty);
+    schedules.forEach((schedule) => importer.add(schedule));
+    return importer.state;
+  };
+  const named = (state: GcImportState, name: string) =>
+    state.teams.filter((team) => team.name === name);
+
+  it("adopts the stand-in at its own level when the name has stand-ins at several", () => {
+    // Two FL schedules name JCB Diamond Kings Elite, one at 9U and one at 10U, before the 9U club
+    // is pulled. The 9U club is the 9U stand-in; the 10U one is its older squad.
+    const pool = fold([
+      club("gcFLA9000000", "Boca Pirates 9U", 9, "FL", [
+        played("a1", "JCB Diamond Kings Elite 9U", "2026-09-05", 2, 6),
+      ]),
+      club("gcFLB1000000", "Wellington Wolves 10U", 10, "FL", [
+        played("b1", "JCB Diamond Kings Elite 10U", "2026-09-05", 4, 4),
+      ]),
+      club("gcJCB9000000", "JCB Diamond Kings Elite 9U", 9, "FL", []),
+    ]);
+    const jcb = named(pool, "JCB Diamond Kings Elite");
+    expect(jcb).toHaveLength(2);
+    const pulled = jcb.find((team) => team.gcTeams?.length);
+    expect(pulled?.nameOnly).toBeUndefined();
+    // The 9U stand-in's game is on the pulled club now; the 10U stand-in still holds its own.
+    const pirates = named(pool, "Boca Pirates")[0]!;
+    const row = pool.games.find((game) => [game.teamAId, game.teamBId].includes(pirates.id))!;
+    expect([row.teamAId, row.teamBId]).toContain(pulled!.id);
+  });
+
+  it("adopts the stand-in its own schedule confirms, even at another level", () => {
+    // A CA schedule named "Inferno" at 8U and lost 2-5 to them; the Inferno pulled is a 9U whose
+    // own schedule holds that 5-2. The game says which stand-in is theirs.
+    const pool = fold([
+      club("gcCAA8000000", "Sharks 8U", 8, "CA", [played("a1", "Inferno 8U", "2026-09-05", 2, 5)]),
+      club("gcCAB9000000", "Rays 9U", 9, "CA", [played("b1", "Inferno 9U", "2026-09-12", 1, 9)]),
+      club("gcINFERNO900", "Inferno 9U", 9, "MD", [played("i1", "Sharks 8U", "2026-09-05", 5, 2)]),
+    ]);
+    const inferno = named(pool, "Inferno");
+    const pulled = inferno.find((team) => team.gcTeams?.length)!;
+    const sharks = named(pool, "Sharks")[0]!;
+    const rows = pool.games.filter((game) => [game.teamAId, game.teamBId].includes(sharks.id));
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.teamAId, rows[0]!.teamBId]).toContain(pulled.id);
+  });
+
+  it("does not adopt a lone stand-in that only clubs in other states named", () => {
+    // Three Texas schedules name "Grit"; the only Grit pulled is in New York and never played them.
+    const pool = fold([
+      club("gcTXA9000000", "Colleyville Cubs 9U", 9, "TX", [
+        played("a1", "Grit 9U", "2026-09-05", 3, 4),
+      ]),
+      club("gcTXB9000000", "Denton Dawgs 9U", 9, "TX", [
+        played("b1", "Grit 9U", "2026-09-06", 1, 8),
+      ]),
+      club("gcGRITNY9000", "Grit 9U", 9, "NY", [
+        played("g1", "Chestnut Ridge 9U", "2026-09-05", 6, 0),
+      ]),
+    ]);
+    const grit = named(pool, "Grit");
+    expect(grit).toHaveLength(2);
+    expect(grit.filter((team) => team.nameOnly)).toHaveLength(1);
+    expect(grit.filter((team) => team.gcTeams?.length)).toHaveLength(1);
+  });
+
+  it("still matches a club whose schedule was empty when a neighbour names it", () => {
+    // Brazos Valley Bucks (TX) came back with no games at all; a Texas schedule then names them.
+    const pool = fold([
+      club("gcBRAZOS1100", "Brazos Valley Bucks Lemons 11U", 11, "TX", []),
+      club("gcTXC1100000", "Katy Krush 11U", 11, "TX", [
+        played("k1", "Brazos Valley Bucks Lemons 11U", "2026-09-05", 2, 3),
+      ]),
+    ]);
+    const bucks = named(pool, "Brazos Valley Bucks Lemons");
+    expect(bucks).toHaveLength(1);
+    expect(bucks[0]?.gcTeams?.[0]?.teamId).toBe("gcBRAZOS1100");
+    expect(pool.games).toHaveLength(1);
+  });
+
+  it("leaves a sole namesake in another state as a stand-in unless something vouches for it", () => {
+    // Hixson Braves (TN) list the Dodgers; the only Dodgers pulled so far are in Florida.
+    const pool = fold([
+      club("gcDODGFL0000", "Dodgers 10U", 10, "FL", [
+        played("d1", "Marlins 10U", "2026-09-01", 5, 1),
+      ]),
+      club("gcHIXSON0000", "Hixson Braves 10U", 10, "TN", [
+        played("h1", "Dodgers 10U", "2026-09-08", 7, 2),
+      ]),
+    ]);
+    const dodgers = named(pool, "Dodgers");
+    expect(dodgers).toHaveLength(2);
+    const fl = dodgers.find((team) => team.state === "FL")!;
+    const braves = named(pool, "Hixson Braves")[0]!;
+    const row = pool.games.find((game) => [game.teamAId, game.teamBId].includes(braves.id))!;
+    expect([row.teamAId, row.teamBId]).not.toContain(fl.id);
+  });
+
+  it("takes a sole namesake in another state when its own schedule holds the game", () => {
+    // Albertville Aggies (AL) really did play Douglas (OH), and Douglas' schedule says so.
+    const pool = fold([
+      club("gcDOUGLASOH0", "Douglas 9U", 9, "OH", [
+        played("d1", "Albertiville Aggies 9U", "2026-09-01", 1, 13),
+      ]),
+      club("gcAGGIESAL00", "Albertiville Aggies 9U", 9, "AL", [
+        played("a1", "Douglas 9U", "2026-09-01", 13, 1),
+      ]),
+    ]);
+    expect(named(pool, "Douglas")).toHaveLength(1);
+    expect(pool.games).toHaveLength(1);
+  });
+
+  it("keeps a stand-in per state for a name that is nobody in particular", () => {
+    const pool = fold([
+      club("gcTXD8000000", "Frisco Fury 8U", 8, "TX", [
+        played("a1", "Bandits 8U", "2026-09-05", 3, 4),
+      ]),
+      club("gcFLD8000000", "Tampa Terror 8U", 8, "FL", [
+        played("b1", "Bandits 8U", "2026-09-05", 1, 8),
+      ]),
+      club("gcTXE8000000", "Plano Power 8U", 8, "TX", [
+        played("c1", "Bandits 8U", "2026-09-12", 0, 6),
+      ]),
+    ]);
+    const bandits = named(pool, "Bandits");
+    expect(bandits).toHaveLength(2);
+    const games = (id: string) =>
+      pool.games.filter((game) => [game.teamAId, game.teamBId].includes(id)).length;
+    expect(bandits.map((team) => games(team.id)).sort()).toEqual([1, 2]);
+  });
+
+  it("files a stand-in's rows onto the one club of that name in the puller's state at tidy", () => {
+    // A pool filed before the rules above existed: two Mississippi schedules' games sit on a
+    // "Cubs" stand-in while a Grenada MS Cubs and a Texas Cubs were both pulled. Only the state
+    // can say which Cubs; the pass is order-independent, which nothing at arrival was.
+    const pool = fold([
+      club("gcCUBSTX0000", "Cubs 8U", 8, "TX", [
+        played("t1", "Wylie Wolves 8U", "2026-09-01", 9, 0),
+      ]),
+      club(
+        "gcCUBSMS0000",
+        "Cubs 8U",
+        8,
+        "MS",
+        [played("m1", "Delta Dogs 8U", "2026-09-05", 3, 3)],
+        "Grenada"
+      ),
+      club("gcMSA8000000", "OES Mayhem 8U", 8, "MS", [
+        played("a1", "Wylie Wolves 8U", "2026-08-27", 2, 5),
+      ]),
+    ]);
+    const mayhem = named(pool, "OES Mayhem")[0]!;
+    const standIn: ScoutTeam = { id: "S-CUBS-STUB", name: "Cubs", nameOnly: true };
+    const stale: GcImportState = {
+      ...pool,
+      teams: [...pool.teams, standIn],
+      games: [
+        ...pool.games,
+        {
+          id: "gc_gcMSA8000000_old",
+          teamAId: mayhem.id,
+          teamBId: standIn.id,
+          ageGroupId: pool.games[0]!.ageGroupId,
+          date: "2026-08-15",
+          teamAScore: 4,
+          teamBScore: 6,
+          ageLevelA: 8,
+          ageLevelB: 8,
+          source: { kind: "gamechanger", teamId: "gcMSA8000000", gameId: "old" },
+        },
+      ],
+    };
+    const out = refileStandIns(stale);
+    expect(out.refiled).toBe(1);
+    const ms = named(out.state, "Cubs").find((team) => team.state === "MS")!;
+    const row = out.state.games.find((game) => game.id === "gc_gcMSA8000000_old")!;
+    expect(row.teamBId).toBe(ms.id);
+    expect(out.state.teams.find((team) => team.id === "S-CUBS-STUB")).toBeUndefined();
+  });
+
+  it("leaves a stand-in alone when two clubs of the name share the puller's state", () => {
+    const pool = fold([
+      club("gcRANGERSA00", "Rangers 10U", 10, "TX", [], "Garland"),
+      club("gcRANGERSB00", "Rangers 10U", 10, "TX", [], "Prosper"),
+      club("gcTXF1000000", "Allen Aces 10U", 10, "TX", [
+        played("a1", "Rangers 10U", "2026-09-05", 2, 3),
+      ]),
+    ]);
+    const tidy = tidyPool(pool);
+    expect(tidy.refiled).toBe(0);
+    expect(named(tidy.state, "Rangers").filter((team) => team.nameOnly)).toHaveLength(1);
   });
 });
