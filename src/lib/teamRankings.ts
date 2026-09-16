@@ -1111,6 +1111,105 @@ const homeLevelsForYear = (
   );
 };
 
+/** The page a team is found on: its age group, and that group's level and year for display. */
+export type TeamPage = {
+  ageGroupId: string;
+  level: number | undefined;
+  year: number | undefined;
+};
+
+/**
+ * Where to find each team — the one page in the whole pool that team belongs on.
+ *
+ * Searching for a club is the one thing the age tabs cannot help with: "Canes Triad Black" is on
+ * exactly one page and you have to already know which season and which level to get there, which
+ * is the opposite of what searching is for. This answers it once for every team, so a search box
+ * can take a name and go.
+ *
+ * A team's page is its home level in the most recent year it played, rather than the level of any
+ * one game: a 9U squad that entered a 10U tournament is a 9U team with a game played up, and
+ * landing somebody on the 10U page because of it would be wrong. Most recent, because a club that
+ * has been pulled for three seasons should be found where it is now.
+ *
+ * A team with no page — nothing but games in groups that no longer exist — is absent rather than
+ * guessed at. So is a placeholder, which names nobody, and a club known only from somebody else's
+ * schedule, which has no page of its own to be on.
+ */
+export const teamPages = (
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): Map<string, TeamPage> => {
+  const index = indexGroups(ageGroups);
+  const pages = new Map<string, TeamPage>();
+  if (ageGroups.length === 0) return pages;
+
+  /** Age group by level and year, so a home level can be turned back into a page. */
+  const groupAt = new Map<string, AgeGroup>();
+  ageGroups.forEach((group) => {
+    const level = ageGroupLevel(group);
+    const year = ageGroupYear(group);
+    groupAt.set(`${level ?? "?"}|${year ?? "?"}`, group);
+  });
+
+  // The years each team has games in, and the group of its most recent game as a fallback.
+  const yearsByTeam = new Map<string, Set<number | undefined>>();
+  const latestGroupByTeam = new Map<string, { at: string; ageGroupId: string }>();
+  games.forEach((game) => {
+    const year = index.year(game.ageGroupId);
+    const at = game.date ?? "";
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      const years = yearsByTeam.get(teamId);
+      if (years) years.add(year);
+      else yearsByTeam.set(teamId, new Set([year]));
+      const latest = latestGroupByTeam.get(teamId);
+      if (!latest || at > latest.at)
+        latestGroupByTeam.set(teamId, { at, ageGroupId: game.ageGroupId });
+    });
+  });
+
+  // One home-level pass per distinct year rather than one per team.
+  const eligible = teams.filter((team) => !team.placeholder && !team.nameOnly);
+  const years = new Set<number | undefined>();
+  yearsByTeam.forEach((teamYears) => teamYears.forEach((year) => years.add(year)));
+  const homeLevels = new Map<number | undefined, Map<string, number | undefined>>();
+  years.forEach((year) =>
+    homeLevels.set(year, homeLevelsForYear(year, eligible, games, ageGroups))
+  );
+
+  eligible.forEach((team) => {
+    const teamYears = [...(yearsByTeam.get(team.id) ?? [])];
+    if (teamYears.length === 0) return;
+    // The most recent year it played; a group with no year sorts below every year that has one.
+    const latestYear = teamYears.reduce((best, year) =>
+      best === undefined ? year : year === undefined ? best : Math.max(best, year)
+    );
+    const level = homeLevels.get(latestYear)?.get(team.id);
+    const group = groupAt.get(`${level ?? "?"}|${latestYear ?? "?"}`);
+    if (group) {
+      pages.set(team.id, {
+        ageGroupId: group.id,
+        level: ageGroupLevel(group),
+        year: ageGroupYear(group),
+      });
+      return;
+    }
+    // No page at that level — a team whose only games are filed somewhere unexpected. Its most
+    // recent game's own group is where somebody looking for it would actually find its results.
+    const fallbackId = latestGroupByTeam.get(team.id)?.ageGroupId;
+    const fallback = ageGroups.find((entry) => entry.id === fallbackId);
+    if (fallback) {
+      pages.set(team.id, {
+        ageGroupId: fallback.id,
+        level: ageGroupLevel(fallback),
+        year: ageGroupYear(fallback),
+      });
+    }
+  });
+
+  return pages;
+};
+
 /**
  * A team's home level in a season year: the level of the age group its GameChanger link for that
  * year is filed under (latest season wins: fall < winter < spring < summer within a squad year);

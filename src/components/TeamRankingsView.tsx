@@ -29,6 +29,7 @@ import {
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
+  teamPages,
   unlinkGcTeam,
   type AgeGroup,
   type AgeGroupSeason,
@@ -990,6 +991,47 @@ export function TeamRankingsView({
    * everyone else follows as before. Nothing is hidden: a proposal this strong is still only a
    * proposal, and the person merging is the one who knows.
    */
+  /**
+   * Where each team lives, so the search box can go there.
+   *
+   * Over the whole pool rather than this page: finding a club without already knowing its season
+   * and age level is the one thing the age tabs cannot do, and is the point of searching at all.
+   */
+  const pagesByTeam = useMemo(
+    () => teamPages(allKnown.teams, allKnown.games, ageGroups),
+    [allKnown.teams, allKnown.games, ageGroups]
+  );
+
+  const searchOptions = useMemo(() => {
+    const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
+    return [...pagesByTeam.entries()].flatMap(([teamId, page]) => {
+      const team = byId.get(teamId);
+      if (!team) return [];
+      const where = [
+        page.level === undefined ? "" : `${page.level}U`,
+        page.year === undefined ? "" : String(page.year),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      /*
+       * The town off the team itself rather than through `placeOf`, which only knows this page's
+       * rows. Every team worth searching for is on some other page, so reading it that way left
+       * the place blank on exactly the results that needed it — and the place is what tells two
+       * clubs of the same name apart.
+       */
+      const place = [team.city, team.state].filter(Boolean).join(", ");
+      const detail = [where, place].filter(Boolean).join(" · ");
+      return [{ id: teamId, label: team.name, ...(detail ? { detail } : {}) }];
+    });
+  }, [pagesByTeam, allKnown.teams]);
+
+  /** Goes to the page a team is on and opens it, whichever season and level that turns out to be. */
+  const openSearchedTeam = (teamId: string) => {
+    const page = pagesByTeam.get(teamId);
+    if (page) openPage(page.ageGroupId);
+    setOpenTeamId(teamId);
+  };
+
   const mergeCandidatesFor = (teamId: string): MergeCandidate[] => {
     const others = rankedTeams.filter((team) => team.id !== teamId);
     const relations = clubRelations(teamId, staffIndex);
@@ -1392,6 +1434,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
           {section === "rankings" && (
             <RankingsBoards
               groupName={selectedGroupName}
+              searchOptions={searchOptions}
+              onSearchTeam={openSearchedTeam}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
               rankings={rankings}

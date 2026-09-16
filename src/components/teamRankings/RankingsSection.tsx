@@ -3,6 +3,7 @@ import type { ScoutRankingRow } from "../../lib/teamRankings";
 import { UNKNOWN_STATE } from "../../lib/teamRankings";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
+import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { card, pill } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
@@ -11,6 +12,15 @@ export const STATE_TOP = 10;
 
 type RankingsSectionProps = {
   groupName: string;
+  /**
+   * Every team in the pool, wherever it is filed, for the search box at the top.
+   *
+   * Not the page's own rows: the point of searching is to find a club without already knowing
+   * which season and level it is on, which is the one thing the age tabs cannot help with.
+   */
+  searchOptions: TeamSearchOption[];
+  /** Goes to the page that team is on and opens it. */
+  onSearchTeam: (teamId: string) => void;
   hasAgeGroups: boolean;
   /** Why this page has no table at all, when the reason is the age level rather than the data. */
   unrankedLevelNote: string | null;
@@ -42,6 +52,8 @@ type RankingsSectionProps = {
  */
 export function RankingsSection({
   groupName,
+  searchOptions,
+  onSearchTeam,
   hasAgeGroups,
   unrankedLevelNote,
   rankings,
@@ -73,6 +85,31 @@ export function RankingsSection({
 
   return (
     <>
+      {/*
+        Above the boards rather than inside them, because it is not a filter on this page — it
+        crosses seasons and age levels. "Canes Triad Black" is on exactly one page, and finding it
+        used to mean knowing which season and which level before you could start looking.
+      */}
+      {searchOptions.length > 0 && (
+        <div className={`${card} p-4`}>
+          <label
+            className="block text-xs font-semibold uppercase tracking-wide text-slate-500"
+            htmlFor="scout-team-search"
+          >
+            Find a team
+          </label>
+          <div className="mt-2 flex">
+            <TeamSearchSelect
+              id="scout-team-search"
+              value=""
+              onChange={onSearchTeam}
+              options={searchOptions}
+              placeholder="Search every team, any age or season"
+            />
+          </div>
+        </div>
+      )}
+
       {rankings.length === 0 ? (
         <div className={`${card} p-5`}>
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">

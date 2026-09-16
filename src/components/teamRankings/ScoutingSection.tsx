@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type {
   MatchupPreview,
   MatchupTier,
@@ -6,6 +7,7 @@ import type {
 } from "../../lib/teamRankings";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
 import { AiStoryPanel } from "../AiStoryPanel";
+import { TeamSearchSelect } from "../TeamSearchSelect";
 import { card, pill } from "../../styles/tokens";
 
 const tierTone = (tier: MatchupTier) =>
@@ -59,6 +61,20 @@ export function ScoutingSection({
   explanation,
   placeOf,
 }: ScoutingSectionProps) {
+  /**
+   * The place rides along as the detail line: a nationwide pool holds several clubs of the same
+   * name, and the name alone cannot tell you which one you meant.
+   */
+  const teamOptions = useMemo(
+    () =>
+      rankings.map((row) => ({
+        id: row.teamId,
+        label: row.teamName,
+        ...(placeOf(row.teamId) ? { detail: placeOf(row.teamId) as string } : {}),
+      })),
+    [rankings, placeOf]
+  );
+
   return (
     <div className={`${card} p-5`}>
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Scouting report</h2>
@@ -69,19 +85,19 @@ export function ScoutingSection({
         >
           How would
         </label>
-        <select
+        {/*
+          A dropdown, until this page held a nationwide pool. Picking one club out of several
+          thousand by scrolling is not picking, so this is the same search box the merge picker
+          uses: type a name and the list narrows to it.
+        */}
+        <TeamSearchSelect
           id="scout-report-team"
           value={reportForId}
-          onChange={(event) => onReportTeamChange(event.target.value)}
-          className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-        >
-          {rankings.map((row) => (
-            <option key={row.teamId} value={row.teamId}>
-              {row.teamName}
-              {placeOf(row.teamId) ? ` — ${placeOf(row.teamId)}` : ""}
-            </option>
-          ))}
-        </select>
+          onChange={onReportTeamChange}
+          options={teamOptions}
+          placeholder="Search for a team"
+          className="min-w-56 max-w-xs"
+        />
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">fare?</span>
       </div>
       {reportRow && (
