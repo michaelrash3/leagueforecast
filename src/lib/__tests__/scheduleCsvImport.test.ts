@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseScheduleCsvImport } from "../scheduleCsvImport";
 
-const baseHeader = "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away K,Home Team,Home Runs,Home Hits,Home K";
+const baseHeader =
+  "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away K,Home Team,Home Runs,Home Hits,Home K";
 
 describe("parseScheduleCsvImport", () => {
   it("imports score-only finals instead of requiring strikeout columns", () => {
@@ -51,7 +52,6 @@ describe("parseScheduleCsvImport", () => {
     expect(result.issues).toEqual([{ kind: "duplicate-id", rowNumber: 3, detail: "g1" }]);
   });
 });
-
 
 it("imports player-pitch box-score BB as walks drawn by that team", () => {
   const csv = [

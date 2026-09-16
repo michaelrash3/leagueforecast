@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   countsTowardRating,
   gamesForTeam,
@@ -11,6 +11,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../lib/teamRankings";
+import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
 
@@ -32,10 +33,13 @@ type TeamDetailPanelProps = {
   onUnlinkGc: (gcTeamId: string) => void;
   /** Folds this team into another — the "same team as" the pull could only propose. */
   onMergeInto: (intoTeamId: string) => void;
-  /** Teams this one could be folded into: everyone else on the page, for the picker. */
-  mergeCandidates: ScoutTeam[];
+  /** Teams this one could be folded into: everyone else on the page, likeliest club first. */
+  mergeCandidates: MergeCandidate[];
   onClose: () => void;
 };
+
+/** A team the picker can offer, with a line about why it is near the top when there is one. */
+export type MergeCandidate = ScoutTeam & { clubHint?: string };
 
 const scoreLine = (game: ScoutGame, own: string, nameOf: (id: string) => string) => {
   const isA = game.teamAId === own;
@@ -80,10 +84,19 @@ export function TeamDetailPanel({
    */
   const mergeOptions = useMemo(
     () =>
-      mergeCandidates.map((candidate) => ({
+      mergeCandidates.map((candidate, index) => ({
         id: candidate.id,
         label: candidate.name,
-        ...(candidate.state ? { detail: candidate.state } : {}),
+        // The caller hands these club-first; the index keeps that order through the picker's own
+        // alphabetical sort, which would otherwise bury the answer among thousands of names.
+        ...(candidate.clubHint ? { priority: index } : {}),
+        // The club hint when there is one, since it is the reason this name is near the top; the
+        // state otherwise, which is what tells two clubs of the same name apart.
+        ...(candidate.clubHint
+          ? { detail: candidate.clubHint }
+          : candidate.state
+            ? { detail: candidate.state }
+            : {}),
       })),
     [mergeCandidates]
   );
@@ -115,6 +128,8 @@ export function TeamDetailPanel({
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
+  const headingId = useId();
+
   const wouldMerge =
     renamed &&
     [...teamNameById.entries()].some(
@@ -122,10 +137,14 @@ export function TeamDetailPanel({
     );
 
   return (
-    <div className={`${card} p-5`}>
+    // A region rather than a plain box: this opens in answer to a click somewhere else on the
+    // page, and naming it after the team is what tells a screen-reader user which team arrived.
+    <section aria-labelledby={headingId} className={`${card} p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">{team.name}</h2>
+          <h2 id={headingId} className="text-sm font-black uppercase tracking-wide text-slate-500">
+            {team.name}
+          </h2>
           {(team.city || team.state) && (
             <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
               {[team.city, team.state].filter(Boolean).join(", ")}
@@ -223,7 +242,13 @@ export function TeamDetailPanel({
                 <span className="text-xs text-slate-500">
                   {gcSeasonLabel(link) || "season unknown"}
                   {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
+                  {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
                 </span>
+                {rosterStanding(link.playerCount) === "short" && (
+                  <span className={pill("amber")} title={describeRoster(link.playerCount) ?? ""}>
+                    {link.playerCount} players
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => onUnlinkGc(link.teamId)}
@@ -345,6 +370,6 @@ export function TeamDetailPanel({
           })}
         </ul>
       )}
-    </div>
+    </section>
   );
 }

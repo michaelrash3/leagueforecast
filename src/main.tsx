@@ -1,13 +1,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTeamRankingsStore } from "./lib/teamRankingsStorage";
 import "./index.css";
 
 const mount = () => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <App />
+      {/* The last catch. Anything a section's own boundary does not hold lands here, so the worst
+          case is a message that says the data is safe rather than a blank page. */}
+      <ErrorBoundary area="League Forecast">
+        <App />
+      </ErrorBoundary>
     </React.StrictMode>
   );
 };

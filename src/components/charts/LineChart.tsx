@@ -51,8 +51,7 @@ export function LineChart({
   const innerH = height - padding.top - padding.bottom;
 
   const maxLen = Math.max(1, ...series.map((s) => s.values.length));
-  const xFor = (i: number) =>
-    padding.left + (i / Math.max(maxLen - 1, 1)) * innerW;
+  const xFor = (i: number) => padding.left + (i / Math.max(maxLen - 1, 1)) * innerW;
   const yFor = (v: number) => {
     const clamped = Math.max(yMin, Math.min(yMax, v));
     const ratio = (clamped - yMin) / Math.max(yMax - yMin, 1);
@@ -153,9 +152,7 @@ export function LineChart({
         {/* Series */}
         {series.map((s) => {
           const tone = s.tone ?? "blue";
-          const points = s.values
-            .map((value, i) => `${xFor(i)},${yFor(value)}`)
-            .join(" ");
+          const points = s.values.map((value, i) => `${xFor(i)},${yFor(value)}`).join(" ");
           const last = s.values[s.values.length - 1] ?? yMin;
           return (
             <g key={s.id}>

@@ -69,9 +69,41 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        /*
+         * React and React DOM go in a chunk of their own. They are a third of what a first visit
+         * downloads and they change only when the dependency is upgraded, so keeping them apart
+         * means a deploy of our own code re-downloads our own code and nothing else — every
+         * returning visit after a release is that much lighter.
+         */
+        manualChunks: (id) =>
+          /node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id) ? "react" : undefined,
+      },
+    },
   },
   test: {
-    environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // Two projects rather than one environment, because they want different ones. The lib tests are
+    // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
+    // them keeps the 1,000-odd lib tests from paying for a jsdom they never touch.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "lib",
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "components",
+          environment: "jsdom",
+          include: ["src/**/*.test.tsx"],
+          setupFiles: ["./src/test/setup.ts"],
+        },
+      },
+    ],
   },
 });

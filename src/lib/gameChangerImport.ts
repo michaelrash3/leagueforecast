@@ -458,16 +458,24 @@ const skipReason = (profile: GcTeamProfile): string => {
 };
 
 /** The link this pull records against a team, so a later pull knows what it already has. */
-const linkFor = (profile: GcTeamProfile, ageGroupId: string, fetchedAt: string): GcTeamLink => ({
-  teamId: profile.id,
-  name: profile.name,
-  ageGroupId,
-  ...(profile.season ? { season: profile.season.season, seasonYear: profile.season.year } : {}),
-  ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
-  ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
-  ...(profile.record ? { record: profile.record } : {}),
-  importedAt: fetchedAt,
-});
+const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
+  const { profile, fetchedAt, listed } = schedule;
+  return {
+    teamId: profile.id,
+    name: profile.name,
+    ageGroupId,
+    ...(profile.season ? { season: profile.season.season, seasonYear: profile.season.year } : {}),
+    ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
+    ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
+    ...(profile.record ? { record: profile.record } : {}),
+    // From the user's list rather than from GameChanger, and only when their list carried it.
+    ...(listed?.staff?.length ? { staff: listed.staff } : {}),
+    ...(listed?.playerCount === undefined
+      ? {}
+      : { playerCount: listed.playerCount, countedAt: fetchedAt }),
+    importedAt: fetchedAt,
+  };
+};
 
 const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
   const rest = (team.gcTeams ?? []).filter((entry) => entry.teamId !== link.teamId);
@@ -536,7 +544,7 @@ const resolveOwnTeam = (
   index: ImportIndex
 ): { teamId: string; created: boolean } => {
   const { profile } = schedule;
-  const link = linkFor(profile, ageGroupId, schedule.fetchedAt);
+  const link = linkFor(schedule, ageGroupId);
   const known = index.teamByGcId.get(profile.id);
   if (known) {
     replaceTeam(index, teams, withLink(known, link));

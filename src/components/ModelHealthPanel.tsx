@@ -65,10 +65,7 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                       : `${Math.round(backtestResult.highConfidenceAccuracy * 100)}%`
                   }
                 />
-                <Metric
-                  label="Brier"
-                  value={backtestResult.brierScore.toFixed(3)}
-                />
+                <Metric label="Brier" value={backtestResult.brierScore.toFixed(3)} />
                 <Metric
                   label="Upsets"
                   value={`${Math.round(backtestResult.upsetCaptureRate * 100)}%`}

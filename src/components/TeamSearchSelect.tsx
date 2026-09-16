@@ -6,17 +6,30 @@ export type TeamSearchOption = {
   label: string;
   /** A second line to tell two clubs of the same name apart — a state, a season, a record. */
   detail?: string;
+  /**
+   * Put this one above the alphabet, lowest first.
+   *
+   * For the few options something actually knows about — the clubs a team's coaches point to,
+   * where sharing two of them means the same club 98% of the time by state. Without it the
+   * alphabet buries that answer among thousands of names, and the truncation below can drop it
+   * entirely. Everything with no priority sorts alphabetically, as it always has.
+   */
+  priority?: number;
 };
 
 /** Drawn at once. Past this the answer is to type more, not to scroll further. */
 export const TEAM_SEARCH_LIMIT = 50;
 
 /**
- * The rows a query leaves, alphabetically, and how many there were in all.
+ * The rows a query leaves, and how many there were in all.
  *
- * Alphabetical because the caller's order — ranking, or whatever the pool happened to hold — is no
- * help at all when you are looking for a name you already know. The detail breaks a tie, so two
+ * Alphabetical, because the caller's order — ranking, or whatever the pool happened to hold — is
+ * no help at all when you are looking for a name you already know. The detail breaks a tie, so two
  * clubs of the same name keep a stable order rather than swapping about between renders.
+ *
+ * Except for the ones carrying a `priority`. Those are the options something actually knows
+ * something about, and they go first: the alphabet is the right default precisely because nothing
+ * usually knows better, and the wrong one when something does.
  */
 export const matchTeamOptions = (
   options: readonly TeamSearchOption[],
@@ -27,7 +40,10 @@ export const matchTeamOptions = (
   const sorted = options
     .slice()
     .sort(
-      (a, b) => a.label.localeCompare(b.label) || (a.detail ?? "").localeCompare(b.detail ?? "")
+      (a, b) =>
+        (a.priority ?? Infinity) - (b.priority ?? Infinity) ||
+        a.label.localeCompare(b.label) ||
+        (a.detail ?? "").localeCompare(b.detail ?? "")
     );
   const matches = needle
     ? sorted.filter((option) =>

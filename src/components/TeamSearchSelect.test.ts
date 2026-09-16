@@ -55,3 +55,55 @@ describe("matchTeamOptions", () => {
     expect(given).toEqual(options);
   });
 });
+
+describe("an option something knows about", () => {
+  const plain = (label: string) => ({ id: label, label });
+
+  it("goes above the alphabet", () => {
+    const { shown } = matchTeamOptions(
+      [plain("Aces"), plain("Badgers"), { id: "z", label: "Zebras", priority: 0 }],
+      ""
+    );
+    // The alphabet is the right default because nothing usually knows better, and the wrong one
+    // when something does — here, two shared coaches, which means one club 98% of the time.
+    expect(shown.map((option) => option.label)).toEqual(["Zebras", "Aces", "Badgers"]);
+  });
+
+  it("keeps the caller's order among the ones it knows about", () => {
+    const { shown } = matchTeamOptions(
+      [
+        { id: "b", label: "Second guess", priority: 1 },
+        { id: "a", label: "Best guess", priority: 0 },
+        plain("Aardvarks"),
+      ],
+      ""
+    );
+    expect(shown.map((option) => option.label)).toEqual([
+      "Best guess",
+      "Second guess",
+      "Aardvarks",
+    ]);
+  });
+
+  it("survives the truncation that would otherwise drop it", () => {
+    const many = Array.from({ length: 500 }, (_, index) =>
+      plain(`Team ${String(index).padStart(4, "0")}`)
+    );
+    const { shown } = matchTeamOptions([...many, { id: "z", label: "Zebras", priority: 0 }], "");
+    // Alphabetically "Zebras" is last of 501 and the list draws fifty.
+    expect(shown[0]?.label).toBe("Zebras");
+  });
+
+  it("is still filtered by the query like everything else", () => {
+    const { shown } = matchTeamOptions(
+      [{ id: "z", label: "Zebras", priority: 0 }, plain("Aces")],
+      "ace"
+    );
+    expect(shown.map((option) => option.label)).toEqual(["Aces"]);
+  });
+
+  it("leaves a list with no priorities exactly as it was", () => {
+    const { shown } = matchTeamOptions([plain("Badgers"), plain("Aces")], "");
+    expect(shown.map((option) => option.label)).toEqual(["Aces", "Badgers"]);
+  });
+});

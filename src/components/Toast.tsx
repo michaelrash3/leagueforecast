@@ -7,13 +7,7 @@ const toneClasses: Record<Toast["tone"], string> = {
   undo: "bg-slate-950 text-white",
 };
 
-export function ToastView({
-  toast,
-  onDismiss,
-}: {
-  toast: Toast | null;
-  onDismiss: () => void;
-}) {
+export function ToastView({ toast, onDismiss }: { toast: Toast | null; onDismiss: () => void }) {
   if (!toast) return null;
   return (
     <div

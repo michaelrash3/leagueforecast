@@ -130,6 +130,23 @@ export type GcTeamLink = {
   avatarKey?: string;
   /** GameChanger's own season record when last pulled — a check on the games read, never rated. */
   record?: { win: number; loss: number; tie: number };
+  /**
+   * The coaches the user's team list named for this id.
+   *
+   * Two GameChanger ids sharing two of these are nearly always one club — see `gcStaff.ts` for the
+   * measurements. It is the only thing in the data that says so: GameChanger never names an
+   * organisation, and club names are written differently on every page it owns.
+   */
+  staff?: string[];
+  /**
+   * Players on the roster when the list was taken, and when that was.
+   *
+   * It takes nine to field a side, so fewer means this is probably a page rather than a team yet.
+   * The timestamp is what makes coming back to it possible: a squad of six in September is twelve
+   * in October, and only a second count can say which.
+   */
+  playerCount?: number;
+  countedAt?: string;
   /** When this id's schedule was last pulled, ISO timestamp. */
   importedAt?: string;
 };
@@ -1432,6 +1449,36 @@ export const buildTeamRankings = (
   return rankRows(rows);
 };
 
+/**
+ * The games one page's rating is fitted over, each with the age gap between the two sides.
+ *
+ * Pulled out of the fit so that anything measuring the model — a hold-out backtest, a comparison
+ * of one age-gap prior against another — reads exactly the games the rankings read. A measurement
+ * over a different set of games than the thing it is measuring is not a measurement of it.
+ */
+export const scoutRatingGames = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): Array<{ game: ScoutGame; ageGap: number }> => {
+  const index = indexGroups(ageGroups);
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  return games
+    .filter(
+      (game) =>
+        pool.has(game.ageGroupId) &&
+        countsTowardRating(game) &&
+        // Last year's squad's games, listed under this year's id, are not this squad's results.
+        inSquadYear(game.date, index.year(game.ageGroupId)) &&
+        teamById.has(game.teamAId) &&
+        teamById.has(game.teamBId)
+    )
+    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+};
+
 const buildPooledTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
@@ -1443,21 +1490,8 @@ const buildPooledTeamRankings = (
   const level = index.level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
   const year = index.year(ageGroupId);
-  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
 
-  // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
-  const teamById = new Map(teams.map((team) => [team.id, team]));
-  const rated = games
-    .filter(
-      (game) =>
-        pool.has(game.ageGroupId) &&
-        countsTowardRating(game) &&
-        // Last year's squad's games, listed under this year's id, are not this squad's results.
-        inSquadYear(game.date, index.year(game.ageGroupId)) &&
-        teamById.has(game.teamAId) &&
-        teamById.has(game.teamBId)
-    )
-    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups);
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();

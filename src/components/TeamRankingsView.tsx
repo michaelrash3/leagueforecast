@@ -59,6 +59,7 @@ import {
   loadScoutGames,
   loadScoutTeams,
   loadTidyStamp,
+  onPoolChangedElsewhere,
   saveAgeGroups,
   savePullProgress,
   saveRefreshLog,
@@ -67,13 +68,18 @@ import {
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import {
+  estimateBackupBytes,
+  formatBytes,
+  LARGE_BACKUP_BYTES,
   readTeamRankingsBackup,
   summarizeTeamRankingsBackup,
-  teamRankingsCsvSections,
+  teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
+import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TeamDetailPanel } from "./TeamDetailPanel";
+import { TeamDetailPanel, type MergeCandidate } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import {
   NATIONAL_TOP,
@@ -125,6 +131,16 @@ type TeamRankingsViewProps = {
  * The season-year picker and the age tabs stay above every section, because they scope all of them
  * alike: a section is a view of one age group in one year, never of the pool at large.
  */
+/** What a section is called when a boundary has to say which one could not be drawn. */
+const sectionLabel = (section: RankingsSection): string =>
+  ({
+    rankings: "The rankings",
+    games: "The games list",
+    import: "The GameChanger import",
+    scouting: "The scouting report",
+    setup: "Setup",
+  })[section];
+
 export function TeamRankingsView({
   seasons,
   activeSeasonId,
@@ -197,6 +213,30 @@ export function TeamRankingsView({
       onDataChange?.();
     },
     [showToast, onDataChange]
+  );
+
+  /**
+   * Another tab changed the pool, so what is held here is old.
+   *
+   * The pool is read once, at mount, into the state above. That is what makes a synchronous read
+   * of an asynchronous store possible, and it is also what made two tabs unsafe: open Team
+   * Rankings twice, start a pull in one and correct a score in the other, and the second tab saved
+   * the pool it read at startup over everything the pull had done, without erroring.
+   *
+   * Re-reading here closes it. The store has already taken the new value in by the time this runs,
+   * so every load below answers with what the other tab wrote, and the next save from this tab
+   * builds on that rather than on a pool from an hour ago.
+   */
+  useEffect(
+    () =>
+      onPoolChangedElsewhere(() => {
+        setAgeGroups(loadAgeGroups());
+        setScoutTeams(loadScoutTeams());
+        setScoutGames(loadScoutGames());
+        setPullProgress(loadPullProgress());
+        setRefreshLog(loadRefreshLog());
+      }),
+    []
   );
 
   /**
@@ -923,8 +963,53 @@ export function TeamRankingsView({
   };
 
   /** Everyone else rated on this page — who a team could plausibly be the same club as. */
-  const mergeCandidatesFor = (teamId: string): ScoutTeam[] =>
-    rankedTeams.filter((team) => team.id !== teamId);
+  /**
+   * Who coaches each team, gathered from every GameChanger id it is linked to.
+   *
+   * The staff comes off the user's own team list, not from GameChanger, so a pool built by hand or
+   * pulled before the list carried it simply has none and everything below falls back to the plain
+   * alphabetical picker it always was.
+   */
+  const staffIndex = useMemo(
+    () =>
+      buildStaffIndex(
+        allKnown.teams.map((team) => ({
+          teamId: team.id,
+          staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
+        }))
+      ),
+    [allKnown.teams]
+  );
+
+  /**
+   * What to offer as "same team as", with the clubs first.
+   *
+   * It used to offer every other team on the page in name order, which at a nationwide pool is
+   * thousands of names and no help at all. Two teams sharing two coaches are the same club 98% of
+   * the time by state — see `gcStaff.ts` — so those go to the top with a line saying why, and
+   * everyone else follows as before. Nothing is hidden: a proposal this strong is still only a
+   * proposal, and the person merging is the one who knows.
+   */
+  const mergeCandidatesFor = (teamId: string): MergeCandidate[] => {
+    const others = rankedTeams.filter((team) => team.id !== teamId);
+    const relations = clubRelations(teamId, staffIndex);
+    if (relations.length === 0) return others;
+
+    const hintById = new Map(
+      relations.map((relation) => [relation.teamId, describeRelation(relation)])
+    );
+    const related: MergeCandidate[] = [];
+    const rest: MergeCandidate[] = [];
+    others.forEach((team) => {
+      const hint = hintById.get(team.id);
+      if (hint) related.push({ ...team, clubHint: hint });
+      else rest.push(team);
+    });
+    // `clubRelations` is already strongest first; this puts the candidates in that same order.
+    const order = new Map(relations.map((relation, index) => [relation.teamId, index]));
+    related.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return [...related, ...rest];
+  };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
 
@@ -1099,20 +1184,43 @@ export function TeamRankingsView({
    * schedule, so importing this file is how the data comes back — which is the only reason the
    * reset below can be offered at all.
    */
-  const downloadPoolBackup = () => {
-    const csv = teamRankingsCsvSections(readTeamRankingsBackup());
-    if (!csv) {
+  const downloadPoolBackup = async () => {
+    const backup = readTeamRankingsBackup();
+    const estimate = estimateBackupBytes(backup);
+
+    // A nationwide pool makes a file that takes a moment to put together and will not open in
+    // every spreadsheet. Somebody who pressed this meaning to glance at their own league's rows
+    // should hear that before waiting for it.
+    if (estimate >= LARGE_BACKUP_BYTES) {
+      const go = await requestConfirmation({
+        title: "That is a large backup",
+        message: `${summarizeTeamRankingsBackup(backup)}
+
+The file will be around ${formatBytes(estimate)}. It will take a moment to put together, and a file that size opens slowly in a spreadsheet — some will not open it at all.`,
+        confirmLabel: "Download anyway",
+      });
+      if (!go) return;
+    }
+
+    /*
+     * Written in pieces rather than as one string. At twenty thousand teams the joined copy is
+     * tens of megabytes and exists alongside the rows it was built from at the moment of the join,
+     * which is exactly the peak a phone cannot afford. A Blob is assembled from parts perfectly
+     * well, so the join never happens.
+     */
+    const parts = teamRankingsCsvParts(backup);
+    if (parts.length === 0) {
       showToast("Nothing to back up yet.", { tone: "error" });
       return;
     }
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob(parts, { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `Team_Rankings_Backup_${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showToast("Backup downloaded.", { tone: "success" });
+    showToast(`Backup downloaded (${formatBytes(blob.size)}).`, { tone: "success" });
   };
 
   /**
@@ -1274,139 +1382,158 @@ This cannot be undone. Cancel and download the backup first if there is any chan
         aria-labelledby={sectionTabId(section)}
         className="flex flex-col gap-6"
       >
-        {section === "rankings" && (
-          <RankingsBoards
-            groupName={selectedGroupName}
-            hasAgeGroups={ageGroups.length > 0}
-            unrankedLevelNote={unrankedLevelNote}
-            rankings={rankings}
-            rankingsStale={rankingsStale}
-            nationalTop={nationalTop}
-            stateTopRows={stateTopRows}
-            visibleRankings={visibleRankings}
-            availableStates={availableStates}
-            shownState={shownState}
-            onShownStateChange={setStateTop}
-            unknownStateCount={unknownStateCount}
-            stateFilter={stateFilter}
-            onStateFilterChange={setStateFilter}
-            showAll={showAll}
-            onToggleShowAll={() => setShowAll((value) => !value)}
-            placeOf={placeOf}
-            isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
-            hasGamesFiledHere={hasGamesFiledHere}
-            onOpenTeam={setOpenTeamId}
-            onMarkMine={setMyTeam}
-            onRemoveTeam={removeTeamById}
-          />
-        )}
+        {/*
+          One boundary per section, keyed by section, so a section that throws leaves the tabs and
+          the age picker above it usable — you can still get to Setup and take a backup out. Keying
+          it clears the caught error on the way to another section, which is what makes leaving a
+          broken one possible at all.
+        */}
+        <ErrorBoundary key={section} area={sectionLabel(section)}>
+          {section === "rankings" && (
+            <RankingsBoards
+              groupName={selectedGroupName}
+              hasAgeGroups={ageGroups.length > 0}
+              unrankedLevelNote={unrankedLevelNote}
+              rankings={rankings}
+              rankingsStale={rankingsStale}
+              nationalTop={nationalTop}
+              stateTopRows={stateTopRows}
+              visibleRankings={visibleRankings}
+              availableStates={availableStates}
+              shownState={shownState}
+              onShownStateChange={setStateTop}
+              unknownStateCount={unknownStateCount}
+              stateFilter={stateFilter}
+              onStateFilterChange={setStateFilter}
+              showAll={showAll}
+              onToggleShowAll={() => setShowAll((value) => !value)}
+              placeOf={placeOf}
+              isLeagueTeam={(teamId) => leagueGameTeamIds.has(teamId)}
+              hasGamesFiledHere={hasGamesFiledHere}
+              onOpenTeam={setOpenTeamId}
+              onMarkMine={setMyTeam}
+              onRemoveTeam={removeTeamById}
+            />
+          )}
 
-        {section === "games" && (
-          <GamesSection
-            groupName={selectedGroupName}
-            ageGroupId={selectedAgeGroupId}
-            hasAgeGroups={ageGroups.length > 0}
-            draft={gameDraft}
-            onDraftChange={(patch) => setGameDraft((prev) => ({ ...prev, ...patch }))}
-            teamNameOptions={teamNameOptions}
-            myTeamName={myTeamName}
-            addGameValid={addGameValid}
-            onAddGame={() => void addGame()}
-            onGoToImport={() => openSection("import")}
-            importOpen={importOpen}
-            onOpenImport={() => setImportOpen(true)}
-            onCloseImport={() => setImportOpen(false)}
-            allTeams={allKnown.teams}
-            suggestedTeams={suggestedTeams}
-            existingGames={ageGroupGames}
-            onImportGames={importGames}
-            showToast={showToast}
-            loggedGames={ageGroupManualGames}
-            teamNameById={teamNameById}
-            editingGameId={editingGameId}
-            editScoreA={editScoreA}
-            editScoreB={editScoreB}
-            onEditScoreA={setEditScoreA}
-            onEditScoreB={setEditScoreB}
-            onStartEditScore={startEditScore}
-            onSaveScore={saveGameScore}
-            onToggleExcluded={toggleGameExcluded}
-            onRemoveGame={(game) => void removeGame(game)}
-          />
-        )}
+          {section === "games" && (
+            <GamesSection
+              groupName={selectedGroupName}
+              ageGroupId={selectedAgeGroupId}
+              hasAgeGroups={ageGroups.length > 0}
+              draft={gameDraft}
+              onDraftChange={(patch) => setGameDraft((prev) => ({ ...prev, ...patch }))}
+              teamNameOptions={teamNameOptions}
+              myTeamName={myTeamName}
+              addGameValid={addGameValid}
+              onAddGame={() => void addGame()}
+              onGoToImport={() => openSection("import")}
+              importOpen={importOpen}
+              onOpenImport={() => setImportOpen(true)}
+              onCloseImport={() => setImportOpen(false)}
+              allTeams={allKnown.teams}
+              suggestedTeams={suggestedTeams}
+              existingGames={ageGroupGames}
+              onImportGames={importGames}
+              showToast={showToast}
+              loggedGames={ageGroupManualGames}
+              teamNameById={teamNameById}
+              editingGameId={editingGameId}
+              editScoreA={editScoreA}
+              editScoreB={editScoreB}
+              onEditScoreA={setEditScoreA}
+              onEditScoreB={setEditScoreB}
+              onStartEditScore={startEditScore}
+              onSaveScore={saveGameScore}
+              onToggleExcluded={toggleGameExcluded}
+              onRemoveGame={(game) => void removeGame(game)}
+            />
+          )}
 
-        {section === "import" && (
-          <GameChangerImportPanel
-            /*
-             * The stored pool only — not the merged roster. League-derived teams and games are
-             * rebuilt from League Standings on every render and must never be written back here, or
-             * a pull would persist a second copy of every league game it happened to see.
-             */
-            pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
-            savedProgress={pullProgress}
-            onPersist={(next) => {
-              const savedGroups = saveAgeGroups(next.ageGroups);
-              const savedTeams = saveScoutTeams(next.teams);
-              const savedGames = saveScoutGames(next.games);
-              setAgeGroups(next.ageGroups);
-              setScoutTeams(next.teams);
-              setScoutGames(next.games);
-              onDataChange?.();
-              return savedGroups && savedTeams && savedGames;
-            }}
-            onSaveProgress={(progress) => {
-              setPullProgress(progress);
-              savePullProgress(progress);
-            }}
-            onClearProgress={() => {
-              setPullProgress(null);
-              clearPullProgress();
-            }}
-            refreshLog={refreshLog}
-            onRefreshLog={(log) => {
-              setRefreshLog(log);
-              saveRefreshLog(log);
-            }}
-            /* The panel closes itself when a pull finishes; there is nowhere to close to but the
+          {section === "import" && (
+            <GameChangerImportPanel
+              /*
+               * The stored pool only — not the merged roster. League-derived teams and games are
+               * rebuilt from League Standings on every render and must never be written back here, or
+               * a pull would persist a second copy of every league game it happened to see.
+               */
+              pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
+              savedProgress={pullProgress}
+              onPersist={(next) => {
+                const savedGroups = saveAgeGroups(next.ageGroups);
+                const savedTeams = saveScoutTeams(next.teams);
+                const savedGames = saveScoutGames(next.games);
+                setAgeGroups(next.ageGroups);
+                setScoutTeams(next.teams);
+                setScoutGames(next.games);
+                onDataChange?.();
+                return savedGroups && savedTeams && savedGames;
+              }}
+              onSaveProgress={(progress) => {
+                setPullProgress(progress);
+                savePullProgress(progress);
+              }}
+              onClearProgress={() => {
+                setPullProgress(null);
+                clearPullProgress();
+              }}
+              refreshLog={refreshLog}
+              onRefreshLog={(log) => {
+                setRefreshLog(log);
+                saveRefreshLog(log);
+              }}
+              /* The panel closes itself when a pull finishes; there is nowhere to close to but the
                tables it has just filled. */
-            onClose={() => openSection("rankings")}
-            showToast={showToast}
-          />
-        )}
+              onClose={() => openSection("rankings")}
+              showToast={showToast}
+            />
+          )}
 
-        {section === "scouting" && (
-          <ScoutingSection
-            rankings={rankings}
-            reportForId={reportForId}
-            onReportTeamChange={setReportTeamId}
-            reportRow={reportRow}
-            reportRows={reportRows}
-            upcomingRows={upcomingRows}
-            explanation={explanation}
-            placeOf={placeOf}
-          />
-        )}
+          {section === "scouting" && (
+            <ScoutingSection
+              rankings={rankings}
+              reportForId={reportForId}
+              onReportTeamChange={setReportTeamId}
+              reportRow={reportRow}
+              reportRows={reportRows}
+              upcomingRows={upcomingRows}
+              explanation={explanation}
+              placeOf={placeOf}
+            />
+          )}
 
-        {section === "setup" && (
-          <SetupSection
-            seasons={seasons}
-            ageGroups={ageGroups}
-            editingGroupId={editingGroupId}
-            draft={groupDraft}
-            onDraftChange={patchGroupDraft}
-            onAssignSeason={assignSeasonToAge}
-            yearOptions={yearOptions}
-            onSave={saveAgeGroup}
-            onCancelEdit={resetGroupForm}
-            onEditGroup={startEditGroup}
-            onAdvanceGroup={advanceSeason}
-            onDeleteGroup={(group) => void removeAgeGroup(group)}
-            teamCount={scoutTeams.length}
-            gameCount={scoutGames.length}
-            onDownloadBackup={downloadPoolBackup}
-            onReset={() => void resetEverything()}
-          />
-        )}
+          {section === "setup" && (
+            <SetupSection
+              seasons={seasons}
+              ageGroups={ageGroups}
+              editingGroupId={editingGroupId}
+              draft={groupDraft}
+              onDraftChange={patchGroupDraft}
+              onAssignSeason={assignSeasonToAge}
+              yearOptions={yearOptions}
+              onSave={saveAgeGroup}
+              onCancelEdit={resetGroupForm}
+              onEditGroup={startEditGroup}
+              onAdvanceGroup={advanceSeason}
+              onDeleteGroup={(group) => void removeAgeGroup(group)}
+              teamCount={scoutTeams.length}
+              gameCount={scoutGames.length}
+              onDownloadBackup={() => void downloadPoolBackup()}
+              /*
+              The whole known pool, not just this page's rows: the fit is over the season year, so
+              a check over anything narrower would be measuring a different model than the one the
+              table came from.
+            */
+              modelCheck={{
+                ageGroupId: selectedAgeGroupId,
+                groupName: selectedGroupName,
+                teams: allKnown.teams,
+                games: allKnownGames,
+              }}
+              onReset={() => void resetEverything()}
+            />
+          )}
+        </ErrorBoundary>
       </div>
 
       {openTeam && (

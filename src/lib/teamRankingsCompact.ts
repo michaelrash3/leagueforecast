@@ -287,14 +287,30 @@ export type CompactTeams = {
   v: number;
   g: string[];
   s: string[];
+  /**
+   * Coaches, interned.
+   *
+   * Worth its own dictionary rather than writing the names into the rows: a club's officer sits on
+   * every team it runs — one name in the real export is on a hundred and thirty-three — and the
+   * coaches of one club repeat across each of its age groups. Absent on anything written before
+   * staff was stored, which reads as no staff rather than as an error.
+   */
+  p?: string[];
   /** 0 id, 1 name, 2 flags, 3 state, 4 city, 5 links, 6 avatar */
   r: TeamRow[];
 };
 
 type TeamRow = (number | string | null | CompactLink[])[];
 
-/** 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 avatar, 7 w, 8 l, 9 t, 10 importedAt */
-type CompactLink = (number | string | null)[];
+/**
+ * 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 avatar, 7 w, 8 l, 9 t,
+ * 10 importedAt, 11 staff (indexes into `p`), 12 player count, 13 counted at.
+ *
+ * Slots are only ever appended. A reader that predates the last three finds the first eleven
+ * exactly where it expects them and ignores the rest, which is why adding them did not need a
+ * version bump: nothing older misreads anything, it simply does not see the new fields.
+ */
+type CompactLink = (number | string | null | number[])[];
 
 const MINE = 1;
 /** A name that stood in for a club nobody had decided yet; never a team, never ranked. */
@@ -305,10 +321,15 @@ const NAME_ONLY = 4;
 export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
   const groups = interner();
   const seasons = interner();
+  const people = interner();
 
   const rows = teams.map((team) => {
-    const links: CompactLink[] = (team.gcTeams ?? []).map((link) =>
-      trimTrailing([
+    const links: CompactLink[] = (team.gcTeams ?? []).map((link) => {
+      const staff = (link.staff ?? []).flatMap((name) => {
+        const index = people.index(name);
+        return index === null ? [] : [index];
+      });
+      return trimTrailing([
         link.teamId,
         link.name,
         groups.index(link.ageGroupId) ?? -1,
@@ -320,8 +341,11 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
         link.record?.loss ?? null,
         link.record?.tie ?? null,
         link.importedAt ?? null,
-      ])
-    );
+        staff.length > 0 ? staff : null,
+        link.playerCount ?? null,
+        link.countedAt ?? null,
+      ]);
+    });
     const row: TeamRow = [
       team.id,
       team.name,
@@ -336,7 +360,14 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
     return trimTrailing(row);
   });
 
-  return { v: COMPACT_VERSION, g: groups.values, s: seasons.values, r: rows };
+  // Left off entirely when no team has staff, so a pool typed in by hand is written as it was.
+  return {
+    v: COMPACT_VERSION,
+    g: groups.values,
+    s: seasons.values,
+    ...(people.values.length > 0 ? { p: people.values } : {}),
+    r: rows,
+  };
 };
 
 const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
@@ -364,6 +395,17 @@ const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
   }
   const importedAt = str(row[10]);
   if (importedAt) link.importedAt = importedAt;
+  const staff = Array.isArray(row[11])
+    ? row[11].flatMap((index) => {
+        const name = at(pool.p ?? [], index);
+        return name ? [name] : [];
+      })
+    : [];
+  if (staff.length > 0) link.staff = staff;
+  const playerCount = num(row[12]);
+  if (playerCount !== undefined) link.playerCount = playerCount;
+  const countedAt = str(row[13]);
+  if (countedAt) link.countedAt = countedAt;
   return link;
 };
 
@@ -380,6 +422,7 @@ export const decodeScoutTeams = (
     v: typeof source.v === "number" ? source.v : COMPACT_VERSION,
     g: Array.isArray(source.g) ? source.g : [],
     s: Array.isArray(source.s) ? source.s : [],
+    ...(Array.isArray(source.p) ? { p: source.p } : {}),
     r: source.r,
   };
 

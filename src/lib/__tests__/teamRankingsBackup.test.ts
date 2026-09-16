@@ -4,9 +4,13 @@ import { parseScheduleCsvImport } from "../scheduleCsvImport";
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
 import {
   coerceTeamRankingsBackup,
+  estimateBackupBytes,
+  formatBytes,
+  LARGE_BACKUP_BYTES,
   parseTeamRankingsCsv,
   summarizeTeamRankingsBackup,
   teamRankingsBackupIsEmpty,
+  teamRankingsCsvParts,
   teamRankingsCsvSections,
   type TeamRankingsBackup,
 } from "../teamRankingsBackup";
@@ -412,5 +416,138 @@ describe("placeholder slots in a backup", () => {
     );
     const restored = parseTeamRankingsCsv(csv);
     expect(restored?.teams).toEqual([{ id: "S-ACES", name: "Aces" }]);
+  });
+});
+
+describe("writing a backup for a pool too big to hold twice", () => {
+  const bigPool = (teams: number, games: number): TeamRankingsBackup => ({
+    ageGroups: [{ id: "ag_1", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] }],
+    teams: Array.from({ length: teams }, (_, index) => ({
+      id: `S-${index}`,
+      name: `Team ${index}`,
+      state: "KY",
+    })),
+    games: Array.from({ length: games }, (_, index) => ({
+      id: `g${index}`,
+      ageGroupId: "ag_1",
+      teamAId: `S-${index % teams}`,
+      teamBId: `S-${(index + 1) % teams}`,
+      teamAScore: 6,
+      teamBScore: 2,
+      date: "2026-09-12",
+    })),
+  });
+
+  it("writes byte for byte what the joined version writes", () => {
+    const backup = bigPool(40, 200);
+    expect(teamRankingsCsvParts(backup).join("")).toBe(teamRankingsCsvSections(backup));
+  });
+
+  it("comes back in pieces rather than as one string", () => {
+    // The joined copy exists alongside the rows it was built from at the moment of the join, which
+    // is the peak a phone cannot afford at twenty thousand teams.
+    const parts = teamRankingsCsvParts(bigPool(40, 9_000));
+    expect(parts.length).toBeGreaterThan(4);
+    parts.forEach((part) => expect(part.length).toBeLessThan(1_000_000));
+  });
+
+  it("has nothing to write for an empty pool", () => {
+    expect(teamRankingsCsvParts({ ageGroups: [], teams: [], games: [] })).toEqual([]);
+  });
+
+  it("round-trips through the parser like the joined version does", () => {
+    const backup = bigPool(6, 20);
+    const parsed = parseTeamRankingsCsv(teamRankingsCsvParts(backup).join(""));
+    expect(parsed?.teams).toHaveLength(6);
+    expect(parsed?.games).toHaveLength(20);
+  });
+});
+
+describe("saying how big a backup will be before building it", () => {
+  const poolOf = (teams: number, games: number): TeamRankingsBackup => ({
+    ageGroups: [],
+    teams: Array.from({ length: teams }, (_, index) => ({
+      id: `S-${index}`,
+      name: `Team ${index}`,
+    })),
+    games: Array.from({ length: games }, (_, index) => ({
+      id: `g${index}`,
+      ageGroupId: "ag_1",
+      teamAId: "S-0",
+      teamBId: "S-1",
+    })),
+  });
+
+  it("grows with the pool", () => {
+    expect(estimateBackupBytes(poolOf(100, 500))).toBeGreaterThan(
+      estimateBackupBytes(poolOf(10, 50))
+    );
+  });
+
+  it("is nothing for nothing", () => {
+    expect(estimateBackupBytes({ ageGroups: [], teams: [], games: [] })).toBe(0);
+  });
+
+  it("is the right order of magnitude against a pulled pool", () => {
+    // Rows as a GameChanger pull leaves them: real club names, a link, an event and a source. That
+    // is what the estimate is calibrated against, since it is what a large pool is made of.
+    const pulled: TeamRankingsBackup = {
+      ageGroups: [{ id: "ag_1", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] }],
+      teams: Array.from({ length: 200 }, (_, index) => ({
+        id: `S-TROSKYILLINOIS${index}`,
+        name: `2026 Fall Trosky Illinois 9U ${index}`,
+        state: "IL",
+        city: "Naperville",
+        gcTeams: [
+          {
+            teamId: `FtEExZwB4b8${index}`,
+            name: `2026 Fall Trosky Illinois 9U ${index}`,
+            ageGroupId: "ag_1",
+            season: "fall",
+            seasonYear: 2026,
+          },
+        ],
+      })),
+      games: Array.from({ length: 1_000 }, (_, index) => ({
+        id: `g-${index}-abcdef`,
+        ageGroupId: "ag_1",
+        teamAId: `S-TROSKYILLINOIS${index % 200}`,
+        teamBId: `S-TROSKYILLINOIS${(index + 1) % 200}`,
+        teamAScore: 6,
+        teamBScore: 2,
+        date: "2026-09-12",
+        event: "Fall Classic Championship",
+        season: "Fall 2026",
+        source: {
+          kind: "gamechanger" as const,
+          teamId: `FtEExZwB4b8${index % 200}`,
+          gameId: `gm-${index}-xyz123`,
+        },
+      })),
+    };
+    const actual = teamRankingsCsvSections(pulled).length;
+    const estimate = estimateBackupBytes(pulled);
+    // Only used to decide whether to warn, so being within a quarter either way is the whole ask.
+    expect(estimate).toBeGreaterThan(actual * 0.75);
+    expect(estimate).toBeLessThan(actual * 1.25);
+  });
+
+  it("leans high on a pool typed in by hand rather than low", () => {
+    const sparse = poolOf(200, 1_000);
+    // Warning a little early costs a confirmation; warning late costs a phone.
+    expect(estimateBackupBytes(sparse)).toBeGreaterThan(teamRankingsCsvSections(sparse).length);
+  });
+
+  it("calls a nationwide pool large and a league's own pool not", () => {
+    // Twenty thousand teams and the games that come with them: worth asking about first.
+    expect(estimateBackupBytes(poolOf(20_000, 200_000))).toBeGreaterThan(LARGE_BACKUP_BYTES);
+    // One club's season: it should just download.
+    expect(estimateBackupBytes(poolOf(40, 300))).toBeLessThan(LARGE_BACKUP_BYTES);
+  });
+
+  it("says a size the way a sentence would", () => {
+    expect(formatBytes(2_700_000)).toBe("2.7 MB");
+    expect(formatBytes(840_000)).toBe("840 KB");
+    expect(formatBytes(512)).toBe("512 bytes");
   });
 });

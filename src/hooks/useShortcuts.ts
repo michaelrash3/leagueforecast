@@ -13,9 +13,7 @@ const isMod = (event: KeyboardEvent) => event.metaKey || event.ctrlKey;
 const isTypingTarget = (target: EventTarget | null) => {
   if (!target || !(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
-  return (
-    tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable
-  );
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 };
 
 type ChordState = {

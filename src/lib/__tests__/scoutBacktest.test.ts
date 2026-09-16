@@ -1,0 +1,186 @@
+import { describe, expect, it } from "vitest";
+import {
+  AGE_GAP_PRIORS_TO_TRY,
+  backtestScoutRatings,
+  beatsTheBaseline,
+  compareAgeGapPriors,
+} from "../scoutBacktest";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+
+const groups: AgeGroup[] = [
+  { id: "ag_9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+  { id: "ag_11", name: "11U 2027", ageLevel: 11, year: 2027, seasonIds: [] },
+];
+
+/** A day inside the 2027 squad year, which runs August 2026 to July 2027. */
+const dayOf = (index: number): string => {
+  const date = new Date(Date.UTC(2026, 8, 1) + index * 86_400_000);
+  return date.toISOString().slice(0, 10);
+};
+
+/**
+ * A pool with a truth behind it: every team has a real strength, and a game's margin is the
+ * difference between the two plus whatever a year of age is worth, rounded to whole runs. If the
+ * fit cannot recover a strength ordering it was handed, nothing built on it means anything.
+ */
+const syntheticPool = ({
+  teamCount = 12,
+  gamesPerPair = 1,
+  ageGapRuns = 0,
+  olderCount = 0,
+}: {
+  teamCount?: number;
+  gamesPerPair?: number;
+  ageGapRuns?: number;
+  olderCount?: number;
+} = {}): { teams: ScoutTeam[]; games: ScoutGame[]; strength: Map<string, number> } => {
+  const teams: ScoutTeam[] = [];
+  const strength = new Map<string, number>();
+  for (let index = 0; index < teamCount; index += 1) {
+    const id = `S-${index}`;
+    teams.push({ id, name: `Team ${index}` });
+    // Evenly spread from −4 to +4 runs against an average side.
+    strength.set(id, ((index - (teamCount - 1) / 2) / ((teamCount - 1) / 2)) * 4);
+  }
+  // The last `olderCount` teams play a level up, which is what makes a game cross-age.
+  const levelOf = (index: number) => (index >= teamCount - olderCount ? 11 : 9);
+
+  const games: ScoutGame[] = [];
+  let day = 0;
+  for (let round = 0; round < gamesPerPair; round += 1) {
+    for (let a = 0; a < teamCount; a += 1) {
+      for (let b = a + 1; b < teamCount; b += 1) {
+        const gap = levelOf(a) - levelOf(b);
+        const margin = Math.round(
+          (strength.get(`S-${a}`) ?? 0) - (strength.get(`S-${b}`) ?? 0) + gap * ageGapRuns
+        );
+        // Scores that produce exactly that margin; the model only ever reads the difference.
+        const base = 6;
+        games.push({
+          id: `g-${round}-${a}-${b}`,
+          // Filed on the younger side's page, which is where a cross-age game is logged.
+          ageGroupId: levelOf(a) === 11 && levelOf(b) === 11 ? "ag_11" : "ag_9",
+          teamAId: `S-${a}`,
+          teamBId: `S-${b}`,
+          teamAScore: Math.max(0, base + margin),
+          teamBScore: base,
+          date: dayOf(day % 300),
+          ...(levelOf(a) === levelOf(b) ? {} : { ageLevelA: levelOf(a), ageLevelB: levelOf(b) }),
+        });
+        day += 1;
+      }
+    }
+  }
+  return { teams, games, strength };
+};
+
+describe("holding games back and predicting them", () => {
+  it("beats calling every game even", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+
+    // Twelve teams twice round is 132 games; thirty per cent of them are held back.
+    expect(result.sampleSize).toBe(40);
+    // The least a rating has to do to be worth having one.
+    expect(beatsTheBaseline(result)).toBe(true);
+  });
+
+  it("calls the winner far more often than a coin would", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+
+    expect(result.winnerAccuracy).not.toBeNull();
+    expect(result.winnerAccuracy ?? 0).toBeGreaterThan(0.8);
+  });
+
+  it("scores only the games it did not see", () => {
+    const { teams, games } = syntheticPool({ teamCount: 8 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.5 });
+
+    // Twenty-eight pairings, cut in half.
+    expect(result.sampleSize).toBe(14);
+  });
+
+  it("has nothing to say about a pool too small to cut", () => {
+    const { teams, games } = syntheticPool({ teamCount: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+
+    expect(result.sampleSize).toBe(0);
+    expect(result.meanAbsoluteError).toBeNull();
+    expect(result.winnerAccuracy).toBeNull();
+  });
+
+  it("leaves out a game with no date rather than guessing where it goes", () => {
+    const { teams, games } = syntheticPool({ teamCount: 8 });
+    const undated = games.map((game, index) => (index % 2 === 0 ? { ...game, date: "" } : game));
+    const result = backtestScoutRatings("ag_9", teams, undated, groups, { trainShare: 0.5 });
+
+    // Half the games have nowhere on the timeline, so half of what was there is scored.
+    expect(result.sampleSize).toBe(7);
+  });
+
+  it("never fits on a game it is about to predict", () => {
+    const { teams, games } = syntheticPool({ teamCount: 10 });
+    const full = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.95 });
+    const half = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.5 });
+
+    // More training data cannot make held-out prediction worse on a pool with a real signal; if it
+    // did, the fit would be seeing what it is scored on.
+    expect(full.meanAbsoluteError ?? 9).toBeLessThanOrEqual((half.meanAbsoluteError ?? 0) + 0.5);
+  });
+});
+
+describe("what a year of age is actually worth", () => {
+  it("recovers a gap the data was built with", () => {
+    // Built so that the older side wins by three runs a year, not the two the model assumes.
+    const { teams, games } = syntheticPool({
+      teamCount: 14,
+      gamesPerPair: 2,
+      ageGapRuns: 3,
+      olderCount: 5,
+    });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+
+    expect(result.crossAgeSamples).toBeGreaterThan(0);
+    // The prior is pulled toward the truth by the data rather than held at 2.
+    expect(result.fittedAgeGapRuns).toBeGreaterThan(2.3);
+  });
+
+  it("says nothing new when a pool has no cross-age games at all", () => {
+    const { teams, games } = syntheticPool({ teamCount: 10, olderCount: 0 });
+    const results = compareAgeGapPriors("ag_9", teams, games, groups);
+
+    // Every prior gives the same answer, which is the honest one: this pool cannot tell you.
+    const errors = new Set(results.map((result) => result.meanAbsoluteError?.toFixed(6)));
+    expect(results).toHaveLength(AGE_GAP_PRIORS_TO_TRY.length);
+    expect(errors.size).toBe(1);
+    expect(results.every((result) => result.crossAgeSamples === 0)).toBe(true);
+  });
+
+  it("puts the prior closest to the truth first", () => {
+    const { teams, games } = syntheticPool({
+      teamCount: 14,
+      gamesPerPair: 2,
+      ageGapRuns: 4,
+      olderCount: 5,
+    });
+    const [best] = compareAgeGapPriors("ag_9", teams, games, groups);
+
+    // Sorted by held-out error, so the winner is the starting point the data actually supports.
+    expect(best?.ageGapPrior).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reports the prior each run started from", () => {
+    const { teams, games } = syntheticPool({ teamCount: 10, olderCount: 3, ageGapRuns: 2 });
+    const results = compareAgeGapPriors("ag_9", teams, games, groups, [0, 2]);
+
+    expect(results.map((result) => result.ageGapPrior).sort()).toEqual([0, 2]);
+  });
+});
+
+describe("reading the result", () => {
+  it("cannot say whether an empty pool beat anything", () => {
+    const { teams, games } = syntheticPool({ teamCount: 2 });
+    expect(beatsTheBaseline(backtestScoutRatings("ag_9", teams, games, groups))).toBeNull();
+  });
+});

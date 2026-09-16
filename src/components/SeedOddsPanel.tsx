@@ -49,8 +49,8 @@ export function SeedOddsPanel({
           Championship &amp; Seed Odds
         </h3>
         <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-          Monte Carlo bracket over {bracketOdds.iterations} simulated seasons — the chance each
-          team lands each seed, reaches the final, and wins the Gold Bracket.
+          Monte Carlo bracket over {bracketOdds.iterations} simulated seasons — the chance each team
+          lands each seed, reaches the final, and wins the Gold Bracket.
         </p>
       </div>
 
@@ -98,9 +98,7 @@ export function SeedOddsPanel({
                   <th
                     key={`seed-${seed}`}
                     className={`w-8 p-1 text-center ${
-                      seed === cutoff
-                        ? "text-red-500"
-                        : "text-slate-500 dark:text-slate-400"
+                      seed === cutoff ? "text-red-500" : "text-slate-500 dark:text-slate-400"
                     }`}
                   >
                     {seed}
@@ -127,7 +125,9 @@ export function SeedOddsPanel({
                         <td
                           key={`${team.id}-${seed}`}
                           className={`h-7 w-8 text-center align-middle ${
-                            seed === cutoff ? "ring-1 ring-inset ring-red-300 dark:ring-red-800" : ""
+                            seed === cutoff
+                              ? "ring-1 ring-inset ring-red-300 dark:ring-red-800"
+                              : ""
                           }`}
                           style={{
                             backgroundColor:
@@ -137,9 +137,7 @@ export function SeedOddsPanel({
                         >
                           <span
                             className={
-                              opacity > 0.55
-                                ? "text-white"
-                                : "text-slate-600 dark:text-slate-300"
+                              opacity > 0.55 ? "text-white" : "text-slate-600 dark:text-slate-300"
                             }
                           >
                             {probability >= 12 ? Math.round(probability) : ""}

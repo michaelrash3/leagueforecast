@@ -1,10 +1,4 @@
-export type PillTone =
-  | "neutral"
-  | "emerald"
-  | "blue"
-  | "amber"
-  | "red"
-  | "dark";
+export type PillTone = "neutral" | "emerald" | "blue" | "amber" | "red" | "dark";
 
 const pillTones: Record<PillTone, string> = {
   neutral:
@@ -34,8 +28,7 @@ export const tab = (active: boolean) =>
 export const button = {
   primary:
     "rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50",
-  dark:
-    "rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50",
+  dark: "rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50",
   ghost:
     "rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50",
   danger:

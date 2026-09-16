@@ -1,4 +1,5 @@
 import React, {
+  lazy,
   startTransition,
   useCallback,
   useDeferredValue,
@@ -7,24 +8,22 @@ import React, {
   useMemo,
   useRef,
   useState,
+  Suspense,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
-import { CommandPalette, type Command } from "./components/CommandPalette";
+import type { Command } from "./components/CommandPalette";
+import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { AiStoryPanel } from "./components/AiStoryPanel";
 import { ClinchingPathsPanel } from "./components/ClinchingPathsPanel";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { ModelHealthPanel } from "./components/ModelHealthPanel";
-import { OnboardingTour } from "./components/OnboardingTour";
 import { HelpTip } from "./components/HelpTip";
 import { ProjectionExplanation } from "./components/ProjectionExplanation";
 import { SeedOddsPanel } from "./components/SeedOddsPanel";
-import { GoldOddsTrendChart } from "./components/charts/GoldOddsTrendChart";
-import { HeadToHeadMatrix, type H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { SeasonTimelinePanel } from "./components/SeasonTimelinePanel";
-import { ShortcutsHelp } from "./components/ShortcutsHelp";
-import { TeamRankingsView } from "./components/TeamRankingsView";
 import { LeagueScoreFillPanel } from "./components/LeagueScoreFillPanel";
+import { LoadingPanel } from "./components/LoadingPanel";
 import {
   applyLeagueScoreFill,
   planLeagueScoreFill,
@@ -2198,6 +2197,42 @@ function TeamDrawer({
 
 // ---------- Main app ----------
 
+/**
+ * Three things nobody sees until they ask for them: the command palette, the shortcut list and the
+ * first-run tour. Each is behind a keystroke or a button, and each is guarded by its own open flag
+ * below so the fetch happens on the press rather than on the page load.
+ */
+const CommandPalette = lazy(() =>
+  import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette }))
+);
+const ShortcutsHelp = lazy(() =>
+  import("./components/ShortcutsHelp").then((module) => ({ default: module.ShortcutsHelp }))
+);
+const OnboardingTour = lazy(() =>
+  import("./components/OnboardingTour").then((module) => ({ default: module.OnboardingTour }))
+);
+
+/** Charts belong to one view each, and most visits never reach them. */
+const GoldOddsTrendChart = lazy(() =>
+  import("./components/charts/GoldOddsTrendChart").then((module) => ({
+    default: module.GoldOddsTrendChart,
+  }))
+);
+const HeadToHeadMatrix = lazy(() =>
+  import("./components/charts/HeadToHeadMatrix").then((module) => ({
+    default: module.HeadToHeadMatrix,
+  }))
+);
+
+/**
+ * Team Rankings is a whole second half of the app — the nationwide pool, the GameChanger importer,
+ * the compact storage codec, the weekly rota — and somebody here to check their league's standings
+ * never opens it. Fetched when it is asked for rather than shipped to everyone up front.
+ */
+const TeamRankingsView = lazy(() =>
+  import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
+);
+
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
@@ -3656,7 +3691,18 @@ export default function App() {
     };
     undoRef.current = snapshot;
     if (!saveUndoSnapshot(snapshot)) {
-      showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+      /*
+       * The undo itself is fine — it is in memory, which is where Undo reads from first. What
+       * failed is the copy that would survive a reload, and at a nationwide pool size that copy
+       * simply does not fit in localStorage. Saying "storage full" as an error made a working
+       * undo read as a broken one; say what is actually true instead, and only for the snapshots
+       * that carry the pool, since a plain one failing really is a storage problem.
+       */
+      if (options?.withTeamRankings) {
+        showToast("Undo is ready, but this pool is too big to keep it past a reload.");
+      } else {
+        showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+      }
     }
   };
 
@@ -5247,13 +5293,15 @@ This backup carries one season, so it replaces the current season data and saves
 
         {appMode === "rankings" ? (
           <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-            <TeamRankingsView
-              seasons={seasons}
-              activeSeasonId={activeSeasonId}
-              showToast={showToast}
-              requestConfirmation={requestConfirmation}
-              onDataChange={noteScoutChange}
-            />
+            <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
+              <TeamRankingsView
+                seasons={seasons}
+                activeSeasonId={activeSeasonId}
+                showToast={showToast}
+                requestConfirmation={requestConfirmation}
+                onDataChange={noteScoutChange}
+              />
+            </Suspense>
           </main>
         ) : (
           <main
@@ -5531,19 +5579,29 @@ This backup carries one season, so it replaces the current season data and saves
         )}
 
         {appMode === "league" && (
-          <>
-            <CommandPalette
-              open={showCommandPalette}
-              commands={commands}
-              onClose={() => setShowCommandPalette(false)}
-            />
-            <ShortcutsHelp
-              open={showShortcuts}
-              shortcuts={shortcutEntries}
-              onClose={() => setShowShortcuts(false)}
-            />
-            <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />
-          </>
+          /*
+            Guarded by the open flags as well as rendered lazily: each of these returns null when
+            closed, so rendering them unconditionally would fetch all three on page load and show
+            nothing. There is no fallback because there is nothing on screen to hold a place for —
+            an overlay simply appears a frame later than it used to.
+          */
+          <Suspense fallback={null}>
+            {showCommandPalette && (
+              <CommandPalette
+                open={showCommandPalette}
+                commands={commands}
+                onClose={() => setShowCommandPalette(false)}
+              />
+            )}
+            {showShortcuts && (
+              <ShortcutsHelp
+                open={showShortcuts}
+                shortcuts={shortcutEntries}
+                onClose={() => setShowShortcuts(false)}
+              />
+            )}
+            {showTour && <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />}
+          </Suspense>
         )}
         {confirmState && (
           <div
@@ -6201,7 +6259,9 @@ function TeamStatsView({
               </span>
             </div>
           </div>
-          <HeadToHeadMatrix teams={matrixTeams} cellFor={headToHeadCell} />
+          <Suspense fallback={<LoadingPanel area="the matrix" />}>
+            <HeadToHeadMatrix teams={matrixTeams} cellFor={headToHeadCell} />
+          </Suspense>
         </section>
       )}
     </div>
@@ -6819,7 +6879,9 @@ function ModelView(props: {
               Top 5
             </span>
           </div>
-          <GoldOddsTrendChart rows={modelRows} />
+          <Suspense fallback={<LoadingPanel area="the chart" />}>
+            <GoldOddsTrendChart rows={modelRows} />
+          </Suspense>
         </section>
       )}
 

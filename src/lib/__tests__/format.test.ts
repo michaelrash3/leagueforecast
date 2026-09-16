@@ -36,9 +36,7 @@ describe("recordText", () => {
 
 describe("buildTeamFormats", () => {
   it("returns a Map keyed by id with display, abbr, record", () => {
-    const map = buildTeamFormats([
-      { id: "A", name: "NKB Stallions", w: 3, l: 1, t: 0 },
-    ]);
+    const map = buildTeamFormats([{ id: "A", name: "NKB Stallions", w: 3, l: 1, t: 0 }]);
     expect(map.get("A")).toEqual({ display: "Stallions", abbr: "STA", record: "3-1" });
   });
 });
