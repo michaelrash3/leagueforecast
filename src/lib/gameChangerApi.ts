@@ -91,6 +91,23 @@ export type GcTeamListEntry = {
   season?: GcSeason;
   city?: string;
   state?: string;
+  /**
+   * The coaches named on the team's card, in the order the export lists them.
+   *
+   * Two teams sharing two of these are almost always one club: measured over a forty-thousand-team
+   * export, such a pair is in the same state 97% of the time and the same town 89%. Sharing one is
+   * worth much less — 58% and 45% — because clubs often require an organisation officer on every
+   * team's staff, which puts one shared name on teams with nothing else to do with each other.
+   */
+  staff?: string[];
+  /**
+   * Players on the roster when the list was taken.
+   *
+   * It takes nine to field a side, so a team with fewer is probably not a team yet — a page
+   * somebody made and did not finish, or a squad still being assembled. Worth keeping and worth
+   * looking at again rather than importing as though it were a club.
+   */
+  playerCount?: number;
 };
 
 /** The app's own proxy for GameChanger (a Vercel function; see `api/gc-team.ts`). */
@@ -537,6 +554,8 @@ const AGE_HEADERS = ["age group", "age", "age level", "division"];
 const SEASON_HEADERS = ["season"];
 const CITY_HEADERS = ["city"];
 const STATE_HEADERS = ["state"];
+const STAFF_HEADERS = ["staff", "coaches", "coach", "staff names"];
+const PLAYER_COUNT_HEADERS = ["player count", "players", "roster size", "player_count"];
 
 const columnIndex = (headers: string[], names: string[]): number => {
   for (const name of names) {
@@ -581,6 +600,8 @@ type ListColumns = {
   season: number;
   city: number;
   state: number;
+  staff: number;
+  playerCount: number;
 };
 
 const readColumns = (headers: string[]): ListColumns | null => {
@@ -595,6 +616,8 @@ const readColumns = (headers: string[]): ListColumns | null => {
     season: columnIndex(headers, SEASON_HEADERS),
     city: columnIndex(headers, CITY_HEADERS),
     state: columnIndex(headers, STATE_HEADERS),
+    staff: columnIndex(headers, STAFF_HEADERS),
+    playerCount: columnIndex(headers, PLAYER_COUNT_HEADERS),
   };
 };
 
@@ -632,6 +655,36 @@ const nameFromListCell = (cell: string): string => {
   return first.trim() || cell.trim();
 };
 
+/**
+ * The coaches out of a staff cell: "Jason Croft, Burt Wallace" as two names.
+ *
+ * Commas are what the export separates them with, so a name containing one cannot be told from two
+ * names and is read as two. That costs nothing here — a half-name matches a half-name, and two
+ * teams sharing both halves still share both.
+ */
+export const parseGcStaffCell = (cell: string): string[] => {
+  if (!cell) return [];
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const raw of cell.split(/[,;]/)) {
+    const name = raw.replace(/\s+/g, " ").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    // A card that names the same coach twice is one coach, not corroboration.
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+};
+
+/** A roster size, or nothing when the cell is blank or not a whole number of players. */
+const parsePlayerCount = (cell: string): number | undefined => {
+  if (!cell) return undefined;
+  const count = Number(cell.replace(/[^\d-]/g, ""));
+  return Number.isInteger(count) && count >= 0 ? count : undefined;
+};
+
 const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): GcTeamListEntry => {
   const entry: GcTeamListEntry = { teamId };
   const name = nameFromListCell(cellAt(cells, columns.name));
@@ -646,6 +699,10 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   if (city) entry.city = city;
   const state = cellAt(cells, columns.state);
   if (state) entry.state = state;
+  const staff = parseGcStaffCell(cellAt(cells, columns.staff));
+  if (staff.length > 0) entry.staff = staff;
+  const playerCount = parsePlayerCount(cellAt(cells, columns.playerCount));
+  if (playerCount !== undefined) entry.playerCount = playerCount;
   return entry;
 };
 

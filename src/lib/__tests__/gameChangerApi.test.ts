@@ -138,6 +138,7 @@ describe("parseGcTeamList", () => {
         season: { season: "fall", year: 2026 },
         city: "Georgetown",
         state: "KY",
+        playerCount: 12,
       },
       {
         teamId: TEAM_ID,
@@ -146,7 +147,9 @@ describe("parseGcTeamList", () => {
         season: { season: "fall", year: 2026 },
         city: "Georgetown",
         state: "KY",
+        playerCount: 10,
       },
+      // A blank Player Count cell leaves the field off rather than reading as a roster of nobody.
       { teamId: "Ab12Cd34Ef56", name: "Blank Age", season: { season: "spring", year: 2027 } },
       {
         teamId: "Zy98Xw76Vu54",
@@ -155,6 +158,7 @@ describe("parseGcTeamList", () => {
         season: { season: "winter", year: 2026 },
         city: "Louisville",
         state: "KY",
+        playerCount: 9,
       },
     ]);
     // The row with no id and the duplicate produce nothing; the header and blank line are not "skipped".
