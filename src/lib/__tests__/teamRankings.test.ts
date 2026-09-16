@@ -1069,7 +1069,7 @@ describe("externalResultsForSeason", () => {
     const fixtures = [{ away: "Aces", home: "Bears", date: "4/12" }];
     expect(
       externalResultsForSeason("spring2027", groups, teams, games, leagueTeams, fixtures)
-    ).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 4, neutral: true }]);
+    ).toEqual([{ home: "L-ACE", away: "L-BEA", homeMargin: 4, date: "2027-06-01", neutral: true }]);
   });
 
   it("matches names across age labels, as everything else here does", () => {

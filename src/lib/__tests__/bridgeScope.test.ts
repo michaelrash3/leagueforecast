@@ -52,6 +52,7 @@ describe("what the league's forecast is given", () => {
       home: "L-MINE",
       away: "S-S-PLAYED",
       homeMargin: 4,
+      date: "2026-09-12",
       neutral: true,
     });
   });
@@ -62,6 +63,7 @@ describe("what the league's forecast is given", () => {
       home: "S-S-PLAYED",
       away: "S-S-THEIRS",
       homeMargin: 2,
+      date: "2026-09-12",
       neutral: true,
     });
   });

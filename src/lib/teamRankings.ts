@@ -1826,6 +1826,14 @@ export type ScoutBridgeResult = {
   home: string;
   away: string;
   homeMargin: number;
+  /**
+   * When it was played, in the league's own date format. Carried so the parts of the forecast that
+   * care *when* — elo, which walks a season in order, and recent form — can place a tournament
+   * game among the league's own. Optional exactly as the game's own date is: an undated result
+   * still rates, because the rating does not care about order, and is left out of the two that do
+   * rather than guessed into a position.
+   */
+  date?: string;
   /** The pair order is the order it was typed, so this must not reach the home-field estimate. */
   neutral: true;
 };
@@ -2144,6 +2152,7 @@ export const leagueScoutBridge = (
         home: ratingId(game.teamAId),
         away: ratingId(game.teamBId),
         homeMargin: game.teamAScore! - game.teamBScore!,
+        ...(game.date ? { date: game.date } : {}),
         neutral: true as const,
       }));
 

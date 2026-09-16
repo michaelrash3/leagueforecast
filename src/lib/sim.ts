@@ -690,6 +690,17 @@ export const RATING_PRIOR_MIDPOINT = 4;
  */
 export const RATING_EDGE_PER_RUN = 0.25;
 
+/**
+ * How many games the model has on a team, counting the ones Team Rankings brought in.
+ *
+ * Every place that asks "how much do we know here" used the league count alone, which is the one
+ * number that is deliberately blind to a tournament. A team with one league game and eight
+ * tournament results is not an unknown, and shrinking its forecast toward a coin flip as though it
+ * were throws away the evidence the rating was fitted from. Falls back to the league count, so a
+ * league with no Team Rankings data behind it is unchanged.
+ */
+const knownGames = (team: Team) => Math.max(team.games, team.ratedGames ?? 0);
+
 type RatingPrior = { weight: number; margin: number };
 
 /** The rating's view of a matchup, or null when either side has no rating attached. */
@@ -758,13 +769,20 @@ export const predictPlayerPitchGame = (
   if (away.games < 2 || home.games < 2) {
     const awayPrior = away.games ? away.pct : 0.5;
     const homePrior = home.games ? home.pct : 0.5;
+    const rawPct = clamp(0.5 + clamp((awayPrior - homePrior) * 0.16, -0.08, 0.08), 0.02, 0.98);
+    // Blended in logit space, the same as the full model below, so a rating fitted from games this
+    // league never saw is the thing that answers here. Win percentage over one or two games is
+    // barely evidence; a rating over nine is, and this is the case it was brought in for.
+    const prior = ratingPrior(away, home);
+    const blended = blendWithRating(prior, 0, logit(rawPct));
     const awayWinPct = calibrateAwayWinPct(
-      0.5 + clamp((awayPrior - homePrior) * 0.16, -0.08, 0.08),
-      away.games,
-      home.games,
+      logistic(blended.edge),
+      knownGames(away),
+      knownGames(home),
       aggression
     );
-    const spread = clamp((awayWinPct - 0.5) * 6, -1, 1);
+    // With no rating this is the spread this branch has always produced, from the pct alone.
+    const spread = prior ? clamp(blended.margin / 2, -4, 4) : clamp((awayWinPct - 0.5) * 6, -1, 1);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + spread)),
       homeScore: Math.max(1, Math.round(leagueRuns - spread)),
@@ -790,8 +808,8 @@ export const predictPlayerPitchGame = (
   const blended = blendWithRating(ratingPrior(away, home), awayScore - homeScore, edge);
   const awayWinPct = calibrateAwayWinPct(
     logistic(blended.edge),
-    away.games,
-    home.games,
+    knownGames(away),
+    knownGames(home),
     aggression
   );
   const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
@@ -845,8 +863,18 @@ export const predictMachinePitchGame = (
     const awayPrior = away.games ? away.pct : 0.5;
     const homePrior = home.games ? home.pct : 0.5;
     const priorDiff = clamp((awayPrior - homePrior) * 0.18, -0.08, 0.08);
-    const awayWinPct = calibrateAwayWinPct(0.5 + priorDiff, away.games, home.games, aggression);
-    const scoreSpread = clamp((awayWinPct - 0.5) * 6, -1, 1);
+    // See the same branch in the player-pitch model: the rating answers here when there is one.
+    const prior = ratingPrior(away, home);
+    const blended = blendWithRating(prior, 0, logit(clamp(0.5 + priorDiff, 0.02, 0.98)));
+    const awayWinPct = calibrateAwayWinPct(
+      logistic(blended.edge),
+      knownGames(away),
+      knownGames(home),
+      aggression
+    );
+    const scoreSpread = prior
+      ? clamp(blended.margin / 2, -4, 4)
+      : clamp((awayWinPct - 0.5) * 6, -1, 1);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + scoreSpread)),
       homeScore: Math.max(1, Math.round(leagueRuns - scoreSpread)),
@@ -880,7 +908,12 @@ export const predictMachinePitchGame = (
   const roundedAway = Math.max(1, Math.round(midpoint + blended.margin / 2));
   const roundedHome = Math.max(1, Math.round(midpoint - blended.margin / 2));
   const rawAwayWinPct = logistic(blended.edge);
-  const awayWinPct = calibrateAwayWinPct(rawAwayWinPct, away.games, home.games, aggression);
+  const awayWinPct = calibrateAwayWinPct(
+    rawAwayWinPct,
+    knownGames(away),
+    knownGames(home),
+    aggression
+  );
   const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
   const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
   const margin = Math.abs(blended.margin);

@@ -1,0 +1,91 @@
+# The one check that talks to GameChanger for real.
+#
+# Everything else about the import is proven against recorded fixtures, which can say the code is
+# right and can never say GameChanger still answers: its AWS WAF may start refusing a server, a
+# payload field may move, schedules may come back without scores. That needs a real request, and a
+# real request is the one thing a test suite must not make — so it lives here instead, on merge and
+# once a week, where a break shows up as its own red mark rather than inside the build.
+name: Verify the GameChanger pull
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Mondays, early, so a break is found before the week's rota runs rather than during it.
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Deployment to check (defaults to the VERIFY_GC_BASE variable)"
+        required: false
+        type: string
+      ids:
+        description: "Space-separated GameChanger team ids (defaults to the script's sample)"
+        required: false
+        type: string
+
+# A push while one is running makes the older run pointless — it is checking a deployment that has
+# been replaced. Scheduled runs keep their own group so a merge never cancels the weekly check.
+concurrency:
+  group: verify-gc-${{ github.event_name == 'schedule' && 'weekly' || 'latest' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No `npm ci`: the script imports two of our own modules and takes only types from them, so
+      # it runs on Node's own type stripping with nothing installed. Keeping it that way means a
+      # dependency problem can never be mistaken for GameChanger refusing us.
+
+      - name: Wait for the deployment to be the one we just merged
+        if: github.event_name == 'push'
+        # Vercel builds from the same push. Checking too early checks the previous deployment,
+        # which passes while the new one is broken — the exact failure this job exists to catch.
+        run: sleep 90
+
+      - name: Verify
+        id: verify
+        env:
+          # Set the VERIFY_GC_BASE repository variable to point this at your own deployment.
+          # Until then it uses the project's default Vercel production URL; if that is wrong, the
+          # Proxy check fails and says so, which is its own answer rather than a silent pass.
+          BASE: ${{ inputs.base || vars.VERIFY_GC_BASE || 'https://leagueforecast.vercel.app' }}
+          IDS: ${{ inputs.ids }}
+        run: |
+          set -o pipefail
+          args=(--base "$BASE")
+          for id in $IDS; do args+=(--id "$id"); done
+          npm run --silent verify:gc -- "${args[@]}" 2>&1 | tee verify-gc.log
+
+      - name: Put the result in the run summary
+        # Always: the output is the point, and it is most worth reading when the job failed.
+        if: always()
+        run: |
+          {
+            echo "## GameChanger pull check"
+            echo
+            echo '```'
+            cat verify-gc.log 2>/dev/null || echo "The verify step produced no output."
+            echo '```'
+            if [ "${{ steps.verify.outcome }}" != "success" ]; then
+              echo
+              echo "### If this says \`blocked\`"
+              echo
+              echo "That is the AWS WAF, not a bug. GameChanger challenges the schedule page, a"
+              echo "browser answers with an \`x-aws-waf-token\` header, and a serverless function"
+              echo "cannot run that challenge. \`docs/verifying-the-gamechanger-pull.md\` has the"
+              echo "steps; if it turns out to be needed every time, the pull needs a different"
+              echo "route to GameChanger, which is worth knowing before a nationwide pull rather"
+              echo "than during one."
+              echo
+              echo "### If the Proxy line failed"
+              echo
+              echo "Nothing reached the app. Either the deployment is down, or \`$BASE\` is not"
+              echo "where it lives — set the \`VERIFY_GC_BASE\` repository variable to the right URL."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

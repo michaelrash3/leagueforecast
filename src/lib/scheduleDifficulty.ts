@@ -1,4 +1,5 @@
 import { displayName } from "./format";
+import { RATING_PRIOR_FLOOR, RATING_PRIOR_GROWTH, RATING_PRIOR_MIDPOINT } from "./sim";
 import type { GameLog, Matchup, Team } from "./types";
 import { isFinal, parseNumber } from "./util";
 
@@ -45,6 +46,28 @@ const completedGamesAgainstAverages = (
   });
 };
 
+/**
+ * Pull a run-profile difficulty score toward the opponent-adjusted rating.
+ *
+ * Both are expected run margin against an average team, so they are already on one scale and a
+ * weighted blend needs no conversion. The weight is the one the game forecast uses for the same
+ * job — it grows with the games the rating was fitted from — so a rating built on two games barely
+ * moves the profile and one built on twenty largely replaces it.
+ *
+ * The profile alone could only ever say how a team did against this league. The rating knows who
+ * it played and, where Team Rankings results are counted, knows about games this league never saw
+ * — which is the difference between "they beat the teams here" and "they are good".
+ */
+const towardRating = (team: Team, profileScore: number) => {
+  const rating = team.adjustedRating;
+  if (rating === undefined || !Number.isFinite(rating)) return profileScore;
+  const rated = Math.max(0, team.ratedGames ?? 0);
+  if (rated <= 0) return profileScore;
+  const weight =
+    RATING_PRIOR_FLOOR + RATING_PRIOR_GROWTH * (rated / (rated + RATING_PRIOR_MIDPOINT));
+  return profileScore + weight * (rating - profileScore);
+};
+
 export const teamPerformanceDifficultyScore = (
   team: Team,
   leagueTeams: Team[],
@@ -62,7 +85,7 @@ export const teamPerformanceDifficultyScore = (
     // Difficulty is based on opponent-adjusted performance: scoring more than
     // opponents usually allow and holding opponents below what they usually score.
     // Record is included, but the opponent-adjusted run profile is the main signal.
-    return offenseVsAllowed * 0.45 + defenseVsScored * 0.45 + recordScore * 0.1;
+    return towardRating(team, offenseVsAllowed * 0.45 + defenseVsScored * 0.45 + recordScore * 0.1);
   }
 
   const teamsWithGames = leagueTeams.filter((item) => item.games > 0);
@@ -72,7 +95,12 @@ export const teamPerformanceDifficultyScore = (
   const offenseVsLeagueAllowed = team.rsg - leagueRunsAllowed;
   const defenseVsLeagueScored = leagueRunsScored - team.rag;
 
-  return offenseVsLeagueAllowed * 0.45 + defenseVsLeagueScored * 0.45 + recordScore * 0.1;
+  // A team with no completed league game of its own has nothing but the league average to go on —
+  // unless Team Rankings has watched it play, which is exactly what the rating carries.
+  return towardRating(
+    team,
+    offenseVsLeagueAllowed * 0.45 + defenseVsLeagueScored * 0.45 + recordScore * 0.1
+  );
 };
 
 export const scheduleDifficultyForTeam = (
