@@ -2097,22 +2097,55 @@ export const leagueScoutBridge = (
     return key !== "" && fixtureKeys.has(key);
   };
 
+  /** Whether a pool club is one of this league's teams, rather than a stranger on the same page. */
+  const isLeagueClub = (scoutTeamId: string): boolean =>
+    !ratingId(scoutTeamId).startsWith(SCOUT_ID_PREFIX);
+
+  const onLinkedPage = games.filter(
+    (game) =>
+      linked.has(game.ageGroupId) &&
+      !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
+      !isSeasonFixture(game) &&
+      countsTowardRating(game)
+  );
+
+  /**
+   * Clubs a league team has actually played. Their other results are what place the league on the
+   * same scale as everyone else — beating a club that beat a good club is the evidence an
+   * opponent-adjusted rating runs on — so they come too, one step out and no further.
+   */
+  const played = new Set<string>();
+  onLinkedPage.forEach((game) => {
+    if (isLeagueClub(game.teamAId)) played.add(game.teamBId);
+    if (isLeagueClub(game.teamBId)) played.add(game.teamAId);
+  });
+
+  /**
+   * Only the games that touch the league.
+   *
+   * A linked page used to mean "this league's own age group", where every game on it was about
+   * these teams. A GameChanger pull files the whole country there instead: on a real pool the page
+   * a ten-team league was linked to held 8,689 clubs and 9,266 scored games, every one of which
+   * was handed to the forecast. They carry nothing — a club in another state never played anyone
+   * here, so the fit cannot learn anything about the league from it — and they cost, because ridge
+   * shrinkage then pulls each league team toward the mean of a national pool it has no connection
+   * to. What is kept is the league's own results and its opponents', which is the whole of what
+   * the graph can reach.
+   */
+  const touchesLeague = (game: ScoutGame): boolean =>
+    isLeagueClub(game.teamAId) ||
+    isLeagueClub(game.teamBId) ||
+    played.has(game.teamAId) ||
+    played.has(game.teamBId);
+
   const results: ScoutBridgeResult[] = !seasonLinked
     ? []
-    : games
-        .filter(
-          (game) =>
-            linked.has(game.ageGroupId) &&
-            !game.id.startsWith(LEAGUE_GAME_PREFIX) &&
-            !isSeasonFixture(game) &&
-            countsTowardRating(game)
-        )
-        .map((game) => ({
-          home: ratingId(game.teamAId),
-          away: ratingId(game.teamBId),
-          homeMargin: game.teamAScore! - game.teamBScore!,
-          neutral: true as const,
-        }));
+    : onLinkedPage.filter(touchesLeague).map((game) => ({
+        home: ratingId(game.teamAId),
+        away: ratingId(game.teamBId),
+        homeMargin: game.teamAScore! - game.teamBScore!,
+        neutral: true as const,
+      }));
 
   return {
     results,

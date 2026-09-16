@@ -716,12 +716,13 @@ describe("leagueScoutBridge", () => {
       []
     );
     expect(bridge.rows.find((row) => row.leagueTeamId === "L-BEA")!.how).toBe("off");
-    expect(bridge.results).toContainEqual({
-      home: "S-S-BEAR",
-      away: "S-S-OTHR",
-      homeMargin: -3,
-      neutral: true,
-    });
+    /*
+     * And nothing is carried: with no league team behind any pool club, every result on the page
+     * is between two clubs the forecast has never heard of. They share no opponent with the league
+     * and so cannot move a single league rating — they only enlarge the fit and pull each league
+     * team toward the mean of a pool it has no connection to.
+     */
+    expect(bridge.results).toEqual([]);
     // Neither row is linked: this one is answered, and "Trash Pandas" is the very name that does
     // not key equal to "Trash Pandas Baseball Club". An answered row must not flatter the count.
     expect(bridge.linkedCount).toBe(0);
@@ -754,12 +755,9 @@ describe("leagueScoutBridge", () => {
       expect(row.how).toBe("none");
       expect(row.conflictWith).toHaveLength(1);
     });
-    expect(bridge.results).toContainEqual({
-      home: "S-S-TRAS",
-      away: "S-S-OTHR",
-      homeMargin: 4,
-      neutral: true,
-    });
+    // Neither pick honoured means no league team is behind any club, so there is nothing on the
+    // page the forecast can reach — see the answered-row case above.
+    expect(bridge.results).toEqual([]);
   });
 
   it("falls back to the name and says so when a picked club has gone from the pool", () => {
