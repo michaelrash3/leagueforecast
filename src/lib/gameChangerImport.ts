@@ -501,6 +501,38 @@ const townKey = (city: string | undefined): string | undefined =>
   city?.trim().toLowerCase() || undefined;
 
 /**
+ * The towns of the pulled clubs whose schedules named this stand-in. Same name and same state is
+ * not enough to say two teams are one — every rec league in a state has a Yankees — so the town
+ * has to agree as well, unless the game or a club in common says so.
+ */
+const pullerTowns = (index: ImportIndex, teamId: string): Set<string> => {
+  const towns = new Set<string>();
+  index.opponentsByTeam.get(teamId)?.forEach((opponentId) => {
+    const opponent = index.teamsById.get(opponentId);
+    const town = townKey(opponent?.city);
+    if (opponent?.gcTeams?.length && town) towns.add(town);
+  });
+  return towns;
+};
+
+/** Whether a stand-in named by clubs in these states and towns could be a club from here. */
+const placeFits = (
+  state: string | undefined,
+  town: string | undefined,
+  states: Set<string>,
+  towns: Set<string>
+): boolean => stateFits(state, states) && (!town || towns.size === 0 || towns.has(town));
+
+/** Whether two teams are from one place: state and town agree wherever both are known. */
+const samePlace = (a: ScoutTeam | undefined, b: ScoutTeam | undefined): boolean => {
+  if (!a || !b) return true;
+  if (a.state && b.state && a.state !== b.state) return false;
+  const townA = townKey(a.city);
+  const townB = townKey(b.city);
+  return !townA || !townB || townA === townB;
+};
+
+/**
  * Whether the schedule in hand holds a game that a stand-in's row is the other half of: the same
  * day, an opponent of the name the stand-in's row was filed against, and the result mirrored
  * where both sides have one. Run from the club's own side as its schedule arrives, this is the
@@ -603,14 +635,17 @@ const resolveOwnTeam = (
       : placeholders.filter((stub) =>
           (index.teamIdsByGroupName.get(nameSlotKey(pool, key, level)) ?? []).includes(stub.id)
         );
-  const inState = (stubs: ScoutTeam[]) =>
-    stubs.filter((stub) => stateFits(ownState, pullerStates(index, stub.id)));
+  const ownTown = townKey(profile.city);
+  const inPlace = (stubs: ScoutTeam[]) =>
+    stubs.filter((stub) =>
+      placeFits(ownState, ownTown, pullerStates(index, stub.id), pullerTowns(index, stub.id))
+    );
   const pick = (stubs: ScoutTeam[]): ScoutTeam | undefined =>
     stubs.length === 1 ? stubs[0] : undefined;
   const placeholder =
     pick(confirmed) ??
-    pick(inState(atLevel)) ??
-    (placeholders.length === 1 ? pick(inState(placeholders)) : undefined);
+    pick(inPlace(atLevel)) ??
+    (placeholders.length === 1 ? pick(inPlace(placeholders)) : undefined);
   if (placeholder) {
     const updated = withLink(placeholder, link);
     if (ownState && !updated.state) updated.state = ownState;
@@ -755,10 +790,15 @@ const corroborates = (
   const own = index.teamsById.get(ownTeamId);
   const candidate = index.teamsById.get(candidateId);
   if (!own || !candidate) return false;
-  if (own.city && candidate.city && own.city.toLowerCase() === candidate.city.toLowerCase()) {
-    return true;
-  }
-  return Boolean(own.state && candidate.state && own.state === candidate.state);
+  // The same town, in the same state. A state alone says nothing: every rec league has a Yankees.
+  const townA = townKey(own.city);
+  const townB = townKey(candidate.city);
+  return Boolean(
+    townA &&
+    townB &&
+    townA === townB &&
+    (!own.state || !candidate.state || own.state === candidate.state)
+  );
 };
 
 /**
@@ -889,11 +929,18 @@ const resolveOpponent = (
      * common to vouch for it, and otherwise waits as a stand-in for the tidy to settle.
      */
     const candidate = index.teamsById.get(only);
-    // A pulled club is where it says; a stand-in is where the clubs that named it are.
-    const sameState = candidate?.gcTeams?.length
-      ? !own?.state || !candidate.state || own.state === candidate.state
-      : stateFits(own?.state, pullerStates(index, only));
-    if (sameState || corroborates(index, ownTeamId, only, game)) {
+    // A pulled club is where it says; a stand-in is where the clubs that named it are. Same
+    // name and same state is not enough either way — rec leagues are full of Yankees — so the
+    // town has to agree too, or the game or a club in common has to vouch for it.
+    const fromHere = candidate?.gcTeams?.length
+      ? samePlace(own, candidate)
+      : placeFits(
+          own?.state,
+          townKey(own?.city),
+          pullerStates(index, only),
+          pullerTowns(index, only)
+        );
+    if (fromHere || corroborates(index, ownTeamId, only, game)) {
       return { teamId: only, basis: "name" };
     }
   }
@@ -927,10 +974,15 @@ const resolveOpponent = (
         /*
          * ...named by this club's neighbours. One "Red Sox" stand-in shared by twenty-nine clubs
          * in ten states is not a club; it is a knot in the rating graph that ties every one of
-         * them to every other. A stand-in per state keeps a name that is nobody in particular
+         * them to every other. A stand-in per town keeps a name that is nobody in particular
          * from being everybody's opponent.
          */
-        stateFits(own?.state, pullerStates(index, team.id))
+        placeFits(
+          own?.state,
+          townKey(own?.city),
+          pullerStates(index, team.id),
+          pullerTowns(index, team.id)
+        )
     );
   if (reusable) return { teamId: reusable.id, basis: "name" };
 
@@ -1387,9 +1439,15 @@ export const proposeSeasonPairings = (
   const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
   if (linked.length === 0) return [];
 
-  /** Who each team has played, so "a club in common" can be asked without scanning the games. */
+  /**
+   * Who each team has played, so "a club in common" can be asked without scanning the games. Only
+   * pulled clubs count as an opponent in common: a stand-in called "Warriors" that two schedules
+   * both named is two clubs' rec-league neighbours, not one club both of them met.
+   */
+  const pulledIds = new Set(teams.filter((team) => team.gcTeams?.length).map((team) => team.id));
   const opponents = new Map<string, Set<string>>();
   const note = (teamId: string, opponentId: string) => {
+    if (!pulledIds.has(opponentId)) return;
     const met = opponents.get(teamId);
     if (met) met.add(opponentId);
     else opponents.set(teamId, new Set([opponentId]));
@@ -1457,6 +1515,8 @@ export const proposeSeasonPairings = (
        */
       if (evidence.length === 0) continue;
       if (!sameName && !evidence.includes("avatar")) continue;
+      // Same name and same state alone is no offer: every rec league in a state has a Yankees.
+      if (evidence.every((item) => item === "state")) continue;
 
       candidates.push({
         fromTeamId: from.team.id,
@@ -1920,15 +1980,12 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     if (!standIn || !puller?.gcTeams?.length || !puller.state) return game;
     const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
     const slot = `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}\u0000${level}`;
-    const inState = (clubs.get(slot) ?? []).filter((club) => club.state === puller.state);
-    // Two in the state: the one in the puller's own town, if exactly one is.
+    // Same state and same town as the club that named it; a state alone is not enough.
     const pullerTown = townKey(puller.city);
-    const chosen =
-      inState.length === 1
-        ? inState
-        : pullerTown
-          ? inState.filter((club) => townKey(club.city) === pullerTown)
-          : [];
+    if (!pullerTown) return game;
+    const chosen = (clubs.get(slot) ?? []).filter(
+      (club) => club.state === puller.state && townKey(club.city) === pullerTown
+    );
     if (chosen.length !== 1) return game;
     refiled += 1;
     const club = chosen[0]!;

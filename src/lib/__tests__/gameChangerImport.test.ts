@@ -1224,15 +1224,31 @@ describe("proposeSeasonPairings", () => {
   });
 
   it("puts the strongest evidence first", () => {
-    const pairings = proposeSeasonPairings([
-      // The name and a shared state: worth offering, not worth calling certain.
-      { ...withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }), state: "KY" },
-      { ...withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }), state: "KY" },
-      withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
-      withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
-    ]);
+    const pairings = proposeSeasonPairings(
+      [
+        // The name and a pulled club they both played: worth offering, not worth calling certain.
+        withLinks("a1", "Aces", { season: "fall", seasonYear: 2026 }),
+        withLinks("a2", "Aces", { season: "spring", seasonYear: 2027 }),
+        withLinks("rival", "Trash Pandas", { season: "fall", seasonYear: 2026 }),
+        withLinks("b1", "Bears", { season: "fall", seasonYear: 2026, avatarKey: "av-b" }),
+        withLinks("b2", "Bears", { season: "spring", seasonYear: 2027, avatarKey: "av-b" }),
+      ],
+      [
+        { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
+        { id: "g2", teamAId: "a2", teamBId: "rival", ageGroupId: "ag1" },
+      ]
+    );
     expect(pairings[0]?.confidence).toBe("strong");
     expect(pairings[pairings.length - 1]?.confidence).toBe("likely");
+  });
+
+  it("does not offer two clubs on a shared name and state alone", () => {
+    // Every rec league in a state has a Yankees; a state is not where a club is from.
+    const pairings = proposeSeasonPairings([
+      { ...withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }), state: "KY" },
+      { ...withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }), state: "KY" },
+    ]);
+    expect(pairings).toEqual([]);
   });
 
   it("does not offer two clubs that only share a name", () => {
@@ -1246,11 +1262,11 @@ describe("proposeSeasonPairings", () => {
     ).toEqual([]);
   });
 
-  it("offers a shared name backed by a club they both played", () => {
+  it("offers a shared name backed by a pulled club they both played", () => {
     const teams = [
       withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }),
       withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }),
-      { id: "rival", name: "Trash Pandas" },
+      withLinks("rival", "Trash Pandas", { season: "fall", seasonYear: 2026 }),
     ];
     const games: ScoutGame[] = [
       { id: "g1", teamAId: "a1", teamBId: "rival", ageGroupId: "ag1" },
@@ -1259,6 +1275,20 @@ describe("proposeSeasonPairings", () => {
     const pairings = proposeSeasonPairings(teams, games);
     expect(pairings).toHaveLength(1);
     expect(pairings[0]!.evidence).toEqual(["shared-opponent"]);
+  });
+
+  it("does not count a stand-in as a club in common", () => {
+    // Two Warriors that both list a "Briarcliffe Blazers" nobody pulled have not met anyone.
+    const teams = [
+      withLinks("a1", "Warriors", { season: "fall", seasonYear: 2026 }),
+      withLinks("a2", "Warriors", { season: "spring", seasonYear: 2027 }),
+      { id: "stub", name: "Briarcliffe Blazers", nameOnly: true as const },
+    ];
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "a1", teamBId: "stub", ageGroupId: "ag1" },
+      { id: "g2", teamAId: "a2", teamBId: "stub", ageGroupId: "ag1" },
+    ];
+    expect(proposeSeasonPairings(teams, games)).toEqual([]);
   });
 
   it("offers neither when two clubs could both be what this squad became", () => {
@@ -1894,11 +1924,13 @@ describe("settled pairings", () => {
     ]);
     expect(three && isSettledPairing(three)).toBe(true);
 
-    const [stateOnly] = proposeSeasonPairings([
-      squad("f", "Mustangs", "fall", 2026, { state: "OH" }),
-      squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
-    ]);
-    expect(stateOnly && isSettledPairing(stateOnly)).toBe(false);
+    // Same name and same state is not even an offer, let alone settled.
+    expect(
+      proposeSeasonPairings([
+        squad("f", "Mustangs", "fall", 2026, { state: "OH" }),
+        squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
+      ])
+    ).toEqual([]);
   });
 
   it("pairs the settled ones on its own and leaves the rest for the user", () => {
@@ -1914,8 +1946,10 @@ describe("settled pairings", () => {
     expect(out.state.teams.map((team) => team.id).sort()).toEqual(["bs", "mf", "ms"]);
     const butler = out.state.teams.find((team) => team.id === "bs");
     expect(butler?.gcTeams?.map((link) => link.teamId).sort()).toEqual(["gc-bf", "gc-bs"]);
-    // The Mustangs are still offered, not applied.
-    expect(proposeSeasonPairings(out.state.teams).map((p) => p.fromTeamId)).toEqual(["mf"]);
+    // The Mustangs — same name, same state, no town in common — are neither applied nor
+    // offered: every rec league in Ohio has a Mustangs.
+    expect(proposeSeasonPairings(out.state.teams)).toEqual([]);
+    expect(out.state.teams.filter((team) => team.name === "Mustangs")).toHaveLength(2);
   });
 
   it("follows a chain, so Fall, Winter and Spring end as one team whatever the order", () => {
@@ -1947,7 +1981,8 @@ describe("settled pairings", () => {
       squad("f", "Mustangs", "fall", 2026, { city: "Mason", state: "OH" }),
       squad("s", "Mustangs", "spring", 2027, { state: "OH" }),
       { id: "a", name: "Aces" },
-      { id: "b", name: "Bandits" },
+      // A pulled club both Mustangs played is what makes this an offer at all.
+      squad("b", "Bandits", "fall", 2026, { city: "Lebanon", state: "OH" }),
       { id: "c", name: "Cubs" },
     ];
     const games = [
@@ -2261,9 +2296,14 @@ describe("who a name belongs to: level, state and the game", () => {
         [played("m1", "Delta Dogs 8U", "2026-09-05", 3, 3)],
         "Grenada"
       ),
-      club("gcMSA8000000", "OES Mayhem 8U", 8, "MS", [
-        played("a1", "Wylie Wolves 8U", "2026-08-27", 2, 5),
-      ]),
+      club(
+        "gcMSA8000000",
+        "OES Mayhem 8U",
+        8,
+        "MS",
+        [played("a1", "Wylie Wolves 8U", "2026-08-27", 2, 5)],
+        "Grenada"
+      ),
     ]);
     const mayhem = named(pool, "OES Mayhem")[0]!;
     const standIn: ScoutTeam = { id: "S-CUBS-STUB", name: "Cubs", nameOnly: true };
