@@ -326,7 +326,10 @@ export function GameChangerImportPanel({
      * one game. A whole run is the first point at which both halves of each are certainly present.
      */
     const tidy = tidyPool(poolRef.current);
-    if (tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned > 0) {
+    if (
+      tidy.named + tidy.folded + tidy.paired + tidy.collapsed + tidy.pruned + tidy.reclaimed >
+      0
+    ) {
       poolRef.current = tidy.state;
       if (persist()) await flushPoolWrites();
     }

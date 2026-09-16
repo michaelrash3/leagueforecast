@@ -1696,14 +1696,33 @@ describe("mergeScoutTeams", () => {
     expect(out.droppedGames).toBe(0);
   });
 
-  it("keeps a doubleheader apart: two results that contradict are two games", () => {
+  it("reads one game each with different scores as one game, two scorekeepers", () => {
+    // Each schedule lists one game against the Cubs that day; the results differ by a run.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("C", "B", 3, 1, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]).toMatchObject({
+      id: "gc_gcFall_f1",
+      teamAScore: 3,
+      teamBScore: 2,
+      note: "Other side reported 1-3.",
+    });
+    expect(out.collapsedGames).toBe(1);
+  });
+
+  it("keeps a real doubleheader apart: one schedule lists two games against the club that day", () => {
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("A", "C", 1, 7, { teamId: "gcFall", gameId: "f2" }),
       filed("C", "B", 7, 1, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
-    expect(out.games).toHaveLength(2);
-    expect(out.collapsedGames).toBe(0);
+    // The Spring copy is the second game's mirror; the first game stands on its own.
+    expect(out.games.map((g) => g.id).sort()).toEqual(["gc_gcFall_f1", "gc_gcFall_f2"]);
+    expect(out.collapsedGames).toBe(1);
   });
 
   it("fills a result from the copy folded in when the kept row had none", () => {

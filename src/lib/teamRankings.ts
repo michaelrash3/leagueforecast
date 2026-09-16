@@ -299,6 +299,22 @@ export const teamNameKey = (name: string) =>
     .replace(/\s{2,}/g, " ")
     .trim();
 
+/**
+ * The key two GameChanger *listings* are compared by when asking whether they are one squad: the
+ * age label off, everything else kept. `teamNameKey` drops a parenthetical because "Heat 9U
+ * (Ealey)" and "Heat 9U" are one *club* for an opponent to have played — but they are two squads,
+ * and the fold that decides whether two ids are one roster has to see the difference.
+ */
+export const squadNameKey = (listingName: string): string =>
+  listingName
+    .replace(AGE_LABEL, " ")
+    .toLowerCase()
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/\s*[-\u2013\u2014/]+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
+
 const normalizeName = teamNameKey;
 
 /**
@@ -1231,6 +1247,37 @@ export const collapseSameGames = (
       }
       dropped.add(game.id);
     });
+
+    /*
+     * Same game, two scorekeepers. Two results that contradict are a doubleheader only if one of
+     * the two schedules lists two games against this club that day. When each schedule lists
+     * exactly one and the results differ, that is one game two coaches scored differently — 1,076
+     * such pairs on a nationwide pull, 654 of them a single run apart — not two games. The first
+     * row stands and carries what the other side reported.
+     */
+    if (kept.length === 2) {
+      const [first, second] = kept as [ScoutGame, ScoutGame];
+      const scored = (game: ScoutGame) =>
+        game.teamAScore !== undefined && game.teamBScore !== undefined;
+      const sourceOf = (game: ScoutGame) => game.source?.teamId;
+      const oneEach =
+        sourceOf(first) !== undefined &&
+        sourceOf(second) !== undefined &&
+        sourceOf(first) !== sourceOf(second) &&
+        bucket.filter((game) => sourceOf(game) === sourceOf(first)).length === 1 &&
+        bucket.filter((game) => sourceOf(game) === sourceOf(second)).length === 1;
+      if (oneEach && scored(first) && scored(second)) {
+        const theirA = scoreOf(second, first.teamAId);
+        const theirB = scoreOf(second, first.teamBId);
+        const noted: ScoutGame = {
+          ...first,
+          note: [first.note, `Other side reported ${theirA}-${theirB}.`].filter(Boolean).join(" "),
+        };
+        kept[0] = noted;
+        replaced.set(first.id, noted);
+        dropped.add(second.id);
+      }
+    }
   });
 
   if (dropped.size === 0) return { games, collapsed: 0 };

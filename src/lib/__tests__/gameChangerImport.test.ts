@@ -895,19 +895,124 @@ describe("one squad holding several GameChanger ids", () => {
     ).state;
 
     const tidy = tidyPool(pool);
-    const yeager = tidy.state.teams.filter((team) => team.name === "Yeager Davis");
-    expect(yeager).toHaveLength(1);
-    expect(yeager[0]?.gcTeams?.map((link) => link.teamId).sort()).toEqual([
-      "gcYEAGSPRG10",
-      "gcYEAGSPRG20",
-    ]);
-    const raptors = tidy.state.teams.find((team) => team.name === "River City Raptors");
-    const between = tidy.state.games.filter(
-      (game) =>
-        [game.teamAId, game.teamBId].includes(raptors!.id) &&
-        [game.teamAId, game.teamBId].includes(yeager[0]!.id)
+    // The Raptors' row was attached by name to the id that adopted the stand-in; the third id's
+    // own schedule holds the game, so the row moves there and the two copies become one. The
+    // empty id is not folded on an opponent's row — only its own schedule could prove it.
+    expect(tidy.reclaimed).toBe(1);
+    const raptors = tidy.state.teams.find((team) => team.name === "River City Raptors")!;
+    const between = tidy.state.games.filter((game) =>
+      [game.teamAId, game.teamBId].includes(raptors.id)
     );
     expect(between).toHaveLength(1);
+    const holder = tidy.state.teams.find(
+      (team) =>
+        [between[0]!.teamAId, between[0]!.teamBId].includes(team.id) && team.id !== raptors.id
+    );
+    expect(holder?.gcTeams?.map((link) => link.teamId)).toEqual(["gcYEAGSPRG20"]);
+  });
+
+  it("does not fold two ids on a fixture that only an opponent's schedule filed", () => {
+    // Chico Aces (CA) and Pansey Aces (AL): the Sandlot Syndicate's schedule named "Aces" and
+    // the row landed on the wrong one. That row proves nothing about the two Aces being one.
+    const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+      id,
+      date,
+      opponentName,
+      status: "completed" as const,
+      teamScore: a,
+      opponentScore: b,
+    });
+    let pool = importGcSchedule(
+      {
+        profile: { id: "gcACESCHICO0", name: "Aces 10U", ageLevel: 10, season: fall, state: "CA" },
+        games: [played("c1", "Chico Nuts 10U", "2026-09-05", 4, 1)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcSANDLOT000",
+          name: "Sandlot Syndicate 10U",
+          ageLevel: 10,
+          season: fall,
+          state: "AL",
+        },
+        games: [played("s1", "Aces 10U", "2026-09-12", 3, 5)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: { id: "gcACESPANSEY", name: "ACES 10U", ageLevel: 10, season: fall, state: "AL" },
+        games: [played("p1", "Sandlot Syndicate 10U", "2026-09-12", 5, 3)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    const tidy = tidyPool(pool);
+    expect(tidy.folded).toBe(0);
+    const aces = tidy.state.teams.filter((team) => team.name.toLowerCase() === "aces");
+    expect(aces).toHaveLength(2);
+    // And the Sandlot row went to the Aces whose schedule holds it.
+    const pansey = aces.find((team) => team.gcTeams?.[0]?.teamId === "gcACESPANSEY")!;
+    const sandlot = tidy.state.teams.find((team) => team.name === "Sandlot Syndicate")!;
+    const rows = tidy.state.games.filter((game) =>
+      [game.teamAId, game.teamBId].includes(sandlot.id)
+    );
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.teamAId, rows[0]!.teamBId]).toContain(pansey.id);
+  });
+
+  it("does not fold a club's two squads told apart by a parenthetical, nor two levels", () => {
+    const played = (id: string, opponentName: string, date: string, a: number, b: number) => ({
+      id,
+      date,
+      opponentName,
+      status: "completed" as const,
+      teamScore: a,
+      opponentScore: b,
+    });
+    // Both Heat squads really did play the Outlaws 6-2 on the same day (two fields, one club).
+    let pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcHEATEALEY0",
+          name: "Heat 9U (Ealey)",
+          ageLevel: 9,
+          season: fall,
+          state: "CA",
+        },
+        games: [played("e1", "Outlaws 9U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: {
+          id: "gcHEATCAMPAN",
+          name: "Heat 9U (Campana)",
+          ageLevel: 9,
+          season: fall,
+          state: "CA",
+        },
+        games: [played("k1", "Outlaws 9U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    pool = importGcSchedule(
+      {
+        profile: { id: "gcHEAT10U000", name: "Heat 10U", ageLevel: 10, season: fall, state: "CA" },
+        games: [played("t1", "Outlaws 10U", "2026-09-05", 6, 2)],
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      pool
+    ).state;
+    expect(mergeSameSquadIds(pool).merged).toBe(0);
   });
 
   it("leaves two clubs of one name that never shared a game", () => {

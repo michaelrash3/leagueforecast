@@ -40,6 +40,7 @@ import {
   matchExistingGame,
   MAX_AGE_LEVEL,
   mergeScoutTeams,
+  squadNameKey,
   normalizeState,
   squadYearForGcSeason,
   teamNameKey,
@@ -1587,12 +1588,24 @@ export const mergeSameSquadIds = (
   const pulled = state.teams.filter((team) => team.gcTeams?.length);
   if (pulled.length < 2) return { state, merged: 0 };
 
-  /** A game as the club that filed it would describe it: the day, who, and how it went. */
+  /** The GameChanger ids each team is known by, so a row can be told to be its own schedule's. */
+  const ownIds = new Map(
+    pulled.map((team) => [team.id, new Set((team.gcTeams ?? []).map((link) => link.teamId))])
+  );
+
+  /**
+   * A game as the club that filed it would describe it: the day, who, and how it went — counted
+   * only from the team's own schedule. A row that somebody else's schedule filed against this
+   * team by name is the very thing that may be wrong, and reading it as this team's account of
+   * the game let a misfiled row "prove" two clubs one squad: ten 8U Dodgers in ten states were
+   * folded on fixtures none of them had filed.
+   */
   const fixtureKeys = new Map<string, Set<string>>();
   const nameOf = new Map(state.teams.map((team) => [team.id, teamNameKey(team.name)]));
   state.games.forEach((game) => {
-    if (!game.date) return;
+    if (!game.date || !game.source) return;
     [game.teamAId, game.teamBId].forEach((teamId, side) => {
+      if (!ownIds.get(teamId)?.has(game.source!.teamId)) return;
       const otherId = side === 0 ? game.teamBId : game.teamAId;
       const other = nameOf.get(otherId);
       if (!other) return;
@@ -1600,12 +1613,26 @@ export const mergeSameSquadIds = (
       const theirs = side === 0 ? game.teamBScore : game.teamAScore;
       // Unscored rows say only that a fixture is planned, which two clubs can share.
       if (mine === undefined || theirs === undefined) return;
-      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
+      const key = [poolKeyOf(game.ageGroupId), game.date, other, mine, theirs].join(" ");
       const bucket = fixtureKeys.get(teamId);
       if (bucket) bucket.add(key);
       else fixtureKeys.set(teamId, new Set([key]));
     });
   });
+
+  /**
+   * Whether two pulled teams could even be one squad: the same level on every id, the same state
+   * where both give one, and the same listing name once only the age label is removed. A club's
+   * 9U and 10U are two rosters; so are "Heat 9U (Ealey)" and "Heat 9U (Campana)"; and a Chico
+   * Aces and a Pansey Aces are two clubs whatever they filed.
+   */
+  const couldBeOneSquad = (a: ScoutTeam, b: ScoutTeam): boolean => {
+    const links = [...(a.gcTeams ?? []), ...(b.gcTeams ?? [])];
+    const levels = new Set(links.map((link) => link.ageLevel));
+    if (levels.size !== 1 || levels.has(undefined)) return false;
+    if (a.state && b.state && a.state !== b.state) return false;
+    return new Set(links.map((link) => squadNameKey(link.name))).size === 1;
+  };
 
   /** Ids to fold, newest-known first, keyed by the id they fold into. */
   const foldInto = new Map<string, string>();
@@ -1635,6 +1662,7 @@ export const mergeSameSquadIds = (
       if (!mine || mine.size === 0) return;
       for (const other of ranked.slice(0, index)) {
         if (foldInto.has(other.id)) continue;
+        if (!couldBeOneSquad(team, other)) continue;
         const theirs = fixtureKeys.get(other.id);
         if (!theirs) continue;
         const shared = [...mine].some((key) => theirs.has(key));
@@ -1655,6 +1683,95 @@ export const mergeSameSquadIds = (
     games = result.games;
   });
   return { state: { ...state, teams, games }, merged: foldInto.size };
+};
+
+/**
+ * Moves a game filed by name onto the namesake whose own schedule holds it.
+ *
+ * A schedule names an opponent; the import attaches the row to a pulled club of that name. When
+ * a second club of the name is pulled later and *its* own schedule lists this very game — same
+ * day, this puller, the result mirrored — the row was on the wrong club, and nothing at arrival
+ * time could have known. The fixture beats the name, order-independently: the row moves to the
+ * club that filed it, where the collapse then makes one game of the two. Only where exactly one
+ * namesake holds it and the club it sits on does not; anything less stays as it is.
+ */
+export const reclaimMisfiled = (
+  state: GcImportState
+): { state: GcImportState; reclaimed: number } => {
+  const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const ownIds = new Map<string, Set<string>>();
+  const namesakes = new Map<string, string[]>();
+  state.teams.forEach((team) => {
+    if (!team.gcTeams?.length) return;
+    ownIds.set(team.id, new Set(team.gcTeams.map((link) => link.teamId)));
+    const key = teamNameKey(team.name);
+    const bucket = namesakes.get(key);
+    if (bucket) bucket.push(team.id);
+    else namesakes.set(key, [team.id]);
+  });
+  if (namesakes.size === 0) return { state, reclaimed: 0 };
+
+  const isOwnRow = (game: ScoutGame, teamId: string): boolean =>
+    game.source !== undefined && (ownIds.get(teamId)?.has(game.source.teamId) ?? false);
+  /** Each pulled team's own-schedule rows by day. */
+  const ownByDay = new Map<string, ScoutGame[]>();
+  state.games.forEach((game) => {
+    if (!game.date) return;
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      if (!isOwnRow(game, teamId)) return;
+      const key = `${teamId}\u0000${game.date}`;
+      const bucket = ownByDay.get(key);
+      if (bucket) bucket.push(game);
+      else ownByDay.set(key, [game]);
+    });
+  });
+
+  const score = (game: ScoutGame, teamId: string) =>
+    game.teamAId === teamId ? game.teamAScore : game.teamBScore;
+  /** Whether this club's own schedule has a row that day against `pullerId` that could be `row`. */
+  const holds = (clubId: string, pullerId: string, row: ScoutGame): boolean =>
+    (ownByDay.get(`${clubId}\u0000${row.date}`) ?? []).some((own) => {
+      const other = own.teamAId === clubId ? own.teamBId : own.teamAId;
+      if (other !== pullerId) return false;
+      const ownClub = score(own, clubId);
+      const ownPuller = score(own, pullerId);
+      if (ownClub === undefined || ownPuller === undefined) return true;
+      const rowClub = score(row, clubId === row.teamAId ? row.teamAId : row.teamBId);
+      const rowPuller = score(row, pullerId);
+      if (rowClub === undefined || rowPuller === undefined) return true;
+      return ownClub === rowClub && ownPuller === rowPuller;
+    });
+
+  let reclaimed = 0;
+  const games = state.games.map((game) => {
+    if (!game.date || !game.source) return game;
+    // The puller is the side whose schedule filed the row; the other side was attached by name.
+    const pullerId = isOwnRow(game, game.teamAId)
+      ? game.teamAId
+      : isOwnRow(game, game.teamBId)
+        ? game.teamBId
+        : undefined;
+    if (!pullerId) return game;
+    const namedId = pullerId === game.teamAId ? game.teamBId : game.teamAId;
+    const named = teamById.get(namedId);
+    if (!named?.gcTeams?.length) return game;
+    // Attached by name only: the club it sits on did not file it, and its own schedule does not
+    // hold a row that could be it.
+    if (isOwnRow(game, namedId) || holds(namedId, pullerId, game)) return game;
+    const pool = poolKeyOf(game.ageGroupId);
+    const holders = (namesakes.get(teamNameKey(named.name)) ?? []).filter((clubId) => {
+      if (clubId === namedId) return false;
+      const club = teamById.get(clubId);
+      const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
+      return Boolean(inPool) && holds(clubId, pullerId, game);
+    });
+    if (holders.length !== 1) return game;
+    reclaimed += 1;
+    const holder = holders[0]!;
+    return game.teamAId === namedId ? { ...game, teamAId: holder } : { ...game, teamBId: holder };
+  });
+  return reclaimed === 0 ? { state, reclaimed: 0 } : { state: { ...state, games }, reclaimed };
 };
 
 /**
@@ -1685,6 +1802,8 @@ export type PoolTidy = {
   collapsed: number;
   /** Rows dated outside their squad year, dropped. */
   pruned: number;
+  /** Rows moved to the namesake whose own schedule holds the game. */
+  reclaimed: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -1706,7 +1825,8 @@ const TIDY_MAX_PASSES = 6;
 const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
   const season = pruneOutOfSeason(state);
   const named = resolveSlotGames(season.state);
-  const squads = mergeSameSquadIds(named.state);
+  const moved = reclaimMisfiled(named.state);
+  const squads = mergeSameSquadIds(moved.state);
   const seasons = pairSettledSquads(squads.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
   return {
@@ -1716,6 +1836,7 @@ const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
     paired: seasons.paired,
     collapsed: same.collapsed,
     pruned: season.pruned,
+    reclaimed: moved.reclaimed,
   };
 };
 
@@ -1732,6 +1853,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     paired: 0,
     collapsed: 0,
     pruned: 0,
+    reclaimed: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -1743,7 +1865,13 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     total.paired += step.paired;
     total.collapsed += step.collapsed;
     total.pruned += step.pruned;
-    if (step.named + step.folded + step.paired + step.collapsed + step.pruned === 0) break;
+    total.reclaimed += step.reclaimed;
+    if (
+      step.named + step.folded + step.paired + step.collapsed + step.pruned + step.reclaimed ===
+      0
+    ) {
+      break;
+    }
   }
   return total;
 };
@@ -1761,6 +1889,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.named > 0
       ? [
           `${plural(tidy.named, "placeholder", "placeholders")} named from the other team's schedule.`,
+        ]
+      : []),
+    ...(tidy.reclaimed > 0
+      ? [
+          `${plural(tidy.reclaimed, "game", "games")} moved to the club of that name whose own schedule holds it.`,
         ]
       : []),
     ...(tidy.folded > 0
