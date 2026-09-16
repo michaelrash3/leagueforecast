@@ -139,7 +139,13 @@ export const magicForGold = (
   settings: Settings
 ): MagicResult => {
   const me = teams.find((t) => t.id === teamId);
-  if (!me) return { type: "impossible", ownWinsNeeded: 0, opponentLossesNeeded: 0, description: "Unknown team." };
+  if (!me)
+    return {
+      type: "impossible",
+      ownWinsNeeded: 0,
+      opponentLossesNeeded: 0,
+      description: "Unknown team.",
+    };
 
   const effectiveSettings = { ...settings, goldCutoff: cutoff };
   const myRemaining = remainingGamesFor(teamId, remaining).length;
@@ -155,7 +161,9 @@ export const magicForGold = (
 
   for (let winsNeeded = 0; winsNeeded <= myRemaining; winsNeeded += 1) {
     for (let lossesNeeded = 0; lossesNeeded <= myRemaining; lossesNeeded += 1) {
-      if (solveCutoff(teamId, teams, remaining, effectiveSettings, winsNeeded, lossesNeeded, "all")) {
+      if (
+        solveCutoff(teamId, teams, remaining, effectiveSettings, winsNeeded, lossesNeeded, "all")
+      ) {
         return {
           type: "magic",
           ownWinsNeeded: winsNeeded,

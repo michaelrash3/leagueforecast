@@ -82,7 +82,9 @@ describe("magicForGold", () => {
 
     const live = calculateTeams(symmetricTeams, symmetricMatchups, {});
     expect(magicForGold("A", live, symmetricMatchups, 1, settings).type).toBe("impossible");
-    expect(magicForGold("A", live, symmetricMatchups, symmetricTeams.length - 1, settings).type).toBe("impossible");
+    expect(
+      magicForGold("A", live, symmetricMatchups, symmetricTeams.length - 1, settings).type
+    ).toBe("impossible");
   });
 
   it("returns known-answer magic number in a manually provable 3-team race", () => {

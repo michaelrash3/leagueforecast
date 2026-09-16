@@ -61,7 +61,9 @@ describe("simulateBracketOdds", () => {
 
     // Reaching the final is at least as likely as winning it.
     teams.forEach((team) => {
-      expect(result.finalsOdds[team.id]!).toBeGreaterThanOrEqual(result.championOdds[team.id]! - 0.001);
+      expect(result.finalsOdds[team.id]!).toBeGreaterThanOrEqual(
+        result.championOdds[team.id]! - 0.001
+      );
     });
 
     // The dominant team should be the title favorite and most often the top seed.

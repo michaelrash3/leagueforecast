@@ -17,7 +17,8 @@ export const titleRaceBadgeForTeam = (
   const leader = dashboardRows[0];
   if (!leader || leader.id === team.id) return team.rank === 1 ? "Title Leader" : "";
   const teamBack = (leader.w - team.w + (team.l - leader.l) + (leader.t - team.t) * 0.5) / 2;
-  const teamMax = standingsPoints(team, settings) + (remainingCounts[team.id] ?? 0) * settings.winPoints;
+  const teamMax =
+    standingsPoints(team, settings) + (remainingCounts[team.id] ?? 0) * settings.winPoints;
   const leaderCurrent = standingsPoints(leader, settings);
   if (teamMax < leaderCurrent) return "Title Eliminated";
   if (teamBack <= 2 && (team.rank ?? 99) <= 5) return "Title Contender";

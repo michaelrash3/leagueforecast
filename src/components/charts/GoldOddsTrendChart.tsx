@@ -40,13 +40,6 @@ export function GoldOddsTrendChart({
   if (series.length === 0) return null;
 
   return (
-    <LineChart
-      series={series}
-      yMin={0}
-      yMax={100}
-      yLabel="%"
-      xLabels={xLabels}
-      height={240}
-    />
+    <LineChart series={series} yMin={0} yMax={100} yLabel="%" xLabels={xLabels} height={240} />
   );
 }

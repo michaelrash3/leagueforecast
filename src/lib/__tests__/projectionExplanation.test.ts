@@ -141,9 +141,7 @@ describe("buildProjectionExplanations", () => {
       { rank: 4, goldOdds: 50, projectedPoints: 8.25 }
     );
 
-    expect(explanations[0]).toBe(
-      "Gold odds lifted by 15 points after the projection moved up."
-    );
+    expect(explanations[0]).toBe("Gold odds lifted by 15 points after the projection moved up.");
   });
 
   it("does not emit forbidden question-style headings", () => {

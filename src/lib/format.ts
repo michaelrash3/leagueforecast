@@ -16,10 +16,16 @@ export const displayName = (name: string) => {
 };
 
 export const teamAbbr = (name: string) => {
-  const short = displayName(name).replace(/[^a-z0-9 ]/gi, "").trim();
+  const short = displayName(name)
+    .replace(/[^a-z0-9 ]/gi, "")
+    .trim();
   const words = short.split(/\s+/).filter(Boolean);
   if (words.length >= 2) {
-    return words.map((w) => w[0]).join("").slice(0, 3).toUpperCase();
+    return words
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 3)
+      .toUpperCase();
   }
   return short.slice(0, 3).toUpperCase() || "TM";
 };

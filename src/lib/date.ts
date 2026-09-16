@@ -43,11 +43,9 @@ export const parseDateValue = (date: string) => {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 };
 
-export const formatGameDate = (date: string) =>
-  normalizeDateInput(date) || "No Date";
+export const formatGameDate = (date: string) => normalizeDateInput(date) || "No Date";
 
-export const formatGameDateLong = (date: string) =>
-  normalizeDateInput(date) || "Needs Date";
+export const formatGameDateLong = (date: string) => normalizeDateInput(date) || "Needs Date";
 
 export const sundayEndingWeekKey = (date: string) => {
   const normalized = normalizeDateInput(date);
