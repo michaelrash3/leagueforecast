@@ -20,7 +20,6 @@ import {
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
-  teamPages,
   unlinkGcTeam,
   type AgeGroup,
   type AgeGroupSeason,
@@ -68,11 +67,10 @@ import {
   teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
 import { type RankingsSection } from "../lib/rankingsRoute";
-import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
 import { TIDY_UNASKED_LIMIT } from "../lib/poolHealth";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TeamDetailPanel, type MergeCandidate } from "./TeamDetailPanel";
+import { TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import {
   NATIONAL_TOP,
@@ -84,6 +82,7 @@ import { RankingsHeader } from "./teamRankings/RankingsHeader";
 import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
+import { useClubSearch } from "../hooks/useClubSearch";
 import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
@@ -693,94 +692,18 @@ export function TeamRankingsView({
     showToast(`Folded into ${into.name}.`, { tone: "success" });
   };
 
-  /** Everyone else rated on this page — who a team could plausibly be the same club as. */
-  /**
-   * Who coaches each team, gathered from every GameChanger id it is linked to.
-   *
-   * The staff comes off the user's own team list, not from GameChanger, so a pool built by hand or
-   * pulled before the list carried it simply has none and everything below falls back to the plain
-   * alphabetical picker it always was.
-   */
-  const staffIndex = useMemo(
-    () =>
-      buildStaffIndex(
-        allKnown.teams.map((team) => ({
-          teamId: team.id,
-          staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
-        }))
-      ),
-    [allKnown.teams]
-  );
-
-  /**
-   * What to offer as "same team as", with the clubs first.
-   *
-   * It used to offer every other team on the page in name order, which at a nationwide pool is
-   * thousands of names and no help at all. Two teams sharing two coaches are the same club 98% of
-   * the time by state — see `gcStaff.ts` — so those go to the top with a line saying why, and
-   * everyone else follows as before. Nothing is hidden: a proposal this strong is still only a
-   * proposal, and the person merging is the one who knows.
-   */
-  /**
-   * Where each team lives, so the search box can go there.
-   *
-   * Over the whole pool rather than this page: finding a club without already knowing its season
-   * and age level is the one thing the age tabs cannot do, and is the point of searching at all.
-   */
-  const pagesByTeam = useMemo(
-    () => teamPages(allKnown.teams, allKnown.games, ageGroups),
-    [allKnown.teams, allKnown.games, ageGroups]
-  );
-
-  const searchOptions = useMemo(() => {
-    const byId = new Map(allKnown.teams.map((team) => [team.id, team]));
-    return [...pagesByTeam.entries()].flatMap(([teamId, page]) => {
-      const team = byId.get(teamId);
-      if (!team) return [];
-      const where = [
-        page.level === undefined ? "" : `${page.level}U`,
-        page.year === undefined ? "" : String(page.year),
-      ]
-        .filter(Boolean)
-        .join(" ");
-      /*
-       * The town off the team itself rather than through `placeOf`, which only knows this page's
-       * rows. Every team worth searching for is on some other page, so reading it that way left
-       * the place blank on exactly the results that needed it — and the place is what tells two
-       * clubs of the same name apart.
-       */
-      const place = [team.city, team.state].filter(Boolean).join(", ");
-      const detail = [where, place].filter(Boolean).join(" · ");
-      return [{ id: teamId, label: team.name, ...(detail ? { detail } : {}) }];
-    });
-  }, [pagesByTeam, allKnown.teams]);
+  const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
+    teams: allKnown.teams,
+    games: allKnown.games,
+    ageGroups,
+    rankedTeams,
+  });
 
   /** Goes to the page a team is on and opens it, whichever season and level that turns out to be. */
   const openSearchedTeam = (teamId: string) => {
-    const page = pagesByTeam.get(teamId);
+    const page = pageOf(teamId);
     if (page) openPage(page.ageGroupId);
     setOpenTeamId(teamId);
-  };
-
-  const mergeCandidatesFor = (teamId: string): MergeCandidate[] => {
-    const others = rankedTeams.filter((team) => team.id !== teamId);
-    const relations = clubRelations(teamId, staffIndex);
-    if (relations.length === 0) return others;
-
-    const hintById = new Map(
-      relations.map((relation) => [relation.teamId, describeRelation(relation)])
-    );
-    const related: MergeCandidate[] = [];
-    const rest: MergeCandidate[] = [];
-    others.forEach((team) => {
-      const hint = hintById.get(team.id);
-      if (hint) related.push({ ...team, clubHint: hint });
-      else rest.push(team);
-    });
-    // `clubRelations` is already strongest first; this puts the candidates in that same order.
-    const order = new Map(relations.map((relation, index) => [relation.teamId, index]));
-    related.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    return [...related, ...rest];
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
