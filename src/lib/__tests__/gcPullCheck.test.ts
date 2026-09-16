@@ -52,16 +52,45 @@ describe("what one real pull proves", () => {
   });
 
   it("calls out a schedule where nothing carries a score", () => {
-    const unplayed: GcGame = {
+    const unplayed = (id: string, date: string): GcGame => ({
+      id,
+      date,
+      opponentName: "Naperville Bandits",
+      status: "scheduled",
+    });
+
+    // A game that is weeks past and still unscored is the question worth raising.
+    const stale = checkSchedule(schedule([unplayed("g1", "2026-09-12")]), "2026-10-01");
+    expect(statusOf(stale, "Scores")).toBe("warn");
+    expect(stale.find((check) => check.step === "Scores")?.advice).toBe(ADVICE.unrecognized);
+    expect(stale.find((check) => check.step === "Scores")?.detail).toContain("1 of 1 was played");
+  });
+
+  it("does not call a season that has not started a problem", () => {
+    // This warned every time before, saying the payload must have changed. On a team whose first
+    // game is next week that is wrong twice over, and a check that cries wolf stops being read.
+    const upcoming: GcGame = {
       id: "g1",
-      date: "2026-09-12",
+      date: "2026-09-20",
       opponentName: "Naperville Bandits",
       status: "scheduled",
     };
-    const checks = checkSchedule(schedule([unplayed]));
-    // Either nothing has been played, or the score fields have moved — worth knowing which.
-    expect(statusOf(checks, "Scores")).toBe("warn");
-    expect(checks.find((check) => check.step === "Scores")?.advice).toBe(ADVICE.unrecognized);
+    const checks = checkSchedule(schedule([upcoming]), "2026-09-16");
+
+    expect(statusOf(checks, "Scores")).toBe("pass");
+    expect(checks.find((check) => check.step === "Scores")?.advice).toBeUndefined();
+    expect(verdict(checks).ok).toBe(true);
+  });
+
+  it("measures played against the day it is given, not the day it is run", () => {
+    const game: GcGame = {
+      id: "g1",
+      date: "2026-09-18",
+      opponentName: "Naperville Bandits",
+      status: "scheduled",
+    };
+    expect(statusOf(checkSchedule(schedule([game]), "2026-09-17"), "Scores")).toBe("pass");
+    expect(statusOf(checkSchedule(schedule([game]), "2026-09-19"), "Scores")).toBe("warn");
   });
 
   it("notices a game with no opponent and one with no date", () => {

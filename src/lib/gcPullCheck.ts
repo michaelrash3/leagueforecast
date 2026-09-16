@@ -50,7 +50,12 @@ export const ADVICE: Record<GcFetchErrorReason, string> = {
 };
 
 /** What one team's response proves. */
-export const checkTeamResponse = (teamId: string, response: GcTeamResponse): PullCheck[] => {
+export const checkTeamResponse = (
+  teamId: string,
+  response: GcTeamResponse,
+  /** Today, as "2026-09-16" — what "already played" is measured against. */
+  today: string = new Date().toISOString().slice(0, 10)
+): PullCheck[] => {
   if (!response.ok) {
     return [
       {
@@ -67,8 +72,47 @@ export const checkTeamResponse = (teamId: string, response: GcTeamResponse): Pul
       status: "pass",
       detail: "GameChanger answered and the payload parsed.",
     },
-    ...checkSchedule(response.schedule),
+    ...checkSchedule(response.schedule, today),
   ];
+};
+
+/**
+ * Whether a schedule with no scores on it is a problem.
+ *
+ * It used to warn whenever nothing was scored and say the payload must have changed. On a team
+ * whose season has not started that is wrong twice over: nothing is broken, and a check that warns
+ * every week of every preseason is a check people stop reading. The dates are already here, so it
+ * asks them — an unscored game that has not been played yet is the schedule working, and one that
+ * is weeks past is the question worth raising.
+ */
+const scoresCheck = (
+  games: GcTeamSchedule["games"],
+  played: GcTeamSchedule["games"],
+  today: string
+): PullCheck => {
+  if (played.length > 0) {
+    return {
+      step: "Scores",
+      status: "pass",
+      detail: `${played.length} of ${games.length} carry a final score.`,
+    };
+  }
+  const shouldHaveBeenPlayed = games.filter((game) => game.date && game.date < today);
+  if (shouldHaveBeenPlayed.length === 0) {
+    return {
+      step: "Scores",
+      status: "pass",
+      detail: `Nothing to score yet — all ${games.length} of these games are still to come.`,
+    };
+  }
+  return {
+    step: "Scores",
+    status: "warn",
+    detail: `No game carries a score, and ${shouldHaveBeenPlayed.length} of ${games.length} ${
+      shouldHaveBeenPlayed.length === 1 ? "was" : "were"
+    } played before today. Either this team never reports, or the score fields have moved.`,
+    advice: ADVICE.unrecognized,
+  };
 };
 
 /**
@@ -76,7 +120,10 @@ export const checkTeamResponse = (teamId: string, response: GcTeamResponse): Pul
  * schedule with no scores has proved the plumbing and not the feature, and the difference is worth
  * stating rather than counting as a pass.
  */
-export const checkSchedule = (schedule: GcTeamSchedule): PullCheck[] => {
+export const checkSchedule = (
+  schedule: GcTeamSchedule,
+  today: string = new Date().toISOString().slice(0, 10)
+): PullCheck[] => {
   const { profile, games } = schedule;
   const played = games.filter(
     (game) => game.teamScore !== undefined && game.opponentScore !== undefined
@@ -120,15 +167,7 @@ export const checkSchedule = (schedule: GcTeamSchedule): PullCheck[] => {
 
   if (games.length > 0) {
     checks.push(
-      {
-        step: "Scores",
-        status: played.length > 0 ? "pass" : "warn",
-        detail:
-          played.length > 0
-            ? `${played.length} of ${games.length} carry a final score.`
-            : "No game carries a score. Either nothing has been played, or the score fields have moved.",
-        ...(played.length > 0 ? {} : { advice: ADVICE.unrecognized }),
-      },
+      scoresCheck(games, played, today),
       {
         step: "Opponents",
         status: named.length === games.length ? "pass" : "warn",
