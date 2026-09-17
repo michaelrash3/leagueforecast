@@ -201,21 +201,43 @@ const MAX_GC_AGE_LEVEL = 19;
 const inAgeRange = (level: number): boolean =>
   Number.isInteger(level) && level >= MIN_GC_AGE_LEVEL && level <= MAX_GC_AGE_LEVEL;
 
+/** One age label on its own: "9U", "9u", "U9", "12UA", or a bare number. */
+const AGE_TOKEN = /^(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2})|(\d{1,2}))$/;
+
+const ageToken = (part: string): number | undefined => {
+  const match = AGE_TOKEN.exec(part.trim());
+  if (!match) return undefined;
+  const level = Number(match[1] ?? match[2] ?? match[3]);
+  return inAgeRange(level) ? level : undefined;
+};
+
 /**
  * Strict reading of an age-group value: the whole value must be the label ("9U", "9u", "U9",
  * "11U", or a bare number). Anything else — blank, "Varsity", a sentence — is unknown, so a CSV
  * column or GameChanger's `age_group` never invents a level. Use `ageLevelFromName` to find a
  * label inside a longer name.
+ *
+ * A bracket spanning two ages — "11U/12U", and sometimes written the other way round as
+ * "12U/11U" — reads as the OLDER of them, because that is the level the team is competing at: a
+ * bracket that admits twelve-year-olds is a 12U bracket, and rating such a team as 11U would make
+ * every game it plays against a 12U side look like playing up. Every part still has to be an age
+ * label, so "2026-2027" and "Varsity/JV" stay unknown rather than becoming a guess.
  */
 export const parseGcAgeLevel = (label: unknown): number | undefined => {
   if (typeof label === "number") return inAgeRange(label) ? label : undefined;
   if (typeof label !== "string") return undefined;
   const value = label.trim();
   if (!value) return undefined;
-  const match = /^(?:(\d{1,2})\s*[uU]|[uU]\s*(\d{1,2})|(\d{1,2}))$/.exec(value);
-  if (!match) return undefined;
-  const level = Number(match[1] ?? match[2] ?? match[3]);
-  return inAgeRange(level) ? level : undefined;
+  const parts = value.split(/[/\-\u2013]/).filter((part) => part.trim() !== "");
+  if (parts.length === 0) return undefined;
+  let oldest: number | undefined;
+  for (const part of parts) {
+    const level = ageToken(part);
+    // One unreadable part makes the whole value unreadable: half a label is not a level.
+    if (level === undefined) return undefined;
+    oldest = oldest === undefined ? level : Math.max(oldest, level);
+  }
+  return oldest;
 };
 
 /**
@@ -231,6 +253,18 @@ export const parseGcAgeLevel = (label: unknown): number | undefined => {
  */
 export const ageLevelFromName = (name: string): number | undefined => {
   if (typeof name !== "string") return undefined;
+  // A bracket written into the name — "Braves 9u/10u Fall", "Astros (9U/10U)", "AZ Core 17U/18U",
+  // and the shorthand "OM 9/10U" where only the second carries the U — reads as the older end,
+  // the same as the age column does. Checked first, because the plain search below would stop on
+  // the younger number and never see the rest of it. The second age must carry the U, which is
+  // what keeps "Mears 1 - 2026" and other stray number pairs out.
+  const span =
+    /\b(\d{1,2})\s*[uU]?[A-Da-d]{0,3}\s*[/\-\u2013]\s*(\d{1,2})\s*[uU][A-Da-d]{0,3}/.exec(name);
+  if (span) {
+    const low = Number(span[1]);
+    const high = Number(span[2]);
+    if (inAgeRange(low) && inAgeRange(high)) return Math.max(low, high);
+  }
   const match = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/.exec(name);
   if (!match) return undefined;
   const level = Number(match[1] ?? match[2]);

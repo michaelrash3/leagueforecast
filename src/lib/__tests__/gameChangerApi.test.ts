@@ -285,6 +285,54 @@ describe("age levels", () => {
     expect(parseGcAgeLevel(9.5)).toBeUndefined();
   });
 
+  it("reads a two-age bracket as the older of the two", () => {
+    // A bracket that admits twelve-year-olds is a 12U bracket. Calling such a team 11U would make
+    // every game it plays against a 12U side read as playing up. 731 teams in one 48,035-row
+    // export carry one of these.
+    expect(parseGcAgeLevel("11U/12U")).toBe(12);
+    expect(parseGcAgeLevel("9U/10U")).toBe(10);
+    expect(parseGcAgeLevel("17U/18U")).toBe(18);
+    // Written the other way round, which really happens: "11U/10U" and "12U/11U" are both in the
+    // export. The rule is oldest, not last.
+    expect(parseGcAgeLevel("11U/10U")).toBe(11);
+    expect(parseGcAgeLevel("12U/11U")).toBe(12);
+    // Non-adjacent brackets, and more than two.
+    expect(parseGcAgeLevel("10U/12U")).toBe(12);
+    expect(parseGcAgeLevel("9U/11U/13U")).toBe(13);
+    // Other separators and spacing.
+    expect(parseGcAgeLevel("13u - 14u")).toBe(14);
+    expect(parseGcAgeLevel("10-12")).toBe(12);
+  });
+
+  it("will not read a pair of numbers that are not both ages as a bracket", () => {
+    // Half a label is not a level: one unreadable part makes the whole value unknown, so a season
+    // span or a division pair stays undefined rather than becoming a guess.
+    expect(parseGcAgeLevel("2026-2027")).toBeUndefined();
+    expect(parseGcAgeLevel("Varsity/JV")).toBeUndefined();
+    expect(parseGcAgeLevel("9U/Varsity")).toBeUndefined();
+    expect(parseGcAgeLevel("9U/20U")).toBeUndefined();
+    expect(parseGcAgeLevel("9U/5U")).toBeUndefined();
+  });
+
+  it("reads a bracket written into the name the same way", () => {
+    expect(ageLevelFromName("Braves 9u/10u Fall")).toBe(10);
+    expect(ageLevelFromName("Astros (9U/10U)")).toBe(10);
+    expect(ageLevelFromName("AZ Core 17U/18U")).toBe(18);
+    expect(ageLevelFromName("9U/10U Orioles Fall26")).toBe(10);
+    // The shorthand where only the second age carries its U.
+    expect(ageLevelFromName("OM 9/10U Fall 2026 White - Malone")).toBe(10);
+    expect(ageLevelFromName("Alvey 9U/10U | King Coconuts")).toBe(10);
+  });
+
+  it("does not mistake a stray pair of numbers in a name for a bracket", () => {
+    // The second age has to carry the U, which is what keeps these out.
+    expect(ageLevelFromName("Mears 1 - 2026")).toBeUndefined();
+    expect(ageLevelFromName("Mirror Lake 2 2026")).toBeUndefined();
+    // A single label still wins when there is no bracket, unchanged from before.
+    expect(ageLevelFromName("AZ Venom 11U 2027")).toBe(11);
+    expect(ageLevelFromName("2026 Fall Trosky Illinois 9U")).toBe(9);
+  });
+
   it("finds an age label inside a team name", () => {
     expect(ageLevelFromName("9u Astros")).toBe(9);
     expect(ageLevelFromName("NV Stars 9u Scout")).toBe(9);
