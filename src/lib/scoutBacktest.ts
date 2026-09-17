@@ -95,6 +95,53 @@ export type ScoutBacktestResult = {
    * markedly smaller than the control's, it did not learn anything — it just stopped guessing.
    */
   meanAbsolutePrediction: number | null;
+  /**
+   * How many separate pieces the training games fall into, counting only teams the fit saw.
+   *
+   * An opponent-adjusted fit can only place teams that are joined by a chain of games. Every row
+   * is +1 on one side and -1 on the other, so each row sums to zero across the teams and the ridge
+   * is the same constant everywhere — which forces the ratings of each connected piece to sum to
+   * exactly zero, on its own, independently of every other piece. Two pieces are therefore two
+   * separate scales that both happen to be centred on zero, and the difference between a team in
+   * one and a team in the other is not a quantity this model estimated. It will still print one.
+   *
+   * It matters most on exactly the season this was built to study: if the fall clubs and the
+   * spring clubs barely overlap, a real fall-to-spring shift in the standard of play is not
+   * measured and shrunk toward zero, it is *defined* as zero — and no way of weighting games
+   * inside a piece can change a sum that is pinned. A sweep that does not look would report "old
+   * games are worth nothing" and mean "I could not have seen it either way".
+   */
+  trainComponents: number;
+  /** Teams in the biggest of those pieces. Near the total means the fit is on one scale. */
+  largestComponent: number;
+  /** Held-out games whose two sides were both rated, but from different pieces. */
+  splitSamples: number;
+  /**
+   * The held-out games one by one, when the caller asks for them.
+   *
+   * Aggregates cannot answer the question a sweep is really asking. Two schemes differing by three
+   * hundredths of a run over twenty-five games is not a result, it is a rounding error with a
+   * ranking attached, and nothing in a mean says which of the two it is. Scored game by game, the
+   * same hold-out can be compared *paired* — every scheme faces the identical games — and a sign
+   * test or a bootstrap over those pairs says whether the gap is real. Off by default: the Model
+   * Check card wants one number, not a few hundred rows.
+   */
+  residuals: ScoutResidual[];
+};
+
+/** One held-out game as it was actually scored. The raw material for a paired comparison. */
+export type ScoutResidual = {
+  gameId: string;
+  /** Days after the cut, so a curve can be cut at boundaries other than the built-in ones. */
+  daysAfter: number;
+  predicted: number;
+  actual: number;
+  /** How far off the rating was. */
+  error: number;
+  /** How far off "it'll be close" was, on the same game. */
+  baseline: number;
+  /** Both sides were rated, and from the same connected piece — so the margin is a real estimate. */
+  connected: boolean;
 };
 
 /** The first and last day fitted on, and the first and last day scored. All "YYYY-MM-DD". */
@@ -153,6 +200,19 @@ export type ScoutBacktestOptions = {
    * games I just fitted on" but "what will happen next".
    */
   gapDays?: number;
+  /** Keep every held-out game's own numbers. Off by default; a sweep needs them, a card does not. */
+  keepResiduals?: boolean;
+  /**
+   * Cut on this day ("YYYY-MM-DD") instead of at a share of the rows. Takes precedence.
+   *
+   * A share of the rows puts the cut wherever the games happen to be densest, and where it lands
+   * decides which question gets asked: a cut in mid-spring leaves nothing held out further than a
+   * few weeks, so the far bucket — what a fall season is worth in the spring — is empty and the one
+   * thing worth knowing goes unasked. A cut on the last day before the winter asks exactly that and
+   * nothing else. Neither is the right answer on its own; a sweep should run both and only believe
+   * a scheme that wins at either.
+   */
+  cutOn?: string;
 };
 
 const DEFAULT_TRAIN_SHARE = 0.7;
@@ -174,6 +234,10 @@ const emptyResult = (ageGapPrior: number, recencyKey: string): ScoutBacktestResu
   trainSize: 0,
   unratedSides: 0,
   meanAbsolutePrediction: null,
+  trainComponents: 0,
+  largestComponent: 0,
+  splitSamples: 0,
+  residuals: [],
 });
 
 type DatedGame = { game: ScoutGame; ageGap: number; at: number };
@@ -217,6 +281,36 @@ const inTimeOrder = (rated: Array<{ game: ScoutGame; ageGap: number }>): DatedGa
     })
     .sort((a, b) => a.at - b.at || a.game.id.localeCompare(b.game.id));
 
+/**
+ * Which teams the training games join up, as a map from team to the piece it belongs to.
+ *
+ * Plain union-find. A rating is only ever a comparison, so two teams with no chain of games
+ * between them have not been compared — and because every piece is pinned to average zero on its
+ * own, the model will nonetheless hand back a difference for them, with no more behind it than the
+ * arithmetic that pinned them.
+ */
+const componentsOf = (train: DatedGame[]): Map<string, string> => {
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = parent.get(id) ?? id;
+    if (root === id) {
+      parent.set(id, id);
+      return id;
+    }
+    root = find(root);
+    parent.set(id, root);
+    return root;
+  };
+  train.forEach(({ game }) => {
+    const a = find(game.teamAId);
+    const b = find(game.teamBId);
+    if (a !== b) parent.set(a, b);
+  });
+  const roots = new Map<string, string>();
+  parent.forEach((_, id) => roots.set(id, find(id)));
+  return roots;
+};
+
 const asRatingGame = ({ game, ageGap }: DatedGame): RatingGame => ({
   home: game.teamAId,
   away: game.teamBId,
@@ -257,7 +351,12 @@ export const backtestScoutRatings = (
    * again from the test half by `at > cutAt`, and fell out of the run entirely. Nothing said so:
    * only the test set is counted, so eight silently vanished games looked exactly like a clean run.
    */
-  const cutAt = cut === 0 ? 0 : ordered[Math.min(cut, ordered.length) - 1]!.at;
+  const askedFor = options.cutOn === undefined ? Number.NaN : dayInstant(options.cutOn);
+  const cutAt = Number.isFinite(askedFor)
+    ? askedFor
+    : cut === 0
+      ? 0
+      : ordered[Math.min(cut, ordered.length) - 1]!.at;
   const train = ordered.filter((entry) => entry.at <= cutAt);
   const scoreFrom = cutAt + gapDays * DAY_MS;
   const test = ordered.filter((entry) => entry.at > cutAt && entry.at >= scoreFrom);
@@ -303,7 +402,12 @@ export const backtestScoutRatings = (
   let decisive = 0;
   let calledRight = 0;
   let unratedSides = 0;
+  let splitSamples = 0;
   let predictionSum = 0;
+  const component = componentsOf(train);
+  const componentSizes = new Map<string, number>();
+  component.forEach((root) => componentSizes.set(root, (componentSizes.get(root) ?? 0) + 1));
+  const residuals: ScoutResidual[] = [];
 
   /** One accumulator per bucket, filled as the hold-out is scored. */
   const buckets = BUCKET_EDGES_DAYS.slice(0, -1).map((fromDays, at) => ({
@@ -324,7 +428,10 @@ export const backtestScoutRatings = (
       (fit.ratings.get(game.teamBId) ?? 0) +
       ageGap * fit.ageGapRuns;
 
-    if (!rated.has(game.teamAId) || !rated.has(game.teamBId)) unratedSides += 1;
+    const seenBoth = rated.has(game.teamAId) && rated.has(game.teamBId);
+    const connected = seenBoth && component.get(game.teamAId) === component.get(game.teamBId);
+    if (!seenBoth) unratedSides += 1;
+    else if (!connected) splitSamples += 1;
     predictionSum += Math.abs(predicted);
     const error = Math.abs(predicted - actual);
     errorSum += error;
@@ -346,6 +453,17 @@ export const backtestScoutRatings = (
     const bucket = buckets.find(
       (candidate) => daysAfter >= candidate.fromDays && daysAfter < candidate.toDays
     );
+    if (options.keepResiduals) {
+      residuals.push({
+        gameId: game.id,
+        daysAfter,
+        predicted,
+        actual,
+        error,
+        baseline: Math.abs(actual),
+        connected,
+      });
+    }
     if (bucket) {
       bucket.count += 1;
       bucket.errorSum += error;
@@ -369,6 +487,10 @@ export const backtestScoutRatings = (
     recencyKey: recency?.key ?? "none",
     trainSize: train.length,
     unratedSides,
+    splitSamples,
+    trainComponents: componentSizes.size,
+    largestComponent: Math.max(0, ...componentSizes.values()),
+    residuals,
     meanAbsolutePrediction: predictionSum / test.length,
     span: {
       trainFrom: dayOfInstant(train[0]!.at),

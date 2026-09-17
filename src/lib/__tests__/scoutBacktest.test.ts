@@ -514,3 +514,106 @@ describe("what the cut keeps and what the fit is allowed to know", () => {
     expect(steep.meanAbsolutePrediction!).toBeLessThan(flat.meanAbsolutePrediction!);
   });
 });
+
+/*
+ * Two clubs that never share an opponent have never been compared, and an opponent-adjusted rating
+ * is nothing but a comparison. The model will still print a difference between them: every game row
+ * is +1 on one side and −1 on the other, so each row sums to zero across the teams, and with the
+ * same ridge constant on every team that forces each connected piece to average exactly zero on its
+ * own. Two pieces are then two scales that merely happen to share a centre.
+ */
+describe("teams the fit never joined up", () => {
+  /** Two round-robins that share no team: a "fall" four and a "spring" four. */
+  const twoIslands = (): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+    const teams: ScoutTeam[] = [];
+    const games: ScoutGame[] = [];
+    (["F", "S"] as const).forEach((island, block) => {
+      for (let index = 0; index < 4; index += 1) {
+        teams.push({ id: `${island}-${index}`, name: `${island} ${index}` });
+      }
+      let played = 0;
+      for (let a = 0; a < 4; a += 1) {
+        for (let b = a + 1; b < 4; b += 1) {
+          const date = new Date(Date.UTC(2026, 8, 5) + (block * 24 + played) * 7 * 86_400_000);
+          games.push({
+            id: `${island}-${a}-${b}`,
+            teamAId: `${island}-${a}`,
+            teamBId: `${island}-${b}`,
+            teamAScore: 6 + (b - a),
+            teamBScore: 6,
+            ageGroupId: "ag_9",
+            date: date.toISOString().slice(0, 10),
+          });
+          played += 1;
+        }
+      }
+    });
+    return { teams, games };
+  };
+
+  it("counts the pieces the training games fall into", () => {
+    const { teams, games } = twoIslands();
+    // A cut past both round-robins: everything either side trained on, nothing joined.
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.9 });
+    expect(result.trainComponents).toBe(2);
+    expect(result.largestComponent).toBe(4);
+  });
+
+  it("is one piece when every team is reachable from every other", () => {
+    const { teams, games } = syntheticPool({ teamCount: 8 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+    expect(result.trainComponents).toBe(1);
+    expect(result.largestComponent).toBe(8);
+  });
+
+  it("flags a held-out game whose two sides were never compared", () => {
+    const { teams, games } = twoIslands();
+    const crossing: ScoutGame = {
+      id: "crossing",
+      teamAId: "F-0",
+      teamBId: "S-3",
+      teamAScore: 9,
+      teamBScore: 2,
+      ageGroupId: "ag_9",
+      // After both blocks, so it is held out rather than joining them up.
+      date: "2027-06-05",
+    };
+    const result = backtestScoutRatings("ag_9", teams, [...games, crossing], groups, {
+      trainShare: 0.95,
+      keepResiduals: true,
+    });
+    expect(result.splitSamples).toBe(1);
+    expect(result.unratedSides).toBe(0);
+    expect(result.residuals.find((row) => row.gameId === "crossing")!.connected).toBe(false);
+  });
+});
+
+describe("keeping the held-out games one by one", () => {
+  it("hands back a row per scored game, agreeing with the aggregate", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { keepResiduals: true });
+    expect(result.residuals).toHaveLength(result.sampleSize);
+    const mean = (values: number[]) => values.reduce((sum, x) => sum + x, 0) / values.length;
+    expect(mean(result.residuals.map((row) => row.error))).toBeCloseTo(
+      result.meanAbsoluteError!,
+      9
+    );
+    expect(mean(result.residuals.map((row) => row.baseline))).toBeCloseTo(result.baselineError!, 9);
+  });
+
+  it("keeps nothing unless asked, so the card does not pay for the sweep", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    expect(backtestScoutRatings("ag_9", teams, games, groups).residuals).toEqual([]);
+  });
+
+  /** Every scheme faces the identical hold-out, which is what makes a paired comparison possible. */
+  it("scores every scheme on the same games", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const ids = RECENCY_SCHEMES.map((recency) =>
+      backtestScoutRatings("ag_9", teams, games, groups, { recency, keepResiduals: true })
+        .residuals.map((row) => row.gameId)
+        .join(",")
+    );
+    expect(new Set(ids).size).toBe(1);
+  });
+});
