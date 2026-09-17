@@ -11,6 +11,13 @@ import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import type { RefreshLog } from "./gameChangerSchedule";
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
+import {
+  archiveEntryOf,
+  coerceArchivedSeason,
+  withUniqueIds,
+  type ArchivedSeason,
+  type ArchiveEntry,
+} from "./teamRankingsArchive";
 import { idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import {
   listenForLocalPoolWrites,
@@ -54,6 +61,24 @@ const GC_TRACK_KEY = "league_forecast_gc_track_v1";
  * on no page, so the weekly rotation never walks over them. Without this they are simply gone.
  */
 const GC_AGELESS_KEY = "league_forecast_gc_ageless_v1";
+/**
+ * The list of finished seasons kept as tables — names, dates and counts, no rows.
+ *
+ * In the pool's keys because it is small and because everything that walks them should find it: a
+ * reset that left the index behind would list archives whose rows it had just deleted.
+ */
+const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
+/**
+ * One archived season's rows, a key each.
+ *
+ * Emphatically *not* in `POOL_KEYS`, and that is the whole design. A season is a hundred thousand
+ * rows; loading every archive at startup would put back exactly the memory the archiving was for.
+ * So the index loads with the pool and the rows load when somebody asks to see them — which is
+ * also why these go through `putBlob`/`getBlob` below rather than `readValue`/`writeValue`, and
+ * are never broadcast. A cached, cross-tab-synced blob is a blob in every tab.
+ */
+const ARCHIVE_ROWS_PREFIX = "league_forecast_scout_archive_rows_v1:";
+const archiveRowsKey = (id: string): string => `${ARCHIVE_ROWS_PREFIX}${id}`;
 /**
  * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
  * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is
@@ -142,6 +167,14 @@ let stopLocalListener: (() => void) | null = null;
  * is told — a listener that reads during the notification must get the new value, not the old one.
  */
 export const notePoolChangedElsewhere = async (key: string): Promise<void> => {
+  /*
+   * Only the pool's own keys, matching what the localStorage listener already filters on. An
+   * archived season's rows live in a key of their own and are never broadcast, but a key this
+   * version does not recognise — a newer tab's, a blob's — must not be pulled into the cache
+   * either: the cache holds what every tab keeps in memory for as long as the tab is open, and
+   * load-on-demand means nothing if hearing about a write is enough to load it.
+   */
+  if (key && !POOL_KEYS.includes(key)) return;
   if (usingIdb && key) cache.set(key, await (activeIo ?? browserIo).get(key));
   announceChange();
 };
@@ -250,6 +283,7 @@ const POOL_KEYS = [
   GC_TIDY_KEY,
   GC_TRACK_KEY,
   GC_AGELESS_KEY,
+  GC_ARCHIVE_KEY,
 ];
 
 /**
@@ -414,7 +448,15 @@ const startPoolSync = (): void => {
  */
 export const clearTeamRankings = (): boolean => {
   if (poolUnavailable) return false;
+  /*
+   * The archived rows first, and by the index, because they are the one thing here that does not
+   * live in a pool key: a reset that walked `POOL_KEYS` alone would drop the list of archives and
+   * leave their rows in the store with nothing naming them — megabytes nothing will ever read or
+   * be able to find again. Read the list before it goes.
+   */
+  const archived = loadArchiveIndex();
   POOL_KEYS.forEach((key) => forgetValue(key));
+  archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
   return true;
 };
 
@@ -663,3 +705,121 @@ export const clearPullLog = (): void => forgetValue(GC_TRACK_KEY);
 export const loadAgeUnknown = (): AgeUnknownList => coerceAgeUnknown(readValue(GC_AGELESS_KEY));
 
 export const saveAgeUnknown = (list: AgeUnknownList): boolean => writeValue(GC_AGELESS_KEY, list);
+
+/**
+ * A value that is too big to keep in memory, read and written straight past the cache.
+ *
+ * Everything else here answers from a cache filled once at startup, because the app reads its pool
+ * during render and IndexedDB is asynchronous. An archived season's rows are the opposite case:
+ * nobody renders them until they ask for them, and there can be a dozen archives of a hundred
+ * thousand rows each. So these three go directly to the store — not cached, not queued behind the
+ * pool's coalesced writes, and not broadcast. Being told about a write is what makes a tab load
+ * something, and a tab that loads every archive has archived nothing.
+ *
+ * `putBlob` is awaited rather than fire-and-forget, which matters more here than anywhere else in
+ * this module: the caller is about to delete the games this blob replaces, and must not do that on
+ * an acknowledgement that turns out to be wrong.
+ */
+const putBlob = async (key: string, value: unknown): Promise<boolean> => {
+  if (poolUnavailable) return false;
+  if (!usingIdb) return safeSet(key, JSON.stringify(value));
+  return (activeIo ?? browserIo).set(key, value);
+};
+
+const getBlob = async (key: string): Promise<unknown> => {
+  if (poolUnavailable) return null;
+  if (!usingIdb) return parseJson(safeGet(key));
+  return (await (activeIo ?? browserIo).get(key)) ?? null;
+};
+
+const dropBlob = async (key: string): Promise<void> => {
+  if (poolUnavailable) return;
+  if (!usingIdb) {
+    safeRemove(key);
+    return;
+  }
+  await (activeIo ?? browserIo).set(key, null);
+};
+
+/** The usable entries out of a stored index; anything that is not a list yields none. */
+export const coerceArchiveIndex = (raw: unknown): ArchiveEntry[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    if (!isFilledString(entry.id) || !isString(entry.name)) return [];
+    return [
+      {
+        id: entry.id,
+        name: entry.name,
+        ...(isNumber(entry.ageLevel) ? { ageLevel: entry.ageLevel } : {}),
+        ...(isNumber(entry.year) ? { year: entry.year } : {}),
+        archivedAt: isString(entry.archivedAt) ? entry.archivedAt : "",
+        fromGames: isNumber(entry.fromGames) ? entry.fromGames : 0,
+        fromTeams: isNumber(entry.fromTeams) ? entry.fromTeams : 0,
+        teams: isNumber(entry.teams) ? entry.teams : 0,
+      },
+    ];
+  });
+};
+
+/** What archives exist, without loading any of them. Synchronous, like every other pool read. */
+export const loadArchiveIndex = (): ArchiveEntry[] => coerceArchiveIndex(readValue(GC_ARCHIVE_KEY));
+
+/**
+ * One archived season's rows, fetched on demand.
+ *
+ * `null` for an archive that is not there, and also for one whose blob will not read — which are
+ * the same silence and different facts, so the caller says "could not load" rather than "empty".
+ * An archive with no rows would never have been written.
+ */
+export const loadArchivedSeason = async (id: string): Promise<ArchivedSeason | null> =>
+  coerceArchivedSeason(await getBlob(archiveRowsKey(id)));
+
+/**
+ * Writes finished seasons and adds them to the index, rows first.
+ *
+ * Returns the seasons as they were stored — ids included, because a name that is already archived
+ * is given a fresh one — or `null` if any blob refused, in which case nothing was added to the
+ * index and whatever this call had already written is taken back out. The caller is about to
+ * delete the games these tables replace and must only do so on `null`'s absence: a half-written
+ * archive plus a completed delete is the one outcome there is no recovering from.
+ */
+export const saveArchivedSeasons = async (
+  seasons: ArchivedSeason[]
+): Promise<ArchivedSeason[] | null> => {
+  if (seasons.length === 0) return [];
+  const index = loadArchiveIndex();
+  const stored = withUniqueIds(
+    seasons,
+    index.map((entry) => entry.id)
+  );
+  const written: string[] = [];
+  for (const season of stored) {
+    if (await putBlob(archiveRowsKey(season.id), season)) {
+      written.push(season.id);
+      continue;
+    }
+    // Back out, so a refused write leaves the pool exactly as it was rather than half-archived.
+    for (const id of written) await dropBlob(archiveRowsKey(id));
+    return null;
+  }
+  if (!writeValue(GC_ARCHIVE_KEY, [...index, ...stored.map(archiveEntryOf)])) {
+    for (const id of written) await dropBlob(archiveRowsKey(id));
+    return null;
+  }
+  return stored;
+};
+
+/**
+ * Drops an archive: its rows and its line in the index.
+ *
+ * The index goes last, so an interrupted delete leaves an archive that lists and will not load
+ * rather than rows nothing lists — the first is visible and fixable, the second is a leak.
+ */
+export const forgetArchivedSeason = async (id: string): Promise<boolean> => {
+  await dropBlob(archiveRowsKey(id));
+  return writeValue(
+    GC_ARCHIVE_KEY,
+    loadArchiveIndex().filter((entry) => entry.id !== id)
+  );
+};

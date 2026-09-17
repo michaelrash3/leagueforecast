@@ -54,8 +54,9 @@ export type ArchivedRankingRow = {
 
 export type ArchivedSeason = {
   version: number;
-  /** The page it was, as it was named: "9U 2026". */
+  /** The archive's own id, minted from its name. Never a page id — see `archiveIdOf`. */
   id: string;
+  /** What the page was called, kept as text: "9U 2026". */
   name: string;
   ageLevel?: number;
   year?: number;
@@ -96,6 +97,29 @@ export const archiveEntryOf = (season: ArchivedSeason): ArchiveEntry => ({
 });
 
 /**
+ * An archive's own id, minted from what it was called rather than taken from the page it came from.
+ *
+ * Deliberately not the age group's id, and this is the whole point of a snapshot. Nothing in an
+ * archive may be linkable back to live data, because the live data is what is being deleted and it
+ * can come back: League Standings keeps its own seasons whatever the rankings side does, so a page
+ * for an archived year can be created again tomorrow and its fixtures derived all over. If the
+ * archive carried `ag_9_2026` as its id, that new page would either collide with it or be joined
+ * to it — a frozen table quietly re-attached to games that are no longer the ones it was built
+ * from. Carrying the name as text instead means the respawn simply happens, beside the archive,
+ * and destroys nothing.
+ *
+ * The rows hold no team ids for the same reason. An archived row is a name and some numbers; it
+ * cannot be resolved into a club, and nothing should try.
+ */
+export const archiveIdOf = (name: string, year: number | undefined): string => {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `arc_${year ?? "x"}_${slug || "season"}`;
+};
+
+/**
  * Builds the table for a page and keeps it, using the app's own ranking function.
  *
  * The same call the Rankings tab makes, so what is archived is what was on screen rather than a
@@ -114,7 +138,7 @@ export const archiveSeason = (
   const onPage = games.filter((game) => game.ageGroupId === group.id);
   return {
     version: ARCHIVE_VERSION,
-    id: group.id,
+    id: archiveIdOf(group.name, ageGroupYear(group)),
     name: group.name,
     ...(group.ageLevel === undefined ? {} : { ageLevel: group.ageLevel }),
     ...(group.year === undefined ? {} : { year: group.year }),
@@ -236,6 +260,36 @@ export const archiveSquadYear = (
     archivedLeagueGames: frozen.filter((game) => !onDisk.has(game.id)).length,
     leagueSeasonIds: [...new Set(ofYear.flatMap((group) => group.seasonIds))],
   };
+};
+
+/**
+ * The same seasons with ids nothing else is using.
+ *
+ * An id is minted from a name, so freezing "9U 2026" a second time — a page re-created after an
+ * archive, re-pulled and archived again — would mint the id the first archive already has. That
+ * must not overwrite it: the two are different freezes of different games, and the older one is
+ * the only record of the games it stood on. So a taken id gets a suffix and both are kept.
+ *
+ * Suffixed by count rather than by clock, because an archive is written once and read forever: an
+ * id with a timestamp in it would be a different id every time the same call ran, which makes a
+ * retry after a failed write into a second archive instead of the same one.
+ */
+export const withUniqueIds = (
+  seasons: ArchivedSeason[],
+  taken: Iterable<string>
+): ArchivedSeason[] => {
+  const used = new Set(taken);
+  return seasons.map((season) => {
+    if (!used.has(season.id)) {
+      used.add(season.id);
+      return season;
+    }
+    let at = 2;
+    while (used.has(`${season.id}_${at}`)) at += 1;
+    const id = `${season.id}_${at}`;
+    used.add(id);
+    return { ...season, id };
+  });
 };
 
 /** The squad years a pool could freeze, newest first. A year with no page is not one. */

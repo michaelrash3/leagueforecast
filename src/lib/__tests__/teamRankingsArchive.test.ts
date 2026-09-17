@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ARCHIVE_VERSION,
   archivableYears,
+  archiveIdOf,
   archiveEntryOf,
   archiveSeason,
   archiveSquadYear,
   coerceArchivedSeason,
+  withUniqueIds,
   withoutSeason,
 } from "../teamRankingsArchive";
 import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
@@ -416,5 +418,57 @@ describe("a season whose table includes the league's own games", () => {
     const done = archiveSquadYear(2026, shown, stored, "2026-09-17T00:00:00.000Z");
     expect(done.leagueSeasonIds).toEqual(["se_mab_fall_2025"]);
     expect(done.state.ageGroups.map((group) => group.seasonIds)).toEqual([["se_mab_fall_2026"]]);
+  });
+});
+
+/*
+ * A snapshot is a snapshot: nothing in it may be linkable back to live data, because the live data
+ * is what is being deleted and it can come back. League Standings keeps its own seasons whatever
+ * the rankings side does, so a page for an archived year can be created again and its fixtures
+ * derived all over — and when that happens the archive must neither collide with the new page nor
+ * be joined to it.
+ */
+describe("an archive is not linked to anything live", () => {
+  it("mints an id of its own instead of carrying the page's", () => {
+    const { teams, games } = pool();
+    const kept = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
+    expect(kept.id).not.toBe(groups[0]!.id);
+    expect(kept.id).toBe("arc_2026_9u_2026");
+    // The name is what is kept, as text.
+    expect(kept.name).toBe("9U 2026");
+  });
+
+  it("keeps no team ids, so a row cannot be resolved into a club", () => {
+    const { teams, games } = pool();
+    const kept = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
+    const ids = new Set(teams.map((team) => team.id));
+    kept.rows.forEach((row) => {
+      expect(row).not.toHaveProperty("teamId");
+      expect(ids.has(row.teamName)).toBe(false);
+    });
+    expect(JSON.stringify(kept)).not.toContain("T-BOTH");
+  });
+
+  it("reads a year out of the name when the field is missing, rather than calling it x", () => {
+    expect(archiveIdOf("2026, 10U", 2026)).toBe("arc_2026_2026_10u");
+    expect(archiveIdOf("9U 2026", undefined)).toBe("arc_x_9u_2026");
+    expect(archiveIdOf("!!", 2026)).toBe("arc_2026_season");
+  });
+
+  it("does not overwrite an earlier freeze of a page that came back", () => {
+    const { teams, games } = pool();
+    const first = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
+    const again = withUniqueIds([first], [first.id]);
+    expect(again[0]!.id).toBe("arc_2026_9u_2026_2");
+    expect(withUniqueIds([first], [first.id, `${first.id}_2`])[0]!.id).toBe("arc_2026_9u_2026_3");
+    // An id nothing is using is left exactly as minted.
+    expect(withUniqueIds([first], [])[0]!.id).toBe(first.id);
+  });
+
+  it("separates two seasons minted to the same id in one call", () => {
+    const { teams, games } = pool();
+    const kept = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
+    const pair = withUniqueIds([kept, kept], []);
+    expect(new Set(pair.map((season) => season.id)).size).toBe(2);
   });
 });
