@@ -256,10 +256,18 @@ export function GameChangerImportPanel({
    */
   const parsed = useMemo(() => {
     const read = parseGcTeamList(text);
-    const entries = read.entries.filter(
+    // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
+    // the too-young ones because they are a different kind of "not for us" and the panel says so.
+    const baseball = read.entries.filter((entry) => !entry.notBaseball);
+    const entries = baseball.filter(
       (entry) => entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL
     );
-    return { ...read, entries, tooYoung: read.entries.length - entries.length };
+    return {
+      ...read,
+      entries,
+      tooYoung: baseball.length - entries.length,
+      notBaseball: read.entries.length - baseball.length,
+    };
   }, [text]);
 
   /**
@@ -411,7 +419,7 @@ export function GameChangerImportPanel({
         parsed: parsed.entries.length,
         skipped: parsed.skipped.length,
         skippedSamples: parsed.skipped,
-        tooYoung: parsed.tooYoung,
+        tooYoung: parsed.tooYoung + parsed.notBaseball,
         alreadyHere: split.seen,
         asked: ids.length,
       });
@@ -1096,6 +1104,9 @@ export function GameChangerImportPanel({
                   <span className={pill("neutral")}>
                     {parsed.tooYoung} under {MIN_AGE_LEVEL}U, skipped
                   </span>
+                )}
+                {parsed.notBaseball > 0 && (
+                  <span className={pill("neutral")}>{parsed.notBaseball} wiffle ball, skipped</span>
                 )}
                 {split.fresh.length > 200 && (
                   <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>

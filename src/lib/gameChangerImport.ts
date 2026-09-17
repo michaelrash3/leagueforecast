@@ -22,6 +22,7 @@ import {
   ageFromGradYearInName,
   ageLevelFromName,
   formatGcSeason,
+  isNotBaseball,
   type GcGame,
   type GcTeamProfile,
   type GcTeamSchedule,
@@ -502,6 +503,9 @@ const resolveAgeGroup = (
   profile: GcTeamProfile,
   state: GcImportState
 ): { ageGroups: AgeGroup[]; group: AgeGroup; created: boolean } | null => {
+  // A different game entirely. Checked before the age, because a wiffle team filed under 12U has
+  // a perfectly good age level and that is exactly what makes it invisible.
+  if (isNotBaseball(profile.name)) return null;
   const ageLevel = profileAgeLevel(profile);
   // Below the youngest level the app ranks there is nothing worth filing. A nationwide team list
   // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
@@ -536,9 +540,21 @@ const resolveAgeGroup = (
  * asking about again every week and the others are not, and telling them apart by reading the
  * sentence would break the first time somebody reworded it.
  */
-export type GcSkipReason = "no-age" | "below-min-age" | "above-max-age" | "no-season";
+export type GcSkipReason =
+  | "no-age"
+  | "below-min-age"
+  | "above-max-age"
+  | "no-season"
+  /** A wiffle ball team. A different game, so its results belong to no baseball ranking. */
+  | "not-baseball";
 
 const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: string } => {
+  if (isNotBaseball(profile.name)) {
+    return {
+      code: "not-baseball",
+      message: "This is a wiffle ball team, which is a different game, so it was left out.",
+    };
+  }
   const ageLevel = profileAgeLevel(profile);
   if (ageLevel === undefined) {
     return {
@@ -1227,6 +1243,17 @@ const importOne = (
         ? known.teamBId
         : known.teamAId
       : undefined;
+
+    /*
+     * A wiffle ball opponent takes the game with it. The result is not a baseball result, and
+     * keeping it would both count for the club that played it and mint a wiffle team in the pool
+     * off the back of somebody else's schedule — the one route by which one could arrive without
+     * ever having been pulled.
+     */
+    if (isNotBaseball(game.opponentName)) {
+      outcome.gamesIgnored += 1;
+      continue;
+    }
 
     let opponentId = knownOpponentId;
     if (opponentId === undefined) {
@@ -2250,6 +2277,8 @@ export type PoolTidy = {
   refiled: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
+  /** Teams deleted for playing a different game — wiffle ball — along with their results. */
+  notBaseball: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -2268,6 +2297,33 @@ const TIDY_MAX_PASSES = 6;
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
+/**
+ * Deletes the teams that are not playing baseball, and everything they played.
+ *
+ * A tidy pass rather than only an import rule, because "leave it out from now on" and "it is not
+ * in the pool" are different things. A wiffle team pulled before the rule existed is filed under
+ * an ordinary age group with an ordinary-looking record, and it would sit in the 12U table next to
+ * clubs it has nothing to do with until somebody noticed it by eye.
+ *
+ * Its games go with it. A result against a wiffle team is not a baseball result on either side, so
+ * deleting the team and leaving the games would hand every club that played one a free win or loss
+ * against nobody.
+ */
+const dropNotBaseball = (state: GcImportState): { state: GcImportState; dropped: number } => {
+  const going = new Set(
+    state.teams.filter((team) => isNotBaseball(team.name)).map((team) => team.id)
+  );
+  if (going.size === 0) return { state, dropped: 0 };
+  return {
+    state: {
+      ...state,
+      teams: state.teams.filter((team) => !going.has(team.id)),
+      games: state.games.filter((game) => !going.has(game.teamAId) && !going.has(game.teamBId)),
+    },
+    dropped: going.size,
+  };
+};
+
 /**
  * Levels worked out for what is already in the pool, under the rules as they now stand.
  *
@@ -2348,9 +2404,12 @@ const relevelFromNames = (state: GcImportState): { state: GcImportState; relevel
 };
 
 const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
-  // First, because every pass after it compares levels: a side whose level is about to be worked
-  // out should be worked out before anything decides whether two rows mean one game.
-  const levels = relevelFromNames(state);
+  // Before everything, because a team that should not be here at all should not be settled,
+  // folded, paired or levelled first.
+  const kept = dropNotBaseball(state);
+  // Then levels, because every pass after it compares them: a side whose level is about to be
+  // worked out should be worked out before anything decides whether two rows mean one game.
+  const levels = relevelFromNames(kept.state);
   const season = pruneOutOfSeason(levels.state);
   const named = resolveSlotGames(season.state);
   const moved = reclaimMisfiled(named.state);
@@ -2368,6 +2427,7 @@ const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
     reclaimed: moved.reclaimed,
     refiled: placed.refiled,
     releveled: levels.releveled,
+    notBaseball: kept.dropped,
   };
 };
 
@@ -2387,6 +2447,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     reclaimed: 0,
     refiled: 0,
     releveled: 0,
+    notBaseball: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -2401,6 +2462,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     total.reclaimed += step.reclaimed;
     total.refiled += step.refiled;
     total.releveled += step.releveled;
+    total.notBaseball += step.notBaseball;
     const changed =
       step.named +
       step.folded +
@@ -2409,21 +2471,25 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
       step.pruned +
       step.reclaimed +
       step.refiled +
-      step.releveled;
+      step.releveled +
+      step.notBaseball;
     if (changed === 0) break;
   }
   return total;
 };
 
 /**
- * Bumped whenever the rules for reading a level out of a name change.
+ * Bumped whenever a tidy pass changes what it does to a pool.
  *
  * It rides in the signature so a pool the tidy has already seen reads as one it has not, exactly
- * once, after a release that changes the reading. Without it a pool that has not been touched
- * since would keep its old levels for ever: the stamp would still match, so the tidy would never
- * run, so the new rules would never be applied to anything already here.
+ * once, after a release that changes a rule. Without it a pool nobody has touched keeps whatever
+ * the old rules decided for ever: the stamp still matches, so the tidy never runs, so the new rule
+ * never reaches anything already here.
+ *
+ *   2 — reading a graduating class out of a name
+ *   3 — deleting the teams that are not playing baseball
  */
-const AGE_RULES_VERSION = 2;
+const TIDY_RULES_VERSION = 3;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -2438,7 +2504,7 @@ export const poolSignature = (state: GcImportState): string => {
       if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
     });
   });
-  return `r${AGE_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
+  return `r${TIDY_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
 };
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
@@ -2469,6 +2535,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.releveled > 0
       ? [
           `${plural(tidy.releveled, "age level", "age levels")} worked out from a name that said one all along.`,
+        ]
+      : []),
+    ...(tidy.notBaseball > 0
+      ? [
+          `${plural(tidy.notBaseball, "wiffle ball team", "wiffle ball teams")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.folded > 0
