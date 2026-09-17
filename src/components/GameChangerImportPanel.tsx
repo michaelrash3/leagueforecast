@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
-import { fetchGcTeams } from "../lib/gameChangerClient";
+import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import {
   comparePairing,
   createGcImporter,
@@ -86,6 +86,30 @@ const SAVE_EVERY = 500;
  * the cost of being wrong here is a slower pull rather than lost teams.
  */
 const CONCURRENCY = 8;
+
+/**
+ * Seconds one batch request takes, end to end.
+ *
+ * A round assumption rather than a measurement, and labelled as one. A batch is ten teams, whose
+ * twenty upstream fetches all start in the same tick, so the request costs about what the slowest
+ * of them does — a live check of a single team through the proxy came back in roughly 300ms, and a
+ * second is a fair allowance for ten of them plus the round trip.
+ */
+const SECONDS_PER_BATCH = 1;
+
+/**
+ * Roughly how long a run of `fresh` teams will spend making requests.
+ *
+ * Teams are asked for ten at a time, so the work is `fresh / BATCH_SIZE` requests shared between
+ * the workers — not one request per team, and not two. Leaving out the batch size read every team
+ * as its own pair of requests and overstated a 52,470-team run by a factor of ten: 219 minutes
+ * against a floor nearer 11.
+ */
+const estimatedMinutes = (fresh: number): number => {
+  const requests = Math.ceil(fresh / BATCH_SIZE);
+  const seconds = (requests / CONCURRENCY) * SECONDS_PER_BATCH;
+  return Math.max(1, Math.ceil(seconds / 60));
+};
 
 /** How many pasted ids still count as a hand-typed list rather than an export. */
 const HANDFUL = 25;
@@ -241,7 +265,7 @@ export function GameChangerImportPanel({
     if (progressRef.current) setStats(pullView(progressRef.current));
   };
 
-  const persist = (): boolean => {
+  const persist = (note?: string): boolean => {
     /*
      * A copy, because the fold goes on mutating its own arrays after this returns and what the
      * caller stores has to stop changing underneath it. Three shallow copies per save, not per
@@ -253,7 +277,11 @@ export function GameChangerImportPanel({
       games: poolRef.current.games.slice(),
     };
     const ok = onPersist(snapshot);
-    if (!ok) showToast("Could not save the pull (storage full).", { tone: "error" });
+    if (!ok) {
+      showToast(`Could not save the pull (storage full).${note ? ` ${note}` : ""}`, {
+        tone: "error",
+      });
+    }
     return ok;
   };
 
@@ -304,7 +332,19 @@ export function GameChangerImportPanel({
       pendingFailures.clear();
 
       flushing = flushing.then(async () => {
-        if (!persist()) return;
+        /*
+         * A refused save stops the run, rather than being noted and fetched past.
+         *
+         * On localStorage this is the only signal there is: writeValue returns whether the value
+         * actually landed, while flushPoolWrites can only say whether the pool is usable at all,
+         * so a quota refusal reaches here and nowhere else. Carrying on meant hours of fetching
+         * that saved nothing, with the cursor never advancing and the progress bar walking
+         * backwards 500 at a time on every flush.
+         */
+        if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
+          abortRef.current?.abort();
+          return;
+        }
         if (!(await flushPoolWrites())) {
           showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
           abortRef.current?.abort();
@@ -719,10 +759,7 @@ export function GameChangerImportPanel({
                   </span>
                 )}
                 {split.fresh.length > 200 && (
-                  <span>
-                    About {Math.ceil((split.fresh.length * 2) / CONCURRENCY / 60)} minute(s) of
-                    requests.
-                  </span>
+                  <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>
                 )}
               </>
             )}
