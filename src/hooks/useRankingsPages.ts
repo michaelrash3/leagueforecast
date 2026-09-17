@@ -8,11 +8,55 @@
  * with a replace, since the app tidying up after itself is not somewhere Back should land.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ageGroupLevel, ageGroupYear, MAX_AGE_LEVEL, type AgeGroup } from "../lib/teamRankings";
+import {
+  ageGroupLevel,
+  ageGroupYear,
+  MAX_AGE_LEVEL,
+  segmentOn,
+  type AgeGroup,
+  type SeasonSegment,
+} from "../lib/teamRankings";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
 import { useRankingsRoute } from "./useRankingsRoute";
 
-export function useRankingsPages(ageGroups: AgeGroup[]) {
+/**
+ * Which half a year opens on when the URL does not say.
+ *
+ * The half we are in now for the year we are in now, and the spring for any other — a finished
+ * season is read at its end, and the spring is both the later half and, on real data, much the
+ * larger table.
+ *
+ * The calendar's answer, which is not always the useful one: a year with nothing in its spring
+ * would open on an empty board. Preferring a half that has games is `segmentWorthShowing`'s job,
+ * and it applies only where the URL named no half — a reader who asked for Spring 2027 and was
+ * silently moved to Fall 2026 would be looking at a board the URL disagrees with.
+ */
+export const defaultSegmentFor = (
+  year: number | undefined,
+  today: string
+): SeasonSegment | undefined => {
+  if (year === undefined) return undefined;
+  const now = segmentOn(today);
+  return year === now.year ? now.segment : "spring";
+};
+
+/**
+ * The calendar's half, unless it holds nothing and the other one does.
+ *
+ * Only for a page the URL did not name a half for. A league that plays its whole season in the
+ * autumn should not open on an empty spring board and be left to work out why; a season with games
+ * in both opens where the calendar says.
+ */
+export const segmentWorthShowing = (
+  wanted: SeasonSegment | undefined,
+  played: Record<SeasonSegment, number>
+): SeasonSegment | undefined => {
+  if (wanted === undefined) return undefined;
+  const other = wanted === "fall" ? "spring" : "fall";
+  return played[wanted] === 0 && played[other] > 0 ? other : wanted;
+};
+
+export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
   const { route, push, replace } = useRankingsRoute();
   const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
 
@@ -91,6 +135,17 @@ export function useRankingsPages(ageGroups: AgeGroup[]) {
     return inYear.slice().sort(byLevel);
   }, [ageGroups, selectedYear, undatedGroups]);
 
+  /**
+   * The half the URL asked for, if it asked, and the calendar's if it did not.
+   *
+   * Handed out as two values rather than one because the caller finishes the decision: it is the
+   * one holding the games, so it is the one that can tell an empty half from a full one. Both are
+   * `undefined` for a page with no year of its own — a legacy group has no baseball year to be half
+   * of, so it keeps the single table it always had.
+   */
+  const routeSegment = route.segment;
+  const calendarSegment = defaultSegmentFor(ageGroupYear(selectedGroup), today);
+
   /** The page currently on screen, as a route — every navigation is this with one part changed. */
   const currentRoute = {
     mode: "rankings" as const,
@@ -98,6 +153,7 @@ export function useRankingsPages(ageGroups: AgeGroup[]) {
       ? {}
       : { ageLevel: ageGroupLevel(selectedGroup) }),
     ...(ageGroupYear(selectedGroup) === undefined ? {} : { year: ageGroupYear(selectedGroup) }),
+    ...(route.segment ? { segment: route.segment } : {}),
     section,
   };
 
@@ -111,6 +167,12 @@ export function useRankingsPages(ageGroups: AgeGroup[]) {
       mode: "rankings",
       ...(ageGroupLevel(group) === undefined ? {} : { ageLevel: ageGroupLevel(group) }),
       ...(ageGroupYear(group) === undefined ? {} : { year: ageGroupYear(group) }),
+      /*
+       * The half rides along only when it was asked for. Carrying a calendar default into the URL
+       * would write the app's guess into a link the reader then shares, and pin it there against a
+       * year where a different half is the sensible one.
+       */
+      ...(route.segment ? { segment: route.segment } : {}),
       section,
     });
   };
@@ -119,6 +181,18 @@ export function useRankingsPages(ageGroups: AgeGroup[]) {
   const openSection = (next: RankingsSection) => {
     if (next === section) return;
     push({ ...currentRoute, section: next });
+  };
+
+  /**
+   * Switching halves is a page too: it is a different table, not a filter on the same one.
+   *
+   * Compared against what the URL says rather than against what is on screen, because the caller
+   * may be showing a half the URL never named — pressing that half's own tab should then write it
+   * in, which is a reader pinning the board they are looking at.
+   */
+  const openSegment = (next: SeasonSegment) => {
+    if (next === routeSegment) return;
+    push({ ...currentRoute, segment: next });
   };
 
   /**
@@ -156,18 +230,24 @@ export function useRankingsPages(ageGroups: AgeGroup[]) {
       mode: "rankings",
       ...(level === undefined ? {} : { ageLevel: level }),
       ...(year === undefined ? {} : { year }),
+      // The half is left exactly as the URL had it, for the same reason the section is: correcting
+      // the page is the app tidying up, and rewriting anything else is the app editing a link.
+      ...(route.segment ? { segment: route.segment } : {}),
       ...(route.section ? { section: route.section } : {}),
     });
-  }, [selectedGroup, route.ageLevel, route.year, route.section, replace]);
+  }, [selectedGroup, route.ageLevel, route.year, route.segment, route.section, replace]);
 
   return {
     section,
     selectedAgeGroupId,
     selectedYear,
+    routeSegment,
+    calendarSegment,
     groupsInYear,
     yearChoices,
     openPage,
     openSection,
+    openSegment,
     openYear,
     /** Opens a page without touching the URL — for code that is already navigating some other way. */
     pickPage: setPickedGroupId,

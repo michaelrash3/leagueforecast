@@ -100,6 +100,18 @@ export type OpponentAdjustedRatings = {
   cap: number;
   /** Fitted runs per year of age gap: prior + what the data added. */
   ageGapRuns: number;
+  /**
+   * How far a game lands from what the ratings said, in runs: the RMS residual of the fit.
+   *
+   * The pool's own scale of noise, and the other half of how sure the fit is about a team. A
+   * rating's standard error is about `residualScale / sqrt(games + shrinkage)`, which is what lets
+   * a table rank on what a team is confidently worth rather than on its best guess. Measured
+   * rather than assumed, because a league of one-run games and a pool of blowouts are not equally
+   * uncertain about the same number of games.
+   *
+   * Weighted like the fit is, and 0 for a pool with no games.
+   */
+  residualScale: number;
 };
 
 export type OpponentAdjustedOptions = {
@@ -143,7 +155,14 @@ export const DEFAULT_AGE_GAP_SHRINKAGE = 6;
 export const SPARSE_SOLVER_THRESHOLD = 150;
 
 const DEFAULT_CAP = 8;
-const DEFAULT_SHRINKAGE = 1.5;
+/**
+ * Ridge strength on each team's rating, in virtual games against a league-average opponent.
+ *
+ * Exported because it is half of how sure the fit is about a team: a rating stands on its games
+ * plus this many, so the spread of a team's rating goes as `1/sqrt(games + shrinkage)`. Anything
+ * that wants to say how confident a rating is needs the same number the fit used, not a copy of it.
+ */
+export const DEFAULT_SHRINKAGE = 1.5;
 const DEFAULT_HOME_FIELD_SHRINKAGE = 3;
 
 /**
@@ -350,6 +369,9 @@ export const buildOpponentAdjustedRatings = (
       homeAdvantage: 0,
       cap,
       ageGapRuns: ageGapPrior,
+      // No games, so nothing landed anywhere: the scale of the noise is not small, it is unmeasured.
+      // Zero is what a caller needs it to be — an evidence discount of zero rather than a guess.
+      residualScale: 0,
     };
   }
 
@@ -440,6 +462,30 @@ export const buildOpponentAdjustedRatings = (
     );
   });
 
+  /*
+   * The residual scale, from the same rows the fit used and with the same weights.
+   *
+   * One extra pass over the games, after a solve that already walked them several times, so the
+   * cost is noise; and it has to be here rather than in a caller because only here are the fitted
+   * ratings, the home-field term and the age-gap slope all in hand at once.
+   */
+  let weight = 0;
+  let squared = 0;
+  games.forEach((game) => {
+    const own = game.weight ?? 1;
+    if (!(own > 0)) return;
+    const gap = game.ageGap ?? 0;
+    const predicted =
+      (ratings.get(game.home) ?? 0) -
+      (ratings.get(game.away) ?? 0) +
+      (game.neutral ? 0 : homeAdvantage) +
+      gap * ageGapRuns;
+    const actual = clamp(game.homeMargin, -cap, cap);
+    weight += own;
+    squared += own * (actual - predicted) ** 2;
+  });
+  const residualScale = weight > 0 ? Math.sqrt(squared / weight) : 0;
+
   return {
     ratings,
     rawMargin,
@@ -448,5 +494,6 @@ export const buildOpponentAdjustedRatings = (
     homeAdvantage,
     cap,
     ageGapRuns,
+    residualScale,
   };
 };

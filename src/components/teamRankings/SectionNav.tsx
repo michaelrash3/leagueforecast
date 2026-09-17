@@ -8,13 +8,15 @@ import { tab } from "../../styles/tokens";
  * time, each a link of its own through `?section=`.
  *
  * The order is the order of a season: read where everyone stands, log what happened, bring results
- * in, study one team, and only then the settings nobody visits twice.
+ * in, study one team, look back at the seasons that are over, and only then the settings nobody
+ * visits twice.
  */
 const SECTIONS: { section: RankingsSection; label: string }[] = [
   { section: "rankings", label: "Rankings" },
   { section: "games", label: "Games" },
   { section: "import", label: "Import" },
   { section: "scouting", label: "Scouting" },
+  { section: "archive", label: "Archive" },
   { section: "setup", label: "Setup" },
 ];
 

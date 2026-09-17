@@ -31,6 +31,7 @@ import {
   loadScoutTeams,
   isPoolUnavailable,
   onPoolWriteError,
+  replaceArchivedSeasons,
 } from "./lib/teamRankingsStorage";
 import {
   coerceTeamRankingsBackup,
@@ -1869,14 +1870,26 @@ export default function App() {
     return `Team Rankings: ${summarizeTeamRankingsBackup(incoming)}. Replaces the shared Team Rankings pool for every age group, not just this season.`;
   };
 
-  const applyTeamRankingsImport = (incoming: TeamRankingsBackup | null) => {
+  const applyTeamRankingsImport = async (incoming: TeamRankingsBackup | null) => {
     if (!incoming) return;
-    if (writeTeamRankingsBackup(incoming)) noteScoutChange();
-    else {
+    if (!writeTeamRankingsBackup(incoming)) {
       showToast("Season imported, but Team Rankings data could not be saved (storage full).", {
         tone: "error",
       });
+      return;
     }
+    /*
+     * The archives are swapped only when the file carries the field at all. A file written before
+     * archives existed has no opinion about them, and reading that silence as "no archives" would
+     * delete every finished season on restoring an older backup — the one thing in the pool that
+     * cannot be recomputed from anything.
+     */
+    if (incoming.archives && !(await replaceArchivedSeasons(incoming.archives))) {
+      showToast("Pool restored, but the archived seasons could not be saved (storage full).", {
+        tone: "error",
+      });
+    }
+    noteScoutChange();
   };
 
   const importCSV = (file: File) => {
@@ -1938,7 +1951,7 @@ This will replace the current season data and save an undo snapshot.`,
         if (!confirmed) return;
 
         captureUndo("CSV import", { withTeamRankings: Boolean(importedRankings) });
-        applyTeamRankingsImport(importedRankings);
+        await applyTeamRankingsImport(importedRankings);
         setTeams(importedTeams);
         setMatchups(importedMatchups);
         setLogs(logsPendingVerification);
@@ -2155,7 +2168,7 @@ This backup carries one season, so it replaces the current season data and saves
     if (!confirmed) return;
 
     captureUndo("Backup import", { withTeamRankings: Boolean(nextRankings) });
-    applyTeamRankingsImport(nextRankings);
+    await applyTeamRankingsImport(nextRankings);
     setTeams(season.teams);
     setMatchups(season.matchups);
     setLogs(season.logs);
@@ -2196,7 +2209,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             confirmLabel: "Restore",
           });
           if (!confirmed) return;
-          applyTeamRankingsImport(pool);
+          await applyTeamRankingsImport(pool);
           showToast(`Team Rankings restored: ${summarizeTeamRankingsBackup(pool)}`, {
             tone: "success",
           });

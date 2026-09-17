@@ -1,5 +1,9 @@
 import type { GameLog, Matchup, TeamBase } from "./types";
-import { buildOpponentAdjustedRatings } from "./powerRating";
+import {
+  buildOpponentAdjustedRatings,
+  DEFAULT_SHRINKAGE,
+  type OpponentAdjustedRatings,
+} from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
 import { createTeamId } from "./sim";
 import { normalizeDateInput } from "./date";
@@ -231,8 +235,20 @@ export type ScoutRankingRow = {
   teamName: string;
   isMine: boolean;
   rank: number;
-  /** Opponent-adjusted expected margin vs an average team in this age group's pool, in runs. */
+  /**
+   * What the table ranks and shows: the opponent-adjusted expected margin vs an average team in
+   * this pool, in runs, less one standard error for how little may stand behind it. See
+   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`.
+   */
   rating: number;
+  /**
+   * The fit's own estimate, undiscounted — the best guess rather than the confident one.
+   *
+   * Kept beside `rating` because the two answer different questions and a reader deserves both:
+   * "+7.9 off four games, so it is ranked at +6.5" is the whole explanation of why a 4-0 club is
+   * not first in the nation, and without this the table could only assert the conclusion.
+   */
+  pointRating: number;
   record: string;
   wins: number;
   losses: number;
@@ -245,6 +261,31 @@ export type ScoutRankingRow = {
   ageLevel?: number;
   /** Counted games against a side at a different level. */
   crossAgeGames: number;
+  /**
+   * How many clubs are in this one's connected piece of the schedule — everything it can reach
+   * through a chain of opponents.
+   *
+   * Not a measure of quality or of evidence. It is the size of the group this club's rating is
+   * measured *within*: the ridge pins every piece to average zero on its own, so a club in a piece
+   * of twelve has a rating relative to those twelve and no relation at all to one in the main
+   * piece. See `scheduleComponents`.
+   */
+  componentSize: number;
+  /**
+   * An opaque token for which piece it is. Two rows sharing it have been compared; two rows that
+   * do not have not, whatever either has played.
+   *
+   * Opaque on purpose — it is one of the club ids in the piece, and which one depends on the order
+   * the games were walked. Its only meaning is equality, and nothing should store it or show it.
+   */
+  componentId: string;
+  /**
+   * Whether this club is in the largest piece — the one the table is really a ranking of.
+   *
+   * A club outside it is still ranked, because it played real games and hiding it would be worse,
+   * but its number is not on the same scale as the rest of the column and the table says so.
+   */
+  comparable: boolean;
   /** True when the team is pinned to at least one GameChanger id. */
   fromGameChanger: boolean;
 };
@@ -259,6 +300,15 @@ export type MatchupPreview = {
   projectedMargin: number;
   winProb: number;
   tier: MatchupTier;
+  /**
+   * True when the two have never been compared — no chain of common opponents joins them.
+   *
+   * The margin and the probability are still here, because they are the only answer the model has
+   * and refusing to show one would be no more honest than showing it silently. What they are not
+   * is a prediction: the two ratings are measured against two different zeros, so their difference
+   * is two unrelated numbers subtracted. A reader told that can weigh it; a reader not told cannot.
+   */
+  unconnected: boolean;
 };
 
 /**
@@ -269,6 +319,102 @@ export type MatchupPreview = {
  * that has drifted from the number in the maths is worse than not quoting it.
  */
 export const RATING_CAP = 8;
+
+/**
+ * How many standard errors a rating is discounted by before it is ranked or shown.
+ *
+ * The fit's rating is a best guess, and a best guess from four games is not the same claim as the
+ * same number from forty. The ridge already pulls a thin record toward the mean — that is what
+ * makes the guess as good as it can be — but it does not make the table honest, because two teams
+ * whose best guess is +8 are not equally likely to actually be +8. A four-game team's rating has a
+ * standard error of about 1.4 runs on a real pool; a forty-game team's is about 0.6.
+ *
+ * So what is ranked and shown is the rating less one standard error: not what a team might be, but
+ * what it is confidently worth. It is the "conservative rating" a skill system reports, for the
+ * same reason, and it is why a 4-0 club sits behind an 11-1 club that has proved as much over
+ * nearly three times the schedule.
+ *
+ * One, measured rather than picked. On the real pool's 2026 year — 59,408 out-of-sample games
+ * between teams the fit had seen — discounts from a quarter of an error to one and a half were all
+ * inside noise against no discount at all: the best, half an error, was +41 games net of the 1,349
+ * the two orders disagreed on (1.1σ), and one error was −15 of 2,649 (−0.3σ). On the 2027 year the
+ * picks were identical to four figures. What the discount changes is the table: thin teams in the
+ * national top 100 fell from 18 to 6 on the mature year, and on the current one `MTBA Dawgs Moore
+ * 4-0` went from first in the nation to third, behind an 11-1 and a 10-1. One standard error is the
+ * plain reading of the thing and costs nothing, so it is not tuned any finer than that.
+ *
+ * Deliberately not a minimum-games cut-off. A cut-off says a team with nine games does not exist
+ * and a team with ten is believed outright; this says a thin record counts for as much as it can
+ * support, which is the truth and needs no threshold to argue about.
+ */
+export const EVIDENCE_STANDARD_ERRORS = 1;
+
+/**
+ * How far a rating could be off, in runs: `scale / sqrt(games + shrinkage)`.
+ *
+ * The denominator is the fit's own — a rating stands on its games plus the ridge's virtual ones —
+ * and the numerator is the pool's own noise, measured by the fit rather than assumed, because a
+ * league of one-run games and a pool of blowouts are not equally uncertain about the same number
+ * of games.
+ */
+export const ratingSpread = (
+  games: number,
+  residualScale: number,
+  shrinkage: number = DEFAULT_SHRINKAGE
+): number => residualScale / Math.sqrt(Math.max(0, games) + shrinkage);
+
+/**
+ * The discount one fit applies to its ratings before they are ranked or shown.
+ *
+ * Built per fit rather than per team, because it needs one thing no team knows on its own: how much
+ * evidence an *average* team in this pool has. The discount is centred on that, so the table still
+ * means what it meant — the rating of a middling team stays near zero and "expected margin against
+ * an average team" is still a fair reading of it — while a club with less than its share of
+ * evidence loses ground and one with more gains a little.
+ *
+ * Centring is a single constant added to every rating, so it cannot change any order, and
+ * `predictMatchup` takes a difference, so it cancels there too. What it buys is that a pool where
+ * everybody has played the same amount is left *exactly* as the fit left it, to the last digit —
+ * which is right, because when every club has equal evidence, evidence says nothing about which is
+ * better. The per-component zero-sum property of the fit survives that untouched.
+ *
+ * Centred over the clubs, and over all of them in the year rather than one page's rows. Not one
+ * page's rows, because the pages of a year share a fit and a club's shown rating must not depend on
+ * which page it happens to be listed on. And not every fitted node either: two thirds of the nodes
+ * in a nationwide year are stand-ins and clubs known from a single line of somebody else's
+ * schedule, which nothing ever ranks. Centring on those put the average at two games where the
+ * average club has fifteen, and lifted the whole table by a run for no reason anybody could read.
+ *
+ * One subtraction, the same for a good club and a bad one, and no clamp. Both of those were tried
+ * the other way round first and both were wrong. Shrinking *toward* zero from either side reads
+ * well — "a thin record is weak evidence of being bad, too" — and inverts the table around zero: a
+ * twenty-one-game club at +0.085 moved to −0.689 while one at −0.255 moved to +0.519, so the worse
+ * club outranked the better one. Clamping at zero to stop that collapses every club within a
+ * standard error of average onto exactly 0 — most of the middle of the table — where the sort falls
+ * through to raw margin, which is not opponent-adjusted at all. A fixture caught both.
+ */
+export const evidenceDiscount = (
+  adjusted: Pick<OpponentAdjustedRatings, "games" | "residualScale">,
+  /** The clubs to centre on. Every fitted team when left out, which is right for a pool of clubs. */
+  centreOn?: Iterable<string>,
+  shrinkage: number = DEFAULT_SHRINKAGE,
+  standardErrors: number = EVIDENCE_STANDARD_ERRORS
+): ((rating: number, games: number) => number) => {
+  let sum = 0;
+  let count = 0;
+  const note = (games: number) => {
+    sum += ratingSpread(games, adjusted.residualScale, shrinkage);
+    count += 1;
+  };
+  if (centreOn) for (const id of centreOn) note(adjusted.games.get(id) ?? 0);
+  else adjusted.games.forEach(note);
+  const middle = count > 0 ? sum / count : 0;
+  return (rating, games) => {
+    const spread = ratingSpread(games, adjusted.residualScale, shrinkage);
+    if (!Number.isFinite(spread) || !Number.isFinite(middle)) return rating;
+    return rating - standardErrors * (spread - middle);
+  };
+};
 /** Prefix guarantees a scout-created id can never collide with a league season's own team ids
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
@@ -689,6 +835,90 @@ export const inSquadYear = (date: string | undefined, year: number | undefined):
   const { start, end } = squadYearWindow(year);
   return date >= start && date <= end;
 };
+
+/**
+ * The two halves of a baseball year.
+ *
+ * A baseball year runs August 1 to July 31 — `squadYearWindow` — and it is played in two halves
+ * with a winter between them: August to December, then January to July. They are one season, and
+ * they are not one table. A club's Fall standing must not be worked out from games it had not
+ * played yet, and on a real pool the two halves are nearly different populations anyway: of
+ * 111,790 clubs in one year, 27,260 played only the autumn and 73,068 only the spring, with 11,462
+ * in both. Ranking them together answers neither question.
+ */
+export type SeasonSegment = "fall" | "spring";
+
+/** Both halves, in the order a season plays them. */
+export const SEASON_SEGMENT_ORDER: SeasonSegment[] = ["fall", "spring"];
+
+/**
+ * The dates a half covers, inside `squadYearWindow(year)`.
+ *
+ * The two are contiguous and together are exactly the year, so every dated game in a year is in
+ * one half or the other and none is in both.
+ */
+export const segmentWindow = (
+  year: number,
+  segment: SeasonSegment
+): { start: string; end: string } =>
+  segment === "fall"
+    ? { start: `${year - 1}-08-01`, end: `${year - 1}-12-31` }
+    : { start: `${year}-01-01`, end: `${year}-07-31` };
+
+/**
+ * How a half is named: by the calendar year it is actually played in.
+ *
+ * So baseball year 2027 is "Fall 2026" and "Spring 2027" — which is what a coach says, and the
+ * reason the year number alone is not a label anybody would recognise on a board.
+ */
+export const segmentLabel = (year: number, segment: SeasonSegment): string =>
+  segment === "fall" ? `Fall ${year - 1}` : `Spring ${year}`;
+
+/** Which half a date is in, or nothing when the date is absent or outside the year. */
+export const segmentOfDate = (
+  date: string | undefined,
+  year: number | undefined
+): SeasonSegment | undefined => {
+  if (year === undefined || !date || !inSquadYear(date, year)) return undefined;
+  const { end } = segmentWindow(year, "fall");
+  return date <= end ? "fall" : "spring";
+};
+
+/** Whether a game belongs in one half's table. A game with no date is in neither. */
+export const inSegment = (
+  date: string | undefined,
+  year: number | undefined,
+  segment: SeasonSegment | undefined
+): boolean => {
+  if (segment === undefined) return inSquadYear(date, year);
+  return segmentOfDate(date, year) === segment;
+};
+
+/**
+ * The baseball year a day is in, and which half of it.
+ *
+ * August starts a new year, so any day from August 1 belongs to the next one: September 17, 2026 is
+ * the autumn of baseball year 2027.
+ */
+export const segmentOn = (today: string): { year: number; segment: SeasonSegment } => {
+  const calendar = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  return month >= 8
+    ? { year: calendar + 1, segment: "fall" }
+    : { year: calendar, segment: "spring" };
+};
+
+/**
+ * The previous season, for either half of a year.
+ *
+ * Fall and Spring are one season, referred to by its spring: the season before both halves of 2027
+ * is Spring 2026, never Fall 2026. That is the whole reason this is a function rather than a
+ * subtraction at each call site — "the half before this one" is a different and wrong answer.
+ */
+export const previousSeason = (year: number): { year: number; segment: SeasonSegment } => ({
+  year: year - 1,
+  segment: "spring",
+});
 
 /** Ids are minted here so every caller that creates an age group produces the same shape. */
 export const createAgeGroupId = (): string =>
@@ -1475,6 +1705,70 @@ export const teamRecordInPool = (
 
 const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
 
+/**
+ * The connected pieces of a schedule: which clubs can be compared to which at all.
+ *
+ * A rating is a claim about a margin against the pool's average, and the ridge pins every
+ * *connected* piece of the schedule to average zero independently. That is correct arithmetic and
+ * it has a consequence nobody reads off the table: two clubs joined by no chain of opponents are
+ * measured against two different zeros, so the difference between their ratings is not a
+ * prediction about anything. It is two unrelated numbers subtracted.
+ *
+ * On the real pool this is not an edge case. 9U 2027's autumn holds 15,629 clubs in 2,107 pieces,
+ * the largest with 28.4% of them, and 39 of the national top 100 sit outside it — one of them off
+ * an island of twelve clubs. And it is a different problem from a thin record: `The Chill Dogs
+ * 17-5` was seventh in the nation on 22 games off an island of 21, which no amount of evidence
+ * discounting touches, because the games are real and the rating is well determined. It is well
+ * determined *relative to twenty other clubs*.
+ *
+ * Returned as a lookup rather than a list of sets, because every caller wants "which piece is this
+ * club in, and how big is it".
+ */
+export const scheduleComponents = (
+  ids: string[],
+  pairs: Array<[string, string]>
+): { pieceOf: (id: string) => string; sizeOf: (id: string) => number; largest: string | null } => {
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    // Flattened on the way back, so a long chain is walked once rather than once per lookup.
+    let walk = id;
+    while (parent.get(walk) !== walk) {
+      const next = parent.get(walk)!;
+      parent.set(walk, root);
+      walk = next;
+    }
+    return root;
+  };
+  pairs.forEach(([a, b]) => {
+    if (!parent.has(a) || !parent.has(b)) return;
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent.set(rootA, rootB);
+  });
+
+  const sizes = new Map<string, number>();
+  ids.forEach((id) => {
+    const root = find(id);
+    sizes.set(root, (sizes.get(root) ?? 0) + 1);
+  });
+  let largest: string | null = null;
+  let biggest = 0;
+  sizes.forEach((size, root) => {
+    // Ties broken by id so the answer does not depend on Map iteration order.
+    if (size > biggest || (size === biggest && largest !== null && root < largest)) {
+      biggest = size;
+      largest = root;
+    }
+  });
+  return {
+    pieceOf: find,
+    sizeOf: (id) => (parent.has(id) ? (sizes.get(find(id)) ?? 0) : 0),
+    largest,
+  };
+};
+
 /** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
 const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
   rows.sort(
@@ -1514,15 +1808,31 @@ const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
  * page is rated (it is a node in the same regression) but listed on its own page. Records count
  * every counted game in the pool, so a 9U's win over a 10U is a win. A group below
  * `MIN_RANKED_AGE_LEVEL` has no table at all.
+ *
+ * With a `segment`, the fit is over that half of the year alone and the records, cross-age counts
+ * and strength of schedule are that half's too. Fitted, not filtered: a Fall table built from a
+ * whole-year fit would have read the spring before saying who was best in the autumn. Which page a
+ * club is listed on does not change between halves — its age level is a fact about the club for the
+ * season — so the same club is on the same board in both.
  */
 export const buildTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
   myTeamId?: string,
-  ageGroups?: AgeGroup[]
+  ageGroups?: AgeGroup[],
+  /**
+   * One half of the baseball year — "fall" or "spring" — or the whole of it when left out.
+   *
+   * Only the pooled path honours it, because a half needs a year to be a half of and the one-group
+   * path has none. The app always passes `ageGroups`, so this is a limit on the legacy call rather
+   * than on a board anybody sees.
+   */
+  segment?: SeasonSegment
 ): ScoutRankingRow[] => {
-  if (ageGroups) return buildPooledTeamRankings(ageGroupId, teams, games, myTeamId, ageGroups);
+  if (ageGroups) {
+    return buildPooledTeamRankings(ageGroupId, teams, games, myTeamId, ageGroups, segment);
+  }
 
   const playedGames = games.filter(
     (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
@@ -1540,13 +1850,22 @@ export const buildTeamRankings = (
   );
 
   const records = recordsFor(playedGames);
+  const pieces = scheduleComponents(
+    teams.map((team) => team.id),
+    playedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
+  );
+  const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
+  const confident = evidenceDiscount(
+    adjusted,
+    teams.filter(isClub).map((team) => team.id)
+  );
   const rows = teams
     /*
      * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
      * go in the table: not a slot, which names nobody, and not a club known only from somebody
      * else's schedule, whose record here is a fraction of a season it would be ranked on.
      */
-    .filter((team) => !team.placeholder && !team.nameOnly)
+    .filter(isClub)
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
@@ -1555,7 +1874,8 @@ export const buildTeamRankings = (
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: adjusted.ratings.get(team.id) ?? 0,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
@@ -1565,6 +1885,9 @@ export const buildTeamRankings = (
         strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
         sosRank: 0,
         crossAgeGames: 0,
+        componentSize: pieces.sizeOf(team.id),
+        componentId: pieces.pieceOf(team.id),
+        comparable: pieces.largest !== null && pieces.pieceOf(team.id) === pieces.largest,
         fromGameChanger: hasGcLinks(team),
       };
     });
@@ -1583,7 +1906,14 @@ export const scoutRatingGames = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  /**
+   * One half of the year, or the whole of it when left out.
+   *
+   * A half is fitted on its own games alone — not on the year's, filtered afterwards — because a
+   * rating fitted over both halves has read the spring before saying who was best in the autumn.
+   */
+  segment?: SeasonSegment
 ): Array<{ game: ScoutGame; ageGap: number }> => {
   const index = indexGroups(ageGroups);
   const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
@@ -1594,8 +1924,12 @@ export const scoutRatingGames = (
       (game) =>
         pool.has(game.ageGroupId) &&
         countsTowardRating(game) &&
-        // Last year's squad's games, listed under this year's id, are not this squad's results.
-        inSquadYear(game.date, index.year(game.ageGroupId)) &&
+        /*
+         * Last year's squad's games, listed under this year's id, are not this squad's results —
+         * and with a half named, this is also what keeps the other half out. A game with no date
+         * is in the year but in neither half, so it informs the year's table and neither board.
+         */
+        inSegment(game.date, index.year(game.ageGroupId), segment) &&
         teamById.has(game.teamAId) &&
         teamById.has(game.teamBId)
     )
@@ -1607,14 +1941,15 @@ const buildPooledTeamRankings = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   myTeamId: string | undefined,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment
 ): ScoutRankingRow[] => {
   const index = indexGroups(ageGroups);
   const level = index.level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
   const year = index.year(ageGroupId);
 
-  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups);
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups, segment);
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();
@@ -1642,6 +1977,11 @@ const buildPooledTeamRankings = (
     { cap: RATING_CAP }
   );
 
+  /*
+   * Over the whole year, not the half. A club's age level is a fact about the club for the season,
+   * so it is on the same page in both halves — a club that appears on the 9U board in the autumn
+   * must not move to the 10U board in the spring because of which games fell where.
+   */
   const homeLevels = homeLevelsForYear(year, nodes, games, ageGroups);
   // A page with no readable level (a legacy group) lists whoever played there, as it always has.
   const belongsHere = (teamId: string): boolean => {
@@ -1658,6 +1998,25 @@ const buildPooledTeamRankings = (
     crossAgeCounts.set(game.teamAId, (crossAgeCounts.get(game.teamAId) ?? 0) + 1);
     crossAgeCounts.set(game.teamBId, (crossAgeCounts.get(game.teamBId) ?? 0) + 1);
   });
+  /*
+   * Centred on the year's clubs, which is the same set whichever page is being built — so a club's
+   * shown rating is the same number wherever it is listed, and an 8U that played up is still on
+   * the same scale as the 9Us it played.
+   */
+  const confident = evidenceDiscount(
+    adjusted,
+    nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+  );
+  /*
+   * Over the same games the fit read, so "the piece this club is in" means the piece the ridge
+   * pinned to zero on its own. Nodes rather than rows: a club reaches the rest of the table through
+   * whatever it played, including sides listed on other pages and stand-ins, all of which are in
+   * the fit.
+   */
+  const pieces = scheduleComponents(
+    nodes.map((team) => team.id),
+    ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
+  );
   const rows = nodes
     /*
      * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
@@ -1669,22 +2028,27 @@ const buildPooledTeamRankings = (
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const crossAgeGames = crossAgeCounts.get(team.id) ?? 0;
       const ageLevel = homeLevels.get(team.id);
+      const gamesPlayed = adjusted.games.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: adjusted.ratings.get(team.id) ?? 0,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
         ties,
-        games: adjusted.games.get(team.id) ?? 0,
+        games: gamesPlayed,
         rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
         strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
         sosRank: 0,
         ...(ageLevel === undefined ? {} : { ageLevel }),
         crossAgeGames,
+        componentSize: pieces.sizeOf(team.id),
+        componentId: pieces.pieceOf(team.id),
+        comparable: pieces.largest !== null && pieces.pieceOf(team.id) === pieces.largest,
         fromGameChanger: hasGcLinks(team),
       };
     });
@@ -1695,6 +2059,20 @@ const buildPooledTeamRankings = (
 /** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
  * matchup predictions — kept identical so the two features read consistently. Deliberately ignores
  * home-field advantage: Team Rankings games are treated as neutral-site. */
+/**
+ * Whether two rows have never been compared, by any chain of opponents.
+ *
+ * Off the piece each is in, which is the whole point: the question is not "have these two played"
+ * but "is there any path of results between them at all". A club three opponents removed is
+ * compared; a club in another piece of the schedule is not, however many games either has played.
+ *
+ * On the piece's identity rather than its size, because two different islands of the same size are
+ * still two different zeros — comparing sizes would call them compared, which is the exact error
+ * this function exists to name.
+ */
+const notCompared = (a: ScoutRankingRow, b: ScoutRankingRow): boolean =>
+  a.componentId !== b.componentId;
+
 /** Widest projected margin a matchup preview will state, in runs. */
 export const MATCHUP_MARGIN_CAP = 14;
 /**
@@ -1778,6 +2156,7 @@ export const buildScoutingReport = (
       projectedMargin,
       winProb: winProbA,
       tier: tierFor(winProbA),
+      unconnected: notCompared(forRow, opponent),
     };
   };
   const byRank = (a: MatchupPreview, b: MatchupPreview) => a.opponentRank - b.opponentRank;
@@ -1828,6 +2207,8 @@ export type UpcomingMatchup = {
   projectedMargin?: number;
   winProb?: number;
   tier?: MatchupTier;
+  /** True when no chain of opponents joins the two, so the projection is not one. */
+  unconnected?: boolean;
 };
 
 /**
@@ -1869,6 +2250,7 @@ export const buildUpcomingSchedule = (
         opponentName: nameById.get(opponentId) ?? "Unknown team",
       };
       if (!opponent) return base;
+      const across = notCompared(forRow, opponent);
       const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
       return {
         ...base,
@@ -1876,6 +2258,7 @@ export const buildUpcomingSchedule = (
         projectedMargin,
         winProb: winProbA,
         tier: tierFor(winProbA),
+        ...(across ? { unconnected: true } : {}),
       };
     })
     .sort(

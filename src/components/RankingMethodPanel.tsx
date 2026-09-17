@@ -95,10 +95,17 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">
-            3. Small samples pulled toward the middle.
+            3. What a record can actually support.
           </span>{" "}
-          One game does not earn a big rating. The more a team plays, the more its rating is its own
-          — which is what stops a 1-0 team topping the table in April.
+          Two things, and the second is the one that stops a 4-0 team topping the table. First, a
+          thin record is pulled toward the middle, so one game does not earn a big rating. That
+          makes the estimate as good as it can be — but a best guess off four games is not the same
+          claim as the same number off forty, and the table used to rank them side by side. So what
+          is ranked and shown is the estimate less one standard error: not what a team might be, but
+          what it is confidently worth, measured against how much an average team in this pool has
+          played. A 4-0 team therefore sits behind an 11-1 team that has proved as much over nearly
+          three times the schedule. The full table shows the undiscounted estimate beside it, so you
+          can see exactly what a record is and is not carrying.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A
@@ -134,9 +141,16 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
       </p>
 
       <p className="mt-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
-        <span className="font-bold text-slate-950 dark:text-white">Worth knowing:</span> until teams
-        share opponents, directly or through a chain, a rating is not much more than run
-        differential. A table where nobody has played anybody in common is not really a ranking yet.
+        <span className="font-bold text-slate-950 dark:text-white">
+          Two teams with no chain between them have not been compared.
+        </span>{" "}
+        A rating is a margin against the average of everyone a team&apos;s schedule can reach —
+        opponents, their opponents, and so on — and each such group is centred on its own average.
+        So the difference between two ratings from two groups that have never met is not a
+        prediction; it is two unrelated numbers subtracted. Early in a season most of the country is
+        in that position, and it mends itself as the schedules knit together. The boards say how
+        much of a table is one ranking, the full table marks the rows that are not in it, and a
+        matchup across two groups is labelled <em>never compared</em> rather than quietly stated.
       </p>
     </div>
   );

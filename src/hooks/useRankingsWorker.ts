@@ -5,6 +5,7 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 import type { WorkerRequest, WorkerResponse } from "../workers/rankings.worker";
 
@@ -14,6 +15,8 @@ type RankingsInput = {
   games: ScoutGame[];
   myTeamId?: string;
   ageGroups: AgeGroup[];
+  /** One half of the baseball year, or the whole of it when absent. */
+  segment?: SeasonSegment;
 };
 
 /**
@@ -99,8 +102,9 @@ export function useRankingsWorker(input: RankingsInput): {
       games: input.games,
       ageGroups: input.ageGroups,
       ...(input.myTeamId === undefined ? {} : { myTeamId: input.myTeamId }),
+      ...(input.segment === undefined ? {} : { segment: input.segment }),
     }),
-    [input.ageGroupId, input.teams, input.games, input.ageGroups, input.myTeamId]
+    [input.ageGroupId, input.teams, input.games, input.ageGroups, input.myTeamId, input.segment]
   );
 
   const idle = input.ageGroupId === "" || input.teams.length === 0;
@@ -117,7 +121,8 @@ export function useRankingsWorker(input: RankingsInput): {
       snapshot.teams,
       snapshot.games,
       snapshot.myTeamId,
-      snapshot.ageGroups
+      snapshot.ageGroups,
+      snapshot.segment
     );
   }, [idle, small, snapshot]);
 

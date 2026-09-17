@@ -11,6 +11,7 @@ import { PoolHealthCard } from "./PoolHealthCard";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import { ResetRankingsCard } from "./ResetRankingsCard";
+import { ArchiveSeasonCard, type ArchivableYear } from "./ArchiveSeasonCard";
 import { card } from "../../styles/tokens";
 
 type SetupSectionProps = {
@@ -28,6 +29,13 @@ type SetupSectionProps = {
     pool: GcImportState;
     tidyStamp: string;
     onTidied: (outcome: TidyOutcome) => void;
+  };
+  /** The years that could be frozen, and the one the app is showing as current. */
+  archive: {
+    years: ArchivableYear[];
+    currentYear: number | undefined;
+    busy: boolean;
+    onArchive: (year: number) => void;
   };
   /** Everything the model check needs to refit this page's pool on demand. */
   modelCheck: {
@@ -57,6 +65,7 @@ export function SetupSection({
   onDownloadBackup,
   onReset,
   poolHealth,
+  archive,
   modelCheck,
 }: SetupSectionProps) {
   /*
@@ -160,6 +169,13 @@ export function SetupSection({
         teams={modelCheck.teams}
         games={modelCheck.games}
         ageGroups={ageGroups}
+      />
+
+      <ArchiveSeasonCard
+        years={archive.years}
+        currentYear={archive.currentYear}
+        busy={archive.busy}
+        onArchive={archive.onArchive}
       />
 
       <ResetRankingsCard

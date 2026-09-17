@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ageGroupChain,
   ageGroupLevel,
+  ageGroupYear,
   buildScoutingReport,
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
@@ -13,6 +14,8 @@ import {
   mergeScoutTeams,
   MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
+  segmentLabel,
+  segmentOfDate,
   resolveOrCreateTeam,
   seasonAtAge,
   seasonYearOptions,
@@ -27,6 +30,7 @@ import {
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
@@ -46,6 +50,7 @@ import {
   clearPullProgress,
   clearTeamRankings,
   loadAgeGroups,
+  loadArchiveIndex,
   loadPullProgress,
   loadRefreshLog,
   loadScoutGames,
@@ -54,6 +59,8 @@ import {
   onPoolChangedElsewhere,
   saveAgeGroups,
   savePullProgress,
+  loadAllArchivedSeasons,
+  saveArchivedSeasons,
   saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
@@ -68,6 +75,8 @@ import {
   teamRankingsJsonParts,
 } from "../lib/teamRankingsBackup";
 import { type RankingsSection } from "../lib/rankingsRoute";
+import { archivableYears, archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
+import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -85,7 +94,7 @@ import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
-import { useRankingsPages } from "../hooks/useRankingsPages";
+import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
 
@@ -131,6 +140,7 @@ const sectionLabel = (section: RankingsSection): string =>
     games: "The games list",
     import: "The GameChanger import",
     scouting: "The scouting report",
+    archive: "The archive",
     setup: "Setup",
   })[section];
 
@@ -141,17 +151,29 @@ export function TeamRankingsView({
   onDataChange,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
+  /*
+   * Today, as a plain ISO day, read once for the render.
+   *
+   * Used to decide which half of the year a page opens on and to work out which fixtures are still
+   * ahead. Read here rather than in each place that wants it so both answers come from the same
+   * instant — a render where the schedule and the board disagreed about what day it is would be a
+   * genuinely confusing thing to debug.
+   */
+  const today = new Date().toISOString().slice(0, 10);
   const {
     section,
     selectedAgeGroupId,
     selectedYear,
     groupsInYear,
     yearChoices,
+    routeSegment,
+    calendarSegment,
     openPage,
     openSection,
+    openSegment,
     openYear,
     pickPage,
-  } = useRankingsPages(ageGroups);
+  } = useRankingsPages(ageGroups, today);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
@@ -289,6 +311,16 @@ export function TeamRankingsView({
 
   const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
 
+  /*
+   * What has been archived, and whether an archive is running.
+   *
+   * Only the index — names, dates and counts — is held here. A season's rows are a hundred
+   * thousand of them and are read when somebody opens one, which is the whole point of keeping
+   * them in a key of their own.
+   */
+  const [archives, setArchives] = useState<ArchiveEntry[]>(() => loadArchiveIndex());
+  const [archiving, setArchiving] = useState(false);
+
   /**
    * Answers "what age does this league season play?" — the only age-group question left to ask.
    *
@@ -398,6 +430,34 @@ export function TeamRankingsView({
     return allKnown.games.filter((game) => pool.has(game.ageGroupId));
   }, [allKnown.games, selectedAgeGroupId, ageGroups]);
 
+  /**
+   * How many counted games each half of this year holds.
+   *
+   * Only so a half with nothing in it can say so on its own tab instead of being an empty board
+   * with no explanation. Off `poolGames`, which is the same list the boards are fitted from, so
+   * the count and the table cannot disagree.
+   */
+  const segmentGames = useMemo(() => {
+    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
+    const counts: Record<SeasonSegment, number> = { fall: 0, spring: 0 };
+    poolGames.forEach((game) => {
+      if (!isScoutGamePlayed(game)) return;
+      const half = segmentOfDate(game.date, year);
+      if (half) counts[half] += 1;
+    });
+    return counts;
+  }, [poolGames, ageGroups, selectedAgeGroupId]);
+
+  /**
+   * Which half of the year the boards are for.
+   *
+   * The URL decides when it says; otherwise the calendar's half, unless that half holds nothing and
+   * the other does. The fallback is here rather than in the hook because it is the counts above
+   * that make it answerable, and it is never written into the URL — the app's guess should not end
+   * up pinned in a link somebody shares.
+   */
+  const selectedSegment = routeSegment ?? segmentWorthShowing(calendarSegment, segmentGames);
+
   const myTeamId = ageGroups.find((g) => g.id === selectedAgeGroupId)?.myTeamId;
 
   /**
@@ -413,7 +473,31 @@ export function TeamRankingsView({
     games: poolGames,
     ...(myTeamId === undefined ? {} : { myTeamId }),
     ageGroups,
+    /*
+     * One half of the year, fitted on its own games. Everything below reads `rankings`, so the two
+     * boards, the state boards, the full table and the scouting report all follow the half
+     * together — which they must, because a scouting report on a spring table built from autumn
+     * ratings would be describing a team that does not exist.
+     */
+    ...(selectedSegment === undefined ? {} : { segment: selectedSegment }),
   });
+
+  /**
+   * How much of this board is one ranking rather than several.
+   *
+   * Off the rows, which already carry which piece of the schedule each club is in. The largest
+   * piece is counted over the whole fit rather than over this page's rows, because that is what a
+   * rating is measured against — a 9U club's group includes the 10Us it played up against.
+   */
+  const connectivity = useMemo(() => {
+    if (rankings.length === 0) return null;
+    const comparable = rankings.filter((row) => row.comparable).length;
+    const largest = rankings.reduce(
+      (most, row) => (row.comparable ? Math.max(most, row.componentSize) : most),
+      0
+    );
+    return { ranked: rankings.length, comparable, largest };
+  }, [rankings]);
 
   /**
    * The teams behind the rows on this page. Taken from the rows rather than from the games filed
@@ -521,9 +605,8 @@ export function TeamRankingsView({
    */
   const upcomingRows = useMemo(() => {
     if (!reportForId) return [];
-    const today = new Date().toISOString().slice(0, 10);
     return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
-  }, [reportForId, rankings, poolGames, allKnown.teams]);
+  }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
@@ -910,7 +993,13 @@ export function TeamRankingsView({
    * put that. Restoring still reads either, because files written before this exist.
    */
   const downloadPoolBackup = async () => {
-    const backup = readTeamRankingsBackup();
+    /*
+     * The archives are loaded here and nowhere else in the app. They are read on demand precisely
+     * so that they are not in memory, and a backup is the one job that needs all of them at once —
+     * and needs them, because an archived table is the only copy of that season and this file is
+     * what the reset card offers as the way back.
+     */
+    const backup = { ...readTeamRankingsBackup(), archives: await loadAllArchivedSeasons() };
     const estimate = estimateBackupBytes(backup);
 
     // A nationwide pool makes a file that takes a moment to put together and will not open in
@@ -958,6 +1047,123 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
    * page — a reload would throw away a League Standings edit the user has not saved yet, and
    * everything here that came out of storage is named right below.
    */
+  /*
+   * What each baseball year holds, for the card that offers to freeze one.
+   *
+   * One pass over the stored games rather than a filter per year: on a nationwide pool there are
+   * three hundred thousand of them and half a dozen years, and the card re-renders on every pick.
+   * The stored games, because those are the ones a delete can take — the league's fixtures are
+   * derived and go from the archive's point of view by the page going, not by being deleted.
+   */
+  const archivableSummaries = useMemo(() => {
+    const yearOf = new Map<string, number>();
+    ageGroups.forEach((group) => {
+      const year = ageGroupYear(group);
+      if (year !== undefined) yearOf.set(group.id, year);
+    });
+    const pages = new Map<number, number>();
+    yearOf.forEach((year) => pages.set(year, (pages.get(year) ?? 0) + 1));
+    const games = new Map<number, number>();
+    const sides = new Map<number, Set<string>>();
+    scoutGames.forEach((game) => {
+      const year = yearOf.get(game.ageGroupId);
+      if (year === undefined) return;
+      games.set(year, (games.get(year) ?? 0) + 1);
+      const seen = sides.get(year) ?? new Set<string>();
+      seen.add(game.teamAId);
+      seen.add(game.teamBId);
+      sides.set(year, seen);
+    });
+    return archivableYears(ageGroups).map((year) => ({
+      year,
+      pages: pages.get(year) ?? 0,
+      games: games.get(year) ?? 0,
+      teams: sides.get(year)?.size ?? 0,
+    }));
+  }, [ageGroups, scoutGames]);
+
+  /**
+   * Freezes a baseball year's tables and deletes the games behind them.
+   *
+   * The tables are built from the merged pool, so what is frozen is what was on screen — the
+   * league's own fixtures included, which is why the confirmation says they go too. What is
+   * deleted is the stored pool only, because derived fixtures were never stored.
+   *
+   * Order matters and is the reason this is not two calls: the archive is written and confirmed
+   * first, and the games are deleted only if it landed. A half-written archive with the games
+   * already gone is the one outcome there is no coming back from.
+   */
+  const archiveYear = async (year: number) => {
+    const shown = { teams: allKnown.teams, games: allKnownGames };
+    const stored = { ageGroups, teams: scoutTeams, games: scoutGames };
+    /*
+     * Whether the pool was tidy before this, checked before anything changes.
+     *
+     * What survives an archive is a subset of what was there — whole pages removed, and the teams
+     * no remaining game mentions, which is the one thing a tidy would have done anyway. So a tidy
+     * pool stays tidy, and stamping the smaller one saves a full worker pass over three hundred
+     * thousand games for nothing. An untidy pool leaves the stamp alone, so the tidy still comes.
+     */
+    const wasTidy = loadTidyStamp() === poolSignature(stored);
+    const done = archiveSquadYear(year, shown, stored, new Date().toISOString());
+
+    if (done.seasons.length === 0 && done.unranked.length === 0) {
+      showToast(`Nothing is filed under ${year}.`, { tone: "error" });
+      return;
+    }
+
+    const lines = [
+      `${done.seasons.length} final table${done.seasons.length === 1 ? "" : "s"} kept: ${done.seasons
+        .map((season) => `${season.name} (${season.rows.length.toLocaleString()} teams)`)
+        .join(", ")}.`,
+      `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} deleted.`,
+    ];
+    if (done.archivedLeagueGames > 0) {
+      lines.push(
+        `${done.archivedLeagueGames.toLocaleString()} league game${done.archivedLeagueGames === 1 ? "" : "s"} are in these tables and will no longer be counted in any live ranking. League Standings keeps its own seasons — this does not touch them.`
+      );
+    }
+    if (done.unranked.length > 0) {
+      lines.push(
+        `No table for ${done.unranked.map((page) => `${page.name} (${page.games.toLocaleString()} games)`).join(", ")} — those ages are not ranked, so their games informed the tables above and keep no rows of their own.`
+      );
+    }
+    lines.push("The tables become read-only. This cannot be undone.");
+
+    const confirmed = await requestConfirmation({
+      title: `Archive ${year} and delete its games?`,
+      message: lines.join("\n\n"),
+      confirmLabel: `Archive ${year}`,
+    });
+    if (!confirmed) return;
+
+    setArchiving(true);
+    try {
+      const kept = await saveArchivedSeasons(done.seasons);
+      if (!kept) {
+        showToast("Could not write the archive, so nothing was deleted. The pool is unchanged.", {
+          tone: "error",
+        });
+        return;
+      }
+      // Only now: the tables are on disk, so the games they replace can go.
+      persistAgeGroups(done.state.ageGroups);
+      persistTeams(done.state.teams);
+      persistGames(done.state.games);
+      if (wasTidy) saveTidyStamp(poolSignature(done.state));
+      setArchives(loadArchiveIndex());
+      pickPage("");
+      setOpenTeamId(null);
+      setReportTeamId("");
+      showToast(
+        `${year} archived. ${kept.length} final table${kept.length === 1 ? "" : "s"} kept under Archive; ${done.droppedGames.toLocaleString()} games deleted.`
+      );
+      onDataChange?.();
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const resetEverything = async () => {
     const going = readTeamRankingsBackup();
     const confirmed = await requestConfirmation({
@@ -986,6 +1192,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
     setScoutGames([]);
     setPullProgress(null);
     setRefreshLog({});
+    setArchives([]);
     pickPage("");
     setOpenTeamId(null);
     setReportTeamId("");
@@ -1018,6 +1225,9 @@ This cannot be undone. Cancel and download the backup first if there is any chan
         selectedAgeGroupId={selectedAgeGroupId}
         groupsInYear={groupsInYear}
         yearChoices={yearChoices}
+        selectedSegment={selectedSegment}
+        segmentGames={segmentGames}
+        onOpenSegment={openSegment}
         onOpenYear={openYear}
         onOpenPage={openPage}
         onOpenSection={openSection}
@@ -1043,6 +1253,20 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onSearchTeam={openSearchedTeam}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
+              connectivity={connectivity}
+              segment={
+                selectedSegment === undefined || selectedYear === undefined
+                  ? null
+                  : {
+                      name: segmentLabel(selectedYear, selectedSegment),
+                      played: segmentGames[selectedSegment],
+                      otherName: segmentLabel(
+                        selectedYear,
+                        selectedSegment === "fall" ? "spring" : "fall"
+                      ),
+                      otherPlayed: segmentGames[selectedSegment === "fall" ? "spring" : "fall"],
+                    }
+              }
               rankings={rankings}
               rankingsStale={rankingsStale}
               nationalTop={nationalTop}
@@ -1157,6 +1381,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             />
           )}
 
+          {section === "archive" && <ArchiveSection entries={archives} />}
+
           {section === "setup" && (
             <SetupSection
               seasons={seasons}
@@ -1192,6 +1418,12 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 games: allKnownGames,
               }}
               onReset={() => void resetEverything()}
+              archive={{
+                years: archivableSummaries,
+                currentYear: selectedYear,
+                busy: archiving,
+                onArchive: (year) => void archiveYear(year),
+              }}
             />
           )}
         </ErrorBoundary>
