@@ -107,7 +107,35 @@ type Stage = "picking" | "pulling" | "review";
  * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
  * kept.
  */
-const SAVE_EVERY = 500;
+/**
+ * How many teams to fetch between saves, given how big the pool already is.
+ *
+ * Every save writes the *whole* pool — the store keeps it as one value, so there is no such thing
+ * as appending a game to it. That is fine at a few thousand teams and ruinous at a hundred
+ * thousand: a fixed interval means the number of saves grows with the run while the cost of each
+ * one grows with the pool, so the total written grows as the square. Measured on a real pool at 169
+ * bytes a row encoded, a nationwide pull saving every five hundred teams writes **fourteen to
+ * twenty-six gigabytes to disk** to store a few hundred megabytes, and allocates the encoded pool
+ * as garbage each time. It is the reason such a pull slows to a crawl and buries the tab in
+ * collection: not the fetching, the saving.
+ *
+ * So the interval grows with the pool. Twenty-odd saves instead of two hundred and thirty, a tenth
+ * of the disk and a tenth of the garbage. What it costs is how much a crash can undo — at the
+ * ceiling, five thousand teams, which is two or three minutes of fetching. Worth it against an
+ * hour of thrashing, and the floor keeps small pulls saving as often as they always did.
+ */
+export const SAVE_EVERY_MIN = 500;
+export const SAVE_EVERY_MAX = 5000;
+export const saveEvery = (games: number): number => {
+  /*
+   * Guarded rather than trusted, because of what the arithmetic does with a number that is not
+   * one: `Math.max(500, NaN)` is NaN, and the caller's test is `unsaved.length >= interval`, which
+   * is false for NaN every time — so a bad count here would not make the pull save badly, it would
+   * make it never save at all, and lose the lot on the way out.
+   */
+  if (!Number.isFinite(games) || games <= 0) return SAVE_EVERY_MIN;
+  return Math.min(SAVE_EVERY_MAX, Math.max(SAVE_EVERY_MIN, Math.round(games / 100)));
+};
 
 /**
  * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
@@ -116,6 +144,16 @@ const SAVE_EVERY = 500;
  * the cost of being wrong here is a slower pull rather than lost teams.
  */
 const CONCURRENCY = 8;
+/**
+ * Workers the pull may grow to while the route stays clean.
+ *
+ * Eight was a guess made when nobody knew what GameChanger would take, and it held a nationwide
+ * pull to around two thousand teams a minute — most of an hour for a hundred thousand. Rather than
+ * replace it with a bigger guess, the client starts at eight and adds a worker for every ten
+ * batches that come back without a hold, stopping for good at the first sign of pushback. This is
+ * only where it stops climbing.
+ */
+const MAX_CONCURRENCY = 24;
 
 /**
  * Seconds one batch request takes, end to end.
@@ -457,8 +495,9 @@ export function GameChangerImportPanel({
         tracker?.beginSegment(session.startedAt, ids);
         tracker?.config({
           concurrency: CONCURRENCY,
+          maxConcurrency: MAX_CONCURRENCY,
           batchSize: BATCH_SIZE,
-          saveEvery: SAVE_EVERY,
+          saveEvery: saveEvery(poolRef.current.games.length),
         });
         tracker?.eta(estimatedMinutes(ids.length));
         tracker?.paste({
@@ -619,6 +658,9 @@ export function GameChangerImportPanel({
 
       await fetchGcTeams(ids, {
         concurrency: CONCURRENCY,
+        maxConcurrency: MAX_CONCURRENCY,
+        // Merged into the run's config, so the report says what the pool grew to.
+        onConcurrency: (workers) => track(() => tracker?.config({ workers })),
         signal: controller.signal,
         onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
         onBlocked: () => track(() => tracker?.blocked()),
@@ -666,7 +708,7 @@ export function GameChangerImportPanel({
             pendingFailures.set(teamId, { reason: result.reason, message: result.message });
           }
           unsaved.push(teamId);
-          if (unsaved.length >= SAVE_EVERY) void flush();
+          if (unsaved.length >= saveEvery(poolRef.current.games.length)) void flush();
           // The cursor only advances on a flush, so the bar counts what is settled plus what is
           // fetched and waiting to be written — otherwise it would sit still between saves.
           const settled = progressRef.current?.settled.length ?? 0;
@@ -1004,7 +1046,8 @@ export function GameChangerImportPanel({
               <>
                 It kept going when this panel was closed. Starting another would have the two of
                 them saving the pool over each other, so this one waits. The counter below is the
-                last position saved, which advances every {SAVE_EVERY} teams.
+                last position saved, which advances every {SAVE_EVERY_MIN} teams on a small pool and
+                up to every {SAVE_EVERY_MAX} on a large one.
               </>
             ) : (
               <>
@@ -1282,8 +1325,8 @@ export function GameChangerImportPanel({
             {stats.failed ? `, ${stats.failed} failed` : ""}.
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Saved every {SAVE_EVERY} teams. You can stop, close this, or leave the tab — it picks up
-            where it left off.
+            Saved every {SAVE_EVERY_MIN}–{SAVE_EVERY_MAX} teams, less often as the pool grows. You
+            can stop, close this, or leave the tab — it picks up where it left off.
           </p>
 
           {live && (
