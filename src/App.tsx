@@ -36,6 +36,7 @@ import {
   coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
   readTeamRankingsBackup,
+  parseTeamRankingsJson,
   summarizeTeamRankingsBackup,
   teamRankingsBackupIsEmpty,
   teamRankingsCsvSections,
@@ -1883,6 +1884,12 @@ export default function App() {
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("File is not text");
+
+        /*
+         * A Team Rankings backup is JSON and carries the pool alone — no schedule, no season. Sent
+         * through the schedule reader it would parse to nothing and the pool would be left alone,
+         * which is the wrong answer to a file that is entirely pool.
+         */
         const {
           teams: importedTeams,
           matchups: importedMatchups,
@@ -2169,6 +2176,32 @@ This backup carries one season, so it replaces the current season data and saves
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("Backup is not text");
+
+        /*
+         * Two JSON backups arrive at this button now, and they are not the same file. The whole-app
+         * one carries every season, the pool and the settings; the Team Rankings one carries the
+         * pool alone. Told apart by what the file says it is rather than by which button was
+         * pressed, so handing over the wrong one is a message rather than a restore of nothing.
+         */
+        const pool = parseTeamRankingsJson(raw);
+        if (pool) {
+          // It replaces the whole pool rather than merging into it, which is worth saying out loud
+          // before it happens — the same reason the CSV path previews what it will do.
+          const confirmed = await requestConfirmation({
+            title: "Restore Team Rankings from this file?",
+            message: `${teamRankingsImportNote(pool)}
+
+League Standings — your seasons, schedules and scores — is not touched.`,
+            confirmLabel: "Restore",
+          });
+          if (!confirmed) return;
+          applyTeamRankingsImport(pool);
+          showToast(`Team Rankings restored: ${summarizeTeamRankingsBackup(pool)}`, {
+            tone: "success",
+          });
+          return;
+        }
+
         const parsed = coerceBackup(JSON.parse(raw) as unknown);
         if (!parsed) throw new Error("Backup is not a League Forecast backup");
         if (parsed.kind === "full") await restoreFullBackup(parsed.backup);

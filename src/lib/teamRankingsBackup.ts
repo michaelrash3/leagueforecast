@@ -21,6 +21,14 @@ import {
 } from "./teamRankingsStorage";
 import type { UndoSnapshot } from "./types";
 import { isRecord } from "./validate";
+import {
+  COMPACT_VERSION,
+  decodeScoutGames,
+  decodeScoutTeams,
+  encodeAgeGroups,
+  encodeScoutGames,
+  encodeScoutTeams,
+} from "./teamRankingsCompact";
 
 /**
  * Team Rankings lives in its own storage keys, outside the season-namespaced league data, so a
@@ -296,17 +304,112 @@ export const teamRankingsCsvParts = (backup: TeamRankingsBackup): string[] => {
 };
 
 /**
+ * The pool as JSON, which is what a backup is now written as.
+ *
+ * CSV was the wrong shape for this file and had been for a while. The pool is nested — a team
+ * carries a list of GameChanger links, each with its own staff list and season record — and a
+ * table has nowhere to put that, so the links went into a cell as JSON inside the CSV and the
+ * format was half JSON already. Every value also made the round trip through quoting, the
+ * spreadsheet formula-injection guard and a coercion back from text, any one of which is a chance
+ * to come back subtly different from what went in.
+ *
+ * It is also much smaller. The compact codec is what the pool is already stored as — tuples and a
+ * shared dictionary rather than a repeated key per field — so writing it out is a copy rather than
+ * a re-encoding, and a nationwide pool lands in a fraction of the CSV's bytes.
+ *
+ * The CSV reader stays, because files written before this exist and a backup nobody can restore is
+ * not a backup.
+ */
+export const BACKUP_JSON_VERSION = 1;
+
+export type TeamRankingsBackupFile = {
+  /** Named so a file found on a disk a year from now says what it is. */
+  format: "league-forecast-team-rankings";
+  version: number;
+  /** The compact codec's own version, so a pool written by an older one is still readable. */
+  compact: number;
+  savedAt: string;
+  counts: { ageGroups: number; teams: number; games: number };
+  ageGroups: unknown;
+  teams: unknown;
+  games: unknown;
+};
+
+/**
+ * The JSON backup in pieces, for handing to a `Blob`.
+ *
+ * Same reason the CSV is chunked: at a few hundred thousand games the single joined string is tens
+ * of megabytes and exists alongside the rows it was built from at the moment of the join, which is
+ * exactly the peak a phone cannot afford. The three big arrays are written a slice at a time and
+ * the browser assembles the file.
+ */
+export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: string): string[] => {
+  if (teamRankingsBackupIsEmpty(backup)) return [];
+  const head: Omit<TeamRankingsBackupFile, "ageGroups" | "teams" | "games"> = {
+    format: "league-forecast-team-rankings",
+    version: BACKUP_JSON_VERSION,
+    compact: COMPACT_VERSION,
+    savedAt,
+    counts: {
+      ageGroups: backup.ageGroups.length,
+      teams: backup.teams.length,
+      games: backup.games.length,
+    },
+  };
+  const body = JSON.stringify(head);
+  const parts: string[] = [body.slice(0, -1)];
+  parts.push(`,"ageGroups":${JSON.stringify(encodeAgeGroups(backup.ageGroups))}`);
+  parts.push(`,"teams":${JSON.stringify(encodeScoutTeams(backup.teams))}`);
+  parts.push(`,"games":${JSON.stringify(encodeScoutGames(backup.games))}`);
+  parts.push("}");
+  return parts;
+};
+
+/** The whole file as one string. The parts above, joined — for a test or a small pool. */
+export const teamRankingsJson = (backup: TeamRankingsBackup, savedAt: string): string =>
+  teamRankingsJsonParts(backup, savedAt).join("");
+
+/**
+ * Reads a JSON backup back, or returns null because this is not one.
+ *
+ * Null rather than a throw, and null rather than an empty pool: "this file is not a Team Rankings
+ * backup" and "this backup is of an empty pool" are different answers, and a restore that treated
+ * them alike would wipe a pool on being handed the wrong file.
+ */
+export const parseTeamRankingsJson = (raw: string): TeamRankingsBackup | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  if (parsed.format !== "league-forecast-team-rankings") return null;
+
+  const ageGroups = coerceAgeGroups(parsed.ageGroups);
+  // Through the same decoders storage reads with, so a file written by an older compact version
+  // and a file written as plain objects both come back — the codec already knows both shapes.
+  const teams = decodeScoutTeams(parsed.teams, coerceScoutTeams);
+  const games = decodeScoutGames(parsed.games, coerceScoutGames);
+  return { ageGroups, teams, games };
+};
+
+/** Whether a file looks like JSON rather than CSV, without parsing the whole of it. */
+export const looksLikeJsonBackup = (raw: string): boolean => raw.trimStart().startsWith("{");
+
+/**
  * Roughly how many bytes a backup file will be, without building it.
  *
  * Used to warn before a download that would take a while, so the numbers only have to be the
- * right order of magnitude. Measured against an export of a pulled pool, where a team row runs to
- * about a hundred and fifty characters once its GameChanger links are in and a game row to about
- * two hundred and twenty with both names, the event and the source spelled out. A pool typed in by
- * hand has shorter rows than that, so the estimate leans high, which is the safe way for something
- * that decides whether to warn.
+ * right order of magnitude, and the estimate leans high — which is the safe way round for
+ * something that decides whether to warn.
+ *
+ * Measured on the compact JSON rather than the CSV it replaced: a game is a short tuple of numbers
+ * and dictionary indices rather than a row with both names, the event and the source spelled out,
+ * which is most of why the file is a fraction of the size.
  */
 export const estimateBackupBytes = (backup: TeamRankingsBackup): number =>
-  backup.ageGroups.length * 60 + backup.teams.length * 150 + backup.games.length * 220;
+  backup.ageGroups.length * 40 + backup.teams.length * 90 + backup.games.length * 70;
 
 /** That estimate as something to put in a sentence: "2.7 MB", "840 KB". */
 export const formatBytes = (bytes: number): string => {
@@ -317,10 +420,14 @@ export const formatBytes = (bytes: number): string => {
 
 /**
  * Past this, a download is worth asking about first. A file this size takes a noticeable moment to
- * put together and will not open in every spreadsheet, and somebody who pressed the button meaning
- * to glance at their own league's rows should hear that before waiting for it.
+ * put together on a phone, and somebody who pressed the button meaning to keep a copy of their own
+ * league should hear that before waiting for it.
+ *
+ * Lower than it was, because the file is smaller than it was: the CSV it replaced ran to about
+ * three times the bytes for the same pool, so keeping the old figure would have meant a nationwide
+ * backup no longer warned at all.
  */
-export const LARGE_BACKUP_BYTES = 20_000_000;
+export const LARGE_BACKUP_BYTES = 8_000_000;
 
 /**
  * Read the pool back out of a backup CSV. `null` when the file carries none of the Team Rankings

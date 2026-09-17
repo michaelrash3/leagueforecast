@@ -439,6 +439,7 @@ export function SettingsView({
           <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
             Backup JSON saves everything in this browser — every season, the Team Rankings pool, and
             your theme and mode. Export CSV covers this season&apos;s schedule plus Team Rankings.
+            Import Backup JSON takes either that file or a Team Rankings backup on its own.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800">

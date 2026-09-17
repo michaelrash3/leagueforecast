@@ -65,7 +65,7 @@ import {
   LARGE_BACKUP_BYTES,
   readTeamRankingsBackup,
   summarizeTeamRankingsBackup,
-  teamRankingsCsvParts,
+  teamRankingsJsonParts,
 } from "../lib/teamRankingsBackup";
 import { type RankingsSection } from "../lib/rankingsRoute";
 import { isPoolBusy } from "../lib/pullSession";
@@ -902,9 +902,12 @@ export function TeamRankingsView({
   // ---------- Starting over ----------
 
   /**
-   * The whole pool as one CSV file. The same sections the app's own CSV export appends after a
-   * schedule, so importing this file is how the data comes back — which is the only reason the
+   * The whole pool as one JSON file, which is how the data comes back — and the only reason the
    * reset below can be offered at all.
+   *
+   * JSON rather than the CSV it used to be because the pool is nested: a team carries a list of
+   * GameChanger links, each with its own staff list and season record, and a table has nowhere to
+   * put that. Restoring still reads either, because files written before this exist.
    */
   const downloadPoolBackup = async () => {
     const backup = readTeamRankingsBackup();
@@ -918,7 +921,7 @@ export function TeamRankingsView({
         title: "That is a large backup",
         message: `${summarizeTeamRankingsBackup(backup)}
 
-The file will be around ${formatBytes(estimate)}. It will take a moment to put together, and a file that size opens slowly in a spreadsheet — some will not open it at all.`,
+The file will be around ${formatBytes(estimate)} and will take a moment to put together.`,
         confirmLabel: "Download anyway",
       });
       if (!go) return;
@@ -930,16 +933,17 @@ The file will be around ${formatBytes(estimate)}. It will take a moment to put t
      * which is exactly the peak a phone cannot afford. A Blob is assembled from parts perfectly
      * well, so the join never happens.
      */
-    const parts = teamRankingsCsvParts(backup);
+    const savedAt = new Date().toISOString();
+    const parts = teamRankingsJsonParts(backup, savedAt);
     if (parts.length === 0) {
       showToast("Nothing to back up yet.", { tone: "error" });
       return;
     }
-    const blob = new Blob(parts, { type: "text/csv" });
+    const blob = new Blob(parts, { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `Team_Rankings_Backup_${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `Team_Rankings_Backup_${savedAt.slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     showToast(`Backup downloaded (${formatBytes(blob.size)}).`, { tone: "success" });
