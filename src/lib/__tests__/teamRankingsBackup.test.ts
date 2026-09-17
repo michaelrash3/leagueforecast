@@ -12,6 +12,11 @@ import {
   teamRankingsBackupIsEmpty,
   teamRankingsCsvParts,
   teamRankingsCsvSections,
+  teamRankingsJson,
+  teamRankingsJsonParts,
+  parseTeamRankingsJson,
+  looksLikeJsonBackup,
+  BACKUP_JSON_VERSION,
   type TeamRankingsBackup,
 } from "../teamRankingsBackup";
 
@@ -527,7 +532,8 @@ describe("saying how big a backup will be before building it", () => {
         },
       })),
     };
-    const actual = teamRankingsCsvSections(pulled).length;
+    // Measured against the JSON, which is what a backup is written as now.
+    const actual = teamRankingsJson(pulled, "2026-09-17T12:00:00.000Z").length;
     const estimate = estimateBackupBytes(pulled);
     // Only used to decide whether to warn, so being within a quarter either way is the whole ask.
     expect(estimate).toBeGreaterThan(actual * 0.75);
@@ -537,7 +543,9 @@ describe("saying how big a backup will be before building it", () => {
   it("leans high on a pool typed in by hand rather than low", () => {
     const sparse = poolOf(200, 1_000);
     // Warning a little early costs a confirmation; warning late costs a phone.
-    expect(estimateBackupBytes(sparse)).toBeGreaterThan(teamRankingsCsvSections(sparse).length);
+    expect(estimateBackupBytes(sparse)).toBeGreaterThan(
+      teamRankingsJson(sparse, "2026-09-17T12:00:00.000Z").length
+    );
   });
 
   it("calls a nationwide pool large and a league's own pool not", () => {
@@ -551,5 +559,89 @@ describe("saying how big a backup will be before building it", () => {
     expect(formatBytes(2_700_000)).toBe("2.7 MB");
     expect(formatBytes(840_000)).toBe("840 KB");
     expect(formatBytes(512)).toBe("512 bytes");
+  });
+});
+
+describe("the JSON backup", () => {
+  const SAVED_AT = "2026-09-17T12:00:00.000Z";
+
+  it("brings back every age group, team and game exactly as they went in", () => {
+    const back = parseTeamRankingsJson(teamRankingsJson(backup, SAVED_AT));
+    expect(back).not.toBeNull();
+    expect(back!.ageGroups).toEqual(backup.ageGroups);
+    expect(back!.teams).toEqual(backup.teams);
+    expect(back!.games).toEqual(backup.games);
+  });
+
+  it("keeps a team's GameChanger links whole, nested and all", () => {
+    /*
+     * The shape CSV had nowhere to put: a team carries a list of links, each with its own staff
+     * list and season record, so the links went into a cell as JSON inside the CSV and the format
+     * was half JSON already.
+     */
+    const back = parseTeamRankingsJson(teamRankingsJson(backup, SAVED_AT));
+    const linked = back!.teams.find((team) => team.gcTeams?.length);
+    const original = backup.teams.find((team) => team.gcTeams?.length);
+    expect(linked?.gcTeams).toEqual(original?.gcTeams);
+  });
+
+  it("says what it is, so a file found on a disk a year from now can be read", () => {
+    const parsed = JSON.parse(teamRankingsJson(backup, SAVED_AT));
+    expect(parsed.format).toBe("league-forecast-team-rankings");
+    expect(parsed.version).toBe(BACKUP_JSON_VERSION);
+    expect(parsed.savedAt).toBe(SAVED_AT);
+    expect(parsed.counts).toEqual({
+      ageGroups: backup.ageGroups.length,
+      teams: backup.teams.length,
+      games: backup.games.length,
+    });
+  });
+
+  it("writes in pieces that concatenate to exactly the whole file", () => {
+    // A Blob is assembled from parts perfectly well, so the join that doubles peak memory at a
+    // few hundred thousand games is simply never done.
+    expect(teamRankingsJsonParts(backup, SAVED_AT).join("")).toBe(
+      teamRankingsJson(backup, SAVED_AT)
+    );
+  });
+
+  it("has nothing to write for an empty pool", () => {
+    expect(teamRankingsJsonParts({ ageGroups: [], teams: [], games: [] }, SAVED_AT)).toEqual([]);
+  });
+
+  /*
+   * "This file is not a Team Rankings backup" and "this backup is of an empty pool" are different
+   * answers, and a restore that treated them alike would wipe a pool on being handed the wrong
+   * file.
+   */
+  it("refuses a file that is not one of ours, rather than reading it as empty", () => {
+    expect(parseTeamRankingsJson("not json at all")).toBeNull();
+    expect(parseTeamRankingsJson("[]")).toBeNull();
+    expect(parseTeamRankingsJson(JSON.stringify({ teams: [], games: [] }))).toBeNull();
+    expect(parseTeamRankingsJson(JSON.stringify({ format: "something-else" }))).toBeNull();
+  });
+
+  it("tells a JSON backup from a CSV one without parsing either", () => {
+    expect(looksLikeJsonBackup(teamRankingsJson(backup, SAVED_AT))).toBe(true);
+    expect(looksLikeJsonBackup(`\n  ${teamRankingsJson(backup, SAVED_AT)}`)).toBe(true);
+    expect(looksLikeJsonBackup(backupCsv)).toBe(false);
+  });
+
+  it("is a fraction of the size the CSV was", () => {
+    /*
+     * The compact codec is what the pool is already stored as — tuples and a shared dictionary
+     * rather than a repeated key per field — so writing it out is a copy rather than a
+     * re-encoding.
+     */
+    const json = teamRankingsJson(backup, SAVED_AT).length;
+    const csv = teamRankingsCsvSections(backup).length;
+    expect(json).toBeLessThan(csv);
+  });
+
+  it("still reads a CSV backup, because files written before this exist", () => {
+    // A backup nobody can restore is not a backup.
+    const back = parseTeamRankingsCsv(backupCsv);
+    expect(back).not.toBeNull();
+    expect(back!.games.length).toBe(backup.games.length);
   });
 });

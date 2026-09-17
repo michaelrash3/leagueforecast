@@ -59,6 +59,26 @@ export type RatingGame = {
    * margin beyond that counts as evidence about the two teams.
    */
   ageGap?: number;
+  /**
+   * How much this game counts, relative to a game of weight 1. Absent means 1, and a pool where
+   * every game is absent fits exactly as it did before weights existed.
+   *
+   * The fit minimises the weighted sum of squared residuals, so a game of weight 0.5 pulls on the
+   * ratings half as hard as a game of weight 1 — the same as counting it half a time, and a game
+   * of weight 2 counts exactly as that game listed twice. It is how an old result is made to
+   * matter less than a recent one without being thrown away.
+   *
+   * Because the ridge is denominated in games and stays a constant, halving every weight halves
+   * the evidence and doubles how far everything regresses toward the mean. That is arithmetically
+   * right and never what anybody means, so a scheme that sets these normalises them to average
+   * one — see `ratingRecency.ts`.
+   *
+   * It changes the *fit* and nothing else. Games played, own average margin and strength of
+   * schedule are descriptions of a season rather than beliefs about a team: a side played twelve
+   * games whatever the fit leans on, and saying otherwise in a table would be a lie about the
+   * record.
+   */
+  weight?: number;
 };
 
 export type OpponentAdjustedRatings = {
@@ -344,6 +364,12 @@ export const buildOpponentAdjustedRatings = (
     const h = index.get(game.home);
     const w = index.get(game.away);
     if (h === undefined || w === undefined) return;
+    // A negative or unreadable weight is not a smaller opinion, it is a wrong one; 0 drops the
+    // game from the fit while leaving it in the record, which is a thing a caller may want.
+    const weight =
+      game.weight === undefined || !Number.isFinite(game.weight) || game.weight < 0
+        ? 1
+        : game.weight;
     const margin = clamp(game.homeMargin, -cap, cap);
     const gap = game.ageGap !== undefined && Number.isFinite(game.ageGap) ? game.ageGap : 0;
     // The prior's share of the gap is taken off the margin before the fit; only what is left
@@ -360,8 +386,8 @@ export const buildOpponentAdjustedRatings = (
     ];
     if (gap) row.push([delta, gap]);
     row.forEach(([i, ci]) => {
-      row.forEach(([j, cj]) => system.add(i, j, ci * cj));
-      system.addRhs(i, ci * y);
+      row.forEach(([j, cj]) => system.add(i, j, weight * ci * cj));
+      system.addRhs(i, weight * ci * y);
     });
 
     rawMarginSum.set(game.home, (rawMarginSum.get(game.home) ?? 0) + margin);
@@ -372,8 +398,20 @@ export const buildOpponentAdjustedRatings = (
     faced.get(game.away)?.push({ opponent: game.home, seatGap: gap });
   });
 
-  // Ridge regularization: shrink team ratings toward 0 (league mean), the HFA toward 0, and the
-  // age-gap correction toward 0 — that is, the fitted runs per year toward the prior.
+  /*
+   * Ridge regularization: shrink team ratings toward 0 (league mean), the HFA toward 0, and the
+   * age-gap correction toward 0 — that is, the fitted runs per year toward the prior.
+   *
+   * A plain constant, not scaled by anything the weights do. `shrinkage` is denominated in games —
+   * "acts like this many virtual games against a league-average opponent" — and a game of weight 2
+   * is two games, so the ridge that means "two virtual games" is the same number either way. That
+   * is what keeps a weight a count rather than a knob.
+   *
+   * It does mean a caller who halves every weight has halved its evidence and will be regressed
+   * twice as far for it, which is correct and is also never what a caller wants: a weighting
+   * scheme is about which games count *more than others*, not about counting less overall. So the
+   * schemes in `ratingRecency.ts` normalise to a mean weight of one, and the scale never moves.
+   */
   for (let i = 0; i < n; i += 1) system.add(i, i, shrinkage);
   system.add(hfa, hfa, homeFieldShrinkage);
   system.add(delta, delta, ageGapShrinkage);
