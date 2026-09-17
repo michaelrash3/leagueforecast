@@ -124,10 +124,18 @@ type Stage = "picking" | "pulling" | "review";
  * ceiling, five thousand teams, which is two or three minutes of fetching. Worth it against an
  * hour of thrashing, and the floor keeps small pulls saving as often as they always did.
  */
-const SAVE_EVERY_MIN = 500;
-const SAVE_EVERY_MAX = 5000;
-const saveEvery = (games: number): number =>
-  Math.min(SAVE_EVERY_MAX, Math.max(SAVE_EVERY_MIN, Math.round(games / 100)));
+export const SAVE_EVERY_MIN = 500;
+export const SAVE_EVERY_MAX = 5000;
+export const saveEvery = (games: number): number => {
+  /*
+   * Guarded rather than trusted, because of what the arithmetic does with a number that is not
+   * one: `Math.max(500, NaN)` is NaN, and the caller's test is `unsaved.length >= interval`, which
+   * is false for NaN every time — so a bad count here would not make the pull save badly, it would
+   * make it never save at all, and lose the lot on the way out.
+   */
+  if (!Number.isFinite(games) || games <= 0) return SAVE_EVERY_MIN;
+  return Math.min(SAVE_EVERY_MAX, Math.max(SAVE_EVERY_MIN, Math.round(games / 100)));
+};
 
 /**
  * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
