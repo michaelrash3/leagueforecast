@@ -32,8 +32,8 @@ import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClien
 import {
   describeTidy,
   poolSignature,
-  tidyPool,
   type GcImportState,
+  type PoolTidy,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import {
@@ -68,7 +68,8 @@ import {
   teamRankingsCsvParts,
 } from "../lib/teamRankingsBackup";
 import { type RankingsSection } from "../lib/rankingsRoute";
-import { TIDY_UNASKED_LIMIT } from "../lib/poolHealth";
+import { isPoolBusy } from "../lib/pullSession";
+import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TeamDetailPanel } from "./TeamDetailPanel";
@@ -233,35 +234,43 @@ export function TeamRankingsView({
    * painted. Nothing to press: games outside their squad year are deleted, doubles collapsed,
    * stand-ins settled, exactly as at the end of a pull.
    */
+  const { tidy: tidyInWorker } = usePoolTidy();
   const tidyingRef = useRef(false);
   useEffect(() => {
     if (scoutGames.length === 0 || tidyingRef.current) return;
     /*
-     * Past a certain size this stops being something to do behind somebody's back. Five passes over
-     * two hundred thousand games is twenty-odd seconds on the main thread; the tab freezes, gets
-     * reloaded, the cleanup below cancels the run, and the stamp is never written — so it tries
-     * again next time and never finishes. A real pool was found with eleven thousand results still
-     * filed against "TBD" for exactly that reason. Above the limit it is offered instead, by the
-     * pool health card in Setup, which runs it in a worker and says what it fixed.
+     * A pull still running tidies when it finishes, and a tidy already going is the same work; both
+     * write the whole pool, so the one that finished first would be overwritten by the other.
      */
-    if (scoutGames.length > TIDY_UNASKED_LIMIT) return;
-    // A pull still running tidies when it finishes; two tidies at once would race the saves.
+    if (isPoolBusy()) return;
     if (pullProgress && remainingIds(pullProgress).length > 0) return;
     const pool: GcImportState = { ageGroups, teams: scoutTeams, games: scoutGames };
     if (poolSignature(pool) === loadTidyStamp()) return;
     tidyingRef.current = true;
-    const handle = window.setTimeout(() => {
-      const tidy = tidyPool(pool);
+    /*
+     * No size limit on this any more. There used to be one — above 20,000 games it was left to a
+     * button in Setup — because five passes over two hundred thousand games is twenty-odd seconds
+     * on the main thread: the tab freezes, gets reloaded, the cleanup cancels the run, the stamp is
+     * never written, and it starts over next time and never finishes. A real pool was found with
+     * eleven thousand results still filed against "TBD" for exactly that reason. In the worker
+     * there is nothing to freeze, so the pool that most needs tidying is no longer the one that
+     * never gets it.
+     */
+    let live = true;
+    void tidyInWorker(pool).then((outcome) => {
+      // Something else claimed the pool first, or the view moved on to a different one while this
+      // was working. Either way the stamp is untouched, so it comes round again.
+      if (!outcome || !live) return;
+      const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
       saveTidyStamp(poolSignature(tidy.state));
       if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
       if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
       if (tidy.state.games !== pool.games) persistGames(tidy.state.games);
       const lines = describeTidy(tidy);
       if (lines.length > 0) showToast(lines.join(" "));
-      tidyingRef.current = false;
-    }, 0);
+    });
     return () => {
-      window.clearTimeout(handle);
+      live = false;
       tidyingRef.current = false;
     };
   }, [
@@ -273,6 +282,7 @@ export function TeamRankingsView({
     persistTeams,
     persistGames,
     showToast,
+    tidyInWorker,
   ]);
 
   // ---------- Age group management ----------

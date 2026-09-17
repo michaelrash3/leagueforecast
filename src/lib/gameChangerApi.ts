@@ -24,6 +24,15 @@ export type GcTeamProfile = {
   state?: string;
   /** Age level as a number (9 for "9U"). Falls back to a label found in the name. */
   ageLevel?: number;
+  /**
+   * GameChanger's own `age_group`, exactly as it sent it — "9U", "11U/12U", "2027", or nothing.
+   *
+   * Kept beside the parsed level because the parse throws away the only evidence of why it failed.
+   * Thousands of teams reach the pool with no level at all, and the answer to what to do about
+   * them is in the label they were filed under: an unreadable bracket is a parser fix, a
+   * graduation year is a different rule, and an empty field means the club never set one.
+   */
+  ageLabel?: string;
   season?: GcSeason;
   /** GameChanger's own record for the team's season — a check on the games read, never rated. */
   record?: { win: number; loss: number; tie: number };
@@ -424,6 +433,8 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
   const state = asString(location.state ?? source.state);
   if (state) profile.state = state;
 
+  const ageLabel = asString(source.age_group ?? source.ageGroup);
+  if (ageLabel) profile.ageLabel = ageLabel;
   const ageLevel = parseGcAgeLevel(source.age_group ?? source.ageGroup) ?? ageLevelFromName(name);
   if (ageLevel !== undefined) profile.ageLevel = ageLevel;
 

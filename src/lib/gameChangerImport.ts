@@ -477,9 +477,34 @@ const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
   };
 };
 
+/**
+ * What a new link keeps from the one it replaces.
+ *
+ * The staff and the roster size come from the user's pasted list and from nowhere else —
+ * GameChanger's public endpoints return neither — so a refresh run without the list in the box
+ * carries none, and replacing the link outright erased them. A weekly rota is exactly that run,
+ * which made every refresh quietly strip the evidence the merge suggestions and the under-strength
+ * watch list are built on.
+ *
+ * A newer list still wins: these are only carried forward when the incoming link has nothing to
+ * say about them. `countedAt` travels with `playerCount`, because a count without the day it was
+ * taken cannot be re-checked.
+ */
+const carryListedFields = (link: GcTeamLink, prior: GcTeamLink | undefined): GcTeamLink => {
+  if (!prior) return link;
+  const kept: GcTeamLink = { ...link };
+  if (kept.staff === undefined && prior.staff !== undefined) kept.staff = prior.staff;
+  if (kept.playerCount === undefined && prior.playerCount !== undefined) {
+    kept.playerCount = prior.playerCount;
+    if (prior.countedAt !== undefined) kept.countedAt = prior.countedAt;
+  }
+  return kept;
+};
+
 const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
+  const prior = (team.gcTeams ?? []).find((entry) => entry.teamId === link.teamId);
   const rest = (team.gcTeams ?? []).filter((entry) => entry.teamId !== link.teamId);
-  const linked: ScoutTeam = { ...team, gcTeams: [...rest, link] };
+  const linked: ScoutTeam = { ...team, gcTeams: [...rest, carryListedFields(link, prior)] };
   // Its own schedule is here now, so it is a club rather than a name on somebody else's.
   delete linked.nameOnly;
   return linked;

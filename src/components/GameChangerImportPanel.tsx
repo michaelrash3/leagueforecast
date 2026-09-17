@@ -1,6 +1,15 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
-import { fetchGcTeams } from "../lib/gameChangerClient";
+import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
+import {
+  beginPull,
+  endPull,
+  isPullLive,
+  lastPullLog,
+  livePullTracker,
+  stopLivePull,
+  watchPull,
+} from "../lib/pullSession";
 import {
   comparePairing,
   createGcImporter,
@@ -9,12 +18,12 @@ import {
   poolSignature,
   proposeSeasonPairings,
   summarizeGcImport,
-  tidyPool,
   type GcImportOutcome,
   type GcImportState,
   type GcPairingComparison,
   type GcPairingSide,
   type GcSeasonPairing,
+  type PoolTidy,
 } from "../lib/gameChangerImport";
 import {
   describePull,
@@ -42,8 +51,22 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
+import { usePoolTidy } from "../hooks/usePoolTidy";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
-import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
+import {
+  flushPoolWrites,
+  loadPullLog,
+  savePullLog,
+  saveTidyStamp,
+} from "../lib/teamRankingsStorage";
+import {
+  liveSummary,
+  pullSummaryCsv,
+  pullTeamsCsv,
+  type PullEndReason,
+  type PullLiveSummary,
+  type PullRunLog,
+} from "../lib/pullTracker";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -87,6 +110,30 @@ const SAVE_EVERY = 500;
  */
 const CONCURRENCY = 8;
 
+/**
+ * Seconds one batch request takes, end to end.
+ *
+ * A round assumption rather than a measurement, and labelled as one. A batch is ten teams, whose
+ * twenty upstream fetches all start in the same tick, so the request costs about what the slowest
+ * of them does — a live check of a single team through the proxy came back in roughly 300ms, and a
+ * second is a fair allowance for ten of them plus the round trip.
+ */
+const SECONDS_PER_BATCH = 1;
+
+/**
+ * Roughly how long a run of `fresh` teams will spend making requests.
+ *
+ * Teams are asked for ten at a time, so the work is `fresh / BATCH_SIZE` requests shared between
+ * the workers — not one request per team, and not two. Leaving out the batch size read every team
+ * as its own pair of requests and overstated a 52,470-team run by a factor of ten: 219 minutes
+ * against a floor nearer 11.
+ */
+const estimatedMinutes = (fresh: number): number => {
+  const requests = Math.ceil(fresh / BATCH_SIZE);
+  const seconds = (requests / CONCURRENCY) * SECONDS_PER_BATCH;
+  return Math.max(1, Math.ceil(seconds / 60));
+};
+
 /** How many pasted ids still count as a hand-typed list rather than an export. */
 const HANDFUL = 25;
 
@@ -99,16 +146,40 @@ Team Name,Team ID,Age Group,Season,City,State
 
 const nowIso = () => new Date().toISOString();
 
-/** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
-const downloadProblems = (problems: GcImportProblem[]) => {
-  const blob = new Blob([gcImportProblemsCsv(problems)], { type: "text/csv;charset=utf-8;" });
+/**
+ * The clock, behind a function.
+ *
+ * Every timing the tracker keeps is a difference between two of these. Read through a helper
+ * rather than called in place because the compiler cannot tell a call made while a run is going
+ * from one made during a render, and reads the second as a component that will not settle.
+ */
+const msNow = () => Date.now();
+
+/**
+ * Saves text as a CSV.
+ *
+ * The byte order mark is not decoration. These files are opened in Excel and mailed on, and
+ * without it Excel reads them in the system codepage and mangles every accented and apostrophed
+ * team name — which is most of what makes the rows readable, and all of the evidence about what a
+ * club calls itself. A twelve-megabyte file nobody can read does not get downloaded twice.
+ */
+const downloadCsv = (name: string, body: string) => {
+  const blob = new Blob(["\ufeff", body], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "gamechanger-not-imported.csv";
+  anchor.download = name;
   anchor.click();
   URL.revokeObjectURL(url);
 };
+
+/** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
+const downloadProblems = (problems: GcImportProblem[]) => {
+  downloadCsv("gamechanger-not-imported.csv", gcImportProblemsCsv(problems));
+};
+
+/** Today, as "2026-09-17", so two runs' files do not overwrite each other. */
+const fileDay = (): string => new Date().toISOString().slice(0, 10);
 
 /** How many rows of the list are drawn; the rest are in the file the button writes. */
 const PROBLEMS_SHOWN = 200;
@@ -126,6 +197,18 @@ export function GameChangerImportPanel({
 }: GameChangerImportPanelProps) {
   const [text, setText] = useState("");
   const [stage, setStage] = useState<Stage>("picking");
+  /*
+   * Whether a pull is running anywhere, which is not the same as whether this panel is running
+   * one: closing the panel hides the run and keeps it going, so a panel opened afterwards is
+   * looking at a pool that is still moving underneath it.
+   */
+  const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
+  /*
+   * The tidy runs in a worker. It is five passes over every game — half a minute on a nationwide
+   * pool — and on the main thread that is half a minute of frozen tab at the very end of an hour
+   * of fetching, which is exactly when somebody reloads the page and throws it away.
+   */
+  const { tidy: tidyInWorker, busy: tidying } = usePoolTidy();
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   /** The pairing opened side by side, if any, worked out when it was opened. */
@@ -135,6 +218,14 @@ export function GameChangerImportPanel({
   } | null>(null);
   /** Counts for the bar. Numbers rather than the cursor itself, so a redraw copies almost nothing. */
   const [stats, setStats] = useState<GcPullView | null>(null);
+  /**
+   * The handful of numbers worth watching while it runs.
+   *
+   * Refreshed on each save rather than on each team: the bar already redraws fifty thousand times
+   * and a second piece of state alongside it would double the only expensive thing in the loop.
+   * Once every five hundred teams is about once a minute, which is the rate a person reads at.
+   */
+  const [live, setLive] = useState<PullLiveSummary | null>(null);
   /** What the run came to, worked out once when it finishes rather than on every render. */
   const [result, setResult] = useState<{
     summary: string[];
@@ -241,7 +332,7 @@ export function GameChangerImportPanel({
     if (progressRef.current) setStats(pullView(progressRef.current));
   };
 
-  const persist = (): boolean => {
+  const persist = (note?: string): boolean => {
     /*
      * A copy, because the fold goes on mutating its own arrays after this returns and what the
      * caller stores has to stop changing underneath it. Three shallow copies per save, not per
@@ -253,7 +344,11 @@ export function GameChangerImportPanel({
       games: poolRef.current.games.slice(),
     };
     const ok = onPersist(snapshot);
-    if (!ok) showToast("Could not save the pull (storage full).", { tone: "error" });
+    if (!ok) {
+      showToast(`Could not save the pull (storage full).${note ? ` ${note}` : ""}`, {
+        tone: "error",
+      });
+    }
     return ok;
   };
 
@@ -262,8 +357,74 @@ export function GameChangerImportPanel({
    * the end, so stopping — or closing the tab — keeps everything already fetched.
    */
   const run = async (ids: string[], progress: GcPullProgress) => {
-    const controller = new AbortController();
+    /*
+     * Claimed before anything is fetched. A pull survives its panel — closing it hides the run
+     * rather than stopping it — so a reopened panel could otherwise start a second, and the two
+     * would write whole-pool snapshots over each other while the cursor marked the losers settled.
+     */
+    const session = beginPull(nowIso());
+    if (!session) {
+      showToast("A pull is already running. Reopen Import to watch it, or stop it there.", {
+        tone: "error",
+      });
+      return;
+    }
+    const controller = session.controller;
     abortRef.current = controller;
+    /*
+     * The record of this run, which outlives the panel with the session that holds it.
+     *
+     * Wrapped rather than called directly, everywhere it is used. A tracker that throws inside
+     * `onProgress` would take the whole run down with it — no final flush, no released slot — and
+     * destroying an hour of fetching to record it is exactly backwards. A field it could not write
+     * is a blank cell; nothing more.
+     */
+    const tracker = session.tracker;
+    const track = (write: () => void): void => {
+      try {
+        write();
+      } catch {
+        /* never at the run's expense */
+      }
+    };
+    const runFrom = msNow();
+    track(() => {
+      tracker?.beginSegment(session.startedAt, ids);
+      tracker?.config({
+        concurrency: CONCURRENCY,
+        batchSize: BATCH_SIZE,
+        saveEvery: SAVE_EVERY,
+      });
+      tracker?.eta(estimatedMinutes(ids.length));
+      tracker?.paste({
+        lines: text ? text.split(/\r?\n/).length : 0,
+        parsed: parsed.entries.length,
+        skipped: parsed.skipped.length,
+        skippedSamples: parsed.skipped,
+        tooYoung: parsed.tooYoung,
+        alreadyHere: split.seen,
+        asked: ids.length,
+      });
+    });
+
+    /*
+     * An hour against an eleven-minute estimate has two explanations that look identical from the
+     * inside — GameChanger was slow, or the tab was in the background and the browser throttled
+     * it. Nothing else recorded can tell them apart, and this is six lines.
+     */
+    let hiddenFrom = document.visibilityState === "hidden" ? msNow() : 0;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenFrom = msNow();
+        return;
+      }
+      if (hiddenFrom === 0) return;
+      const spell = msNow() - hiddenFrom;
+      hiddenFrom = 0;
+      track(() => tracker?.hidden(spell));
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     /*
      * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
      * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
@@ -281,10 +442,15 @@ export function GameChangerImportPanel({
     const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
     setStage("pulling");
     setResult(null);
+    setLive(null);
     syncStats();
 
     // Settled but not yet written. The cursor follows the save, never leads it.
     let unsaved: string[] = [];
+    /** Saves so far, so a row can say which one kept it — and where the saving stopped. */
+    let flushSeq = 0;
+    /** How the run came to an end, settled by whatever ends it and read once at the bottom. */
+    let endReason: PullEndReason = "finished";
     // Flushes run one at a time and in order; a batch is never overtaken by the next.
     let flushing: Promise<void> = Promise.resolve();
 
@@ -303,10 +469,57 @@ export function GameChangerImportPanel({
       unsaved = [];
       pendingFailures.clear();
 
+      flushSeq += 1;
+      const flushNumber = flushSeq;
+
       flushing = flushing.then(async () => {
-        if (!persist()) return;
+        const from = msNow();
+        /*
+         * A refused save stops the run, rather than being noted and fetched past.
+         *
+         * On localStorage this is the only signal there is: writeValue returns whether the value
+         * actually landed, while flushPoolWrites can only say whether the pool is usable at all,
+         * so a quota refusal reaches here and nowhere else. Carrying on meant hours of fetching
+         * that saved nothing, with the cursor never advancing and the progress bar walking
+         * backwards 500 at a time on every flush.
+         */
+        const sample = (ok: boolean) =>
+          track(() => {
+            tracker?.flushed(
+              {
+                flush: flushNumber,
+                second: Math.round((msNow() - runFrom) / 1000),
+                teams: batch.length,
+                settled: progressRef.current?.settled.length ?? 0,
+                poolTeams: poolRef.current.teams.length,
+                poolGames: poolRef.current.games.length,
+                poolPages: poolRef.current.ageGroups.length,
+                ms: msNow() - from,
+                ok,
+              },
+              batch
+            );
+            // Written beside the pool rather than inside it, so a record that will not fit can
+            // never be the thing that stops the run it is recording.
+            const current = tracker?.log();
+            if (current) {
+              if (!savePullLog(current)) tracker?.unpersisted();
+              setLive(
+                liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
+              );
+            }
+          });
+
+        if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
+          sample(false);
+          endReason = "save-refused";
+          abortRef.current?.abort();
+          return;
+        }
         if (!(await flushPoolWrites())) {
           showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
+          sample(false);
+          endReason = "save-refused";
           abortRef.current?.abort();
           return;
         }
@@ -320,6 +533,7 @@ export function GameChangerImportPanel({
           );
         });
         if (progressRef.current) onSaveProgress(progressRef.current);
+        sample(true);
       });
       return flushing;
     };
@@ -332,7 +546,26 @@ export function GameChangerImportPanel({
     await fetchGcTeams(ids, {
       concurrency: CONCURRENCY,
       signal: controller.signal,
-      onProgress: ({ teamId, result }) => {
+      onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
+      onBlocked: () => track(() => tracker?.blocked()),
+      onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
+      onRefused: (refusals) =>
+        track(() => {
+          endReason = "gave-up";
+          tracker?.gaveUp(refusals, Math.round((msNow() - runFrom) / 1000));
+        }),
+      onProgress: ({ teamId, result, attempts, firstFailure }) => {
+        track(() =>
+          tracker?.answered({
+            teamId,
+            result,
+            attempts,
+            ...(firstFailure ? { firstFailure } : {}),
+            ...(claimed.get(teamId)?.ageLevel === undefined
+              ? {}
+              : { listAge: claimed.get(teamId)?.ageLevel }),
+          })
+        );
         if (result.ok) {
           const entry = claimed.get(teamId);
           /*
@@ -348,7 +581,9 @@ export function GameChangerImportPanel({
                 }
               : undefined;
           const schedule = listed ? { ...result.schedule, listed } : result.schedule;
-          outcomesRef.current.push(importer.add(schedule));
+          const outcome = importer.add(schedule);
+          outcomesRef.current.push(outcome);
+          track(() => tracker?.imported(outcome));
           poolRef.current = importer.state;
           if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
         } else {
@@ -371,6 +606,22 @@ export function GameChangerImportPanel({
 
     await flush();
     abortRef.current = null;
+    document.removeEventListener("visibilitychange", onVisibility);
+    track(() => {
+      // A spell that is still running when the pull ends is still time the tab was hidden.
+      if (hiddenFrom !== 0) tracker?.hidden(msNow() - hiddenFrom);
+      tracker?.fetchEnded(nowIso());
+      /*
+       * Stopped is worked out here rather than recorded when the button was pressed, because the
+       * same abort is how a refused save ends a run — and those are very different facts about an
+       * hour that produced nothing.
+       */
+      if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
+      tracker?.endSegment(nowIso(), endReason);
+    });
+    // Given up here rather than at the end: what follows is the tidy and the summary, neither of
+    // which is a reason to refuse a run somebody starts in the meantime.
+    endPull(session);
     // Marked only now: a run that was stopped half way has not refreshed those levels.
     if (
       dueLevelsRef.current.length > 0 &&
@@ -386,26 +637,42 @@ export function GameChangerImportPanel({
      * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
      * one game. A whole run is the first point at which both halves of each are certainly present.
      */
-    const tidy = tidyPool(poolRef.current);
-    // Stamped before the save lands, so the page does not read the tidied pool as untidied.
-    saveTidyStamp(poolSignature(tidy.state));
-    if (
-      tidy.named +
-        tidy.folded +
-        tidy.paired +
-        tidy.collapsed +
-        tidy.pruned +
-        tidy.reclaimed +
-        tidy.refiled >
-      0
-    ) {
-      poolRef.current = tidy.state;
-      if (persist()) await flushPoolWrites();
+    const outcome = await tidyInWorker(poolRef.current);
+    /*
+     * Refused only if something else claimed the pool in the moment between this run giving it up
+     * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
+     * pool still reads as untidied and the next time the app opens on it, it is tidied then.
+     */
+    const tidy: PoolTidy | null = outcome ? { ...outcome.tidy, state: outcome.state } : null;
+    if (tidy) {
+      // Stamped before the save lands, so the page does not read the tidied pool as untidied.
+      saveTidyStamp(poolSignature(tidy.state));
+      if (
+        tidy.named +
+          tidy.folded +
+          tidy.paired +
+          tidy.collapsed +
+          tidy.pruned +
+          tidy.reclaimed +
+          tidy.refiled >
+        0
+      ) {
+        poolRef.current = tidy.state;
+        if (persist()) await flushPoolWrites();
+      }
     }
+
+    track(() => {
+      // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
+      // into the record would put a second copy of every game in storage.
+      if (outcome) tracker?.tidied(outcome.tidy);
+      tracker?.finish(nowIso(), endReason);
+      if (tracker && !savePullLog(tracker.log())) tracker.unpersisted();
+    });
 
     const finished = progressRef.current;
     setResult({
-      summary: [...summarizeGcImport(outcomesRef.current), ...describeTidy(tidy)],
+      summary: [...summarizeGcImport(outcomesRef.current), ...(tidy ? describeTidy(tidy) : [])],
       problems: collectGcImportProblems(
         finished?.failures ?? [],
         outcomesRef.current,
@@ -458,7 +725,14 @@ export function GameChangerImportPanel({
    */
   const tidyNow = async () => {
     // From the pool as saved, not the ref: nothing has been pulled since it was handed in.
-    const tidy = tidyPool(pool);
+    const outcome = await tidyInWorker(pool);
+    if (!outcome) {
+      showToast("Something is already working on the pool — try again when it has finished.", {
+        tone: "error",
+      });
+      return;
+    }
+    const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
     saveTidyStamp(poolSignature(tidy.state));
     const lines = describeTidy(tidy);
     if (lines.length === 0) {
@@ -499,7 +773,44 @@ export function GameChangerImportPanel({
     void run(remainingIds(next), next);
   };
 
+  /**
+   * The run's own record, live or the last one finished, falling back to what storage kept.
+   *
+   * Three sources because the record has to be downloadable in all three situations: while the run
+   * is going, after it has ended in this panel, and after a reload that lost every component but
+   * not the file.
+   */
+  const runLog = (): PullRunLog | null =>
+    livePullTracker()?.log() ?? lastPullLog() ?? loadPullLog();
+  /*
+   * Read again when the button is pressed rather than used from the render that drew it. A run
+   * still going is writing to this the whole time, and a file built from the copy that happened to
+   * be in hand when the button was drawn would be missing everything since.
+   */
+  const tracked = runLog();
+  const trackedIds = tracked?.ids.length ?? 0;
+
+  const downloadRunSummary = () => {
+    const log = runLog();
+    if (!log) return;
+    downloadCsv(
+      `gamechanger-run-${fileDay()}-summary.csv`,
+      pullSummaryCsv(log, progressRef.current?.settled ?? [])
+    );
+  };
+
+  const downloadRunTeams = () => {
+    const log = runLog();
+    if (!log) return;
+    downloadCsv(
+      `gamechanger-run-${fileDay()}-teams.csv`,
+      pullTeamsCsv(log, progressRef.current?.settled ?? [])
+    );
+  };
+
   const stop = () => {
+    // Through the session, so a panel that has just opened onto somebody else's run can stop it.
+    stopLivePull();
     abortRef.current?.abort();
     showToast("Stopping after the requests already in flight.", { tone: "info" });
   };
@@ -563,6 +874,21 @@ export function GameChangerImportPanel({
         </button>
       </div>
 
+      {stage === "picking" && pullLive && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-sm font-bold text-slate-950 dark:text-white">
+            A pull is already running.
+          </p>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+            It kept going when this panel was closed. Starting another would have the two of them
+            saving the pool over each other, so this one waits. The counter below is the last
+            position saved, which advances every {SAVE_EVERY} teams.
+          </p>
+          <button type="button" onClick={stop} className={`${button.ghost} mt-2`}>
+            Stop the running pull
+          </button>
+        </div>
+      )}
       {stage === "picking" && (
         <div className="mt-4">
           <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -719,10 +1045,7 @@ export function GameChangerImportPanel({
                   </span>
                 )}
                 {split.fresh.length > 200 && (
-                  <span>
-                    About {Math.ceil((split.fresh.length * 2) / CONCURRENCY / 60)} minute(s) of
-                    requests.
-                  </span>
+                  <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>
                 )}
               </>
             )}
@@ -751,8 +1074,16 @@ export function GameChangerImportPanel({
                 : `Pull ${split.fresh.length || ""} schedule${split.fresh.length === 1 ? "" : "s"}`}
             </button>
             {pool.games.length > 0 && (
-              <button type="button" onClick={() => void tidyNow()} className={button.ghost}>
-                Tidy now
+              <button
+                type="button"
+                onClick={() => void tidyNow()}
+                // A pull writes the whole pool as it goes, so a tidy alongside one would save over
+                // whatever landed while it was working — and the cursor has already counted those
+                // teams settled, so nothing would fetch them again.
+                disabled={tidying !== null || pullLive}
+                className={button.ghost}
+              >
+                {tidying === "tidy" ? "Tidying…" : "Tidy now"}
               </button>
             )}
             {split.fresh.length === 0 && split.seen > 0 && (
@@ -782,11 +1113,54 @@ export function GameChangerImportPanel({
             Saved every {SAVE_EVERY} teams. You can stop, close this, or leave the tab — it picks up
             where it left off.
           </p>
-          <div className="mt-3">
-            <button type="button" onClick={stop} className={button.ghost}>
-              Stop
-            </button>
-          </div>
+
+          {live && (
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Teams a minute</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">
+                  {live.perMinute?.toLocaleString() ?? "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Held</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">{live.heldSeconds}s</dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Refused</dt>
+                <dd
+                  className={
+                    live.blocked > 0
+                      ? "font-bold text-amber-700 dark:text-amber-300"
+                      : "font-bold text-slate-950 dark:text-white"
+                  }
+                >
+                  {live.blocked.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Saves</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">
+                  {live.saves}
+                  {live.lastSaveMs === undefined ? "" : ` · ${live.lastSaveMs}ms`}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {tidying === "tidy" ? (
+            <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+              Everything is in. Tidying now — naming the stand-ins the other side&apos;s schedule
+              can settle, folding the clubs pulled under more than one id. It walks every game
+              several times over, so on a big pool this takes a while; it runs off the main thread,
+              so the page stays usable and leaving this open is not needed.
+            </p>
+          ) : (
+            <div className="mt-3">
+              <button type="button" onClick={stop} className={button.ghost}>
+                Stop
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -797,6 +1171,39 @@ export function GameChangerImportPanel({
               <li key={line}>{line}</li>
             ))}
           </ul>
+
+          <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              What this run did
+            </p>
+            <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+              Two files. The summary is the run&apos;s own totals — how long it took, what it was
+              held up by, what came back refused and what it was filed under. The teams file is one
+              row for every id asked for, including the ones it never reached.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={downloadRunSummary}
+                className={`${button.ghost} text-sm`}
+              >
+                Summary
+              </button>
+              <button
+                type="button"
+                onClick={downloadRunTeams}
+                className={`${button.ghost} text-sm`}
+              >
+                Every team ({trackedIds.toLocaleString()} rows)
+              </button>
+            </div>
+            {!tracked?.persisted && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                This record is only in the page. Storage would not take it, so downloading it now is
+                the only way to keep it — a reload loses it.
+              </p>
+            )}
+          </div>
 
           {result.problems.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">

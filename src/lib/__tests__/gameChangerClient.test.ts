@@ -9,7 +9,7 @@ import {
   type GcTeamResponse,
   type GcTeamSchedule,
 } from "../gameChangerApi";
-import { fetchGcTeam, fetchGcTeams } from "../gameChangerClient";
+import { BATCH_SIZE, fetchGcTeam, fetchGcTeams, MAX_REFUSALS } from "../gameChangerClient";
 
 const TEAM_ID = "gsUthn4XoIxS";
 
@@ -185,6 +185,126 @@ describe("fetchGcTeams", () => {
       { done: 2, total: 3, teamId: "Bbbbbbbb0002" },
       { done: 3, total: 3, teamId: "Cccccccc0003" },
     ]);
+  });
+
+  it("gives up on a refused route instead of burning the rest of the list on it", async () => {
+    /*
+     * GameChanger's WAF turns away the server, so every remaining id is behind the same refusal.
+     * Before this, `blocked` was in neither retry set and the brake only watched for "throttled",
+     * so nothing slowed and nothing counted: eight workers raced through the remainder turning
+     * each id into a permanent failure that no resume would ever ask for again.
+     */
+    const blocked: GcTeamResponse = {
+      ok: false,
+      reason: "blocked" satisfies GcFetchErrorReason,
+      message: "The AWS WAF turned the server away.",
+      status: 403,
+    };
+    const ids = Array.from({ length: 60 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+    const fetchImpl = batchFetch(() => blocked);
+    const seen: string[] = [];
+    const refusals: number[] = [];
+
+    const results = await fetchGcTeams(ids, {
+      fetchImpl,
+      concurrency: 1,
+      delayMs: () => 0,
+      refusedHoldMs: 0,
+      onRefused: (count) => refusals.push(count),
+      onProgress: ({ teamId }) => seen.push(teamId),
+    });
+
+    // Stopped early rather than walking the whole list.
+    expect(fetchImpl.calls.length).toBeLessThan(ids.length / BATCH_SIZE);
+    // Said so, once.
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toBeGreaterThan(MAX_REFUSALS);
+    // And crucially: the refused ids were never reported, so the caller cannot settle them and a
+    // resume asks for them again. A reported failure is a permanent one.
+    expect(seen).toHaveLength(0);
+    expect(results.size).toBe(0);
+  });
+
+  it("still hands over what a refused batch did fetch", async () => {
+    const blocked: GcTeamResponse = {
+      ok: false,
+      reason: "blocked" satisfies GcFetchErrorReason,
+      message: "blocked",
+      status: 403,
+    };
+    const ids = Array.from({ length: 30 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+    // One id answers every time; the rest are refused. Those schedules were paid for.
+    const fetchImpl = batchFetch((teamId) => (teamId === ids[0] ? okBody : blocked));
+    const seen: string[] = [];
+
+    await fetchGcTeams(ids, {
+      fetchImpl,
+      concurrency: 1,
+      delayMs: () => 0,
+      refusedHoldMs: 0,
+      onProgress: ({ teamId }) => seen.push(teamId),
+    });
+
+    expect(seen).toContain(ids[0]);
+    expect(seen.every((teamId) => teamId === ids[0])).toBe(true);
+  });
+
+  it("does not give up on a refusal that does not repeat", async () => {
+    const blocked: GcTeamResponse = {
+      ok: false,
+      reason: "blocked" satisfies GcFetchErrorReason,
+      message: "blocked",
+      status: 403,
+    };
+    // A single challenge can fire once and never again, which is not a reason to abandon a run.
+    const ids = Array.from({ length: 30 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+    const fetchImpl = batchFetch((teamId) => (teamId === ids[0] ? blocked : okBody));
+    const refusals: number[] = [];
+
+    const results = await fetchGcTeams(ids, {
+      fetchImpl,
+      concurrency: 1,
+      delayMs: () => 0,
+      refusedHoldMs: 0,
+      onRefused: (count) => refusals.push(count),
+    });
+
+    expect(refusals).toHaveLength(0);
+    expect(results.size).toBe(ids.length);
+  });
+
+  it("waits as long as the throttled team asked, not as long as its neighbour did not", async () => {
+    /*
+     * The hold used to read Retry-After off the first still-pending id. In a batch failing two
+     * ways — one throttled, one timed out — that asked the timed-out team how long to wait, got
+     * nothing, and fell back to the local ladder while GameChanger had named a figure.
+     */
+    const timedOut: GcTeamResponse = {
+      ok: false,
+      reason: "timeout" satisfies GcFetchErrorReason,
+      message: "no answer in time",
+    };
+    // Fractional seconds, so the assertion is about which team was asked rather than about
+    // sitting through the answer: 0.05s is 50ms, and still unmistakable next to the zero ladder.
+    const slow: GcTeamResponse = { ...throttled, diagnostics: { retryAfter: "0.05" } };
+    const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002"];
+    let call = 0;
+    const fetchImpl = batchFetch((teamId) => {
+      call += 1;
+      if (call > 4) return okBody;
+      return teamId === "Aaaaaaaa0001" ? timedOut : slow;
+    });
+    const waited: number[] = [];
+    const sleeps = vi.spyOn(globalThis, "setTimeout");
+
+    await fetchGcTeams(ids, { fetchImpl, concurrency: 1, delayMs: () => 0, retries: 2 });
+    sleeps.mock.calls.forEach(([, ms]) => {
+      if (typeof ms === "number" && ms > 0) waited.push(ms);
+    });
+    sleeps.mockRestore();
+
+    // The figure GameChanger named, rather than the zero the injected ladder would have given.
+    expect(waited).toContain(50);
   });
 
   it("gives one team's failure to that team and leaves the rest of the batch alone", async () => {
