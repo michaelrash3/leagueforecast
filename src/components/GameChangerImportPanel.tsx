@@ -48,6 +48,7 @@ import {
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
 import {
+  checkPulledTeam,
   collectGcImportProblems,
   describeGcProblems,
   gcImportProblemsCsv,
@@ -503,6 +504,15 @@ export function GameChangerImportPanel({
        * are kept; a bare pasted id claims nothing to check.
        */
       const claimed = new Map(parsed.entries.map((entry) => [entry.teamId, entry]));
+      /**
+       * Only the ids where the two disagree.
+       *
+       * The check is the same one the report runs, moved to the moment the answer arrives instead
+       * of the end of the run. It used to keep every team pulled — a hundred and sixteen thousand
+       * profiles held for hours to report on the few hundred that turn out to be worth reporting —
+       * and the whole point of the map is the disagreements, so the agreements are dropped as soon
+       * as they are known to be agreements.
+       */
       const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
       setStage("pulling");
       setResult(null);
@@ -649,7 +659,9 @@ export function GameChangerImportPanel({
             outcomesRef.current.push(outcome);
             track(() => tracker?.imported(outcome));
             poolRef.current = importer.state;
-            if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
+            if (entry && checkPulledTeam(entry, result.schedule.profile)) {
+              pulledRef.set(teamId, { entry, profile: result.schedule.profile });
+            }
           } else {
             pendingFailures.set(teamId, { reason: result.reason, message: result.message });
           }
