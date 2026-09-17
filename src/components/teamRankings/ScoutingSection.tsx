@@ -17,19 +17,25 @@ const tierTone = (tier: MatchupTier) =>
   tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
 
 /**
- * Says a projection is not one, because no chain of results joins the two clubs.
+ * Says a projection is not one, because nothing in the pool joins the two clubs.
+ *
+ * Worded as what it is rather than as a fact about the clubs, which is the distinction that took
+ * two goes to get right. On a part-pulled pool this is usually the pull's fault, not the schedule's:
+ * two clubs that really did share an opponent look unconnected while that opponent is only a name
+ * on somebody's list. So the label points at the games we have, and the fix it implies is pulling
+ * the rest rather than distrusting either club.
  *
  * The numbers stay beside it. They are the only answer the model has, and hiding them would be no
- * more honest than showing them silently — what a reader needs is to know that the two ratings were
- * measured against different zeros, so their difference is two unrelated numbers subtracted.
+ * more honest than showing them silently — what a reader needs is to know that these two ratings
+ * were worked out against different sets of opponents, so their difference is not a prediction.
  */
-function NeverCompared() {
+function NoSharedOpponents() {
   return (
     <span
       className="ml-2 whitespace-nowrap text-xs font-bold text-amber-700 dark:text-amber-400"
-      title="No chain of common opponents joins these two, so their ratings are measured against different averages. The projection is a guess, not a comparison."
+      title="Nothing in the games pulled so far links these two — not even through opponents of opponents — so their ratings were worked out against different sets of teams and this projection is a guess. Usually it means the club that connects them has not been pulled yet; Setup lists which clubs those are."
     >
-      never compared
+      no shared opponents yet
     </span>
   );
 }
@@ -198,7 +204,7 @@ export function ScoutingSection({
                       <td>#{row.opponentRank}</td>
                       <td>
                         {formatMargin(row.projectedMargin ?? 0)}
-                        {row.unconnected && <NeverCompared />}
+                        {row.unconnected && <NoSharedOpponents />}
                       </td>
                       <td>{formatPct(row.winProb ?? 0)}</td>
                       <td>
@@ -338,7 +344,7 @@ function MatchupTable({
                 <td>#{preview.opponentRank}</td>
                 <td>
                   {formatMargin(preview.projectedMargin)}
-                  {preview.unconnected && <NeverCompared />}
+                  {preview.unconnected && <NoSharedOpponents />}
                 </td>
                 <td>{formatPct(preview.winProb)}</td>
                 <td>

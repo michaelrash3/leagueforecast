@@ -136,7 +136,7 @@ describe("a club the rest of the table has never played", () => {
     expect(rows.find((row) => row.teamId === "I-A")!.record).toBe("2-0");
   });
 
-  it("marks a matchup across two pieces as never compared", () => {
+  it("marks a matchup across two pieces as having no shared opponents", () => {
     const { teams, games } = built();
     const rows = buildTeamRankings("u9", teams, games, undefined, pool);
     const report = buildScoutingReport("M-0", rows, teams, { nationalTop: 20 });

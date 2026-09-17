@@ -483,23 +483,6 @@ export function TeamRankingsView({
   });
 
   /**
-   * How much of this board is one ranking rather than several.
-   *
-   * Off the rows, which already carry which piece of the schedule each club is in. The largest
-   * piece is counted over the whole fit rather than over this page's rows, because that is what a
-   * rating is measured against — a 9U club's group includes the 10Us it played up against.
-   */
-  const connectivity = useMemo(() => {
-    if (rankings.length === 0) return null;
-    const comparable = rankings.filter((row) => row.comparable).length;
-    const largest = rankings.reduce(
-      (most, row) => (row.comparable ? Math.max(most, row.componentSize) : most),
-      0
-    );
-    return { ranked: rankings.length, comparable, largest };
-  }, [rankings]);
-
-  /**
    * The teams behind the rows on this page. Taken from the rows rather than from the games filed
    * here, because the pool can list a team whose games were all filed elsewhere — a 10U that spent
    * the year playing down is at home on the 10U page with nothing filed on it — and the state
@@ -1253,7 +1236,6 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onSearchTeam={openSearchedTeam}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
-              connectivity={connectivity}
               segment={
                 selectedSegment === undefined || selectedYear === undefined
                   ? null

@@ -142,15 +142,15 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
 
       <p className="mt-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
         <span className="font-bold text-slate-950 dark:text-white">
-          Two teams with no chain between them have not been compared.
+          A rating is only as wide as the games behind it.
         </span>{" "}
-        A rating is a margin against the average of everyone a team&apos;s schedule can reach —
-        opponents, their opponents, and so on — and each such group is centred on its own average.
-        So the difference between two ratings from two groups that have never met is not a
-        prediction; it is two unrelated numbers subtracted. Early in a season most of the country is
-        in that position, and it mends itself as the schedules knit together. The boards say how
-        much of a table is one ranking, the full table marks the rows that are not in it, and a
-        matchup across two groups is labelled <em>never compared</em> rather than quietly stated.
+        It is a margin against the average of everyone a team&apos;s schedule can reach — opponents,
+        their opponents, and so on — so two teams that share nobody are measured against two
+        different sets of teams, and their difference is not a prediction. On a part-pulled pool
+        that is usually the pull rather than the schedule: a club that really does connect them sits
+        in the list as a name until it is pulled, and pulling it joins both. A matchup like that is
+        labelled <em>no shared opponents yet</em> rather than quietly stated, and Setup lists which
+        clubs are still only names.
       </p>
     </div>
   );
