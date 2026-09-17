@@ -51,6 +51,8 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
 
   const look = async () => {
     const found = await inspect(pool, tidyStamp);
+    // Null means the panel went away mid-look, so there is nobody left to show it to.
+    if (!found) return;
     setHealth(found.health);
     setSettleable(found.settleable);
     setLastTidy(null);
@@ -65,6 +67,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
     onTidied(outcome);
     setLastTidy(describeTidy({ ...outcome.tidy, state: outcome.state }));
     const found = await inspect(outcome.state, "");
+    if (!found) return;
     setHealth(found.health);
     setSettleable(found.settleable);
     setToPull(unpulledClubs(outcome.state));

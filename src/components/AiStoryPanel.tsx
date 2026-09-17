@@ -36,6 +36,15 @@ export type AiStoryPanelProps = {
   unavailableReason: LeagueSummaryErrorReason | null;
   errorMessage?: string;
   onRetry: () => void;
+  /**
+   * Set when a write-up is waiting to be asked for rather than on its way.
+   *
+   * These cost a call against somebody's language-model quota apiece, and they used to fetch
+   * themselves — one per age group looked at, one per team picked. So by default nothing is
+   * written until this is pressed.
+   */
+  waiting?: boolean;
+  onAsk?: () => void;
 };
 
 /**
@@ -52,6 +61,8 @@ export function AiStoryPanel({
   unavailableReason,
   errorMessage,
   onRetry,
+  waiting = false,
+  onAsk,
 }: AiStoryPanelProps) {
   const [diagnosis, setDiagnosis] = useState("");
   const [checking, setChecking] = useState(false);
@@ -68,6 +79,36 @@ export function AiStoryPanel({
       setChecking(false);
     }
   };
+
+  /*
+   * Waiting to be asked. Drawn rather than hidden, because the deterministic text below it is
+   * worth reading on its own and the offer of a written version belongs beside it — a panel that
+   * simply vanished would look like the feature was missing rather than idle.
+   */
+  if (waiting && onAsk && !loading) {
+    return (
+      <div className="mb-3 rounded-lg bg-white p-3 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          {title}
+        </div>
+        {text && (
+          <p className="whitespace-pre-line text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200">
+            {text}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onAsk}
+          className="mt-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60"
+        >
+          Write this up with AI
+        </button>
+        <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+          One request each. Turn them on for everything in Settings.
+        </p>
+      </div>
+    );
+  }
 
   if (!text && !loading) return null;
 

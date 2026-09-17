@@ -126,6 +126,8 @@ export function ScoutingSection({
             unavailableReason={explanation.reason}
             errorMessage={explanation.message}
             onRetry={explanation.retry}
+            waiting={explanation.waiting}
+            onAsk={explanation.ask}
           />
         </div>
       )}

@@ -44,6 +44,7 @@ import {
   type TeamRankingsBackup,
   type UndoSnapshotWithRankings,
 } from "./lib/teamRankingsBackup";
+import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
 import {
   applyFullBackup,
   backupFilename,
@@ -2936,7 +2937,17 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     weeklyStory,
   ]);
 
-  const aiStory = useLeagueSummary(leagueSummaryRequest);
+  /*
+   * Whether the write-ups fetch themselves. Held here so flipping it in Settings takes effect
+   * everywhere at once rather than on the next reload.
+   */
+  const [summaryMode, setSummaryModeState] = useState<SummaryMode>(() => readSummaryMode());
+  const setSummaryMode = useCallback((mode: SummaryMode) => {
+    setSummaryModeState(mode);
+    writeSummaryMode(mode);
+  }, []);
+
+  const aiStory = useLeagueSummary(leagueSummaryRequest, { mode: summaryMode });
   const storyText = aiStory.status === "ready" ? aiStory.summary : weeklyStory;
 
   // Forecast write-up: the projected finish, the model's upcoming picks, the
@@ -3008,7 +3019,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     currentLeader,
   ]);
 
-  const forecastStory = useLeagueSummary(forecastSummaryRequest);
+  const forecastStory = useLeagueSummary(forecastSummaryRequest, { mode: summaryMode });
 
   // ---------- Share + URL snapshot ----------
 
@@ -3445,6 +3456,8 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 }
                 storyErrorMessage={aiStory.message}
                 retryStory={aiStory.retry}
+                storyWaiting={aiStory.waiting}
+                askStory={aiStory.ask}
                 currentSosRanks={currentSosRanks}
                 statusClass={statusClass}
                 statusLabel={statusLabel}
@@ -3511,6 +3524,8 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 }
                 forecastStoryErrorMessage={forecastStory.message}
                 retryForecastStory={forecastStory.retry}
+                forecastStoryWaiting={forecastStory.waiting}
+                askForecastStory={forecastStory.ask}
               />
             ) : activeView === "settings" ? (
               <div className="space-y-6">
@@ -3542,6 +3557,8 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                   exportBackup={exportBackup}
                   resetSeason={resetSeason}
                   loadDemoSeason={loadDemoSeason}
+                  summaryMode={summaryMode}
+                  onSummaryMode={setSummaryMode}
                 />
               </div>
             ) : (

@@ -30,11 +30,24 @@ export function usePoolTidy() {
   const workerRef = useRef<Worker | null>(null);
   const nextId = useRef(0);
   const [busy, setBusy] = useState<null | "inspect" | "tidy">(null);
+  /**
+   * Everything still waiting on the worker.
+   *
+   * Kept because terminating a worker fires neither `message` nor `error`: a promise waiting on
+   * one is simply never settled again. That is a leak on its own, and a far worse one through the
+   * tidy, which holds the pool's session slot until its promise settles — so an unmount in the
+   * middle of a tidy left every later pull refused with "a pull is already running" for the rest of
+   * the page's life, and nothing was running at all.
+   */
+  const waiting = useRef(new Set<() => void>());
 
   useEffect(
     () => () => {
       workerRef.current?.terminate();
       workerRef.current = null;
+      // Settled rather than abandoned, so every `finally` waiting on one of these gets to run.
+      waiting.current.forEach((giveUp) => giveUp());
+      waiting.current.clear();
     },
     []
   );
@@ -46,7 +59,7 @@ export function usePoolTidy() {
       request: (id: number) => WorkerRequest,
       matches: (response: WorkerResponse, id: number) => T | null,
       inline: () => T
-    ): Promise<T> => {
+    ): Promise<T | null> => {
       if (!workerRef.current) workerRef.current = createWorker();
       const worker = workerRef.current;
       setBusy(job);
@@ -57,14 +70,18 @@ export function usePoolTidy() {
       }
       const id = nextId.current + 1;
       nextId.current = id;
-      return new Promise<T>((resolve) => {
+      return new Promise<T | null>((resolve) => {
+        const done = (answer: T | null) => {
+          worker.removeEventListener("message", onMessage);
+          worker.removeEventListener("error", onError);
+          waiting.current.delete(giveUp);
+          setBusy(null);
+          resolve(answer);
+        };
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           const answer = matches(event.data, id);
           if (answer === null) return;
-          worker.removeEventListener("message", onMessage);
-          worker.removeEventListener("error", onError);
-          setBusy(null);
-          resolve(answer);
+          done(answer);
         };
         const onError = (error: ErrorEvent) => {
           console.warn("Tidy worker failed, falling back to inline.", error.message);
@@ -72,10 +89,11 @@ export function usePoolTidy() {
           worker.removeEventListener("error", onError);
           worker.terminate();
           workerRef.current = null;
-          const answer = inline();
-          setBusy(null);
-          resolve(answer);
+          done(inline());
         };
+        /** The panel went away mid-job. No answer is coming, and saying so is what frees the slot. */
+        const giveUp = () => done(null);
+        waiting.current.add(giveUp);
         worker.addEventListener("message", onMessage);
         worker.addEventListener("error", onError);
         worker.postMessage(request(id));
@@ -85,7 +103,7 @@ export function usePoolTidy() {
   );
 
   const inspect = useCallback(
-    (state: GcImportState, stamp: string): Promise<PoolInspection> =>
+    (state: GcImportState, stamp: string): Promise<PoolInspection | null> =>
       ask<PoolInspection>(
         "inspect",
         (id) => ({ kind: "inspect", id, state, stamp }),

@@ -34,6 +34,8 @@ export function StandingsView({
   storyUnavailableReason,
   storyErrorMessage,
   retryStory,
+  storyWaiting,
+  askStory,
   currentSosRanks,
   statusClass,
   statusLabel,
@@ -58,6 +60,8 @@ export function StandingsView({
   storyUnavailableReason: LeagueSummaryErrorReason | null;
   storyErrorMessage: string;
   retryStory: () => void;
+  storyWaiting: boolean;
+  askStory: () => void;
   currentSosRanks: Record<string, number>;
   statusClass: (t: TeamWithProjection) => string;
   statusLabel: (t: TeamWithProjection) => string;
@@ -154,6 +158,8 @@ export function StandingsView({
                   unavailableReason={storyUnavailableReason}
                   errorMessage={storyErrorMessage}
                   onRetry={retryStory}
+                  waiting={storyWaiting}
+                  onAsk={askStory}
                 />
                 <ul className="space-y-2 text-xs font-semibold text-blue-800 dark:text-blue-300">
                   {lastImpact.recapItems.map((item) => (

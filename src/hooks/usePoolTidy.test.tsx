@@ -1,9 +1,15 @@
 import { renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePoolTidy } from "./usePoolTidy";
 import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcImportState } from "../lib/gameChangerImport";
-import { beginPull, beginTidy, isPoolBusy, resetPullSession } from "../lib/pullSession";
+import {
+  beginPull,
+  beginTidy,
+  forceReleasePool,
+  isPoolBusy,
+  resetPullSession,
+} from "../lib/pullSession";
 
 afterEach(() => resetPullSession());
 
@@ -76,6 +82,71 @@ describe("tidying the pool", () => {
     beginPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
     const looked = await result.current.inspect(withStandIn(), "");
-    expect(looked.health.games).toBe(2);
+    expect(looked?.health.games).toBe(2);
+  });
+});
+
+/**
+ * A worker that takes the job and never answers — which is what a real one looks like from the
+ * moment it is terminated.
+ */
+class SilentWorker {
+  addEventListener() {}
+  removeEventListener() {}
+  postMessage() {}
+  terminate() {}
+}
+
+describe("a tidy whose panel goes away", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetPullSession();
+  });
+
+  /*
+   * The bug this exists for. Terminating a worker fires neither `message` nor `error`, so the
+   * promise waiting on one was never settled, so the `finally` that releases the pool never ran —
+   * and every later pull was refused with "a pull is already running" while nothing was running at
+   * all. It took a reload to clear, and a reload is not a thing to ask of somebody mid-season.
+   */
+  it("lets go of the pool instead of holding it for ever", async () => {
+    vi.stubGlobal("Worker", SilentWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+
+    const pending = result.current.tidy(withStandIn());
+    expect(isPoolBusy()).toBe(true);
+
+    unmount();
+
+    await expect(pending).resolves.toBeNull();
+    expect(isPoolBusy()).toBe(false);
+    // And the next pull is free to start, which is the whole point.
+    expect(beginPull("2026-09-17T09:00:00.000Z")).not.toBeNull();
+  });
+
+  it("settles an inspection the same way, rather than leaving it hanging", async () => {
+    vi.stubGlobal("Worker", SilentWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.inspect(withStandIn(), "");
+    unmount();
+    await expect(pending).resolves.toBeNull();
+  });
+});
+
+describe("taking the pool back", () => {
+  afterEach(() => resetPullSession());
+
+  it("frees it whatever holds it, so a stuck slot never needs a reload", () => {
+    const held = beginTidy("2026-09-17T08:00:00.000Z")!;
+    expect(isPoolBusy()).toBe(true);
+    forceReleasePool();
+    expect(isPoolBusy()).toBe(false);
+    // Aborted on the way out, so a job that really was going stops rather than carrying on unseen.
+    expect(held.controller.signal.aborted).toBe(true);
+  });
+
+  it("is harmless when nothing holds it", () => {
+    expect(() => forceReleasePool()).not.toThrow();
+    expect(isPoolBusy()).toBe(false);
   });
 });

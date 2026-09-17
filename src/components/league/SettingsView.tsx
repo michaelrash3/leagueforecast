@@ -3,6 +3,7 @@
  * comes in and goes out.
  */
 import React, { useId } from "react";
+import type { SummaryMode } from "../../lib/preferences";
 import {
   TIEBREAKER_LABELS,
   type ModelAggression,
@@ -34,6 +35,8 @@ export function SettingsView({
   exportBackup,
   resetSeason,
   loadDemoSeason,
+  summaryMode,
+  onSummaryMode,
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -44,6 +47,8 @@ export function SettingsView({
   exportBackup: () => void;
   resetSeason: () => void;
   loadDemoSeason: () => void;
+  summaryMode: SummaryMode;
+  onSummaryMode: (mode: SummaryMode) => void;
 }) {
   const seasonId = useId();
   const cutoffId = useId();
@@ -430,6 +435,32 @@ export function SettingsView({
               </button>
             </div>
           </fieldset>
+        </div>
+
+        <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+            AI write-ups
+          </h3>
+          <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+            The league story, the forecast write-up and the scouting explanation are each written by
+            Gemini on request. Every one is a call against your API quota, and the facts change
+            whenever you switch age group or pick a different team — so by default nothing is
+            written until you press the button on the card.
+          </p>
+          <label className="mt-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+            <input
+              type="checkbox"
+              checked={summaryMode === "auto"}
+              onChange={(event) => onSummaryMode(event.target.checked ? "auto" : "ask")}
+              className="h-4 w-4"
+            />
+            Write them automatically
+          </label>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {summaryMode === "auto"
+              ? "Every card fetches its own write-up as soon as it has something to say."
+              : "Nothing is sent until you ask for it."}
+          </p>
         </div>
 
         <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
