@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beginPull, resetPullSession } from "../lib/pullSession";
 import type { GcTeamResponse } from "../lib/gameChangerApi";
 
 /**
@@ -76,6 +77,7 @@ const renderPanel = (onPersist: () => boolean) => {
 describe("a save the browser refuses", () => {
   beforeEach(() => {
     asked.length = 0;
+    resetPullSession();
   });
 
   it("stops the run and says so, rather than fetching on with nowhere to put it", async () => {
@@ -104,5 +106,44 @@ describe("a save the browser refuses", () => {
 
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(toasts.some((line) => /storage full/i.test(line))).toBe(false);
+  });
+});
+
+describe("a pull that outlives its panel", () => {
+  beforeEach(() => {
+    asked.length = 0;
+    resetPullSession();
+  });
+  afterEach(() => resetPullSession());
+
+  it("refuses to start a second run while one is going", async () => {
+    /*
+     * Closing the panel hides the run and keeps it going, which is what was asked for — so a
+     * reopened panel must not be able to start another. Both write whole-pool snapshots, so the
+     * later one overwrites the earlier's teams while the cursor records them as settled, and a
+     * resume then skips them for good. Two clicks used to reach it: Close, reopen, Carry on.
+     */
+    const user = userEvent.setup();
+    beginPull("2026-09-17T08:00:00.000Z");
+    const { toasts } = renderPanel(() => true);
+
+    await user.type(screen.getByLabelText("Teams"), ids.join("\n"));
+    await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
+
+    expect(asked).toHaveLength(0);
+    expect(toasts.some((line) => /already running/i.test(line))).toBe(true);
+  });
+
+  it("says so on screen, and offers to stop it", async () => {
+    beginPull("2026-09-17T08:00:00.000Z");
+    renderPanel(() => true);
+
+    expect(screen.getByText(/A pull is already running/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /stop the running pull/i })).toBeInTheDocument();
+  });
+
+  it("offers nothing of the sort when nothing is running", async () => {
+    renderPanel(() => true);
+    expect(screen.queryByText(/A pull is already running/i)).not.toBeInTheDocument();
   });
 });

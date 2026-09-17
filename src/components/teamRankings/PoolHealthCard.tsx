@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+import { isPullLive, watchPull } from "../../lib/pullSession";
 import { useState } from "react";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import { describeTidy } from "../../lib/gameChangerImport";
@@ -34,6 +36,13 @@ const Row = ({ label, value, note }: { label: string; value: string; note?: stri
  * are the numbers that say which.
  */
 export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProps) {
+  /*
+   * A pull keeps running when its panel is closed, so this card can be looking at a pool that is
+   * still moving. A tidy started now would write the whole pool over what the pull has since
+   * saved — and the pull's cursor has already recorded those teams as settled, so a resume would
+   * not fetch them again.
+   */
+  const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
   const { inspect, tidy, busy } = usePoolTidy();
   const [health, setHealth] = useState<PoolHealth | null>(null);
   const [settleable, setSettleable] = useState(0);
@@ -95,13 +104,20 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
           <button
             type="button"
             onClick={() => void run()}
-            disabled={busy !== null}
+            disabled={busy !== null || pullLive}
             className={button.primary}
           >
             {busy === "tidy" ? "Tidying…" : `Settle ${count(settleable)} of them`}
           </button>
         )}
       </div>
+
+      {pullLive && (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          A pull is running, so this waits. Both write the whole pool, and the one that finishes
+          second would overwrite what the other had just saved.
+        </p>
+      )}
 
       {busy === "tidy" && (
         <p className="mt-2 text-xs text-slate-500">

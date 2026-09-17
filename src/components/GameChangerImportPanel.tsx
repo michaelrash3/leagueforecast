@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
+import { beginPull, endPull, isPullLive, stopLivePull, watchPull } from "../lib/pullSession";
 import {
   comparePairing,
   createGcImporter,
@@ -150,6 +151,12 @@ export function GameChangerImportPanel({
 }: GameChangerImportPanelProps) {
   const [text, setText] = useState("");
   const [stage, setStage] = useState<Stage>("picking");
+  /*
+   * Whether a pull is running anywhere, which is not the same as whether this panel is running
+   * one: closing the panel hides the run and keeps it going, so a panel opened afterwards is
+   * looking at a pool that is still moving underneath it.
+   */
+  const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   /** The pairing opened side by side, if any, worked out when it was opened. */
@@ -290,7 +297,19 @@ export function GameChangerImportPanel({
    * the end, so stopping — or closing the tab — keeps everything already fetched.
    */
   const run = async (ids: string[], progress: GcPullProgress) => {
-    const controller = new AbortController();
+    /*
+     * Claimed before anything is fetched. A pull survives its panel — closing it hides the run
+     * rather than stopping it — so a reopened panel could otherwise start a second, and the two
+     * would write whole-pool snapshots over each other while the cursor marked the losers settled.
+     */
+    const session = beginPull(nowIso());
+    if (!session) {
+      showToast("A pull is already running. Reopen Import to watch it, or stop it there.", {
+        tone: "error",
+      });
+      return;
+    }
+    const controller = session.controller;
     abortRef.current = controller;
     /*
      * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
@@ -411,6 +430,9 @@ export function GameChangerImportPanel({
 
     await flush();
     abortRef.current = null;
+    // Given up here rather than at the end: what follows is the tidy and the summary, neither of
+    // which is a reason to refuse a run somebody starts in the meantime.
+    endPull(session);
     // Marked only now: a run that was stopped half way has not refreshed those levels.
     if (
       dueLevelsRef.current.length > 0 &&
@@ -540,6 +562,8 @@ export function GameChangerImportPanel({
   };
 
   const stop = () => {
+    // Through the session, so a panel that has just opened onto somebody else's run can stop it.
+    stopLivePull();
     abortRef.current?.abort();
     showToast("Stopping after the requests already in flight.", { tone: "info" });
   };
@@ -603,6 +627,21 @@ export function GameChangerImportPanel({
         </button>
       </div>
 
+      {stage === "picking" && pullLive && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-sm font-bold text-slate-950 dark:text-white">
+            A pull is already running.
+          </p>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+            It kept going when this panel was closed. Starting another would have the two of them
+            saving the pool over each other, so this one waits. The counter below is the last
+            position saved, which advances every {SAVE_EVERY} teams.
+          </p>
+          <button type="button" onClick={stop} className={`${button.ghost} mt-2`}>
+            Stop the running pull
+          </button>
+        </div>
+      )}
       {stage === "picking" && (
         <div className="mt-4">
           <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
