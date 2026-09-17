@@ -126,6 +126,24 @@ export const stopLivePull = (): void => {
   live?.controller.abort();
 };
 
+/**
+ * Lets go of whatever holds the slot, whether or not it has finished.
+ *
+ * The escape hatch, and it exists because the slot has stuck once already: a tidy whose worker was
+ * terminated left a promise that never settled, so the `finally` that releases it never ran and
+ * every later pull was refused with nothing running to explain it. That particular hole is closed,
+ * but a slot that can only be freed by the job that took it is one reload away from stranding
+ * somebody again — and a reload is not a thing to ask of a person mid-season.
+ *
+ * Aborts first, so a run that is genuinely going stops rather than carrying on unwatched.
+ */
+export const forceReleasePool = (): void => {
+  live?.controller.abort();
+  if (!live) return;
+  live = null;
+  announce();
+};
+
 /** For `useSyncExternalStore`: fires whenever a job starts or ends. */
 export const watchPull = (listener: () => void): (() => void) => {
   listeners.add(listener);

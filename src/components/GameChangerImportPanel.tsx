@@ -4,8 +4,11 @@ import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import {
   beginPull,
   endPull,
+  forceReleasePool,
+  isPoolBusy,
   isPullLive,
   lastPullLog,
+  livePull,
   livePullTracker,
   stopLivePull,
   watchPull,
@@ -206,6 +209,12 @@ export function GameChangerImportPanel({
    * looking at a pool that is still moving underneath it.
    */
   const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
+  /**
+   * Whether anything at all holds the pool, which is the question this panel actually cares about:
+   * a tidy refuses a pull exactly as another pull does, and a banner that only knew about pulls
+   * left somebody staring at a refusal with nothing on screen to explain it.
+   */
+  const poolBusy = useSyncExternalStore(watchPull, isPoolBusy, () => false);
   /*
    * The tidy runs in a worker. It is five passes over every game — half a minute on a nationwide
    * pool — and on the main thread that is half a minute of frozen tab at the very end of an hour
@@ -382,341 +391,367 @@ export function GameChangerImportPanel({
      */
     const session = beginPull(nowIso());
     if (!session) {
-      showToast("A pull is already running. Reopen Import to watch it, or stop it there.", {
-        tone: "error",
-      });
+      // What is actually holding it, rather than a guess. A tidy refuses a pull exactly as another
+      // pull does, and saying "a pull is already running" when one is not sends somebody looking
+      // for a run that does not exist.
+      const holder = livePull();
+      showToast(
+        holder?.kind === "tidy"
+          ? "The pool is being tidied. That takes a moment — try again when it finishes."
+          : "A pull is already running. Reopen Import to watch it, or stop it there.",
+        { tone: "error" }
+      );
       return;
     }
     const controller = session.controller;
     abortRef.current = controller;
     /*
-     * The record of this run, which outlives the panel with the session that holds it.
-     *
-     * Wrapped rather than called directly, everywhere it is used. A tracker that throws inside
-     * `onProgress` would take the whole run down with it — no final flush, no released slot — and
-     * destroying an hour of fetching to record it is exactly backwards. A field it could not write
-     * is a blank cell; nothing more.
+     * Released whatever happens from here on. The slot this run holds is what stops a second one
+     * starting, so anything that throws between the claim and the release leaves it held for the
+     * rest of the page's life — and every later run refused, with nothing running to explain it.
+     * `endPull` ignores a session that is no longer the live one, so calling it twice is free.
      */
-    const tracker = session.tracker;
-    const track = (write: () => void): void => {
-      try {
-        write();
-      } catch {
-        /* never at the run's expense */
-      }
+    let released = false;
+    /** Declared out here so the `finally` can take it off again however the run ends. */
+    let onVisibility: (() => void) | null = null;
+    const giveUpSlot = () => {
+      if (released) return;
+      released = true;
+      endPull(session);
     };
-    const runFrom = msNow();
-    track(() => {
-      tracker?.beginSegment(session.startedAt, ids);
-      tracker?.config({
-        concurrency: CONCURRENCY,
-        batchSize: BATCH_SIZE,
-        saveEvery: SAVE_EVERY,
-      });
-      tracker?.eta(estimatedMinutes(ids.length));
-      tracker?.paste({
-        lines: text ? text.split(/\r?\n/).length : 0,
-        parsed: parsed.entries.length,
-        skipped: parsed.skipped.length,
-        skippedSamples: parsed.skipped,
-        tooYoung: parsed.tooYoung + parsed.notBaseball,
-        alreadyHere: split.seen,
-        asked: ids.length,
-      });
-    });
-
-    /*
-     * An hour against an eleven-minute estimate has two explanations that look identical from the
-     * inside — GameChanger was slow, or the tab was in the background and the browser throttled
-     * it. Nothing else recorded can tell them apart, and this is six lines.
-     */
-    let hiddenFrom = document.visibilityState === "hidden" ? msNow() : 0;
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        hiddenFrom = msNow();
-        return;
-      }
-      if (hiddenFrom === 0) return;
-      const spell = msNow() - hiddenFrom;
-      hiddenFrom = 0;
-      track(() => tracker?.hidden(spell));
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    /*
-     * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
-     * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
-     * teams by far the longest part of a pull.
-     */
-    const importer = createGcImporter(poolRef.current);
-    progressRef.current = progress;
-    outcomesRef.current = [];
-    /**
-     * What the list claimed about each id, beside what GameChanger returned for it, so the report
-     * can say which ids do not look like the team that was asked for. Only ids the list described
-     * are kept; a bare pasted id claims nothing to check.
-     */
-    const claimed = new Map(parsed.entries.map((entry) => [entry.teamId, entry]));
-    const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
-    setStage("pulling");
-    setResult(null);
-    setLive(null);
-    syncStats();
-
-    // Settled but not yet written. The cursor follows the save, never leads it.
-    let unsaved: string[] = [];
-    /** Saves so far, so a row can say which one kept it — and where the saving stopped. */
-    let flushSeq = 0;
-    /** How the run came to an end, settled by whatever ends it and read once at the bottom. */
-    let endReason: PullEndReason = "finished";
-    // Flushes run one at a time and in order; a batch is never overtaken by the next.
-    let flushing: Promise<void> = Promise.resolve();
-
-    /**
-     * Writes what has been folded in, then advances the cursor — in that order, and only if the
-     * write actually reached the store.
-     *
-     * Waiting matters because a save can only be *accepted* synchronously: the pool is written to
-     * IndexedDB behind the caller, so a cursor that trusted the acknowledgement would mark teams
-     * settled that a closed tab then loses, and the resume would skip them for good.
-     */
-    const flush = (): Promise<void> => {
-      if (unsaved.length === 0) return flushing;
-      const batch = unsaved;
-      const failures = new Map(pendingFailures);
-      unsaved = [];
-      pendingFailures.clear();
-
-      flushSeq += 1;
-      const flushNumber = flushSeq;
-
-      flushing = flushing.then(async () => {
-        const from = msNow();
-        /*
-         * A refused save stops the run, rather than being noted and fetched past.
-         *
-         * On localStorage this is the only signal there is: writeValue returns whether the value
-         * actually landed, while flushPoolWrites can only say whether the pool is usable at all,
-         * so a quota refusal reaches here and nowhere else. Carrying on meant hours of fetching
-         * that saved nothing, with the cursor never advancing and the progress bar walking
-         * backwards 500 at a time on every flush.
-         */
-        const sample = (ok: boolean) =>
-          track(() => {
-            tracker?.flushed(
-              {
-                flush: flushNumber,
-                second: Math.round((msNow() - runFrom) / 1000),
-                teams: batch.length,
-                settled: progressRef.current?.settled.length ?? 0,
-                poolTeams: poolRef.current.teams.length,
-                poolGames: poolRef.current.games.length,
-                poolPages: poolRef.current.ageGroups.length,
-                ms: msNow() - from,
-                ok,
-              },
-              batch
-            );
-            // Written beside the pool rather than inside it, so a record that will not fit can
-            // never be the thing that stops the run it is recording.
-            const current = tracker?.log();
-            if (current) {
-              if (!savePullLog(current)) tracker?.unpersisted();
-              setLive(
-                liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
-              );
-            }
-          });
-
-        if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
-          sample(false);
-          endReason = "save-refused";
-          abortRef.current?.abort();
-          return;
-        }
-        if (!(await flushPoolWrites())) {
-          showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
-          sample(false);
-          endReason = "save-refused";
-          abortRef.current?.abort();
-          return;
-        }
-        const at = nowIso();
-        batch.forEach((teamId) => {
-          progressRef.current = settleTeam(
-            progressRef.current ?? progress,
-            teamId,
-            at,
-            failures.get(teamId)
-          );
-        });
-        if (progressRef.current) onSaveProgress(progressRef.current);
-        sample(true);
-      });
-      return flushing;
-    };
-
-    const pendingFailures = new Map<
-      string,
-      { reason: GcPullProgress["failures"][number]["reason"]; message: string }
-    >();
-
-    await fetchGcTeams(ids, {
-      concurrency: CONCURRENCY,
-      signal: controller.signal,
-      onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
-      onBlocked: () => track(() => tracker?.blocked()),
-      onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
-      onRefused: (refusals) =>
-        track(() => {
-          endReason = "gave-up";
-          tracker?.gaveUp(refusals, Math.round((msNow() - runFrom) / 1000));
-        }),
-      onProgress: ({ teamId, result, attempts, firstFailure }) => {
-        track(() =>
-          tracker?.answered({
-            teamId,
-            result,
-            attempts,
-            ...(firstFailure ? { firstFailure } : {}),
-            ...(claimed.get(teamId)?.ageLevel === undefined
-              ? {}
-              : { listAge: claimed.get(teamId)?.ageLevel }),
-          })
-        );
-        if (result.ok) {
-          const entry = claimed.get(teamId);
-          /*
-           * The staff and the roster size come from the user's own list, not from GameChanger —
-           * its public API returns neither. Attached here, where both halves are in hand, so the
-           * link the import records carries them.
-           */
-          const listed =
-            entry && (entry.staff?.length || entry.playerCount !== undefined)
-              ? {
-                  ...(entry.staff?.length ? { staff: entry.staff } : {}),
-                  ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
-                }
-              : undefined;
-          const schedule = listed ? { ...result.schedule, listed } : result.schedule;
-          const outcome = importer.add(schedule);
-          outcomesRef.current.push(outcome);
-          track(() => tracker?.imported(outcome));
-          poolRef.current = importer.state;
-          if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
-        } else {
-          pendingFailures.set(teamId, { reason: result.reason, message: result.message });
-        }
-        unsaved.push(teamId);
-        if (unsaved.length >= SAVE_EVERY) void flush();
-        // The cursor only advances on a flush, so the bar counts what is settled plus what is
-        // fetched and waiting to be written — otherwise it would sit still between saves.
-        const settled = progressRef.current?.settled.length ?? 0;
-        const total = progressRef.current?.ids.length ?? ids.length;
-        setStats({
-          done: Math.min(settled + unsaved.length, total),
-          total,
-          failed: (progressRef.current?.failures.length ?? 0) + pendingFailures.size,
-          fraction: total === 0 ? 0 : Math.min(settled + unsaved.length, total) / total,
-        });
-      },
-    });
-
-    await flush();
-    abortRef.current = null;
-    document.removeEventListener("visibilitychange", onVisibility);
-    track(() => {
-      // A spell that is still running when the pull ends is still time the tab was hidden.
-      if (hiddenFrom !== 0) tracker?.hidden(msNow() - hiddenFrom);
-      tracker?.fetchEnded(nowIso());
+    try {
       /*
-       * Stopped is worked out here rather than recorded when the button was pressed, because the
-       * same abort is how a refused save ends a run — and those are very different facts about an
-       * hour that produced nothing.
+       * The record of this run, which outlives the panel with the session that holds it.
+       *
+       * Wrapped rather than called directly, everywhere it is used. A tracker that throws inside
+       * `onProgress` would take the whole run down with it — no final flush, no released slot — and
+       * destroying an hour of fetching to record it is exactly backwards. A field it could not write
+       * is a blank cell; nothing more.
        */
-      if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
-      tracker?.endSegment(nowIso(), endReason);
-    });
-    // Given up here rather than at the end: what follows is the tidy and the summary, neither of
-    // which is a reason to refuse a run somebody starts in the meantime.
-    endPull(session);
-    // Marked only now: a run that was stopped half way has not refreshed those levels.
-    if (
-      dueLevelsRef.current.length > 0 &&
-      progressRef.current &&
-      isPullComplete(progressRef.current)
-    ) {
-      onRefreshLog(markRefreshed(refreshLog, dueLevelsRef.current, new Date()));
-    }
-    dueLevelsRef.current = [];
+      const tracker = session.tracker;
+      const track = (write: () => void): void => {
+        try {
+          write();
+        } catch {
+          /* never at the run's expense */
+        }
+      };
+      const runFrom = msNow();
+      track(() => {
+        tracker?.beginSegment(session.startedAt, ids);
+        tracker?.config({
+          concurrency: CONCURRENCY,
+          batchSize: BATCH_SIZE,
+          saveEvery: SAVE_EVERY,
+        });
+        tracker?.eta(estimatedMinutes(ids.length));
+        tracker?.paste({
+          lines: text ? text.split(/\r?\n/).length : 0,
+          parsed: parsed.entries.length,
+          skipped: parsed.skipped.length,
+          skippedSamples: parsed.skipped,
+          tooYoung: parsed.tooYoung + parsed.notBaseball,
+          alreadyHere: split.seen,
+          asked: ids.length,
+        });
+      });
 
-    /*
-     * Now that every schedule in this run is in: name the stand-ins from the other side's schedule,
-     * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
-     * one game. A whole run is the first point at which both halves of each are certainly present.
-     */
-    const outcome = await tidyInWorker(poolRef.current);
-    /*
-     * Refused only if something else claimed the pool in the moment between this run giving it up
-     * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
-     * pool still reads as untidied and the next time the app opens on it, it is tidied then.
-     */
-    const tidy: PoolTidy | null = outcome ? { ...outcome.tidy, state: outcome.state } : null;
-    if (tidy) {
-      // Stamped before the save lands, so the page does not read the tidied pool as untidied.
-      saveTidyStamp(poolSignature(tidy.state));
+      /*
+       * An hour against an eleven-minute estimate has two explanations that look identical from the
+       * inside — GameChanger was slow, or the tab was in the background and the browser throttled
+       * it. Nothing else recorded can tell them apart, and this is six lines.
+       */
+      let hiddenFrom = document.visibilityState === "hidden" ? msNow() : 0;
+      onVisibility = () => {
+        if (document.visibilityState === "hidden") {
+          hiddenFrom = msNow();
+          return;
+        }
+        if (hiddenFrom === 0) return;
+        const spell = msNow() - hiddenFrom;
+        hiddenFrom = 0;
+        track(() => tracker?.hidden(spell));
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+
+      /*
+       * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
+       * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
+       * teams by far the longest part of a pull.
+       */
+      const importer = createGcImporter(poolRef.current);
+      progressRef.current = progress;
+      outcomesRef.current = [];
+      /**
+       * What the list claimed about each id, beside what GameChanger returned for it, so the report
+       * can say which ids do not look like the team that was asked for. Only ids the list described
+       * are kept; a bare pasted id claims nothing to check.
+       */
+      const claimed = new Map(parsed.entries.map((entry) => [entry.teamId, entry]));
+      const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
+      setStage("pulling");
+      setResult(null);
+      setLive(null);
+      syncStats();
+
+      // Settled but not yet written. The cursor follows the save, never leads it.
+      let unsaved: string[] = [];
+      /** Saves so far, so a row can say which one kept it — and where the saving stopped. */
+      let flushSeq = 0;
+      /** How the run came to an end, settled by whatever ends it and read once at the bottom. */
+      let endReason: PullEndReason = "finished";
+      // Flushes run one at a time and in order; a batch is never overtaken by the next.
+      let flushing: Promise<void> = Promise.resolve();
+
+      /**
+       * Writes what has been folded in, then advances the cursor — in that order, and only if the
+       * write actually reached the store.
+       *
+       * Waiting matters because a save can only be *accepted* synchronously: the pool is written to
+       * IndexedDB behind the caller, so a cursor that trusted the acknowledgement would mark teams
+       * settled that a closed tab then loses, and the resume would skip them for good.
+       */
+      const flush = (): Promise<void> => {
+        if (unsaved.length === 0) return flushing;
+        const batch = unsaved;
+        const failures = new Map(pendingFailures);
+        unsaved = [];
+        pendingFailures.clear();
+
+        flushSeq += 1;
+        const flushNumber = flushSeq;
+
+        flushing = flushing.then(async () => {
+          const from = msNow();
+          /*
+           * A refused save stops the run, rather than being noted and fetched past.
+           *
+           * On localStorage this is the only signal there is: writeValue returns whether the value
+           * actually landed, while flushPoolWrites can only say whether the pool is usable at all,
+           * so a quota refusal reaches here and nowhere else. Carrying on meant hours of fetching
+           * that saved nothing, with the cursor never advancing and the progress bar walking
+           * backwards 500 at a time on every flush.
+           */
+          const sample = (ok: boolean) =>
+            track(() => {
+              tracker?.flushed(
+                {
+                  flush: flushNumber,
+                  second: Math.round((msNow() - runFrom) / 1000),
+                  teams: batch.length,
+                  settled: progressRef.current?.settled.length ?? 0,
+                  poolTeams: poolRef.current.teams.length,
+                  poolGames: poolRef.current.games.length,
+                  poolPages: poolRef.current.ageGroups.length,
+                  ms: msNow() - from,
+                  ok,
+                },
+                batch
+              );
+              // Written beside the pool rather than inside it, so a record that will not fit can
+              // never be the thing that stops the run it is recording.
+              const current = tracker?.log();
+              if (current) {
+                if (!savePullLog(current)) tracker?.unpersisted();
+                setLive(
+                  liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
+                );
+              }
+            });
+
+          if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
+            sample(false);
+            endReason = "save-refused";
+            abortRef.current?.abort();
+            return;
+          }
+          if (!(await flushPoolWrites())) {
+            showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
+            sample(false);
+            endReason = "save-refused";
+            abortRef.current?.abort();
+            return;
+          }
+          const at = nowIso();
+          batch.forEach((teamId) => {
+            progressRef.current = settleTeam(
+              progressRef.current ?? progress,
+              teamId,
+              at,
+              failures.get(teamId)
+            );
+          });
+          if (progressRef.current) onSaveProgress(progressRef.current);
+          sample(true);
+        });
+        return flushing;
+      };
+
+      const pendingFailures = new Map<
+        string,
+        { reason: GcPullProgress["failures"][number]["reason"]; message: string }
+      >();
+
+      await fetchGcTeams(ids, {
+        concurrency: CONCURRENCY,
+        signal: controller.signal,
+        onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
+        onBlocked: () => track(() => tracker?.blocked()),
+        onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
+        onRefused: (refusals) =>
+          track(() => {
+            endReason = "gave-up";
+            tracker?.gaveUp(refusals, Math.round((msNow() - runFrom) / 1000));
+          }),
+        onProgress: ({ teamId, result, attempts, firstFailure }) => {
+          track(() =>
+            tracker?.answered({
+              teamId,
+              result,
+              attempts,
+              ...(firstFailure ? { firstFailure } : {}),
+              ...(claimed.get(teamId)?.ageLevel === undefined
+                ? {}
+                : { listAge: claimed.get(teamId)?.ageLevel }),
+            })
+          );
+          if (result.ok) {
+            const entry = claimed.get(teamId);
+            /*
+             * The staff and the roster size come from the user's own list, not from GameChanger —
+             * its public API returns neither. Attached here, where both halves are in hand, so the
+             * link the import records carries them.
+             */
+            const listed =
+              entry && (entry.staff?.length || entry.playerCount !== undefined)
+                ? {
+                    ...(entry.staff?.length ? { staff: entry.staff } : {}),
+                    ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+                  }
+                : undefined;
+            const schedule = listed ? { ...result.schedule, listed } : result.schedule;
+            const outcome = importer.add(schedule);
+            outcomesRef.current.push(outcome);
+            track(() => tracker?.imported(outcome));
+            poolRef.current = importer.state;
+            if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
+          } else {
+            pendingFailures.set(teamId, { reason: result.reason, message: result.message });
+          }
+          unsaved.push(teamId);
+          if (unsaved.length >= SAVE_EVERY) void flush();
+          // The cursor only advances on a flush, so the bar counts what is settled plus what is
+          // fetched and waiting to be written — otherwise it would sit still between saves.
+          const settled = progressRef.current?.settled.length ?? 0;
+          const total = progressRef.current?.ids.length ?? ids.length;
+          setStats({
+            done: Math.min(settled + unsaved.length, total),
+            total,
+            failed: (progressRef.current?.failures.length ?? 0) + pendingFailures.size,
+            fraction: total === 0 ? 0 : Math.min(settled + unsaved.length, total) / total,
+          });
+        },
+      });
+
+      await flush();
+      abortRef.current = null;
+      if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
+      track(() => {
+        // A spell that is still running when the pull ends is still time the tab was hidden.
+        if (hiddenFrom !== 0) tracker?.hidden(msNow() - hiddenFrom);
+        tracker?.fetchEnded(nowIso());
+        /*
+         * Stopped is worked out here rather than recorded when the button was pressed, because the
+         * same abort is how a refused save ends a run — and those are very different facts about an
+         * hour that produced nothing.
+         */
+        if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
+        tracker?.endSegment(nowIso(), endReason);
+      });
+      // Given up here rather than at the end: what follows is the tidy and the summary, neither of
+      // which is a reason to refuse a run somebody starts in the meantime.
+      giveUpSlot();
+      // Marked only now: a run that was stopped half way has not refreshed those levels.
       if (
-        tidy.named +
-          tidy.folded +
-          tidy.paired +
-          tidy.collapsed +
-          tidy.pruned +
-          tidy.reclaimed +
-          tidy.refiled +
-          tidy.releveled >
-        0
+        dueLevelsRef.current.length > 0 &&
+        progressRef.current &&
+        isPullComplete(progressRef.current)
       ) {
-        poolRef.current = tidy.state;
-        if (persist()) await flushPoolWrites();
+        onRefreshLog(markRefreshed(refreshLog, dueLevelsRef.current, new Date()));
       }
-    }
+      dueLevelsRef.current = [];
 
-    /*
-     * Teams nobody could age go on the list; teams that were filed come off it. Done for every
-     * run, not just the catch-up one, because any run can answer the question: a team pulled for
-     * the first time today may have no age, and a 9U opponent pulled next week may be the third
-     * one whose name settles it.
-     */
-    const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
-    setAgeless(nextAgeless);
-    saveAgeUnknown(nextAgeless);
+      /*
+       * Now that every schedule in this run is in: name the stand-ins from the other side's schedule,
+       * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
+       * one game. A whole run is the first point at which both halves of each are certainly present.
+       */
+      const outcome = await tidyInWorker(poolRef.current);
+      /*
+       * Refused only if something else claimed the pool in the moment between this run giving it up
+       * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
+       * pool still reads as untidied and the next time the app opens on it, it is tidied then.
+       */
+      const tidy: PoolTidy | null = outcome ? { ...outcome.tidy, state: outcome.state } : null;
+      if (tidy) {
+        // Stamped before the save lands, so the page does not read the tidied pool as untidied.
+        saveTidyStamp(poolSignature(tidy.state));
+        if (
+          tidy.named +
+            tidy.folded +
+            tidy.paired +
+            tidy.collapsed +
+            tidy.pruned +
+            tidy.reclaimed +
+            tidy.refiled +
+            tidy.releveled >
+          0
+        ) {
+          poolRef.current = tidy.state;
+          if (persist()) await flushPoolWrites();
+        }
+      }
 
-    track(() => {
-      // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
-      // into the record would put a second copy of every game in storage.
-      if (outcome) tracker?.tidied(outcome.tidy);
-      tracker?.finish(nowIso(), endReason);
-      if (tracker && !savePullLog(tracker.log())) tracker.unpersisted();
-    });
+      /*
+       * Teams nobody could age go on the list; teams that were filed come off it. Done for every
+       * run, not just the catch-up one, because any run can answer the question: a team pulled for
+       * the first time today may have no age, and a 9U opponent pulled next week may be the third
+       * one whose name settles it.
+       */
+      const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
+      setAgeless(nextAgeless);
+      saveAgeUnknown(nextAgeless);
 
-    const finished = progressRef.current;
-    setResult({
-      summary: [...summarizeGcImport(outcomesRef.current), ...(tidy ? describeTidy(tidy) : [])],
-      problems: collectGcImportProblems(
-        finished?.failures ?? [],
-        outcomesRef.current,
-        new Map(
-          parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : []))
+      track(() => {
+        // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
+        // into the record would put a second copy of every game in storage.
+        if (outcome) tracker?.tidied(outcome.tidy);
+        tracker?.finish(nowIso(), endReason);
+        if (tracker && !savePullLog(tracker.log())) tracker.unpersisted();
+      });
+
+      const finished = progressRef.current;
+      setResult({
+        summary: [...summarizeGcImport(outcomesRef.current), ...(tidy ? describeTidy(tidy) : [])],
+        problems: collectGcImportProblems(
+          finished?.failures ?? [],
+          outcomesRef.current,
+          new Map(
+            parsed.entries.flatMap((entry) => (entry.name ? [[entry.teamId, entry.name]] : []))
+          ),
+          pulledRef
         ),
-        pulledRef
-      ),
-      canRetry: finished ? retryableIds(finished).length > 0 : false,
-    });
-    setPairings(proposeSeasonPairings(poolRef.current.teams, poolRef.current.games));
-    setApproved(new Set());
-    setOpenPair(null);
-    setStage("review");
-    syncStats();
+        canRetry: finished ? retryableIds(finished).length > 0 : false,
+      });
+      setPairings(proposeSeasonPairings(poolRef.current.teams, poolRef.current.games));
+      setApproved(new Set());
+      setOpenPair(null);
+      setStage("review");
+      syncStats();
+    } finally {
+      giveUpSlot();
+      if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
+    }
   };
 
   /**
@@ -853,6 +888,19 @@ export function GameChangerImportPanel({
     );
   };
 
+  /**
+   * Takes the pool back from whatever holds it.
+   *
+   * Only offered for a tidy: a pull is stopped through its own session so it can shut down
+   * cleanly, but a tidy has no cursor to keep and re-runs by itself the next time the app opens on
+   * a pool it does not recognise — so there is nothing to lose by cutting it short, and a person
+   * who wants to start an hour of fetching should not have to wait on housekeeping.
+   */
+  const releasePool = () => {
+    forceReleasePool();
+    showToast("Stopped tidying. The pool will be tidied again after the pull.", { tone: "info" });
+  };
+
   const stop = () => {
     // Through the session, so a panel that has just opened onto somebody else's run can stop it.
     stopLivePull();
@@ -919,19 +967,35 @@ export function GameChangerImportPanel({
         </button>
       </div>
 
-      {stage === "picking" && pullLive && (
+      {stage === "picking" && poolBusy && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
           <p className="text-sm font-bold text-slate-950 dark:text-white">
-            A pull is already running.
+            {pullLive ? "A pull is already running." : "The pool is being tidied."}
           </p>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-            It kept going when this panel was closed. Starting another would have the two of them
-            saving the pool over each other, so this one waits. The counter below is the last
-            position saved, which advances every {SAVE_EVERY} teams.
+            {pullLive ? (
+              <>
+                It kept going when this panel was closed. Starting another would have the two of
+                them saving the pool over each other, so this one waits. The counter below is the
+                last position saved, which advances every {SAVE_EVERY} teams.
+              </>
+            ) : (
+              <>
+                Folding the pool and settling its stand-ins. It writes the whole pool when it
+                finishes, so a pull started now would be saved over — this one waits. On a large
+                pool it takes a minute or two, and it runs again by itself if it is interrupted.
+              </>
+            )}
           </p>
-          <button type="button" onClick={stop} className={`${button.ghost} mt-2`}>
-            Stop the running pull
-          </button>
+          {pullLive ? (
+            <button type="button" onClick={stop} className={`${button.ghost} mt-2`}>
+              Stop the running pull
+            </button>
+          ) : (
+            <button type="button" onClick={releasePool} className={`${button.ghost} mt-2`}>
+              Stop waiting and let me pull
+            </button>
+          )}
         </div>
       )}
       {stage === "picking" && (
