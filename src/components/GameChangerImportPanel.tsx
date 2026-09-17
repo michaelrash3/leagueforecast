@@ -1,7 +1,15 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
-import { beginPull, endPull, isPullLive, stopLivePull, watchPull } from "../lib/pullSession";
+import {
+  beginPull,
+  endPull,
+  isPullLive,
+  lastPullLog,
+  livePullTracker,
+  stopLivePull,
+  watchPull,
+} from "../lib/pullSession";
 import {
   comparePairing,
   createGcImporter,
@@ -45,7 +53,20 @@ import {
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
-import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
+import {
+  flushPoolWrites,
+  loadPullLog,
+  savePullLog,
+  saveTidyStamp,
+} from "../lib/teamRankingsStorage";
+import {
+  liveSummary,
+  pullSummaryCsv,
+  pullTeamsCsv,
+  type PullEndReason,
+  type PullLiveSummary,
+  type PullRunLog,
+} from "../lib/pullTracker";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
@@ -125,16 +146,40 @@ Team Name,Team ID,Age Group,Season,City,State
 
 const nowIso = () => new Date().toISOString();
 
-/** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
-const downloadProblems = (problems: GcImportProblem[]) => {
-  const blob = new Blob([gcImportProblemsCsv(problems)], { type: "text/csv;charset=utf-8;" });
+/**
+ * The clock, behind a function.
+ *
+ * Every timing the tracker keeps is a difference between two of these. Read through a helper
+ * rather than called in place because the compiler cannot tell a call made while a run is going
+ * from one made during a render, and reads the second as a component that will not settle.
+ */
+const msNow = () => Date.now();
+
+/**
+ * Saves text as a CSV.
+ *
+ * The byte order mark is not decoration. These files are opened in Excel and mailed on, and
+ * without it Excel reads them in the system codepage and mangles every accented and apostrophed
+ * team name — which is most of what makes the rows readable, and all of the evidence about what a
+ * club calls itself. A twelve-megabyte file nobody can read does not get downloaded twice.
+ */
+const downloadCsv = (name: string, body: string) => {
+  const blob = new Blob(["\ufeff", body], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "gamechanger-not-imported.csv";
+  anchor.download = name;
   anchor.click();
   URL.revokeObjectURL(url);
 };
+
+/** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
+const downloadProblems = (problems: GcImportProblem[]) => {
+  downloadCsv("gamechanger-not-imported.csv", gcImportProblemsCsv(problems));
+};
+
+/** Today, as "2026-09-17", so two runs' files do not overwrite each other. */
+const fileDay = (): string => new Date().toISOString().slice(0, 10);
 
 /** How many rows of the list are drawn; the rest are in the file the button writes. */
 const PROBLEMS_SHOWN = 200;
@@ -173,6 +218,14 @@ export function GameChangerImportPanel({
   } | null>(null);
   /** Counts for the bar. Numbers rather than the cursor itself, so a redraw copies almost nothing. */
   const [stats, setStats] = useState<GcPullView | null>(null);
+  /**
+   * The handful of numbers worth watching while it runs.
+   *
+   * Refreshed on each save rather than on each team: the bar already redraws fifty thousand times
+   * and a second piece of state alongside it would double the only expensive thing in the loop.
+   * Once every five hundred teams is about once a minute, which is the rate a person reads at.
+   */
+  const [live, setLive] = useState<PullLiveSummary | null>(null);
   /** What the run came to, worked out once when it finishes rather than on every render. */
   const [result, setResult] = useState<{
     summary: string[];
@@ -319,6 +372,60 @@ export function GameChangerImportPanel({
     const controller = session.controller;
     abortRef.current = controller;
     /*
+     * The record of this run, which outlives the panel with the session that holds it.
+     *
+     * Wrapped rather than called directly, everywhere it is used. A tracker that throws inside
+     * `onProgress` would take the whole run down with it — no final flush, no released slot — and
+     * destroying an hour of fetching to record it is exactly backwards. A field it could not write
+     * is a blank cell; nothing more.
+     */
+    const tracker = session.tracker;
+    const track = (write: () => void): void => {
+      try {
+        write();
+      } catch {
+        /* never at the run's expense */
+      }
+    };
+    const runFrom = msNow();
+    track(() => {
+      tracker?.beginSegment(session.startedAt, ids);
+      tracker?.config({
+        concurrency: CONCURRENCY,
+        batchSize: BATCH_SIZE,
+        saveEvery: SAVE_EVERY,
+      });
+      tracker?.eta(estimatedMinutes(ids.length));
+      tracker?.paste({
+        lines: text ? text.split(/\r?\n/).length : 0,
+        parsed: parsed.entries.length,
+        skipped: parsed.skipped.length,
+        skippedSamples: parsed.skipped,
+        tooYoung: parsed.tooYoung,
+        alreadyHere: split.seen,
+        asked: ids.length,
+      });
+    });
+
+    /*
+     * An hour against an eleven-minute estimate has two explanations that look identical from the
+     * inside — GameChanger was slow, or the tab was in the background and the browser throttled
+     * it. Nothing else recorded can tell them apart, and this is six lines.
+     */
+    let hiddenFrom = document.visibilityState === "hidden" ? msNow() : 0;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenFrom = msNow();
+        return;
+      }
+      if (hiddenFrom === 0) return;
+      const spell = msNow() - hiddenFrom;
+      hiddenFrom = 0;
+      track(() => tracker?.hidden(spell));
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    /*
      * One fold held open for the whole run. Folding each schedule on its own rebuilt an index of
      * the pool per team, over a pool growing underneath it — quadratic, and on a few thousand
      * teams by far the longest part of a pull.
@@ -335,10 +442,15 @@ export function GameChangerImportPanel({
     const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
     setStage("pulling");
     setResult(null);
+    setLive(null);
     syncStats();
 
     // Settled but not yet written. The cursor follows the save, never leads it.
     let unsaved: string[] = [];
+    /** Saves so far, so a row can say which one kept it — and where the saving stopped. */
+    let flushSeq = 0;
+    /** How the run came to an end, settled by whatever ends it and read once at the bottom. */
+    let endReason: PullEndReason = "finished";
     // Flushes run one at a time and in order; a batch is never overtaken by the next.
     let flushing: Promise<void> = Promise.resolve();
 
@@ -357,7 +469,11 @@ export function GameChangerImportPanel({
       unsaved = [];
       pendingFailures.clear();
 
+      flushSeq += 1;
+      const flushNumber = flushSeq;
+
       flushing = flushing.then(async () => {
+        const from = msNow();
         /*
          * A refused save stops the run, rather than being noted and fetched past.
          *
@@ -367,12 +483,43 @@ export function GameChangerImportPanel({
          * that saved nothing, with the cursor never advancing and the progress bar walking
          * backwards 500 at a time on every flush.
          */
+        const sample = (ok: boolean) =>
+          track(() => {
+            tracker?.flushed(
+              {
+                flush: flushNumber,
+                second: Math.round((msNow() - runFrom) / 1000),
+                teams: batch.length,
+                settled: progressRef.current?.settled.length ?? 0,
+                poolTeams: poolRef.current.teams.length,
+                poolGames: poolRef.current.games.length,
+                poolPages: poolRef.current.ageGroups.length,
+                ms: msNow() - from,
+                ok,
+              },
+              batch
+            );
+            // Written beside the pool rather than inside it, so a record that will not fit can
+            // never be the thing that stops the run it is recording.
+            const current = tracker?.log();
+            if (current) {
+              if (!savePullLog(current)) tracker?.unpersisted();
+              setLive(
+                liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
+              );
+            }
+          });
+
         if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
+          sample(false);
+          endReason = "save-refused";
           abortRef.current?.abort();
           return;
         }
         if (!(await flushPoolWrites())) {
           showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
+          sample(false);
+          endReason = "save-refused";
           abortRef.current?.abort();
           return;
         }
@@ -386,6 +533,7 @@ export function GameChangerImportPanel({
           );
         });
         if (progressRef.current) onSaveProgress(progressRef.current);
+        sample(true);
       });
       return flushing;
     };
@@ -398,7 +546,26 @@ export function GameChangerImportPanel({
     await fetchGcTeams(ids, {
       concurrency: CONCURRENCY,
       signal: controller.signal,
-      onProgress: ({ teamId, result }) => {
+      onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
+      onBlocked: () => track(() => tracker?.blocked()),
+      onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
+      onRefused: (refusals) =>
+        track(() => {
+          endReason = "gave-up";
+          tracker?.gaveUp(refusals, Math.round((msNow() - runFrom) / 1000));
+        }),
+      onProgress: ({ teamId, result, attempts, firstFailure }) => {
+        track(() =>
+          tracker?.answered({
+            teamId,
+            result,
+            attempts,
+            ...(firstFailure ? { firstFailure } : {}),
+            ...(claimed.get(teamId)?.ageLevel === undefined
+              ? {}
+              : { listAge: claimed.get(teamId)?.ageLevel }),
+          })
+        );
         if (result.ok) {
           const entry = claimed.get(teamId);
           /*
@@ -414,7 +581,9 @@ export function GameChangerImportPanel({
                 }
               : undefined;
           const schedule = listed ? { ...result.schedule, listed } : result.schedule;
-          outcomesRef.current.push(importer.add(schedule));
+          const outcome = importer.add(schedule);
+          outcomesRef.current.push(outcome);
+          track(() => tracker?.imported(outcome));
           poolRef.current = importer.state;
           if (entry) pulledRef.set(teamId, { entry, profile: result.schedule.profile });
         } else {
@@ -437,6 +606,19 @@ export function GameChangerImportPanel({
 
     await flush();
     abortRef.current = null;
+    document.removeEventListener("visibilitychange", onVisibility);
+    track(() => {
+      // A spell that is still running when the pull ends is still time the tab was hidden.
+      if (hiddenFrom !== 0) tracker?.hidden(msNow() - hiddenFrom);
+      tracker?.fetchEnded(nowIso());
+      /*
+       * Stopped is worked out here rather than recorded when the button was pressed, because the
+       * same abort is how a refused save ends a run — and those are very different facts about an
+       * hour that produced nothing.
+       */
+      if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
+      tracker?.endSegment(nowIso(), endReason);
+    });
     // Given up here rather than at the end: what follows is the tidy and the summary, neither of
     // which is a reason to refuse a run somebody starts in the meantime.
     endPull(session);
@@ -479,6 +661,14 @@ export function GameChangerImportPanel({
         if (persist()) await flushPoolWrites();
       }
     }
+
+    track(() => {
+      // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
+      // into the record would put a second copy of every game in storage.
+      if (outcome) tracker?.tidied(outcome.tidy);
+      tracker?.finish(nowIso(), endReason);
+      if (tracker && !savePullLog(tracker.log())) tracker.unpersisted();
+    });
 
     const finished = progressRef.current;
     setResult({
@@ -581,6 +771,41 @@ export function GameChangerImportPanel({
     const next = retryFailures(current, nowIso());
     onSaveProgress(next);
     void run(remainingIds(next), next);
+  };
+
+  /**
+   * The run's own record, live or the last one finished, falling back to what storage kept.
+   *
+   * Three sources because the record has to be downloadable in all three situations: while the run
+   * is going, after it has ended in this panel, and after a reload that lost every component but
+   * not the file.
+   */
+  const runLog = (): PullRunLog | null =>
+    livePullTracker()?.log() ?? lastPullLog() ?? loadPullLog();
+  /*
+   * Read again when the button is pressed rather than used from the render that drew it. A run
+   * still going is writing to this the whole time, and a file built from the copy that happened to
+   * be in hand when the button was drawn would be missing everything since.
+   */
+  const tracked = runLog();
+  const trackedIds = tracked?.ids.length ?? 0;
+
+  const downloadRunSummary = () => {
+    const log = runLog();
+    if (!log) return;
+    downloadCsv(
+      `gamechanger-run-${fileDay()}-summary.csv`,
+      pullSummaryCsv(log, progressRef.current?.settled ?? [])
+    );
+  };
+
+  const downloadRunTeams = () => {
+    const log = runLog();
+    if (!log) return;
+    downloadCsv(
+      `gamechanger-run-${fileDay()}-teams.csv`,
+      pullTeamsCsv(log, progressRef.current?.settled ?? [])
+    );
   };
 
   const stop = () => {
@@ -888,6 +1113,40 @@ export function GameChangerImportPanel({
             Saved every {SAVE_EVERY} teams. You can stop, close this, or leave the tab — it picks up
             where it left off.
           </p>
+
+          {live && (
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Teams a minute</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">
+                  {live.perMinute?.toLocaleString() ?? "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Held</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">{live.heldSeconds}s</dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Refused</dt>
+                <dd
+                  className={
+                    live.blocked > 0
+                      ? "font-bold text-amber-700 dark:text-amber-300"
+                      : "font-bold text-slate-950 dark:text-white"
+                  }
+                >
+                  {live.blocked.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="uppercase tracking-wide text-slate-500">Saves</dt>
+                <dd className="font-bold text-slate-950 dark:text-white">
+                  {live.saves}
+                  {live.lastSaveMs === undefined ? "" : ` · ${live.lastSaveMs}ms`}
+                </dd>
+              </div>
+            </dl>
+          )}
           {tidying === "tidy" ? (
             <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
               Everything is in. Tidying now — naming the stand-ins the other side&apos;s schedule
@@ -912,6 +1171,39 @@ export function GameChangerImportPanel({
               <li key={line}>{line}</li>
             ))}
           </ul>
+
+          <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              What this run did
+            </p>
+            <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+              Two files. The summary is the run&apos;s own totals — how long it took, what it was
+              held up by, what came back refused and what it was filed under. The teams file is one
+              row for every id asked for, including the ones it never reached.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={downloadRunSummary}
+                className={`${button.ghost} text-sm`}
+              >
+                Summary
+              </button>
+              <button
+                type="button"
+                onClick={downloadRunTeams}
+                className={`${button.ghost} text-sm`}
+              >
+                Every team ({trackedIds.toLocaleString()} rows)
+              </button>
+            </div>
+            {!tracked?.persisted && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                This record is only in the page. Storage would not take it, so downloading it now is
+                the only way to keep it — a reload loses it.
+              </p>
+            )}
+          </div>
 
           {result.problems.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">

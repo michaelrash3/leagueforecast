@@ -411,12 +411,28 @@ describe("normalizeGcTeamProfile", () => {
       sport: "baseball",
       city: "Georgetown",
       state: "KY",
+      ageLabel: "9U",
       ageLevel: 9,
       season: { season: "fall", year: 2026 },
       record: { win: 11, loss: 1, tie: 0 },
       avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
       playerCount: 10,
     });
+  });
+
+  it("keeps what GameChanger filed the team under, readable or not", () => {
+    /*
+     * The parse is lossy on purpose — a bracket, a graduation year and an empty field all come out
+     * as "no level" — and the label is the only evidence of which. Thousands of teams reach the
+     * pool with no level, and what to do about them depends entirely on this string.
+     */
+    const bracket = normalizeGcTeamProfile({ ...profileFixture, age_group: "11U/12U" });
+    expect(bracket?.ageLabel).toBe("11U/12U");
+    const gradYear = normalizeGcTeamProfile({ ...profileFixture, age_group: "2027", name: "Rays" });
+    expect(gradYear?.ageLabel).toBe("2027");
+    expect(gradYear?.ageLevel).toBeUndefined();
+    const blank = normalizeGcTeamProfile({ ...profileFixture, age_group: "", name: "Rays" });
+    expect(blank?.ageLabel).toBeUndefined();
   });
 
   it("falls back to the age label in the name when age_group is blank", () => {

@@ -21,6 +21,8 @@
  * wanted — it would only undo the first.
  */
 
+import { createPullTracker, type PullRunLog, type PullTracker } from "./pullTracker";
+
 /** What is holding the pool: a pull fetching schedules, or a tidy folding what is already here. */
 export type PoolJobKind = "pull" | "tidy";
 
@@ -30,9 +32,22 @@ export type PullSession = {
   readonly controller: AbortController;
   /** When it claimed the slot, so a panel that reopens can say how long it has been going. */
   readonly startedAt: string;
+  /**
+   * What this run is recording about itself. Held here for the same reason the controller is: the
+   * panel that started the run may be closed long before it ends, and the record has to survive
+   * that — otherwise the one thing the pull was instrumented for is lost with the component.
+   */
+  readonly tracker?: PullTracker;
 };
 
 let live: PullSession | null = null;
+/**
+ * The last pull's record, kept after the slot is given up.
+ *
+ * The tracker itself rather than a snapshot of it: the tidy and the summary happen after the run
+ * releases the slot, and they belong in the same file as the fetching that preceded them.
+ */
+let lastTracker: PullTracker | null = null;
 const listeners = new Set<() => void>();
 
 const announce = (): void => {
@@ -41,7 +56,14 @@ const announce = (): void => {
 
 const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
   if (live) return null;
-  live = { kind, controller: new AbortController(), startedAt };
+  live = {
+    kind,
+    controller: new AbortController(),
+    startedAt,
+    // Only a pull has anything to record; a tidy is one call whose answer is its own report.
+    ...(kind === "pull" ? { tracker: createPullTracker(startedAt) } : {}),
+  };
+  if (live.tracker) lastTracker = live.tracker;
   announce();
   return live;
 };
@@ -75,6 +97,17 @@ export const livePull = (): PullSession | null => live;
  */
 export const beginPull = (startedAt: string): PullSession | null => claim("pull", startedAt);
 
+/**
+ * The most recent pull's record, live or finished.
+ *
+ * Answerable after the run has ended and after the panel that ran it has closed, because that is
+ * when somebody goes looking for the file.
+ */
+export const lastPullLog = (): PullRunLog | null => lastTracker?.log() ?? null;
+
+/** The tracker a running pull is writing to, for anything that wants to add to it. */
+export const livePullTracker = (): PullTracker | null => live?.tracker ?? null;
+
 /** Gives the slot up at the end of a run. */
 export const endPull = (session: PullSession): void => release(session);
 
@@ -104,5 +137,6 @@ export const watchPull = (listener: () => void): (() => void) => {
 /** Test-only: drops any live job so one case cannot leak into the next. */
 export const resetPullSession = (): void => {
   live = null;
+  lastTracker = null;
   listeners.clear();
 };
