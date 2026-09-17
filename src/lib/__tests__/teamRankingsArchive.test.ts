@@ -270,3 +270,43 @@ describe("freezing a whole squad year", () => {
     expect(done.droppedGames).toBe(0);
   });
 });
+
+/*
+ * The year is read the way everything else reads it: through the parse, not off the field. A page
+ * can carry its year in its name and nowhere else, and `rankingPoolGroupIds` counts it in that
+ * year's rating pool regardless. Comparing `group.year` raw left such a page behind while its
+ * siblings were archived — so the page stayed and its ratings changed, which is the one thing the
+ * year-at-a-time rule exists to prevent.
+ */
+describe("a page whose year is only in its name", () => {
+  const named: AgeGroup[] = [
+    { id: "ag_named", name: "2026, 10U", seasonIds: [] },
+    { id: "ag_9_2026b", name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: [] },
+  ];
+
+  it("is offered as an archivable year", () => {
+    expect(archivableYears([named[0]!])).toEqual([2026]);
+  });
+
+  it("is archived with the rest of its year, not left behind", () => {
+    const teams: ScoutTeam[] = [
+      { id: "P-A", name: "Aces" },
+      { id: "P-B", name: "Badgers" },
+    ];
+    const games: ScoutGame[] = [
+      {
+        id: "p1",
+        ageGroupId: "ag_named",
+        teamAId: "P-A",
+        teamBId: "P-B",
+        teamAScore: 6,
+        teamBScore: 2,
+        date: "2026-05-16",
+      },
+    ];
+    const done = archiveSquadYear(2026, teams, games, named, "2026-09-17T00:00:00.000Z");
+    expect(done.state.ageGroups).toEqual([]);
+    expect(done.state.games).toEqual([]);
+    expect(done.droppedGames).toBe(1);
+  });
+});

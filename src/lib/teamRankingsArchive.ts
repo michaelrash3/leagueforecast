@@ -1,4 +1,10 @@
-import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
+import {
+  ageGroupYear,
+  buildTeamRankings,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings";
 import type { ScoutRankingRow } from "./teamRankings";
 
 /**
@@ -159,7 +165,15 @@ export const archiveSquadYear = (
   /** The pages whose games went without a table of their own, and how many each held. */
   unranked: Array<{ name: string; games: number }>;
 } => {
-  const ofYear = ageGroups.filter((group) => group.year === year);
+  /*
+   * `ageGroupYear`, not `group.year`. The stored field can be absent on a page whose name says the
+   * year anyway — "2027, 10U" — and everything that decides what is rated together reads it the
+   * same way, through the parse. Comparing the raw field would leave such a page out of the
+   * archive while `rankingPoolGroupIds` still counted it in the year's pool: the page would stay
+   * behind and its ratings would change, which is the one thing the year-at-a-time rule exists to
+   * prevent.
+   */
+  const ofYear = ageGroups.filter((group) => ageGroupYear(group) === year);
   const seasons: ArchivedSeason[] = [];
   const unranked: Array<{ name: string; games: number }> = [];
   let droppedGames = 0;
@@ -194,9 +208,14 @@ export const archiveSquadYear = (
 
 /** The squad years a pool could freeze, newest first. A year with no page is not one. */
 export const archivableYears = (ageGroups: AgeGroup[]): number[] =>
-  [...new Set(ageGroups.flatMap((group) => (group.year === undefined ? [] : [group.year])))].sort(
-    (a, b) => b - a
-  );
+  [
+    ...new Set(
+      ageGroups.flatMap((group) => {
+        const year = ageGroupYear(group);
+        return year === undefined ? [] : [year];
+      })
+    ),
+  ].sort((a, b) => b - a);
 
 /**
  * The pool with a page's games gone, and the teams no remaining game mentions.
