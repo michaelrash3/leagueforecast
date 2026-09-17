@@ -213,9 +213,14 @@ const ageToken = (part: string): number | undefined => {
 
 /**
  * Strict reading of an age-group value: the whole value must be the label ("9U", "9u", "U9",
- * "11U", or a bare number). Anything else — blank, "Varsity", a sentence — is unknown, so a CSV
- * column or GameChanger's `age_group` never invents a level. Use `ageLevelFromName` to find a
- * label inside a longer name.
+ * "11U", "12UA", or a bare number). Anything else — blank, "Varsity", a sentence — is unknown, so
+ * a CSV column or GameChanger's `age_group` never invents a level. Use `ageLevelFromName` to find
+ * a label inside a longer name.
+ *
+ * The tier letters travel ball hangs off the level — "12UA", "11UAA" — are part of the label here
+ * for the same reason they are in a name: they say which bracket within the age, not a different
+ * age. No row in a 48,035-team export carries one in this column, so this costs nothing today; it
+ * is here so the two readers agree rather than disagreeing by accident.
  *
  * A bracket spanning two ages — "11U/12U", and sometimes written the other way round as
  * "12U/11U" — reads as the OLDER of them, because that is the level the team is competing at: a
@@ -259,7 +264,7 @@ export const ageLevelFromName = (name: string): number | undefined => {
   // the younger number and never see the rest of it. The second age must carry the U, which is
   // what keeps "Mears 1 - 2026" and other stray number pairs out.
   const span =
-    /\b(\d{1,2})\s*[uU]?[A-Da-d]{0,3}\s*[/\-\u2013]\s*(\d{1,2})\s*[uU][A-Da-d]{0,3}/.exec(name);
+    /\b(\d{1,2})\s*(?:[uU][A-Da-d]{0,3})?\s*[/\-\u2013]\s*(\d{1,2})\s*[uU][A-Da-d]{0,3}/.exec(name);
   if (span) {
     const low = Number(span[1]);
     const high = Number(span[2]);

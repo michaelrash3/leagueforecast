@@ -304,6 +304,20 @@ describe("age levels", () => {
     expect(parseGcAgeLevel("10-12")).toBe(12);
   });
 
+  it("reads the tier letters travel ball hangs off a level as part of the label", () => {
+    // "12UA" is a 12U team in the A tier, not a different age. No row in a 48,035-team export
+    // carries one in the age column; this is here so the column and the name agree on purpose
+    // rather than by accident.
+    expect(parseGcAgeLevel("12UA")).toBe(12);
+    expect(parseGcAgeLevel("11uaa")).toBe(11);
+    expect(parseGcAgeLevel("11UA/12UB")).toBe(12);
+    expect(ageLevelFromName("Bandits 12UA Fall")).toBe(12);
+    // Still not a level: the letters have to be a tier, and they have to follow the U.
+    expect(parseGcAgeLevel("12UNDER")).toBeUndefined();
+    expect(parseGcAgeLevel("12ZZ")).toBeUndefined();
+    expect(ageLevelFromName("Team 9abc/10U")).toBe(10);
+  });
+
   it("will not read a pair of numbers that are not both ages as a bracket", () => {
     // Half a label is not a level: one unreadable part makes the whole value unknown, so a season
     // span or a division pair stays undefined rather than becoming a guess.
