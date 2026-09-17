@@ -108,6 +108,8 @@ export type GcTeamResponse =
 export type GcTeamListEntry = {
   teamId: string;
   name?: string;
+  /** A wiffle ball team, which is a different game. Never fetched and never filed. */
+  notBaseball?: true;
   ageLevel?: number;
   season?: GcSeason;
   city?: string;
@@ -161,6 +163,28 @@ export const GC_FETCH_ERROR_REASONS: readonly GcFetchErrorReason[] = [
 
 export const isGcFetchErrorReason = (value: unknown): value is GcFetchErrorReason =>
   typeof value === "string" && (GC_FETCH_ERROR_REASONS as readonly string[]).includes(value);
+
+/**
+ * A name that says the team is not playing baseball.
+ *
+ * Wiffle ball is a different game — a plastic ball, a plastic bat, and scores that say nothing
+ * about how a baseball team would fare. Nine such teams were in a 48,035-team export, filed under
+ * ordinary age groups (10U to 16U) in five states, and nothing in the GameChanger record marks
+ * them apart: it is a baseball platform and reports them as baseball. The name is the only signal
+ * there is.
+ *
+ * Both spellings, because the export carries eight "Wiffle" to one "Whiffle", and the compound
+ * with them — "Wiffleball", "Whiffleball". No baseball word contains the sequence, so matching it
+ * anywhere in the name costs nothing in false positives.
+ *
+ * Here rather than beside the pool's other name rules because both sides need it: the list parse,
+ * which drops these before a request is ever spent on one, and the import, which refuses a
+ * schedule and deletes a team already filed.
+ */
+const NOT_BASEBALL = /wh?iffle/i;
+
+export const isNotBaseball = (name: unknown): boolean =>
+  typeof name === "string" && NOT_BASEBALL.test(name);
 
 export const gcTeamPageUrl = (teamId: string): string => `https://web.gc.com/teams/${teamId}`;
 
@@ -850,6 +874,8 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   const entry: GcTeamListEntry = { teamId };
   const name = nameFromListCell(cellAt(cells, columns.name));
   if (name) entry.name = name;
+  // Marked here rather than filtered, so the panel can say how many were left out and why.
+  if (isNotBaseball(name)) entry.notBaseball = true;
   const season = parseGcSeasonLabel(cellAt(cells, columns.season));
   if (season) entry.season = season;
   const squadYear = season ? squadYearForGcSeason(season) : undefined;

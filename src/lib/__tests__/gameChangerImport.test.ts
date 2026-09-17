@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import profileFixture from "./fixtures/gc-team-profile.json";
-import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
+import {
+  isNotBaseball,
+  normalizeGcGames,
+  normalizeGcTeamProfile,
+  parseGcTeamList,
+  type GcTeamSchedule,
+} from "../gameChangerApi";
 import {
   ageFromOpponentNames,
   createGcImporter,
@@ -2117,15 +2123,15 @@ describe("poolSignature", () => {
     );
     const before = poolSignature(state);
     /*
-     * The leading `r` is the version of the rules for reading a level out of a name. It rides in
-     * the signature so a pool the tidy has already seen reads as one it has not, exactly once,
-     * after a release that changes the reading — otherwise an untouched pool would keep its old
-     * levels for ever, because the stamp would still match and the tidy would never run.
+     * The leading `r` is the version of the rules the tidy applies. It rides in the signature so a
+     * pool the tidy has already seen reads as one it has not, exactly once, after a release that
+     * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
+     * ever, because the stamp would still match and the tidy would never run.
      */
-    expect(before).toBe(`r2|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r3|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r2|0|0|0|");
+    expect(poolSignature(empty)).toBe("r3|0|0|0|");
   });
 });
 
@@ -2949,5 +2955,136 @@ describe("applying several folds at once", () => {
     };
     const settled = mergeSameSquadIds(withSelf);
     expect(settled.state.games.some((game) => game.id === "self")).toBe(false);
+  });
+});
+
+describe("teams that are not playing baseball", () => {
+  /*
+   * Wiffle ball is a different game — a plastic ball, a plastic bat, and scores that say nothing
+   * about how a baseball team would fare. Nine were in a 48,035-team export, filed under ordinary
+   * age groups in five states, and nothing in the GameChanger record marks them apart. The name is
+   * the only signal there is.
+   */
+  const wiffle = (name: string) =>
+    schedule({ id: "gcWIFFLE0000", name, ageLevel: 12 }, [game({ id: "w1" })]);
+
+  it("recognises both spellings, and the compound", () => {
+    // Eight of the nine in the export spell it "Wiffle"; one spells it "Whiffle".
+    expect(isNotBaseball("Wiffle Ball 12U")).toBe(true);
+    expect(isNotBaseball("Philly Whiffleball Bros 11U")).toBe(true);
+    expect(isNotBaseball("Premium Elite Wiffleball 11U")).toBe(true);
+    expect(isNotBaseball("Elite Power Select Wiffle 13u")).toBe(true);
+  });
+
+  it("leaves baseball names alone", () => {
+    expect(isNotBaseball("Lexington Legends 9U")).toBe(false);
+    expect(isNotBaseball("Whitfield Warriors 12U")).toBe(false);
+    expect(isNotBaseball("")).toBe(false);
+    expect(isNotBaseball(undefined)).toBe(false);
+  });
+
+  it("refuses the schedule, and says why in a word", () => {
+    const { state, outcome } = importGcSchedule(wiffle("Wiffle Ball 12U"), empty);
+    expect(outcome.skip).toBe("not-baseball");
+    // The pool is handed back exactly as it came in: no team, no page, no games.
+    expect(state).toBe(empty);
+  });
+
+  it("refuses one whose age group is perfectly good", () => {
+    // Which is the whole problem: filed under 12U, it looks like any other 12U club.
+    const { outcome } = importGcSchedule(wiffle("S.M Oaks Wiffle Ball 10U-C"), empty);
+    expect(outcome.skip).toBe("not-baseball");
+  });
+
+  it("drops a game against one, rather than minting a team for it", () => {
+    /*
+     * The one route by which a wiffle team could arrive without ever being pulled. Keeping the row
+     * would hand the club that played it a result against nobody, on both sides of the ledger.
+     */
+    const { state, outcome } = importGcSchedule(
+      schedule({}, [
+        game({ id: "real", opponentName: "NKY Sluggers 9U" }),
+        game({ id: "plastic", opponentName: "Wiffle Ball Gladatera 12U" }),
+      ]),
+      empty
+    );
+    expect(outcome.gamesAdded).toBe(1);
+    expect(state.games).toHaveLength(1);
+    expect(state.teams.some((team) => isNotBaseball(team.name))).toBe(false);
+  });
+
+  it("deletes one already in the pool, and its results with it", () => {
+    /*
+     * "Leave it out from now on" and "it is not in the pool" are different things. One pulled
+     * before the rule existed sits in the 12U table beside clubs it has nothing to do with.
+     */
+    const page: AgeGroup = {
+      id: "ag_12u_2027",
+      name: "12U 2027",
+      ageLevel: 12,
+      year: 2027,
+      seasonIds: [],
+    };
+    const pool: GcImportState = {
+      ageGroups: [page],
+      teams: [
+        { id: "real", name: "Lexington Legends 12U" },
+        { id: "plastic", name: "Wiffle Ball 12U" },
+        { id: "other", name: "NKY Sluggers 12U" },
+      ],
+      games: [
+        {
+          id: "g1",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "plastic",
+          teamAScore: 9,
+          teamBScore: 1,
+          date: "2026-09-12",
+        },
+        {
+          id: "g2",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "other",
+          teamAScore: 4,
+          teamBScore: 3,
+          date: "2026-09-13",
+        },
+      ],
+    };
+
+    const tidy = tidyPool(pool);
+    expect(tidy.notBaseball).toBe(1);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["other", "real"]);
+    // The 9-1 goes with it: a result against a wiffle team is not a baseball result on either side.
+    expect(tidy.state.games.map((game) => game.id)).toEqual(["g2"]);
+  });
+
+  it("says what it deleted", () => {
+    const page: AgeGroup = { id: "ag", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] };
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [{ id: "plastic", name: "J&J Wiffle Ball club 13U" }],
+      games: [],
+    });
+    expect(describeTidy(tidy)).toContain(
+      "1 wiffle ball team deleted, and their results with them."
+    );
+  });
+
+  it("keeps them out of a pasted list, so no request is spent on one", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        "Lexington Legends 12U,gcAAAAAAAAAA,12U",
+        "Wiffle Ball 12U,gcBBBBBBBBBB,12U",
+      ].join("\n")
+    );
+    expect(list.entries).toHaveLength(2);
+    expect(list.entries.find((entry) => entry.teamId === "gcBBBBBBBBBB")?.notBaseball).toBe(true);
+    expect(
+      list.entries.find((entry) => entry.teamId === "gcAAAAAAAAAA")?.notBaseball
+    ).toBeUndefined();
   });
 });
