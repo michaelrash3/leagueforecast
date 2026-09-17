@@ -3,6 +3,7 @@ import gamesFixture from "./fixtures/gc-team-games.json";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
 import {
+  ageFromOpponentNames,
   createGcImporter,
   mergeSameSquadIds,
   importGcSchedule,
@@ -22,6 +23,8 @@ import {
 import {
   countsTowardRating,
   isScoutGamePlayed,
+  mergeScoutTeams,
+  type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "../teamRankings";
@@ -2113,10 +2116,16 @@ describe("poolSignature", () => {
       empty
     );
     const before = poolSignature(state);
-    expect(before).toBe(`1|2|1|2026-09-15T12:00:00.000Z`);
+    /*
+     * The leading `r` is the version of the rules for reading a level out of a name. It rides in
+     * the signature so a pool the tidy has already seen reads as one it has not, exactly once,
+     * after a release that changes the reading — otherwise an untouched pool would keep its old
+     * levels for ever, because the stamp would still match and the tidy would never run.
+     */
+    expect(before).toBe(`r2|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("0|0|0|");
+    expect(poolSignature(empty)).toBe("r2|0|0|0|");
   });
 });
 
@@ -2607,5 +2616,338 @@ describe("what a refresh keeps", () => {
     expect(linkOf(refreshed)?.staff).toBeUndefined();
     expect(linkOf(refreshed)?.playerCount).toBeUndefined();
     expect(linkOf(refreshed)?.countedAt).toBeUndefined();
+  });
+});
+
+describe("asking the opponents what age a team is", () => {
+  /** A schedule against named opponents, with nothing said about the team's own age. */
+  const against = (...opponents: string[]): GcTeamSchedule =>
+    schedule(
+      { name: "Warriors Spring 2027", ageLevel: undefined },
+      opponents.map((opponentName, at) => game({ id: `g${at}`, opponentName, date: "2026-08-22" }))
+    );
+
+  it("takes the level the opponents agree on", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U", "C 9U").games)).toBe(9);
+  });
+
+  it("takes a clear majority over the odd game played up", () => {
+    // A side that plays its own age four times and up twice is still its own age.
+    expect(
+      ageFromOpponentNames(against("A 10U", "B 10U", "C 10U", "D 10U", "E 11U", "F 11U").games)
+    ).toBe(10);
+  });
+
+  /*
+   * It refuses far more readily than it answers, because the cost is not symmetric: a team left
+   * unrated costs its own ranking, and a team rated at the wrong age corrupts every club it
+   * played.
+   */
+  it("refuses fewer than three opponents who name an age", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U").games)).toBeUndefined();
+    expect(ageFromOpponentNames(against("A 9U", "Bandits", "Sluggers").games)).toBeUndefined();
+  });
+
+  it("refuses a tie, and anything short of a majority", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U", "C 10U", "D 10U").games)).toBeUndefined();
+    // Four different ages, three apiece for two of them: no level is what most of them played.
+    expect(
+      ageFromOpponentNames(
+        against("A 9U", "B 9U", "C 9U", "D 10U", "E 11U", "F 12U", "G 13U").games
+      )
+    ).toBeUndefined();
+  });
+
+  it("counts a club once however many times it was played", () => {
+    // A tournament against the same side four times is one club's opinion, not four.
+    expect(ageFromOpponentNames(against("A 9U", "A 9U", "A 9U", "A 9U").games)).toBeUndefined();
+  });
+
+  it("reads a bracketed opponent as the older age, the same as everywhere else", () => {
+    expect(ageFromOpponentNames(against("A 11U/12U", "B 12U", "C 12U").games)).toBe(12);
+  });
+
+  it("files the team under it, and says that is where the age came from", () => {
+    /*
+     * The case this exists for. "Warriors Spring 2027" is a season and not a graduating class, so
+     * nothing about the team names an age — and every opponent on its schedule is 9U.
+     */
+    const { state, outcome } = importGcSchedule(against("A 9U", "B 9U", "C 9U"), empty);
+    expect(outcome.ageFromOpponents).toBe(9);
+    expect(outcome.issue).toBeUndefined();
+    expect(state.ageGroups[0]?.ageLevel).toBe(9);
+    // The link records it too, so a later pull is not asked the same question again.
+    expect(state.teams[0]?.gcTeams?.[0]?.ageLevel).toBe(9);
+  });
+
+  it("leaves the team alone when it says its own age", () => {
+    // Never second-guesses a stated age: the opponents are a fallback, not an audit.
+    const stated = schedule({ name: "Warriors 14U", ageLevel: 14 }, [
+      game({ id: "g0", opponentName: "A 9U" }),
+      game({ id: "g1", opponentName: "B 9U" }),
+      game({ id: "g2", opponentName: "C 9U" }),
+    ]);
+    const { outcome } = importGcSchedule(stated, empty);
+    expect(outcome.ageFromOpponents).toBeUndefined();
+    expect(outcome.ageGroupName).toContain("14U");
+  });
+
+  it("says so plainly when the opponents could not settle it either", () => {
+    const { outcome } = importGcSchedule(against("Bandits", "Sluggers"), empty);
+    expect(outcome.issue).toMatch(/fewer than 3 of its opponents agree/i);
+  });
+});
+
+describe("an opponent who names a graduating class", () => {
+  /*
+   * Above about 13U most names carry a year rather than an age. Reading nothing from them left the
+   * game with no level for that side, which the rating reads as a game between equals — so a 16U
+   * side playing the class of 2031 got no age adjustment and counted as no cross-age game at all.
+   */
+  it("records the level the class implies, not the page's", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals 2031" }),
+      ]),
+      empty
+    );
+    const [filed] = state.games;
+    expect(filed?.ageLevelA).toBe(16);
+    // The class of 2031 are two years behind the class of 2029: 14U against 16U.
+    expect(filed?.ageLevelB).toBe(14);
+  });
+
+  it("still prefers an age label when the name carries one", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals 15U 2031" }),
+      ]),
+      empty
+    );
+    expect(state.games[0]?.ageLevelB).toBe(15);
+  });
+
+  it("reads nothing from a season, the same as everywhere else", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals Spring 2031" }),
+      ]),
+      empty
+    );
+    // A season beside the year is refused, so the side has no level rather than a guessed one.
+    expect(state.games[0]?.ageLevelB).toBeUndefined();
+  });
+});
+
+describe("re-reading levels the pool already has", () => {
+  /*
+   * Every other tidy pass is about the shape of the pool. This one is about the rules having
+   * changed: a club called "Nationals 2031" that has been sitting here for a month has no level,
+   * and every game against it was recorded as a game between equals — a side with no level falls
+   * back to the level of the page the game is filed under.
+   */
+  const page: AgeGroup = {
+    id: "ag_16u_2029",
+    name: "16U 2029",
+    ageLevel: 16,
+    year: 2029,
+    seasonIds: [],
+  };
+
+  const poolWith = (opponentName: string): GcImportState => ({
+    ageGroups: [page],
+    teams: [
+      { id: "own", name: "Elite 2029" },
+      // Known only from somebody else's schedule: no id of its own, so no pull will ever reach it.
+      { id: "opp", name: opponentName, nameOnly: true },
+    ],
+    games: [
+      {
+        id: "g1",
+        ageGroupId: page.id,
+        teamAId: "own",
+        teamBId: "opp",
+        teamAScore: 5,
+        teamBScore: 1,
+        date: "2028-09-12",
+        ageLevelA: 16,
+      },
+    ],
+  });
+
+  it("works out a level a name said all along", () => {
+    // The page is 16U in squad year 2029, so the class of 2033 are four years behind the seniors:
+    // 14U against 16U, and two years the rating never saw.
+    const tidy = tidyPool(poolWith("Nationals 2033"));
+    expect(tidy.releveled).toBe(1);
+    expect(tidy.state.games[0]?.ageLevelB).toBe(14);
+  });
+
+  it("says nothing when the class works out to the page it is filed on", () => {
+    // The class of 2031 are 16U in squad year 2029, which is what the page already says.
+    const tidy = tidyPool(poolWith("Nationals 2031"));
+    expect(tidy.releveled).toBe(0);
+    expect(tidy.state.games[0]?.ageLevelB).toBeUndefined();
+  });
+
+  it("says nothing when the name agrees with the page it is filed on", () => {
+    // Recording a level equal to the page's changes no answer, and writing it anyway would rewrite
+    // every row in the pool to say nothing new.
+    const tidy = tidyPool(poolWith("Nationals 16U"));
+    expect(tidy.releveled).toBe(0);
+    expect(tidy.state.games[0]?.ageLevelB).toBeUndefined();
+  });
+
+  it("never overwrites a level a pull recorded", () => {
+    const pool = poolWith("Nationals 2033");
+    const first = pool.games[0]!;
+    const withLevel: GcImportState = {
+      ...pool,
+      games: [{ ...first, ageLevelB: 15 }],
+    };
+    // What a pull recorded is what GameChanger said; this is a reading of a name.
+    const tidy = tidyPool(withLevel);
+    expect(tidy.state.games[0]?.ageLevelB).toBe(15);
+  });
+
+  it("leaves a stand-in alone, because a slot names nobody", () => {
+    const pool = poolWith("TBD- 3:00 PM");
+    const stand: GcImportState = {
+      ...pool,
+      teams: [pool.teams[0]!, { id: "opp", name: "TBD- 3:00 PM", placeholder: true as const }],
+    };
+    expect(tidyPool(stand).releveled).toBe(0);
+  });
+
+  it("says what it did", () => {
+    expect(describeTidy(tidyPool(poolWith("Nationals 2033")))).toContain(
+      "1 age level worked out from a name that said one all along."
+    );
+  });
+});
+
+describe("applying several folds at once", () => {
+  /**
+   * Three clubs, each pulled twice under two GameChanger ids, each pair proved one squad by a game
+   * both ids filed. Three folds in one pass, which is what the batched version exists for.
+   */
+  const messy = () => {
+    const fall = { season: "fall" as const, year: 2026 };
+    const spring = { season: "spring" as const, year: 2027 };
+    const sched = (
+      id: string,
+      name: string,
+      opponent: string,
+      season: { season: "fall" | "spring"; year: number }
+    ): GcTeamSchedule => ({
+      profile: { id, name, ageLevel: 11, season },
+      games: [
+        {
+          id: `${id}-1`,
+          date: "2026-09-11",
+          opponentName: opponent,
+          status: "completed" as const,
+          teamScore: 8,
+          opponentScore: 2,
+        },
+      ],
+      fetchedAt: "2026-09-14T12:00:00.000Z",
+    });
+
+    let pool = empty;
+    ["Yeager Davis 11U", "Canes Triad 11U", "Dirtbags 11U"].forEach((name, at) => {
+      const tag = String(at).padStart(2, "0");
+      pool = importGcSchedule(
+        sched(`gcFALL0000${tag}`, name, `Raptors ${at} 11U`, fall),
+        pool
+      ).state;
+      pool = importGcSchedule(
+        sched(`gcSPRG0000${tag}`, name, `Raptors ${at} 11U`, spring),
+        pool
+      ).state;
+    });
+    return pool;
+  };
+
+  /** The old way: one whole walk of the pool per fold. */
+  const oneAtATime = (pool: GcImportState, folds: [string, string][]): GcImportState => {
+    let teams = pool.teams;
+    let games = pool.games;
+    folds.forEach(([fromId, intoId]) => {
+      const result = mergeScoutTeams(fromId, intoId, teams, games, pool.ageGroups);
+      teams = result.teams;
+      games = result.games;
+    });
+    return { ...pool, teams, games };
+  };
+
+  it("leaves the same pool as merging them one at a time", () => {
+    const pool = messy();
+    const settled = mergeSameSquadIds(pool);
+    expect(settled.merged).toBe(3);
+
+    /*
+     * The same three folds applied the old way. The merges are independent — a team folded away is
+     * never also a target — so there is no order in which they have to be applied, and the two
+     * paths have to agree on every team, every link and every game.
+     */
+    const survivors = new Set(settled.state.teams.map((team) => team.id));
+    const folds = pool.teams
+      .filter((team) => team.gcTeams?.length && !survivors.has(team.id))
+      .map((gone): [string, string] => {
+        const into = settled.state.teams.find((team) =>
+          (team.gcTeams ?? []).some((link) =>
+            (gone.gcTeams ?? []).some((mine) => mine.teamId === link.teamId)
+          )
+        );
+        return [gone.id, into!.id];
+      });
+    const sequential = oneAtATime(pool, folds);
+
+    const shape = (state: GcImportState) => ({
+      teams: state.teams
+        .map(
+          (team) =>
+            `${team.name}|${(team.gcTeams ?? [])
+              .map((l) => l.teamId)
+              .sort()
+              .join(",")}`
+        )
+        .sort(),
+      games: state.games.map((game) => [game.teamAId, game.teamBId, game.date].join("|")).sort(),
+    });
+    expect(shape(settled.state)).toEqual(shape(sequential));
+  });
+
+  it("keeps both GameChanger ids on every survivor, and one copy of each game", () => {
+    const settled = mergeSameSquadIds(messy());
+    const clubs = settled.state.teams.filter((team) => team.gcTeams?.length);
+    expect(clubs).toHaveLength(3);
+    clubs.forEach((club) => expect(club.gcTeams).toHaveLength(2));
+    // Three clubs, one 8-2 apiece — not the six rows the two ids filed between them.
+    expect(settled.state.games).toHaveLength(3);
+  });
+
+  it("drops a game both sides of which turned out to be the same club", () => {
+    // Two ids of one squad listed each other: after the fold it is a club playing itself.
+    const pool = messy();
+    const [a, b] = pool.teams.filter((team) => team.gcTeams?.length);
+    const withSelf: GcImportState = {
+      ...pool,
+      games: [
+        ...pool.games,
+        {
+          id: "self",
+          ageGroupId: pool.games[0]!.ageGroupId,
+          teamAId: a!.id,
+          teamBId: b!.id,
+          teamAScore: 3,
+          teamBScore: 3,
+          date: "2026-10-01",
+        },
+      ],
+    };
+    const settled = mergeSameSquadIds(withSelf);
+    expect(settled.state.games.some((game) => game.id === "self")).toBe(false);
   });
 });

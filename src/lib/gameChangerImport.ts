@@ -19,6 +19,7 @@
  */
 
 import {
+  ageFromGradYearInName,
   ageLevelFromName,
   formatGcSeason,
   type GcGame,
@@ -339,6 +340,13 @@ export type GcImportOutcome = {
   opponentsCreated: number;
   opponentsMatchedByAvatar: number;
   opponentsMatchedByName: number;
+  /**
+   * The level this team was filed under because its opponents named one, GameChanger having named
+   * none. Absent whenever the team said its own age, which is nearly always.
+   */
+  ageFromOpponents?: number;
+  /** Which way it could not be filed, for anything deciding what to do about it. */
+  skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
   issue?: string;
 };
@@ -405,6 +413,83 @@ const isNextSeason = (from: GcTeamLink, to: GcTeamLink): boolean => {
 const profileAgeLevel = (profile: GcTeamProfile): number | undefined =>
   profile.ageLevel ?? ageLevelFromName(profile.name);
 
+/**
+ * How many distinct opponents have to name an age before their names settle a team's level.
+ *
+ * Counted per opponent rather than per game, because a tournament against the same club four times
+ * is one club's opinion and not four. Three is where the evidence stops being a coincidence: over
+ * a 48,035-team export 90.4% of names carry a readable age label, so a team with any schedule at
+ * all almost always has three, and three independent names agreeing is not something a mislabelled
+ * squad produces by accident.
+ */
+export const MIN_OPPONENT_AGE_EVIDENCE = 3;
+
+/**
+ * The age level a team's opponents say it is, when they agree.
+ *
+ * Thousands of teams reach the pool with no age at all — GameChanger's field is empty, the name
+ * says nothing, and there is no graduating class to read — and a team with no level is a team
+ * nothing ranks and whose results count for nobody on either side. But a schedule is a list of
+ * clubs that mostly do put their age in their name, and a side plays its own age nearly all of
+ * the time. So the opponents answer the question the team itself would not.
+ *
+ * It refuses far more readily than it answers. Fewer than three opponents naming an age, a tie, or
+ * anything short of a clear majority all come back undefined, because the cost is not symmetric: a
+ * team left unrated costs its own ranking, and a team rated at the wrong age corrupts every club
+ * it played.
+ */
+export const ageFromOpponentNames = (games: readonly GcGame[]): number | undefined => {
+  const seen = new Set<string>();
+  const counts = new Map<number, number>();
+  let readable = 0;
+  games.forEach((game) => {
+    const key = teamNameKey(game.opponentName);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const level = ageLevelFromName(game.opponentName);
+    if (level === undefined) return;
+    readable += 1;
+    counts.set(level, (counts.get(level) ?? 0) + 1);
+  });
+  if (readable < MIN_OPPONENT_AGE_EVIDENCE) return undefined;
+
+  let best: number | undefined;
+  let bestCount = 0;
+  let tied = false;
+  counts.forEach((count, level) => {
+    if (count > bestCount) {
+      best = level;
+      bestCount = count;
+      tied = false;
+      return;
+    }
+    if (count === bestCount) tied = true;
+  });
+  if (best === undefined || tied) return undefined;
+  // A strict majority of the opponents who said anything. Half of them is not an answer.
+  if (bestCount * 2 <= readable) return undefined;
+  return bestCount >= MIN_OPPONENT_AGE_EVIDENCE ? best : undefined;
+};
+
+/**
+ * The schedule with an age filled in from its opponents, when it had none and they agree.
+ *
+ * Done here rather than in the API layer on purpose: `GcTeamProfile` is what GameChanger said
+ * about a team, and this is not. It is the pool's reading of the company a team keeps, and it
+ * belongs to the import that has the schedule in hand.
+ */
+const withOpponentAge = (
+  schedule: GcTeamSchedule
+): { schedule: GcTeamSchedule; inferred?: number } => {
+  if (profileAgeLevel(schedule.profile) !== undefined) return { schedule };
+  const inferred = ageFromOpponentNames(schedule.games);
+  if (inferred === undefined) return { schedule };
+  return {
+    schedule: { ...schedule, profile: { ...schedule.profile, ageLevel: inferred } },
+    inferred,
+  };
+};
+
 /** A game id nobody else will mint, derived from the GameChanger ids it came from. */
 const gcGameId = (gcTeamId: string, gameId: string): string => `gc_${gcTeamId}_${gameId}`;
 
@@ -442,19 +527,44 @@ const resolveAgeGroup = (
   return { ageGroups: [...state.ageGroups, group], group, created: true };
 };
 
-/** Why a schedule was left where it was, in the words the panel shows. */
-const skipReason = (profile: GcTeamProfile): string => {
+/**
+ * Why a schedule was left where it was — a code as well as a sentence.
+ *
+ * The code matters because the four are not the same kind of problem. A team with no age might
+ * have one next week: GameChanger's field gets filled in, a club renames a squad, or its opponents
+ * pull enough schedules to settle it between them. A 6U team never will. So one of these is worth
+ * asking about again every week and the others are not, and telling them apart by reading the
+ * sentence would break the first time somebody reworded it.
+ */
+export type GcSkipReason = "no-age" | "below-min-age" | "above-max-age" | "no-season";
+
+const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: string } => {
   const ageLevel = profileAgeLevel(profile);
   if (ageLevel === undefined) {
-    return "GameChanger gave no age group for this team, and its name does not say one.";
+    return {
+      code: "no-age",
+      message:
+        "GameChanger gave no age group for this team, its name does not say one, and fewer than " +
+        `${MIN_OPPONENT_AGE_EVIDENCE} of its opponents agree on one either.`,
+    };
   }
   if (ageLevel < MIN_AGE_LEVEL) {
-    return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
+    return {
+      code: "below-min-age",
+      message: `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`,
+    };
   }
   if (ageLevel > MAX_AGE_LEVEL) {
-    return `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`;
+    return {
+      code: "above-max-age",
+      message: `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`,
+    };
   }
-  return "GameChanger gave no season for this team, so there is no squad year to file it under.";
+  return {
+    code: "no-season",
+    message:
+      "GameChanger gave no season for this team, so there is no squad year to file it under.",
+  };
 };
 
 /** The link this pull records against a team, so a later pull knows what it already has. */
@@ -1036,10 +1146,16 @@ export const importGcSchedule = (
 };
 
 const importOne = (
-  schedule: GcTeamSchedule,
+  original: GcTeamSchedule,
   state: GcImportState,
   index: ImportIndex
 ): { state: GcImportState; outcome: GcImportOutcome } => {
+  /*
+   * Filled in before anything else looks at the profile, so the page, the link and the games all
+   * agree on one level. A team GameChanger did not file under an age is filed under the one its
+   * opponents keep naming, or under none at all.
+   */
+  const { schedule, inferred } = withOpponentAge(original);
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1057,16 +1173,15 @@ const importOne = (
     opponentsCreated: 0,
     opponentsMatchedByAvatar: 0,
     opponentsMatchedByName: 0,
+    ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
   };
 
   const resolved = resolveAgeGroup(profile, state);
   if (!resolved) {
+    const why = skipReason(profile);
     return {
       state,
-      outcome: {
-        ...base,
-        issue: skipReason(profile),
-      },
+      outcome: { ...base, skip: why.code, issue: why.message },
     };
   }
 
@@ -1122,8 +1237,20 @@ const importOne = (
       else outcome.opponentsMatchedByName += 1;
     }
 
-    // Their level is only ever a guess from the name; ours is what GameChanger said.
-    const theirLevel = ageLevelFromName(game.opponentName);
+    /*
+     * Their level is only ever a guess from the name; ours is what GameChanger said.
+     *
+     * A graduating class counts as one of those guesses. Above about 13U most names carry a year
+     * rather than an age — "Elite 2031" — and reading nothing from them left the game with no
+     * level for that side at all, which the rating reads as a game between equals: a 16U side
+     * playing the class of 2031 was recorded as a same-level game, so no age adjustment was made
+     * and `crossAgeGames` counted it as none. The year is read against the squad year of the page
+     * the game is filed under, which is the season both sides were playing.
+     */
+    const theirYear = ageGroupYear(group);
+    const theirLevel =
+      ageLevelFromName(game.opponentName) ??
+      (theirYear === undefined ? undefined : ageFromGradYearInName(game.opponentName, theirYear));
     const candidate: ScoutGame = {
       id: gcGameId(profile.id, game.id),
       teamAId: own.teamId,
@@ -1850,14 +1977,93 @@ export const mergeSameSquadIds = (
   });
 
   if (foldInto.size === 0) return { state, merged: 0 };
-  let teams = state.teams;
-  let games = state.games;
-  foldInto.forEach((intoId, fromId) => {
-    const result = mergeScoutTeams(fromId, intoId, teams, games, state.ageGroups);
-    teams = result.teams;
-    games = result.games;
+  return { state: applyFolds(foldInto, state), merged: foldInto.size };
+};
+
+/**
+ * Applies every fold in one pass.
+ *
+ * `mergeScoutTeams` walks the whole pool for each merge — every game repointed, every team
+ * filtered, then a collapse over what came out. One at a time that is right and readable, and on a
+ * nationwide pool it is the wrong shape entirely: the cost is the number of folds times the number
+ * of games, and the number of folds is itself a measure of how messy the pool is. Measured at two
+ * hundred thousand games a single fold is about 20ms, so a thousand of them — which a nationwide
+ * pull produces easily — is twenty seconds, per tidy pass, of which there are up to six.
+ *
+ * Here the games are walked once however many folds there are, and the collapse afterwards is one
+ * pass rather than one per fold. The result is the same pool: the merges are independent of each
+ * other, because a team folded away is never also a target (the pass above never picks one that is
+ * already folding), so there is no order in which they have to be applied.
+ */
+const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState): GcImportState => {
+  /**
+   * Where an id ends up. Flat in practice — the pass above never folds into a team that is itself
+   * folding — but followed to a fixed point anyway, with a guard, because a chain arriving here
+   * would otherwise leave half the pool pointing at a team that no longer exists.
+   */
+  const finalOf = (id: string): string => {
+    let at = id;
+    for (let hops = 0; hops < foldInto.size; hops += 1) {
+      const next = foldInto.get(at);
+      if (next === undefined || next === at) return at;
+      at = next;
+    }
+    return at;
+  };
+
+  /** The teams folding into each survivor, in the order the pass decided them. */
+  const sources = new Map<string, ScoutTeam[]>();
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  foldInto.forEach((_intoId, fromId) => {
+    const into = finalOf(fromId);
+    const team = byId.get(fromId);
+    if (!team || into === fromId) return;
+    const bucket = sources.get(into);
+    if (bucket) bucket.push(team);
+    else sources.set(into, [team]);
   });
-  return { state: { ...state, teams, games }, merged: foldInto.size };
+
+  const teams = state.teams.flatMap((team): ScoutTeam[] => {
+    if (foldInto.has(team.id) && finalOf(team.id) !== team.id) return [];
+    const folded = sources.get(team.id);
+    if (!folded || folded.length === 0) return [team];
+
+    // Field by field, in the order the folds were decided — the first source to carry something
+    // the survivor lacks is the one that fills it, which is what merging them one at a time did.
+    let merged = team;
+    const linkedIds = new Set((team.gcTeams ?? []).map((link) => link.teamId));
+    const gcTeams = [...(team.gcTeams ?? [])];
+    folded.forEach((from) => {
+      (from.gcTeams ?? []).forEach((link) => {
+        if (linkedIds.has(link.teamId)) return;
+        linkedIds.add(link.teamId);
+        gcTeams.push(link);
+      });
+      if (!merged.name.trim() && from.name.trim()) merged = { ...merged, name: from.name };
+      if (!merged.state && from.state) merged = { ...merged, state: from.state };
+      if (!merged.city && from.city) merged = { ...merged, city: from.city };
+      // "Our team" is a fact about the club, so it survives whichever half carried it.
+      if (!merged.isMine && from.isMine) merged = { ...merged, isMine: true };
+    });
+    if (gcTeams.length !== (team.gcTeams?.length ?? 0)) merged = { ...merged, gcTeams };
+    return [merged];
+  });
+
+  const repointed: ScoutGame[] = [];
+  state.games.forEach((game) => {
+    const teamAId = finalOf(game.teamAId);
+    const teamBId = finalOf(game.teamBId);
+    // Both sides of the game turned out to be the same club: it was never two teams playing.
+    if (teamAId === teamBId) return;
+    repointed.push(
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId }
+    );
+  });
+
+  // One collapse for every fold rather than one each: the rows a fold made into duplicates are all
+  // in this array now, and the pass is over the whole array either way.
+  const collapsed = collapseSameGames(repointed, state.ageGroups);
+  return { ...state, teams, games: collapsed.games };
 };
 
 /**
@@ -2042,6 +2248,8 @@ export type PoolTidy = {
   reclaimed: number;
   /** Stand-in rows filed onto the one club of that name in the puller's state. */
   refiled: number;
+  /** Levels read out of a name that had one all along, under rules that came later. */
+  releveled: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -2060,8 +2268,90 @@ const TIDY_MAX_PASSES = 6;
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
+/**
+ * Levels worked out for what is already in the pool, under the rules as they now stand.
+ *
+ * Every other pass here is about the shape of the pool. This one is about the rules having
+ * changed: reading a graduating class out of a name is new, and everything pulled before it went
+ * in was filed by the old reading. A club called "Nationals 2031" that has been sitting in the
+ * pool for a month has no level, and every game against it was recorded as a game between equals,
+ * because a side with no level falls back to the level of the page the game is filed under.
+ *
+ * Re-pulling would fix it, but only for the teams that get re-pulled: a club known only from
+ * somebody else's schedule has no id of its own to pull, and nothing in the weekly rotation will
+ * ever reach it. So the pool is re-read where it stands.
+ *
+ * A level is only ever *added*, never overwritten: what a pull recorded is what GameChanger said,
+ * and this is a reading of a name. And a level is only recorded when it says something the page
+ * does not already say — one equal to the page's changes no answer, and writing it anyway would
+ * rewrite every row in the pool to say nothing new.
+ */
+const relevelFromNames = (state: GcImportState): { state: GcImportState; releveled: number } => {
+  const pageYear = new Map<string, number | undefined>();
+  const pageLevel = new Map<string, number | undefined>();
+  state.ageGroups.forEach((group) => {
+    pageYear.set(group.id, ageGroupYear(group));
+    pageLevel.set(group.id, ageGroupLevel(group));
+  });
+
+  const levelFromName = (name: string, year: number | undefined): number | undefined =>
+    ageLevelFromName(name) ?? (year === undefined ? undefined : ageFromGradYearInName(name, year));
+
+  let releveled = 0;
+
+  const teams = state.teams.map((team) => {
+    const links = team.gcTeams;
+    if (!links || links.length === 0) return team;
+    let changed = false;
+    const next = links.map((link) => {
+      if (link.ageLevel !== undefined) return link;
+      const year =
+        pageYear.get(link.ageGroupId) ??
+        (link.seasonYear === undefined
+          ? undefined
+          : squadYearForGcSeason(link.season, link.seasonYear));
+      const level = levelFromName(link.name, year);
+      if (level === undefined) return link;
+      changed = true;
+      releveled += 1;
+      return { ...link, ageLevel: level };
+    });
+    return changed ? { ...team, gcTeams: next } : team;
+  });
+
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  const games = state.games.map((game) => {
+    const year = pageYear.get(game.ageGroupId);
+    const filed = pageLevel.get(game.ageGroupId);
+    const side = (teamId: string, current: number | undefined): number | undefined => {
+      if (current !== undefined) return undefined;
+      const team = byId.get(teamId);
+      // A slot names nobody, so there is no name to read.
+      if (!team || team.placeholder) return undefined;
+      const level = levelFromName(team.name, year);
+      return level === undefined || level === filed ? undefined : level;
+    };
+    const a = side(game.teamAId, game.ageLevelA);
+    const b = side(game.teamBId, game.ageLevelB);
+    if (a === undefined && b === undefined) return game;
+    releveled += (a === undefined ? 0 : 1) + (b === undefined ? 0 : 1);
+    return {
+      ...game,
+      ...(a === undefined ? {} : { ageLevelA: a }),
+      ...(b === undefined ? {} : { ageLevelB: b }),
+    };
+  });
+
+  return releveled === 0
+    ? { state, releveled: 0 }
+    : { state: { ...state, teams, games }, releveled };
+};
+
 const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
-  const season = pruneOutOfSeason(state);
+  // First, because every pass after it compares levels: a side whose level is about to be worked
+  // out should be worked out before anything decides whether two rows mean one game.
+  const levels = relevelFromNames(state);
+  const season = pruneOutOfSeason(levels.state);
   const named = resolveSlotGames(season.state);
   const moved = reclaimMisfiled(named.state);
   const placed = refileStandIns(moved.state);
@@ -2077,6 +2367,7 @@ const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
     pruned: season.pruned,
     reclaimed: moved.reclaimed,
     refiled: placed.refiled,
+    releveled: levels.releveled,
   };
 };
 
@@ -2095,6 +2386,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     pruned: 0,
     reclaimed: 0,
     refiled: 0,
+    releveled: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -2108,6 +2400,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     total.pruned += step.pruned;
     total.reclaimed += step.reclaimed;
     total.refiled += step.refiled;
+    total.releveled += step.releveled;
     const changed =
       step.named +
       step.folded +
@@ -2115,11 +2408,22 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
       step.collapsed +
       step.pruned +
       step.reclaimed +
-      step.refiled;
+      step.refiled +
+      step.releveled;
     if (changed === 0) break;
   }
   return total;
 };
+
+/**
+ * Bumped whenever the rules for reading a level out of a name change.
+ *
+ * It rides in the signature so a pool the tidy has already seen reads as one it has not, exactly
+ * once, after a release that changes the reading. Without it a pool that has not been touched
+ * since would keep its old levels for ever: the stamp would still match, so the tidy would never
+ * run, so the new rules would never be applied to anything already here.
+ */
+const AGE_RULES_VERSION = 2;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -2134,7 +2438,7 @@ export const poolSignature = (state: GcImportState): string => {
       if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
     });
   });
-  return `${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
+  return `r${AGE_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
 };
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
@@ -2160,6 +2464,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.refiled > 0
       ? [
           `${plural(tidy.refiled, "game", "games")} filed onto the one club of that name in the same state.`,
+        ]
+      : []),
+    ...(tidy.releveled > 0
+      ? [
+          `${plural(tidy.releveled, "age level", "age levels")} worked out from a name that said one all along.`,
         ]
       : []),
     ...(tidy.folded > 0

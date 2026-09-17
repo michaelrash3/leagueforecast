@@ -8,8 +8,12 @@ import {
   GC_PUBLIC_API_BASE,
   GC_TEAM_ENDPOINT,
   GC_TEAM_ID_PATTERN,
+  ageFromGradYear,
+  ageFromGradYearInName,
+  ageFromGradYearLabel,
   ageLevelFromName,
   avatarKeyFromUrl,
+  gradYearFromName,
   formatGcSeason,
   gcGamesApiUrl,
   gcProfileApiUrl,
@@ -428,9 +432,10 @@ describe("normalizeGcTeamProfile", () => {
      */
     const bracket = normalizeGcTeamProfile({ ...profileFixture, age_group: "11U/12U" });
     expect(bracket?.ageLabel).toBe("11U/12U");
+    // The fixture's season is Fall 2026, so squad year 2027 — and the class of 2027 are seniors.
     const gradYear = normalizeGcTeamProfile({ ...profileFixture, age_group: "2027", name: "Rays" });
     expect(gradYear?.ageLabel).toBe("2027");
-    expect(gradYear?.ageLevel).toBeUndefined();
+    expect(gradYear?.ageLevel).toBe(18);
     const blank = normalizeGcTeamProfile({ ...profileFixture, age_group: "", name: "Rays" });
     expect(blank?.ageLabel).toBeUndefined();
   });
@@ -754,5 +759,103 @@ describe("a 0-0 score", () => {
     ]);
     expect(game?.teamScore).toBe(0);
     expect(game?.opponentScore).toBe(6);
+  });
+});
+
+describe("reading a graduation year as an age", () => {
+  /*
+   * The class of 2027 are seniors in the 2026-27 season, which this app files as squad year 2027.
+   * Every year further out is a year younger.
+   */
+  it("puts the graduating class at 18U and counts down from there", () => {
+    expect(ageFromGradYear(2027, 2027)).toBe(18);
+    expect(ageFromGradYear(2029, 2027)).toBe(16);
+    expect(ageFromGradYear(2035, 2027)).toBe(10);
+  });
+
+  it("refuses a year that lands on an age nobody plays", () => {
+    // 2024 in the 2027 season would be 21U; 2040 would be 5U.
+    expect(ageFromGradYear(2024, 2027)).toBeUndefined();
+    expect(ageFromGradYear(2040, 2027)).toBeUndefined();
+  });
+
+  it("reads a class two years out or further from a name", () => {
+    expect(gradYearFromName("Midwest Elite 2029", 2027)).toBe(2029);
+    expect(ageFromGradYearInName("Midwest Elite 2029", 2027)).toBe(16);
+    expect(ageFromGradYearInName("Nationals 2030 Black", 2027)).toBe(15);
+  });
+
+  /*
+   * The whole reason for the margin. Measured over a 48,035-team export, a year equal to the
+   * season year is a graduation year 0.2% of the time and one year out 44.8%, so anything nearer
+   * than two years out is a coin toss between the class of 2028 and next spring's squad — and
+   * reading it wrong puts a nine-year-old team at 18U.
+   */
+  it("refuses a year too near the season to tell from one", () => {
+    expect(gradYearFromName("Warriors Spring 2027", 2027)).toBeUndefined();
+    expect(gradYearFromName("Warriors 2027", 2027)).toBeUndefined();
+    expect(gradYearFromName("Warriors 2028", 2027)).toBeUndefined();
+    expect(ageFromGradYearInName("Warriors Spring 2027", 2027)).toBeUndefined();
+  });
+
+  it("refuses a season written beside the year, however far out it is", () => {
+    expect(gradYearFromName("Warriors Spring 2030", 2027)).toBeUndefined();
+    expect(gradYearFromName("Warriors 2030 Fall", 2027)).toBeUndefined();
+  });
+
+  it("is not fooled by a town that shares a season's name", () => {
+    // "Fall River" is a place, and the season word is nowhere near the year.
+    expect(gradYearFromName("Fall River Bandits 2030", 2027)).toBe(2030);
+  });
+
+  it("refuses a span of two years, which is a season and never a class", () => {
+    expect(gradYearFromName("Bandits 2029-2030", 2027)).toBeUndefined();
+    expect(gradYearFromName("Bandits 2029/30", 2027)).toBeUndefined();
+  });
+
+  it("refuses two different years, because there is no telling which is the class", () => {
+    expect(gradYearFromName("Bandits 2029 Showcase 2031", 2027)).toBeUndefined();
+    // The same year twice is still one year.
+    expect(gradYearFromName("2030 Bandits 2030", 2027)).toBe(2030);
+  });
+
+  it("reads a bare year in the age field without the margin", () => {
+    /*
+     * A different question from a name. The age field's whole job is to say what age group a team
+     * is in, and nobody writes a season into it — so a year there is a graduating class, and the
+     * only thing left to check is that it lands on an age that exists.
+     */
+    expect(ageFromGradYearLabel("2027", 2027)).toBe(18);
+    expect(ageFromGradYearLabel("2029", 2027)).toBe(16);
+    expect(ageFromGradYearLabel("9U", 2027)).toBeUndefined();
+    expect(ageFromGradYearLabel("11U/12U", 2027)).toBeUndefined();
+    expect(ageFromGradYearLabel(undefined, 2027)).toBeUndefined();
+  });
+
+  it("prefers a stated age to a graduating class, in either place", () => {
+    // An age label in the age field beats everything; a label in the name beats a class in it.
+    const stated = normalizeGcTeamProfile({
+      ...profileFixture,
+      age_group: "14U",
+      name: "Elite 2031",
+    });
+    expect(stated?.ageLevel).toBe(14);
+    const named = normalizeGcTeamProfile({
+      ...profileFixture,
+      age_group: "",
+      name: "Elite 14U 2031",
+    });
+    expect(named?.ageLevel).toBe(14);
+  });
+
+  it("leaves a team with no season alone, because a class means nothing without one", () => {
+    const noSeason = normalizeGcTeamProfile({
+      ...profileFixture,
+      age_group: "",
+      team_season: null,
+      season: null,
+      name: "Elite 2031",
+    });
+    expect(noSeason?.ageLevel).toBeUndefined();
   });
 });

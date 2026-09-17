@@ -12,6 +12,7 @@
  */
 
 import { ageGroupLevel, ageGroupYear, type AgeGroup, type ScoutTeam } from "./teamRankings";
+import { ageUnknownDue, type AgeUnknownList } from "./ageUnknown";
 
 /** Sunday is 0, as `Date.getDay` has it. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -126,6 +127,17 @@ export type DueRefresh = {
   /** The day's own description, for the prompt. */
   label: string;
   catchUp: boolean;
+  /**
+   * Teams with no age, due to be asked again today.
+   *
+   * They belong on the catch-up day and nowhere else. A team with no level is on no page, so the
+   * per-level rotation above walks straight past it, for ever — and it is not a failure either, so
+   * nothing retries it. The catch-up day is where the week's leftovers go, and a team nobody could
+   * age is a leftover: it goes back through the same route it came in on, every week, until
+   * GameChanger fills its field in, a club renames it, or enough of its opponents are pulled that
+   * their names settle it between them.
+   */
+  agelessIds: string[];
 };
 
 /**
@@ -135,12 +147,22 @@ export type DueRefresh = {
  *
  * The catch-up day brings nothing of its own; the panel points it at what failed instead.
  */
+/**
+ * The most ageless teams asked about in one catch-up day.
+ *
+ * A cap rather than the whole list, because it could be thousands and the catch-up day also has
+ * the week's failures to get through. `ageUnknownDue` hands over the stalest first, so a list
+ * longer than this still comes round instead of the same head of it being asked every week.
+ */
+export const AGELESS_PER_WEEK = 2_000;
+
 export const dueRefresh = (
   now: Date,
   log: RefreshLog,
   ageGroups: AgeGroup[],
   teams: ScoutTeam[],
-  seasonYear?: number
+  seasonYear?: number,
+  ageless: AgeUnknownList = []
 ): DueRefresh => {
   const entry = refreshDayFor(now.getDay() as Weekday);
   const outstanding = entry.ageLevels.filter((level) => !refreshedToday(log, level, now));
@@ -149,12 +171,21 @@ export const dueRefresh = (
     teamIds: gcTeamIdsForLevels(outstanding, ageGroups, teams, seasonYear),
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
+    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_WEEK) : [],
   };
 };
 
 /** A line for the panel: what today is for, and whether it is still to do. */
 export const describeDue = (due: DueRefresh): string => {
-  if (due.catchUp) return `${due.label} is the catch-up day — anything that failed this week.`;
+  if (due.catchUp) {
+    const ageless =
+      due.agelessIds.length > 0
+        ? ` — and ${due.agelessIds.length.toLocaleString()} team${
+            due.agelessIds.length === 1 ? "" : "s"
+          } still waiting on an age`
+        : "";
+    return `${due.label} is the catch-up day — anything that failed this week${ageless}.`;
+  }
   const entry = WEEKLY_ROTATION.find((day) => day.label === due.label);
   const forToday = entry?.ageLevels ?? [];
   if (forToday.length === 0) return `Nothing is scheduled for ${due.label}.`;
@@ -170,6 +201,6 @@ export const describeDue = (due: DueRefresh): string => {
 export const describeRotation = (): string[] =>
   WEEKLY_ROTATION.map((entry) =>
     entry.catchUp
-      ? `${entry.label}: catch up on failures`
+      ? `${entry.label}: catch up on failures, and teams still waiting on an age`
       : `${entry.label}: ${entry.ageLevels.map((level) => `${level}U`).join(", ") || "—"}`
   );
