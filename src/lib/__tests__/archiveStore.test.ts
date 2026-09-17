@@ -4,14 +4,22 @@ import {
   forgetArchivedSeason,
   initTeamRankingsStore,
   loadArchiveIndex,
+  loadAllArchivedSeasons,
   loadArchivedSeason,
   notePoolChangedElsewhere,
+  replaceArchivedSeasons,
   resetTeamRankingsStore,
   saveArchivedSeasons,
   saveScoutTeams,
   type PoolStoreIo,
 } from "../teamRankingsStorage";
 import { ARCHIVE_VERSION, type ArchivedSeason } from "../teamRankingsArchive";
+import {
+  parseTeamRankingsJson,
+  summarizeTeamRankingsBackup,
+  teamRankingsBackupIsEmpty,
+  teamRankingsJson,
+} from "../teamRankingsBackup";
 
 const ARCHIVE_KEY = "league_forecast_scout_archive_v1";
 const ROWS_PREFIX = "league_forecast_scout_archive_rows_v1:";
@@ -203,5 +211,91 @@ describe("keeping an archive where it does not cost anything to have", () => {
   it("reads a damaged index as no archives rather than throwing", () => {
     backing.set(ARCHIVE_KEY, JSON.stringify([{ name: "no id" }, "nope", { id: "arc_1" }]));
     expect(loadArchiveIndex()).toEqual([]);
+  });
+});
+
+/*
+ * A backup that does not carry the archives is not a way back. An archived table cannot be
+ * recomputed from anything — the games it was built from are gone — so it is the one thing in the
+ * pool that only exists where it was written. The reset card offers this file as the way back from
+ * wiping the pool, and without the archives in it that offer was a lie.
+ */
+describe("a backup that carries the archives", () => {
+  it("round-trips them through the JSON file", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    await saveArchivedSeasons([season("9U 2026", 2026), season("10U 2026", 2026, 5)]);
+
+    const backup = {
+      ageGroups: [],
+      teams: [],
+      games: [],
+      archives: await loadAllArchivedSeasons(),
+    };
+    const read = parseTeamRankingsJson(teamRankingsJson(backup, "2026-09-17T00:00:00.000Z"));
+
+    expect(read?.archives?.map((one) => one.name)).toEqual(["9U 2026", "10U 2026"]);
+    expect(read?.archives?.[1]?.rows).toHaveLength(5);
+    expect(read?.archives?.[0]?.rows[0]?.teamName).toBe("Club 0");
+  });
+
+  it("is not called empty when the archives are all that is left", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    await saveArchivedSeasons([season("9U 2026", 2026)]);
+    const backup = {
+      ageGroups: [],
+      teams: [],
+      games: [],
+      archives: await loadAllArchivedSeasons(),
+    };
+
+    // A pool whose every season has been archived has no games at all. Refusing to write that file
+    // would refuse to write the one thing left worth keeping.
+    expect(teamRankingsBackupIsEmpty(backup)).toBe(false);
+    expect(teamRankingsJson(backup, "2026-09-17T00:00:00.000Z")).not.toBe("");
+    expect(summarizeTeamRankingsBackup(backup)).toContain("1 archived season");
+  });
+
+  it("writes no archives field at all when there are none, so an old reader is unsurprised", () => {
+    const file = teamRankingsJson(
+      { ageGroups: [], teams: [], games: [], archives: [] },
+      "2026-09-17T00:00:00.000Z"
+    );
+    // Empty, because a pool with nothing in it and no archives is nothing to back up.
+    expect(file).toBe("");
+
+    const withPool = teamRankingsJson(
+      { ageGroups: [], teams: [{ id: "S-A", name: "Aces" }], games: [] },
+      "2026-09-17T00:00:00.000Z"
+    );
+    expect(withPool).not.toContain("archives");
+    // And reading it back says nothing about archives rather than saying there are none.
+    expect(parseTeamRankingsJson(withPool)?.archives).toBeUndefined();
+  });
+
+  it("replaces the archives on a restore rather than stacking a second copy", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    await saveArchivedSeasons([season("9U 2026", 2026)]);
+    const carried = await loadAllArchivedSeasons();
+
+    expect(await replaceArchivedSeasons(carried)).toBe(true);
+    expect(loadArchiveIndex()).toHaveLength(1);
+    // Restoring the same file twice would otherwise leave two indistinguishable copies.
+    expect(await replaceArchivedSeasons(carried)).toBe(true);
+    expect(loadArchiveIndex()).toHaveLength(1);
+    expect((await loadArchivedSeason(loadArchiveIndex()[0]!.id))?.rows).toHaveLength(3);
+  });
+
+  it("takes the old rows with it, rather than leaving them unnamed", async () => {
+    const io = fakeIo();
+    await initTeamRankingsStore(io);
+    const first = await saveArchivedSeasons([season("9U 2026", 2026)]);
+    const oldKey = `${ROWS_PREFIX}${first![0]!.id}`;
+
+    await replaceArchivedSeasons([season("11U 2027", 2027, 2)]);
+    expect(io.store.get(oldKey)).toBeNull();
+    expect(loadArchiveIndex().map((entry) => entry.name)).toEqual(["11U 2027"]);
   });
 });

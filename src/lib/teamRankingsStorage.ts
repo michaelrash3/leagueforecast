@@ -823,3 +823,30 @@ export const forgetArchivedSeason = async (id: string): Promise<boolean> => {
     loadArchiveIndex().filter((entry) => entry.id !== id)
   );
 };
+
+/** Every archive with its rows, for a backup. Loads all of them, so only the backup path calls it. */
+export const loadAllArchivedSeasons = async (): Promise<ArchivedSeason[]> => {
+  const out: ArchivedSeason[] = [];
+  for (const entry of loadArchiveIndex()) {
+    const season = await loadArchivedSeason(entry.id);
+    if (season) out.push(season);
+  }
+  return out;
+};
+
+/**
+ * Swaps the archives for the ones in a restored backup.
+ *
+ * Replaces rather than adds, because a restore replaces the pool outright and the two must agree:
+ * restoring the same file twice would otherwise leave two copies of every season, suffixed apart by
+ * `withUniqueIds` and indistinguishable to read.
+ *
+ * The old rows go first and the index is written once at the end by `saveArchivedSeasons`, so an
+ * interruption leaves archives that list and will not load rather than rows nothing names.
+ */
+export const replaceArchivedSeasons = async (seasons: ArchivedSeason[]): Promise<boolean> => {
+  const going = loadArchiveIndex();
+  for (const entry of going) await dropBlob(archiveRowsKey(entry.id));
+  if (!writeValue(GC_ARCHIVE_KEY, [])) return false;
+  return (await saveArchivedSeasons(seasons)) !== null;
+};

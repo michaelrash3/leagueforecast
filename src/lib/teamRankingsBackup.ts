@@ -21,6 +21,7 @@ import {
 } from "./teamRankingsStorage";
 import type { UndoSnapshot } from "./types";
 import { isRecord } from "./validate";
+import { coerceArchivedSeason, type ArchivedSeason } from "./teamRankingsArchive";
 import {
   COMPACT_VERSION,
   decodeScoutGames,
@@ -43,6 +44,16 @@ export type TeamRankingsBackup = {
   ageGroups: AgeGroup[];
   teams: ScoutTeam[];
   games: ScoutGame[];
+  /**
+   * The finished seasons kept as tables, with their rows.
+   *
+   * Optional because most callers have no business with them: an undo snapshot is taken around an
+   * import that cannot touch an archive, and the whole-browser backup reads and writes synchronously
+   * while an archive's rows are read on demand. The Team Rankings JSON carries them, which is the
+   * path that matters — an archived table is the only copy there is of that season, the reset card
+   * offers this file as the way back from wiping it, and without this the way back was a lie.
+   */
+  archives?: ArchivedSeason[];
 };
 
 /** `AgeGroup.seasonIds` is a list inside one cell; a semicolon keeps it out of CSV quoting. */
@@ -108,7 +119,12 @@ const GAME_HEADERS = [
 export type UndoSnapshotWithRankings = UndoSnapshot & { teamRankings?: TeamRankingsBackup };
 
 export const teamRankingsBackupIsEmpty = (backup: TeamRankingsBackup): boolean =>
-  !backup.ageGroups.length && !backup.teams.length && !backup.games.length;
+  !backup.ageGroups.length &&
+  !backup.teams.length &&
+  !backup.games.length &&
+  // Archives count. A pool whose every season has been archived has no games at all, and calling
+  // that file empty would refuse to write the one thing left worth keeping.
+  !backup.archives?.length;
 
 /** Snapshot the live Team Rankings pool for inclusion in a backup. */
 export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
@@ -145,7 +161,15 @@ export const summarizeTeamRankingsBackup = (backup: TeamRankingsBackup): string 
   const played = backup.games.filter(
     (game) => Number.isFinite(game.teamAScore) && Number.isFinite(game.teamBScore)
   ).length;
-  return `${plural(backup.ageGroups.length, "age group")} · ${plural(backup.teams.length, "ranked team")} · ${plural(backup.games.length, "logged game")} (${played} scored)`;
+  const archived = backup.archives ?? [];
+  const head = `${plural(backup.ageGroups.length, "age group")} · ${plural(backup.teams.length, "ranked team")} · ${plural(backup.games.length, "logged game")} (${played} scored)`;
+  // Named separately, because an archived season is not an age group with games — it is a final
+  // table, and a summary that folded the two would say a pool had games it does not have.
+  return archived.length === 0
+    ? head
+    : `${head} · ${plural(archived.length, "archived season")} (${archived
+        .reduce((sum, season) => sum + season.rows.length, 0)
+        .toLocaleString()} rows)`;
 };
 
 // ---------- CSV ----------
@@ -333,6 +357,8 @@ export type TeamRankingsBackupFile = {
   ageGroups: unknown;
   teams: unknown;
   games: unknown;
+  /** Left out entirely when there are none, so an old reader sees the file it expects. */
+  archives?: unknown;
 };
 
 /**
@@ -361,6 +387,19 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
   parts.push(`,"ageGroups":${JSON.stringify(encodeAgeGroups(backup.ageGroups))}`);
   parts.push(`,"teams":${JSON.stringify(encodeScoutTeams(backup.teams))}`);
   parts.push(`,"games":${JSON.stringify(encodeScoutGames(backup.games))}`);
+  /*
+   * A season a part, not the array in one go. A nationwide season is a hundred thousand rows and
+   * there can be years of them; the whole point of writing this file in pieces is that no single
+   * string ever holds more than one of the big things at a time.
+   */
+  const archives = backup.archives ?? [];
+  if (archives.length > 0) {
+    parts.push(',"archives":[');
+    archives.forEach((season, at) => {
+      parts.push(`${at === 0 ? "" : ","}${JSON.stringify(season)}`);
+    });
+    parts.push("]");
+  }
   parts.push("}");
   return parts;
 };
@@ -391,7 +430,16 @@ export const parseTeamRankingsJson = (raw: string): TeamRankingsBackup | null =>
   // and a file written as plain objects both come back — the codec already knows both shapes.
   const teams = decodeScoutTeams(parsed.teams, coerceScoutTeams);
   const games = decodeScoutGames(parsed.games, coerceScoutGames);
-  return { ageGroups, teams, games };
+  // Absent in every file written before archives existed, which is why it is optional rather than
+  // defaulted to an empty list: "this file has no archives" and "this file predates them" are the
+  // same bytes, and neither is a reason to clear the ones this browser has.
+  const archives = Array.isArray(parsed.archives)
+    ? parsed.archives.flatMap((raw) => {
+        const season = coerceArchivedSeason(raw);
+        return season ? [season] : [];
+      })
+    : undefined;
+  return { ageGroups, teams, games, ...(archives ? { archives } : {}) };
 };
 
 /** Whether a file looks like JSON rather than CSV, without parsing the whole of it. */
@@ -409,7 +457,12 @@ export const looksLikeJsonBackup = (raw: string): boolean => raw.trimStart().sta
  * which is most of why the file is a fraction of the size.
  */
 export const estimateBackupBytes = (backup: TeamRankingsBackup): number =>
-  backup.ageGroups.length * 40 + backup.teams.length * 90 + backup.games.length * 70;
+  backup.ageGroups.length * 40 +
+  backup.teams.length * 90 +
+  backup.games.length * 70 +
+  // An archived row is written as a plain object rather than a tuple — there are far fewer of them
+  // than games, and a table that cannot be recomputed is worth being readable by hand.
+  (backup.archives ?? []).reduce((sum, season) => sum + season.rows.length * 150, 0);
 
 /** That estimate as something to put in a sentence: "2.7 MB", "840 KB". */
 export const formatBytes = (bytes: number): string => {

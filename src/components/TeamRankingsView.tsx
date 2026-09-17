@@ -56,6 +56,7 @@ import {
   onPoolChangedElsewhere,
   saveAgeGroups,
   savePullProgress,
+  loadAllArchivedSeasons,
   saveArchivedSeasons,
   saveRefreshLog,
   saveScoutGames,
@@ -926,7 +927,13 @@ export function TeamRankingsView({
    * put that. Restoring still reads either, because files written before this exist.
    */
   const downloadPoolBackup = async () => {
-    const backup = readTeamRankingsBackup();
+    /*
+     * The archives are loaded here and nowhere else in the app. They are read on demand precisely
+     * so that they are not in memory, and a backup is the one job that needs all of them at once —
+     * and needs them, because an archived table is the only copy of that season and this file is
+     * what the reset card offers as the way back.
+     */
+    const backup = { ...readTeamRankingsBackup(), archives: await loadAllArchivedSeasons() };
     const estimate = estimateBackupBytes(backup);
 
     // A nationwide pool makes a file that takes a moment to put together and will not open in
@@ -1023,6 +1030,15 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
   const archiveYear = async (year: number) => {
     const shown = { teams: allKnown.teams, games: allKnownGames };
     const stored = { ageGroups, teams: scoutTeams, games: scoutGames };
+    /*
+     * Whether the pool was tidy before this, checked before anything changes.
+     *
+     * What survives an archive is a subset of what was there — whole pages removed, and the teams
+     * no remaining game mentions, which is the one thing a tidy would have done anyway. So a tidy
+     * pool stays tidy, and stamping the smaller one saves a full worker pass over three hundred
+     * thousand games for nothing. An untidy pool leaves the stamp alone, so the tidy still comes.
+     */
+    const wasTidy = loadTidyStamp() === poolSignature(stored);
     const done = archiveSquadYear(year, shown, stored, new Date().toISOString());
 
     if (done.seasons.length === 0 && done.unranked.length === 0) {
@@ -1068,6 +1084,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       persistAgeGroups(done.state.ageGroups);
       persistTeams(done.state.teams);
       persistGames(done.state.games);
+      if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
       setOpenTeamId(null);
