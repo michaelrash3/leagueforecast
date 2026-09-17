@@ -37,6 +37,13 @@ import {
 } from "../src/lib/scoutBacktest.ts";
 import { RECENCY_SCHEMES } from "../src/lib/ratingRecency.ts";
 import {
+  describeTidy,
+  proposeSeasonPairings,
+  tidyPool,
+  type GcImportState,
+} from "../src/lib/gameChangerImport.ts";
+import { poolHealth, settleableNow } from "../src/lib/poolHealth.ts";
+import {
   ageGroupLevel,
   ageGroupYear,
   countsTowardRating,
@@ -62,6 +69,19 @@ const BOOTSTRAP = 2000;
 /** Below this there is no point printing a ranking; say the page cannot answer instead. */
 const MIN_USABLE_SAMPLE = 12;
 
+/**
+ * Reads the backup, and then puts it through the same tidy the app does before it ranks anything.
+ *
+ * A backup is a decode, not a state: it is whatever the browser happened to have when the button
+ * was pressed. The rankings are never computed on that. They are computed after bracket slots have
+ * been settled from the other team's schedule, after a club's second GameChanger id has been folded
+ * into its first, after the same game written twice has been collapsed to once, and after the
+ * wiffle-ball teams have gone. Fitting the raw file instead means fitting a pool nobody ranks, and
+ * every one of those passes moves games across the timeline or changes who a team is — which is
+ * exactly what this sweep is trying to measure.
+ *
+ * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart.
+ */
 const read = (path: string): TeamRankingsBackup => {
   const pool = parseTeamRankingsJson(readFileSync(path, "utf8"));
   if (!pool) {
@@ -69,7 +89,44 @@ const read = (path: string): TeamRankingsBackup => {
       `${path} is not a Team Rankings backup. Export one from Setup — the button writes the JSON this reads.`
     );
   }
-  return pool;
+  const before: GcImportState = {
+    ageGroups: pool.ageGroups,
+    teams: pool.teams,
+    games: pool.games,
+  };
+  const health = poolHealth(before, "");
+  const { state, ...counts } = tidyPool(before);
+  const notes = describeTidy({ state, ...counts });
+
+  console.log(
+    `Read ${pool.ageGroups.length} pages, ${pool.teams.length} teams, ${pool.games.length} games` +
+      ` (${health.played} played).`
+  );
+  console.log(
+    `  stand-ins: ${health.placeholders} bracket slot(s), ${health.nameOnly} known only by name,` +
+      ` in ${health.standInGames} game(s) of which ${health.standInPlayed} have a result.`
+  );
+  if (notes.length === 0) {
+    console.log("  Tidy: nothing to do — the file was exported in the state the app ranks.");
+  } else {
+    console.log("  Tidy changed the pool before any of this was fitted:");
+    notes.forEach((note) => console.log(`    ${note}`));
+  }
+  const pairings = proposeSeasonPairings(state.teams, state.games);
+  if (pairings.length > 0) {
+    console.log(
+      `  ! ${pairings.length} squad(s) the app would pair on into their next season, still unpaired.` +
+        ` Each one is a club the fit sees as two teams with no game between them.`
+    );
+  }
+  const left = settleableNow(state);
+  if (left > 0) {
+    console.log(
+      `  ! ${left} stand-in game(s) the app could still settle. Settle them and re-export: until` +
+        ` then some of these teams are two teams, and a rating cannot join what it cannot see.`
+    );
+  }
+  return { ...pool, teams: state.teams, games: state.games, ageGroups: state.ageGroups };
 };
 
 const pageName = (group: AgeGroup): string => {
@@ -153,10 +210,53 @@ const cutsFor = (composition: Composition): number[] => {
  * The checks that come before any comparison, each one a way the file can fail to be the pool the
  * app actually ranks.
  */
-const preflight = (backup: TeamRankingsBackup, group: AgeGroup): string[] => {
+const preflight = (
+  backup: TeamRankingsBackup,
+  group: AgeGroup,
+  composition: Composition
+): string[] => {
   const notes: string[] = [];
   const rated = scoutRatingGames(group.id, backup.teams, backup.games, backup.ageGroups);
   const played = rated.filter((entry) => countsTowardRating(entry.game)).map(({ game }) => game);
+
+  /*
+   * The question this page exists to answer is what a fall season is worth in the spring, and a
+   * rating can only carry anything across the winter through a team that played on both sides of
+   * it. GameChanger mints a club a fresh team id every season, so unless those two ids have been
+   * folded together the fall squads and the spring squads are disjoint sets of teams with no game
+   * between them — two seasons sitting in one page, touching nowhere.
+   *
+   * That does not merely wash the answer out. It manufactures one: with the blocks unjoined, the
+   * spring teams each carry a handful of games against a ridge built for more, so the control's
+   * ratings are the ones dragged toward zero while a scheme that forgets the fall concentrates its
+   * whole weight budget on the spring and keeps its own. Decay then "wins" by a wide margin, on a
+   * page where no weighting could have moved a single piece of evidence across the break. Note it
+   * defeats the shrinkage column too, and backwards: here it is the *control* whose predictions
+   * shrink, not the winner's.
+   */
+  const firstBreak = composition.breaks[0];
+  if (firstBreak !== undefined) {
+    const side = new Map<string, Set<string>>();
+    played.forEach((game) => {
+      if (!game.date) return;
+      const at = Date.parse(`${game.date}T12:00:00Z`);
+      const half = at <= firstBreak.after ? "before" : "after";
+      [game.teamAId, game.teamBId].forEach((id) => {
+        const seen = side.get(id) ?? new Set<string>();
+        seen.add(half);
+        side.set(id, seen);
+      });
+    });
+    const spanning = [...side.values()].filter((halves) => halves.size === 2).length;
+    notes.push(
+      spanning === 0
+        ? `not one team played on both sides of the ${firstBreak.gap}-day break — the two halves of` +
+            ` this page share no team, so nothing could carry across it whatever the weights, and any` +
+            ` result below about the winter is an artefact`
+        : `${spanning} of ${side.size} teams played on both sides of the ${firstBreak.gap}-day break` +
+            ` — only those can carry a rating across it`
+    );
+  }
 
   /*
    * A page carrying a League Standings season is ranked on its own games *plus* the ones derived
@@ -459,7 +559,7 @@ const sweepPage = (backup: TeamRankingsBackup, group: AgeGroup): void => {
             " boundary costs"
     );
   }
-  preflight(backup, group).forEach((note) => console.log(`  ! ${note}`));
+  preflight(backup, group, composition).forEach((note) => console.log(`  ! ${note}`));
 
   const cuts = cutsFor(composition);
   if (cuts.length === 0) {
@@ -505,9 +605,6 @@ const main = (): void => {
   }
   const backup = read(path);
 
-  console.log(
-    `Pool: ${backup.ageGroups.length} pages, ${backup.teams.length} teams, ${backup.games.length} games`
-  );
   console.log(
     "A weight is a count, and every scheme averages one, so what separates them is only which\n" +
       "games count more than others — never how much evidence the fit is handed in total."
