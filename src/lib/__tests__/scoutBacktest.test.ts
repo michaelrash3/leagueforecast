@@ -316,13 +316,304 @@ describe("comparing weighting schemes", () => {
   /*
    * The negative control, and the one that keeps this honest. On a pool where nothing changed,
    * forgetting the early games throws away evidence for no gain — so the control should not lose.
+   *
+   * Sixteen teams rather than twelve, and checked at several cuts, because at twelve it does not
+   * measure anything. A round-robin cut part-way through a round leaves a lopsided tail, whichever
+   * teams happened to play last carry it, and weighting by recency amplifies exactly that; the gap
+   * between the two is then a couple of hundredths of a run and its *sign* flips with where the cut
+   * falls. It used to be asserted at twelve teams and a single cut, and passed on the coin landing
+   * the right way up. A wider pool puts the effect above that floor: there the control wins at
+   * every cut, by a tenth of a run rather than a hundredth.
    */
   it("does not beat counting every game the same when nothing has changed", () => {
-    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 3 });
+    const { teams, games } = syntheticPool({ teamCount: 16, gamesPerPair: 3 });
+    [0.5, 0.6, 2 / 3, 0.7, 0.8].forEach((trainShare) => {
+      const flat = backtestScoutRatings("ag_9", teams, games, groups, {
+        recency: noDecay,
+        trainShare,
+      });
+      const recent = backtestScoutRatings("ag_9", teams, games, groups, {
+        recency: byGamesSince(5),
+        trainShare,
+      });
+      expect(flat.meanAbsoluteError!).toBeLessThanOrEqual(recent.meanAbsoluteError!);
+    });
+  });
+});
+
+/*
+ * A squad year runs August to July, so half of it falls in one calendar year and half in the next.
+ * Ordering those games by month and day alone puts March ahead of the September it followed, and
+ * every number downstream — which games are fitted on, which are scored, how old a game is, which
+ * decay bucket it lands in — is then measured along a timeline that runs backwards through the
+ * winter. It went unnoticed for a while because a noiseless round-robin still scores well when you
+ * fit it upside down.
+ */
+describe("a squad year that crosses New Year", () => {
+  /** Eight teams, a round in the fall of 2026 and another in the spring of 2027. */
+  const acrossTheWinter = (): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+    const teams: ScoutTeam[] = Array.from({ length: 8 }, (_, index) => ({
+      id: `W-${index}`,
+      name: `Team ${index}`,
+    }));
+    const strength = (index: number) => ((index - 3.5) / 3.5) * 4;
+    const games: ScoutGame[] = [];
+    const blocks: Array<[number, number, number]> = [
+      // [year, month index, day] — the Saturday each round-robin starts on.
+      [2026, 8, 5],
+      [2027, 2, 6],
+    ];
+    blocks.forEach(([year, month, day], block) => {
+      let played = 0;
+      for (let a = 0; a < teams.length; a += 1) {
+        for (let b = a + 1; b < teams.length; b += 1) {
+          const margin = Math.round(strength(a) - strength(b));
+          // Four games a weekend, so twenty-eight of them fit in a seven-week block.
+          const week = Math.floor(played / 4);
+          const date = new Date(Date.UTC(year, month, day) + week * 7 * 86_400_000);
+          games.push({
+            id: `w${block}-${a}-${b}`,
+            teamAId: `W-${a}`,
+            teamBId: `W-${b}`,
+            teamAScore: 5 + Math.max(margin, 0),
+            teamBScore: 5 + Math.max(-margin, 0),
+            ageGroupId: "ag_9",
+            date: date.toISOString().slice(0, 10),
+          });
+          played += 1;
+        }
+      }
+    });
+    return { teams, games };
+  };
+
+  it("fits on the earlier games and scores the later ones", () => {
+    const { teams, games } = acrossTheWinter();
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+    expect(result.span).not.toBeNull();
+    const { trainFrom, trainTo, testFrom, testTo } = result.span!;
+    // The whole method is this one inequality. Dates compare lexically in ISO.
+    expect(trainTo < testFrom).toBe(true);
+    expect(trainFrom <= trainTo).toBe(true);
+    expect(testFrom <= testTo).toBe(true);
+    // And it really does span the winter, or the assertion above proves nothing.
+    expect(trainFrom.slice(0, 4)).toBe("2026");
+    expect(testTo.slice(0, 4)).toBe("2027");
+  });
+
+  it("counts a spring game as later than a fall one, not earlier", () => {
+    const { teams, games } = acrossTheWinter();
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.5 });
+    // Half the games are the fall round, so a cut at half must land at the turn of the blocks.
+    expect(result.span!.trainTo.slice(0, 4)).toBe("2026");
+    expect(result.span!.testFrom.slice(0, 4)).toBe("2027");
+    /*
+     * The spring is more than four months after the fall ends, so it belongs in the last bucket —
+     * the one that says what a fall season is worth in the spring. Under the old ordering this
+     * bucket held games played before the training data.
+     */
+    const last = result.buckets[result.buckets.length - 1]!;
+    expect(last.fromDays).toBe(120);
+    expect(last.sampleSize).toBeGreaterThan(0);
+  });
+});
+
+describe("what the cut keeps and what the fit is allowed to know", () => {
+  /** Four games a day, so a row-index cut lands mid-day about as often as not. */
+  const crowdedDays = (): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+    const teams: ScoutTeam[] = Array.from({ length: 8 }, (_, index) => ({
+      id: `C-${index}`,
+      name: `Team ${index}`,
+    }));
+    const games: ScoutGame[] = [];
+    let played = 0;
+    for (let a = 0; a < 8; a += 1) {
+      for (let b = a + 1; b < 8; b += 1) {
+        const date = new Date(Date.UTC(2026, 8, 5) + Math.floor(played / 4) * 7 * 86_400_000);
+        games.push({
+          id: `c-${a}-${b}`,
+          teamAId: `C-${a}`,
+          teamBId: `C-${b}`,
+          teamAScore: 6 + Math.max(b - a - 3, 0),
+          teamBScore: 6,
+          ageGroupId: "ag_9",
+          date: date.toISOString().slice(0, 10),
+        });
+        played += 1;
+      }
+    }
+    return { teams, games };
+  };
+
+  /*
+   * A game on the boundary day used to land in neither half: past the training slice's row index,
+   * but not after the cut *day*, so the test filter dropped it too. Only the test set was counted,
+   * so the loss was invisible.
+   */
+  it("keeps every game, whatever row the cut index lands on", () => {
+    const { teams, games } = crowdedDays();
+    // Every share from a tenth to nine tenths — most of them land mid-day.
+    for (let step = 1; step <= 9; step += 1) {
+      const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: step / 10 });
+      if (result.sampleSize === 0) continue;
+      expect(result.trainSize + result.sampleSize).toBe(games.length);
+    }
+  });
+
+  it("puts the whole of the boundary day on the training side", () => {
+    const { teams, games } = crowdedDays();
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.55 });
+    // Nothing scored may share a day with anything fitted on, or it is not a prediction.
+    expect(result.span!.trainTo < result.span!.testFrom).toBe(true);
+  });
+
+  /*
+   * A team that turns up only after the cut cannot be rated. It used to be rated zero, which is a
+   * confident claim that it is exactly average — and the same margin the baseline predicts, so the
+   * row cancelled out of the lift while still counting in the mean.
+   */
+  it("says how many held-out games involve a team it never saw", () => {
+    const { teams, games } = crowdedDays();
+    const debut: ScoutGame = {
+      id: "c-debut",
+      teamAId: "C-0",
+      teamBId: "C-new",
+      teamAScore: 11,
+      teamBScore: 1,
+      ageGroupId: "ag_9",
+      date: "2026-12-05",
+    };
+    const withDebut = {
+      teams: [...teams, { id: "C-new", name: "Newcomer" }],
+      games: [...games, debut],
+    };
+    const result = backtestScoutRatings("ag_9", withDebut.teams, withDebut.games, groups, {
+      trainShare: 0.9,
+    });
+    expect(result.unratedSides).toBe(1);
+
+    // And without the newcomer, nothing is unrated.
+    const plain = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.9 });
+    expect(plain.unratedSides).toBe(0);
+  });
+
+  /*
+   * The shrinkage tell. Decay pulls a thinly-weighted team's rating toward zero, and a rating of
+   * zero predicts an even game — the baseline's own answer. A scheme can therefore lower its error
+   * by predicting less rather than by knowing more, and the size of its predictions is what says
+   * which of the two happened.
+   */
+  it("reports how big its predictions were, so shrinking is not mistaken for learning", () => {
+    const { teams, games } = syntheticPool({ teamCount: 16, gamesPerPair: 3 });
     const flat = backtestScoutRatings("ag_9", teams, games, groups, { recency: noDecay });
-    const recent = backtestScoutRatings("ag_9", teams, games, groups, {
+    const steep = backtestScoutRatings("ag_9", teams, games, groups, {
       recency: byGamesSince(5),
     });
-    expect(flat.meanAbsoluteError!).toBeLessThanOrEqual(recent.meanAbsoluteError!);
+    expect(flat.meanAbsolutePrediction).not.toBeNull();
+    // Measured: forgetting hard costs the fit evidence, and its predictions shrink for it.
+    expect(steep.meanAbsolutePrediction!).toBeLessThan(flat.meanAbsolutePrediction!);
+  });
+});
+
+/*
+ * Two clubs that never share an opponent have never been compared, and an opponent-adjusted rating
+ * is nothing but a comparison. The model will still print a difference between them: every game row
+ * is +1 on one side and −1 on the other, so each row sums to zero across the teams, and with the
+ * same ridge constant on every team that forces each connected piece to average exactly zero on its
+ * own. Two pieces are then two scales that merely happen to share a centre.
+ */
+describe("teams the fit never joined up", () => {
+  /** Two round-robins that share no team: a "fall" four and a "spring" four. */
+  const twoIslands = (): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+    const teams: ScoutTeam[] = [];
+    const games: ScoutGame[] = [];
+    (["F", "S"] as const).forEach((island, block) => {
+      for (let index = 0; index < 4; index += 1) {
+        teams.push({ id: `${island}-${index}`, name: `${island} ${index}` });
+      }
+      let played = 0;
+      for (let a = 0; a < 4; a += 1) {
+        for (let b = a + 1; b < 4; b += 1) {
+          const date = new Date(Date.UTC(2026, 8, 5) + (block * 24 + played) * 7 * 86_400_000);
+          games.push({
+            id: `${island}-${a}-${b}`,
+            teamAId: `${island}-${a}`,
+            teamBId: `${island}-${b}`,
+            teamAScore: 6 + (b - a),
+            teamBScore: 6,
+            ageGroupId: "ag_9",
+            date: date.toISOString().slice(0, 10),
+          });
+          played += 1;
+        }
+      }
+    });
+    return { teams, games };
+  };
+
+  it("counts the pieces the training games fall into", () => {
+    const { teams, games } = twoIslands();
+    // A cut past both round-robins: everything either side trained on, nothing joined.
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { trainShare: 0.9 });
+    expect(result.trainComponents).toBe(2);
+    expect(result.largestComponent).toBe(4);
+  });
+
+  it("is one piece when every team is reachable from every other", () => {
+    const { teams, games } = syntheticPool({ teamCount: 8 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+    expect(result.trainComponents).toBe(1);
+    expect(result.largestComponent).toBe(8);
+  });
+
+  it("flags a held-out game whose two sides were never compared", () => {
+    const { teams, games } = twoIslands();
+    const crossing: ScoutGame = {
+      id: "crossing",
+      teamAId: "F-0",
+      teamBId: "S-3",
+      teamAScore: 9,
+      teamBScore: 2,
+      ageGroupId: "ag_9",
+      // After both blocks, so it is held out rather than joining them up.
+      date: "2027-06-05",
+    };
+    const result = backtestScoutRatings("ag_9", teams, [...games, crossing], groups, {
+      trainShare: 0.95,
+      keepResiduals: true,
+    });
+    expect(result.splitSamples).toBe(1);
+    expect(result.unratedSides).toBe(0);
+    expect(result.residuals.find((row) => row.gameId === "crossing")!.connected).toBe(false);
+  });
+});
+
+describe("keeping the held-out games one by one", () => {
+  it("hands back a row per scored game, agreeing with the aggregate", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups, { keepResiduals: true });
+    expect(result.residuals).toHaveLength(result.sampleSize);
+    const mean = (values: number[]) => values.reduce((sum, x) => sum + x, 0) / values.length;
+    expect(mean(result.residuals.map((row) => row.error))).toBeCloseTo(
+      result.meanAbsoluteError!,
+      9
+    );
+    expect(mean(result.residuals.map((row) => row.baseline))).toBeCloseTo(result.baselineError!, 9);
+  });
+
+  it("keeps nothing unless asked, so the card does not pay for the sweep", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    expect(backtestScoutRatings("ag_9", teams, games, groups).residuals).toEqual([]);
+  });
+
+  /** Every scheme faces the identical hold-out, which is what makes a paired comparison possible. */
+  it("scores every scheme on the same games", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const ids = RECENCY_SCHEMES.map((recency) =>
+      backtestScoutRatings("ag_9", teams, games, groups, { recency, keepResiduals: true })
+        .residuals.map((row) => row.gameId)
+        .join(",")
+    );
+    expect(new Set(ids).size).toBe(1);
   });
 });

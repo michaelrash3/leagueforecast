@@ -201,7 +201,19 @@ export function GameChangerImportPanel({
   refreshLog,
   onRefreshLog,
 }: GameChangerImportPanelProps) {
-  const [text, setText] = useState("");
+  const [typed, setTyped] = useState("");
+  /**
+   * A chosen file's contents, kept out of the textarea on purpose.
+   *
+   * A nationwide export is forty megabytes and a hundred and fifty thousand lines. Put that in the
+   * textarea's `value` and the browser is asked to lay out forty megabytes of monospaced text in a
+   * box eight rows tall, which is not a wait, it is a hang — and every later keystroke re-parses
+   * the lot. So the file goes in its own state and the box shows what was chosen rather than what
+   * is in it. Typing and pasting still work exactly as before, which is what they are for: a
+   * handful of ids somebody wants pulled now.
+   */
+  const [loaded, setLoaded] = useState<{ name: string; size: number; text: string } | null>(null);
+  const text = loaded ? loaded.text : typed;
   const [stage, setStage] = useState<Stage>("picking");
   /*
    * Whether a pull is running anywhere, which is not the same as whether this panel is running
@@ -276,6 +288,9 @@ export function GameChangerImportPanel({
       entries,
       tooYoung: baseball.length - entries.length,
       notBaseball: read.entries.length - baseball.length,
+      // Counted here rather than again at run time: on a nationwide export this is a forty
+      // megabyte split, and once is enough.
+      lines: text ? text.split(/\r?\n/).length : 0,
     };
   }, [text]);
 
@@ -446,7 +461,7 @@ export function GameChangerImportPanel({
         });
         tracker?.eta(estimatedMinutes(ids.length));
         tracker?.paste({
-          lines: text ? text.split(/\r?\n/).length : 0,
+          lines: parsed.lines,
           parsed: parsed.entries.length,
           skipped: parsed.skipped.length,
           skippedSamples: parsed.skipped,
@@ -1110,15 +1125,27 @@ export function GameChangerImportPanel({
           >
             Teams
           </label>
-          <textarea
-            id="gc-import-text"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            rows={8}
-            spellCheck={false}
-            placeholder={SAMPLE}
-            className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-3 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
-          />
+          {loaded ? (
+            <div className="mt-1 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900">
+              <span className="font-mono font-bold">{loaded.name}</span>
+              <span className="text-slate-500">
+                {(loaded.size / 1_000_000).toFixed(1)} MB, {parsed.lines.toLocaleString()} lines
+              </span>
+              <button type="button" className={button.ghost} onClick={() => setLoaded(null)}>
+                Choose a different file
+              </button>
+            </div>
+          ) : (
+            <textarea
+              id="gc-import-text"
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              rows={8}
+              spellCheck={false}
+              placeholder={SAMPLE}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-3 font-mono text-xs dark:border-slate-800 dark:bg-slate-900"
+            />
+          )}
 
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <label className="inline-block">
@@ -1137,14 +1164,19 @@ export function GameChangerImportPanel({
                   if (!file) return;
                   const reader = new FileReader();
                   reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-                  reader.onload = () => setText(String(reader.result ?? ""));
+                  reader.onload = () =>
+                    setLoaded({
+                      name: file.name,
+                      size: file.size,
+                      text: String(reader.result ?? ""),
+                    });
                   reader.readAsText(file);
                 }}
               />
             </label>
             <span className="text-xs text-slate-500">
-              The export from GameChanger, headers and all — or paste it above. A file of a few
-              thousand teams is fine; the rota is there so they need not all be pulled at once.
+              The export from GameChanger, headers and all — or paste a few ids above. A file of any
+              size is fine; the rota is there so they need not all be pulled at once.
             </span>
           </div>
 
