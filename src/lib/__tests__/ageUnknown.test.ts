@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGE_UNKNOWN_MAX_TRIES,
   ageUnknownDue,
   coerceAgeUnknown,
   describeAgeUnknown,
@@ -89,15 +90,39 @@ describe("keeping the teams nobody could age", () => {
     expect(ageUnknownDue(list, 0)).toEqual([]);
   });
 
-  it("says how many are waiting, and how many are stubborn about it", () => {
+  it("says how many are still being asked, and how many were left alone", () => {
     const list: AgeUnknownList = [
-      { teamId: "A", firstSeen: LAST_WEEK, lastTried: NOW, tries: 5 },
+      { teamId: "A", firstSeen: LAST_WEEK, lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES },
       { teamId: "B", firstSeen: LAST_WEEK, lastTried: NOW, tries: 1 },
     ];
     expect(describeAgeUnknown(list)).toBe(
-      "2 teams still have no age, 1 of them asked four times or more."
+      "1 team still being asked about, and 1 left alone after 8 weeks of nobody naming an age."
     );
     expect(describeAgeUnknown([])).toBe("");
+  });
+
+  /*
+   * Only two things can change the answer week to week: the team plays more games against
+   * opponents who name an age, or the club fills GameChanger's field in. Neither ever happens in a
+   * rec league where nobody names an age — "Mears 1 - 2026" playing "Mirror Lake 2 2026" all
+   * season — and those are the bulk of this list. Asking for ever is a question that can never come
+   * good.
+   */
+  it("stops asking after eight weeks of nobody naming an age", () => {
+    const worn: AgeUnknownList = [
+      { teamId: "spent", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: AGE_UNKNOWN_MAX_TRIES },
+      { teamId: "fresh", firstSeen: NOW, lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES - 1 },
+    ];
+    expect(ageUnknownDue(worn, 10)).toEqual(["fresh"]);
+  });
+
+  it("keeps counting one it has stopped asking about, so the number still means something", () => {
+    const spent: AgeUnknownList = [
+      { teamId: "spent", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: AGE_UNKNOWN_MAX_TRIES },
+    ];
+    // Left alone, not forgotten: a full re-pull of the team is still free to answer it.
+    expect(spent).toHaveLength(1);
+    expect(describeAgeUnknown(spent)).toMatch(/1 left alone/);
   });
 
   it("reads back what it stored, and shrugs off what it did not", () => {

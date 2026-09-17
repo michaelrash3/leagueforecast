@@ -23,6 +23,7 @@ import {
 import {
   countsTowardRating,
   isScoutGamePlayed,
+  mergeScoutTeams,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -2822,5 +2823,131 @@ describe("re-reading levels the pool already has", () => {
     expect(describeTidy(tidyPool(poolWith("Nationals 2033")))).toContain(
       "1 age level worked out from a name that said one all along."
     );
+  });
+});
+
+describe("applying several folds at once", () => {
+  /**
+   * Three clubs, each pulled twice under two GameChanger ids, each pair proved one squad by a game
+   * both ids filed. Three folds in one pass, which is what the batched version exists for.
+   */
+  const messy = () => {
+    const fall = { season: "fall" as const, year: 2026 };
+    const spring = { season: "spring" as const, year: 2027 };
+    const sched = (
+      id: string,
+      name: string,
+      opponent: string,
+      season: { season: "fall" | "spring"; year: number }
+    ): GcTeamSchedule => ({
+      profile: { id, name, ageLevel: 11, season },
+      games: [
+        {
+          id: `${id}-1`,
+          date: "2026-09-11",
+          opponentName: opponent,
+          status: "completed" as const,
+          teamScore: 8,
+          opponentScore: 2,
+        },
+      ],
+      fetchedAt: "2026-09-14T12:00:00.000Z",
+    });
+
+    let pool = empty;
+    ["Yeager Davis 11U", "Canes Triad 11U", "Dirtbags 11U"].forEach((name, at) => {
+      const tag = String(at).padStart(2, "0");
+      pool = importGcSchedule(
+        sched(`gcFALL0000${tag}`, name, `Raptors ${at} 11U`, fall),
+        pool
+      ).state;
+      pool = importGcSchedule(
+        sched(`gcSPRG0000${tag}`, name, `Raptors ${at} 11U`, spring),
+        pool
+      ).state;
+    });
+    return pool;
+  };
+
+  /** The old way: one whole walk of the pool per fold. */
+  const oneAtATime = (pool: GcImportState, folds: [string, string][]): GcImportState => {
+    let teams = pool.teams;
+    let games = pool.games;
+    folds.forEach(([fromId, intoId]) => {
+      const result = mergeScoutTeams(fromId, intoId, teams, games, pool.ageGroups);
+      teams = result.teams;
+      games = result.games;
+    });
+    return { ...pool, teams, games };
+  };
+
+  it("leaves the same pool as merging them one at a time", () => {
+    const pool = messy();
+    const settled = mergeSameSquadIds(pool);
+    expect(settled.merged).toBe(3);
+
+    /*
+     * The same three folds applied the old way. The merges are independent — a team folded away is
+     * never also a target — so there is no order in which they have to be applied, and the two
+     * paths have to agree on every team, every link and every game.
+     */
+    const survivors = new Set(settled.state.teams.map((team) => team.id));
+    const folds = pool.teams
+      .filter((team) => team.gcTeams?.length && !survivors.has(team.id))
+      .map((gone): [string, string] => {
+        const into = settled.state.teams.find((team) =>
+          (team.gcTeams ?? []).some((link) =>
+            (gone.gcTeams ?? []).some((mine) => mine.teamId === link.teamId)
+          )
+        );
+        return [gone.id, into!.id];
+      });
+    const sequential = oneAtATime(pool, folds);
+
+    const shape = (state: GcImportState) => ({
+      teams: state.teams
+        .map(
+          (team) =>
+            `${team.name}|${(team.gcTeams ?? [])
+              .map((l) => l.teamId)
+              .sort()
+              .join(",")}`
+        )
+        .sort(),
+      games: state.games.map((game) => [game.teamAId, game.teamBId, game.date].join("|")).sort(),
+    });
+    expect(shape(settled.state)).toEqual(shape(sequential));
+  });
+
+  it("keeps both GameChanger ids on every survivor, and one copy of each game", () => {
+    const settled = mergeSameSquadIds(messy());
+    const clubs = settled.state.teams.filter((team) => team.gcTeams?.length);
+    expect(clubs).toHaveLength(3);
+    clubs.forEach((club) => expect(club.gcTeams).toHaveLength(2));
+    // Three clubs, one 8-2 apiece — not the six rows the two ids filed between them.
+    expect(settled.state.games).toHaveLength(3);
+  });
+
+  it("drops a game both sides of which turned out to be the same club", () => {
+    // Two ids of one squad listed each other: after the fold it is a club playing itself.
+    const pool = messy();
+    const [a, b] = pool.teams.filter((team) => team.gcTeams?.length);
+    const withSelf: GcImportState = {
+      ...pool,
+      games: [
+        ...pool.games,
+        {
+          id: "self",
+          ageGroupId: pool.games[0]!.ageGroupId,
+          teamAId: a!.id,
+          teamBId: b!.id,
+          teamAScore: 3,
+          teamBScore: 3,
+          date: "2026-10-01",
+        },
+      ],
+    };
+    const settled = mergeSameSquadIds(withSelf);
+    expect(settled.state.games.some((game) => game.id === "self")).toBe(false);
   });
 });

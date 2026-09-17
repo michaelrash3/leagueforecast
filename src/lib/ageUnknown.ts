@@ -66,13 +66,34 @@ export const updateAgeUnknown = (
 };
 
 /**
+ * Weekly passes a team gets before it is left alone.
+ *
+ * Only two things can change the answer between one week and the next. The team plays more games,
+ * against opponents who do name an age — the opponents' names come off the team's own schedule, so
+ * pulling other teams never helps. Or the club fills in GameChanger's age field, or renames the
+ * squad.
+ *
+ * Eight weeks covers a full fall season, and a team that has played two months without once facing
+ * an opponent who names an age is in a league where nobody does. Those exist and they are the bulk
+ * of this list: rec leagues whose teams are "Mears 1 - 2026", "Mirror Lake 2 2026", playing each
+ * other all season. No number of passes settles them, so the honest thing is to stop, count them,
+ * and say so — rather than ask a question for ever that can never come good.
+ */
+export const AGE_UNKNOWN_MAX_TRIES = 8;
+
+/** Whether a team is still worth asking about. */
+export const stillWorthAsking = (entry: AgeUnknownTeam): boolean =>
+  entry.tries < AGE_UNKNOWN_MAX_TRIES;
+
+/**
  * The ids to ask about, stalest first, capped.
  *
  * Stalest first so a list longer than the cap still comes round rather than the same head of it
  * being asked every week while the tail is never touched again.
  */
 export const ageUnknownDue = (list: AgeUnknownList, limit: number): string[] =>
-  [...list]
+  list
+    .filter(stillWorthAsking)
     .sort((a, b) => (a.lastTried < b.lastTried ? -1 : a.lastTried > b.lastTried ? 1 : 0))
     .slice(0, Math.max(0, limit))
     .map((entry) => entry.teamId);
@@ -80,10 +101,13 @@ export const ageUnknownDue = (list: AgeUnknownList, limit: number): string[] =>
 /** A line for the panel. */
 export const describeAgeUnknown = (list: AgeUnknownList): string => {
   if (list.length === 0) return "";
-  const stubborn = list.filter((entry) => entry.tries >= 4).length;
+  const asking = list.filter(stillWorthAsking).length;
+  const done = list.length - asking;
   return (
-    `${list.length.toLocaleString()} team${list.length === 1 ? "" : "s"} still have no age` +
-    (stubborn > 0 ? `, ${stubborn.toLocaleString()} of them asked four times or more` : "") +
+    `${asking.toLocaleString()} team${asking === 1 ? "" : "s"} still being asked about` +
+    (done > 0
+      ? `, and ${done.toLocaleString()} left alone after ${AGE_UNKNOWN_MAX_TRIES} weeks of nobody naming an age`
+      : "") +
     "."
   );
 };

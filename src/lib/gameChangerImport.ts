@@ -1977,14 +1977,93 @@ export const mergeSameSquadIds = (
   });
 
   if (foldInto.size === 0) return { state, merged: 0 };
-  let teams = state.teams;
-  let games = state.games;
-  foldInto.forEach((intoId, fromId) => {
-    const result = mergeScoutTeams(fromId, intoId, teams, games, state.ageGroups);
-    teams = result.teams;
-    games = result.games;
+  return { state: applyFolds(foldInto, state), merged: foldInto.size };
+};
+
+/**
+ * Applies every fold in one pass.
+ *
+ * `mergeScoutTeams` walks the whole pool for each merge — every game repointed, every team
+ * filtered, then a collapse over what came out. One at a time that is right and readable, and on a
+ * nationwide pool it is the wrong shape entirely: the cost is the number of folds times the number
+ * of games, and the number of folds is itself a measure of how messy the pool is. Measured at two
+ * hundred thousand games a single fold is about 20ms, so a thousand of them — which a nationwide
+ * pull produces easily — is twenty seconds, per tidy pass, of which there are up to six.
+ *
+ * Here the games are walked once however many folds there are, and the collapse afterwards is one
+ * pass rather than one per fold. The result is the same pool: the merges are independent of each
+ * other, because a team folded away is never also a target (the pass above never picks one that is
+ * already folding), so there is no order in which they have to be applied.
+ */
+const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState): GcImportState => {
+  /**
+   * Where an id ends up. Flat in practice — the pass above never folds into a team that is itself
+   * folding — but followed to a fixed point anyway, with a guard, because a chain arriving here
+   * would otherwise leave half the pool pointing at a team that no longer exists.
+   */
+  const finalOf = (id: string): string => {
+    let at = id;
+    for (let hops = 0; hops < foldInto.size; hops += 1) {
+      const next = foldInto.get(at);
+      if (next === undefined || next === at) return at;
+      at = next;
+    }
+    return at;
+  };
+
+  /** The teams folding into each survivor, in the order the pass decided them. */
+  const sources = new Map<string, ScoutTeam[]>();
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  foldInto.forEach((_intoId, fromId) => {
+    const into = finalOf(fromId);
+    const team = byId.get(fromId);
+    if (!team || into === fromId) return;
+    const bucket = sources.get(into);
+    if (bucket) bucket.push(team);
+    else sources.set(into, [team]);
   });
-  return { state: { ...state, teams, games }, merged: foldInto.size };
+
+  const teams = state.teams.flatMap((team): ScoutTeam[] => {
+    if (foldInto.has(team.id) && finalOf(team.id) !== team.id) return [];
+    const folded = sources.get(team.id);
+    if (!folded || folded.length === 0) return [team];
+
+    // Field by field, in the order the folds were decided — the first source to carry something
+    // the survivor lacks is the one that fills it, which is what merging them one at a time did.
+    let merged = team;
+    const linkedIds = new Set((team.gcTeams ?? []).map((link) => link.teamId));
+    const gcTeams = [...(team.gcTeams ?? [])];
+    folded.forEach((from) => {
+      (from.gcTeams ?? []).forEach((link) => {
+        if (linkedIds.has(link.teamId)) return;
+        linkedIds.add(link.teamId);
+        gcTeams.push(link);
+      });
+      if (!merged.name.trim() && from.name.trim()) merged = { ...merged, name: from.name };
+      if (!merged.state && from.state) merged = { ...merged, state: from.state };
+      if (!merged.city && from.city) merged = { ...merged, city: from.city };
+      // "Our team" is a fact about the club, so it survives whichever half carried it.
+      if (!merged.isMine && from.isMine) merged = { ...merged, isMine: true };
+    });
+    if (gcTeams.length !== (team.gcTeams?.length ?? 0)) merged = { ...merged, gcTeams };
+    return [merged];
+  });
+
+  const repointed: ScoutGame[] = [];
+  state.games.forEach((game) => {
+    const teamAId = finalOf(game.teamAId);
+    const teamBId = finalOf(game.teamBId);
+    // Both sides of the game turned out to be the same club: it was never two teams playing.
+    if (teamAId === teamBId) return;
+    repointed.push(
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId }
+    );
+  });
+
+  // One collapse for every fold rather than one each: the rows a fold made into duplicates are all
+  // in this array now, and the pass is over the whole array either way.
+  const collapsed = collapseSameGames(repointed, state.ageGroups);
+  return { ...state, teams, games: collapsed.games };
 };
 
 /**
