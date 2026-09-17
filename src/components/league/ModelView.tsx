@@ -106,6 +106,8 @@ export function ModelView(props: {
   forecastStoryUnavailableReason: LeagueSummaryErrorReason | null;
   forecastStoryErrorMessage: string;
   retryForecastStory: () => void;
+  forecastStoryWaiting: boolean;
+  askForecastStory: () => void;
 }) {
   const {
     goldCutoff,
@@ -141,6 +143,8 @@ export function ModelView(props: {
     timelineEntries,
     hasCutLine,
     hasPostseason,
+    forecastStoryWaiting,
+    askForecastStory,
     forecastStoryText,
     forecastStoryModel,
     forecastStoryLoading,
@@ -176,6 +180,8 @@ export function ModelView(props: {
             unavailableReason={forecastStoryUnavailableReason}
             errorMessage={forecastStoryErrorMessage}
             onRetry={retryForecastStory}
+            waiting={forecastStoryWaiting}
+            onAsk={askForecastStory}
           />
         </div>
       </div>
