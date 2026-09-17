@@ -31,6 +31,15 @@ type RankingsSectionProps = {
    * start ranking teams" is the wrong reason: the games exist, they are in the other half.
    */
   segment: { name: string; played: number; otherName: string; otherPlayed: number } | null;
+  /**
+   * How much of this board is actually one ranking.
+   *
+   * A rating is a margin against the average of everything a club's schedule can reach, and the
+   * fit pins every disconnected piece of the schedule to its own average. Early in a season most of
+   * the country has not played anyone in common yet, so most of the board is not on one scale — and
+   * a board that did not say so would be asserting a national order it does not have.
+   */
+  connectivity: { ranked: number; comparable: number; largest: number } | null;
   rankings: ScoutRankingRow[];
   rankingsStale: boolean;
   nationalTop: ScoutRankingRow[];
@@ -64,6 +73,7 @@ export function RankingsSection({
   hasAgeGroups,
   unrankedLevelNote,
   segment,
+  connectivity,
   rankings,
   rankingsStale,
   nationalTop,
@@ -134,51 +144,78 @@ export function RankingsSection({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className={`${card} p-5`}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                National top {NATIONAL_TOP}
-                {segment ? ` · ${segment.name}` : ""}
-              </h2>
-              <span className="text-xs text-slate-500">
-                {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
-              </span>
+        <>
+          {/*
+            Above the boards, because it qualifies both of them. Only when it is worth saying: a
+            board where nearly everything is connected is just a ranking, and a line explaining that
+            would be noise on every mature season.
+          */}
+          {connectivity !== null &&
+            connectivity.ranked > 0 &&
+            connectivity.comparable < connectivity.ranked * 0.9 && (
+              <div className={`${card} border-amber-200 p-4 dark:border-amber-900/70`}>
+                <p className="text-sm text-slate-500">
+                  <strong className="text-slate-950 dark:text-white">
+                    {(connectivity.ranked - connectivity.comparable).toLocaleString()} of{" "}
+                    {connectivity.ranked.toLocaleString()} clubs here are not connected to the main
+                    group.
+                  </strong>{" "}
+                  A rating is a margin against the average of everyone a club&apos;s schedule can
+                  reach, through opponents of opponents. The largest such group holds{" "}
+                  {connectivity.largest.toLocaleString()} clubs; a club outside it is rated against
+                  its own group&apos;s average instead, so its place in this table is not a
+                  comparison with the clubs around it. Those rows are marked in the full table
+                  below. This is what a season looks like before the schedules knit together — it
+                  shrinks on its own as the year goes on.
+                </p>
+              </div>
+            )}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className={`${card} p-5`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                  National top {NATIONAL_TOP}
+                  {segment ? ` · ${segment.name}` : ""}
+                </h2>
+                <span className="text-xs text-slate-500">
+                  {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
+                </span>
+              </div>
+              <RankingList rows={nationalTop} onOpen={onOpenTeam} placeOf={placeOf} />
             </div>
-            <RankingList rows={nationalTop} onOpen={onOpenTeam} placeOf={placeOf} />
-          </div>
 
-          <div className={`${card} p-5`}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                State top {STATE_TOP}
-              </h2>
-              {availableStates.length > 0 && (
-                <select
-                  aria-label="State"
-                  value={shownState}
-                  onChange={(event) => onShownStateChange(event.target.value)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                >
-                  {availableStates.map((state) => (
-                    <option key={state} value={state}>
-                      {state}
-                    </option>
-                  ))}
-                </select>
+            <div className={`${card} p-5`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                  State top {STATE_TOP}
+                </h2>
+                {availableStates.length > 0 && (
+                  <select
+                    aria-label="State"
+                    value={shownState}
+                    onChange={(event) => onShownStateChange(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    {availableStates.map((state) => (
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {stateTopRows.length === 0 ? (
+                <p className="mt-3 text-sm text-slate-500">
+                  {availableStates.length === 0
+                    ? "No team here has a state yet. Add one from a team's panel, or pull from GameChanger, which brings the state with it."
+                    : `No ranked teams in ${shownState} yet.`}
+                </p>
+              ) : (
+                <RankingList rows={stateTopRows} onOpen={onOpenTeam} placeOf={placeOf} />
               )}
             </div>
-            {stateTopRows.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">
-                {availableStates.length === 0
-                  ? "No team here has a state yet. Add one from a team's panel, or pull from GameChanger, which brings the state with it."
-                  : `No ranked teams in ${shownState} yet.`}
-              </p>
-            ) : (
-              <RankingList rows={stateTopRows} onOpen={onOpenTeam} placeOf={placeOf} />
-            )}
           </div>
-        </div>
+        </>
       )}
 
       <div className={`${card} p-5`}>
@@ -280,6 +317,23 @@ export function RankingsSection({
                       </button>
                       {isLeagueTeam(row.teamId) && (
                         <span className={`ml-2 ${pill("blue")}`}>League</span>
+                      )}
+                      {/*
+                        A club no chain of opponents joins to the rest of the table. Its rating is
+                        measured against its own group's average, not this column's, so its place
+                        here is not a comparison — and a table that did not say so would be
+                        asserting one.
+
+                        "Group" rather than "island": on the real pool the same top twenty held one
+                        of these off 725 clubs and one off 12, and only one of those is an island.
+                      */}
+                      {!row.comparable && (
+                        <span
+                          className="ml-2 whitespace-nowrap text-xs font-bold text-amber-700 dark:text-amber-400"
+                          title={`Not connected to the rest of this table. This club's schedule reaches ${row.componentSize.toLocaleString()} clubs, none of them in the main group, so its rating is measured against a different average and its place here is not a comparison.`}
+                        >
+                          separate group of {row.componentSize.toLocaleString()}
+                        </span>
                       )}
                       {placeOf(row.teamId) && (
                         <span className="block text-xs font-normal text-slate-500">

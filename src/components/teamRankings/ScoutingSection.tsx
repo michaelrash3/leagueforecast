@@ -16,6 +16,24 @@ import { card, pill } from "../../styles/tokens";
 const tierTone = (tier: MatchupTier) =>
   tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
 
+/**
+ * Says a projection is not one, because no chain of results joins the two clubs.
+ *
+ * The numbers stay beside it. They are the only answer the model has, and hiding them would be no
+ * more honest than showing them silently — what a reader needs is to know that the two ratings were
+ * measured against different zeros, so their difference is two unrelated numbers subtracted.
+ */
+function NeverCompared() {
+  return (
+    <span
+      className="ml-2 whitespace-nowrap text-xs font-bold text-amber-700 dark:text-amber-400"
+      title="No chain of common opponents joins these two, so their ratings are measured against different averages. The projection is a guess, not a comparison."
+    >
+      never compared
+    </span>
+  );
+}
+
 const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
@@ -178,7 +196,10 @@ export function ScoutingSection({
                   ) : (
                     <>
                       <td>#{row.opponentRank}</td>
-                      <td>{formatMargin(row.projectedMargin ?? 0)}</td>
+                      <td>
+                        {formatMargin(row.projectedMargin ?? 0)}
+                        {row.unconnected && <NeverCompared />}
+                      </td>
                       <td>{formatPct(row.winProb ?? 0)}</td>
                       <td>
                         <span className={pill(tierTone(row.tier))}>{row.tier}</span>
@@ -315,7 +336,10 @@ function MatchupTable({
                   )}
                 </td>
                 <td>#{preview.opponentRank}</td>
-                <td>{formatMargin(preview.projectedMargin)}</td>
+                <td>
+                  {formatMargin(preview.projectedMargin)}
+                  {preview.unconnected && <NeverCompared />}
+                </td>
                 <td>{formatPct(preview.winProb)}</td>
                 <td>
                   <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>

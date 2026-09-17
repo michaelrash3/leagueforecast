@@ -175,3 +175,54 @@ describe("the two halves of a baseball year", () => {
     ).toBeInTheDocument();
   });
 });
+
+/*
+ * A rating is a margin against the average of everyone a club's schedule can reach. Early in a
+ * season most of the country has not played anyone in common, so most of a national board is not
+ * on one scale — on the real pool, 1,655 of 3,097 ranked clubs in 9U 2027's autumn, with 39 of the
+ * top 100 outside the main group. A board that did not say so would be asserting an order it does
+ * not have.
+ */
+describe("a board that is not all one ranking", () => {
+  const islanded = (): ScoutGame[] => [
+    // A main group of four that all play each other.
+    on("m1", "ag_9u_2027", "S-AUT", "S-BOTH", 6, 3, "2026-09-12"),
+    on("m2", "ag_9u_2027", "S-BOTH", "S-SPR", 5, 4, "2026-09-19"),
+    on("m3", "ag_9u_2027", "S-SPR", "S-AUT", 4, 5, "2026-09-26"),
+    // And two clubs that played only each other.
+    on("i1", "ag_9u_2027", "S-ISLE1", "S-ISLE2", 11, 0, "2026-10-03"),
+    on("i2", "ag_9u_2027", "S-ISLE1", "S-ISLE2", 10, 1, "2026-10-10"),
+  ];
+  const withIslands: ScoutTeam[] = [
+    ...teams,
+    team("S-ISLE1", "Island Winners", { state: "TN" }),
+    team("S-ISLE2", "Island Losers", { state: "TN" }),
+  ];
+
+  it("says how much of the board is not connected to the main group", () => {
+    renderTeamRankings({ ageGroups: pages, teams: withIslands, games: islanded() });
+    expect(screen.getByText(/2 of 5 clubs here are not connected/)).toBeInTheDocument();
+    expect(screen.getByText(/largest such group holds 3 clubs/)).toBeInTheDocument();
+  });
+
+  it("marks the unconnected rows in the full table", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings({ ageGroups: pages, teams: withIslands, games: islanded() });
+    await user.click(screen.getByRole("button", { name: /Show all/ }));
+
+    // Scoped to the full table: the boards above list the same clubs by name.
+    const table = within(screen.getByRole("table"));
+    const row = table.getByText("Island Winners").closest("td") as HTMLElement;
+    expect(within(row).getByText("separate group of 2")).toBeInTheDocument();
+    // A club in the main group carries no marker.
+    const main = table.getByText("Autumn Aces").closest("td") as HTMLElement;
+    expect(within(main).queryByText(/separate group of/)).toBeNull();
+  });
+
+  it("says nothing when the board really is one ranking", () => {
+    // Every club joined to every other: a line explaining connectivity would be noise here, and
+    // it is on every mature season's board.
+    renderTeamRankings({ ageGroups: pages, teams, games: bothHalves() });
+    expect(screen.queryByText(/not connected to the main group/)).toBeNull();
+  });
+});

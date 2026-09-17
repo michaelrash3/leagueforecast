@@ -261,6 +261,31 @@ export type ScoutRankingRow = {
   ageLevel?: number;
   /** Counted games against a side at a different level. */
   crossAgeGames: number;
+  /**
+   * How many clubs are in this one's connected piece of the schedule — everything it can reach
+   * through a chain of opponents.
+   *
+   * Not a measure of quality or of evidence. It is the size of the group this club's rating is
+   * measured *within*: the ridge pins every piece to average zero on its own, so a club in a piece
+   * of twelve has a rating relative to those twelve and no relation at all to one in the main
+   * piece. See `scheduleComponents`.
+   */
+  componentSize: number;
+  /**
+   * An opaque token for which piece it is. Two rows sharing it have been compared; two rows that
+   * do not have not, whatever either has played.
+   *
+   * Opaque on purpose — it is one of the club ids in the piece, and which one depends on the order
+   * the games were walked. Its only meaning is equality, and nothing should store it or show it.
+   */
+  componentId: string;
+  /**
+   * Whether this club is in the largest piece — the one the table is really a ranking of.
+   *
+   * A club outside it is still ranked, because it played real games and hiding it would be worse,
+   * but its number is not on the same scale as the rest of the column and the table says so.
+   */
+  comparable: boolean;
   /** True when the team is pinned to at least one GameChanger id. */
   fromGameChanger: boolean;
 };
@@ -275,6 +300,15 @@ export type MatchupPreview = {
   projectedMargin: number;
   winProb: number;
   tier: MatchupTier;
+  /**
+   * True when the two have never been compared — no chain of common opponents joins them.
+   *
+   * The margin and the probability are still here, because they are the only answer the model has
+   * and refusing to show one would be no more honest than showing it silently. What they are not
+   * is a prediction: the two ratings are measured against two different zeros, so their difference
+   * is two unrelated numbers subtracted. A reader told that can weigh it; a reader not told cannot.
+   */
+  unconnected: boolean;
 };
 
 /**
@@ -1671,6 +1705,70 @@ export const teamRecordInPool = (
 
 const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
 
+/**
+ * The connected pieces of a schedule: which clubs can be compared to which at all.
+ *
+ * A rating is a claim about a margin against the pool's average, and the ridge pins every
+ * *connected* piece of the schedule to average zero independently. That is correct arithmetic and
+ * it has a consequence nobody reads off the table: two clubs joined by no chain of opponents are
+ * measured against two different zeros, so the difference between their ratings is not a
+ * prediction about anything. It is two unrelated numbers subtracted.
+ *
+ * On the real pool this is not an edge case. 9U 2027's autumn holds 15,629 clubs in 2,107 pieces,
+ * the largest with 28.4% of them, and 39 of the national top 100 sit outside it — one of them off
+ * an island of twelve clubs. And it is a different problem from a thin record: `The Chill Dogs
+ * 17-5` was seventh in the nation on 22 games off an island of 21, which no amount of evidence
+ * discounting touches, because the games are real and the rating is well determined. It is well
+ * determined *relative to twenty other clubs*.
+ *
+ * Returned as a lookup rather than a list of sets, because every caller wants "which piece is this
+ * club in, and how big is it".
+ */
+export const scheduleComponents = (
+  ids: string[],
+  pairs: Array<[string, string]>
+): { pieceOf: (id: string) => string; sizeOf: (id: string) => number; largest: string | null } => {
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    // Flattened on the way back, so a long chain is walked once rather than once per lookup.
+    let walk = id;
+    while (parent.get(walk) !== walk) {
+      const next = parent.get(walk)!;
+      parent.set(walk, root);
+      walk = next;
+    }
+    return root;
+  };
+  pairs.forEach(([a, b]) => {
+    if (!parent.has(a) || !parent.has(b)) return;
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent.set(rootA, rootB);
+  });
+
+  const sizes = new Map<string, number>();
+  ids.forEach((id) => {
+    const root = find(id);
+    sizes.set(root, (sizes.get(root) ?? 0) + 1);
+  });
+  let largest: string | null = null;
+  let biggest = 0;
+  sizes.forEach((size, root) => {
+    // Ties broken by id so the answer does not depend on Map iteration order.
+    if (size > biggest || (size === biggest && largest !== null && root < largest)) {
+      biggest = size;
+      largest = root;
+    }
+  });
+  return {
+    pieceOf: find,
+    sizeOf: (id) => (parent.has(id) ? (sizes.get(find(id)) ?? 0) : 0),
+    largest,
+  };
+};
+
 /** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
 const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
   rows.sort(
@@ -1752,6 +1850,10 @@ export const buildTeamRankings = (
   );
 
   const records = recordsFor(playedGames);
+  const pieces = scheduleComponents(
+    teams.map((team) => team.id),
+    playedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
+  );
   const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
   const confident = evidenceDiscount(
     adjusted,
@@ -1783,6 +1885,9 @@ export const buildTeamRankings = (
         strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
         sosRank: 0,
         crossAgeGames: 0,
+        componentSize: pieces.sizeOf(team.id),
+        componentId: pieces.pieceOf(team.id),
+        comparable: pieces.largest !== null && pieces.pieceOf(team.id) === pieces.largest,
         fromGameChanger: hasGcLinks(team),
       };
     });
@@ -1902,6 +2007,16 @@ const buildPooledTeamRankings = (
     adjusted,
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
   );
+  /*
+   * Over the same games the fit read, so "the piece this club is in" means the piece the ridge
+   * pinned to zero on its own. Nodes rather than rows: a club reaches the rest of the table through
+   * whatever it played, including sides listed on other pages and stand-ins, all of which are in
+   * the fit.
+   */
+  const pieces = scheduleComponents(
+    nodes.map((team) => team.id),
+    ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
+  );
   const rows = nodes
     /*
      * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
@@ -1931,6 +2046,9 @@ const buildPooledTeamRankings = (
         sosRank: 0,
         ...(ageLevel === undefined ? {} : { ageLevel }),
         crossAgeGames,
+        componentSize: pieces.sizeOf(team.id),
+        componentId: pieces.pieceOf(team.id),
+        comparable: pieces.largest !== null && pieces.pieceOf(team.id) === pieces.largest,
         fromGameChanger: hasGcLinks(team),
       };
     });
@@ -1941,6 +2059,20 @@ const buildPooledTeamRankings = (
 /** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
  * matchup predictions — kept identical so the two features read consistently. Deliberately ignores
  * home-field advantage: Team Rankings games are treated as neutral-site. */
+/**
+ * Whether two rows have never been compared, by any chain of opponents.
+ *
+ * Off the piece each is in, which is the whole point: the question is not "have these two played"
+ * but "is there any path of results between them at all". A club three opponents removed is
+ * compared; a club in another piece of the schedule is not, however many games either has played.
+ *
+ * On the piece's identity rather than its size, because two different islands of the same size are
+ * still two different zeros — comparing sizes would call them compared, which is the exact error
+ * this function exists to name.
+ */
+const notCompared = (a: ScoutRankingRow, b: ScoutRankingRow): boolean =>
+  a.componentId !== b.componentId;
+
 /** Widest projected margin a matchup preview will state, in runs. */
 export const MATCHUP_MARGIN_CAP = 14;
 /**
@@ -2024,6 +2156,7 @@ export const buildScoutingReport = (
       projectedMargin,
       winProb: winProbA,
       tier: tierFor(winProbA),
+      unconnected: notCompared(forRow, opponent),
     };
   };
   const byRank = (a: MatchupPreview, b: MatchupPreview) => a.opponentRank - b.opponentRank;
@@ -2074,6 +2207,8 @@ export type UpcomingMatchup = {
   projectedMargin?: number;
   winProb?: number;
   tier?: MatchupTier;
+  /** True when no chain of opponents joins the two, so the projection is not one. */
+  unconnected?: boolean;
 };
 
 /**
@@ -2115,6 +2250,7 @@ export const buildUpcomingSchedule = (
         opponentName: nameById.get(opponentId) ?? "Unknown team",
       };
       if (!opponent) return base;
+      const across = notCompared(forRow, opponent);
       const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
       return {
         ...base,
@@ -2122,6 +2258,7 @@ export const buildUpcomingSchedule = (
         projectedMargin,
         winProb: winProbA,
         tier: tierFor(winProbA),
+        ...(across ? { unconnected: true } : {}),
       };
     })
     .sort(
