@@ -1,4 +1,4 @@
-import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings";
+import { MAX_AGE_LEVEL, MIN_AGE_LEVEL, type SeasonSegment } from "./teamRankings";
 import type { AppMode } from "./preferences";
 
 /**
@@ -20,6 +20,8 @@ export type RankingsRoute = {
   mode?: AppMode;
   ageLevel?: number;
   year?: number;
+  /** Which half of the baseball year's rankings — `?half=fall`. */
+  segment?: SeasonSegment;
   section?: RankingsSection;
 };
 
@@ -31,6 +33,22 @@ export const AGE_PARAM = "age";
 export const YEAR_PARAM = "year";
 /** `?section=games` — which area of Team Rankings is on screen. */
 export const SECTION_PARAM = "section";
+/** `?half=fall` — which half of the baseball year the boards are for. */
+export const HALF_PARAM = "half";
+
+/**
+ * The value `?half=` takes. Spelled out like the views and sections are, so the names in the URL
+ * read the way a coach says them without pinning the internal ones.
+ */
+const HALF_VALUES: Record<string, SeasonSegment> = {
+  fall: "fall",
+  spring: "spring",
+};
+
+const HALF_URLS: Record<SeasonSegment, string> = {
+  fall: "fall",
+  spring: "spring",
+};
 
 /**
  * The value `?view=` takes for each mode. Spelled out rather than reusing the stored `AppMode`
@@ -76,6 +94,15 @@ const SECTION_URLS: Record<RankingsSection, string> = {
  * forgetting it here is a type error rather than a section nothing tests and no tab reaches.
  */
 export const RANKINGS_SECTIONS = Object.keys(SECTION_URLS) as RankingsSection[];
+
+/**
+ * Both halves, for a picker and for a test that must not hardcode them.
+ *
+ * Off `HALF_URLS`, whose type forces a key per half, so a half added to the union and forgotten
+ * here is a type error rather than a board nothing reaches. Same order as
+ * `SEASON_SEGMENT_ORDER`, which is the order a season plays them.
+ */
+export const SEASON_SEGMENTS = Object.keys(HALF_URLS) as SeasonSegment[];
 
 /**
  * Widest season year a link may name. Years are only ever a label for a squad, so this is about
@@ -127,6 +154,10 @@ export const parseRankingsRoute = (search: string): RankingsRoute => {
   const named = section ? SECTION_VALUES[section] : undefined;
   if (named) route.section = named;
 
+  const half = params.get(HALF_PARAM)?.trim().toLowerCase();
+  const segment = half ? HALF_VALUES[half] : undefined;
+  if (segment) route.segment = segment;
+
   return route;
 };
 
@@ -153,6 +184,7 @@ export const rankingsSearch = (currentSearch: string, route: RankingsRoute): str
   set(AGE_PARAM, isRouteAgeLevel(route.ageLevel) ? String(route.ageLevel) : undefined);
   set(YEAR_PARAM, isRouteYear(route.year) ? String(route.year) : undefined);
   set(SECTION_PARAM, route.section ? SECTION_URLS[route.section] : undefined);
+  set(HALF_PARAM, route.segment ? HALF_URLS[route.segment] : undefined);
 
   const next = params.toString();
   return next ? `?${next}` : "";
@@ -160,4 +192,8 @@ export const rankingsSearch = (currentSearch: string, route: RankingsRoute): str
 
 /** Whether two routes name the same page — used to avoid pushing a history entry for a no-op. */
 export const sameRankingsRoute = (a: RankingsRoute, b: RankingsRoute): boolean =>
-  a.mode === b.mode && a.ageLevel === b.ageLevel && a.year === b.year && a.section === b.section;
+  a.mode === b.mode &&
+  a.ageLevel === b.ageLevel &&
+  a.year === b.year &&
+  a.segment === b.segment &&
+  a.section === b.section;

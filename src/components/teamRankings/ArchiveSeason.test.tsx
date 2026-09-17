@@ -95,7 +95,9 @@ describe("archiving a finished season from the app", () => {
       loadArchiveIndex()
         .map((entry) => entry.name)
         .sort()
-    ).toEqual(["10U 2026", "9U 2026"]);
+      // A table per half, named by the half. `seasonDate` puts every fixture in September, so only
+      // the autumn of this baseball year has anything and only it keeps a board.
+    ).toEqual(["10U · Fall 2025", "9U · Fall 2025"]);
   });
 
   it("warns that the ages it cannot rank keep no table of their own", async () => {
@@ -127,7 +129,7 @@ describe("archiving a finished season from the app", () => {
     await waitFor(() => expect(harness.toasts().join(" ")).toContain("2026 archived"));
 
     await go(user, "Archive");
-    await user.click(screen.getByRole("button", { name: "9U 2026" }));
+    await user.click(screen.getByRole("button", { name: "9U · Fall 2025" }));
 
     const national = await screen.findByRole("heading", { name: /National top/ });
     const board = national.closest("div")?.parentElement as HTMLElement;
@@ -146,7 +148,7 @@ describe("archiving a finished season from the app", () => {
     await waitFor(() => expect(harness.toasts().join(" ")).toContain("2026 archived"));
 
     await go(user, "Archive");
-    await user.click(screen.getByRole("button", { name: "9U 2026" }));
+    await user.click(screen.getByRole("button", { name: "9U · Fall 2025" }));
     const box = await screen.findByLabelText("Find a team in this season");
     await user.type(box, "badg");
 

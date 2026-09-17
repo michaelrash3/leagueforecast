@@ -2,7 +2,14 @@
  * The top of Team Rankings: which season year is open, which age level within it, and which area
  * of that page is showing. Every one of the three is a link somebody can send.
  */
-import { ageGroupLevel, isRankedAgeLevel, type AgeGroup } from "../../lib/teamRankings";
+import {
+  ageGroupLevel,
+  isRankedAgeLevel,
+  segmentLabel,
+  type AgeGroup,
+  type SeasonSegment,
+} from "../../lib/teamRankings";
+import { SEASON_SEGMENTS } from "../../lib/rankingsRoute";
 import type { RankingsSection } from "../../lib/rankingsRoute";
 import { SectionNav } from "./SectionNav";
 import { button, card, tab } from "../../styles/tokens";
@@ -15,6 +22,11 @@ type RankingsHeaderProps = {
   selectedAgeGroupId: string;
   groupsInYear: AgeGroup[];
   yearChoices: (number | undefined)[];
+  /** Which half of the baseball year the boards are for; absent on a page with no year. */
+  selectedSegment: SeasonSegment | undefined;
+  /** How many games each half of this year holds, so a half with none can say so on its tab. */
+  segmentGames: Record<SeasonSegment, number>;
+  onOpenSegment: (segment: SeasonSegment) => void;
   onOpenYear: (year: number | undefined) => void;
   onOpenPage: (groupId: string) => void;
   onOpenSection: (section: RankingsSection) => void;
@@ -27,6 +39,9 @@ export function RankingsHeader({
   selectedAgeGroupId,
   groupsInYear,
   yearChoices,
+  selectedSegment,
+  segmentGames,
+  onOpenSegment,
   onOpenYear,
   onOpenPage,
   onOpenSection,
@@ -96,6 +111,39 @@ export function RankingsHeader({
             </button>
           </div>
         </div>
+      )}
+
+      {/*
+        The two halves of the baseball year, which are two tables rather than one filtered.
+        Alongside the season and the age level because it scopes the boards the same way, and only
+        where there is a year to be half of — a legacy page with no season keeps its single table.
+      */}
+      {selectedSegment !== undefined && selectedYear !== undefined && groupsInYear.length > 0 && (
+        <nav
+          aria-label="Half of the season"
+          className="mt-3 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1"
+        >
+          {SEASON_SEGMENTS.map((segment) => {
+            const active = segment === selectedSegment;
+            const played = segmentGames[segment];
+            return (
+              <button
+                key={segment}
+                type="button"
+                onClick={() => onOpenSegment(segment)}
+                aria-current={active ? "page" : undefined}
+                className={tab(active)}
+              >
+                {segmentLabel(selectedYear, segment)}
+                {/* A half nobody has played yet is still offered, and says so rather than
+                    disappearing: the season is going to reach it. */}
+                {played === 0 && (
+                  <span className="ml-2 text-xs font-semibold opacity-60">not played</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       )}
 
       {groupsInYear.length > 0 && (

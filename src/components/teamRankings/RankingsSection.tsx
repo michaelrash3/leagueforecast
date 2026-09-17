@@ -24,6 +24,13 @@ type RankingsSectionProps = {
   hasAgeGroups: boolean;
   /** Why this page has no table at all, when the reason is the age level rather than the data. */
   unrankedLevelNote: string | null;
+  /**
+   * Which half of the season these boards are, for the headings, and what to say when it is empty.
+   *
+   * A half nobody has played yet is an empty board with a perfectly good reason, and "add a game to
+   * start ranking teams" is the wrong reason: the games exist, they are in the other half.
+   */
+  segment: { name: string; played: number; otherName: string; otherPlayed: number } | null;
   rankings: ScoutRankingRow[];
   rankingsStale: boolean;
   nationalTop: ScoutRankingRow[];
@@ -56,6 +63,7 @@ export function RankingsSection({
   onSearchTeam,
   hasAgeGroups,
   unrankedLevelNote,
+  segment,
   rankings,
   rankingsStale,
   nationalTop,
@@ -113,14 +121,16 @@ export function RankingsSection({
       {rankings.length === 0 ? (
         <div className={`${card} p-5`}>
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
-            {groupName || "Rankings"}
+            {groupName ? `${groupName}${segment ? ` · ${segment.name}` : ""}` : "Rankings"}
           </h2>
           <p className="mt-3 text-sm text-slate-500">
             {unrankedLevelNote
               ? unrankedLevelNote
               : !hasAgeGroups
                 ? "Set up an age group in Setup, then add a game to start ranking teams."
-                : "Add a game in Games to start ranking teams for this age group."}
+                : segment && segment.played === 0 && segment.otherPlayed > 0
+                  ? `Nothing has been played in ${segment.name} yet. ${segment.otherName} has ${segment.otherPlayed.toLocaleString()} game${segment.otherPlayed === 1 ? "" : "s"} — the two halves are ranked separately, so this board fills up when the season reaches it.`
+                  : "Add a game in Games to start ranking teams for this age group."}
           </p>
         </div>
       ) : (
@@ -129,6 +139,7 @@ export function RankingsSection({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
                 National top {NATIONAL_TOP}
+                {segment ? ` · ${segment.name}` : ""}
               </h2>
               <span className="text-xs text-slate-500">
                 {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}

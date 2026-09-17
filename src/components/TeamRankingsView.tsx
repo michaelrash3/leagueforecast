@@ -14,6 +14,8 @@ import {
   mergeScoutTeams,
   MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
+  segmentLabel,
+  segmentOfDate,
   resolveOrCreateTeam,
   seasonAtAge,
   seasonYearOptions,
@@ -28,6 +30,7 @@ import {
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
@@ -91,7 +94,7 @@ import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
-import { useRankingsPages } from "../hooks/useRankingsPages";
+import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
 
@@ -148,17 +151,29 @@ export function TeamRankingsView({
   onDataChange,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
+  /*
+   * Today, as a plain ISO day, read once for the render.
+   *
+   * Used to decide which half of the year a page opens on and to work out which fixtures are still
+   * ahead. Read here rather than in each place that wants it so both answers come from the same
+   * instant — a render where the schedule and the board disagreed about what day it is would be a
+   * genuinely confusing thing to debug.
+   */
+  const today = new Date().toISOString().slice(0, 10);
   const {
     section,
     selectedAgeGroupId,
     selectedYear,
     groupsInYear,
     yearChoices,
+    routeSegment,
+    calendarSegment,
     openPage,
     openSection,
+    openSegment,
     openYear,
     pickPage,
-  } = useRankingsPages(ageGroups);
+  } = useRankingsPages(ageGroups, today);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
   const [reportTeamId, setReportTeamId] = useState<string>("");
@@ -415,6 +430,34 @@ export function TeamRankingsView({
     return allKnown.games.filter((game) => pool.has(game.ageGroupId));
   }, [allKnown.games, selectedAgeGroupId, ageGroups]);
 
+  /**
+   * How many counted games each half of this year holds.
+   *
+   * Only so a half with nothing in it can say so on its own tab instead of being an empty board
+   * with no explanation. Off `poolGames`, which is the same list the boards are fitted from, so
+   * the count and the table cannot disagree.
+   */
+  const segmentGames = useMemo(() => {
+    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
+    const counts: Record<SeasonSegment, number> = { fall: 0, spring: 0 };
+    poolGames.forEach((game) => {
+      if (!isScoutGamePlayed(game)) return;
+      const half = segmentOfDate(game.date, year);
+      if (half) counts[half] += 1;
+    });
+    return counts;
+  }, [poolGames, ageGroups, selectedAgeGroupId]);
+
+  /**
+   * Which half of the year the boards are for.
+   *
+   * The URL decides when it says; otherwise the calendar's half, unless that half holds nothing and
+   * the other does. The fallback is here rather than in the hook because it is the counts above
+   * that make it answerable, and it is never written into the URL — the app's guess should not end
+   * up pinned in a link somebody shares.
+   */
+  const selectedSegment = routeSegment ?? segmentWorthShowing(calendarSegment, segmentGames);
+
   const myTeamId = ageGroups.find((g) => g.id === selectedAgeGroupId)?.myTeamId;
 
   /**
@@ -430,6 +473,13 @@ export function TeamRankingsView({
     games: poolGames,
     ...(myTeamId === undefined ? {} : { myTeamId }),
     ageGroups,
+    /*
+     * One half of the year, fitted on its own games. Everything below reads `rankings`, so the two
+     * boards, the state boards, the full table and the scouting report all follow the half
+     * together — which they must, because a scouting report on a spring table built from autumn
+     * ratings would be describing a team that does not exist.
+     */
+    ...(selectedSegment === undefined ? {} : { segment: selectedSegment }),
   });
 
   /**
@@ -538,9 +588,8 @@ export function TeamRankingsView({
    */
   const upcomingRows = useMemo(() => {
     if (!reportForId) return [];
-    const today = new Date().toISOString().slice(0, 10);
     return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
-  }, [reportForId, rankings, poolGames, allKnown.teams]);
+  }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
@@ -1159,6 +1208,9 @@ This cannot be undone. Cancel and download the backup first if there is any chan
         selectedAgeGroupId={selectedAgeGroupId}
         groupsInYear={groupsInYear}
         yearChoices={yearChoices}
+        selectedSegment={selectedSegment}
+        segmentGames={segmentGames}
+        onOpenSegment={openSegment}
         onOpenYear={openYear}
         onOpenPage={openPage}
         onOpenSection={openSection}
@@ -1184,6 +1236,19 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onSearchTeam={openSearchedTeam}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
+              segment={
+                selectedSegment === undefined || selectedYear === undefined
+                  ? null
+                  : {
+                      name: segmentLabel(selectedYear, selectedSegment),
+                      played: segmentGames[selectedSegment],
+                      otherName: segmentLabel(
+                        selectedYear,
+                        selectedSegment === "fall" ? "spring" : "fall"
+                      ),
+                      otherPlayed: segmentGames[selectedSegment === "fall" ? "spring" : "fall"],
+                    }
+              }
               rankings={rankings}
               rankingsStale={rankingsStale}
               nationalTop={nationalTop}

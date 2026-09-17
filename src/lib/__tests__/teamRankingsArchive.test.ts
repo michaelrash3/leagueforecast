@@ -229,7 +229,15 @@ describe("freezing a whole squad year", () => {
       "2026-09-17T00:00:00.000Z"
     );
 
-    expect(done.seasons.map((season) => season.name).sort()).toEqual(["10U 2026", "9U 2026"]);
+    /*
+     * A table per half, named by the half. These fixtures play in May, so only the spring half has
+     * anything and only it keeps a table — which is the right answer rather than a shortfall: an
+     * autumn nobody played has no board to freeze.
+     */
+    expect(done.seasons.map((season) => season.name).sort()).toEqual([
+      "10U · Spring 2026",
+      "9U · Spring 2026",
+    ]);
     expect(done.state.ageGroups.map((group) => group.id)).toEqual(["ag_9_2027"]);
     expect(done.state.games.map((game) => game.id)).toEqual(["y-live"]);
     // Only the live game's two teams are still needed.
@@ -258,14 +266,15 @@ describe("freezing a whole squad year", () => {
    */
   it("freezes every page from the pool as it stood, not as the last step left it", () => {
     const { teams, games } = yearPool();
-    const alone = buildTeamRankings("ag_10_2026", teams, games, undefined, yearGroups);
+    // The same half, fitted directly: the archive's table must be the board's, not a second opinion.
+    const alone = buildTeamRankings("ag_10_2026", teams, games, undefined, yearGroups, "spring");
     const done = archiveSquadYear(
       2026,
       { teams, games },
       { ageGroups: yearGroups, teams, games },
       "2026-09-17T00:00:00.000Z"
     );
-    const kept = done.seasons.find((season) => season.name === "10U 2026")!;
+    const kept = done.seasons.find((season) => season.name === "10U · Spring 2026")!;
 
     expect(kept.rows.map((row) => row.teamName)).toEqual(alone.map((row) => row.teamName));
     kept.rows.forEach((row, at) => expect(row.rating).toBeCloseTo(alone[at]!.rating, 9));
@@ -390,7 +399,7 @@ describe("a season whose table includes the league's own games", () => {
   it("freezes the league's games into the table, where the stored pool alone would lose them", () => {
     const { shown, stored } = both();
     const done = archiveSquadYear(2026, shown, stored, "2026-09-17T00:00:00.000Z");
-    const kept = done.seasons.find((season) => season.name === "9U 2026")!;
+    const kept = done.seasons.find((season) => season.name === "9U · Spring 2026")!;
 
     expect(kept.rows.map((row) => row.teamName)).toContain("Lexington Legends");
     // The record is the league's: two wins, no losses, and the table says so.
@@ -403,7 +412,7 @@ describe("a season whose table includes the league's own games", () => {
       { teams: stored.teams, games: stored.games },
       stored,
       "2026-09-17T00:00:00.000Z"
-    ).seasons.find((season) => season.name === "9U 2026")!;
+    ).seasons.find((season) => season.name === "9U · Spring 2026")!;
     expect(storedOnly.rows.map((row) => row.teamName)).not.toContain("Lexington Legends");
   });
 

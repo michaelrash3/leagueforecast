@@ -802,6 +802,90 @@ export const inSquadYear = (date: string | undefined, year: number | undefined):
   return date >= start && date <= end;
 };
 
+/**
+ * The two halves of a baseball year.
+ *
+ * A baseball year runs August 1 to July 31 — `squadYearWindow` — and it is played in two halves
+ * with a winter between them: August to December, then January to July. They are one season, and
+ * they are not one table. A club's Fall standing must not be worked out from games it had not
+ * played yet, and on a real pool the two halves are nearly different populations anyway: of
+ * 111,790 clubs in one year, 27,260 played only the autumn and 73,068 only the spring, with 11,462
+ * in both. Ranking them together answers neither question.
+ */
+export type SeasonSegment = "fall" | "spring";
+
+/** Both halves, in the order a season plays them. */
+export const SEASON_SEGMENT_ORDER: SeasonSegment[] = ["fall", "spring"];
+
+/**
+ * The dates a half covers, inside `squadYearWindow(year)`.
+ *
+ * The two are contiguous and together are exactly the year, so every dated game in a year is in
+ * one half or the other and none is in both.
+ */
+export const segmentWindow = (
+  year: number,
+  segment: SeasonSegment
+): { start: string; end: string } =>
+  segment === "fall"
+    ? { start: `${year - 1}-08-01`, end: `${year - 1}-12-31` }
+    : { start: `${year}-01-01`, end: `${year}-07-31` };
+
+/**
+ * How a half is named: by the calendar year it is actually played in.
+ *
+ * So baseball year 2027 is "Fall 2026" and "Spring 2027" — which is what a coach says, and the
+ * reason the year number alone is not a label anybody would recognise on a board.
+ */
+export const segmentLabel = (year: number, segment: SeasonSegment): string =>
+  segment === "fall" ? `Fall ${year - 1}` : `Spring ${year}`;
+
+/** Which half a date is in, or nothing when the date is absent or outside the year. */
+export const segmentOfDate = (
+  date: string | undefined,
+  year: number | undefined
+): SeasonSegment | undefined => {
+  if (year === undefined || !date || !inSquadYear(date, year)) return undefined;
+  const { end } = segmentWindow(year, "fall");
+  return date <= end ? "fall" : "spring";
+};
+
+/** Whether a game belongs in one half's table. A game with no date is in neither. */
+export const inSegment = (
+  date: string | undefined,
+  year: number | undefined,
+  segment: SeasonSegment | undefined
+): boolean => {
+  if (segment === undefined) return inSquadYear(date, year);
+  return segmentOfDate(date, year) === segment;
+};
+
+/**
+ * The baseball year a day is in, and which half of it.
+ *
+ * August starts a new year, so any day from August 1 belongs to the next one: September 17, 2026 is
+ * the autumn of baseball year 2027.
+ */
+export const segmentOn = (today: string): { year: number; segment: SeasonSegment } => {
+  const calendar = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  return month >= 8
+    ? { year: calendar + 1, segment: "fall" }
+    : { year: calendar, segment: "spring" };
+};
+
+/**
+ * The previous season, for either half of a year.
+ *
+ * Fall and Spring are one season, referred to by its spring: the season before both halves of 2027
+ * is Spring 2026, never Fall 2026. That is the whole reason this is a function rather than a
+ * subtraction at each call site — "the half before this one" is a different and wrong answer.
+ */
+export const previousSeason = (year: number): { year: number; segment: SeasonSegment } => ({
+  year: year - 1,
+  segment: "spring",
+});
+
 /** Ids are minted here so every caller that creates an age group produces the same shape. */
 export const createAgeGroupId = (): string =>
   `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -1626,15 +1710,31 @@ const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
  * page is rated (it is a node in the same regression) but listed on its own page. Records count
  * every counted game in the pool, so a 9U's win over a 10U is a win. A group below
  * `MIN_RANKED_AGE_LEVEL` has no table at all.
+ *
+ * With a `segment`, the fit is over that half of the year alone and the records, cross-age counts
+ * and strength of schedule are that half's too. Fitted, not filtered: a Fall table built from a
+ * whole-year fit would have read the spring before saying who was best in the autumn. Which page a
+ * club is listed on does not change between halves — its age level is a fact about the club for the
+ * season — so the same club is on the same board in both.
  */
 export const buildTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
   myTeamId?: string,
-  ageGroups?: AgeGroup[]
+  ageGroups?: AgeGroup[],
+  /**
+   * One half of the baseball year — "fall" or "spring" — or the whole of it when left out.
+   *
+   * Only the pooled path honours it, because a half needs a year to be a half of and the one-group
+   * path has none. The app always passes `ageGroups`, so this is a limit on the legacy call rather
+   * than on a board anybody sees.
+   */
+  segment?: SeasonSegment
 ): ScoutRankingRow[] => {
-  if (ageGroups) return buildPooledTeamRankings(ageGroupId, teams, games, myTeamId, ageGroups);
+  if (ageGroups) {
+    return buildPooledTeamRankings(ageGroupId, teams, games, myTeamId, ageGroups, segment);
+  }
 
   const playedGames = games.filter(
     (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
@@ -1701,7 +1801,14 @@ export const scoutRatingGames = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  /**
+   * One half of the year, or the whole of it when left out.
+   *
+   * A half is fitted on its own games alone — not on the year's, filtered afterwards — because a
+   * rating fitted over both halves has read the spring before saying who was best in the autumn.
+   */
+  segment?: SeasonSegment
 ): Array<{ game: ScoutGame; ageGap: number }> => {
   const index = indexGroups(ageGroups);
   const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
@@ -1712,8 +1819,12 @@ export const scoutRatingGames = (
       (game) =>
         pool.has(game.ageGroupId) &&
         countsTowardRating(game) &&
-        // Last year's squad's games, listed under this year's id, are not this squad's results.
-        inSquadYear(game.date, index.year(game.ageGroupId)) &&
+        /*
+         * Last year's squad's games, listed under this year's id, are not this squad's results —
+         * and with a half named, this is also what keeps the other half out. A game with no date
+         * is in the year but in neither half, so it informs the year's table and neither board.
+         */
+        inSegment(game.date, index.year(game.ageGroupId), segment) &&
         teamById.has(game.teamAId) &&
         teamById.has(game.teamBId)
     )
@@ -1725,14 +1836,15 @@ const buildPooledTeamRankings = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   myTeamId: string | undefined,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment
 ): ScoutRankingRow[] => {
   const index = indexGroups(ageGroups);
   const level = index.level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
   const year = index.year(ageGroupId);
 
-  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups);
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups, segment);
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();
@@ -1760,6 +1872,11 @@ const buildPooledTeamRankings = (
     { cap: RATING_CAP }
   );
 
+  /*
+   * Over the whole year, not the half. A club's age level is a fact about the club for the season,
+   * so it is on the same page in both halves — a club that appears on the 9U board in the autumn
+   * must not move to the 10U board in the spring because of which games fell where.
+   */
   const homeLevels = homeLevelsForYear(year, nodes, games, ageGroups);
   // A page with no readable level (a legacy group) lists whoever played there, as it always has.
   const belongsHere = (teamId: string): boolean => {

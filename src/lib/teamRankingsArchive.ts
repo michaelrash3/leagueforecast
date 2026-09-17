@@ -1,9 +1,14 @@
 import {
+  ageGroupLevel,
   ageGroupYear,
+  inSegment,
   buildTeamRankings,
+  SEASON_SEGMENT_ORDER,
+  segmentLabel,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
+  type SeasonSegment,
 } from "./teamRankings";
 import type { ScoutRankingRow } from "./teamRankings";
 
@@ -31,8 +36,13 @@ import type { ScoutRankingRow } from "./teamRankings";
  * comparable either.
  */
 
-/** Bumped when a row gains or loses a field, so a reader knows what it is looking at. */
-export const ARCHIVE_VERSION = 1;
+/**
+ * Bumped when a row gains or loses a field, so a reader knows what it is looking at.
+ *
+ * 2: an archive is one half of a baseball year rather than the whole of it. A version-1 archive is
+ * a whole-year table and reads fine, but it is not comparable with a half's.
+ */
+export const ARCHIVE_VERSION = 2;
 
 /** One team's finishing position, and enough beside it to read the table without the games. */
 export type ArchivedRankingRow = {
@@ -60,6 +70,8 @@ export type ArchivedSeason = {
   name: string;
   ageLevel?: number;
   year?: number;
+  /** Which half of the year this is. Absent on a version-1 archive, which was the whole year. */
+  segment?: SeasonSegment;
   archivedAt: string;
   /** What stood behind the table, so a reader can weigh it. */
   fromGames: number;
@@ -79,6 +91,7 @@ export type ArchiveEntry = {
   name: string;
   ageLevel?: number;
   year?: number;
+  segment?: SeasonSegment;
   archivedAt: string;
   fromGames: number;
   fromTeams: number;
@@ -90,6 +103,7 @@ export const archiveEntryOf = (season: ArchivedSeason): ArchiveEntry => ({
   name: season.name,
   ...(season.ageLevel === undefined ? {} : { ageLevel: season.ageLevel }),
   ...(season.year === undefined ? {} : { year: season.year }),
+  ...(season.segment === undefined ? {} : { segment: season.segment }),
   archivedAt: season.archivedAt,
   fromGames: season.fromGames,
   fromTeams: season.fromTeams,
@@ -131,20 +145,42 @@ export const archiveSeason = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   ageGroups: AgeGroup[],
-  archivedAt: string
+  archivedAt: string,
+  /** One half of the year. Left out only for a page with no year to be half of. */
+  segment?: SeasonSegment
 ): ArchivedSeason => {
-  const rows = buildTeamRankings(group.id, teams, games, group.myTeamId, ageGroups);
+  const rows = buildTeamRankings(group.id, teams, games, group.myTeamId, ageGroups, segment);
   const stateOf = new Map(teams.map((team) => [team.id, team.state]));
+  const year = ageGroupYear(group);
+  const level = ageGroupLevel(group);
+  /*
+   * "9U · Spring 2026", not "9U 2026 · Spring 2026". The page's name already carries the baseball
+   * year and the half's label carries the calendar one, so spelling both would read as two dates.
+   * A page with no readable level keeps its own name, which is all there is to call it.
+   */
+  const name =
+    segment && year !== undefined && level !== undefined
+      ? `${level}U · ${segmentLabel(year, segment)}`
+      : group.name;
   const onPage = games.filter((game) => game.ageGroupId === group.id);
   return {
     version: ARCHIVE_VERSION,
-    id: archiveIdOf(group.name, ageGroupYear(group)),
-    name: group.name,
-    ...(group.ageLevel === undefined ? {} : { ageLevel: group.ageLevel }),
-    ...(group.year === undefined ? {} : { year: group.year }),
+    id: archiveIdOf(name, year),
+    name,
+    ...(level === undefined ? {} : { ageLevel: level }),
+    ...(year === undefined ? {} : { year }),
+    ...(segment === undefined ? {} : { segment }),
     archivedAt,
-    fromGames: onPage.length,
-    fromTeams: new Set(onPage.flatMap((game) => [game.teamAId, game.teamBId])).size,
+    /*
+     * The games behind *this* table. A half's rows stand on that half's games, so counting the
+     * page's whole year here would tell a reader the spring table was built from twice what it was.
+     */
+    fromGames: onPage.filter((game) => inSegment(game.date, year, segment)).length,
+    fromTeams: new Set(
+      onPage
+        .filter((game) => inSegment(game.date, year, segment))
+        .flatMap((game) => [game.teamAId, game.teamBId])
+    ).size,
     rows: rows.map((row) => keepRow(row, stateOf.get(row.teamId))),
   };
 };
@@ -234,9 +270,25 @@ export const archiveSquadYear = (
    * archived second is frozen from the same games as the page archived first.
    */
   ofYear.forEach((group) => {
-    const kept = archiveSeason(group, shown.teams, shown.games, stored.ageGroups, archivedAt);
-    if (kept.rows.length > 0) seasons.push(kept);
-    else if (kept.fromGames > 0) unranked.push({ name: group.name, games: kept.fromGames });
+    /*
+     * A table per half, because that is what the boards are. A single whole-year table would
+     * freeze something nobody can see any more, and the two halves genuinely disagree: on the real
+     * pool 9U 2026's autumn had 5,128 clubs and its spring 10,242, with different sides on top.
+     */
+    const halves = SEASON_SEGMENT_ORDER.map((segment) =>
+      archiveSeason(group, shown.teams, shown.games, stored.ageGroups, archivedAt, segment)
+    );
+    halves.forEach((kept) => {
+      if (kept.rows.length > 0) seasons.push(kept);
+    });
+    /*
+     * Reported once per page, not once per half. A page below `MIN_RANKED_AGE_LEVEL` has no table
+     * in either half, and saying so twice would read as twice the games going.
+     */
+    if (halves.every((kept) => kept.rows.length === 0)) {
+      const held = shown.games.filter((game) => game.ageGroupId === group.id).length;
+      if (held > 0) unranked.push({ name: group.name, games: held });
+    }
   });
 
   const going = new Set(ofYear.map((group) => group.id));

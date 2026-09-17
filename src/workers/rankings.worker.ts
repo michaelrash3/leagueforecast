@@ -5,6 +5,7 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 
 /**
@@ -22,6 +23,8 @@ export type RankingsRequest = {
   games: ScoutGame[];
   myTeamId?: string;
   ageGroups: AgeGroup[];
+  /** One half of the baseball year, or the whole of it when absent. */
+  segment?: SeasonSegment;
 };
 
 export type CancelRequest = { kind: "cancel"; id: number };
@@ -52,7 +55,14 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
   }
 
   const start = performance.now();
-  const rows = buildTeamRankings(req.ageGroupId, req.teams, req.games, req.myTeamId, req.ageGroups);
+  const rows = buildTeamRankings(
+    req.ageGroupId,
+    req.teams,
+    req.games,
+    req.myTeamId,
+    req.ageGroups,
+    req.segment
+  );
   // A fit that finished after the page stopped wanting it is thrown away rather than posted: the
   // answer is for a pool that has already changed.
   if (!canceled.has(req.id)) {
