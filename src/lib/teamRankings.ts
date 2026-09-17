@@ -1,5 +1,9 @@
 import type { GameLog, Matchup, TeamBase } from "./types";
-import { buildOpponentAdjustedRatings } from "./powerRating";
+import {
+  buildOpponentAdjustedRatings,
+  DEFAULT_SHRINKAGE,
+  type OpponentAdjustedRatings,
+} from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
 import { createTeamId } from "./sim";
 import { normalizeDateInput } from "./date";
@@ -231,8 +235,20 @@ export type ScoutRankingRow = {
   teamName: string;
   isMine: boolean;
   rank: number;
-  /** Opponent-adjusted expected margin vs an average team in this age group's pool, in runs. */
+  /**
+   * What the table ranks and shows: the opponent-adjusted expected margin vs an average team in
+   * this pool, in runs, less one standard error for how little may stand behind it. See
+   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`.
+   */
   rating: number;
+  /**
+   * The fit's own estimate, undiscounted — the best guess rather than the confident one.
+   *
+   * Kept beside `rating` because the two answer different questions and a reader deserves both:
+   * "+7.9 off four games, so it is ranked at +6.5" is the whole explanation of why a 4-0 club is
+   * not first in the nation, and without this the table could only assert the conclusion.
+   */
+  pointRating: number;
   record: string;
   wins: number;
   losses: number;
@@ -269,6 +285,102 @@ export type MatchupPreview = {
  * that has drifted from the number in the maths is worse than not quoting it.
  */
 export const RATING_CAP = 8;
+
+/**
+ * How many standard errors a rating is discounted by before it is ranked or shown.
+ *
+ * The fit's rating is a best guess, and a best guess from four games is not the same claim as the
+ * same number from forty. The ridge already pulls a thin record toward the mean — that is what
+ * makes the guess as good as it can be — but it does not make the table honest, because two teams
+ * whose best guess is +8 are not equally likely to actually be +8. A four-game team's rating has a
+ * standard error of about 1.4 runs on a real pool; a forty-game team's is about 0.6.
+ *
+ * So what is ranked and shown is the rating less one standard error: not what a team might be, but
+ * what it is confidently worth. It is the "conservative rating" a skill system reports, for the
+ * same reason, and it is why a 4-0 club sits behind an 11-1 club that has proved as much over
+ * nearly three times the schedule.
+ *
+ * One, measured rather than picked. On the real pool's 2026 year — 59,408 out-of-sample games
+ * between teams the fit had seen — discounts from a quarter of an error to one and a half were all
+ * inside noise against no discount at all: the best, half an error, was +41 games net of the 1,349
+ * the two orders disagreed on (1.1σ), and one error was −15 of 2,649 (−0.3σ). On the 2027 year the
+ * picks were identical to four figures. What the discount changes is the table: thin teams in the
+ * national top 100 fell from 18 to 6 on the mature year, and on the current one `MTBA Dawgs Moore
+ * 4-0` went from first in the nation to third, behind an 11-1 and a 10-1. One standard error is the
+ * plain reading of the thing and costs nothing, so it is not tuned any finer than that.
+ *
+ * Deliberately not a minimum-games cut-off. A cut-off says a team with nine games does not exist
+ * and a team with ten is believed outright; this says a thin record counts for as much as it can
+ * support, which is the truth and needs no threshold to argue about.
+ */
+export const EVIDENCE_STANDARD_ERRORS = 1;
+
+/**
+ * How far a rating could be off, in runs: `scale / sqrt(games + shrinkage)`.
+ *
+ * The denominator is the fit's own — a rating stands on its games plus the ridge's virtual ones —
+ * and the numerator is the pool's own noise, measured by the fit rather than assumed, because a
+ * league of one-run games and a pool of blowouts are not equally uncertain about the same number
+ * of games.
+ */
+export const ratingSpread = (
+  games: number,
+  residualScale: number,
+  shrinkage: number = DEFAULT_SHRINKAGE
+): number => residualScale / Math.sqrt(Math.max(0, games) + shrinkage);
+
+/**
+ * The discount one fit applies to its ratings before they are ranked or shown.
+ *
+ * Built per fit rather than per team, because it needs one thing no team knows on its own: how much
+ * evidence an *average* team in this pool has. The discount is centred on that, so the table still
+ * means what it meant — the rating of a middling team stays near zero and "expected margin against
+ * an average team" is still a fair reading of it — while a club with less than its share of
+ * evidence loses ground and one with more gains a little.
+ *
+ * Centring is a single constant added to every rating, so it cannot change any order, and
+ * `predictMatchup` takes a difference, so it cancels there too. What it buys is that a pool where
+ * everybody has played the same amount is left *exactly* as the fit left it, to the last digit —
+ * which is right, because when every club has equal evidence, evidence says nothing about which is
+ * better. The per-component zero-sum property of the fit survives that untouched.
+ *
+ * Centred over the clubs, and over all of them in the year rather than one page's rows. Not one
+ * page's rows, because the pages of a year share a fit and a club's shown rating must not depend on
+ * which page it happens to be listed on. And not every fitted node either: two thirds of the nodes
+ * in a nationwide year are stand-ins and clubs known from a single line of somebody else's
+ * schedule, which nothing ever ranks. Centring on those put the average at two games where the
+ * average club has fifteen, and lifted the whole table by a run for no reason anybody could read.
+ *
+ * One subtraction, the same for a good club and a bad one, and no clamp. Both of those were tried
+ * the other way round first and both were wrong. Shrinking *toward* zero from either side reads
+ * well — "a thin record is weak evidence of being bad, too" — and inverts the table around zero: a
+ * twenty-one-game club at +0.085 moved to −0.689 while one at −0.255 moved to +0.519, so the worse
+ * club outranked the better one. Clamping at zero to stop that collapses every club within a
+ * standard error of average onto exactly 0 — most of the middle of the table — where the sort falls
+ * through to raw margin, which is not opponent-adjusted at all. A fixture caught both.
+ */
+export const evidenceDiscount = (
+  adjusted: Pick<OpponentAdjustedRatings, "games" | "residualScale">,
+  /** The clubs to centre on. Every fitted team when left out, which is right for a pool of clubs. */
+  centreOn?: Iterable<string>,
+  shrinkage: number = DEFAULT_SHRINKAGE,
+  standardErrors: number = EVIDENCE_STANDARD_ERRORS
+): ((rating: number, games: number) => number) => {
+  let sum = 0;
+  let count = 0;
+  const note = (games: number) => {
+    sum += ratingSpread(games, adjusted.residualScale, shrinkage);
+    count += 1;
+  };
+  if (centreOn) for (const id of centreOn) note(adjusted.games.get(id) ?? 0);
+  else adjusted.games.forEach(note);
+  const middle = count > 0 ? sum / count : 0;
+  return (rating, games) => {
+    const spread = ratingSpread(games, adjusted.residualScale, shrinkage);
+    if (!Number.isFinite(spread) || !Number.isFinite(middle)) return rating;
+    return rating - standardErrors * (spread - middle);
+  };
+};
 /** Prefix guarantees a scout-created id can never collide with a league season's own team ids
  * (those are plain alphanumeric codes from `createTeamId` in sim.ts). */
 const SCOUT_ID_PREFIX = "S-";
@@ -1540,13 +1652,18 @@ export const buildTeamRankings = (
   );
 
   const records = recordsFor(playedGames);
+  const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
+  const confident = evidenceDiscount(
+    adjusted,
+    teams.filter(isClub).map((team) => team.id)
+  );
   const rows = teams
     /*
      * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
      * go in the table: not a slot, which names nobody, and not a club known only from somebody
      * else's schedule, whose record here is a fraction of a season it would be ranked on.
      */
-    .filter((team) => !team.placeholder && !team.nameOnly)
+    .filter(isClub)
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
@@ -1555,7 +1672,8 @@ export const buildTeamRankings = (
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: adjusted.ratings.get(team.id) ?? 0,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
@@ -1658,6 +1776,15 @@ const buildPooledTeamRankings = (
     crossAgeCounts.set(game.teamAId, (crossAgeCounts.get(game.teamAId) ?? 0) + 1);
     crossAgeCounts.set(game.teamBId, (crossAgeCounts.get(game.teamBId) ?? 0) + 1);
   });
+  /*
+   * Centred on the year's clubs, which is the same set whichever page is being built — so a club's
+   * shown rating is the same number wherever it is listed, and an 8U that played up is still on
+   * the same scale as the 9Us it played.
+   */
+  const confident = evidenceDiscount(
+    adjusted,
+    nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+  );
   const rows = nodes
     /*
      * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names
@@ -1669,17 +1796,19 @@ const buildPooledTeamRankings = (
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const crossAgeGames = crossAgeCounts.get(team.id) ?? 0;
       const ageLevel = homeLevels.get(team.id);
+      const gamesPlayed = adjusted.games.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: adjusted.ratings.get(team.id) ?? 0,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
         ties,
-        games: adjusted.games.get(team.id) ?? 0,
+        games: gamesPlayed,
         rawMargin: adjusted.rawMargin.get(team.id) ?? 0,
         strengthOfSchedule: adjusted.strengthOfSchedule.get(team.id) ?? 0,
         sosRank: 0,

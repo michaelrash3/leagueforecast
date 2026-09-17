@@ -239,6 +239,9 @@ export function RankingsSection({
                   <th>Team</th>
                   <th>Record</th>
                   <th>Rating</th>
+                  {/* The fit's own estimate, so the discount in the column before it is visible
+                      rather than asserted: "+7.3 off four games, ranked at +6.5". */}
+                  <th className="whitespace-nowrap">Best guess</th>
                   <th>Games</th>
                   <th>SOS</th>
                   <th className="sr-only">Actions</th>
@@ -275,6 +278,7 @@ export function RankingsSection({
                     </td>
                     <td>{row.record}</td>
                     <td>{formatRating(row.rating)}</td>
+                    <td className="text-slate-500">{formatRating(row.pointRating)}</td>
                     <td>{row.games}</td>
                     <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
                     <td className="space-x-2 text-right">

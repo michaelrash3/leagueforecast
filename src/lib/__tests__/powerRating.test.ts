@@ -274,10 +274,16 @@ const mapsBitIdentical = (actual: Map<string, number>, expected: Map<string, num
   });
 };
 
-/** Every field of two results identical, ageGapRuns aside (the legacy reference has none). */
+/**
+ * Every field of two results identical, bar the two the legacy reference does not produce.
+ *
+ * `ageGapRuns` and `residualScale` are both derived after the solve rather than part of it, so the
+ * reference has no opinion about either; what is under test here is that the fit itself is
+ * unchanged, digit for digit.
+ */
 const expectBitIdentical = (
   actual: OpponentAdjustedRatings,
-  expected: Omit<OpponentAdjustedRatings, "ageGapRuns">
+  expected: Omit<OpponentAdjustedRatings, "ageGapRuns" | "residualScale">
 ) => {
   mapsBitIdentical(actual.ratings, expected.ratings);
   mapsBitIdentical(actual.rawMargin, expected.rawMargin);
@@ -358,7 +364,7 @@ const legacyBuild = (
   teamIds: string[],
   games: RatingGame[],
   options: OpponentAdjustedOptions = {}
-): Omit<OpponentAdjustedRatings, "ageGapRuns"> => {
+): Omit<OpponentAdjustedRatings, "ageGapRuns" | "residualScale"> => {
   const cap = options.cap ?? 8;
   const shrinkage = options.shrinkage ?? 1.5;
   const homeFieldShrinkage = options.homeFieldShrinkage ?? 3;

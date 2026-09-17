@@ -95,10 +95,17 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">
-            3. Small samples pulled toward the middle.
+            3. What a record can actually support.
           </span>{" "}
-          One game does not earn a big rating. The more a team plays, the more its rating is its own
-          — which is what stops a 1-0 team topping the table in April.
+          Two things, and the second is the one that stops a 4-0 team topping the table. First, a
+          thin record is pulled toward the middle, so one game does not earn a big rating. That
+          makes the estimate as good as it can be — but a best guess off four games is not the same
+          claim as the same number off forty, and the table used to rank them side by side. So what
+          is ranked and shown is the estimate less one standard error: not what a team might be, but
+          what it is confidently worth, measured against how much an average team in this pool has
+          played. A 4-0 team therefore sits behind an 11-1 team that has proved as much over nearly
+          three times the schedule. The full table shows the undiscounted estimate beside it, so you
+          can see exactly what a record is and is not carrying.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A

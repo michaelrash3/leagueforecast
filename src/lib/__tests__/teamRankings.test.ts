@@ -2361,8 +2361,13 @@ describe("buildTeamRankings with a season-year pool", () => {
 
     expect(nine.map((row) => row.teamId)).toEqual(["A"]);
     const a = nine[0]!;
+    /*
+     * `pointRating` throughout this one, not `rating`. What is under test is what the fit believes
+     * about a cross-age game; `rating` is that belief less a standard error for how thin it is, and
+     * a side with one game is discounted hard enough to swamp the effect being measured.
+     */
     // Losing by the expected margin is playing even, not losing.
-    expect(Math.abs(a.rating)).toBeLessThan(0.5);
+    expect(Math.abs(a.pointRating)).toBeLessThan(0.5);
     expect(a.strengthOfSchedule).toBeGreaterThan(1);
     expect(a.record).toBe("0-1");
     expect(a.sosRank).toBe(1);
@@ -2379,7 +2384,7 @@ describe("buildTeamRankings with a season-year pool", () => {
       games[1]!,
       game("A", "C", 3, 5, "u10"),
     ]);
-    expect(flat.find((row) => row.teamId === "A")!.rating).toBeLessThan(-0.5);
+    expect(flat.find((row) => row.teamId === "A")!.pointRating).toBeLessThan(-0.5);
   });
 
   it("skips a game whose team is not in the roster", () => {
