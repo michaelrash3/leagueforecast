@@ -2552,3 +2552,60 @@ describe("a club met twice in one day", () => {
     expect(tidied.games[0]?.note).toMatch(/Other side reported/);
   });
 });
+
+describe("what a refresh keeps", () => {
+  const withListed = (listed: GcTeamSchedule["listed"]): GcTeamSchedule => ({
+    ...schedule({}, [game()]),
+    ...(listed ? { listed } : {}),
+  });
+  const linkOf = (state: GcImportState) =>
+    state.teams
+      .find((team) => team.gcTeams?.some((l) => l.teamId === "gcAAAAAAAAAA"))
+      ?.gcTeams?.find((l) => l.teamId === "gcAAAAAAAAAA");
+
+  it("keeps the staff and roster size when the refresh was run without the list", () => {
+    /*
+     * The weekly rota is exactly this run: a pull with nothing in the paste box. Both fields come
+     * from the user's list and from nowhere else, so a link written without one carries neither —
+     * and replacing the link outright used to erase what the last list had said. That silently
+     * stripped the evidence the merge suggestions and the watch list are built on, every week.
+     */
+    const first = importGcSchedule(
+      withListed({ staff: ["Ada Coach", "Bo Coach"], playerCount: 11 }),
+      empty
+    ).state;
+    expect(linkOf(first)?.staff).toEqual(["Ada Coach", "Bo Coach"]);
+    expect(linkOf(first)?.playerCount).toBe(11);
+    const countedAt = linkOf(first)?.countedAt;
+    expect(countedAt).toBeDefined();
+
+    const refreshed = importGcSchedule(withListed(undefined), first).state;
+    expect(linkOf(refreshed)?.staff).toEqual(["Ada Coach", "Bo Coach"]);
+    expect(linkOf(refreshed)?.playerCount).toBe(11);
+    // The day the count was taken travels with it, or it could never be re-checked.
+    expect(linkOf(refreshed)?.countedAt).toBe(countedAt);
+  });
+
+  it("lets a newer list overwrite both", () => {
+    const first = importGcSchedule(
+      withListed({ staff: ["Ada Coach"], playerCount: 8 }),
+      empty
+    ).state;
+    const second = importGcSchedule(
+      withListed({ staff: ["Cy Coach", "Di Coach"], playerCount: 13 }),
+      first
+    ).state;
+
+    expect(linkOf(second)?.staff).toEqual(["Cy Coach", "Di Coach"]);
+    expect(linkOf(second)?.playerCount).toBe(13);
+  });
+
+  it("carries nothing forward for a team that never had it", () => {
+    const first = importGcSchedule(withListed(undefined), empty).state;
+    const refreshed = importGcSchedule(withListed(undefined), first).state;
+
+    expect(linkOf(refreshed)?.staff).toBeUndefined();
+    expect(linkOf(refreshed)?.playerCount).toBeUndefined();
+    expect(linkOf(refreshed)?.countedAt).toBeUndefined();
+  });
+});
