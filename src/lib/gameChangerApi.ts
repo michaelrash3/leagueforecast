@@ -285,6 +285,93 @@ export const ageLevelFromName = (name: string): number | undefined => {
   return inAgeRange(level) ? level : undefined;
 };
 
+/**
+ * Reading a graduation year as an age.
+ *
+ * Above about 13U, travel ball stops naming an age and names the year the squad graduates high
+ * school: "Elite 2029", "Midwest Nationals 2030". The class of 2027 are seniors in the 2026-27
+ * season — which this app files as squad year 2027 — and seniors are 18U, so every year further
+ * out is a year younger.
+ *
+ * The danger is that a four-digit number in a name is just as often a season. "Warriors Spring
+ * 2027" is a spring squad, not the class of 2027, and reading it as one would file a nine-year-old
+ * team at 18U and rate every game it plays against a level it never played. Measured over a
+ * 48,035-team export, a year equal to the season year is a graduation year 0.2% of the time; one
+ * year out, 44.8%; two years out, 85.6%; three, 95.3%.
+ *
+ * So the rule is two years out and further, which is where the evidence turns. Everything nearer
+ * is left with no level at all rather than a wrong one — an unrated team costs its own ranking, a
+ * misrated one corrupts everybody it played.
+ */
+
+/** A senior — the squad graduating at the end of the season being played — is 18U. */
+const SENIOR_AGE_LEVEL = 18;
+
+/** How far past the season a year has to be before it reads as a graduation year, not a season. */
+export const GRAD_YEAR_MARGIN = 2;
+
+export const ageFromGradYear = (gradYear: number, squadYear: number): number | undefined => {
+  const level = SENIOR_AGE_LEVEL - (gradYear - squadYear);
+  return inAgeRange(level) ? level : undefined;
+};
+
+/** Any four-digit year this side of the century's middle. Narrow enough to skip a jersey number. */
+const YEAR = /\b(20[2-5]\d)\b/g;
+
+/**
+ * A season written immediately before or after the year — "Spring 2027", "2026 Fall". The offset
+ * rule already refuses these, because a season label is always the season being played or the one
+ * after it; this catches the club that writes a season further out than anybody expects.
+ */
+const SEASON_BESIDE_YEAR =
+  /(?:\b(?:spring|summer|fall|autumn|winter)\s+20[2-5]\d\b)|(?:\b20[2-5]\d\s+(?:spring|summer|fall|autumn|winter)\b)/i;
+
+/** A span of two years — "2026-2027", "2026/27" — which is a season, never a graduating class. */
+const YEAR_SPAN = /\b20[2-5]\d\s*[/\-\u2013]\s*(?:20)?[2-5]\d\b/;
+
+/**
+ * The graduation year a name carries, when it can be read as one at all.
+ *
+ * Refuses rather than guesses: a season word beside the year, a span of two years, a year too near
+ * the season to tell apart from it, or two different years in one name all come back undefined.
+ */
+export const gradYearFromName = (name: string, squadYear: number): number | undefined => {
+  if (typeof name !== "string" || !Number.isFinite(squadYear)) return undefined;
+  if (SEASON_BESIDE_YEAR.test(name) || YEAR_SPAN.test(name)) return undefined;
+  YEAR.lastIndex = 0;
+  let found: number | undefined;
+  for (const match of name.matchAll(YEAR)) {
+    const year = Number(match[1]);
+    // Two different years and there is no telling which is the class; one repeated is still one.
+    if (found !== undefined && found !== year) return undefined;
+    found = year;
+  }
+  if (found === undefined) return undefined;
+  return found - squadYear >= GRAD_YEAR_MARGIN ? found : undefined;
+};
+
+/** The age level a name's graduation year implies, if it has a readable one. */
+export const ageFromGradYearInName = (name: string, squadYear: number): number | undefined => {
+  const gradYear = gradYearFromName(name, squadYear);
+  return gradYear === undefined ? undefined : ageFromGradYear(gradYear, squadYear);
+};
+
+/**
+ * The age level a bare year in GameChanger's own `age_group` implies.
+ *
+ * Read without the two-year margin the name needs. This is a field whose whole job is to say what
+ * age group a team is in, and nobody writes a season into it — so a year here is a graduating
+ * class, and the only thing to check is that it lands on an age that exists.
+ */
+export const ageFromGradYearLabel = (
+  label: string | undefined,
+  squadYear: number
+): number | undefined => {
+  if (!label) return undefined;
+  const year = /^\s*(20[2-5]\d)\s*$/.exec(label);
+  return year ? ageFromGradYear(Number(year[1]), squadYear) : undefined;
+};
+
 const SEASON_NAMES: Record<string, GcSeasonName> = {
   fall: "fall",
   autumn: "fall",
@@ -433,14 +520,26 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
   const state = asString(location.state ?? source.state);
   if (state) profile.state = state;
 
-  const ageLabel = asString(source.age_group ?? source.ageGroup);
-  if (ageLabel) profile.ageLabel = ageLabel;
-  const ageLevel = parseGcAgeLevel(source.age_group ?? source.ageGroup) ?? ageLevelFromName(name);
-  if (ageLevel !== undefined) profile.ageLevel = ageLevel;
-
+  // Read before the age, because the two ways a year can mean an age both need to know which
+  // season is being played: the class of 2029 is 16U one year and 15U the next.
   const teamSeason = isRecord(source.team_season) ? source.team_season : undefined;
   const season = normalizeSeason(teamSeason ?? source.season);
   if (season) profile.season = season;
+  const squadYear = season ? squadYearForGcSeason(season) : undefined;
+
+  const ageLabel = asString(source.age_group ?? source.ageGroup);
+  if (ageLabel) profile.ageLabel = ageLabel;
+  /*
+   * Best evidence first. An age label in the age field beats a graduating class in the same field,
+   * which beats an age label in the name, which beats a class in the name — each one is a step
+   * further from somebody saying outright what age the team is.
+   */
+  const ageLevel =
+    parseGcAgeLevel(source.age_group ?? source.ageGroup) ??
+    (squadYear === undefined ? undefined : ageFromGradYearLabel(ageLabel, squadYear)) ??
+    ageLevelFromName(name) ??
+    (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear));
+  if (ageLevel !== undefined) profile.ageLevel = ageLevel;
 
   const record = normalizeRecord(teamSeason?.record ?? source.record);
   if (record) profile.record = record;
@@ -751,12 +850,18 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   const entry: GcTeamListEntry = { teamId };
   const name = nameFromListCell(cellAt(cells, columns.name));
   if (name) entry.name = name;
-  // The same fallback `normalizeGcTeamProfile` makes: an export can leave the age column blank
-  // and still name the level in the team name, which is how every such row in the wild reads.
-  const ageLevel = parseGcAgeLevel(cellAt(cells, columns.age)) ?? ageLevelFromName(name);
-  if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const season = parseGcSeasonLabel(cellAt(cells, columns.season));
   if (season) entry.season = season;
+  const squadYear = season ? squadYearForGcSeason(season) : undefined;
+  // The same ladder `normalizeGcTeamProfile` climbs, so a row and the team it names cannot read as
+  // two different ages: a stated age beats a graduating class, and either column beats the name.
+  const ageCell = cellAt(cells, columns.age);
+  const ageLevel =
+    parseGcAgeLevel(ageCell) ??
+    (squadYear === undefined ? undefined : ageFromGradYearLabel(ageCell, squadYear)) ??
+    ageLevelFromName(name) ??
+    (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear));
+  if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const city = cellAt(cells, columns.city);
   if (city) entry.city = city;
   const state = cellAt(cells, columns.state);
