@@ -59,6 +59,21 @@ export function SetupSection({
   poolHealth,
   modelCheck,
 }: SetupSectionProps) {
+  /*
+   * The pages this card has anything to say about.
+   *
+   * A nationwide pull makes a page per age per squad year — twenty-two of them, and one league
+   * season between the lot. The list was twenty-one rows of "No league season on this page" and a
+   * single row that mattered, which is the opposite of what a list is for. Nothing is made
+   * unreachable by leaving them out: the pages are where the rankings live and nothing here creates
+   * or manages them, and a season is attached through the question above rather than from a row.
+   *
+   * Carried-forward pages stay, season or not — "continues 8U 2026" is a thing somebody chose, and
+   * the only place it is written down.
+   */
+  const worthListing = ageGroups.filter(
+    (group) => group.seasonIds.length > 0 || group.continuesFromId
+  );
   return (
     <>
       <div className={`${card} p-5`}>
@@ -97,9 +112,14 @@ export function SetupSection({
           <p className="mt-3 text-sm text-slate-500">
             None yet. Pull a team list from GameChanger and the pages make themselves.
           </p>
+        ) : worthListing.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            {ageGroups.length} page{ageGroups.length === 1 ? "" : "s"}, none with a league season on
+            it. Answer the question above to put one somewhere.
+          </p>
         ) : (
           <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-            {ageGroups.map((group) => (
+            {worthListing.map((group) => (
               <li key={group.id} className="flex flex-wrap items-baseline gap-2 py-2 text-sm">
                 <span className="font-bold text-slate-950 dark:text-white">{group.name}</span>
                 <span className="text-slate-500">
@@ -118,6 +138,13 @@ export function SetupSection({
               </li>
             ))}
           </ul>
+        )}
+        {worthListing.length > 0 && worthListing.length < ageGroups.length && (
+          <p className="mt-2 text-xs text-slate-500">
+            and {ageGroups.length - worthListing.length} more with no league season and nothing
+            carried forward. They are still pages — this card only has something to say about the
+            ones above.
+          </p>
         )}
       </div>
 

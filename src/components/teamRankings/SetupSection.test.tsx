@@ -52,7 +52,10 @@ describe("the age groups list", () => {
   it("shows what exists without offering to change it", async () => {
     const user = userEvent.setup();
     renderTeamRankings({
-      ageGroups: [ageGroup(9, 2027), ageGroup(11, 2027)],
+      ageGroups: [
+        ageGroup(9, 2027, { seasonIds: ["season-1"] }),
+        ageGroup(11, 2027, { seasonIds: ["season-1"] }),
+      ],
       teams: [],
       games: [],
     });
@@ -67,12 +70,27 @@ describe("the age groups list", () => {
     expect(screen.queryByRole("button", { name: /advance to new season/i })).toBeNull();
   });
 
-  it("says a page has no league season on it rather than leaving it blank", async () => {
+  /*
+   * This used to assert the opposite: that a page with nothing on it said "No league season on
+   * this page" rather than leaving the line blank. That was right when a pool held a handful of
+   * pages and wrong the moment one held twenty-two, because twenty-one of them say it and the
+   * sentence stops being information. The pages have not gone anywhere — nothing here creates or
+   * manages them, and a season is attached through the card above — so what changed is only which
+   * of them this card bothers to name.
+   */
+  it("leaves out a page with nothing on it, and counts it instead", async () => {
     const user = userEvent.setup();
-    renderTeamRankings({ ageGroups: [ageGroup(9, 2027)], teams: [], games: [] });
+    renderTeamRankings({
+      ageGroups: [ageGroup(9, 2027, { seasonIds: ["season-1"] }), ageGroup(11, 2027)],
+      teams: [],
+      games: [],
+    });
     await openSetup(user);
 
-    expect(screen.getByText(/no league season on this page/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no league season on this page/i)).not.toBeInTheDocument();
+    expect(screen.getByText("9U 2027")).toBeInTheDocument();
+    expect(screen.queryByText("11U 2027")).not.toBeInTheDocument();
+    expect(screen.getByText(/1 more with no league season/)).toBeInTheDocument();
   });
 
   it("explains where the pages come from when there are none", async () => {
@@ -81,5 +99,64 @@ describe("the age groups list", () => {
     await openSetup(user);
 
     expect(screen.getByText(/the pages make themselves/i)).toBeInTheDocument();
+  });
+});
+
+/*
+ * A nationwide pull makes a page per age per squad year — twenty-two of them, with one league
+ * season between the lot. The card listed every one, so it was twenty-one rows of "No league
+ * season on this page" and a single row that mattered, which is the opposite of what a list is for.
+ */
+describe("the age groups card", () => {
+  const poolOf = (ageGroups: ReturnType<typeof ageGroup>[]) => ({
+    ageGroups,
+    teams: [team("S-A", "Aces"), team("S-B", "Badgers")],
+    games: [
+      game("g1", ageGroups[0]!.id, "S-A", "S-B", 5, 1, { date: seasonDate(ageGroups[0]!.year!) }),
+    ],
+  });
+
+  it("lists only the pages it has something to say about", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(
+      poolOf([
+        ageGroup(9, 2027, { seasonIds: ["season-1"] }),
+        ageGroup(10, 2027),
+        ageGroup(11, 2027),
+        ageGroup(12, 2027),
+      ])
+    );
+    await openSetup(user);
+
+    // The one with a season is named; the three with nothing are a count.
+    expect(screen.queryByText(/No league season on this page/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/3 more with no league season and nothing carried forward/)
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a page that carries a squad forward, season or not", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(
+      poolOf([
+        ageGroup(10, 2027, { continuesFromId: "ag_9u_2026" }),
+        ageGroup(9, 2026),
+        ageGroup(11, 2027),
+      ])
+    );
+    await openSetup(user);
+
+    // "continues 9U 2026" is a thing somebody chose, and the only place it is written down.
+    expect(screen.getByText(/continues 9U 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/2 more with no league season/)).toBeInTheDocument();
+  });
+
+  it("says so plainly when no page has anything on it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(poolOf([ageGroup(9, 2027), ageGroup(10, 2027)]));
+    await openSetup(user);
+
+    expect(screen.getByText(/2 pages, none with a league season on it/)).toBeInTheDocument();
+    expect(screen.queryByText(/more with no league season/)).not.toBeInTheDocument();
   });
 });
