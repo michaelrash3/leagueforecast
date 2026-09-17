@@ -7,6 +7,7 @@ import {
 import { clamp, isFinal, parseNumber } from "./util";
 import { createTeamId } from "./sim";
 import { normalizeDateInput } from "./date";
+import { weightsForGames } from "./ratingRecency";
 
 /**
  * Team Rankings is a separate, age-group-scoped-but-globally-rostered ranking pool: teams are a
@@ -1815,6 +1816,23 @@ const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
  * club is listed on does not change between halves — its age level is a fact about the club for the
  * season — so the same club is on the same board in both.
  */
+/**
+ * The recency weights for these games, in the order given, or `null` to fit them unchanged.
+ *
+ * An old result is evidence about a squad that no longer quite exists — eleven months of growth
+ * and several players later — so it is counted less rather than counted the same. `null` comes
+ * back when the active scheme has no opinion or the pool holds no date it can read, and the fit is
+ * then handed exactly what it was handed before weighting existed.
+ *
+ * It changes the fit and nothing else: games played, record and strength of schedule are
+ * descriptions of a season rather than beliefs about a team, and a side played twelve games
+ * whatever the fit leans on.
+ */
+const recencyWeightsFor = (games: readonly ScoutGame[]): number[] | null =>
+  weightsForGames(
+    games.map((game) => ({ date: game.date, home: game.teamAId, away: game.teamBId }))
+  );
+
 export const buildTeamRankings = (
   ageGroupId: string,
   teams: ScoutTeam[],
@@ -1837,14 +1855,16 @@ export const buildTeamRankings = (
   const playedGames = games.filter(
     (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
   );
+  const weights = recencyWeightsFor(playedGames);
   const adjusted = buildOpponentAdjustedRatings(
     teams.map((team) => team.id),
-    playedGames.map((game) => ({
+    playedGames.map((game, at) => ({
       home: game.teamAId,
       away: game.teamBId,
       homeMargin: game.teamAScore! - game.teamBScore!,
       // Team A is simply the side entered first, not the home team.
       neutral: true,
+      ...(weights ? { weight: weights[at] ?? 1 } : {}),
     })),
     { cap: RATING_CAP }
   );
@@ -1964,15 +1984,17 @@ const buildPooledTeamRankings = (
   });
   const nodes = teams.filter((team) => active.has(team.id));
 
+  const weights = recencyWeightsFor(rated.map(({ game }) => game));
   const adjusted = buildOpponentAdjustedRatings(
     nodes.map((team) => team.id),
-    rated.map(({ game, ageGap }) => ({
+    rated.map(({ game, ageGap }, at) => ({
       home: game.teamAId,
       away: game.teamBId,
       homeMargin: game.teamAScore! - game.teamBScore!,
       // Team A is simply the side entered first, not the home team.
       neutral: true,
       ...(ageGap ? { ageGap } : {}),
+      ...(weights ? { weight: weights[at] ?? 1 } : {}),
     })),
     { cap: RATING_CAP }
   );

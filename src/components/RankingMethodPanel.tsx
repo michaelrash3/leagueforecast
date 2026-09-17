@@ -5,6 +5,7 @@ import {
   RATING_CAP,
 } from "../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR } from "../lib/powerRating";
+import { ACTIVE_RECENCY_SCHEME } from "../lib/ratingRecency";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -115,6 +116,18 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           it. An 8U losing to a 9U by {AGE_GAP_RUNS_PER_YEAR} is treated as an even game, not a loss
           that drags it down. Strength of schedule follows the same rule: playing up credits you for
           the year of age you gave away, playing down debits you for the year you took.
+        </li>
+        <li>
+          <span className="font-bold text-slate-950 dark:text-white">
+            5. Recent form counts more.
+          </span>{" "}
+          Within a team&apos;s own record the newer games pull harder: {ACTIVE_RECENCY_SCHEME.label}
+          . A side that lost in September and has been winning since is rated closer to the side it
+          is now than to the one it was. This is counted in games, not in months, so a squad that
+          played its season and then stopped is <em>not</em> marked down for the calendar — from
+          that squad&apos;s point of view nothing has happened since, and those games are still the
+          only evidence anybody has. It changes the rating only: the record, the games played and
+          the strength of schedule are what the season was, and they do not move.
         </li>
       </ol>
 

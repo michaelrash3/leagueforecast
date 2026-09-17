@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_RECENCY_SCHEME,
   byBlock,
   byDays,
   byGamesSince,
+  dayInstant,
   noDecay,
   normalizeWeights,
   RECENCY_SCHEMES,
+  weightsForGames,
   type DatedRatingGame,
 } from "../ratingRecency";
 
@@ -152,5 +155,77 @@ describe("decaying by block", () => {
       away: "B",
     }));
     expect(byBlock(0.25).weigh(games, day("2026-05-20"))).toEqual([1, 1, 1, 1]);
+  });
+});
+
+describe("dating a game the way the pool stores it", () => {
+  it("reads a full ISO day at noon UTC, so the day is whole in every zone", () => {
+    expect(dayInstant("2026-04-11")).toBe(Date.parse("2026-04-11T12:00:00Z"));
+  });
+
+  it("refuses anything that is not a full ISO day rather than guessing at it", () => {
+    ["4/11", "2026-4-11", "11-04-2026", "", undefined].forEach((value) => {
+      expect(Number.isNaN(dayInstant(value))).toBe(true);
+    });
+  });
+
+  it("orders a squad year correctly, which is the whole reason it is not parseDateValue", () => {
+    // August-to-July: the spring must sort AFTER the autumn it followed, not before it.
+    expect(dayInstant("2025-09-06")).toBeLessThan(dayInstant("2026-04-11"));
+  });
+});
+
+describe("weighing a pool's games for the fit", () => {
+  /*
+   * The same pair every time, on purpose. `byGamesSince` takes the larger of the two sides' weights
+   * — a game stays as fresh as the fresher side considers it — so a fixture of one-off opponents
+   * gives every game weight 1, because each is somebody's newest. Only a pair that keeps playing
+   * ages its own earlier meetings.
+   */
+  const dated = [
+    { date: "2025-09-06", home: "A", away: "B" },
+    { date: "2025-09-20", home: "A", away: "B" },
+    { date: "2026-04-11", home: "A", away: "B" },
+  ];
+
+  it("has no opinion when the scheme has none, so the fit is handed the games unchanged", () => {
+    expect(weightsForGames(dated, noDecay)).toBeNull();
+  });
+
+  it("has no opinion when no game carries a date it can place", () => {
+    expect(
+      weightsForGames([
+        { home: "A", away: "B" },
+        { date: "4/11", home: "A", away: "C" },
+      ])
+    ).toBeNull();
+  });
+
+  it("counts a recent game for more than an old one", () => {
+    const weights = weightsForGames(dated, byGamesSince(1))!;
+    expect(weights).toHaveLength(3);
+    expect(weights[2]!).toBeGreaterThan(weights[0]!);
+  });
+
+  it("keeps an undated game at 1 rather than dropping it, and leaves it in place", () => {
+    const mixed = [
+      { date: "2025-09-06", home: "A", away: "B" },
+      { home: "A", away: "C" },
+      { date: "2025-09-20", home: "A", away: "B" },
+      { date: "2026-04-11", home: "A", away: "B" },
+    ];
+    const weights = weightsForGames(mixed, byGamesSince(1))!;
+    // Same length and same order as the games it was given: a caller indexes it by position.
+    expect(weights).toHaveLength(4);
+    expect(weights[1]).toBe(1);
+    // And the dated games are still weighed against each other, not flattened by the neighbour.
+    expect(weights[3]!).toBeGreaterThan(weights[0]!);
+  });
+
+  it("is a real scheme rather than a no-op, so shipping it changes something", () => {
+    expect(ACTIVE_RECENCY_SCHEME.key).not.toBe(noDecay.key);
+    expect(RECENCY_SCHEMES.map((scheme) => scheme.key)).toContain(ACTIVE_RECENCY_SCHEME.key);
+    // It must be one the sweep can put on trial, or "tune it later" is not actually offered.
+    expect(weightsForGames(dated)).not.toBeNull();
   });
 });

@@ -11,7 +11,7 @@ import {
   type ScoutTeam,
 } from "./teamRankings";
 import { clamp } from "./util";
-import { RECENCY_SCHEMES, type RecencyScheme } from "./ratingRecency";
+import { dayInstant, RECENCY_SCHEMES, type RecencyScheme } from "./ratingRecency";
 
 /**
  * Does the rating model actually predict anything?
@@ -248,27 +248,17 @@ type DatedGame = { game: ScoutGame; ageGap: number; at: number };
  * A game with no date cannot be placed on a timeline, and a hold-out that included one would be
  * fitting on the future to predict the past. They are dropped rather than guessed at.
  */
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * The day a game was played, as an instant.
+/*
+ * `dayInstant` lives in `ratingRecency.ts`, beside the schemes that depend on reading a date the
+ * same way. A hold-out cut on a different ordering than the one the weights use would fit on March
+ * and score the September before it — trained on the future, scored on the past — so the sweep and
+ * the app it advises must place a game on exactly the same day. One implementation is how that
+ * stays true.
  *
- * Deliberately not `parseDateValue`. That one normalises a date to "M/D" and re-parses it inside
- * one fixed calendar year, which is right for League Standings — a season there is one year, so
- * the year would only be noise. A squad year is not one calendar year. It runs August to July, so
- * ordering it that way sorts the spring *ahead of* the autumn it followed, and a hold-out cut on
- * that order fits on March and scores the September before it: trained on the future, scored on
- * the past. Every recency scheme then reads backwards — the oldest games are the ones handed full
- * weight — and the bucket this whole exercise exists to fill, what a fall season is worth in the
- * spring, is filled with games played *before* the training data.
- *
- * Team Rankings stores a full "YYYY-MM-DD" and already sorts squad years by it lexically, in
- * `inSquadYear`, so anything else is not a date this pool can place; it is dropped rather than
- * guessed at, the same treatment a game with no date at all gets. Noon UTC, so the day stays whole
- * whatever zone reads it back.
+ * Here, a game whose date cannot be placed is dropped rather than guessed at, the same treatment a
+ * game with no date at all gets; `weightsForGames` keeps one instead, because a ranking has to
+ * show every game it holds.
  */
-const dayInstant = (date: string | undefined): number =>
-  date && ISO_DAY.test(date) ? Date.parse(`${date}T12:00:00Z`) : Number.NaN;
 
 /** The day back out of an instant, for reporting the span the run actually covered. */
 const dayOfInstant = (at: number): string => new Date(at).toISOString().slice(0, 10);

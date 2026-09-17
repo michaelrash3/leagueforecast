@@ -173,3 +173,86 @@ export const RECENCY_SCHEMES: RecencyScheme[] = [
   byBlock(0.35),
   byBlock(0.15),
 ];
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The day a game was played, as an instant, or `NaN` for a date this pool cannot place.
+ *
+ * Deliberately not `parseDateValue`. That one normalises a date to "M/D" and re-parses it inside
+ * one fixed calendar year, which is right for League Standings — a season there is one year, so
+ * the year would only be noise. A squad year is not one calendar year. It runs August to July, so
+ * ordering it that way sorts the spring *ahead of* the autumn it followed, and every recency
+ * scheme then reads backwards, handing the oldest games full weight.
+ *
+ * Team Rankings stores a full "YYYY-MM-DD" and already sorts squad years by it lexically, in
+ * `inSquadYear`, so anything else is not a date this pool can place. Noon UTC, so the day stays
+ * whole whatever zone reads it back.
+ */
+export const dayInstant = (date: string | undefined): number =>
+  date && ISO_DAY.test(date) ? Date.parse(`${date}T12:00:00Z`) : Number.NaN;
+
+/**
+ * The scheme the app actually ranks with.
+ *
+ * `byGamesSince` because it is the one answer to the winter gap that does not punish a squad for
+ * the calendar: a side that played twelve games in the fall and none since is still read off
+ * twelve recent games, because from that squad's point of view nothing has happened. Time has
+ * passed; evidence has not. A day-based half-life would instead read that side almost entirely
+ * off the ridge by March, which is the one thing everybody agrees is wrong. It also needs no
+ * clock, so a rating is a pure function of the pool and two runs a week apart agree.
+ *
+ * Twenty is the moderate rung of the four offered. For a squad with twenty games or fewer the
+ * oldest still carries at least half weight, so this shades a season rather than discarding one —
+ * which is the right size of step for a constant that has not yet been measured.
+ *
+ * BECAUSE IT HAS NOT BEEN MEASURED: `scripts/recencySweep.ts` exists to choose this number against
+ * a real pool, and until it has been run this is a judgement call, not a finding. Setup's "Check
+ * the model" card runs the same comparison in-app (`compareRecencySchemes`), so a pool this is
+ * wrong for will say so. Changing it is this one line — every candidate is in `RECENCY_SCHEMES`,
+ * and `noDecay` restores exactly the behaviour that shipped before weighting existed.
+ */
+export const ACTIVE_RECENCY_SCHEME: RecencyScheme = byGamesSince(20);
+
+/**
+ * The weight of each game, in the order given, under `scheme`.
+ *
+ * `null` means "hand the fit the games unchanged" — either the scheme has no opinion, or the pool
+ * has no game this scheme can place. Callers attach nothing in that case, so a pool that cannot be
+ * weighted fits bit-identically to how it always did, rather than through a layer of ones.
+ *
+ * A game whose date this pool cannot read keeps weight 1 rather than being dropped. The sweep can
+ * afford to drop one, because it is measuring; a ranking cannot, because that game still happened
+ * and still counts toward the record shown beside the rating.
+ *
+ * `asOf` is the newest dated game rather than the clock, which keeps a rating a pure function of
+ * the pool. Both schemes that could ask — `byGamesSince` and `byBlock` — ignore it, so nothing
+ * currently reads it; a day-based scheme would want the real day instead, and switching to one
+ * means passing it in.
+ */
+export const weightsForGames = (
+  games: readonly { date?: string; home: string; away: string }[],
+  scheme: RecencyScheme = ACTIVE_RECENCY_SCHEME
+): number[] | null => {
+  if (scheme.key === noDecay.key) return null;
+
+  const dated: DatedRatingGame[] = [];
+  const sourceIndex: number[] = [];
+  let newest = Number.NEGATIVE_INFINITY;
+  games.forEach((game, at) => {
+    const instant = dayInstant(game.date);
+    if (!Number.isFinite(instant)) return;
+    dated.push({ at: instant, home: game.home, away: game.away });
+    sourceIndex.push(at);
+    // A loop rather than Math.max(...dated), which blows the stack on a nationwide pool.
+    if (instant > newest) newest = instant;
+  });
+  if (dated.length === 0) return null;
+
+  const weighed = scheme.weigh(dated, newest);
+  const out = new Array<number>(games.length).fill(1);
+  sourceIndex.forEach((at, i) => {
+    out[at] = weighed[i] ?? 1;
+  });
+  return out;
+};
