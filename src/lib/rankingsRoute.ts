@@ -5,7 +5,7 @@ import type { AppMode } from "./preferences";
  * The areas Team Rankings is divided into. One at a time is on screen, the season year and age
  * tabs above them scoping all of them alike.
  */
-export type RankingsSection = "rankings" | "games" | "import" | "scouting" | "setup";
+export type RankingsSection = "rankings" | "games" | "import" | "scouting" | "archive" | "setup";
 
 /** What a link with no `?section=` opens on: the tables, which is what people come here for. */
 export const DEFAULT_RANKINGS_SECTION: RankingsSection = "rankings";
@@ -56,6 +56,7 @@ const SECTION_VALUES: Record<string, RankingsSection> = {
   games: "games",
   import: "import",
   scouting: "scouting",
+  archive: "archive",
   setup: "setup",
 };
 
@@ -64,8 +65,17 @@ const SECTION_URLS: Record<RankingsSection, string> = {
   games: "games",
   import: "import",
   scouting: "scouting",
+  archive: "archive",
   setup: "setup",
 };
+
+/**
+ * Every section there is, in URL order.
+ *
+ * Read off `SECTION_URLS`, whose type forces a key per section, so adding one to the union and
+ * forgetting it here is a type error rather than a section nothing tests and no tab reaches.
+ */
+export const RANKINGS_SECTIONS = Object.keys(SECTION_URLS) as RankingsSection[];
 
 /**
  * Widest season year a link may name. Years are only ever a label for a squad, so this is about

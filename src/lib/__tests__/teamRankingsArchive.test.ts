@@ -3,12 +3,17 @@ import {
   ARCHIVE_VERSION,
   archivableYears,
   archiveIdOf,
+  archiveRowsInState,
+  archiveStates,
+  searchArchiveRows,
+  sortArchiveEntries,
   archiveEntryOf,
   archiveSeason,
   archiveSquadYear,
   coerceArchivedSeason,
   withUniqueIds,
   withoutSeason,
+  type ArchivedSeason,
 } from "../teamRankingsArchive";
 import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
 
@@ -470,5 +475,62 @@ describe("an archive is not linked to anything live", () => {
     const kept = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
     const pair = withUniqueIds([kept, kept], []);
     expect(new Set(pair.map((season) => season.id)).size).toBe(2);
+  });
+});
+
+describe("reading a frozen table", () => {
+  const season = (): ArchivedSeason => ({
+    version: ARCHIVE_VERSION,
+    id: "arc_2026_9u_2026",
+    name: "9U 2026",
+    ageLevel: 9,
+    year: 2026,
+    archivedAt: "2026-09-17T00:00:00.000Z",
+    fromGames: 40,
+    fromTeams: 5,
+    rows: [
+      { rank: 1, teamName: "Aces", rating: 6, record: "9-1", wins: 9, losses: 1, ties: 0, games: 10, strengthOfSchedule: 1, sosRank: 3, state: "KY", crossAgeGames: 0 }, // prettier-ignore
+      { rank: 2, teamName: "Badgers", rating: 4, record: "8-2", wins: 8, losses: 2, ties: 0, games: 10, strengthOfSchedule: 1, sosRank: 1, state: "OH", crossAgeGames: 0 }, // prettier-ignore
+      { rank: 3, teamName: "Cougars", rating: 2, record: "6-4", wins: 6, losses: 4, ties: 0, games: 10, strengthOfSchedule: 0, sosRank: 4, state: "KY", crossAgeGames: 0 }, // prettier-ignore
+      { rank: 4, teamName: "Dodgers", rating: 0, record: "5-5", wins: 5, losses: 5, ties: 0, games: 10, strengthOfSchedule: 0, sosRank: 2, crossAgeGames: 0 }, // prettier-ignore
+    ],
+  });
+
+  it("offers the states its own rows know about", () => {
+    expect(archiveStates(season())).toEqual(["KY", "OH"]);
+  });
+
+  it("renumbers a state board and keeps the national place beside it", () => {
+    const rows = archiveRowsInState(season(), "KY");
+    expect(rows.map((row) => [row.teamName, row.rank, row.nationalRank])).toEqual([
+      ["Aces", 1, 1],
+      ["Cougars", 2, 3],
+    ]);
+  });
+
+  it("gives the national list back untouched when no state is named", () => {
+    const rows = archiveRowsInState(season(), "");
+    expect(rows.map((row) => row.rank)).toEqual([1, 2, 3, 4]);
+    expect(rows.map((row) => row.nationalRank)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("searches on the name, which is all a row has", () => {
+    expect(searchArchiveRows(season(), "gER").map((row) => row.teamName)).toEqual([
+      "Badgers",
+      "Dodgers",
+    ]);
+    // Nothing typed is not "everything"; the full table is already there to scroll.
+    expect(searchArchiveRows(season(), "  ")).toEqual([]);
+  });
+
+  it("lists seasons newest first, then by age", () => {
+    const entry = (name: string, year: number, ageLevel: number) =>
+      archiveEntryOf({ ...season(), id: name, name, year, ageLevel });
+    const order = sortArchiveEntries([
+      entry("10U 2026", 2026, 10),
+      entry("9U 2027", 2027, 9),
+      entry("9U 2026", 2026, 9),
+    ]);
+    expect(order.map((one) => one.name)).toEqual(["9U 2027", "9U 2026", "10U 2026"]);
   });
 });

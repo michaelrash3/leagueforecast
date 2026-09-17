@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   AGE_PARAM,
+  RANKINGS_SECTIONS,
   SECTION_PARAM,
   VIEW_PARAM,
   YEAR_PARAM,
   parseRankingsRoute,
   rankingsSearch,
   sameRankingsRoute,
-  type RankingsSection,
 } from "../rankingsRoute";
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../teamRankings";
 
@@ -37,8 +37,10 @@ describe("parseRankingsRoute", () => {
   });
 
   it("reads every section there is", () => {
-    const sections: RankingsSection[] = ["rankings", "games", "import", "scouting", "setup"];
-    sections.forEach((section) => {
+    // From the module, not a list copied here: a section added to the union and forgotten used to
+    // be a section nothing tested.
+    expect(RANKINGS_SECTIONS).toContain("archive");
+    RANKINGS_SECTIONS.forEach((section) => {
       expect(parseRankingsRoute(`?section=${section}`).section).toBe(section);
     });
   });

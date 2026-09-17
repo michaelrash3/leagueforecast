@@ -375,3 +375,54 @@ export const coerceArchivedSeason = (raw: unknown): ArchivedSeason | null => {
     }),
   };
 };
+
+/**
+ * The states an archive has teams in, for the state board's picker.
+ *
+ * Read off the rows, not off the pool. The pool no longer holds these teams — that is the point of
+ * an archive — so the row's own `state` is the only thing left that knows, which is why it is
+ * copied in when the table is frozen.
+ */
+export const archiveStates = (season: ArchivedSeason): string[] =>
+  [...new Set(season.rows.flatMap((row) => (row.state ? [row.state] : [])))].sort();
+
+/**
+ * One state's rows, renumbered by their place in that list, with the national place carried along.
+ *
+ * The same rule the live board follows: a state top ten is not the national table with gaps in it,
+ * so `rank` is the position here and `nationalRank` is where the team finished overall. Passing no
+ * state gives the national list back untouched, national ranks and all.
+ */
+export const archiveRowsInState = (
+  season: ArchivedSeason,
+  state: string
+): Array<ArchivedRankingRow & { nationalRank: number }> => {
+  const rows = state ? season.rows.filter((row) => (row.state ?? "") === state) : season.rows;
+  return rows.map((row, index) => ({
+    ...row,
+    nationalRank: row.rank,
+    rank: state ? index + 1 : row.rank,
+  }));
+};
+
+/**
+ * Rows whose name contains the search, case-insensitively.
+ *
+ * A name is all there is to search on: an archived row holds no team id, so there is nothing to
+ * look a club up by and nothing to join it to. Finding a club in a finished season means typing
+ * what it was called, which is also all anybody remembers.
+ */
+export const searchArchiveRows = (season: ArchivedSeason, query: string): ArchivedRankingRow[] => {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  return season.rows.filter((row) => row.teamName.toLowerCase().includes(needle));
+};
+
+/** Archives newest first, then by age level, which is the order a list of seasons reads in. */
+export const sortArchiveEntries = (entries: ArchiveEntry[]): ArchiveEntry[] =>
+  [...entries].sort(
+    (a, b) =>
+      (b.year ?? 0) - (a.year ?? 0) ||
+      (a.ageLevel ?? 0) - (b.ageLevel ?? 0) ||
+      a.name.localeCompare(b.name)
+  );

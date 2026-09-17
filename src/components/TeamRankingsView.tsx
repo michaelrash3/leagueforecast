@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ageGroupChain,
   ageGroupLevel,
+  ageGroupYear,
   buildScoutingReport,
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
@@ -46,6 +47,7 @@ import {
   clearPullProgress,
   clearTeamRankings,
   loadAgeGroups,
+  loadArchiveIndex,
   loadPullProgress,
   loadRefreshLog,
   loadScoutGames,
@@ -54,6 +56,7 @@ import {
   onPoolChangedElsewhere,
   saveAgeGroups,
   savePullProgress,
+  saveArchivedSeasons,
   saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
@@ -68,6 +71,8 @@ import {
   teamRankingsJsonParts,
 } from "../lib/teamRankingsBackup";
 import { type RankingsSection } from "../lib/rankingsRoute";
+import { archivableYears, archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
+import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -131,6 +136,7 @@ const sectionLabel = (section: RankingsSection): string =>
     games: "The games list",
     import: "The GameChanger import",
     scouting: "The scouting report",
+    archive: "The archive",
     setup: "Setup",
   })[section];
 
@@ -288,6 +294,16 @@ export function TeamRankingsView({
   // ---------- Age group management ----------
 
   const yearOptions = useMemo(() => seasonYearOptions(ageGroups), [ageGroups]);
+
+  /*
+   * What has been archived, and whether an archive is running.
+   *
+   * Only the index — names, dates and counts — is held here. A season's rows are a hundred
+   * thousand of them and are read when somebody opens one, which is the whole point of keeping
+   * them in a key of their own.
+   */
+  const [archives, setArchives] = useState<ArchiveEntry[]>(() => loadArchiveIndex());
+  const [archiving, setArchiving] = useState(false);
 
   /**
    * Answers "what age does this league season play?" — the only age-group question left to ask.
@@ -958,6 +974,113 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
    * page — a reload would throw away a League Standings edit the user has not saved yet, and
    * everything here that came out of storage is named right below.
    */
+  /*
+   * What each baseball year holds, for the card that offers to freeze one.
+   *
+   * One pass over the stored games rather than a filter per year: on a nationwide pool there are
+   * three hundred thousand of them and half a dozen years, and the card re-renders on every pick.
+   * The stored games, because those are the ones a delete can take — the league's fixtures are
+   * derived and go from the archive's point of view by the page going, not by being deleted.
+   */
+  const archivableSummaries = useMemo(() => {
+    const yearOf = new Map<string, number>();
+    ageGroups.forEach((group) => {
+      const year = ageGroupYear(group);
+      if (year !== undefined) yearOf.set(group.id, year);
+    });
+    const pages = new Map<number, number>();
+    yearOf.forEach((year) => pages.set(year, (pages.get(year) ?? 0) + 1));
+    const games = new Map<number, number>();
+    const sides = new Map<number, Set<string>>();
+    scoutGames.forEach((game) => {
+      const year = yearOf.get(game.ageGroupId);
+      if (year === undefined) return;
+      games.set(year, (games.get(year) ?? 0) + 1);
+      const seen = sides.get(year) ?? new Set<string>();
+      seen.add(game.teamAId);
+      seen.add(game.teamBId);
+      sides.set(year, seen);
+    });
+    return archivableYears(ageGroups).map((year) => ({
+      year,
+      pages: pages.get(year) ?? 0,
+      games: games.get(year) ?? 0,
+      teams: sides.get(year)?.size ?? 0,
+    }));
+  }, [ageGroups, scoutGames]);
+
+  /**
+   * Freezes a baseball year's tables and deletes the games behind them.
+   *
+   * The tables are built from the merged pool, so what is frozen is what was on screen — the
+   * league's own fixtures included, which is why the confirmation says they go too. What is
+   * deleted is the stored pool only, because derived fixtures were never stored.
+   *
+   * Order matters and is the reason this is not two calls: the archive is written and confirmed
+   * first, and the games are deleted only if it landed. A half-written archive with the games
+   * already gone is the one outcome there is no coming back from.
+   */
+  const archiveYear = async (year: number) => {
+    const shown = { teams: allKnown.teams, games: allKnownGames };
+    const stored = { ageGroups, teams: scoutTeams, games: scoutGames };
+    const done = archiveSquadYear(year, shown, stored, new Date().toISOString());
+
+    if (done.seasons.length === 0 && done.unranked.length === 0) {
+      showToast(`Nothing is filed under ${year}.`, { tone: "error" });
+      return;
+    }
+
+    const lines = [
+      `${done.seasons.length} final table${done.seasons.length === 1 ? "" : "s"} kept: ${done.seasons
+        .map((season) => `${season.name} (${season.rows.length.toLocaleString()} teams)`)
+        .join(", ")}.`,
+      `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} deleted.`,
+    ];
+    if (done.archivedLeagueGames > 0) {
+      lines.push(
+        `${done.archivedLeagueGames.toLocaleString()} league game${done.archivedLeagueGames === 1 ? "" : "s"} are in these tables and will no longer be counted in any live ranking. League Standings keeps its own seasons — this does not touch them.`
+      );
+    }
+    if (done.unranked.length > 0) {
+      lines.push(
+        `No table for ${done.unranked.map((page) => `${page.name} (${page.games.toLocaleString()} games)`).join(", ")} — those ages are not ranked, so their games informed the tables above and keep no rows of their own.`
+      );
+    }
+    lines.push("The tables become read-only. This cannot be undone.");
+
+    const confirmed = await requestConfirmation({
+      title: `Archive ${year} and delete its games?`,
+      message: lines.join("\n\n"),
+      confirmLabel: `Archive ${year}`,
+    });
+    if (!confirmed) return;
+
+    setArchiving(true);
+    try {
+      const kept = await saveArchivedSeasons(done.seasons);
+      if (!kept) {
+        showToast("Could not write the archive, so nothing was deleted. The pool is unchanged.", {
+          tone: "error",
+        });
+        return;
+      }
+      // Only now: the tables are on disk, so the games they replace can go.
+      persistAgeGroups(done.state.ageGroups);
+      persistTeams(done.state.teams);
+      persistGames(done.state.games);
+      setArchives(loadArchiveIndex());
+      pickPage("");
+      setOpenTeamId(null);
+      setReportTeamId("");
+      showToast(
+        `${year} archived. ${kept.length} final table${kept.length === 1 ? "" : "s"} kept under Archive; ${done.droppedGames.toLocaleString()} games deleted.`
+      );
+      onDataChange?.();
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const resetEverything = async () => {
     const going = readTeamRankingsBackup();
     const confirmed = await requestConfirmation({
@@ -986,6 +1109,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
     setScoutGames([]);
     setPullProgress(null);
     setRefreshLog({});
+    setArchives([]);
     pickPage("");
     setOpenTeamId(null);
     setReportTeamId("");
@@ -1157,6 +1281,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
             />
           )}
 
+          {section === "archive" && <ArchiveSection entries={archives} />}
+
           {section === "setup" && (
             <SetupSection
               seasons={seasons}
@@ -1192,6 +1318,12 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 games: allKnownGames,
               }}
               onReset={() => void resetEverything()}
+              archive={{
+                years: archivableSummaries,
+                currentYear: selectedYear,
+                busy: archiving,
+                onArchive: (year) => void archiveYear(year),
+              }}
             />
           )}
         </ErrorBoundary>
