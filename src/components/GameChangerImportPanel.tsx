@@ -228,6 +228,31 @@ const fileDay = (): string => new Date().toISOString().slice(0, 10);
 
 /** How many rows of the list are drawn; the rest are in the file the button writes. */
 const PROBLEMS_SHOWN = 200;
+/** Pairings drawn before "Show all" is pressed. A cap on the drawing, never on the deciding. */
+const PAIRS_DRAWN = 100;
+
+/**
+ * Whether a pairing answers to what was typed in the search box.
+ *
+ * Both names, both seasons and the confidence, because those are the words on the row: somebody
+ * looking for their own club types its name, somebody working through the winter boundary types
+ * "Fall 2025", and somebody who only trusts the strong ones types "strong". An empty box matches
+ * everything, which is what makes it a filter rather than a gate.
+ */
+export const pairingMatches = (pairing: GcSeasonPairing, search: string): boolean => {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  return [
+    pairing.fromTeamName,
+    pairing.toTeamName,
+    pairing.fromSeason,
+    pairing.toSeason,
+    pairing.confidence,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(term);
+};
 
 export function GameChangerImportPanel({
   pool,
@@ -274,6 +299,10 @@ export function GameChangerImportPanel({
   const { tidy: tidyInWorker, busy: tidying } = usePoolTidy();
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
+  /** Narrows the pairing list by name, state or season. */
+  const [pairSearch, setPairSearch] = useState("");
+  /** How many pairings are drawn. Raised to all of them by the button under the list. */
+  const [pairLimit, setPairLimit] = useState(PAIRS_DRAWN);
   /** The pairing opened side by side, if any, worked out when it was opened. */
   const [openPair, setOpenPair] = useState<{
     key: string;
@@ -978,8 +1007,21 @@ export function GameChangerImportPanel({
   };
 
   const pairKey = (pairing: GcSeasonPairing) => `${pairing.fromTeamId}>${pairing.toTeamId}`;
-  /** The pairings on screen; the rest can be paired from a team's own panel. */
-  const shown = pairings.slice(0, 100);
+  /**
+   * The pairings the search matches, and how many of them are drawn.
+   *
+   * A nationwide pull offers four hundred of these, and the list used to stop at a hundred and say
+   * the rest could be done from each team's own panel — three hundred panels, one at a time, for a
+   * decision that is the same decision every time. Worse, an unpaired squad is not a cosmetic
+   * problem: a club whose fall and spring ids were never joined is two teams with no game between
+   * them, and a rating cannot carry across a winter it cannot see.
+   *
+   * So all of them are reachable. The first hundred are drawn for speed, "Show all" draws the
+   * rest, and the search narrows by name, state or season for when the answer is only wanted for
+   * some of them.
+   */
+  const matching = pairings.filter((pairing) => pairingMatches(pairing, pairSearch));
+  const shown = matching.slice(0, pairLimit);
 
   const applyPairings = () => {
     if (approved.size === 0) {
@@ -1498,22 +1540,42 @@ export function GameChangerImportPanel({
                 less than that, so they are yours to call — tap a name to see the two side by side.
                 Pairing makes one team with both seasons behind it.
               </p>
-              <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <input
-                  type="checkbox"
-                  checked={
-                    shown.length > 0 && shown.every((pairing) => approved.has(pairKey(pairing)))
-                  }
-                  onChange={(event) => {
-                    setApproved(
-                      event.target.checked
-                        ? new Set(shown.map((pairing) => pairKey(pairing)))
-                        : new Set()
-                    );
-                  }}
+                  type="search"
+                  value={pairSearch}
+                  onChange={(event) => setPairSearch(event.target.value)}
+                  placeholder="Search by name or season"
+                  aria-label="Search pairings"
+                  className="min-w-48 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
                 />
-                Tick all {shown.length}
-              </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={
+                      matching.length > 0 &&
+                      matching.every((pairing) => approved.has(pairKey(pairing)))
+                    }
+                    onChange={(event) => {
+                      /*
+                       * Only the ones the search matches, added or removed. It used to replace the
+                       * whole set, so unticking it threw away every approval made under a previous
+                       * search — a hundred decisions lost to one click.
+                       */
+                      const keys = matching.map((pairing) => pairKey(pairing));
+                      setApproved((current) => {
+                        const next = new Set(current);
+                        keys.forEach((key) =>
+                          event.target.checked ? next.add(key) : next.delete(key)
+                        );
+                        return next;
+                      });
+                    }}
+                  />
+                  Tick all {matching.length}
+                  {pairSearch.trim() ? " matching" : ""}
+                </label>
+              </div>
               <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto">
                 {shown.map((pairing) => {
                   const key = pairKey(pairing);
@@ -1580,10 +1642,30 @@ export function GameChangerImportPanel({
                   );
                 })}
               </ul>
-              {pairings.length > 100 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Showing the first 100 of {pairings.length}; the rest can be paired from a
-                  team&apos;s own panel.
+              {shown.length < matching.length && (
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span>
+                    Drawing {shown.length} of {matching.length}
+                    {pairSearch.trim() ? ` that match, out of ${pairings.length}` : ""}.
+                  </span>
+                  <button
+                    type="button"
+                    className={button.ghost}
+                    onClick={() => setPairLimit(matching.length)}
+                  >
+                    Show all {matching.length}
+                  </button>
+                </div>
+              )}
+              {matching.length === 0 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  None of the {pairings.length} match that. Clear the search to see them all.
+                </p>
+              )}
+              {approved.size > 0 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {approved.size} ticked
+                  {approved.size > shown.length ? ", including some not drawn here" : ""}.
                 </p>
               )}
             </div>
