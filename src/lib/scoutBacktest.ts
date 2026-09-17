@@ -3,7 +3,6 @@ import {
   buildOpponentAdjustedRatings,
   type RatingGame,
 } from "./powerRating";
-import { parseDateValue } from "./date";
 import {
   RATING_CAP,
   scoutRatingGames,
@@ -65,6 +64,45 @@ export type ScoutBacktestResult = {
    * from a chair is a claim about this curve, and the curve can simply be measured.
    */
   buckets: ScoutBacktestBucket[];
+  /**
+   * The real calendar days the fit ran over, and the ones it was scored on.
+   *
+   * Reported because the whole method rests on `trainTo` coming before `testFrom`, and for a long
+   * time it did not: a squad year crosses New Year, and the app's other date parser drops the year,
+   * so the spring sorted ahead of the autumn it followed. Nothing in the numbers showed it. Four
+   * dates do.
+   */
+  span: ScoutBacktestSpan | null;
+  /** Games fitted on. Printed beside `sampleSize` so a cut that kept almost nothing is visible. */
+  trainSize: number;
+  /**
+   * Held-out games with a side the fit never saw.
+   *
+   * Such a game is scored against a rating of zero — which is exactly what the even-game baseline
+   * predicts — so it contributes the same amount to the error and to the baseline, and cancels out
+   * of the lift. A hold-out full of them drags every scheme toward the same number and reads as
+   * "nothing separates them" when the truth is that nothing was asked.
+   */
+  unratedSides: number;
+  /**
+   * Mean size of the predicted margins, in runs. The tell for a scheme that won by shrinking.
+   *
+   * The ridge is a constant, and weighting only fixes the pool's *mean* weight — a team whose games
+   * are all old still ends up with little weight of its own, and its rating is pulled toward zero.
+   * A rating of zero predicts an even game, which is the baseline. So heavy decay slides the model
+   * toward the baseline, and on a page where the ratings are not beating the baseline anyway that
+   * slide *lowers* the error with no recency content in it at all. If the winner's predictions are
+   * markedly smaller than the control's, it did not learn anything — it just stopped guessing.
+   */
+  meanAbsolutePrediction: number | null;
+};
+
+/** The first and last day fitted on, and the first and last day scored. All "YYYY-MM-DD". */
+export type ScoutBacktestSpan = {
+  trainFrom: string;
+  trainTo: string;
+  testFrom: string;
+  testTo: string;
 };
 
 /** Held-out games grouped by how long after the training cut they were played. */
@@ -132,6 +170,10 @@ const emptyResult = (ageGapPrior: number, recencyKey: string): ScoutBacktestResu
   ageGapPrior,
   recencyKey,
   buckets: [],
+  span: null,
+  trainSize: 0,
+  unratedSides: 0,
+  meanAbsolutePrediction: null,
 });
 
 type DatedGame = { game: ScoutGame; ageGap: number; at: number };
@@ -142,11 +184,35 @@ type DatedGame = { game: ScoutGame; ageGap: number; at: number };
  * A game with no date cannot be placed on a timeline, and a hold-out that included one would be
  * fitting on the future to predict the past. They are dropped rather than guessed at.
  */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The day a game was played, as an instant.
+ *
+ * Deliberately not `parseDateValue`. That one normalises a date to "M/D" and re-parses it inside
+ * one fixed calendar year, which is right for League Standings — a season there is one year, so
+ * the year would only be noise. A squad year is not one calendar year. It runs August to July, so
+ * ordering it that way sorts the spring *ahead of* the autumn it followed, and a hold-out cut on
+ * that order fits on March and scores the September before it: trained on the future, scored on
+ * the past. Every recency scheme then reads backwards — the oldest games are the ones handed full
+ * weight — and the bucket this whole exercise exists to fill, what a fall season is worth in the
+ * spring, is filled with games played *before* the training data.
+ *
+ * Team Rankings stores a full "YYYY-MM-DD" and already sorts squad years by it lexically, in
+ * `inSquadYear`, so anything else is not a date this pool can place; it is dropped rather than
+ * guessed at, the same treatment a game with no date at all gets. Noon UTC, so the day stays whole
+ * whatever zone reads it back.
+ */
+const dayInstant = (date: string | undefined): number =>
+  date && ISO_DAY.test(date) ? Date.parse(`${date}T12:00:00Z`) : Number.NaN;
+
+/** The day back out of an instant, for reporting the span the run actually covered. */
+const dayOfInstant = (at: number): string => new Date(at).toISOString().slice(0, 10);
+
 const inTimeOrder = (rated: Array<{ game: ScoutGame; ageGap: number }>): DatedGame[] =>
   rated
     .flatMap(({ game, ageGap }) => {
-      if (!game.date) return [];
-      const at = parseDateValue(game.date);
+      const at = dayInstant(game.date);
       return Number.isFinite(at) ? [{ game, ageGap, at }] : [];
     })
     .sort((a, b) => a.at - b.at || a.game.id.localeCompare(b.game.id));
@@ -180,21 +246,36 @@ export const backtestScoutRatings = (
 
   const ordered = inTimeOrder(scoutRatingGames(ageGroupId, teams, games, ageGroups));
   const cut = Math.floor(ordered.length * trainShare);
-  const train = ordered.slice(0, cut);
   /*
-   * The cut is a day, not a row. Everything on the last day fitted on would otherwise be split
-   * between train and test, and a game scored against a fit that saw its own doubleheader partner
-   * is not a prediction.
+   * The cut is a day, not a row. A row index picks the day; the day then takes all of its own
+   * games. Everything on the last day fitted on would otherwise be split between train and test,
+   * and a game scored against a fit that saw its own doubleheader partner is not a prediction.
+   *
+   * Taken as a filter over the whole pool rather than as a slice, because a slice loses games. The
+   * row index lands mid-Saturday about as often as not, and the rest of that Saturday is past the
+   * index yet not after the cut *day* — so it was dropped from the training slice and then dropped
+   * again from the test half by `at > cutAt`, and fell out of the run entirely. Nothing said so:
+   * only the test set is counted, so eight silently vanished games looked exactly like a clean run.
    */
-  const cutAt = train.length === 0 ? 0 : train[train.length - 1]!.at;
+  const cutAt = cut === 0 ? 0 : ordered[Math.min(cut, ordered.length) - 1]!.at;
+  const train = ordered.filter((entry) => entry.at <= cutAt);
   const scoreFrom = cutAt + gapDays * DAY_MS;
-  const test = ordered.slice(cut).filter((entry) => entry.at > cutAt && entry.at >= scoreFrom);
+  const test = ordered.filter((entry) => entry.at > cutAt && entry.at >= scoreFrom);
   // A fit on nothing rates nobody, and a cut leaving nothing to score answers nothing.
   if (train.length === 0 || test.length === 0) {
     return emptyResult(ageGapPrior, recency?.key ?? "none");
   }
 
-  const teamIds = [...new Set(ordered.flatMap(({ game }) => [game.teamAId, game.teamBId]))];
+  /*
+   * Only the teams the fit actually saw. Handing it the hold-out's teams as well gave each of them
+   * a row no game touched, which the solver leaves at exactly zero — so a debutant was not
+   * "unrated", it was confidently rated dead average, and a game between two of them was predicted
+   * even. That is the baseline's own answer, so the row added nothing to the lift while still
+   * counting in the mean, quietly pulling every scheme toward the same score. Left out here, and
+   * counted below, so a hold-out made largely of newcomers says so out loud.
+   */
+  const teamIds = [...new Set(train.flatMap(({ game }) => [game.teamAId, game.teamBId]))];
+  const rated = new Set(teamIds);
   /*
    * Weighed as of the cut, which is the day somebody reading these ratings would be standing on.
    * Weighing as of the newest game in the whole pool would let the fit know how long the hold-out
@@ -221,6 +302,8 @@ export const backtestScoutRatings = (
   let crossAgeCount = 0;
   let decisive = 0;
   let calledRight = 0;
+  let unratedSides = 0;
+  let predictionSum = 0;
 
   /** One accumulator per bucket, filled as the hold-out is scored. */
   const buckets = BUCKET_EDGES_DAYS.slice(0, -1).map((fromDays, at) => ({
@@ -241,6 +324,8 @@ export const backtestScoutRatings = (
       (fit.ratings.get(game.teamBId) ?? 0) +
       ageGap * fit.ageGapRuns;
 
+    if (!rated.has(game.teamAId) || !rated.has(game.teamBId)) unratedSides += 1;
+    predictionSum += Math.abs(predicted);
     const error = Math.abs(predicted - actual);
     errorSum += error;
     // What a model that knows nothing about either side would say: it will be close.
@@ -282,6 +367,15 @@ export const backtestScoutRatings = (
     fittedAgeGapRuns: fit.ageGapRuns,
     ageGapPrior,
     recencyKey: recency?.key ?? "none",
+    trainSize: train.length,
+    unratedSides,
+    meanAbsolutePrediction: predictionSum / test.length,
+    span: {
+      trainFrom: dayOfInstant(train[0]!.at),
+      trainTo: dayOfInstant(cutAt),
+      testFrom: dayOfInstant(test[0]!.at),
+      testTo: dayOfInstant(test[test.length - 1]!.at),
+    },
     buckets: buckets
       .filter((bucket) => bucket.count > 0)
       .map((bucket) => ({
