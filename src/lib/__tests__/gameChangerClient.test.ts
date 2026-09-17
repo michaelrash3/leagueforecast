@@ -503,3 +503,100 @@ describe("fetchGcTeams", () => {
     expect(fetchImpl.calls).toHaveLength(0);
   });
 });
+
+/*
+ * The fixed pool was the ceiling on a long pull. Eight workers of ten teams, at a second or two a
+ * batch, is about two thousand teams a minute whatever the route could actually take — so a
+ * hundred thousand teams was most of an hour, and eight was a guess either way. It now starts
+ * where it always did and asks the route for more.
+ */
+describe("growing the pool while the route stays clean", () => {
+  const manyIds = (count: number): string[] =>
+    Array.from({ length: count }, (_unused, at) => `Team${String(at).padStart(8, "0")}`);
+
+  it("stays where it started when told nothing about a ceiling", async () => {
+    const seen: number[] = [];
+    await fetchGcTeams(manyIds(60 * BATCH_SIZE), {
+      fetchImpl: batchFetch(() => okBody),
+      delayMs: () => 0,
+      concurrency: 4,
+      onConcurrency: (workers) => seen.push(workers),
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("adds workers as clean batches go by, up to the ceiling", async () => {
+    const seen: number[] = [];
+    await fetchGcTeams(manyIds(400 * BATCH_SIZE), {
+      fetchImpl: batchFetch(() => okBody),
+      delayMs: () => 0,
+      concurrency: 4,
+      maxConcurrency: 9,
+      onConcurrency: (workers) => seen.push(workers),
+    });
+    // One at a time, in order, and never past the ceiling.
+    expect(seen).toEqual([5, 6, 7, 8, 9]);
+  });
+
+  it("never grows past the number of batches there are to fetch", async () => {
+    const seen: number[] = [];
+    await fetchGcTeams(manyIds(2 * BATCH_SIZE), {
+      fetchImpl: batchFetch(() => okBody),
+      delayMs: () => 0,
+      concurrency: 1,
+      maxConcurrency: 20,
+      onConcurrency: (workers) => seen.push(workers),
+    });
+    expect(Math.max(0, ...seen)).toBeLessThanOrEqual(2);
+  });
+
+  /*
+   * The point of the whole arrangement. A route that has pushed back once is not one to lean on
+   * harder, so the first hold of any kind stops the climb for good — a run that crept up to a
+   * ceiling and then got itself blocked is worse than one that stayed where it started.
+   */
+  it("stops growing for good at the first hold", async () => {
+    /*
+     * One refused batch, which holds every worker off directly — a single refusal is well under
+     * MAX_REFUSALS, so the run carries on and the question is only whether it keeps climbing.
+     */
+    const refusedOnce: GcTeamResponse = {
+      ok: false,
+      reason: "blocked" satisfies GcFetchErrorReason,
+      message: "The AWS WAF turned the server away.",
+      status: 403,
+    };
+    /*
+     * Clean for the first fifty batches, one refused team, then clean again for the remaining
+     * three hundred and fifty. `batchFetch` is asked per team, so the id is what picks the moment.
+     */
+    const refuseAt = `Team${String(500).padStart(8, "0")}`;
+    const fetchImpl = batchFetch((teamId) => (teamId === refuseAt ? refusedOnce : okBody));
+    const seen: number[] = [];
+    let refusals = 0;
+    await fetchGcTeams(manyIds(400 * BATCH_SIZE), {
+      fetchImpl,
+      delayMs: () => 0,
+      retries: 0,
+      // No wait asked for, so this also pins that a refusal freezes the climb on its own.
+      refusedHoldMs: 0,
+      concurrency: 4,
+      maxConcurrency: 20,
+      onBlocked: () => {
+        refusals += 1;
+      },
+      onConcurrency: (workers) => seen.push(workers),
+    });
+    expect(refusals).toBeGreaterThan(0);
+    /*
+     * It had climbed a little before the refusal and not a step after it. Four hundred clean
+     * batches at one step per ten would have reached the ceiling several times over, so a peak
+     * well short of twenty is the latch holding.
+     */
+    const peak = Math.max(0, ...seen);
+    // Fifty clean batches is five steps up from four.
+    expect(peak).toBeGreaterThanOrEqual(5);
+    // Four hundred batches would have reached the ceiling of twenty many times over.
+    expect(peak).toBeLessThan(15);
+  });
+});

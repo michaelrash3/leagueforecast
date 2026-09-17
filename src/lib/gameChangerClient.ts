@@ -80,12 +80,38 @@ export type FetchGcTeamsOptions = {
    * it again — but it is also not in the pool, and nothing else records that it exists.
    */
   onSuppressed?: (teamId: string) => void;
+  /**
+   * Workers to grow to while nothing pushes back. Absent or lower than `concurrency` means no
+   * growth, which is what every caller got before this existed.
+   *
+   * The fixed pool was the ceiling on a long pull, and it was set where it was because nobody knew
+   * what the route would take. Eight workers of ten teams, at a second or two a batch, is around
+   * two thousand teams a minute however fast the fetching itself could go — so a hundred thousand
+   * teams is the better part of an hour, and the number was a guess either way.
+   *
+   * Rather than a bigger guess, this one asks. It starts where it always did and adds a worker for
+   * every `RAMP_AFTER_CLEAN_BATCHES` batches that come back without a hold; the first hold of any
+   * kind, from GameChanger's own throttle or from a refused route, stops it growing for the rest
+   * of the run. Pushback is therefore paid for once, and slowly, instead of being discovered by a
+   * pull that opened at full throttle and got itself blocked.
+   */
+  maxConcurrency?: number;
+  /** Told whenever the pool grows, so a run can show what it settled at. */
+  onConcurrency?: (workers: number) => void;
 };
 
 /** Who asked for a hold: GameChanger naming a wait, our own ladder, or a refused route. */
 export type GcHoldSource = "retry-after" | "backoff" | "refused";
 
 const DEFAULT_CONCURRENCY = 4;
+/**
+ * Clean batches between one extra worker and the next.
+ *
+ * A batch is a second or two, so at eight workers this steps up about every three seconds — quick
+ * enough to be at the ceiling inside a minute, slow enough that a route which is going to push
+ * back has said so before the pull is leaning on it.
+ */
+const RAMP_AFTER_CLEAN_BATCHES = 10;
 const DEFAULT_RETRIES = 4;
 const DEFAULT_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
 
@@ -520,6 +546,8 @@ export const fetchGcTeams = async (
     onHold,
     onBlocked,
     onSuppressed,
+    maxConcurrency,
+    onConcurrency,
   }: FetchGcTeamsOptions = {}
 ): Promise<Map<string, GcTeamResponse>> => {
   const ids = Array.from(new Set(teamIds.map((id) => id.trim()).filter(Boolean)));
@@ -530,12 +558,29 @@ export const fetchGcTeams = async (
     ...(signal ? { signal } : {}),
   };
   const attempts = Math.max(0, Math.floor(retries));
-  const brake = createBrake(onHold);
+  /*
+   * Holds are counted here as well as reported, because the ramp below needs to know whether the
+   * route has pushed back at all — and a hold is the only warning that comes before a refusal.
+   */
+  let holds = 0;
+  const brake = createBrake((ms, source) => {
+    holds += 1;
+    onHold?.(ms, source);
+  });
   let next = 0;
   let done = 0;
 
   /** Set once the route is refused often enough that carrying on only destroys the list. */
   let givenUp = false;
+  /*
+   * The ramp's own state. `frozen` latches on the first hold of any kind and never clears: a route
+   * that has pushed back once is not one to lean on harder, and a run that crept up to a ceiling
+   * and then got itself blocked is worse than a run that stayed where it started.
+   */
+  let clean = 0;
+  let frozen = false;
+  /** Filled in below, once the pool it grows exists. */
+  let grow = (): void => {};
 
   const worker = async (): Promise<void> => {
     while (!signal?.aborted && !givenUp) {
@@ -552,6 +597,15 @@ export const fetchGcTeams = async (
         refusedHoldMs,
         onBlocked
       );
+      // Either kind of pushback freezes it: a refusal counts even when it asked for no wait.
+      if (holds > 0 || brake.refusals() > 0) frozen = true;
+      if (!frozen) {
+        clean += 1;
+        if (clean >= RAMP_AFTER_CLEAN_BATCHES) {
+          clean = 0;
+          grow();
+        }
+      }
       const refused = brake.refusals() > MAX_REFUSALS;
       if (refused && !givenUp) {
         givenUp = true;
@@ -588,8 +642,23 @@ export const fetchGcTeams = async (
   };
 
   const batches = Math.ceil(total / BATCH_SIZE);
-  const workers = Math.max(1, Math.min(Math.floor(concurrency) || 1, batches));
-  await Promise.all(Array.from({ length: workers }, () => worker()));
+  const floor = Math.max(1, Math.min(Math.floor(concurrency) || 1, batches));
+  const ceiling = Math.max(floor, Math.min(Math.floor(maxConcurrency ?? floor), batches));
+  /*
+   * Grown by index rather than gathered with `Promise.all`, because the pool is allowed to get
+   * bigger after it has started and a snapshot of it would not wait for the ones added later.
+   * Walking the array by index drains whatever is in it by the time the walk reaches that slot.
+   */
+  const running: Array<Promise<void>> = [];
+  const spawn = () => {
+    running.push(worker());
+    if (running.length > floor) onConcurrency?.(running.length);
+  };
+  grow = () => {
+    if (running.length < ceiling) spawn();
+  };
+  for (let at = 0; at < floor; at += 1) spawn();
+  for (let at = 0; at < running.length; at += 1) await running[at];
 
   // Rebuilt in input order: a Map remembers insertion order, and requests finish in any order.
   const results = new Map<string, GcTeamResponse>();
