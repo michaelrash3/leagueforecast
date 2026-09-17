@@ -28,6 +28,11 @@ export type Pool = {
   seasons?: SeasonMeta[];
   /** Starting URL query, as a user arriving on a link would have. */
   search?: string;
+  /**
+   * Leaves the tidy stamp unset, so the view finds a pool it does not recognise and tidies it
+   * unasked — which is what a restored backup or a pull closed mid-tidy looks like.
+   */
+  untidied?: boolean;
 };
 
 export type Harness = RenderResult & {
@@ -102,7 +107,11 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   saveAgeGroups(pool.ageGroups);
   saveScoutTeams(pool.teams);
   saveScoutGames(pool.games);
-  saveTidyStamp(poolSignature({ ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games }));
+  if (!pool.untidied) {
+    saveTidyStamp(
+      poolSignature({ ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games })
+    );
+  }
 
   const showToast = vi.fn();
   const requestConfirmation = vi.fn().mockResolvedValue(true);

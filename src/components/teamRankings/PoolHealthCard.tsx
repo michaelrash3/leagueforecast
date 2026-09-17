@@ -59,6 +59,9 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
 
   const run = async () => {
     const outcome = await tidy(pool);
+    // Refused because something else has the pool. The button is disabled while a pull is running,
+    // so this is the narrow case of another tidy already going — nothing to say, nothing to do.
+    if (!outcome) return;
     onTidied(outcome);
     setLastTidy(describeTidy({ ...outcome.tidy, state: outcome.state }));
     const found = await inspect(outcome.state, "");

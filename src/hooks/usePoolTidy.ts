@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
+import { beginTidy, endTidy } from "../lib/pullSession";
 import type { WorkerRequest, WorkerResponse } from "../workers/tidy.worker";
 
 /**
@@ -100,20 +101,37 @@ export function usePoolTidy() {
     [ask]
   );
 
+  /**
+   * Tidies the pool, or returns null because something else is already writing it.
+   *
+   * The claim is the whole reason this is not just a call. A tidy reads the pool, works for the
+   * better part of half a minute, and then saves all of it — so a pull that starts in the middle
+   * has its first few hundred teams overwritten by a tidy that never saw them, and the pull's
+   * cursor has already counted them settled. While it ran on the main thread nothing else could
+   * start; off the main thread, everything can.
+   */
   const tidy = useCallback(
-    (state: GcImportState): Promise<TidyOutcome> =>
-      ask<TidyOutcome>(
-        "tidy",
-        (id) => ({ kind: "tidy", id, state }),
-        (response, id) =>
-          response.kind === "tidy" && response.id === id
-            ? { state: response.state, tidy: response.tidy }
-            : null,
-        () => {
-          const { state: tidied, ...counts } = tidyPool(state);
-          return { state: tidied, tidy: counts };
-        }
-      ),
+    async (state: GcImportState): Promise<TidyOutcome | null> => {
+      const session = beginTidy(new Date().toISOString());
+      if (!session) return null;
+      try {
+        return await ask<TidyOutcome>(
+          "tidy",
+          (id) => ({ kind: "tidy", id, state }),
+          (response, id) =>
+            response.kind === "tidy" && response.id === id
+              ? { state: response.state, tidy: response.tidy }
+              : null,
+          () => {
+            const { state: tidied, ...counts } = tidyPool(state);
+            return { state: tidied, tidy: counts };
+          }
+        );
+      } finally {
+        // Released even when the worker throws on the way out, or the slot is held for good.
+        endTidy(session);
+      }
+    },
     [ask]
   );
 

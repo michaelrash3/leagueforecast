@@ -1,8 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { beginPull, resetPullSession } from "../lib/pullSession";
+import { beginPull, isPoolBusy, resetPullSession } from "../lib/pullSession";
 import type { GcTeamResponse } from "../lib/gameChangerApi";
+import type { GcImportState } from "../lib/gameChangerImport";
 
 /**
  * The client is mocked so the run is driven entirely from here: every id answers, so the only
@@ -56,11 +57,13 @@ const { GameChangerImportPanel } = await import("./GameChangerImportPanel");
 
 const ids = Array.from({ length: 12 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
 
-const renderPanel = (onPersist: () => boolean) => {
+const emptyPool: GcImportState = { ageGroups: [], teams: [], games: [] };
+
+const renderPanel = (onPersist: () => boolean, pool: GcImportState = emptyPool) => {
   const toasts: string[] = [];
   render(
     <GameChangerImportPanel
-      pool={{ ageGroups: [], teams: [], games: [] }}
+      pool={pool}
       onPersist={onPersist}
       savedProgress={null}
       onSaveProgress={() => {}}
@@ -145,5 +148,56 @@ describe("a pull that outlives its panel", () => {
   it("offers nothing of the sort when nothing is running", async () => {
     renderPanel(() => true);
     expect(screen.queryByText(/A pull is already running/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("the tidy at the end of a run", () => {
+  beforeEach(() => {
+    asked.length = 0;
+    resetPullSession();
+  });
+  afterEach(() => resetPullSession());
+
+  /*
+   * The tidy takes the same slot the pull does, because it reads the whole pool, works for the
+   * better part of half a minute, and saves all of it. A claim it failed to give back would refuse
+   * every pull and every tidy for the rest of the session, with nothing on screen to say why.
+   */
+  it("hands the pool back when the run is over", async () => {
+    const user = userEvent.setup();
+    renderPanel(() => true);
+
+    await user.type(screen.getByLabelText("Teams"), ids.join("\n"));
+    await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
+
+    // The run reaches its summary...
+    await waitFor(() => expect(screen.getByText(/schedules? read/i)).toBeInTheDocument());
+    // ...and nothing is left holding the pool.
+    expect(isPoolBusy()).toBe(false);
+  });
+
+  it("will not tidy by hand while a pull is running", async () => {
+    /*
+     * Both write the whole pool, so the tidy would save over the teams the pull had just written —
+     * and the pull's cursor has already counted them settled, so a resume would never fetch them
+     * again.
+     */
+    beginPull("2026-09-17T08:00:00.000Z");
+    renderPanel(() => true, {
+      ageGroups: [],
+      teams: [],
+      games: [
+        {
+          id: "g1",
+          ageGroupId: "ag",
+          teamAId: "a",
+          teamBId: "b",
+          teamAScore: 1,
+          teamBScore: 0,
+        },
+      ],
+    });
+
+    expect(screen.getByRole("button", { name: /tidy now/i })).toBeDisabled();
   });
 });

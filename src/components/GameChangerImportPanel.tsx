@@ -10,12 +10,12 @@ import {
   poolSignature,
   proposeSeasonPairings,
   summarizeGcImport,
-  tidyPool,
   type GcImportOutcome,
   type GcImportState,
   type GcPairingComparison,
   type GcPairingSide,
   type GcSeasonPairing,
+  type PoolTidy,
 } from "../lib/gameChangerImport";
 import {
   describePull,
@@ -43,6 +43,7 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
+import { usePoolTidy } from "../hooks/usePoolTidy";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import { flushPoolWrites, saveTidyStamp } from "../lib/teamRankingsStorage";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
@@ -157,6 +158,12 @@ export function GameChangerImportPanel({
    * looking at a pool that is still moving underneath it.
    */
   const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
+  /*
+   * The tidy runs in a worker. It is five passes over every game — half a minute on a nationwide
+   * pool — and on the main thread that is half a minute of frozen tab at the very end of an hour
+   * of fetching, which is exactly when somebody reloads the page and throws it away.
+   */
+  const { tidy: tidyInWorker, busy: tidying } = usePoolTidy();
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   /** The pairing opened side by side, if any, worked out when it was opened. */
@@ -448,26 +455,34 @@ export function GameChangerImportPanel({
      * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
      * one game. A whole run is the first point at which both halves of each are certainly present.
      */
-    const tidy = tidyPool(poolRef.current);
-    // Stamped before the save lands, so the page does not read the tidied pool as untidied.
-    saveTidyStamp(poolSignature(tidy.state));
-    if (
-      tidy.named +
-        tidy.folded +
-        tidy.paired +
-        tidy.collapsed +
-        tidy.pruned +
-        tidy.reclaimed +
-        tidy.refiled >
-      0
-    ) {
-      poolRef.current = tidy.state;
-      if (persist()) await flushPoolWrites();
+    const outcome = await tidyInWorker(poolRef.current);
+    /*
+     * Refused only if something else claimed the pool in the moment between this run giving it up
+     * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
+     * pool still reads as untidied and the next time the app opens on it, it is tidied then.
+     */
+    const tidy: PoolTidy | null = outcome ? { ...outcome.tidy, state: outcome.state } : null;
+    if (tidy) {
+      // Stamped before the save lands, so the page does not read the tidied pool as untidied.
+      saveTidyStamp(poolSignature(tidy.state));
+      if (
+        tidy.named +
+          tidy.folded +
+          tidy.paired +
+          tidy.collapsed +
+          tidy.pruned +
+          tidy.reclaimed +
+          tidy.refiled >
+        0
+      ) {
+        poolRef.current = tidy.state;
+        if (persist()) await flushPoolWrites();
+      }
     }
 
     const finished = progressRef.current;
     setResult({
-      summary: [...summarizeGcImport(outcomesRef.current), ...describeTidy(tidy)],
+      summary: [...summarizeGcImport(outcomesRef.current), ...(tidy ? describeTidy(tidy) : [])],
       problems: collectGcImportProblems(
         finished?.failures ?? [],
         outcomesRef.current,
@@ -520,7 +535,14 @@ export function GameChangerImportPanel({
    */
   const tidyNow = async () => {
     // From the pool as saved, not the ref: nothing has been pulled since it was handed in.
-    const tidy = tidyPool(pool);
+    const outcome = await tidyInWorker(pool);
+    if (!outcome) {
+      showToast("Something is already working on the pool — try again when it has finished.", {
+        tone: "error",
+      });
+      return;
+    }
+    const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
     saveTidyStamp(poolSignature(tidy.state));
     const lines = describeTidy(tidy);
     if (lines.length === 0) {
@@ -827,8 +849,16 @@ export function GameChangerImportPanel({
                 : `Pull ${split.fresh.length || ""} schedule${split.fresh.length === 1 ? "" : "s"}`}
             </button>
             {pool.games.length > 0 && (
-              <button type="button" onClick={() => void tidyNow()} className={button.ghost}>
-                Tidy now
+              <button
+                type="button"
+                onClick={() => void tidyNow()}
+                // A pull writes the whole pool as it goes, so a tidy alongside one would save over
+                // whatever landed while it was working — and the cursor has already counted those
+                // teams settled, so nothing would fetch them again.
+                disabled={tidying !== null || pullLive}
+                className={button.ghost}
+              >
+                {tidying === "tidy" ? "Tidying…" : "Tidy now"}
               </button>
             )}
             {split.fresh.length === 0 && split.seen > 0 && (
@@ -858,11 +888,20 @@ export function GameChangerImportPanel({
             Saved every {SAVE_EVERY} teams. You can stop, close this, or leave the tab — it picks up
             where it left off.
           </p>
-          <div className="mt-3">
-            <button type="button" onClick={stop} className={button.ghost}>
-              Stop
-            </button>
-          </div>
+          {tidying === "tidy" ? (
+            <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+              Everything is in. Tidying now — naming the stand-ins the other side&apos;s schedule
+              can settle, folding the clubs pulled under more than one id. It walks every game
+              several times over, so on a big pool this takes a while; it runs off the main thread,
+              so the page stays usable and leaving this open is not needed.
+            </p>
+          ) : (
+            <div className="mt-3">
+              <button type="button" onClick={stop} className={button.ghost}>
+                Stop
+              </button>
+            </div>
+          )}
         </div>
       )}
 

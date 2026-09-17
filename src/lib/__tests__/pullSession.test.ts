@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   beginPull,
+  beginTidy,
   endPull,
+  endTidy,
+  isPoolBusy,
   isPullLive,
   livePull,
   resetPullSession,
@@ -68,5 +71,62 @@ describe("the one pull that may be running", () => {
     unwatch();
     beginPull("2026-09-17T08:05:00.000Z");
     expect(seen).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the tidy takes the same slot", () => {
+  /*
+   * Both jobs read the whole pool, work for a long time, and save all of it. While the tidy ran on
+   * the main thread nothing else could start during it; in a worker the page stays usable, so a
+   * pull can begin halfway through one and have its first few hundred teams overwritten by a tidy
+   * that never saw them — with the cursor already counting them settled.
+   */
+  it("is refused while a pull is running", () => {
+    beginPull("2026-09-17T08:00:00.000Z");
+    expect(beginTidy("2026-09-17T08:00:01.000Z")).toBeNull();
+  });
+
+  it("refuses a pull while it runs", () => {
+    beginTidy("2026-09-17T08:00:00.000Z");
+    expect(beginPull("2026-09-17T08:00:01.000Z")).toBeNull();
+  });
+
+  it("refuses a second tidy", () => {
+    const first = beginTidy("2026-09-17T08:00:00.000Z");
+    expect(first).not.toBeNull();
+    expect(beginTidy("2026-09-17T08:00:01.000Z")).toBeNull();
+  });
+
+  it("holds the pool without claiming a pull is running", () => {
+    // The banner says "a pull is running" and has to mean it; the guard is the broader question.
+    const session = beginTidy("2026-09-17T08:00:00.000Z")!;
+    expect(isPoolBusy()).toBe(true);
+    expect(isPullLive()).toBe(false);
+    endTidy(session);
+    expect(isPoolBusy()).toBe(false);
+  });
+
+  it("lets a pull start once it gives the slot up", () => {
+    const session = beginTidy("2026-09-17T08:00:00.000Z")!;
+    endTidy(session);
+    expect(beginPull("2026-09-17T08:05:00.000Z")).not.toBeNull();
+  });
+
+  it("will not let a finished tidy end the pull that followed it", () => {
+    const tidy = beginTidy("2026-09-17T08:00:00.000Z")!;
+    endTidy(tidy);
+    const pull = beginPull("2026-09-17T08:05:00.000Z")!;
+    endTidy(tidy);
+    expect(livePull()).toBe(pull);
+  });
+
+  it("tells watchers, so a card can grey its button out while it runs", () => {
+    const seen = vi.fn();
+    const unwatch = watchPull(seen);
+    const session = beginTidy("2026-09-17T08:00:00.000Z")!;
+    expect(seen).toHaveBeenCalledTimes(1);
+    endTidy(session);
+    expect(seen).toHaveBeenCalledTimes(2);
+    unwatch();
   });
 });

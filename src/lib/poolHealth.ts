@@ -15,17 +15,6 @@ import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRanking
  * the thing it is diagnosing, and then neither can be trusted.
  */
 
-/**
- * Games above which the tidy is offered rather than run unasked.
- *
- * Measured: five passes over two hundred thousand games is about twenty-two seconds, and it ran on
- * the main thread. A tab frozen that long is closed or reloaded, the run is cancelled, the stamp is
- * never written, and nothing was tidied — which is exactly the state a real pool was found in. So
- * past this size the work is put behind a button that says what it will fix, and runs it off the
- * main thread. Twenty thousand games is roughly two seconds, which is a pause rather than a hang.
- */
-export const TIDY_UNASKED_LIMIT = 20_000;
-
 export type PoolHealth = {
   games: number;
   /** Games with a result. The rest are fixtures nobody has played yet. */
