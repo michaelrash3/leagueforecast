@@ -40,11 +40,35 @@ export type FetchGcTeamsOptions = {
   signal?: AbortSignal;
   /** Backoff before retry `attempt` (1-based), in milliseconds. Tests inject a zero delay. */
   delayMs?: (attempt: number) => number;
+  /**
+   * Called once if the run gave up because GameChanger refused the route. The ids not reported are
+   * deliberately left unsettled, so the caller's cursor keeps them and a resume asks for them
+   * again rather than writing them off.
+   */
+  onRefused?: (refusals: number) => void;
+  /**
+   * How long a refusal holds every worker off, in milliseconds. Injectable for the same reason
+   * `delayMs` is: a test should not have to wait out a real one to prove the counting works.
+   */
+  refusedHoldMs?: number;
 };
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_RETRIES = 4;
 const DEFAULT_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
+
+/**
+ * Refusals a run tolerates before it gives up on the route.
+ *
+ * One is not enough to condemn a deployment — a WAF challenge can fire on a single request and
+ * never again — but a real block is continuous, so the third one arrives within seconds of the
+ * first. Set low on purpose: the cost of stopping early is one resume, and the cost of carrying on
+ * is every remaining id recorded as a permanent failure that no resume will retry.
+ */
+export const MAX_REFUSALS = 3;
+
+/** How long every worker is held off after a refusal, while the count decides whether to stop. */
+export const DEFAULT_REFUSED_HOLD_MS = 5_000;
 
 /** Failures that a second try can fix; a missing team or a bad id will fail the same way again. */
 const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "timeout"]);
@@ -195,7 +219,8 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
  * down rather than stop for an hour, and a nonsense value should not strand the run.
  */
 /** Teams asked for in one request. Must not exceed what the proxy is willing to take. */
-const BATCH_SIZE = 10;
+/** Ids per request, both sides: the proxy truncates anything longer. */
+export const BATCH_SIZE = 10;
 
 /**
  * A batch of teams in one request.
@@ -316,10 +341,15 @@ type Brake = {
   wait: (signal?: AbortSignal) => Promise<void>;
   /** Holds every worker off for at least this long. */
   hold: (ms: number) => void;
+  /** Records a refusal that is about the route rather than the team. */
+  refuse: () => void;
+  /** How many of those this run has seen. */
+  refusals: () => number;
 };
 
 const createBrake = (): Brake => {
   let until = 0;
+  let refused = 0;
   return {
     wait: (signal) => {
       const remaining = until - Date.now();
@@ -328,6 +358,10 @@ const createBrake = (): Brake => {
     hold: (ms) => {
       if (ms > 0) until = Math.max(until, Date.now() + ms);
     },
+    refuse: () => {
+      refused += 1;
+    },
+    refusals: () => refused,
   };
 };
 
@@ -340,7 +374,8 @@ const fetchBatchWithRetries = async (
   retries: number,
   delayMs: (attempt: number) => number,
   options: FetchGcTeamOptions,
-  brake: Brake
+  brake: Brake,
+  refusedHoldMs: number
 ): Promise<Map<string, GcTeamResponse>> => {
   const settled = new Map<string, GcTeamResponse>();
   let pending = [...teamIds];
@@ -365,7 +400,20 @@ const fetchBatchWithRetries = async (
       const result = answers.get(teamId);
       if (!result) return;
       settled.set(teamId, result);
-      if (result.ok || !RETRYABLE_REASONS.has(result.reason)) return;
+      if (result.ok) return;
+      /*
+       * A refusal is about the route, not the team: GameChanger's WAF turns away the server, and
+       * every other id in the list is behind the same server. Retrying it is pointless — no
+       * backoff produces the token a browser would have — but letting it through untouched was
+       * worse, because nothing slowed down and nothing counted it, so the workers accelerated
+       * through the rest of the list turning each id into a permanent failure.
+       */
+      if (result.reason === "blocked") {
+        brake.refuse();
+        brake.hold(refusedHoldMs);
+        return;
+      }
+      if (!RETRYABLE_REASONS.has(result.reason)) return;
       again.push(teamId);
       if (result.reason === "throttled") throttled = true;
     });
@@ -380,7 +428,15 @@ const fetchBatchWithRetries = async (
      * after the last attempt, so the batch behind this one does not walk straight into it.
      */
     if (throttled) {
-      const asked = answers.get(again[0]!);
+      /*
+       * The Retry-After off the team that was actually throttled. Reading it from the first
+       * still-pending id instead meant a batch whose failures were mixed — one throttled, one
+       * timed out — asked the timed-out team how long to wait, got nothing, and fell back to the
+       * local ladder while GameChanger had named a figure.
+       */
+      const asked = again
+        .map((teamId) => answers.get(teamId))
+        .find((answer) => answer && !answer.ok && answer.reason === "throttled");
       brake.hold((asked && retryAfterMs(asked)) ?? backoff);
     }
   }
@@ -403,6 +459,8 @@ export const fetchGcTeams = async (
     fetchImpl,
     signal,
     delayMs = defaultDelayMs,
+    onRefused,
+    refusedHoldMs = DEFAULT_REFUSED_HOLD_MS,
   }: FetchGcTeamsOptions = {}
 ): Promise<Map<string, GcTeamResponse>> => {
   const ids = Array.from(new Set(teamIds.map((id) => id.trim()).filter(Boolean)));
@@ -417,18 +475,40 @@ export const fetchGcTeams = async (
   let next = 0;
   let done = 0;
 
+  /** Set once the route is refused often enough that carrying on only destroys the list. */
+  let givenUp = false;
+
   const worker = async (): Promise<void> => {
-    while (!signal?.aborted) {
+    while (!signal?.aborted && !givenUp) {
       const from = next;
       next += BATCH_SIZE;
       const chunk = ids.slice(from, from + BATCH_SIZE);
       if (chunk.length === 0) return;
-      const answers = await fetchBatchWithRetries(chunk, attempts, delayMs, perTeam, brake);
+      const answers = await fetchBatchWithRetries(
+        chunk,
+        attempts,
+        delayMs,
+        perTeam,
+        brake,
+        refusedHoldMs
+      );
+      const refused = brake.refusals() > MAX_REFUSALS;
+      if (refused && !givenUp) {
+        givenUp = true;
+        onRefused?.(brake.refusals());
+      }
       // Reported one at a time, in the order asked for: the caller folds each schedule in as it
       // lands and has no reason to know the requests were grouped.
       for (const teamId of chunk) {
         const result = answers.get(teamId);
         if (!result) continue;
+        /*
+         * Once the route is refused, a refusal is not news about this team and must not be
+         * reported as one. The caller settles whatever it is told about, and a settled id is one a
+         * resume skips — so reporting these would write off the rest of the list on the way out.
+         * What did come back is still handed over: those schedules were fetched and paid for.
+         */
+        if (refused && !result.ok && result.reason === "blocked") continue;
         settled.set(teamId, result);
         done += 1;
         onProgress?.({ done, total, teamId, result });
