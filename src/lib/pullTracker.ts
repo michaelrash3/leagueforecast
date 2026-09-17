@@ -105,6 +105,8 @@ export type TrackedTeam = {
   oppCreated?: number;
   oppByAvatar?: number;
   oppByName?: number;
+  /** The level the opponents settled, when the team itself named none. */
+  oppAge?: number;
   /** Why the schedule could not be filed, when it could not. */
   issue?: string;
 };
@@ -434,6 +436,7 @@ export const createPullTracker = (
       entry.oppCreated = outcome.opponentsCreated;
       entry.oppByAvatar = outcome.opponentsMatchedByAvatar;
       entry.oppByName = outcome.opponentsMatchedByName;
+      if (outcome.ageFromOpponents !== undefined) entry.oppAge = outcome.ageFromOpponents;
       if (outcome.issue) entry.issue = outcome.issue;
     },
 
@@ -579,6 +582,7 @@ const TEAM_HEADERS = [
   "Opp New",
   "Opp By Avatar",
   "Opp By Name",
+  "Age From Opponents",
 ];
 
 const cell = (value: string | number | boolean | undefined): string =>
@@ -632,6 +636,7 @@ export const pullTeamsCsv = (log: PullRunLog, settled: readonly string[]): strin
       cell(entry?.oppCreated),
       cell(entry?.oppByAvatar),
       cell(entry?.oppByName),
+      cell(entry?.oppAge),
     ]
       .map(csvEscape)
       .join(",");
@@ -661,17 +666,26 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
   const kept = new Set(settled);
   const byId = new Map(log.teams.map((entry) => [entry.teamId, entry]));
   const outcomes = new Map<PullOutcome, number>();
-  const levels = new Map<string, { filed: number; nameAge: number; nameYear: number }>();
+  const levels = new Map<
+    string,
+    { filed: number; nameAge: number; nameYear: number; fromOpponents: number }
+  >();
   log.ids.forEach((teamId) => {
     const entry = byId.get(teamId);
     const outcome = outcomeOf(entry, kept);
     outcomes.set(outcome, (outcomes.get(outcome) ?? 0) + 1);
     if (!entry?.ok) return;
+    /*
+     * Counted against what GameChanger itself said, not against what the import settled on — so
+     * "none" stays the count of teams that arrived with no age, and the opponent column beside it
+     * says how many of those the schedule answered for.
+     */
     const key = entry.ageLevel === undefined ? "none" : String(entry.ageLevel);
-    const at = levels.get(key) ?? { filed: 0, nameAge: 0, nameYear: 0 };
+    const at = levels.get(key) ?? { filed: 0, nameAge: 0, nameYear: 0, fromOpponents: 0 };
     at.filed += 1;
     if (entry.nameAge !== undefined) at.nameAge += 1;
     if (entry.nameYear !== undefined) at.nameYear += 1;
+    if (entry.oppAge !== undefined) at.fromOpponents += 1;
     levels.set(key, at);
   });
 
@@ -805,11 +819,13 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
     ),
     csvSection(
       "Levels",
-      ["Age Level", "Teams", "Name Has An Age", "Name Has A Year"],
+      ["Age Level", "Teams", "Name Has An Age", "Name Has A Year", "Settled By Opponents"],
       [...levels.entries()]
         .sort((a, b) => (a[0] === "none" ? 1 : b[0] === "none" ? -1 : Number(a[0]) - Number(b[0])))
         .map(([level, counts]) =>
-          [level, counts.filed, counts.nameAge, counts.nameYear].map(csvEscape).join(",")
+          [level, counts.filed, counts.nameAge, counts.nameYear, counts.fromOpponents]
+            .map(csvEscape)
+            .join(",")
         )
     ),
     csvSection(

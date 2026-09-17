@@ -309,7 +309,7 @@ describe("the files", () => {
 
     expect(summary).toContain("# Section: Levels");
     // One team at 10U, one with no level at all whose name carries a year.
-    expect(summary).toMatch(/^10,1,1,0$/m);
-    expect(summary).toMatch(/^none,1,0,1$/m);
+    expect(summary).toMatch(/^10,1,1,0,0$/m);
+    expect(summary).toMatch(/^none,1,0,1,0$/m);
   });
 });

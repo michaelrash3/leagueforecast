@@ -3,6 +3,7 @@ import gamesFixture from "./fixtures/gc-team-games.json";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import { normalizeGcGames, normalizeGcTeamProfile, type GcTeamSchedule } from "../gameChangerApi";
 import {
+  ageFromOpponentNames,
   createGcImporter,
   mergeSameSquadIds,
   importGcSchedule,
@@ -2607,5 +2608,84 @@ describe("what a refresh keeps", () => {
     expect(linkOf(refreshed)?.staff).toBeUndefined();
     expect(linkOf(refreshed)?.playerCount).toBeUndefined();
     expect(linkOf(refreshed)?.countedAt).toBeUndefined();
+  });
+});
+
+describe("asking the opponents what age a team is", () => {
+  /** A schedule against named opponents, with nothing said about the team's own age. */
+  const against = (...opponents: string[]): GcTeamSchedule =>
+    schedule(
+      { name: "Warriors Spring 2027", ageLevel: undefined },
+      opponents.map((opponentName, at) => game({ id: `g${at}`, opponentName, date: "2026-08-22" }))
+    );
+
+  it("takes the level the opponents agree on", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U", "C 9U").games)).toBe(9);
+  });
+
+  it("takes a clear majority over the odd game played up", () => {
+    // A side that plays its own age four times and up twice is still its own age.
+    expect(
+      ageFromOpponentNames(against("A 10U", "B 10U", "C 10U", "D 10U", "E 11U", "F 11U").games)
+    ).toBe(10);
+  });
+
+  /*
+   * It refuses far more readily than it answers, because the cost is not symmetric: a team left
+   * unrated costs its own ranking, and a team rated at the wrong age corrupts every club it
+   * played.
+   */
+  it("refuses fewer than three opponents who name an age", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U").games)).toBeUndefined();
+    expect(ageFromOpponentNames(against("A 9U", "Bandits", "Sluggers").games)).toBeUndefined();
+  });
+
+  it("refuses a tie, and anything short of a majority", () => {
+    expect(ageFromOpponentNames(against("A 9U", "B 9U", "C 10U", "D 10U").games)).toBeUndefined();
+    // Four different ages, three apiece for two of them: no level is what most of them played.
+    expect(
+      ageFromOpponentNames(
+        against("A 9U", "B 9U", "C 9U", "D 10U", "E 11U", "F 12U", "G 13U").games
+      )
+    ).toBeUndefined();
+  });
+
+  it("counts a club once however many times it was played", () => {
+    // A tournament against the same side four times is one club's opinion, not four.
+    expect(ageFromOpponentNames(against("A 9U", "A 9U", "A 9U", "A 9U").games)).toBeUndefined();
+  });
+
+  it("reads a bracketed opponent as the older age, the same as everywhere else", () => {
+    expect(ageFromOpponentNames(against("A 11U/12U", "B 12U", "C 12U").games)).toBe(12);
+  });
+
+  it("files the team under it, and says that is where the age came from", () => {
+    /*
+     * The case this exists for. "Warriors Spring 2027" is a season and not a graduating class, so
+     * nothing about the team names an age — and every opponent on its schedule is 9U.
+     */
+    const { state, outcome } = importGcSchedule(against("A 9U", "B 9U", "C 9U"), empty);
+    expect(outcome.ageFromOpponents).toBe(9);
+    expect(outcome.issue).toBeUndefined();
+    expect(state.ageGroups[0]?.ageLevel).toBe(9);
+    // The link records it too, so a later pull is not asked the same question again.
+    expect(state.teams[0]?.gcTeams?.[0]?.ageLevel).toBe(9);
+  });
+
+  it("leaves the team alone when it says its own age", () => {
+    // Never second-guesses a stated age: the opponents are a fallback, not an audit.
+    const stated = schedule({ name: "Warriors 14U", ageLevel: 14 }, [
+      game({ id: "g0", opponentName: "A 9U" }),
+      game({ id: "g1", opponentName: "B 9U" }),
+      game({ id: "g2", opponentName: "C 9U" }),
+    ]);
+    const { outcome } = importGcSchedule(stated, empty);
+    expect(outcome.ageFromOpponents).toBeUndefined();
+    expect(outcome.ageGroupName).toContain("14U");
+  });
+
+  it("says so plainly when the opponents could not settle it either", () => {
+    const { outcome } = importGcSchedule(against("Bandits", "Sluggers"), empty);
+    expect(outcome.issue).toMatch(/fewer than 3 of its opponents agree/i);
   });
 });

@@ -339,6 +339,11 @@ export type GcImportOutcome = {
   opponentsCreated: number;
   opponentsMatchedByAvatar: number;
   opponentsMatchedByName: number;
+  /**
+   * The level this team was filed under because its opponents named one, GameChanger having named
+   * none. Absent whenever the team said its own age, which is nearly always.
+   */
+  ageFromOpponents?: number;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
   issue?: string;
 };
@@ -405,6 +410,83 @@ const isNextSeason = (from: GcTeamLink, to: GcTeamLink): boolean => {
 const profileAgeLevel = (profile: GcTeamProfile): number | undefined =>
   profile.ageLevel ?? ageLevelFromName(profile.name);
 
+/**
+ * How many distinct opponents have to name an age before their names settle a team's level.
+ *
+ * Counted per opponent rather than per game, because a tournament against the same club four times
+ * is one club's opinion and not four. Three is where the evidence stops being a coincidence: over
+ * a 48,035-team export 90.4% of names carry a readable age label, so a team with any schedule at
+ * all almost always has three, and three independent names agreeing is not something a mislabelled
+ * squad produces by accident.
+ */
+export const MIN_OPPONENT_AGE_EVIDENCE = 3;
+
+/**
+ * The age level a team's opponents say it is, when they agree.
+ *
+ * Thousands of teams reach the pool with no age at all — GameChanger's field is empty, the name
+ * says nothing, and there is no graduating class to read — and a team with no level is a team
+ * nothing ranks and whose results count for nobody on either side. But a schedule is a list of
+ * clubs that mostly do put their age in their name, and a side plays its own age nearly all of
+ * the time. So the opponents answer the question the team itself would not.
+ *
+ * It refuses far more readily than it answers. Fewer than three opponents naming an age, a tie, or
+ * anything short of a clear majority all come back undefined, because the cost is not symmetric: a
+ * team left unrated costs its own ranking, and a team rated at the wrong age corrupts every club
+ * it played.
+ */
+export const ageFromOpponentNames = (games: readonly GcGame[]): number | undefined => {
+  const seen = new Set<string>();
+  const counts = new Map<number, number>();
+  let readable = 0;
+  games.forEach((game) => {
+    const key = teamNameKey(game.opponentName);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const level = ageLevelFromName(game.opponentName);
+    if (level === undefined) return;
+    readable += 1;
+    counts.set(level, (counts.get(level) ?? 0) + 1);
+  });
+  if (readable < MIN_OPPONENT_AGE_EVIDENCE) return undefined;
+
+  let best: number | undefined;
+  let bestCount = 0;
+  let tied = false;
+  counts.forEach((count, level) => {
+    if (count > bestCount) {
+      best = level;
+      bestCount = count;
+      tied = false;
+      return;
+    }
+    if (count === bestCount) tied = true;
+  });
+  if (best === undefined || tied) return undefined;
+  // A strict majority of the opponents who said anything. Half of them is not an answer.
+  if (bestCount * 2 <= readable) return undefined;
+  return bestCount >= MIN_OPPONENT_AGE_EVIDENCE ? best : undefined;
+};
+
+/**
+ * The schedule with an age filled in from its opponents, when it had none and they agree.
+ *
+ * Done here rather than in the API layer on purpose: `GcTeamProfile` is what GameChanger said
+ * about a team, and this is not. It is the pool's reading of the company a team keeps, and it
+ * belongs to the import that has the schedule in hand.
+ */
+const withOpponentAge = (
+  schedule: GcTeamSchedule
+): { schedule: GcTeamSchedule; inferred?: number } => {
+  if (profileAgeLevel(schedule.profile) !== undefined) return { schedule };
+  const inferred = ageFromOpponentNames(schedule.games);
+  if (inferred === undefined) return { schedule };
+  return {
+    schedule: { ...schedule, profile: { ...schedule.profile, ageLevel: inferred } },
+    inferred,
+  };
+};
+
 /** A game id nobody else will mint, derived from the GameChanger ids it came from. */
 const gcGameId = (gcTeamId: string, gameId: string): string => `gc_${gcTeamId}_${gameId}`;
 
@@ -446,7 +528,10 @@ const resolveAgeGroup = (
 const skipReason = (profile: GcTeamProfile): string => {
   const ageLevel = profileAgeLevel(profile);
   if (ageLevel === undefined) {
-    return "GameChanger gave no age group for this team, and its name does not say one.";
+    return (
+      "GameChanger gave no age group for this team, its name does not say one, and fewer than " +
+      `${MIN_OPPONENT_AGE_EVIDENCE} of its opponents agree on one either.`
+    );
   }
   if (ageLevel < MIN_AGE_LEVEL) {
     return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
@@ -1036,10 +1121,16 @@ export const importGcSchedule = (
 };
 
 const importOne = (
-  schedule: GcTeamSchedule,
+  original: GcTeamSchedule,
   state: GcImportState,
   index: ImportIndex
 ): { state: GcImportState; outcome: GcImportOutcome } => {
+  /*
+   * Filled in before anything else looks at the profile, so the page, the link and the games all
+   * agree on one level. A team GameChanger did not file under an age is filed under the one its
+   * opponents keep naming, or under none at all.
+   */
+  const { schedule, inferred } = withOpponentAge(original);
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1057,6 +1148,7 @@ const importOne = (
     opponentsCreated: 0,
     opponentsMatchedByAvatar: 0,
     opponentsMatchedByName: 0,
+    ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
   };
 
   const resolved = resolveAgeGroup(profile, state);
