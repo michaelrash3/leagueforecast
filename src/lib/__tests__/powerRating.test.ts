@@ -815,3 +815,88 @@ describe("sparse (conjugate gradient) solver", () => {
     expect(out.ageGapRuns).toBe(AGE_GAP_RUNS_PER_YEAR);
   });
 });
+
+describe("weighting a game", () => {
+  const base: RatingGame[] = [
+    { home: "A", away: "B", homeMargin: 4, neutral: true },
+    { home: "B", away: "C", homeMargin: 2, neutral: true },
+    { home: "C", away: "D", homeMargin: 3, neutral: true },
+  ];
+  const fit = (games: RatingGame[], options: OpponentAdjustedOptions = {}) =>
+    buildOpponentAdjustedRatings(ids, games, options);
+  const ratingsOf = (result: OpponentAdjustedRatings) => ids.map((id) => result.ratings.get(id)!);
+
+  it("changes nothing when every game weighs the same as before", () => {
+    const explicit = base.map((game) => ({ ...game, weight: 1 }));
+    expect(ratingsOf(fit(explicit))).toEqual(ratingsOf(fit(base)));
+  });
+
+  /*
+   * The property that makes a weight mean what it says. Counting a game twice and counting it once
+   * at double weight are the same statement about the world, so the fit has to agree — if it does
+   * not, "weight" is just a knob rather than a number of games.
+   */
+  it("counts a game of weight two exactly as it counts the game twice", () => {
+    const twice = [...base, base[0]!];
+    const doubled = [{ ...base[0]!, weight: 2 }, ...base.slice(1)];
+    ratingsOf(fit(doubled)).forEach((rating, at) => {
+      expect(rating).toBeCloseTo(ratingsOf(fit(twice))[at]!, 10);
+    });
+  });
+
+  it("drops a game of weight zero from the fit, without pretending it never happened", () => {
+    const muted = [{ ...base[0]!, weight: 0 }, ...base.slice(1)];
+    const absent = base.slice(1);
+    ratingsOf(fit(muted)).forEach((rating, at) => {
+      expect(rating).toBeCloseTo(ratingsOf(fit(absent))[at]!, 10);
+    });
+    // Still played, though: the record is a fact about the season, not a belief about the team.
+    expect(fit(muted).games.get("A")).toBe(1);
+    expect(fit(absent).games.get("A")).toBe(0);
+  });
+
+  it("leans toward the games that weigh more", () => {
+    /*
+     * A beat B by 4 early and lost to B by 4 late. Unweighted they cancel and both sit at the
+     * mean; leaning on the later game has to put B ahead.
+     */
+    const split: RatingGame[] = [
+      { home: "A", away: "B", homeMargin: 4, neutral: true, weight: 0.25 },
+      { home: "A", away: "B", homeMargin: -4, neutral: true, weight: 1 },
+    ];
+    const level = fit(split.map((game) => ({ ...game, weight: 1 })));
+    expect(level.ratings.get("A")).toBeCloseTo(level.ratings.get("B")!, 10);
+
+    const recent = fit(split);
+    expect(recent.ratings.get("B")!).toBeGreaterThan(recent.ratings.get("A")!);
+  });
+
+  /*
+   * The other side of "a weight is a count". The ridge is denominated in games and stays constant,
+   * so halving every weight really does halve the evidence and regress everything twice as far.
+   * Arithmetically right, and never what anybody means by a weighting scheme — which is why the
+   * schemes normalise to an average of one and this case does not arise in practice.
+   */
+  it("regresses further when every weight is halved, because that is less evidence", () => {
+    const halved = base.map((game) => ({ ...game, weight: 0.5 }));
+    const shrunk = ratingsOf(fit(halved));
+    const full = ratingsOf(fit(base));
+    expect(Math.abs(shrunk[0]!)).toBeLessThan(Math.abs(full[0]!));
+  });
+
+  it("reads a nonsense weight as a full one rather than a smaller opinion", () => {
+    const junk = base.map((game) => ({ ...game, weight: Number.NaN }));
+    expect(ratingsOf(fit(junk))).toEqual(ratingsOf(fit(base)));
+    const negative = base.map((game) => ({ ...game, weight: -2 }));
+    expect(ratingsOf(fit(negative))).toEqual(ratingsOf(fit(base)));
+  });
+
+  it("weighs the same in the sparse solver as in the dense one", () => {
+    const weighted = base.map((game, at) => ({ ...game, weight: 1 / (at + 1) }));
+    const dense = fit(weighted, { solver: "dense" });
+    const sparse = fit(weighted, { solver: "sparse" });
+    ratingsOf(dense).forEach((rating, at) => {
+      expect(rating).toBeCloseTo(ratingsOf(sparse)[at]!, 8);
+    });
+  });
+});

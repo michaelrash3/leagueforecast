@@ -4,7 +4,10 @@ import {
   backtestScoutRatings,
   beatsTheBaseline,
   compareAgeGapPriors,
+  compareRecencySchemes,
+  describeDecayCurve,
 } from "../scoutBacktest";
+import { byGamesSince, noDecay, RECENCY_SCHEMES } from "../ratingRecency";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 const groups: AgeGroup[] = [
@@ -182,5 +185,144 @@ describe("reading the result", () => {
   it("cannot say whether an empty pool beat anything", () => {
     const { teams, games } = syntheticPool({ teamCount: 2 });
     expect(beatsTheBaseline(backtestScoutRatings("ag_9", teams, games, groups))).toBeNull();
+  });
+});
+
+/**
+ * A pool shaped like a real youth season, with a truth that moves.
+ *
+ * A fall block, a winter with no games in it, and a spring block — and between the two the teams
+ * are not who they were: the ordering reverses, which is the extreme form of the thing recency
+ * weighting exists to notice. A fit that reads both blocks as equally current is being told two
+ * contradictory stories and averages them into nothing.
+ */
+const driftingPool = ({
+  teamCount = 10,
+  rounds = 2,
+}: { teamCount?: number; rounds?: number } = {}): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+  const teams: ScoutTeam[] = [];
+  for (let index = 0; index < teamCount; index += 1) {
+    teams.push({ id: `S-${index}`, name: `Team ${index}` });
+  }
+  const spread = (index: number) => ((index - (teamCount - 1) / 2) / ((teamCount - 1) / 2)) * 4;
+  /** Fall: team 0 is the best. Spring: team 0 is the worst, and everyone else mirrors. */
+  const strengthAt = (index: number, block: "fall" | "spring") =>
+    block === "fall" ? spread(index) : -spread(index);
+
+  const games: ScoutGame[] = [];
+  let sequence = 0;
+  (["fall", "spring"] as const).forEach((block, blockAt) => {
+    for (let round = 0; round < rounds; round += 1) {
+      for (let a = 0; a < teamCount; a += 1) {
+        for (let b = a + 1; b < teamCount; b += 1) {
+          const margin = Math.round(strengthAt(a, block) - strengthAt(b, block));
+          // Fall runs from day 0; spring starts on day 210, so the winter is a real four months.
+          const day = (blockAt === 0 ? 0 : 210) + Math.floor(sequence % 60);
+          games.push({
+            id: `d-${block}-${round}-${a}-${b}`,
+            ageGroupId: "ag_9",
+            teamAId: `S-${a}`,
+            teamBId: `S-${b}`,
+            teamAScore: Math.max(0, 6 + margin),
+            teamBScore: 6,
+            date: dayOf(day),
+          });
+          sequence += 1;
+        }
+      }
+    }
+  });
+  return { teams, games };
+};
+
+describe("how fast the ratings go off", () => {
+  it("groups the held-out games by how long after the fit they were played", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+
+    expect(result.buckets.length).toBeGreaterThan(0);
+    // Every held-out game lands in exactly one bucket.
+    const counted = result.buckets.reduce((sum, bucket) => sum + bucket.sampleSize, 0);
+    expect(counted).toBe(result.sampleSize);
+    // And they run in order, oldest cut first.
+    result.buckets.forEach((bucket, at) => {
+      if (at > 0) expect(bucket.fromDays).toBeGreaterThanOrEqual(result.buckets[at - 1]!.toDays);
+    });
+  });
+
+  it("reads the curve as a line per bucket", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const lines = describeDecayCurve(backtestScoutRatings("ag_9", teams, games, groups));
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toMatch(/days later: \d+ games, [\d.]+ runs off/);
+  });
+
+  /*
+   * A chronological hold-out flatters a recency-weighted model for free: the games being predicted
+   * are always the newest, so leaning on recent games moves the fit toward the target by
+   * construction. A gap makes the test games genuinely later rather than merely last.
+   */
+  it("leaves a gap between the last game fitted on and the first one scored", () => {
+    const { teams, games } = driftingPool();
+    const tight = backtestScoutRatings("ag_9", teams, games, groups);
+    const gapped = backtestScoutRatings("ag_9", teams, games, groups, { gapDays: 20 });
+    expect(gapped.sampleSize).toBeLessThan(tight.sampleSize);
+    gapped.buckets.forEach((bucket) => expect(bucket.toDays).toBeGreaterThan(20));
+  });
+
+  it("never scores a game the fit saw the same day", () => {
+    // A doubleheader split across the cut is not a prediction; it is the fit reading its own notes.
+    const { teams, games } = syntheticPool({ teamCount: 8, gamesPerPair: 3 });
+    const result = backtestScoutRatings("ag_9", teams, games, groups);
+    expect(result.buckets.every((bucket) => bucket.fromDays >= 0)).toBe(true);
+    expect(result.sampleSize).toBeGreaterThan(0);
+  });
+});
+
+describe("comparing weighting schemes", () => {
+  it("beats counting every game the same, when the teams have actually changed", () => {
+    /*
+     * The whole case for recency, as a test. The fit has seen a fall in which team 0 was the best
+     * and a spring in which it is the worst; reading both as current averages them into nothing,
+     * and the hold-out is spring.
+     */
+    const { teams, games } = driftingPool();
+    const flat = backtestScoutRatings("ag_9", teams, games, groups, { recency: noDecay });
+    const recent = backtestScoutRatings("ag_9", teams, games, groups, {
+      recency: byGamesSince(10),
+    });
+
+    expect(recent.meanAbsoluteError!).toBeLessThan(flat.meanAbsoluteError!);
+    expect(recent.winnerAccuracy!).toBeGreaterThan(flat.winnerAccuracy!);
+  });
+
+  it("ranks the schemes best first, with the control among them", () => {
+    const { teams, games } = driftingPool();
+    const ranked = compareRecencySchemes("ag_9", teams, games, groups);
+
+    expect(ranked.length).toBe(RECENCY_SCHEMES.length);
+    expect(ranked.map((result) => result.recencyKey)).toContain("none");
+    ranked.forEach((result, at) => {
+      if (at > 0) {
+        expect(result.meanAbsoluteError ?? Infinity).toBeGreaterThanOrEqual(
+          ranked[at - 1]!.meanAbsoluteError ?? Infinity
+        );
+      }
+    });
+    // On a pool whose teams reversed, a scheme that forgets the old block has to win.
+    expect(ranked[0]!.recencyKey).not.toBe("none");
+  });
+
+  /*
+   * The negative control, and the one that keeps this honest. On a pool where nothing changed,
+   * forgetting the early games throws away evidence for no gain — so the control should not lose.
+   */
+  it("does not beat counting every game the same when nothing has changed", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 3 });
+    const flat = backtestScoutRatings("ag_9", teams, games, groups, { recency: noDecay });
+    const recent = backtestScoutRatings("ag_9", teams, games, groups, {
+      recency: byGamesSince(5),
+    });
+    expect(flat.meanAbsoluteError!).toBeLessThanOrEqual(recent.meanAbsoluteError!);
   });
 });
