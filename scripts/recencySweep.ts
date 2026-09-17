@@ -505,8 +505,19 @@ const weightSpread = (
     .sort((a, b) => a.at - b.at);
   if (train.length === 0) return 1;
   const weights = scheme.weigh(train, cutAt);
-  const low = Math.min(...weights);
-  const high = Math.max(...weights);
+  /*
+   * Walked rather than spread. `Math.min(...weights)` is fine on a fixture and dies on a real
+   * pool: the spread becomes one argument per weight, and a training set of a hundred and eighty
+   * thousand games is a hundred and eighty thousand arguments, which is past what a call frame
+   * holds — "Maximum call stack size exceeded", from a line that only wanted the smallest number.
+   */
+  let low = Number.POSITIVE_INFINITY;
+  let high = Number.NEGATIVE_INFINITY;
+  weights.forEach((weight) => {
+    if (weight < low) low = weight;
+    if (weight > high) high = weight;
+  });
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return 1;
   return low <= 0 ? Infinity : high / low;
 };
 
@@ -585,13 +596,15 @@ const judge = (
    * picked out of five; comparing it against the best of five on each shuffle does not.
    */
   const bests: number[] = [];
-  const rounds = Math.max(0, ...[...nulls.values()].map((draws) => draws.length));
+  const rounds = [...nulls.values()].reduce((most, draws) => Math.max(most, draws.length), 0);
   for (let round = 0; round < rounds; round += 1) {
     const perScheme = schemes
       .filter((scheme) => scheme.key !== "none")
       .map((scheme) => nulls.get(scheme.key)?.[round])
       .filter((value): value is number => value !== undefined);
-    if (perScheme.length > 0) bests.push(Math.min(...perScheme));
+    if (perScheme.length > 0) {
+      bests.push(perScheme.reduce((best, margin) => Math.min(best, margin), Infinity));
+    }
   }
   bests.sort((a, b) => a - b);
   // The fifth percentile of the best-of-five under the null: what a real margin has to clear.
