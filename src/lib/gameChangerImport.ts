@@ -19,6 +19,7 @@
  */
 
 import {
+  ageFromGradYearInName,
   ageLevelFromName,
   formatGcSeason,
   type GcGame,
@@ -1236,8 +1237,20 @@ const importOne = (
       else outcome.opponentsMatchedByName += 1;
     }
 
-    // Their level is only ever a guess from the name; ours is what GameChanger said.
-    const theirLevel = ageLevelFromName(game.opponentName);
+    /*
+     * Their level is only ever a guess from the name; ours is what GameChanger said.
+     *
+     * A graduating class counts as one of those guesses. Above about 13U most names carry a year
+     * rather than an age — "Elite 2031" — and reading nothing from them left the game with no
+     * level for that side at all, which the rating reads as a game between equals: a 16U side
+     * playing the class of 2031 was recorded as a same-level game, so no age adjustment was made
+     * and `crossAgeGames` counted it as none. The year is read against the squad year of the page
+     * the game is filed under, which is the season both sides were playing.
+     */
+    const theirYear = ageGroupYear(group);
+    const theirLevel =
+      ageLevelFromName(game.opponentName) ??
+      (theirYear === undefined ? undefined : ageFromGradYearInName(game.opponentName, theirYear));
     const candidate: ScoutGame = {
       id: gcGameId(profile.id, game.id),
       teamAId: own.teamId,

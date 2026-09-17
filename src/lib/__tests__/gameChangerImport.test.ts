@@ -2689,3 +2689,44 @@ describe("asking the opponents what age a team is", () => {
     expect(outcome.issue).toMatch(/fewer than 3 of its opponents agree/i);
   });
 });
+
+describe("an opponent who names a graduating class", () => {
+  /*
+   * Above about 13U most names carry a year rather than an age. Reading nothing from them left the
+   * game with no level for that side, which the rating reads as a game between equals — so a 16U
+   * side playing the class of 2031 got no age adjustment and counted as no cross-age game at all.
+   */
+  it("records the level the class implies, not the page's", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals 2031" }),
+      ]),
+      empty
+    );
+    const [filed] = state.games;
+    expect(filed?.ageLevelA).toBe(16);
+    // The class of 2031 are two years behind the class of 2029: 14U against 16U.
+    expect(filed?.ageLevelB).toBe(14);
+  });
+
+  it("still prefers an age label when the name carries one", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals 15U 2031" }),
+      ]),
+      empty
+    );
+    expect(state.games[0]?.ageLevelB).toBe(15);
+  });
+
+  it("reads nothing from a season, the same as everywhere else", () => {
+    const { state } = importGcSchedule(
+      schedule({ name: "Elite 2029", ageLevel: 16 }, [
+        game({ id: "g0", opponentName: "Nationals Spring 2031" }),
+      ]),
+      empty
+    );
+    // A season beside the year is refused, so the side has no level rather than a guessed one.
+    expect(state.games[0]?.ageLevelB).toBeUndefined();
+  });
+});
