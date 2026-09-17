@@ -29,7 +29,12 @@
  * against mean, and anything that cannot be measured says so instead of being ranked.
  */
 import { readFileSync } from "node:fs";
-import { parseTeamRankingsJson, type TeamRankingsBackup } from "../src/lib/teamRankingsBackup.ts";
+import {
+  looksLikeJsonBackup,
+  parseTeamRankingsCsv,
+  parseTeamRankingsJson,
+  type TeamRankingsBackup,
+} from "../src/lib/teamRankingsBackup.ts";
 import {
   compareRecencySchemes,
   type ScoutBacktestResult,
@@ -48,6 +53,7 @@ import {
   ageGroupYear,
   countsTowardRating,
   dedupeLeagueFixtures,
+  rankingPoolGroupIds,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -126,10 +132,13 @@ const IN_SEASON_EMBARGO_DAYS = 14;
  * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart.
  */
 const read = (path: string): TeamRankingsBackup => {
-  const pool = parseTeamRankingsJson(readFileSync(path, "utf8"));
+  // Either backup the app has ever written. The older CSV is read the same way the app reads it,
+  // so a file kept from before the JSON export existed is still a pool this can sweep.
+  const raw = readFileSync(path, "utf8");
+  const pool = looksLikeJsonBackup(raw) ? parseTeamRankingsJson(raw) : parseTeamRankingsCsv(raw);
   if (!pool) {
     throw new Error(
-      `${path} is not a Team Rankings backup. Export one from Setup — the button writes the JSON this reads.`
+      `${path} is not a Team Rankings backup. Export one from Setup — either the JSON or the older CSV.`
     );
   }
   const before: GcImportState = {
@@ -235,18 +244,35 @@ const asDay = (at: number): string => new Date(at).toISOString().slice(0, 10);
  * row quantile will land there only by accident. Then a spread of quantile cuts, so a scheme that
  * only wins at the one flattering place to stand is visibly only winning there.
  */
-const cutsFor = (composition: Composition): Cut[] => {
+const cutsFor = (composition: Composition, squadYear: number | undefined): Cut[] => {
   const { days, breaks } = composition;
   if (days.length < 4) return [];
+  const first = days[0]!;
   const last = days[days.length - 1]!;
   const seen = new Set<number>();
   const cuts: Cut[] = [];
   const add = (at: number, kind: Cut["kind"], gap: number) => {
-    if (at >= last || seen.has(at)) return;
+    if (at <= first || at >= last || seen.has(at)) return;
     seen.add(at);
     cuts.push({ at, kind, gap });
   };
   breaks.forEach((entry) => add(entry.after, "pre-break", entry.gap));
+
+  /*
+   * A nationwide pool has no break in it, and that is not because there is no winter.
+   * It is because the winter is regional: a club in Kentucky stops in October and starts again in
+   * March, a club in Florida and Arizona plays straight through, and pooled together somebody is
+   * always playing. Looking for a month of silence in the pool finds nothing, and the one question
+   * this exercise exists to ask goes unasked on exactly the pool big enough to answer it.
+   *
+   * So when no gap turns up, the turn of the calendar year stands in for it. A squad year runs
+   * August to July, so 31 December splits its autumn from its spring — which is what "what is a
+   * fall season worth in the spring" means, whatever the weather was where each game was played.
+   */
+  if (breaks.length === 0 && squadYear !== undefined) {
+    add(Date.parse(`${squadYear - 1}-12-31T12:00:00Z`), "turn-of-year", 0);
+  }
+
   [0.5, 0.6, 0.7, 0.8].forEach((share) =>
     add(days[Math.floor(days.length * share) - 1]!, "in-season", 0)
   );
@@ -602,7 +628,14 @@ const judge = (
 
 /* -------------------------------------------------------------------------------- the report */
 
-type Cut = { at: number; kind: "pre-break" | "in-season"; gap: number };
+/**
+ * Where to cut, and which question that cut puts.
+ *
+ * `pre-break` and `turn-of-year` are the two ways of asking what a season is worth across a winter
+ * — one found in the pool, one imposed on it when the pool is too big to have a quiet month.
+ * `in-season` cuts ask a smaller question and are read as one family rather than several answers.
+ */
+type Cut = { at: number; kind: "pre-break" | "turn-of-year" | "in-season"; gap: number };
 
 const reportCut = (
   backup: TeamRankingsBackup,
@@ -618,7 +651,7 @@ const reportCut = (
    * calendar makes the held-out games genuinely *later* rather than merely last. At a break cut the
    * five-month gap is already the embargo, and stacking another on top only empties the hold-out.
    */
-  const gapDays = cut.kind === "pre-break" ? 0 : IN_SEASON_EMBARGO_DAYS;
+  const gapDays = cut.kind === "in-season" ? IN_SEASON_EMBARGO_DAYS : 0;
   const options = { cutOn: asDay(cut.at), keepResiduals: true, ageGapPrior: 2, gapDays };
   const results = compareRecencySchemes(
     group.id,
@@ -633,7 +666,10 @@ const reportCut = (
   const asks =
     cut.kind === "pre-break"
       ? `the primary question — what a season is worth across the ${cut.gap}-day break that follows`
-      : "an in-season question, and one of a family whose training sets nest and whose hold-outs overlap";
+      : cut.kind === "turn-of-year"
+        ? "the primary question — what the autumn is worth in the spring. This pool never goes quiet" +
+          " for a month, so the turn of the year stands in for a break it does not have"
+        : "an in-season question, and one of a family whose training sets nest and whose hold-outs overlap";
   console.log(`\n  ── cut on ${asDay(cut.at)} ${"─".repeat(46)}`);
   console.log(`     ${asks}`);
   if (gapDays > 0)
@@ -674,6 +710,22 @@ const reportCut = (
    * means something, and it is the expensive part — one full sweep per shuffle.
    */
   const nulls = new Map<string, number[]>(schemes.map((scheme) => [scheme.key, []]));
+  if (permutations > 0) {
+    /*
+     * Said out loud before it starts, because on a nationwide pool this is the difference between
+     * a minute and an afternoon. One fit over fifty thousand games is about a second, and the null
+     * wants `permutations` sweeps of every scheme — so the honest thing is to print the arithmetic
+     * rather than to appear to have hung.
+     */
+    const fits = permutations * schemes.length;
+    console.log(
+      `\n     running the null: ${permutations} shuffles × ${schemes.length} schemes = ` +
+        `${fits.toLocaleString()} fits over ${control.trainSize.toLocaleString()} training games.` +
+        (control.trainSize > 20_000
+          ? " On a pool this size that is a long wait — narrow it with --page= if it is not the page you want."
+          : "")
+    );
+  }
   for (let round = 0; round < permutations; round += 1) {
     const shuffled = permuteTrainDates(backup.games, cut.at, random);
     const margins = marginsOf(
@@ -792,7 +844,13 @@ const sweepPage = (
   schemes: RecencyScheme[],
   permutations: number
 ): void => {
-  console.log(`\n${"=".repeat(78)}\n${pageName(group)}\n${"=".repeat(78)}`);
+  const pooled = rankingPoolGroupIds(group.id, backup.ageGroups)
+    .flatMap((id) => backup.ageGroups.filter((entry) => entry.id === id))
+    .map((entry) => `${ageGroupLevel(entry) ?? "?"}U`);
+  const year = ageGroupYear(group);
+  const title =
+    year === undefined ? group.name : `Squad year ${year} — ${pooled.join(", ")} rated together`;
+  console.log(`\n${"=".repeat(78)}\n${title}\n${"=".repeat(78)}`);
   const composition = compositionOf(backup, group);
   const { days, breaks } = composition;
   console.log(`  ${composition.played} played games, ${composition.teams} teams`);
@@ -811,7 +869,7 @@ const sweepPage = (
   }
   preflight(backup, group, composition).forEach((note) => console.log(`  ! ${note}`));
 
-  const cuts = cutsFor(composition);
+  const cuts = cutsFor(composition, ageGroupYear(group));
   if (cuts.length === 0) {
     console.log("\n  Too few days of play to cut. This page cannot answer the question.");
     return;
@@ -851,7 +909,7 @@ const sweepPage = (
    * near-independent one, because its training block and its hold-out share no games and no
    * weekend, and it is the only one that asks what a season is worth across a winter.
    */
-  const breakCut = asked.find((entry) => entry.cut.kind === "pre-break");
+  const breakCut = asked.find((entry) => entry.cut.kind !== "in-season");
   console.log(
     `\n  Across ${asked.length} cut(s), of which ${asked.filter((entry) => entry.cut.kind === "in-season").length}` +
       " nest inside one another: " +
@@ -861,8 +919,8 @@ const sweepPage = (
   );
   console.log(
     breakCut === undefined
-      ? "  No break cut on this page, so it cannot say what a season is worth across one."
-      : `  At the break cut, the one that asks it: ` +
+      ? "  No cut across a winter on this page, so it cannot say what a season is worth across one."
+      : `  At the ${breakCut.cut.kind === "pre-break" ? "break" : "turn-of-year"} cut, the one that asks it: ` +
           (() => {
             const won = keys.filter((key) => cleared(breakCut.verdicts, key));
             return won.length === 0 ? "nothing cleared it." : `${won.join(", ")}.`;
@@ -875,7 +933,8 @@ const main = (): void => {
   const path = args.find((arg) => !arg.startsWith("--"));
   if (!path) {
     console.error(
-      "usage: npm run recency:sweep -- <backup.json> [--all] [--permutations=N]\n" +
+      "usage: npm run recency:sweep -- <backup.json|backup.csv> [--page=NAME] [--all] [--permutations=N]\n" +
+        '  --page           only pages whose name contains this, as in --page="9U 2026"\n' +
         "  --all            look at all thirteen schemes rather than the five pre-registered ones\n" +
         "  --permutations   shuffles of the training calendar per cut (default " +
         `${DEFAULT_PERMUTATIONS}; 0 skips the null and decides nothing)`
@@ -884,6 +943,13 @@ const main = (): void => {
     return;
   }
   const all = args.includes("--all");
+  /*
+   * Which pages to sweep. A nationwide backup holds every age at every squad year, and a page is
+   * rated against every other page of its own season year — so one page is one big fit, and
+   * eleven of them is eleven. Naming the one being asked about is the difference between a run
+   * that finishes and a run that is still going tomorrow.
+   */
+  const only = args.find((arg) => arg.startsWith("--page="))?.slice("--page=".length);
   const asked = args.find((arg) => arg.startsWith("--permutations="));
   const permutations = asked === undefined ? DEFAULT_PERMUTATIONS : Number(asked.split("=")[1]);
   const schemes = all
@@ -909,10 +975,39 @@ const main = (): void => {
       : "No shuffles asked for, so nothing below is a decision — only a description."
   );
 
-  // Biggest first: the page most likely to be able to answer anything leads the report.
   const count = (group: AgeGroup) =>
     backup.games.filter((game: ScoutGame) => game.ageGroupId === group.id).length;
-  const pages = [...backup.ageGroups].sort((a, b) => count(b) - count(a));
+  const wanted = backup.ageGroups.filter(
+    (group) => only === undefined || pageName(group).toLowerCase().includes(only.toLowerCase())
+  );
+  /*
+   * One sweep per rating pool, not one per page.
+   *
+   * A page is rated against every other page of its own season year — a 9U that enters a 10U
+   * bracket produces a result about both squads, so the year's groups are fitted together. Sweeping
+   * "9U 2027" and then "10U 2027" therefore fits the identical pool twice and prints the identical
+   * answer under two headings, which on a nationwide backup was eleven runs of the same three
+   * experiments, reading like eleven confirmations. One per pool, named for what it is.
+   */
+  const pools = new Map<string, AgeGroup>();
+  wanted.forEach((group) => {
+    const key = rankingPoolGroupIds(group.id, backup.ageGroups).slice().sort().join(",");
+    const held = pools.get(key);
+    if (held === undefined || count(group) > count(held)) pools.set(key, group);
+  });
+  // Biggest first: the pool most likely to be able to answer anything leads the report.
+  const pages = [...pools.values()].sort((a, b) => count(b) - count(a));
+  if (pages.length === 0) {
+    console.error(
+      `No page matches ${only}. This backup holds: ` +
+        backup.ageGroups.map((group) => pageName(group)).join(", ")
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (only !== undefined) {
+    console.log(`Sweeping ${pages.length} page(s) matching "${only}".`);
+  }
   pages.forEach((group) => sweepPage(backup, group, schemes, permutations));
 
   console.log(
