@@ -19,6 +19,11 @@ import type { ScoutRankingRow } from "./teamRankings";
  * It is about a twentieth of the size, and the difference is the whole difference between carrying
  * the previous season and not being able to.
  *
+ * The league's own games are archived with the rest of the season, not held back from it. They are
+ * in the frozen table as records and ratings like any other game, and once the season's pages are
+ * gone nothing derives them into a live ranking again. League Standings still holds its seasons —
+ * this is the rankings side of the app, and it does not reach across.
+ *
  * What it costs, and it is a real cost: an archived table cannot be recomputed. Change how ratings
  * are worked out and every live page changes with it while the archives keep the numbers they were
  * archived with. That is what "final" means, and it is the reason the card says which version of
@@ -136,6 +141,12 @@ const keepRow = (row: ScoutRankingRow, state: string | undefined): ArchivedRanki
   crossAgeGames: row.crossAgeGames,
 });
 
+/** The pool a table was built from: everything the tab had in hand, league fixtures included. */
+export type ShownPool = { teams: ScoutTeam[]; games: ScoutGame[] };
+
+/** The pool that is written to disk, and so the only one an archive can take anything from. */
+export type StoredPool = { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] };
+
 /**
  * Freezes a whole squad year's tables and takes the year out of the live pool.
  *
@@ -144,6 +155,20 @@ const keepRow = (row: ScoutRankingRow, state: string | undefined): ArchivedRanki
  * against it. Archive one page of a year and the ones left behind lose games their ratings stood
  * on — the tables would quietly change, which is the one thing an archive must not cause.
  *
+ * Two pools, and the difference between them is the whole reason this takes two arguments. The
+ * table on screen is built from the merged pool: the pulled games plus the league's own fixtures,
+ * derived fresh from League Standings on every render and never stored. The pool on disk holds only
+ * the pulled half. Hand this one pool and it is wrong either way — the merged one and the delete
+ * writes a permanent second copy of every league fixture, the stored one and the frozen table
+ * silently omits every league game and every league-only club's record while claiming to be what
+ * was on screen. So: `shown` decides what the table says, `stored` decides what survives. The
+ * league's games are archived with the rest of the season, as rows in the table and nowhere else,
+ * and because the page goes with them they stop being derived into any live rating.
+ *
+ * League Standings keeps its own seasons; this does not reach into them. What it does is sever the
+ * link — the archived pages carried `seasonIds`, and those ids come back in `leagueSeasonIds` so
+ * the caller can say which league seasons will no longer feed a ranking.
+ *
  * Some pages have no table to keep. 8U is below `MIN_RANKED_AGE_LEVEL` on purpose, so its games
  * exist only to inform the ages above it, and on a real pool that is a hundred and seventy-five
  * thousand of them. They go without a row, and the caller is told so it can say as much: they were
@@ -151,19 +176,22 @@ const keepRow = (row: ScoutRankingRow, state: string | undefined): ArchivedRanki
  */
 export const archiveSquadYear = (
   year: number,
-  teams: ScoutTeam[],
-  games: ScoutGame[],
-  ageGroups: AgeGroup[],
+  shown: ShownPool,
+  stored: StoredPool,
   archivedAt: string
 ): {
   seasons: ArchivedSeason[];
-  state: { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] };
-  /** Games the year held, table or no table. */
+  state: StoredPool;
+  /** Stored games the delete takes. League fixtures are not among them — they were never stored. */
   droppedGames: number;
-  /** Teams no remaining game mentions. */
+  /** Teams no remaining stored game mentions. */
   droppedTeams: number;
   /** The pages whose games went without a table of their own, and how many each held. */
   unranked: Array<{ name: string; games: number }>;
+  /** Games that were only ever derived, now kept as table rows and nowhere else. */
+  archivedLeagueGames: number;
+  /** The league seasons the archived pages were attached to, which stop feeding rankings. */
+  leagueSeasonIds: string[];
 } => {
   /*
    * `ageGroupYear`, not `group.year`. The stored field can be absent on a page whose name says the
@@ -173,36 +201,40 @@ export const archiveSquadYear = (
    * behind and its ratings would change, which is the one thing the year-at-a-time rule exists to
    * prevent.
    */
-  const ofYear = ageGroups.filter((group) => ageGroupYear(group) === year);
+  const ofYear = stored.ageGroups.filter((group) => ageGroupYear(group) === year);
   const seasons: ArchivedSeason[] = [];
   const unranked: Array<{ name: string; games: number }> = [];
-  let droppedGames = 0;
 
   /*
    * Every table is built against the pool as it was, before anything is removed — so a page
    * archived second is frozen from the same games as the page archived first.
    */
   ofYear.forEach((group) => {
-    const kept = archiveSeason(group, teams, games, ageGroups, archivedAt);
-    droppedGames += kept.fromGames;
+    const kept = archiveSeason(group, shown.teams, shown.games, stored.ageGroups, archivedAt);
     if (kept.rows.length > 0) seasons.push(kept);
     else if (kept.fromGames > 0) unranked.push({ name: group.name, games: kept.fromGames });
   });
 
   const going = new Set(ofYear.map((group) => group.id));
-  const remaining = games.filter((game) => !going.has(game.ageGroupId));
+  const remaining = stored.games.filter((game) => !going.has(game.ageGroupId));
   const wanted = new Set(remaining.flatMap((game) => [game.teamAId, game.teamBId]));
-  const keptTeams = teams.filter((team) => wanted.has(team.id));
+  const keptTeams = stored.teams.filter((team) => wanted.has(team.id));
+
+  // A frozen game the stored pool never held came from the league, so the table is now its record.
+  const onDisk = new Set(stored.games.map((game) => game.id));
+  const frozen = shown.games.filter((game) => going.has(game.ageGroupId));
   return {
     seasons,
     state: {
-      ageGroups: ageGroups.filter((group) => !going.has(group.id)),
+      ageGroups: stored.ageGroups.filter((group) => !going.has(group.id)),
       teams: keptTeams,
       games: remaining,
     },
-    droppedGames,
-    droppedTeams: teams.length - keptTeams.length,
+    droppedGames: stored.games.length - remaining.length,
+    droppedTeams: stored.teams.length - keptTeams.length,
     unranked,
+    archivedLeagueGames: frozen.filter((game) => !onDisk.has(game.id)).length,
+    leagueSeasonIds: [...new Set(ofYear.flatMap((group) => group.seasonIds))],
   };
 };
 

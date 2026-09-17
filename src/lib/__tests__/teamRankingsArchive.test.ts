@@ -215,7 +215,12 @@ describe("freezing a whole squad year", () => {
 
   it("keeps a table per page that has one and drops the year from the pool", () => {
     const { teams, games } = yearPool();
-    const done = archiveSquadYear(2026, teams, games, yearGroups, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: yearGroups, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
 
     expect(done.seasons.map((season) => season.name).sort()).toEqual(["10U 2026", "9U 2026"]);
     expect(done.state.ageGroups.map((group) => group.id)).toEqual(["ag_9_2027"]);
@@ -227,7 +232,12 @@ describe("freezing a whole squad year", () => {
 
   it("reports the games that went without a table, rather than losing them quietly", () => {
     const { teams, games } = yearPool();
-    const done = archiveSquadYear(2026, teams, games, yearGroups, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: yearGroups, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
 
     // 8U is not ranked by design, so its games inform the ages above and keep no row of their own.
     expect(done.unranked).toEqual([{ name: "8U 2026", games: 2 }]);
@@ -242,7 +252,12 @@ describe("freezing a whole squad year", () => {
   it("freezes every page from the pool as it stood, not as the last step left it", () => {
     const { teams, games } = yearPool();
     const alone = buildTeamRankings("ag_10_2026", teams, games, undefined, yearGroups);
-    const done = archiveSquadYear(2026, teams, games, yearGroups, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: yearGroups, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
     const kept = done.seasons.find((season) => season.name === "10U 2026")!;
 
     expect(kept.rows.map((row) => row.teamName)).toEqual(alone.map((row) => row.teamName));
@@ -251,7 +266,12 @@ describe("freezing a whole squad year", () => {
 
   it("leaves a year it was not asked about alone", () => {
     const { teams, games } = yearPool();
-    const done = archiveSquadYear(2026, teams, games, yearGroups, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: yearGroups, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
     const live = buildTeamRankings(
       "ag_9_2027",
       done.state.teams,
@@ -264,7 +284,12 @@ describe("freezing a whole squad year", () => {
 
   it("does nothing for a year with no pages", () => {
     const { teams, games } = yearPool();
-    const done = archiveSquadYear(2099, teams, games, yearGroups, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2099,
+      { teams, games },
+      { ageGroups: yearGroups, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
     expect(done.seasons).toEqual([]);
     expect(done.state.games).toHaveLength(games.length);
     expect(done.droppedGames).toBe(0);
@@ -304,9 +329,92 @@ describe("a page whose year is only in its name", () => {
         date: "2026-05-16",
       },
     ];
-    const done = archiveSquadYear(2026, teams, games, named, "2026-09-17T00:00:00.000Z");
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: named, teams, games },
+      "2026-09-17T00:00:00.000Z"
+    );
     expect(done.state.ageGroups).toEqual([]);
     expect(done.state.games).toEqual([]);
     expect(done.droppedGames).toBe(1);
+  });
+});
+
+/*
+ * The league's own fixtures are derived fresh from League Standings on every render and never
+ * stored, so the table on screen stands on more games than the pool on disk holds. An archive is
+ * the one place that difference bites: freeze the stored pool and the frozen table omits every
+ * league game and every league-only club, freeze the merged pool into storage and the delete
+ * leaves behind a permanent second copy of fixtures that are supposed to be derived. So the table
+ * is built from what was shown and the delete takes only what was stored.
+ */
+describe("a season whose table includes the league's own games", () => {
+  const pages: AgeGroup[] = [
+    { id: "ag_9_2026", name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: ["se_mab_fall_2025"] },
+    { id: "ag_9_2027", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: ["se_mab_fall_2026"] },
+  ];
+
+  const both = () => {
+    const pulled: ScoutTeam[] = [
+      { id: "S-A", name: "Aces", state: "KY" },
+      { id: "S-B", name: "Badgers", state: "KY" },
+      { id: "S-C", name: "Cougars", state: "OH" },
+      { id: "S-NEXT", name: "Nexters", state: "TN" },
+    ];
+    const stored: ScoutGame[] = [
+      { id: "s1", ageGroupId: "ag_9_2026", teamAId: "S-A", teamBId: "S-B", teamAScore: 7, teamBScore: 2, date: "2026-04-11" }, // prettier-ignore
+      { id: "s2", ageGroupId: "ag_9_2026", teamAId: "S-B", teamBId: "S-C", teamAScore: 5, teamBScore: 4, date: "2026-04-18" }, // prettier-ignore
+      { id: "s3", ageGroupId: "ag_9_2026", teamAId: "S-C", teamBId: "S-A", teamAScore: 1, teamBScore: 9, date: "2026-04-25" }, // prettier-ignore
+      { id: "s4", ageGroupId: "ag_9_2027", teamAId: "S-NEXT", teamBId: "S-A", teamAScore: 4, teamBScore: 3, date: "2026-09-05" }, // prettier-ignore
+    ];
+    // What the derivation adds: a club that exists only in League Standings, and its fixtures.
+    const leagueOnly: ScoutTeam = { id: "S-LEAGUE", name: "Lexington Legends", state: "KY" };
+    const derived: ScoutGame[] = [
+      { id: "L-1", ageGroupId: "ag_9_2026", teamAId: "S-LEAGUE", teamBId: "S-A", teamAScore: 6, teamBScore: 5, date: "2026-05-02" }, // prettier-ignore
+      { id: "L-2", ageGroupId: "ag_9_2026", teamAId: "S-LEAGUE", teamBId: "S-B", teamAScore: 8, teamBScore: 1, date: "2026-05-09" }, // prettier-ignore
+    ];
+    return {
+      shown: { teams: [...pulled, leagueOnly], games: [...stored, ...derived] },
+      stored: { ageGroups: pages, teams: pulled, games: stored },
+    };
+  };
+
+  it("freezes the league's games into the table, where the stored pool alone would lose them", () => {
+    const { shown, stored } = both();
+    const done = archiveSquadYear(2026, shown, stored, "2026-09-17T00:00:00.000Z");
+    const kept = done.seasons.find((season) => season.name === "9U 2026")!;
+
+    expect(kept.rows.map((row) => row.teamName)).toContain("Lexington Legends");
+    // The record is the league's: two wins, no losses, and the table says so.
+    expect(kept.rows.find((row) => row.teamName === "Lexington Legends")?.record).toBe("2-0");
+    // And the pulled clubs' records count the league games they played.
+    expect(kept.rows.find((row) => row.teamName === "Aces")?.games).toBe(3);
+
+    const storedOnly = archiveSquadYear(
+      2026,
+      { teams: stored.teams, games: stored.games },
+      stored,
+      "2026-09-17T00:00:00.000Z"
+    ).seasons.find((season) => season.name === "9U 2026")!;
+    expect(storedOnly.rows.map((row) => row.teamName)).not.toContain("Lexington Legends");
+  });
+
+  it("persists none of them, because a derived fixture is never stored", () => {
+    const { shown, stored } = both();
+    const done = archiveSquadYear(2026, shown, stored, "2026-09-17T00:00:00.000Z");
+
+    expect(done.state.games.map((game) => game.id)).toEqual(["s4"]);
+    expect(done.state.teams.map((team) => team.id).sort()).toEqual(["S-A", "S-NEXT"]);
+    // Three stored games went; the two league fixtures were never on disk to go.
+    expect(done.droppedGames).toBe(3);
+    expect(done.archivedLeagueGames).toBe(2);
+  });
+
+  it("names the league seasons that stop feeding a ranking, and leaves the live one alone", () => {
+    const { shown, stored } = both();
+    const done = archiveSquadYear(2026, shown, stored, "2026-09-17T00:00:00.000Z");
+    expect(done.leagueSeasonIds).toEqual(["se_mab_fall_2025"]);
+    expect(done.state.ageGroups.map((group) => group.seasonIds)).toEqual([["se_mab_fall_2026"]]);
   });
 });
