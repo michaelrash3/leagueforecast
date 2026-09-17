@@ -11,7 +11,7 @@ import type { ScoutRankingRow } from "./teamRankings";
  * rank, rating, record, strength of schedule, one row a team, and the games are let go.
  *
  * It is about a twentieth of the size, and the difference is the whole difference between carrying
- * last season and not being able to.
+ * the previous season and not being able to.
  *
  * What it costs, and it is a real cost: an archived table cannot be recomputed. Change how ratings
  * are worked out and every live page changes with it while the archives keep the numbers they were
