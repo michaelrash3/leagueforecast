@@ -35,7 +35,7 @@ import {
   type ScoutBacktestResult,
   type ScoutResidual,
 } from "../src/lib/scoutBacktest.ts";
-import { RECENCY_SCHEMES } from "../src/lib/ratingRecency.ts";
+import { RECENCY_SCHEMES, type RecencyScheme } from "../src/lib/ratingRecency.ts";
 import {
   describeTidy,
   proposeSeasonPairings,
@@ -68,6 +68,49 @@ const BREAK_DAYS = 30;
 const BOOTSTRAP = 2000;
 /** Below this there is no point printing a ranking; say the page cannot answer instead. */
 const MIN_USABLE_SAMPLE = 12;
+/**
+ * And below this many distinct playing days, whatever the game count.
+ *
+ * The interval is resampled by day, because a Saturday's eight games share a field, a weather and a
+ * small set of teams. Six clusters do not give a bootstrap anything to calibrate on, so a band
+ * computed from them is a decoration.
+ */
+const MIN_USABLE_DAYS = 8;
+/**
+ * Shuffles of the training calendar used to find out what this procedure does when there is
+ * nothing to find. See `permutedNull`.
+ */
+const DEFAULT_PERMUTATIONS = 200;
+/**
+ * The pre-registered candidates, and the reason there are five rather than thirteen.
+ *
+ * Thirteen simultaneous intervals against zero is thirteen chances to be unlucky, and most of the
+ * thirteen are not distinct questions anyway — days-90 and days-120 differ by a hair over a
+ * fourteen-week training window. Five spread across the three families, named before looking at
+ * anything, is a fair test. `--all` puts the rest back for a look around, which is a different
+ * activity from deciding.
+ */
+const CANDIDATE_KEYS = ["none", "days-60", "days-120", "games-10", "block-0.35"];
+/**
+ * A scheme whose heaviest training weight is less than this times its lightest is not weighting.
+ *
+ * Bit-identical weights are caught by the fingerprint, but a scheme can be all but identical
+ * without being exactly identical — games-40 over one season spans a ratio of about 1.2, moves
+ * fall's share of the training weight by a single percentage point, and is then ranked as though
+ * it had an opinion.
+ */
+const MIN_WEIGHT_SPREAD = 1.25;
+/** Runs. Below this a margin is not worth freezing into the app, whatever its interval says. */
+const WORTH_SHIPPING = 0.05;
+/**
+ * Days left empty between the last game fitted on and the first one scored, at an in-season cut.
+ *
+ * A chronological hold-out flatters recency for free: the games being predicted are the newest in
+ * the pool, so leaning on recent games moves the fit toward the target by construction. At a break
+ * cut the winter is its own embargo and this is left at zero; the alternative is an embargo on top
+ * of a five-month gap, which empties the hold-out.
+ */
+const IN_SEASON_EMBARGO_DAYS = 14;
 
 /**
  * Reads the backup, and then puts it through the same tidy the app does before it ranks anything.
@@ -192,16 +235,22 @@ const asDay = (at: number): string => new Date(at).toISOString().slice(0, 10);
  * row quantile will land there only by accident. Then a spread of quantile cuts, so a scheme that
  * only wins at the one flattering place to stand is visibly only winning there.
  */
-const cutsFor = (composition: Composition): number[] => {
+const cutsFor = (composition: Composition): Cut[] => {
   const { days, breaks } = composition;
   if (days.length < 4) return [];
-  const candidates = [
-    ...breaks.map((entry) => entry.after),
-    ...[0.5, 0.6, 0.7, 0.8].map((share) => days[Math.floor(days.length * share) - 1]!),
-  ];
-  // Never a cut with nothing after it, and never the same day twice.
   const last = days[days.length - 1]!;
-  return [...new Set(candidates.filter((at) => at < last))].sort((a, b) => a - b);
+  const seen = new Set<number>();
+  const cuts: Cut[] = [];
+  const add = (at: number, kind: Cut["kind"], gap: number) => {
+    if (at >= last || seen.has(at)) return;
+    seen.add(at);
+    cuts.push({ at, kind, gap });
+  };
+  breaks.forEach((entry) => add(entry.after, "pre-break", entry.gap));
+  [0.5, 0.6, 0.7, 0.8].forEach((share) =>
+    add(days[Math.floor(days.length * share) - 1]!, "in-season", 0)
+  );
+  return cuts.sort((a, b) => a.at - b.at);
 };
 
 /* --------------------------------------------------------------- is this pool what it claims */
@@ -338,6 +387,15 @@ type Verdict = {
   ties: number;
   /** Its weights over the training games came out identical to the control's. */
   degenerate: boolean;
+  /** Heaviest training weight over lightest. At 1 the scheme is not weighting anything. */
+  spread: number;
+  /**
+   * What this same scheme scored when the training calendar was shuffled — the reference the
+   * observed margin has to beat. Null when the null was not run.
+   */
+  nullMean: number | null;
+  /** The family-wise threshold: the best any candidate managed on a shuffled calendar. */
+  nullBest: number | null;
 };
 
 /**
@@ -396,20 +454,130 @@ const pairedAgainst = (
 const weightPrint = (result: ScoutBacktestResult): string =>
   result.residuals.map((row) => row.predicted.toFixed(9)).join(",");
 
+/**
+ * What a scheme's weights actually look like on this training set.
+ *
+ * Asked of the scheme itself rather than reasoned about, because the answer is not a property of
+ * the scheme — it is a property of the scheme *and this calendar*. `byBlock` weights nothing when
+ * the training half holds no long break; a long half-life weights almost nothing over a short
+ * window. Either way the scheme is in the table claiming to be a candidate.
+ */
+const weightSpread = (
+  backup: TeamRankingsBackup,
+  group: AgeGroup,
+  scheme: RecencyScheme,
+  cutAt: number
+): number => {
+  const train = scoutRatingGames(group.id, backup.teams, backup.games, backup.ageGroups)
+    .filter(({ game }) => countsTowardRating(game) && game.date)
+    .map(({ game }) => ({
+      at: Date.parse(`${game.date}T12:00:00Z`),
+      home: game.teamAId,
+      away: game.teamBId,
+    }))
+    .filter((entry) => Number.isFinite(entry.at) && entry.at <= cutAt)
+    .sort((a, b) => a.at - b.at);
+  if (train.length === 0) return 1;
+  const weights = scheme.weigh(train, cutAt);
+  const low = Math.min(...weights);
+  const high = Math.max(...weights);
+  return low <= 0 ? Infinity : high / low;
+};
+
+/**
+ * The same sweep, on a calendar that has been shuffled.
+ *
+ * This is the step without which none of the rest counts. A chronological hold-out is not a neutral
+ * test bench: the games being scored are always the newest in the pool, so a scheme that leans on
+ * recent games moves the fit toward its target by construction, and it does that whether or not
+ * there is any real drift to catch. Measured on a pool built with *zero* fall-to-spring drift —
+ * team strengths literally unchanged across the winter, nothing whatever for recency to learn —
+ * every decayed scheme still came in ahead of the control, monotonically in how aggressive it was.
+ * Testing "is the margin below zero" against that background asks the wrong question, and it
+ * answers yes.
+ *
+ * So the dates of the training games are shuffled among themselves. Every game keeps its teams and
+ * its result, every day keeps its number of games, every team keeps its game count, and the cut
+ * falls in exactly the same place — the only thing destroyed is *which* games were recent. Whatever
+ * margin a scheme still earns on that is the margin the procedure hands out for free, and the real
+ * one has to beat it.
+ */
+const permuteTrainDates = (
+  games: readonly ScoutGame[],
+  cutAt: number,
+  random: () => number
+): ScoutGame[] => {
+  const inTrain = (game: ScoutGame): boolean => {
+    if (!game.date) return false;
+    const at = Date.parse(`${game.date}T12:00:00Z`);
+    return Number.isFinite(at) && at <= cutAt;
+  };
+  const dates = games.filter(inTrain).map((game) => game.date!);
+  for (let at = dates.length - 1; at > 0; at -= 1) {
+    const pick = Math.floor(random() * (at + 1));
+    const held = dates[at]!;
+    dates[at] = dates[pick]!;
+    dates[pick] = held;
+  }
+  let next = 0;
+  return games.map((game) => (inTrain(game) ? { ...game, date: dates[next++]! } : game));
+};
+
 /** Only the games the model was in a position to predict at all. */
 const connectedOnly = (result: ScoutBacktestResult): ScoutResidual[] =>
   result.residuals.filter((row) => row.connected);
 
-const judge = (results: ScoutBacktestResult[], random: () => number): Verdict[] => {
+/** The mean paired difference against the control, per scheme. The one number a run turns on. */
+const marginsOf = (results: ScoutBacktestResult[]): Map<string, number> => {
+  const control = results.find((result) => result.recencyKey === "none");
+  const controlRows = control ? connectedOnly(control) : [];
+  const byGame = new Map(controlRows.map((row) => [row.gameId, row]));
+  const margins = new Map<string, number>();
+  results.forEach((result) => {
+    const deltas = connectedOnly(result).flatMap((row) => {
+      const other = byGame.get(row.gameId);
+      return other ? [row.error - other.error] : [];
+    });
+    margins.set(result.recencyKey, deltas.length === 0 ? 0 : mean(deltas));
+  });
+  return margins;
+};
+
+const judge = (
+  results: ScoutBacktestResult[],
+  schemes: RecencyScheme[],
+  spreads: Map<string, number>,
+  nulls: Map<string, number[]>,
+  random: () => number
+): Verdict[] => {
   const control = results.find((result) => result.recencyKey === "none");
   const controlRows = control ? connectedOnly(control) : [];
   const controlPrint = control ? weightPrint(control) : "";
+  /*
+   * The family-wise threshold: on each shuffled calendar, the best margin *any* candidate managed.
+   * Comparing one scheme's real margin against its own shuffled margins would ignore that it was
+   * picked out of five; comparing it against the best of five on each shuffle does not.
+   */
+  const bests: number[] = [];
+  const rounds = Math.max(0, ...[...nulls.values()].map((draws) => draws.length));
+  for (let round = 0; round < rounds; round += 1) {
+    const perScheme = schemes
+      .filter((scheme) => scheme.key !== "none")
+      .map((scheme) => nulls.get(scheme.key)?.[round])
+      .filter((value): value is number => value !== undefined);
+    if (perScheme.length > 0) bests.push(Math.min(...perScheme));
+  }
+  bests.sort((a, b) => a - b);
+  // The fifth percentile of the best-of-five under the null: what a real margin has to clear.
+  const nullBest = bests.length === 0 ? null : (bests[Math.floor(bests.length * 0.05)] ?? null);
+
   return results.map((result) => {
     const rows = connectedOnly(result);
     const paired =
       result.recencyKey === "none" || rows.length === 0
         ? { paired: 0, low: 0, high: 0, wins: 0, ties: rows.length }
         : pairedAgainst(rows, controlRows, random);
+    const draws = nulls.get(result.recencyKey) ?? [];
     return {
       key: result.recencyKey,
       sample: rows.length,
@@ -425,30 +593,51 @@ const judge = (results: ScoutBacktestResult[], random: () => number): Verdict[] 
       })(),
       ...paired,
       degenerate: result.recencyKey !== "none" && weightPrint(result) === controlPrint,
+      spread: spreads.get(result.recencyKey) ?? 1,
+      nullMean: draws.length === 0 ? null : mean(draws),
+      nullBest: result.recencyKey === "none" ? null : nullBest,
     };
   });
 };
 
 /* -------------------------------------------------------------------------------- the report */
 
+type Cut = { at: number; kind: "pre-break" | "in-season"; gap: number };
+
 const reportCut = (
   backup: TeamRankingsBackup,
   group: AgeGroup,
-  cutOn: number,
+  cut: Cut,
+  schemes: RecencyScheme[],
+  permutations: number,
   random: () => number
 ): Verdict[] => {
-  const options = { cutOn: asDay(cutOn), keepResiduals: true, ageGapPrior: 2 };
+  /*
+   * The embargo, which only some cuts need. A chronological hold-out scores the very next weekend,
+   * and leaning on recent games walks the fit toward that weekend for free; a fortnight of empty
+   * calendar makes the held-out games genuinely *later* rather than merely last. At a break cut the
+   * five-month gap is already the embargo, and stacking another on top only empties the hold-out.
+   */
+  const gapDays = cut.kind === "pre-break" ? 0 : IN_SEASON_EMBARGO_DAYS;
+  const options = { cutOn: asDay(cut.at), keepResiduals: true, ageGapPrior: 2, gapDays };
   const results = compareRecencySchemes(
     group.id,
     backup.teams,
     backup.games,
     backup.ageGroups,
-    RECENCY_SCHEMES,
+    schemes,
     options
   );
   const control = results.find((result) => result.recencyKey === "none")!;
 
-  console.log(`\n  ── cut on ${asDay(cutOn)} ${"─".repeat(46)}`);
+  const asks =
+    cut.kind === "pre-break"
+      ? `the primary question — what a season is worth across the ${cut.gap}-day break that follows`
+      : "an in-season question, and one of a family whose training sets nest and whose hold-outs overlap";
+  console.log(`\n  ── cut on ${asDay(cut.at)} ${"─".repeat(46)}`);
+  console.log(`     ${asks}`);
+  if (gapDays > 0)
+    console.log(`     ${gapDays} days left empty after the cut before scoring starts`);
   if (control.sampleSize === 0) {
     console.log("     Nothing held out at this cut. It asks no question.");
     return [];
@@ -462,8 +651,9 @@ const reportCut = (
     `     training teams in ${control.trainComponents} connected piece(s), biggest ${control.largestComponent}`
   );
 
-  const verdicts = judge(results, random);
-  const usable = verdicts[0]?.sample ?? 0;
+  const usableRows = connectedOnly(control);
+  const usable = usableRows.length;
+  const usableDays = new Set(usableRows.map((row) => Math.round(row.daysAfter))).size;
   const dropped = control.sampleSize - usable;
   if (dropped > 0) {
     console.log(
@@ -471,12 +661,31 @@ const reportCut = (
         ` saw, ${control.splitSamples} between teams it never joined up`
     );
   }
-  if (usable < MIN_USABLE_SAMPLE) {
+  if (usable < MIN_USABLE_SAMPLE || usableDays < MIN_USABLE_DAYS) {
     console.log(
-      `     Only ${usable} game(s) the model could actually predict. Too few to rank anything.`
+      `     ${usable} game(s) on ${usableDays} day(s) the model could actually predict. Too few to` +
+        ` rank anything — the band is resampled by day, and ${usableDays} clusters calibrate nothing.`
     );
     return [];
   }
+
+  /*
+   * The null. Everything above is descriptive; this is the part that decides whether any of it
+   * means something, and it is the expensive part — one full sweep per shuffle.
+   */
+  const nulls = new Map<string, number[]>(schemes.map((scheme) => [scheme.key, []]));
+  for (let round = 0; round < permutations; round += 1) {
+    const shuffled = permuteTrainDates(backup.games, cut.at, random);
+    const margins = marginsOf(
+      compareRecencySchemes(group.id, backup.teams, shuffled, backup.ageGroups, schemes, options)
+    );
+    margins.forEach((margin, key) => nulls.get(key)?.push(margin));
+  }
+
+  const spreads = new Map(
+    schemes.map((scheme) => [scheme.key, weightSpread(backup, group, scheme, cut.at)])
+  );
+  const verdicts = judge(results, schemes, spreads, nulls, random);
 
   /*
    * Ordered by how often the favoured side actually won, not by the error. Shrinking every rating
@@ -496,11 +705,13 @@ const reportCut = (
   console.log(
     `\n     called = share of decisive games the favoured side won · |pred| = mean size of the` +
       `\n     predicted margins, the tell for a scheme that won by predicting less · vs none = mean` +
-      `\n     runs closer than the control on the same games, resampled by day.`
+      `\n     runs closer than the control on the same games · shuffled = what the same scheme` +
+      `\n     scored with the training calendar shuffled, which is the number to beat, not zero.`
   );
   console.log(
     `\n     ${"scheme".padEnd(12)}${"called".padStart(8)}${"runs off".padStart(10)}` +
-      `${"|pred|".padStart(8)}${"vs none".padStart(9)}${"95% band".padStart(18)}${"closer on".padStart(11)}`
+      `${"|pred|".padStart(8)}${"vs none".padStart(9)}${"95% band".padStart(18)}` +
+      `${"shuffled".padStart(10)}${"spread".padStart(8)}`
   );
   ranked.forEach((verdict) => {
     /*
@@ -508,40 +719,79 @@ const reportCut = (
      * band of zero width three times over reads like three measurements rather than one tie shown
      * repeatedly.
      */
-    const silent = verdict.key === "none" || verdict.degenerate;
+    // The control weights nothing by definition; that is what makes it the control, not a flaw.
+    const idle =
+      verdict.key !== "none" && (verdict.degenerate || verdict.spread < MIN_WEIGHT_SPREAD);
+    const silent = verdict.key === "none" || idle;
     const band = silent ? "—" : `${signed(verdict.low)} … ${signed(verdict.high)}`;
-    const closer = silent ? "—" : `${verdict.wins}/${verdict.sample - verdict.ties}`;
-    const flag = verdict.degenerate ? "  (same weights as none)" : "";
+    const flag = verdict.degenerate
+      ? "  (same weights as none)"
+      : idle
+        ? "  (barely weights anything)"
+        : "";
     console.log(
       `     ${verdict.key.padEnd(12)}${pct(verdict.accuracy).padStart(8)}${runs(verdict.error).padStart(10)}` +
         `${runs(verdict.prediction).padStart(8)}` +
         `${(silent ? "—" : signed(verdict.paired)).padStart(9)}` +
-        `${band.padStart(18)}${closer.padStart(11)}${flag}`
+        `${band.padStart(18)}` +
+        `${(silent || verdict.nullMean === null ? "—" : signed(verdict.nullMean)).padStart(10)}` +
+        `${(Number.isFinite(verdict.spread) ? verdict.spread.toFixed(2) : "∞").padStart(8)}${flag}`
     );
   });
 
-  const degenerate = verdicts.filter((verdict) => verdict.degenerate).map((verdict) => verdict.key);
-  if (degenerate.length > 0) {
+  const idle = verdicts.filter(
+    (verdict) =>
+      verdict.key !== "none" && (verdict.degenerate || verdict.spread < MIN_WEIGHT_SPREAD)
+  );
+  if (idle.length > 0) {
     console.log(
-      `     ${degenerate.length} scheme(s) weighted this training set exactly as the control did` +
-        ` — they are not candidates here, they are the control under another name.`
+      `     ${idle.length} scheme(s) barely weighted this training set at all — they are not` +
+        ` candidates here, they are the control under another name.`
     );
   }
 
   /*
-   * A scheme has beaten the control when its whole interval sits below zero. Anything else is a
-   * point estimate with a sign, and on twenty-five games a sign is cheap.
+   * What it takes to have beaten the control.
+   *
+   * Not "the interval clears zero". Zero is the wrong reference: a chronological hold-out pays a
+   * small dividend to any scheme that leans on recent games, whether or not there is anything to
+   * lean on, so a shuffled calendar still hands out negative margins — measured, monotone in how
+   * aggressive the scheme is. The reference is the best margin any candidate managed on a shuffled
+   * calendar, which also charges the scheme for having been picked out of several. And a margin
+   * that clears all that can still be too small to be worth freezing into the app.
    */
-  const beat = verdicts.filter((verdict) => verdict.key !== "none" && verdict.high < 0);
+  const threshold = verdicts.find((verdict) => verdict.nullBest !== null)?.nullBest ?? null;
+  const beat = verdicts.filter(
+    (verdict) =>
+      verdict.key !== "none" &&
+      !verdict.degenerate &&
+      verdict.spread >= MIN_WEIGHT_SPREAD &&
+      verdict.high < 0 &&
+      threshold !== null &&
+      verdict.paired < threshold &&
+      Math.abs(verdict.paired) >= WORTH_SHIPPING
+  );
+  if (threshold !== null) {
+    console.log(
+      `\n     On a shuffled calendar the best of these schemes still managed ${signed(threshold)}` +
+        ` runs (${permutations} shuffles). That is the bar, and ${runs(WORTH_SHIPPING)} runs is the` +
+        ` least margin worth making permanent.`
+    );
+  }
   console.log(
     beat.length === 0
-      ? "     Nothing separates from counting every game the same."
-      : `     Beats the control outright: ${beat.map((verdict) => verdict.key).join(", ")}`
+      ? "     Nothing beats counting every game the same by more than the shuffle already gives it."
+      : `     Beats the control and the shuffle: ${beat.map((verdict) => verdict.key).join(", ")}`
   );
   return verdicts;
 };
 
-const sweepPage = (backup: TeamRankingsBackup, group: AgeGroup): void => {
+const sweepPage = (
+  backup: TeamRankingsBackup,
+  group: AgeGroup,
+  schemes: RecencyScheme[],
+  permutations: number
+): void => {
   console.log(`\n${"=".repeat(78)}\n${pageName(group)}\n${"=".repeat(78)}`);
   const composition = compositionOf(backup, group);
   const { days, breaks } = composition;
@@ -569,57 +819,108 @@ const sweepPage = (backup: TeamRankingsBackup, group: AgeGroup): void => {
 
   // Seeded off the page so a rerun reproduces, and so two pages do not share a resampling.
   const random = makeRandom(composition.played * 7919 + composition.teams);
-  const perCut = cuts.map((cutOn) => reportCut(backup, group, cutOn, random));
+  const perCut = cuts.map((cut) => ({
+    cut,
+    verdicts: reportCut(backup, group, cut, schemes, permutations, random),
+  }));
 
-  /*
-   * The only claim worth making from one page: a scheme that beat the control at every cut where
-   * the question could be asked. One cut's winner is where the cut fell.
-   */
-  const asked = perCut.filter((verdicts) => verdicts.length > 0);
+  const asked = perCut.filter((entry) => entry.verdicts.length > 0);
   if (asked.length === 0) {
     console.log("\n  No cut on this page held out enough to rank anything.");
     return;
   }
-  const always = RECENCY_SCHEMES.map((scheme) => scheme.key)
-    .filter((key) => key !== "none")
-    .filter((key) =>
-      asked.every((verdicts) => {
-        const found = verdicts.find((verdict) => verdict.key === key);
-        return found !== undefined && !found.degenerate && found.high < 0;
-      })
+  const cleared = (verdicts: Verdict[], key: string): boolean => {
+    const found = verdicts.find((verdict) => verdict.key === key);
+    return (
+      found !== undefined &&
+      !found.degenerate &&
+      found.spread >= MIN_WEIGHT_SPREAD &&
+      found.high < 0 &&
+      found.nullBest !== null &&
+      found.paired < found.nullBest &&
+      Math.abs(found.paired) >= WORTH_SHIPPING
     );
+  };
+  const keys = schemes.map((scheme) => scheme.key).filter((key) => key !== "none");
+  const always = keys.filter((key) => asked.every((entry) => cleared(entry.verdicts, key)));
+
+  /*
+   * The cuts are not four independent confirmations. Their training sets nest — each in-season cut
+   * fits on everything the one before it did and more — and their hold-outs overlap heavily, so
+   * "wins at every cut" is closer to one and a half findings than four. The break cut is the only
+   * near-independent one, because its training block and its hold-out share no games and no
+   * weekend, and it is the only one that asks what a season is worth across a winter.
+   */
+  const breakCut = asked.find((entry) => entry.cut.kind === "pre-break");
   console.log(
-    `\n  Across ${asked.length} cut(s): ` +
+    `\n  Across ${asked.length} cut(s), of which ${asked.filter((entry) => entry.cut.kind === "in-season").length}` +
+      " nest inside one another: " +
       (always.length === 0
-        ? "no scheme beat counting every game the same at every cut."
-        : `${always.join(", ")} beat the control at every cut.`)
+        ? "no scheme cleared the shuffled calendar everywhere."
+        : `${always.join(", ")} cleared it everywhere.`)
+  );
+  console.log(
+    breakCut === undefined
+      ? "  No break cut on this page, so it cannot say what a season is worth across one."
+      : `  At the break cut, the one that asks it: ` +
+          (() => {
+            const won = keys.filter((key) => cleared(breakCut.verdicts, key));
+            return won.length === 0 ? "nothing cleared it." : `${won.join(", ")}.`;
+          })()
   );
 };
 
 const main = (): void => {
-  const [path] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const path = args.find((arg) => !arg.startsWith("--"));
   if (!path) {
-    console.error("usage: npm run recency:sweep -- <backup.json>");
+    console.error(
+      "usage: npm run recency:sweep -- <backup.json> [--all] [--permutations=N]\n" +
+        "  --all            look at all thirteen schemes rather than the five pre-registered ones\n" +
+        "  --permutations   shuffles of the training calendar per cut (default " +
+        `${DEFAULT_PERMUTATIONS}; 0 skips the null and decides nothing)`
+    );
     process.exitCode = 1;
     return;
   }
+  const all = args.includes("--all");
+  const asked = args.find((arg) => arg.startsWith("--permutations="));
+  const permutations = asked === undefined ? DEFAULT_PERMUTATIONS : Number(asked.split("=")[1]);
+  const schemes = all
+    ? RECENCY_SCHEMES
+    : CANDIDATE_KEYS.flatMap((key) => RECENCY_SCHEMES.filter((scheme) => scheme.key === key));
+
   const backup = read(path);
 
   console.log(
     "A weight is a count, and every scheme averages one, so what separates them is only which\n" +
       "games count more than others — never how much evidence the fit is handed in total."
   );
+  console.log(
+    all
+      ? `Looking at all ${schemes.length} schemes. Thirteen intervals is thirteen chances to be` +
+          " unlucky, so read this as a look around rather than a decision."
+      : `Five pre-registered candidates: ${schemes.map((scheme) => scheme.key).join(", ")}.`
+  );
+  console.log(
+    permutations > 0
+      ? `${permutations} shuffles of the training calendar per cut, to find out what this procedure` +
+          " hands out when there is nothing to find."
+      : "No shuffles asked for, so nothing below is a decision — only a description."
+  );
 
   // Biggest first: the page most likely to be able to answer anything leads the report.
   const count = (group: AgeGroup) =>
     backup.games.filter((game: ScoutGame) => game.ageGroupId === group.id).length;
   const pages = [...backup.ageGroups].sort((a, b) => count(b) - count(a));
-  pages.forEach((group) => sweepPage(backup, group));
+  pages.forEach((group) => sweepPage(backup, group, schemes, permutations));
 
   console.log(
-    `\n${"=".repeat(78)}\nA scheme is worth believing when it beats the control at more than one cut,` +
-      "\non more than one page, and by a margin whose whole interval clears zero. Anything\n" +
-      "less is where the cut happened to fall."
+    `\n${"=".repeat(78)}\nA scheme is worth shipping when it clears the shuffled calendar at the break` +
+      "\ncut, on more than one page, by at least " +
+      `${runs(WORTH_SHIPPING)} runs. Short of that the answer is` +
+      "\n`none`: it is the incumbent, and a margin this procedure hands out for free is not\n" +
+      "a reason to freeze a half-life into the app."
   );
 };
 
