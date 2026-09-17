@@ -10,6 +10,7 @@ import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import type { RefreshLog } from "./gameChangerSchedule";
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
+import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import {
   listenForLocalPoolWrites,
@@ -46,6 +47,13 @@ const GC_TIDY_KEY = "league_forecast_gc_tidy_v1";
  * the pull; a refused record is a blank cell in a file.
  */
 const GC_TRACK_KEY = "league_forecast_gc_track_v1";
+/**
+ * The teams GameChanger answered for and nobody could age.
+ *
+ * Kept because they are in no other list: the fetch worked, so they are not failures, and they are
+ * on no page, so the weekly rotation never walks over them. Without this they are simply gone.
+ */
+const GC_AGELESS_KEY = "league_forecast_gc_ageless_v1";
 /**
  * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
  * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is
@@ -241,6 +249,7 @@ const POOL_KEYS = [
   GC_REFRESH_KEY,
   GC_TIDY_KEY,
   GC_TRACK_KEY,
+  GC_AGELESS_KEY,
 ];
 
 /**
@@ -649,3 +658,8 @@ export const loadPullLog = (): PullRunLog | null => {
 export const savePullLog = (log: PullRunLog): boolean => writeValue(GC_TRACK_KEY, log);
 
 export const clearPullLog = (): void => forgetValue(GC_TRACK_KEY);
+
+/** The teams still waiting for somebody to say what age they are. */
+export const loadAgeUnknown = (): AgeUnknownList => coerceAgeUnknown(readValue(GC_AGELESS_KEY));
+
+export const saveAgeUnknown = (list: AgeUnknownList): boolean => writeValue(GC_AGELESS_KEY, list);

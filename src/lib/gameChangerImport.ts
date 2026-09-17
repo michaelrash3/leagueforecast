@@ -344,6 +344,8 @@ export type GcImportOutcome = {
    * none. Absent whenever the team said its own age, which is nearly always.
    */
   ageFromOpponents?: number;
+  /** Which way it could not be filed, for anything deciding what to do about it. */
+  skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
   issue?: string;
 };
@@ -524,22 +526,44 @@ const resolveAgeGroup = (
   return { ageGroups: [...state.ageGroups, group], group, created: true };
 };
 
-/** Why a schedule was left where it was, in the words the panel shows. */
-const skipReason = (profile: GcTeamProfile): string => {
+/**
+ * Why a schedule was left where it was — a code as well as a sentence.
+ *
+ * The code matters because the four are not the same kind of problem. A team with no age might
+ * have one next week: GameChanger's field gets filled in, a club renames a squad, or its opponents
+ * pull enough schedules to settle it between them. A 6U team never will. So one of these is worth
+ * asking about again every week and the others are not, and telling them apart by reading the
+ * sentence would break the first time somebody reworded it.
+ */
+export type GcSkipReason = "no-age" | "below-min-age" | "above-max-age" | "no-season";
+
+const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: string } => {
   const ageLevel = profileAgeLevel(profile);
   if (ageLevel === undefined) {
-    return (
-      "GameChanger gave no age group for this team, its name does not say one, and fewer than " +
-      `${MIN_OPPONENT_AGE_EVIDENCE} of its opponents agree on one either.`
-    );
+    return {
+      code: "no-age",
+      message:
+        "GameChanger gave no age group for this team, its name does not say one, and fewer than " +
+        `${MIN_OPPONENT_AGE_EVIDENCE} of its opponents agree on one either.`,
+    };
   }
   if (ageLevel < MIN_AGE_LEVEL) {
-    return `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`;
+    return {
+      code: "below-min-age",
+      message: `${ageLevel}U is below the youngest level ranked here, so this team was skipped.`,
+    };
   }
   if (ageLevel > MAX_AGE_LEVEL) {
-    return `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`;
+    return {
+      code: "above-max-age",
+      message: `${ageLevel}U is above the oldest level ranked here, so this team was skipped.`,
+    };
   }
-  return "GameChanger gave no season for this team, so there is no squad year to file it under.";
+  return {
+    code: "no-season",
+    message:
+      "GameChanger gave no season for this team, so there is no squad year to file it under.",
+  };
 };
 
 /** The link this pull records against a team, so a later pull knows what it already has. */
@@ -1153,12 +1177,10 @@ const importOne = (
 
   const resolved = resolveAgeGroup(profile, state);
   if (!resolved) {
+    const why = skipReason(profile);
     return {
       state,
-      outcome: {
-        ...base,
-        issue: skipReason(profile),
-      },
+      outcome: { ...base, skip: why.code, issue: why.message },
     };
   }
 

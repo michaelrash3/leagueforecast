@@ -74,7 +74,7 @@ describe("the rotation itself", () => {
   it("describes the week", () => {
     const lines = describeRotation();
     expect(lines[0]).toBe("Sunday: 8U, 9U");
-    expect(lines).toContain("Friday: catch up on failures");
+    expect(lines).toContain("Friday: catch up on failures, and teams still waiting on an age");
   });
 });
 
@@ -195,5 +195,50 @@ describe("the day a refresh is counted in", () => {
     const due = dueRefresh(SUNDAY, {}, [], []);
     expect(due.teamIds).toEqual([]);
     expect(levelsDueOn(3 as Weekday)).toEqual([18]);
+  });
+});
+
+describe("the teams nobody could age", () => {
+  const ageless = (teamId: string, lastTried: string) => ({
+    teamId,
+    firstSeen: "2026-09-01T00:00:00.000Z",
+    lastTried,
+    tries: 1,
+  });
+
+  const friday = new Date("2026-09-18T12:00:00");
+  const sunday = new Date("2026-09-20T12:00:00");
+
+  /*
+   * They are on no page, so the per-level rotation walks straight past them; and the fetch worked,
+   * so nothing retries them either. The catch-up day is the only place they can be asked about.
+   */
+  it("brings them round on the catch-up day", () => {
+    const due = dueRefresh(friday, {}, [], [], undefined, [
+      ageless("A", "2026-09-11T00:00:00.000Z"),
+      ageless("B", "2026-09-11T00:00:00.000Z"),
+    ]);
+    expect(due.catchUp).toBe(true);
+    expect(due.agelessIds).toEqual(["A", "B"]);
+  });
+
+  it("leaves them alone on a day that belongs to a level", () => {
+    const due = dueRefresh(sunday, {}, [], [], undefined, [
+      ageless("A", "2026-09-11T00:00:00.000Z"),
+    ]);
+    expect(due.agelessIds).toEqual([]);
+  });
+
+  it("says how many are waiting", () => {
+    const due = dueRefresh(friday, {}, [], [], undefined, [
+      ageless("A", "2026-09-11T00:00:00.000Z"),
+    ]);
+    expect(describeDue(due)).toMatch(/1 team still waiting on an age/);
+  });
+
+  it("says nothing of the sort when none are", () => {
+    expect(describeDue(dueRefresh(friday, {}, [], []))).toBe(
+      "Friday is the catch-up day — anything that failed this week."
+    );
   });
 });

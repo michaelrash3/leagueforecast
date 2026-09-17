@@ -51,11 +51,14 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
+import { describeAgeUnknown, updateAgeUnknown, type AgeUnknownList } from "../lib/ageUnknown";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import {
   flushPoolWrites,
+  loadAgeUnknown,
   loadPullLog,
+  saveAgeUnknown,
   savePullLog,
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
@@ -284,9 +287,16 @@ export function GameChangerImportPanel({
     return { fresh, seen, refresh };
   }, [parsed.entries, pool.teams]);
 
+  /**
+   * The teams GameChanger answered for and nobody could age.
+   *
+   * Held in state rather than read on every render: the run rewrites it at the end, and the rota
+   * below has to see the new one without the panel being closed and reopened.
+   */
+  const [ageless, setAgeless] = useState<AgeUnknownList>(() => loadAgeUnknown());
   const due = useMemo(
-    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams),
-    [refreshLog, pool.ageGroups, pool.teams]
+    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, undefined, ageless),
+    [refreshLog, pool.ageGroups, pool.teams, ageless]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -662,6 +672,16 @@ export function GameChangerImportPanel({
       }
     }
 
+    /*
+     * Teams nobody could age go on the list; teams that were filed come off it. Done for every
+     * run, not just the catch-up one, because any run can answer the question: a team pulled for
+     * the first time today may have no age, and a 9U opponent pulled next week may be the third
+     * one whose name settles it.
+     */
+    const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
+    setAgeless(nextAgeless);
+    saveAgeUnknown(nextAgeless);
+
     track(() => {
       // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
       // into the record would put a second copy of every game in storage.
@@ -707,6 +727,22 @@ export function GameChangerImportPanel({
     );
     onSaveProgress(progress);
     // Not a rota run, so nothing is marked refreshed when it finishes.
+    dueLevelsRef.current = [];
+    void run(remainingIds(progress), progress);
+  };
+
+  /**
+   * The catch-up day's other job: ask again about the teams nobody could age.
+   *
+   * The same route they came in on, because that is the only thing that can answer the question —
+   * GameChanger may have filled its field in, the club may have renamed the squad, or enough of
+   * the team's opponents may have been pulled since that their names now settle it. Not a rota
+   * run, so nothing is marked refreshed when it finishes.
+   */
+  const runAgeless = () => {
+    if (due.agelessIds.length === 0) return;
+    const progress = startPull(due.agelessIds, nowIso(), null);
+    onSaveProgress(progress);
     dueLevelsRef.current = [];
     void run(remainingIds(progress), progress);
   };
@@ -919,6 +955,22 @@ export function GameChangerImportPanel({
               <button type="button" onClick={runDue} className={`${button.primary} mt-3`}>
                 Refresh today&apos;s {due.ageLevels.map((level) => `${level}U`).join(" and ")}
               </button>
+            )}
+            {due.agelessIds.length > 0 && (
+              <>
+                <button type="button" onClick={runAgeless} className={`${button.primary} mt-3`}>
+                  Ask again about {due.agelessIds.length.toLocaleString()} team
+                  {due.agelessIds.length === 1 ? "" : "s"} with no age
+                </button>
+                <p className="mt-1 text-xs text-slate-500">
+                  {describeAgeUnknown(ageless)} They are on no page, so the weekly rotation never
+                  reaches them, and the fetch worked, so nothing retries them either. Asking again
+                  is the only thing that can answer it — GameChanger may have filled the field in
+                  since, the club may have renamed the squad, or enough of the team&apos;s opponents
+                  may have been pulled that their names now settle it. One that comes back with an
+                  age drops off this list and joins the ordinary rotation for its level.
+                </p>
+              </>
             )}
           </div>
 
