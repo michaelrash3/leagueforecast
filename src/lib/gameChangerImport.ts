@@ -2169,6 +2169,8 @@ export type PoolTidy = {
   reclaimed: number;
   /** Stand-in rows filed onto the one club of that name in the puller's state. */
   refiled: number;
+  /** Levels read out of a name that had one all along, under rules that came later. */
+  releveled: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -2187,8 +2189,90 @@ const TIDY_MAX_PASSES = 6;
  * they run together, and they run over everything rather than the schedules just pulled: the half
  * that settles a stand-in, or proves two ids one squad, may have been here for weeks.
  */
+/**
+ * Levels worked out for what is already in the pool, under the rules as they now stand.
+ *
+ * Every other pass here is about the shape of the pool. This one is about the rules having
+ * changed: reading a graduating class out of a name is new, and everything pulled before it went
+ * in was filed by the old reading. A club called "Nationals 2031" that has been sitting in the
+ * pool for a month has no level, and every game against it was recorded as a game between equals,
+ * because a side with no level falls back to the level of the page the game is filed under.
+ *
+ * Re-pulling would fix it, but only for the teams that get re-pulled: a club known only from
+ * somebody else's schedule has no id of its own to pull, and nothing in the weekly rotation will
+ * ever reach it. So the pool is re-read where it stands.
+ *
+ * A level is only ever *added*, never overwritten: what a pull recorded is what GameChanger said,
+ * and this is a reading of a name. And a level is only recorded when it says something the page
+ * does not already say — one equal to the page's changes no answer, and writing it anyway would
+ * rewrite every row in the pool to say nothing new.
+ */
+const relevelFromNames = (state: GcImportState): { state: GcImportState; releveled: number } => {
+  const pageYear = new Map<string, number | undefined>();
+  const pageLevel = new Map<string, number | undefined>();
+  state.ageGroups.forEach((group) => {
+    pageYear.set(group.id, ageGroupYear(group));
+    pageLevel.set(group.id, ageGroupLevel(group));
+  });
+
+  const levelFromName = (name: string, year: number | undefined): number | undefined =>
+    ageLevelFromName(name) ?? (year === undefined ? undefined : ageFromGradYearInName(name, year));
+
+  let releveled = 0;
+
+  const teams = state.teams.map((team) => {
+    const links = team.gcTeams;
+    if (!links || links.length === 0) return team;
+    let changed = false;
+    const next = links.map((link) => {
+      if (link.ageLevel !== undefined) return link;
+      const year =
+        pageYear.get(link.ageGroupId) ??
+        (link.seasonYear === undefined
+          ? undefined
+          : squadYearForGcSeason(link.season, link.seasonYear));
+      const level = levelFromName(link.name, year);
+      if (level === undefined) return link;
+      changed = true;
+      releveled += 1;
+      return { ...link, ageLevel: level };
+    });
+    return changed ? { ...team, gcTeams: next } : team;
+  });
+
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  const games = state.games.map((game) => {
+    const year = pageYear.get(game.ageGroupId);
+    const filed = pageLevel.get(game.ageGroupId);
+    const side = (teamId: string, current: number | undefined): number | undefined => {
+      if (current !== undefined) return undefined;
+      const team = byId.get(teamId);
+      // A slot names nobody, so there is no name to read.
+      if (!team || team.placeholder) return undefined;
+      const level = levelFromName(team.name, year);
+      return level === undefined || level === filed ? undefined : level;
+    };
+    const a = side(game.teamAId, game.ageLevelA);
+    const b = side(game.teamBId, game.ageLevelB);
+    if (a === undefined && b === undefined) return game;
+    releveled += (a === undefined ? 0 : 1) + (b === undefined ? 0 : 1);
+    return {
+      ...game,
+      ...(a === undefined ? {} : { ageLevelA: a }),
+      ...(b === undefined ? {} : { ageLevelB: b }),
+    };
+  });
+
+  return releveled === 0
+    ? { state, releveled: 0 }
+    : { state: { ...state, teams, games }, releveled };
+};
+
 const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
-  const season = pruneOutOfSeason(state);
+  // First, because every pass after it compares levels: a side whose level is about to be worked
+  // out should be worked out before anything decides whether two rows mean one game.
+  const levels = relevelFromNames(state);
+  const season = pruneOutOfSeason(levels.state);
   const named = resolveSlotGames(season.state);
   const moved = reclaimMisfiled(named.state);
   const placed = refileStandIns(moved.state);
@@ -2204,6 +2288,7 @@ const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
     pruned: season.pruned,
     reclaimed: moved.reclaimed,
     refiled: placed.refiled,
+    releveled: levels.releveled,
   };
 };
 
@@ -2222,6 +2307,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     pruned: 0,
     reclaimed: 0,
     refiled: 0,
+    releveled: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -2235,6 +2321,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     total.pruned += step.pruned;
     total.reclaimed += step.reclaimed;
     total.refiled += step.refiled;
+    total.releveled += step.releveled;
     const changed =
       step.named +
       step.folded +
@@ -2242,11 +2329,22 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
       step.collapsed +
       step.pruned +
       step.reclaimed +
-      step.refiled;
+      step.refiled +
+      step.releveled;
     if (changed === 0) break;
   }
   return total;
 };
+
+/**
+ * Bumped whenever the rules for reading a level out of a name change.
+ *
+ * It rides in the signature so a pool the tidy has already seen reads as one it has not, exactly
+ * once, after a release that changes the reading. Without it a pool that has not been touched
+ * since would keep its old levels for ever: the stamp would still match, so the tidy would never
+ * run, so the new rules would never be applied to anything already here.
+ */
+const AGE_RULES_VERSION = 2;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -2261,7 +2359,7 @@ export const poolSignature = (state: GcImportState): string => {
       if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
     });
   });
-  return `${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
+  return `r${AGE_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
 };
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
@@ -2287,6 +2385,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.refiled > 0
       ? [
           `${plural(tidy.refiled, "game", "games")} filed onto the one club of that name in the same state.`,
+        ]
+      : []),
+    ...(tidy.releveled > 0
+      ? [
+          `${plural(tidy.releveled, "age level", "age levels")} worked out from a name that said one all along.`,
         ]
       : []),
     ...(tidy.folded > 0

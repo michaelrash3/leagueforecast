@@ -23,6 +23,7 @@ import {
 import {
   countsTowardRating,
   isScoutGamePlayed,
+  type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "../teamRankings";
@@ -2114,10 +2115,16 @@ describe("poolSignature", () => {
       empty
     );
     const before = poolSignature(state);
-    expect(before).toBe(`1|2|1|2026-09-15T12:00:00.000Z`);
+    /*
+     * The leading `r` is the version of the rules for reading a level out of a name. It rides in
+     * the signature so a pool the tidy has already seen reads as one it has not, exactly once,
+     * after a release that changes the reading — otherwise an untouched pool would keep its old
+     * levels for ever, because the stamp would still match and the tidy would never run.
+     */
+    expect(before).toBe(`r2|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("0|0|0|");
+    expect(poolSignature(empty)).toBe("r2|0|0|0|");
   });
 });
 
@@ -2728,5 +2735,92 @@ describe("an opponent who names a graduating class", () => {
     );
     // A season beside the year is refused, so the side has no level rather than a guessed one.
     expect(state.games[0]?.ageLevelB).toBeUndefined();
+  });
+});
+
+describe("re-reading levels the pool already has", () => {
+  /*
+   * Every other tidy pass is about the shape of the pool. This one is about the rules having
+   * changed: a club called "Nationals 2031" that has been sitting here for a month has no level,
+   * and every game against it was recorded as a game between equals — a side with no level falls
+   * back to the level of the page the game is filed under.
+   */
+  const page: AgeGroup = {
+    id: "ag_16u_2029",
+    name: "16U 2029",
+    ageLevel: 16,
+    year: 2029,
+    seasonIds: [],
+  };
+
+  const poolWith = (opponentName: string): GcImportState => ({
+    ageGroups: [page],
+    teams: [
+      { id: "own", name: "Elite 2029" },
+      // Known only from somebody else's schedule: no id of its own, so no pull will ever reach it.
+      { id: "opp", name: opponentName, nameOnly: true },
+    ],
+    games: [
+      {
+        id: "g1",
+        ageGroupId: page.id,
+        teamAId: "own",
+        teamBId: "opp",
+        teamAScore: 5,
+        teamBScore: 1,
+        date: "2028-09-12",
+        ageLevelA: 16,
+      },
+    ],
+  });
+
+  it("works out a level a name said all along", () => {
+    // The page is 16U in squad year 2029, so the class of 2033 are four years behind the seniors:
+    // 14U against 16U, and two years the rating never saw.
+    const tidy = tidyPool(poolWith("Nationals 2033"));
+    expect(tidy.releveled).toBe(1);
+    expect(tidy.state.games[0]?.ageLevelB).toBe(14);
+  });
+
+  it("says nothing when the class works out to the page it is filed on", () => {
+    // The class of 2031 are 16U in squad year 2029, which is what the page already says.
+    const tidy = tidyPool(poolWith("Nationals 2031"));
+    expect(tidy.releveled).toBe(0);
+    expect(tidy.state.games[0]?.ageLevelB).toBeUndefined();
+  });
+
+  it("says nothing when the name agrees with the page it is filed on", () => {
+    // Recording a level equal to the page's changes no answer, and writing it anyway would rewrite
+    // every row in the pool to say nothing new.
+    const tidy = tidyPool(poolWith("Nationals 16U"));
+    expect(tidy.releveled).toBe(0);
+    expect(tidy.state.games[0]?.ageLevelB).toBeUndefined();
+  });
+
+  it("never overwrites a level a pull recorded", () => {
+    const pool = poolWith("Nationals 2033");
+    const first = pool.games[0]!;
+    const withLevel: GcImportState = {
+      ...pool,
+      games: [{ ...first, ageLevelB: 15 }],
+    };
+    // What a pull recorded is what GameChanger said; this is a reading of a name.
+    const tidy = tidyPool(withLevel);
+    expect(tidy.state.games[0]?.ageLevelB).toBe(15);
+  });
+
+  it("leaves a stand-in alone, because a slot names nobody", () => {
+    const pool = poolWith("TBD- 3:00 PM");
+    const stand: GcImportState = {
+      ...pool,
+      teams: [pool.teams[0]!, { id: "opp", name: "TBD- 3:00 PM", placeholder: true as const }],
+    };
+    expect(tidyPool(stand).releveled).toBe(0);
+  });
+
+  it("says what it did", () => {
+    expect(describeTidy(tidyPool(poolWith("Nationals 2033")))).toContain(
+      "1 age level worked out from a name that said one all along."
+    );
   });
 });

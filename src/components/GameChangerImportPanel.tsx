@@ -664,7 +664,8 @@ export function GameChangerImportPanel({
           tidy.collapsed +
           tidy.pruned +
           tidy.reclaimed +
-          tidy.refiled >
+          tidy.refiled +
+          tidy.releveled >
         0
       ) {
         poolRef.current = tidy.state;
