@@ -3,7 +3,12 @@ import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { beginTidy, endTidy } from "../lib/pullSession";
-import type { WorkerRequest, WorkerResponse } from "../workers/tidy.worker";
+import {
+  applyTidied,
+  packPool,
+  type WorkerRequest,
+  type WorkerResponse,
+} from "../workers/tidyProtocol";
 
 /**
  * Inspecting and tidying the pool without locking the page up.
@@ -106,7 +111,7 @@ export function usePoolTidy() {
     (state: GcImportState, stamp: string): Promise<PoolInspection | null> =>
       ask<PoolInspection>(
         "inspect",
-        (id) => ({ kind: "inspect", id, state, stamp }),
+        (id) => ({ kind: "inspect", id, state: packPool(state), stamp }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
             ? { health: response.health, settleable: response.settleable }
@@ -135,10 +140,12 @@ export function usePoolTidy() {
       try {
         return await ask<TidyOutcome>(
           "tidy",
-          (id) => ({ kind: "tidy", id, state }),
+          (id) => ({ kind: "tidy", id, state: packPool(state) }),
+          // What came back is only what changed; the rest is the caller's own arrays, so the
+          // identity checks that decide what to save see exactly what the tidy did.
           (response, id) =>
             response.kind === "tidy" && response.id === id
-              ? { state: response.state, tidy: response.tidy }
+              ? { state: applyTidied(state, response.changed), tidy: response.tidy }
               : null,
           () => {
             const { state: tidied, ...counts } = tidyPool(state);
