@@ -10,6 +10,7 @@ import {
   rankTeams,
   simulateBracketOdds,
   simulateGoldOdds,
+  simulateGoldOddsRun,
   simulationSeed,
   standingsPoints,
   calibrateAwayWinPct,
@@ -717,6 +718,35 @@ describe("simulationSeed", () => {
       g1: finalLog({}),
     };
     expect(simulationSeed(matchups, logsA, "x")).toBe(simulationSeed(matchups, logsB, "x"));
+  });
+
+  it("changes when a final's score is corrected, not only when a game goes final", () => {
+    const before = { g1: finalLog({ awayRuns: "5", homeRuns: "3" }) };
+    const after = { g1: finalLog({ awayRuns: "12", homeRuns: "0" }) };
+    expect(simulationSeed(matchups, before, "x")).not.toBe(simulationSeed(matchups, after, "x"));
+  });
+});
+
+describe("how many seasons the odds are counted over", () => {
+  it("stops a couple of hundred in when every team is plainly in or plainly out", () => {
+    // Nothing left to play, so every season ends the same way and the interval closes at once.
+    const live = calculateTeams(teams, matchups, {
+      g1: finalLog({ awayRuns: "9", homeRuns: "1" }),
+      g2: finalLog({ awayRuns: "8", homeRuns: "2" }),
+      g3: finalLog({ awayRuns: "7", homeRuns: "3" }),
+    });
+    const run = simulateGoldOddsRun(live, [], 4000, "settled", 2, settings);
+    expect(run.iterations).toBe(200);
+    expect(run.odds.A).toBe(100);
+  });
+
+  it("runs to the ceiling while a cut line is still contested", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const run = simulateGoldOddsRun(live, matchups, 1000, "contested", 2, settings);
+    expect(run.iterations).toBe(1000);
+    // And the odds are counted over the seasons actually played, so they still fill the cut.
+    const total = Object.values(run.odds).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(total)).toBe(200);
   });
 });
 

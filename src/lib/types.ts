@@ -231,7 +231,15 @@ export type UndoSnapshot = {
 export const DEFAULT_GOLD_CUTOFF = 7;
 export const DEFAULT_SEASON_LABEL = "Current Season";
 export const DEFAULT_SEASON_YEAR = 2026;
-export const SIM_ITERATIONS = 220;
+/**
+ * The most seasons the playoff-odds simulation plays out. A ceiling, not a count: the loop stops
+ * once every team's odds are known to two points (see `ODDS_PRECISION`), which a settled league
+ * reaches in a couple of hundred. At even odds this ceiling gives about ±1.5 points, and at the
+ * loop's current speed it costs on the order of a tenth of a second in the worker.
+ */
+export const SIM_ITERATIONS = 4000;
+/** Seasons per past week in the trend chart: about ±4 points at even odds, on eight weeks. */
+export const TREND_ITERATIONS = 600;
 export const TREND_STATES = 8;
 export const STORAGE_VERSION = 1;
 export const RUN_SCORE_CAP = 35;

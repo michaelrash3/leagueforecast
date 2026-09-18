@@ -1,5 +1,10 @@
 /// <reference lib="webworker" />
-import { simulateBracketOdds, simulateGoldOdds, type BracketOddsResult } from "../lib/sim";
+import {
+  simulateBracketOdds,
+  simulateGoldOdds,
+  simulateGoldOddsRun,
+  type BracketOddsResult,
+} from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
 
 export type CancelRequest = { kind: "cancel"; id: number };
@@ -33,7 +38,13 @@ export type BracketRequest = {
   settings: Settings;
 };
 export type WorkerRequest = OddsRequest | TrendRequest | BracketRequest | CancelRequest;
-export type OddsResponse = { kind: "odds"; id: number; odds: Record<string, number> };
+export type OddsResponse = {
+  kind: "odds";
+  id: number;
+  odds: Record<string, number>;
+  /** Seasons actually played out, for the ± beside the odds. */
+  iterations: number;
+};
 export type TrendResponse = { kind: "trend"; id: number; trend: Record<string, number[]> };
 export type BracketResponse = { kind: "bracket"; id: number; result: BracketOddsResult };
 export type RuntimeStatsResponse = {
@@ -57,7 +68,7 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
   if (req.kind === "odds") {
     const start = performance.now();
-    const odds = simulateGoldOdds(
+    const { odds, iterations } = simulateGoldOddsRun(
       req.teams,
       req.remaining,
       req.iterations,
@@ -66,7 +77,7 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
       req.settings
     );
     if (!canceled.has(req.id))
-      ctx.postMessage({ kind: "odds", id: req.id, odds } satisfies OddsResponse);
+      ctx.postMessage({ kind: "odds", id: req.id, odds, iterations } satisfies OddsResponse);
     if (!canceled.has(req.id))
       ctx.postMessage({
         kind: "runtime-stats",

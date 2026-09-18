@@ -1,4 +1,5 @@
 import { parseDateValue } from "./date";
+import { wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
   DEFAULT_TIEBREAKER_ORDER,
@@ -1117,55 +1118,95 @@ export const makeRandom = (seed: number) => {
   };
 };
 
+/**
+ * A text that changes exactly when the forecast's inputs do: which games are final, and what they
+ * finished. It seeds the random draws, and it is the key the hooks use to say whether the odds on
+ * screen describe the current season.
+ *
+ * The score is in it because a corrected result — a 5–3 that was really 12–0 — changes every
+ * standing the simulation starts from and used to change nothing here: the game was final before
+ * and final after, so the key read "current" while the odds on screen were the ones from before
+ * the correction, for as long as the refit took.
+ */
 export const simulationSeed = (
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   extras: string
 ) => {
   const finals = [...matchups]
-    .map((game) => `${game.id}|${isFinal(logs[game.id]) ? "F" : "O"}`)
+    .map((game) => {
+      const log = logs[game.id];
+      return isFinal(log)
+        ? `${game.id}|F${log?.awayRuns ?? ""}-${log?.homeRuns ?? ""}`
+        : `${game.id}|O`;
+    })
     .sort()
     .join(",");
   return `${extras}::${finals}`;
 };
 
-const hasConvergedOdds = (
+/**
+ * How close the odds have to be known before the loop may stop: a 95% half-width, as a
+ * probability. Two points. A settled league — every team plainly in or plainly out — gets there in
+ * a couple of hundred seasons; a contested cut line runs to the ceiling instead, which is the
+ * right way round.
+ */
+export const ODDS_PRECISION = 0.02;
+/** Below this many seasons nothing is asked of the interval: too few draws to trust its width. */
+const ODDS_MIN_ITERATIONS = 200;
+const ODDS_CHECK_INTERVAL = 50;
+
+/**
+ * Whether every team's odds are known to within `tolerance`.
+ *
+ * The rule this replaces compared the running average with itself twenty-five seasons earlier and
+ * called the odds converged when the largest move was under a third of a point. A cumulative mean
+ * is guaranteed to move less as it grows, whatever it is converging to — at a hundred seasons and
+ * even odds the true 95% half-width is about ten points, and a drift under a third of a point
+ * satisfied the rule by construction. This asks the question that rule only looked like it was
+ * asking, how wide the interval is, with the same Wilson interval the app prints beside the odds,
+ * so the stop and the ± on screen mean the same thing.
+ */
+const oddsArePrecise = (
   teams: Team[],
   counts: Record<string, number>,
-  previous: Record<string, number> | null,
-  completedIterations: number,
-  thresholdPct: number
-) => {
-  if (!previous || completedIterations <= 0) return false;
+  completed: number,
+  tolerance: number
+): boolean =>
+  teams.every(
+    (team) => wilsonScoreInterval((counts[team.id] ?? 0) / completed, completed).margin <= tolerance
+  );
 
-  let maxDelta = 0;
-  teams.forEach((team) => {
-    const currentPct = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    const delta = Math.abs(currentPct - (previous[team.id] ?? 0));
-    if (delta > maxDelta) maxDelta = delta;
-  });
-
-  return maxDelta <= thresholdPct;
+export type GoldOddsRun = {
+  /** Per team, the probability (0–100) of finishing inside the cut. */
+  odds: Record<string, number>;
+  /**
+   * How many seasons were actually played out. The ± beside the odds has to be computed from
+   * this: the loop stops early when the odds are settled, and an interval computed from the
+   * ceiling would claim a precision the draws never reached.
+   */
+  iterations: number;
 };
 
-export const simulateGoldOdds = (
+/**
+ * Plays the rest of the season out `iterations` times, or until every team's odds are known to
+ * `ODDS_PRECISION`, and counts who finished inside the cut.
+ */
+export const simulateGoldOddsRun = (
   teams: Team[],
   remaining: Matchup[],
   iterations: number,
   seedText: string,
   cutoff: number,
   settings: Settings
-) => {
+): GoldOddsRun => {
   const counts: Record<string, number> = {};
   teams.forEach((team) => {
     counts[team.id] = 0;
   });
 
   const random = makeRandom(hashSeed(seedText));
-  const minIterations = Math.min(iterations, 100);
-  const convergenceCheckInterval = 25;
-  const convergenceThresholdPct = 0.35;
-  let lastSnapshot: Record<string, number> | null = null;
+  const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
   const rankOptions = rankOptionsFromSettings(settings);
 
@@ -1180,20 +1221,13 @@ export const simulateGoldOdds = (
       });
 
     completedIterations += 1;
-    const reachedMinimum = completedIterations >= minIterations;
-    const onCheckInterval = completedIterations % convergenceCheckInterval === 0;
-    if (!reachedMinimum || !onCheckInterval) continue;
-
     if (
-      hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)
+      completedIterations >= minIterations &&
+      completedIterations % ODDS_CHECK_INTERVAL === 0 &&
+      oddsArePrecise(teams, counts, completedIterations, ODDS_PRECISION)
     ) {
       break;
     }
-
-    lastSnapshot = {};
-    teams.forEach((team) => {
-      lastSnapshot![team.id] = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    });
   }
 
   const denominator = Math.max(1, completedIterations);
@@ -1201,8 +1235,19 @@ export const simulateGoldOdds = (
   teams.forEach((team) => {
     odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
   });
-  return odds;
+  return { odds, iterations: completedIterations };
 };
+
+/** The odds alone, for callers that have no use for the count. */
+export const simulateGoldOdds = (
+  teams: Team[],
+  remaining: Matchup[],
+  iterations: number,
+  seedText: string,
+  cutoff: number,
+  settings: Settings
+): Record<string, number> =>
+  simulateGoldOddsRun(teams, remaining, iterations, seedText, cutoff, settings).odds;
 
 // Standard single-elimination bracket helpers (kept local to avoid a cycle with bracket.ts,
 // which already imports predictGame/hashSeed from this module).
