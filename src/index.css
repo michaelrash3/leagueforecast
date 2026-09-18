@@ -58,6 +58,22 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /* Every button gives a little on press, so a tap on a phone at a ballfield is seen to land
+     before whatever it does has finished. A base rule rather than a token so it reaches the
+     hundreds of buttons styled inline too. The individual `scale` property, not `transform`, so it
+     composes with a button that is already rotated or translated instead of replacing that; and
+     the reduced-motion block below turns the ease into a snap, so the feedback stays and only the
+     motion goes. */
+  button {
+    transition-property: scale;
+    transition-duration: 80ms;
+    transition-timing-function: ease-out;
+  }
+
+  button:not(:disabled):active {
+    scale: 0.97;
+  }
 }
 
 @keyframes hero-float {
