@@ -180,13 +180,12 @@ describe("what Team Rankings is worth to the league forecast", () => {
     ).toBeGreaterThan(scheduleDifficultyForTeam("MID", [upcoming], blind, matchups, logs).rating);
   });
 
-  it("reaches elo, recent form and the trend", () => {
+  it("reaches recent form and the trend", () => {
     const rowFor = (teams: ReturnType<typeof league>) =>
       teams.engine.powerRatings.find((row) => row.teamId === "NEW")!;
     const scouted = rowFor(withScout());
     const blind = rowFor(withoutScout());
 
-    expect(scouted.elo).toBeGreaterThan(blind.elo);
     expect(scouted.recentForm).toBeGreaterThan(blind.recentForm);
     // Its own strength of schedule too: the rating's view of who it has faced.
     expect(scouted.strengthOfSchedule).not.toBeCloseTo(blind.strengthOfSchedule, 5);
@@ -228,7 +227,7 @@ describe("what Team Rankings is worth to the league forecast", () => {
 });
 
 describe("an undated tournament result", () => {
-  it("still rates, but is left out of the two things that need an order", () => {
+  it("still rates, but is left out of the one thing that needs an order", () => {
     const undated = externals.map(({ date: _dropped, ...rest }) => rest);
     const base = calculateTeams(bases, matchups, logs, settings);
     const engine = buildPredictionEngine(base, matchups, logs, settings, undated);
@@ -237,8 +236,7 @@ describe("an undated tournament result", () => {
 
     // The fit does not care when a game was played.
     expect(engine.ratings.games.get("NEW")).toBe(9);
-    // Elo and form do, so an undated result is not guessed into a position.
-    expect(row.elo).toBeCloseTo(blind.elo, 5);
+    // Form does, so an undated result is not guessed into a position.
     expect(row.recentForm).toBeCloseTo(blind.recentForm, 5);
   });
 });

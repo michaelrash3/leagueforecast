@@ -12,7 +12,6 @@ export type PowerRating = {
   rank: number;
   /** NET-style power rating in run units: opponent-adjusted expected margin vs an average team. */
   rating: number;
-  elo: number;
   record: string;
   games: number;
   /** Own capped net runs per game, before opponent adjustment. */
@@ -140,8 +139,8 @@ export type ExternalResult = {
   homeMargin: number;
   /**
    * When it was played, in the same format as a league game's date. Optional: a caller with no
-   * date still gets the rating, which does not care about order — only elo and recent form do,
-   * and an undated result is left out of those rather than guessed into a position.
+   * date still gets the rating, which does not care about order — only recent form does, and an
+   * undated result is left out of it rather than guessed into a position.
    */
   date?: string;
   /** These are tournament games with no home side; see `RatingGame.neutral`. */
@@ -173,8 +172,8 @@ export const buildPredictionEngine = (
   //
   // What stays league-only is the *record*: W-L, runs for and against describe a team's season in
   // this league, and a tournament in March is not part of that. Everything that is a claim about
-  // how good a team is — the rating, its strength of schedule, elo, recent form, and how much the
-  // model reckons it knows — counts them, because a game is a game.
+  // how good a team is — the rating, its strength of schedule, recent form, and how much the model
+  // reckons it knows — counts them, because a game is a game.
   const ratingIds = new Set(teams.map((team) => team.id));
   externalResults.forEach((game) => {
     ratingIds.add(game.home);
@@ -239,30 +238,6 @@ export const buildPredictionEngine = (
         })),
     ].sort((a, b) => a.date.localeCompare(b.date));
 
-  const elo = new Map(teams.map((team) => [team.id, 1500]));
-  // Tournament opponents start at 1500 like everyone else, so beating one moves a league team the
-  // way beating an unknown should: some, and less than beating a team that has proved itself here.
-  [
-    ...completedGames.map((game) => ({
-      date: game.date,
-      away: game.away,
-      home: game.home,
-      margin: game.margin,
-    })),
-    ...externalByDate,
-  ]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .forEach((game) => {
-      const awayElo = elo.get(game.away) ?? 1500;
-      const homeElo = elo.get(game.home) ?? 1500;
-      const expectedAway = 1 / (1 + 10 ** ((homeElo - awayElo) / 400));
-      const actualAway = game.margin === 0 ? 0.5 : game.margin > 0 ? 1 : 0;
-      const marginMultiplier = Math.log(Math.abs(game.margin) + 1) * 1.15;
-      const change = clamp(22 * marginMultiplier * (actualAway - expectedAway), -34, 34);
-      elo.set(game.away, awayElo + change);
-      elo.set(game.home, homeElo - change);
-    });
-
   const powerRatings = teams
     .map((team): PowerRating => {
       // Form is form: a tournament last weekend is how this team is playing now, and leaving it
@@ -288,7 +263,6 @@ export const buildPredictionEngine = (
         teamName: team.name,
         rank: 0,
         rating,
-        elo: elo.get(team.id) ?? 1500,
         record: `${team.w}-${team.l}${team.t ? `-${team.t}` : ""}`,
         games: team.games,
         rawMargin,
