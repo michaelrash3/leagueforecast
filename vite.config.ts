@@ -83,6 +83,32 @@ export default defineConfig({
     },
   },
   test: {
+    /*
+     * Reported, not enforced. There are sixteen hundred tests and no measurement of what they
+     * miss, which is the gap this closes — but a threshold picked before anybody has seen the real
+     * numbers is a number invented to be met, and it would start failing pull requests on its
+     * first day for reasons nobody chose. Add one once the report has been read.
+     *
+     * `include` is what makes this honest. Every file it matches is reported whether a test
+     * touched it or not, so a file with no test counts as zero rather than vanishing from the
+     * denominator — the point is to find what is untested, and the untested files are exactly the
+     * ones that would otherwise not appear. (This was `all: true` before Vitest 3; `include` now
+     * carries that meaning on its own.)
+     */
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/test/**",
+        "src/lib/__tests__/**",
+        // Type-only and entry modules: nothing to execute, so a percentage says nothing.
+        "src/lib/types.ts",
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+      ],
+      reporter: ["text-summary", "lcov"],
+    },
     // Two projects rather than one environment, because they want different ones. The lib tests are
     // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
     // them keeps the 1,000-odd lib tests from paying for a jsdom they never touch.
