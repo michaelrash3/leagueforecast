@@ -482,7 +482,33 @@ const sanitizeRows = (rows: ParsedGameRow[]): ParsedGameRow[] =>
  * Reads whatever was pasted. Each line is judged on its own, so a month header can sit in the
  * middle of a CSV and a stray blank line costs nothing.
  */
-export const parseScheduleText = (text: string): ParsedScheduleText => {
+/** Today as the ISO day a pasted date parses to, in the reader's own zone. */
+const localIsoDay = (now = new Date()): string =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate()
+  ).padStart(2, "0")}`;
+
+/**
+ * A 0–0 against a game dated today or later is a schedule's placeholder, not a result. Tournament
+ * sites print one against every game still to be played, and read as a score it is a tie nobody
+ * played. The scores come off; the game stays, as the fixture it is. A game dated yesterday or
+ * earlier keeps its 0–0 — by then it is a claim about a game that happened, a forfeit, say — and a
+ * game with no date is not clearly in the past, so it is read as still to come.
+ */
+const withoutPlaceholderScore = (row: ParsedGameRow, today: string): ParsedGameRow => {
+  if (row.scoreA !== 0 || row.scoreB !== 0) return row;
+  if (row.date !== undefined && row.date < today) return row;
+  const fixture: ParsedGameRow = { ...row };
+  delete fixture.scoreA;
+  delete fixture.scoreB;
+  return fixture;
+};
+
+/** `today` is only ever passed by a test; the app reads the clock. */
+export const parseScheduleText = (
+  text: string,
+  today: string = localIsoDay()
+): ParsedScheduleText => {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   const delimiter = text.includes("\t") ? "\t" : ",";
 
@@ -561,7 +587,7 @@ export const parseScheduleText = (text: string): ParsedScheduleText => {
   const named = subjects.size === 1 ? clampScheduleName([...subjects][0]) : "";
   return {
     ...(named ? { subjectTeam: named } : {}),
-    games: sanitizeRows(games),
+    games: sanitizeRows(games).map((row) => withoutPlaceholderScore(row, today)),
     skipped,
   };
 };

@@ -1,4 +1,4 @@
-import { normalizeDateInput } from "./date";
+import { normalizeDateInput, parseDateValue, toMMDD } from "./date";
 import { displayName } from "./format";
 import type { CsvImportIssue } from "./importReport";
 import { createTeamId } from "./sim";
@@ -12,9 +12,32 @@ export type ScheduleCsvImportResult = {
   issues: CsvImportIssue[];
 };
 
-const scoreMakesFinal = (awayRuns: string, homeRuns: string) => awayRuns !== "" && homeRuns !== "";
+/**
+ * Whether two run counts make a final.
+ *
+ * Both have to be there — and for a game dated today or later, at least one of them has to be a
+ * run. Schedule exports write 0–0 against every game that has not been played yet, and read as a
+ * final that is a tie nobody played: a game in both records, a half-point in the standings and a
+ * result the model learns from. A game dated yesterday or earlier keeps a 0–0 as typed, because by
+ * then it is a claim about a game that happened — a forfeit, say — rather than a placeholder. A
+ * game with no date is not clearly in the past either, so it is read as still to come.
+ */
+const scoreMakesFinal = (
+  awayRuns: string,
+  homeRuns: string,
+  date: string,
+  today: Date
+): boolean => {
+  if (awayRuns === "" || homeRuns === "") return false;
+  if (Number(awayRuns) > 0 || Number(homeRuns) > 0) return true;
+  return parseDateValue(date) < parseDateValue(toMMDD(today));
+};
 
-export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => {
+/** `today` is only ever passed by a test; the app reads the clock. */
+export const parseScheduleCsvImport = (
+  raw: string,
+  today: Date = new Date()
+): ScheduleCsvImportResult => {
   // A backup CSV appends the Team Rankings pool after the schedule, so read only the schedule
   // section. An unsectioned file — every CSV exported before sections existed, and every hand-made
   // one — is all schedule, which is exactly what `splitCsvSections` files under the leading name.
@@ -101,7 +124,7 @@ export const parseScheduleCsvImport = (raw: string): ScheduleCsvImportResult => 
 
     const awayRuns = awayRunsIndex >= 0 ? (row[awayRunsIndex]?.trim() ?? "") : "";
     const homeRuns = homeRunsIndex >= 0 ? (row[homeRunsIndex]?.trim() ?? "") : "";
-    const hasFinalScore = scoreMakesFinal(awayRuns, homeRuns);
+    const hasFinalScore = scoreMakesFinal(awayRuns, homeRuns, row[dateIndex]?.trim() ?? "", today);
     const awayK = awayKIndex >= 0 ? (row[awayKIndex]?.trim() ?? "") : "";
     const homeK = homeKIndex >= 0 ? (row[homeKIndex]?.trim() ?? "") : "";
     const awayErrors = awayErrorsIndex >= 0 ? (row[awayErrorsIndex]?.trim() ?? "") : "";

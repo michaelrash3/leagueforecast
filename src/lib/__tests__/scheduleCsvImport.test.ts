@@ -31,6 +31,29 @@ describe("parseScheduleCsvImport", () => {
     });
   });
 
+  it("does not call a 0-0 final unless the game is already in the past", () => {
+    const today = new Date(2026, 3, 6); // 6 April 2026
+    const csv = [
+      baseHeader,
+      "past,2026-04-05,Aces,6,0,,,Bruins,0,,",
+      "today,2026-04-06,Aces,6,0,,,Bruins,0,,",
+      "future,2026-04-12,Aces,6,0,,,Bruins,0,,",
+      "undated,,Aces,6,0,,,Bruins,0,,",
+      "scored,2026-04-12,Aces,6,3,,,Bruins,0,,",
+    ].join("\n");
+
+    const result = parseScheduleCsvImport(csv, today);
+
+    expect(result.logs.past?.isFinal).toBe(true);
+    expect(result.logs.today?.isFinal).toBe(false);
+    expect(result.logs.future?.isFinal).toBe(false);
+    expect(result.logs.undated?.isFinal).toBe(false);
+    // A real score is a result whatever the date says: dates are wrong far more often than scores.
+    expect(result.logs.scored?.isFinal).toBe(true);
+    // The zeros the file typed are kept, so the game still shows what it said; it is just not final.
+    expect(result.logs.future).toMatchObject({ awayRuns: "0", homeRuns: "0" });
+  });
+
   it("keeps existing strikeout values when scored CSV finals include them", () => {
     const csv = [baseHeader, "g1,2026-04-05,Aces,6,7,9,3,Bruins,4,6,2"].join("\n");
 
