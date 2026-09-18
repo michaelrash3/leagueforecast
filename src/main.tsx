@@ -26,6 +26,23 @@ const mount = () => {
  * nothing and the app falls back to localStorage. Mounting is not allowed to depend on it either
  * way, so a failure here still starts the app.
  */
+/**
+ * Asks the browser to keep this origin's storage through disk pressure and long absences. Safari
+ * evicts script-writable storage after seven days without a visit, and a season is in nothing but
+ * that storage. A request, not a guarantee: Chrome grants it on engagement, Safari on being added
+ * to the home screen, and nothing here depends on the answer.
+ */
+const askToKeepStorage = (): void => {
+  try {
+    void navigator.storage?.persist?.().catch(() => undefined);
+  } catch {
+    /* not offered here */
+  }
+};
+
 initTeamRankingsStore()
   .catch(() => undefined)
-  .finally(mount);
+  .finally(() => {
+    mount();
+    askToKeepStorage();
+  });

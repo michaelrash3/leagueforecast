@@ -28,7 +28,14 @@ export type PoolWire = { ageGroups: AgeGroup[]; teams: unknown; games: unknown }
 
 export type TidyRequest = { kind: "tidy"; id: number; state: PoolWire };
 /** What a tidy would do, without doing it — the numbers behind the pool health card. */
-export type InspectRequest = { kind: "inspect"; id: number; state: PoolWire; stamp: string };
+export type InspectRequest = {
+  kind: "inspect";
+  id: number;
+  state: PoolWire;
+  stamp: string;
+  /** Today as the page sees it, so "dated after today" is judged by one clock and testable. */
+  today: string;
+};
 export type WorkerRequest = TidyRequest | InspectRequest;
 
 export type TidyResponse = {
@@ -78,7 +85,7 @@ export const createTidyHandler =
   (request: WorkerRequest): void => {
     const state = unpackPool(request.state);
     if (request.kind === "inspect") {
-      const health = poolHealth(state, request.stamp);
+      const health = poolHealth(state, request.stamp, request.today);
       post({
         kind: "inspect",
         id: request.id,

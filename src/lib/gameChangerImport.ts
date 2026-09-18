@@ -2497,13 +2497,22 @@ const TIDY_RULES_VERSION = 3;
  * pull, a restore and a reset; a hand edit that keeps every count the same and lands on an
  * already-tidied pool has nothing for the tidy to do anyway.
  */
-export const poolSignature = (state: GcImportState): string => {
+/**
+ * When the newest GameChanger schedule in the pool was fetched, or null for a pool nobody has
+ * pulled into. What "these rankings are from data pulled nine days ago" reads.
+ */
+export const latestImportedAt = (teams: readonly ScoutTeam[]): string | null => {
   let latest = "";
-  state.teams.forEach((team) => {
+  teams.forEach((team) => {
     team.gcTeams?.forEach((link) => {
       if (link.importedAt && link.importedAt > latest) latest = link.importedAt;
     });
   });
+  return latest || null;
+};
+
+export const poolSignature = (state: GcImportState): string => {
+  const latest = latestImportedAt(state.teams) ?? "";
   return `r${TIDY_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
 };
 

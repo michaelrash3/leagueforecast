@@ -79,7 +79,13 @@ describe("the tidy worker's side of the protocol", () => {
 
   it("inspects the pool it was shipped without tidying it", () => {
     const { posted, handle } = harness();
-    handle({ kind: "inspect", id: 1, state: packPool(withStandIn()), stamp: "" });
+    handle({
+      kind: "inspect",
+      id: 1,
+      state: packPool(withStandIn()),
+      stamp: "",
+      today: "2026-09-18",
+    });
     const answer = posted[0];
     expect(answer?.kind).toBe("inspect");
     if (answer?.kind !== "inspect") return;

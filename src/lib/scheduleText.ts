@@ -1,3 +1,4 @@
+import { todayIsoDay } from "./date";
 /**
  * Reads games out of pasted text — a CSV exported from a spreadsheet, or schedule lines copied off
  * a league site.
@@ -482,12 +483,6 @@ const sanitizeRows = (rows: ParsedGameRow[]): ParsedGameRow[] =>
  * Reads whatever was pasted. Each line is judged on its own, so a month header can sit in the
  * middle of a CSV and a stray blank line costs nothing.
  */
-/** Today as the ISO day a pasted date parses to, in the reader's own zone. */
-const localIsoDay = (now = new Date()): string =>
-  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate()
-  ).padStart(2, "0")}`;
-
 /**
  * A 0–0 against a game dated today or later is a schedule's placeholder, not a result. Tournament
  * sites print one against every game still to be played, and read as a score it is a tie nobody
@@ -507,7 +502,7 @@ const withoutPlaceholderScore = (row: ParsedGameRow, today: string): ParsedGameR
 /** `today` is only ever passed by a test; the app reads the clock. */
 export const parseScheduleText = (
   text: string,
-  today: string = localIsoDay()
+  today: string = todayIsoDay()
 ): ParsedScheduleText => {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   const delimiter = text.includes("\t") ? "\t" : ",";

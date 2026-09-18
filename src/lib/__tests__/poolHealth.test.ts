@@ -124,3 +124,23 @@ describe("what a tidy would settle", () => {
     expect(poolSignature(state)).toBe(before);
   });
 });
+
+describe("results dated after today", () => {
+  it("counts a scored game on a day that has not happened, and only that", () => {
+    const health = poolHealth(
+      pool(
+        [team("A"), team("B")],
+        [
+          game("ahead", "A", "B", { date: "2026-12-01", teamAScore: 5, teamBScore: 2 }),
+          game("fixture", "A", "B", { date: "2026-12-01" }),
+          game("today", "A", "B", { date: "2026-09-18", teamAScore: 3, teamBScore: 1 }),
+          game("past", "A", "B", { date: "2026-09-01", teamAScore: 3, teamBScore: 1 }),
+        ]
+      ),
+      "",
+      "2026-09-18"
+    );
+    expect(health.futureDated).toBe(1);
+    expect(health.played).toBe(3);
+  });
+});

@@ -2,7 +2,10 @@
  * Every knob the league half has: how a season is shaped, how the model reads it, and the ways data
  * comes in and goes out.
  */
-import React, { useId } from "react";
+import React, { useId, useState } from "react";
+import { agoLabel, daysSince } from "../../lib/date";
+import { BACKUP_REMINDER_DAYS, lastBackupTakenAt } from "../../lib/lastBackup";
+import { getActiveSeasonId, listSeasons } from "../../lib/storage";
 import type { SummaryMode } from "../../lib/preferences";
 import {
   TIEBREAKER_LABELS,
@@ -51,6 +54,16 @@ export function SettingsView({
   onSummaryMode: (mode: SummaryMode) => void;
 }) {
   const seasonId = useId();
+  /**
+   * When the whole-browser backup was last downloaded; re-read after a download from this panel so
+   * the line beside the button changes at once. The fact itself is in storage, written by the
+   * export, not here.
+   */
+  const [lastBackupAt, setLastBackupAt] = useState(() => lastBackupTakenAt("league"));
+  const backupOverdue = (daysSince(lastBackupAt) ?? Infinity) > BACKUP_REMINDER_DAYS;
+  // Read on render: the settings on this panel are among the saves that touch it.
+  const seasonUpdatedAt =
+    listSeasons().find((season) => season.id === getActiveSeasonId())?.updatedAt ?? null;
   const cutoffId = useId();
   const postseasonId = useId();
   const trackErrorsId = useId();
@@ -472,6 +485,14 @@ export function SettingsView({
             your theme and mode. Export CSV covers this season&apos;s schedule plus Team Rankings.
             Import Backup JSON takes either that file or a Team Rankings backup on its own.
           </p>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" data-testid="freshness">
+            This season last changed {agoLabel(seasonUpdatedAt)}.{" "}
+            <span className={backupOverdue ? "font-bold text-amber-700 dark:text-amber-300" : ""}>
+              Last backup: {agoLabel(lastBackupAt)}.
+              {backupOverdue &&
+                " Everything here lives in this browser alone; a backup is the only copy elsewhere."}
+            </span>
+          </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800">
               Import CSV
@@ -508,7 +529,11 @@ export function SettingsView({
               Export CSV
             </button>
             <button
-              onClick={exportBackup}
+              onClick={() => {
+                exportBackup();
+                // The note is written by the export itself; this only redraws the line above.
+                setLastBackupAt(lastBackupTakenAt("league"));
+              }}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Backup JSON

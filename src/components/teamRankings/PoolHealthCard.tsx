@@ -170,6 +170,13 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
                 note="cannot be placed in a season"
               />
             )}
+            {health.futureDated > 0 && (
+              <Row
+                label="Results dated ahead"
+                value={count(health.futureDated)}
+                note="scored, but dated after today — a wrong date on GameChanger"
+              />
+            )}
           </dl>
 
           <p className="mt-3 text-sm">

@@ -1,4 +1,5 @@
 import { resolveSlotGames, poolSignature, type GcImportState } from "./gameChangerImport";
+import { todayIsoDay } from "./date";
 import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRankings";
 
 /**
@@ -32,6 +33,13 @@ export type PoolHealth = {
   standInPlayed: number;
   /** Games with no date, which no squad year can hold and no stand-in can be settled from. */
   undated: number;
+  /**
+   * Results dated after today: a game with a score on a day that has not happened. Somebody set
+   * the date wrong on GameChanger — a rescheduled game whose date was never moved, most often —
+   * and the pool counts it as played on a day it was not. The rating is untouched by the date, so
+   * this is a thing to look at rather than a thing that is wrong on screen.
+   */
+  futureDated: number;
   /** Whether the pool is in the shape the tidy last left it in. */
   tidied: boolean;
 };
@@ -39,12 +47,17 @@ export type PoolHealth = {
 const isStandIn = (team: ScoutTeam | undefined): boolean =>
   team?.placeholder === true || team?.nameOnly === true;
 
-export const poolHealth = (state: GcImportState, tidyStamp: string): PoolHealth => {
+export const poolHealth = (
+  state: GcImportState,
+  tidyStamp: string,
+  today: string = todayIsoDay()
+): PoolHealth => {
   const byId = new Map(state.teams.map((team) => [team.id, team]));
   let standInGames = 0;
   let standInPlayed = 0;
   let played = 0;
   let undated = 0;
+  let futureDated = 0;
 
   state.games.forEach((game: ScoutGame) => {
     const a = isStandIn(byId.get(game.teamAId));
@@ -52,6 +65,7 @@ export const poolHealth = (state: GcImportState, tidyStamp: string): PoolHealth 
     const scored = isScoutGamePlayed(game);
     if (scored) played += 1;
     if (!game.date) undated += 1;
+    else if (scored && game.date > today) futureDated += 1;
     if (a !== b) {
       standInGames += 1;
       if (scored) standInPlayed += 1;
@@ -71,6 +85,7 @@ export const poolHealth = (state: GcImportState, tidyStamp: string): PoolHealth 
     standInGames,
     standInPlayed,
     undated,
+    futureDated,
     tidied: poolSignature(state) === tidyStamp,
   };
 };

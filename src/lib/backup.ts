@@ -115,6 +115,8 @@ const coerceSeasonSnapshot = (raw: unknown, index: number): SeasonSnapshot | nul
     id,
     name: isString(raw.name) && raw.name.trim() ? raw.name.trim() : `Season ${index + 1}`,
     createdAt: isString(raw.createdAt) ? raw.createdAt : "",
+    // When the season last changed rides along, so a restore says so as truthfully as the original.
+    ...(isString(raw.updatedAt) ? { updatedAt: raw.updatedAt } : {}),
     teams,
     matchups,
     logs: coerceLogs(raw.logs, matchups, settings),
