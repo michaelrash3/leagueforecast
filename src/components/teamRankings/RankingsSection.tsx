@@ -57,6 +57,15 @@ type RankingsSectionProps = {
  * What the page is for: the two lists worth reading at a glance, and the full table underneath for
  * finding one team in a pool of thousands.
  */
+/**
+ * How many rows the full table shows before asking. The page's real count is in the toggle above
+ * it - "Show all 15,629 teams" - and that number is the point; the rows are here to find a team
+ * in, not to scroll. Rendering all of them was O(rows) DOM plus two O(rows) `placeOf` lookups and
+ * an O(games) `hasGamesFiledHere` per row on every render, which on a nationwide page is minutes.
+ */
+export const ROWS_SHOWN_FIRST = 100;
+export const ROWS_SHOWN_STEP = 200;
+
 export function RankingsSection({
   groupName,
   searchOptions,
@@ -84,6 +93,12 @@ export function RankingsSection({
   onMarkMine,
   onRemoveTeam,
 }: RankingsSectionProps) {
+  // Keyed on the filter, so choosing another state starts at the top again without an effect.
+  const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
+  const shownRows = rowLimit.key === stateFilter ? rowLimit.count : ROWS_SHOWN_FIRST;
+  const visibleSlice = visibleRankings.slice(0, shownRows);
+  const hiddenRows = visibleRankings.length - visibleSlice.length;
+
   /**
    * The method explainer and its button are one disclosure with nothing outside this section to
    * say about it, so it keeps its own state rather than borrowing the view's.
@@ -261,63 +276,83 @@ export function RankingsSection({
                 </tr>
               </thead>
               <tbody>
-                {visibleRankings.map((row) => (
-                  <tr key={row.teamId} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-3 font-black">
-                      #{row.rank}
-                      {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                        <span className="ml-1 text-xs font-bold text-slate-400">
-                          #{row.overallRank}
-                        </span>
-                      )}
-                    </td>
-                    <td className="font-bold text-slate-950 dark:text-white">
-                      <button
-                        type="button"
-                        onClick={() => onOpenTeam(row.teamId)}
-                        className="text-left font-bold hover:underline"
-                        title="Every game logged for this team"
-                      >
-                        {row.teamName}
-                      </button>
-                      {isLeagueTeam(row.teamId) && (
-                        <span className={`ml-2 ${pill("blue")}`}>League</span>
-                      )}
-                      {placeOf(row.teamId) && (
-                        <span className="block text-xs font-normal text-slate-500">
-                          {placeOf(row.teamId)}
-                        </span>
-                      )}
-                    </td>
-                    <td>{row.record}</td>
-                    <td>{formatRating(row.rating)}</td>
-                    <td className="text-slate-500">{formatRating(row.pointRating)}</td>
-                    <td>{row.games}</td>
-                    <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
-                    <td className="space-x-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onMarkMine(row.teamId)}
-                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                        aria-pressed={row.isMine}
-                        title="Mark as my team"
-                      >
-                        {row.isMine ? "★ My team" : "☆ Mark mine"}
-                      </button>
-                      {!isLeagueTeam(row.teamId) && hasGamesFiledHere(row.teamId) && (
+                {visibleSlice.map((row) => {
+                  const place = placeOf(row.teamId);
+                  return (
+                    <tr
+                      key={row.teamId}
+                      className="border-t border-slate-100 dark:border-slate-800"
+                    >
+                      <td className="py-3 font-black">
+                        #{row.rank}
+                        {row.overallRank !== undefined && row.overallRank !== row.rank && (
+                          <span className="ml-1 text-xs font-bold text-slate-400">
+                            #{row.overallRank}
+                          </span>
+                        )}
+                      </td>
+                      <td className="font-bold text-slate-950 dark:text-white">
                         <button
                           type="button"
-                          onClick={() => onRemoveTeam(row.teamId)}
-                          className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                          onClick={() => onOpenTeam(row.teamId)}
+                          className="text-left font-bold hover:underline"
+                          title="Every game logged for this team"
                         >
-                          Remove
+                          {row.teamName}
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {isLeagueTeam(row.teamId) && (
+                          <span className={`ml-2 ${pill("blue")}`}>League</span>
+                        )}
+                        {place && (
+                          <span className="block text-xs font-normal text-slate-500">{place}</span>
+                        )}
+                      </td>
+                      <td>{row.record}</td>
+                      <td>{formatRating(row.rating)}</td>
+                      <td className="text-slate-500">{formatRating(row.pointRating)}</td>
+                      <td>{row.games}</td>
+                      <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
+                      <td className="space-x-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onMarkMine(row.teamId)}
+                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                          aria-pressed={row.isMine}
+                          title="Mark as my team"
+                        >
+                          {row.isMine ? "★ My team" : "☆ Mark mine"}
+                        </button>
+                        {!isLeagueTeam(row.teamId) && hasGamesFiledHere(row.teamId) && (
+                          <button
+                            type="button"
+                            onClick={() => onRemoveTeam(row.teamId)}
+                            className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            {hiddenRows > 0 && (
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+                <span>
+                  Showing {visibleSlice.length} of {visibleRankings.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRowLimit({ key: stateFilter, count: shownRows + ROWS_SHOWN_STEP })
+                  }
+                  className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Show {Math.min(ROWS_SHOWN_STEP, hiddenRows)} more
+                </button>
+              </div>
+            )}
             {rankings.length === 0 && (
               <p className="py-6 text-center text-sm text-slate-500">
                 {unrankedLevelNote ?? "No teams yet for this age group."}
