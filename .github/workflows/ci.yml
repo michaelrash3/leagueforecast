@@ -24,3 +24,7 @@ jobs:
       # see the note in vite.config.ts.
       - run: npm run test:coverage
       - run: npm run build
+      # One browser, one smoke spec, against the build above: a season loads, a score moves the
+      # standings, and the backup carries it. The unit suites cover the pieces; this covers the wiring.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

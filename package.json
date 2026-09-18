@@ -16,6 +16,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,md}\" \"api/**/*.ts\"",
     "test": "vitest",
     "test:coverage": "vitest --run --coverage",
+    "test:e2e": "playwright test",
     "verify:gc": "node --experimental-strip-types scripts/verify-gc-pull.ts",
     "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts"
   },
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
