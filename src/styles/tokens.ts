@@ -1,3 +1,15 @@
+/**
+ * Keyboard focus, on everything here that can be focused.
+ *
+ * These styles carried hover treatment and nothing for focus, so tabbing through the app moved a
+ * selection nobody could see — the browser's own outline having been overridden by the ring
+ * utilities used ad hoc elsewhere. `focus-visible` rather than `focus` so a mouse click does not
+ * leave a ring behind it, and an offset ring so it reads against both the light and dark surfaces
+ * these sit on.
+ */
+const focusRing =
+  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
+
 export type PillTone = "neutral" | "emerald" | "blue" | "amber" | "red" | "dark";
 
 const pillTones: Record<PillTone, string> = {
@@ -19,18 +31,15 @@ export const card =
   "rounded-lg border border-slate-200 bg-white shadow-xs shadow-slate-200/70 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:ring-slate-900";
 
 export const tab = (active: boolean) =>
-  `whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition sm:px-5 sm:py-2.5 ${
+  `whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition sm:px-5 sm:py-2.5 ${focusRing} ${
     active
       ? "bg-slate-950 text-white shadow-xs dark:bg-white dark:text-slate-950"
       : "text-slate-500 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
   }`;
 
 export const button = {
-  primary:
-    "rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50",
-  dark: "rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50",
-  ghost:
-    "rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50",
-  danger:
-    "rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-600 shadow-xs hover:bg-red-50 dark:border-red-900 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-950/30",
+  primary: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
+  dark: `rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 ring-1 ring-slate-800 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:ring-white/20 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
+  ghost: `rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`,
+  danger: `rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-600 shadow-xs hover:bg-red-50 dark:border-red-900 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-950/30 ${focusRing}`,
 };

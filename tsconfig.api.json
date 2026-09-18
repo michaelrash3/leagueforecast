@@ -23,6 +23,7 @@
     "src/lib/geminiModels.ts",
     "src/lib/leagueSummary.ts",
     "src/lib/gameChangerApi.ts",
-    "src/lib/ttlCache.ts"
+    "src/lib/ttlCache.ts",
+    "src/lib/apiShared.ts"
   ]
 }

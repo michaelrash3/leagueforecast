@@ -380,13 +380,19 @@ export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknow
     if (await io.set(key, raw)) io.clearLocal(key);
   }
 
+  /*
+   * Read together rather than one after another. These keys are independent, and this runs on the
+   * startup path — `main.tsx` waits on it before anything mounts — so serial reads made the wait
+   * the sum of every key rather than the slowest one. The migration above stays serial: it writes,
+   * and a key is only cleared from localStorage once the store has confirmed it.
+   */
+  const values = await Promise.all(POOL_KEYS.map((key) => io.get(key)));
   const filled = new Map<string, unknown>();
-  for (const key of POOL_KEYS) {
-    const stored = await io.get(key);
+  POOL_KEYS.forEach((key, at) => {
     // A key that could not be carried is still readable where it is, so a failed move costs
     // nothing but a retry — rather than hiding data that is sitting in localStorage.
-    filled.set(key, stored ?? io.readLocal(key));
-  }
+    filled.set(key, values[at] ?? io.readLocal(key));
+  });
   return filled;
 };
 
@@ -826,12 +832,10 @@ export const forgetArchivedSeason = async (id: string): Promise<boolean> => {
 
 /** Every archive with its rows, for a backup. Loads all of them, so only the backup path calls it. */
 export const loadAllArchivedSeasons = async (): Promise<ArchivedSeason[]> => {
-  const out: ArchivedSeason[] = [];
-  for (const entry of loadArchiveIndex()) {
-    const season = await loadArchivedSeason(entry.id);
-    if (season) out.push(season);
-  }
-  return out;
+  // Independent reads, so they go together; the index order is kept because `Promise.all` resolves
+  // in the order it was given rather than the order the reads finished.
+  const loaded = await Promise.all(loadArchiveIndex().map((entry) => loadArchivedSeason(entry.id)));
+  return loaded.filter((season): season is ArchivedSeason => season !== null);
 };
 
 /**
@@ -846,7 +850,9 @@ export const loadAllArchivedSeasons = async (): Promise<ArchivedSeason[]> => {
  */
 export const replaceArchivedSeasons = async (seasons: ArchivedSeason[]): Promise<boolean> => {
   const going = loadArchiveIndex();
-  for (const entry of going) await dropBlob(archiveRowsKey(entry.id));
+  // Together: they are separate keys, and the ordering that matters is only that every drop lands
+  // before the index is rewritten below — which awaiting them all still guarantees.
+  await Promise.all(going.map((entry) => dropBlob(archiveRowsKey(entry.id))));
   if (!writeValue(GC_ARCHIVE_KEY, [])) return false;
   return (await saveArchivedSeasons(seasons)) !== null;
 };

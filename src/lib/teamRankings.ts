@@ -2304,7 +2304,7 @@ export type ScoutBridgeResult = {
   homeMargin: number;
   /**
    * When it was played, in the league's own date format. Carried so the parts of the forecast that
-   * care *when* — elo, which walks a season in order, and recent form — can place a tournament
+   * care *when* — recent form, which walks a season in order — can place a tournament
    * game among the league's own. Optional exactly as the game's own date is: an undated result
    * still rates, because the rating does not care about order, and is left out of the two that do
    * rather than guessed into a position.

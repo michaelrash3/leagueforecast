@@ -15,6 +15,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\" \"api/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,md}\" \"api/**/*.ts\"",
     "test": "vitest",
+    "test:coverage": "vitest --run --coverage",
     "verify:gc": "node --experimental-strip-types scripts/verify-gc-pull.ts",
     "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts"
   },
@@ -33,6 +34,7 @@
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.5",

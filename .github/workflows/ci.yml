@@ -19,5 +19,8 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test -- --run
+      # Coverage rather than a bare run: same tests, same time, and the summary is printed in the
+      # log so what the suite misses is visible on every pull request. Nothing fails on it yet -
+      # see the note in vite.config.ts.
+      - run: npm run test:coverage
       - run: npm run build

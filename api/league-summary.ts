@@ -33,6 +33,12 @@ import {
   GEMINI_API_BASE,
   GEMINI_FALLBACK_MODEL_IDS,
 } from "../src/lib/geminiModels.js";
+import {
+  clientKey,
+  createRateLimiter,
+  type ApiRequest,
+  type ApiResponse,
+} from "../src/lib/apiShared.js";
 
 /**
  * The one Node global this function needs. Declared here rather than via
@@ -42,26 +48,6 @@ import {
  */
 declare const process: { env: Record<string, string | undefined> };
 
-/**
- * Minimal structural types for the Vercel Node handler. Declared locally so the
- * project keeps its two-dependency footprint instead of pulling in @vercel/node
- * purely for type definitions.
- */
-type ApiRequest = {
-  method?: string;
-  url?: string;
-  headers: Record<string, string | string[] | undefined>;
-  body?: unknown;
-  socket?: { remoteAddress?: string };
-};
-
-type ApiResponse = {
-  status: (code: number) => ApiResponse;
-  json: (body: unknown) => void;
-  setHeader: (name: string, value: string) => void;
-  end: (body?: string) => void;
-};
-
 /** Total wall-clock budget for one request, across every model attempt. */
 const TOTAL_BUDGET_MS = 25_000;
 const PER_ATTEMPT_TIMEOUT_MS = 8_000;
@@ -70,7 +56,6 @@ const DISCOVERY_TIMEOUT_MS = 5_000;
 const MODEL_CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_MODEL_ATTEMPTS = 4;
 
-const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 12;
 /**
  * The health probe gets its own, smaller budget under its own key. It shares
@@ -82,32 +67,8 @@ const PROBE_RATE_LIMIT_MAX_REQUESTS = 6;
 type ModelCache = { ids: string[]; expiresAt: number };
 let modelCache: ModelCache | null = null;
 
-/**
- * Best-effort per-IP throttle. Serverless instances do not share memory, so
- * this caps runaway retries from one client rather than enforcing a global
- * quota — Gemini's own quota remains the hard limit.
- */
-const requestLog = new Map<string, number[]>();
-
-const clientKey = (req: ApiRequest): string => {
-  const forwarded = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const first = raw?.split(",")[0]?.trim();
-  return first || req.socket?.remoteAddress || "unknown";
-};
-
-const isRateLimited = (key: string, max: number = RATE_LIMIT_MAX_REQUESTS): boolean => {
-  const now = Date.now();
-  const recent = (requestLog.get(key) ?? []).filter((at) => now - at < RATE_LIMIT_WINDOW_MS);
-  if (recent.length >= max) {
-    requestLog.set(key, recent);
-    return true;
-  }
-  recent.push(now);
-  requestLog.set(key, recent);
-  if (requestLog.size > 5000) requestLog.clear();
-  return false;
-};
+/** Gemini's own quota remains the hard limit; this only caps runaway retries from one client. */
+const isRateLimited = createRateLimiter(RATE_LIMIT_MAX_REQUESTS);
 
 const sendError = (res: ApiResponse, status: number, payload: LeagueSummaryError) => {
   res.status(status).json(payload);

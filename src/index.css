@@ -69,3 +69,18 @@
     transform: translate3d(24px, 18px, 0) scale(1.08);
   }
 }
+
+/* The orb drifts forever and never settles, which is exactly what someone who has asked their
+   system for less motion is asking not to see — and it is decoration, so there is nothing to
+   replace it with. The transition is a blanket rule rather than a list because the only motion in
+   this app is presentational; anything added later that genuinely needs to move can opt back in. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

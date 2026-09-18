@@ -4,11 +4,12 @@ A browser-first web app for league predictions, power ratings, matchup analysis,
 
 ## Stack
 
-- Vite 7 + React 19 + TypeScript 6
+- Vite 8 + React 19 + TypeScript 6
 - Tailwind CSS 4 (configured in CSS; there is no tailwind.config.js)
 - Web Worker-based Monte Carlo simulation
-- One Vercel Serverless Function (`api/league-summary.ts`) for the Gemini-written league story
-- Vitest
+- Two Vercel Serverless Functions: `api/league-summary.ts` for the Gemini-written league story,
+  `api/gc-team.ts` for the GameChanger pull
+- Vitest, with coverage reported (not enforced) on every pull request
 - ESLint + Prettier
 
 ## Commands
@@ -67,56 +68,48 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Architecture
 
+A map rather than a manifest — the directories and the files worth knowing about, not every file.
+
 ```
 api/
   league-summary.ts     # Vercel function: Gemini recap of standings movement
+  gc-team.ts            # Vercel function: CORS proxy for the GameChanger pull
+scripts/
+  recencySweep.ts       # research: which recency scheme predicts best on a real pool
+  verify-gc-pull.ts     # the one check that talks to GameChanger for real
 src/
-  App.tsx
+  App.tsx               # League Standings: state, handlers and every view it renders
   main.tsx
   index.css
-  lib/
-    types.ts
-    util.ts
-    format.ts
-    date.ts
-    csv.ts
-    sim.ts
-    magic.ts
-    insights.ts           # deterministic recap + league-story generation
-    geminiModels.ts       # Gemini model discovery + newest-first ranking
-    leagueSummary.ts      # shared request contract + prompt building
-    scheduleText.ts       # reads pasted text / CSV into games, entirely on the device
-    teamRankings.ts       # age groups, opponent-adjusted ratings, name matching, rename/merge
-    teamRankingsStorage.ts # its own localStorage keys, shared across seasons
-    leagueSummaryClient.ts # browser client for /api/league-summary
-    share.ts
-    storage.ts
-    backtest.ts
-  hooks/
-    useSimulationWorker.ts
-    useLeagueSummary.ts
-    useToast.ts
-    useDarkMode.ts
-    useShortcuts.ts
-    useFocusTrap.ts
-    useBreakpoint.ts
-    useUrlState.ts
+  lib/                  # pure modules; almost all the logic lives here
+    types.ts  util.ts  format.ts  date.ts  csv.ts  validate.ts
+    sim.ts                 # predictions, Monte Carlo odds, bracket odds
+    powerRating.ts         # ridge-regularised opponent-adjusted least squares
+    ratingRecency.ts       # how much an old result still counts
+    predictionEngine.ts    # power ratings, recent form, confidence tiers
+    magic.ts  clinchingPaths.ts  bracket.ts
+    backtest.ts            # league-side calibration + Brier score
+    scoutBacktest.ts       # pool-side hold-out, and the recency comparison
+    insights.ts            # deterministic recap + league-story generation
+    geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts
+    scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
+    teamRankings.ts        # age groups, ratings, name matching, rename/merge
+    teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
+    teamRankingsCompact.ts # the tuple-and-dictionary storage format
+    gameChanger*.ts        # pulling, importing, reporting and tracking a pull
+    apiShared.ts           # handler types, client key and throttle, shared by both functions
+    storage.ts  idb.ts  backup.ts  share.ts
+  hooks/                # worker lifecycles, routing, shortcuts, theme, toasts
   workers/
-    sim.worker.ts
+    sim.worker.ts  rankings.worker.ts  tidy.worker.ts
   components/
-    Toast.tsx
-    CompareDrawer.tsx
-    WeeklyRecap.tsx
-    CommandPalette.tsx
-    ShortcutsHelp.tsx
-    OnboardingTour.tsx
-    TeamRankingsView.tsx
-    TeamDetailPanel.tsx
-    ScheduleImportPanel.tsx
-    charts/
-      LineChart.tsx
-      HeadToHeadMatrix.tsx
-  styles/tokens.ts
+    league/             # League Standings views: standings, games, forecast, settings
+    teamRankings/       # Team Rankings sections and cards
+    bracket/  charts/
+    CommandPalette.tsx  ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
+    GameChangerImportPanel.tsx  ScheduleImportPanel.tsx  TeamDetailPanel.tsx
+  styles/
+    tokens.ts  raceTone.ts
 ```
 
 ## Team Rankings

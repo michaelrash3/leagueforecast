@@ -35,6 +35,12 @@ import {
   type GcTeamResponse,
 } from "../src/lib/gameChangerApi.js";
 import { createTtlCache } from "../src/lib/ttlCache.js";
+import {
+  clientKey,
+  createRateLimiter,
+  type ApiRequest,
+  type ApiResponse,
+} from "../src/lib/apiShared.js";
 
 /**
  * The one Node global this function needs. Declared here rather than via `@types/node`: installing
@@ -42,25 +48,6 @@ import { createTtlCache } from "../src/lib/ttlCache.js";
  * this entrypoint with its own config, which would not pick up a sibling declaration file.
  */
 declare const process: { env: Record<string, string | undefined> };
-
-/**
- * Minimal structural types for the Vercel Node handler. Declared locally so the project keeps its
- * two-dependency footprint instead of pulling in @vercel/node purely for type definitions.
- */
-type ApiRequest = {
-  method?: string;
-  url?: string;
-  headers: Record<string, string | string[] | undefined>;
-  body?: unknown;
-  socket?: { remoteAddress?: string };
-};
-
-type ApiResponse = {
-  status: (code: number) => ApiResponse;
-  json: (body: unknown) => void;
-  setHeader: (name: string, value: string) => void;
-  end: (body?: string) => void;
-};
 
 /** The error half of `GcTeamResponse`, spelled out so the non-strict Vercel check narrows it. */
 type GcTeamFailure = {
@@ -75,7 +62,6 @@ const UPSTREAM_TIMEOUT_MS = 8_000;
 /** How much of an unrecognised body to echo back: enough to see what it is, never the whole page. */
 const BODY_PREVIEW_CHARS = 300;
 
-const RATE_LIMIT_WINDOW_MS = 60_000;
 /**
  * This cap is here to stop a runaway loop, and it has to stay well clear of what the feature
  * actually does or it becomes the thing that breaks it.
@@ -96,31 +82,8 @@ const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 const WEB_ORIGIN = "https://web.gc.com";
 
-/**
- * Best-effort per-IP throttle. Serverless instances do not share memory, so this caps runaway
- * retries from one client rather than enforcing a global quota.
- */
-const requestLog = new Map<string, number[]>();
-
-const clientKey = (req: ApiRequest): string => {
-  const forwarded = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const first = raw?.split(",")[0]?.trim();
-  return first || req.socket?.remoteAddress || "unknown";
-};
-
-const isRateLimited = (key: string, max: number = RATE_LIMIT_MAX_REQUESTS): boolean => {
-  const now = Date.now();
-  const recent = (requestLog.get(key) ?? []).filter((at) => now - at < RATE_LIMIT_WINDOW_MS);
-  if (recent.length >= max) {
-    requestLog.set(key, recent);
-    return true;
-  }
-  recent.push(now);
-  requestLog.set(key, recent);
-  if (requestLog.size > 5000) requestLog.clear();
-  return false;
-};
+/** GameChanger's own limits are the real ceiling; this only stops a runaway loop. */
+const isRateLimited = createRateLimiter(RATE_LIMIT_MAX_REQUESTS);
 
 const sendError = (res: ApiResponse, status: number, payload: GcTeamFailure): void => {
   res.setHeader("cache-control", "no-store");
