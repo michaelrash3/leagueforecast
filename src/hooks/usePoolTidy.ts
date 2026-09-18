@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
+import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { beginTidy, endTidy } from "../lib/pullSession";
 import {
@@ -111,13 +112,13 @@ export function usePoolTidy() {
     (state: GcImportState, stamp: string): Promise<PoolInspection | null> =>
       ask<PoolInspection>(
         "inspect",
-        (id) => ({ kind: "inspect", id, state: packPool(state), stamp }),
+        (id) => ({ kind: "inspect", id, state: packPool(state), stamp, today: todayIsoDay() }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
             ? { health: response.health, settleable: response.settleable }
             : null,
         () => {
-          const health = poolHealth(state, stamp);
+          const health = poolHealth(state, stamp, todayIsoDay());
           return { health, settleable: health.standInPlayed === 0 ? 0 : settleableNow(state) };
         }
       ),

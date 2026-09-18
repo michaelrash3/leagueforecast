@@ -58,3 +58,29 @@ export const sundayEndingWeekKey = (date: string) => {
   weekEnding.setDate(parsed.getDate() + daysUntilSunday);
   return toMMDD(weekEnding);
 };
+
+/**
+ * Today as an ISO day ("2026-09-18") in the reader's own zone — the shape Team Rankings stores a
+ * game's date in, so the two compare as strings.
+ */
+export const todayIsoDay = (now = new Date()): string =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate()
+  ).padStart(2, "0")}`;
+
+/** Whole days from an ISO instant or day to now, or null for a value that is not a time at all. */
+export const daysSince = (iso: string | null | undefined, now = new Date()): number | null => {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, Math.floor((now.getTime() - at) / 86_400_000));
+};
+
+/** "today", "yesterday", "12 days ago" or "never": the tail of a freshness line. */
+export const agoLabel = (iso: string | null | undefined, now = new Date()): string => {
+  const days = daysSince(iso, now);
+  if (days === null) return "never";
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+};
