@@ -100,6 +100,9 @@ const MIGRATED_KEY = "league_forecast_pool_in_idb_v1";
  * in tests, which is why none of them had to change.
  */
 const cache = new Map<string, unknown>();
+/** The pool decoded from the cache's compact form, once per version of it; see `loadScoutTeams`. */
+let decodedTeams: { source: unknown; teams: ScoutTeam[] } | null = null;
+let decodedGames: { source: unknown; games: ScoutGame[] } | null = null;
 let usingIdb = false;
 /**
  * The pool is known to live in IndexedDB and IndexedDB would not open. Reads answer empty because
@@ -469,6 +472,11 @@ export const clearTeamRankings = (): boolean => {
 /** Only for tests: forgets the cache and goes back to reading storage directly. */
 export const resetTeamRankingsStore = (): void => {
   cache.clear();
+  // The decoded copies would invalidate themselves on the next read - a cleared cache answers null,
+  // which is never the identity they hold - but a reset should not keep a pool's worth of objects
+  // alive until somebody happens to ask.
+  decodedTeams = null;
+  decodedGames = null;
   pendingWrites.clear();
   usingIdb = false;
   poolUnavailable = false;
@@ -636,13 +644,52 @@ const markPlaceholders = (teams: ScoutTeam[]): ScoutTeam[] =>
     team.placeholder || !isPlaceholderName(team.name) ? team : { ...team, placeholder: true }
   );
 
-export const loadScoutTeams = (): ScoutTeam[] =>
-  markPlaceholders(decodeScoutTeams(readValue(TEAMS_KEY), coerceScoutTeams));
+/**
+ * The pool, decoded once per version of it rather than once per read.
+ *
+ * The cache holds the compact form — tuples and a dictionary, the shape IndexedDB stores — and
+ * every `loadScoutTeams()` used to decode the whole of it into fresh objects. Nothing stopped a
+ * caller reading it in a loop, and one did: the club-linking panel asked for the pool once per
+ * league team, on every render, and Settings re-renders on every keystroke in any of its inputs.
+ * Measured on a 40,000-team pool that is ~270 ms and ~28 MB of new objects per read, so a
+ * twelve-team league paid about four seconds and two-thirds of a gigabyte of allocation for each
+ * character typed. The site was not slow; it was decoding a nationwide pool twelve times a keystroke.
+ *
+ * Keyed on the identity of the compact value, not its contents. `writeValue` installs a new object
+ * in the cache on every save, and the cross-tab listener does the same when another tab writes, so
+ * the identity changes exactly when the pool does and never merely because something rendered.
+ * Contents are never compared: that would cost a walk of the pool, which is the thing being saved.
+ *
+ * The decoded arrays are handed out shared, so they must not be mutated in place by a caller. None
+ * does — every consumer treats them as React state or as input to a pure function — and the
+ * compact codec builds fresh objects, so the shared copy is never aliased with anything stored.
+ *
+ * One decoded copy is therefore resident for as long as the pool is unchanged, including on the
+ * League Standings side, where it used to be transient. That is the trade: about 28 MB held at
+ * nationwide scale, in exchange for never allocating 28 MB on a render again. In Team Rankings it
+ * is not even an extra copy — the view's state holds this same array by reference.
+ *
+ * The localStorage fallback path is not memoised. `readValue` parses the string afresh there, so the
+ * identity is new on every read; but that path exists for browsers without IndexedDB, which cannot
+ * hold a pool large enough for this to matter.
+ */
+export const loadScoutTeams = (): ScoutTeam[] => {
+  const source = readValue(TEAMS_KEY);
+  if (decodedTeams && decodedTeams.source === source) return decodedTeams.teams;
+  const teams = markPlaceholders(decodeScoutTeams(source, coerceScoutTeams));
+  decodedTeams = { source, teams };
+  return teams;
+};
 export const saveScoutTeams = (teams: ScoutTeam[]): boolean =>
   writeValue(TEAMS_KEY, encodeScoutTeams(teams));
 
-export const loadScoutGames = (): ScoutGame[] =>
-  decodeScoutGames(readValue(GAMES_KEY), coerceScoutGames);
+export const loadScoutGames = (): ScoutGame[] => {
+  const source = readValue(GAMES_KEY);
+  if (decodedGames && decodedGames.source === source) return decodedGames.games;
+  const games = decodeScoutGames(source, coerceScoutGames);
+  decodedGames = { source, games };
+  return games;
+};
 export const saveScoutGames = (games: ScoutGame[]): boolean =>
   writeValue(GAMES_KEY, encodeScoutGames(games));
 

@@ -235,6 +235,80 @@ describe("clearing Team Rankings", () => {
   });
 });
 
+describe("decoding the pool once per version of it", () => {
+  const idbIo = () => {
+    const store = new Map<string, unknown>();
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    return io;
+  };
+
+  /*
+   * The club-linking panel read the pool once per league team on every render, and Settings
+   * re-renders on every keystroke - so at nationwide scale each character typed decoded a
+   * 40,000-team pool a dozen times over. The decode is now keyed on the compact value's identity:
+   * the same array comes back until the pool actually changes.
+   */
+  it("hands back the same arrays until the pool is saved again", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    saveScoutGames([
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+    ]);
+
+    const teams1 = loadScoutTeams();
+    const games1 = loadScoutGames();
+    // Twelve reads in a row, as the panel makes them: one decode, eleven free.
+    for (let i = 0; i < 11; i += 1) {
+      expect(loadScoutTeams()).toBe(teams1);
+      expect(loadScoutGames()).toBe(games1);
+    }
+    expect(teams1).toEqual([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+  });
+
+  it("decodes afresh the moment the pool changes, and not before", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    const before = loadScoutTeams();
+
+    saveScoutTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    const after = loadScoutTeams();
+
+    expect(after).not.toBe(before);
+    expect(after).toHaveLength(2);
+    // And the earlier array is exactly what it was: a shared copy is never edited underneath a holder.
+    expect(before).toEqual([{ id: "A", name: "Aces" }]);
+  });
+
+  it("does not let a reset keep a decoded pool alive", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    const held = loadScoutTeams();
+    resetTeamRankingsStore();
+    // A fresh store answers empty, from a fresh decode - never from the copy the old store made.
+    const fresh = loadScoutTeams();
+    expect(fresh).toEqual([]);
+    expect(fresh).not.toBe(held);
+  });
+});
+
 describe("coerceScoutTeams with GameChanger links", () => {
   it("drops a malformed link, not the team carrying it", () => {
     const teams = coerceScoutTeams([

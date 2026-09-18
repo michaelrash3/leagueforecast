@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { TeamSearchSelect, type TeamSearchOption } from "./TeamSearchSelect";
 import {
   NO_SCOUT_TEAM,
@@ -109,7 +109,16 @@ const noteFor = (
  * with than a name, and the row says so. The guess is still made and still marked as one; the answer
  * given here is what counts.
  */
-export function ScoutLinkPanel({
+/**
+ * Memoised because it sits inside the Settings tab, which re-renders on every keystroke in any of
+ * its inputs, and each of its rows asks the pool a question. Its props are all stable references
+ * or primitives — the bridge is a memo, the callbacks are `useCallback`s — so this re-renders only
+ * when the season, its label, the counting toggle or the pool itself actually changed, not because
+ * somebody typed a cutoff two cards down.
+ */
+export const ScoutLinkPanel = memo(ScoutLinkPanelInner);
+
+function ScoutLinkPanelInner({
   bridge,
   candidatesFor,
   allClubs,
