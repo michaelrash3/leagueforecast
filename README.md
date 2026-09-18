@@ -547,33 +547,46 @@ plain run differential.
 
 #### Recent form
 
-Inside a team's own record the newer games pull harder: **half weight every 20
-games since**. A side that lost through September and has been winning since is
-rated closer to the side it is now than to the one it was.
+Newer games pull harder: **half weight every 90 days**. A side that lost through
+September and has been winning since is rated closer to the side it is now than
+to the one it was.
 
-This is counted in **games, not months**, and that is the whole point. A squad
-plays August to October, stops dead for four or five months, and starts again in
-March, so a day-based half-life would read a fall team almost entirely off the
-ridge by the spring — even though those fall results are the only evidence
-anybody has about it. Counting games instead means a squad that played its
-season and then stopped keeps every one of those games at full weight: time has
-passed, evidence has not. It also needs no clock, so a rating is a pure function
-of the pool and two readings a week apart agree.
+This is how the systems League Forecast is modelled on do it. Massey's
+least-squares ratings de-weight early-season games; Pomeroy's weight each game by
+when it was played, with more weight the more recent, so a rating describes a
+team _now_; and the Elo family gets there by construction, a recent result
+moving the number further than an old one. None of them steps the weight at a
+boundary inside the season, and neither does this. **The season is still the
+season**: every age group sharing a squad year is still fitted as one pool, an
+autumn game is still in the fit, and it simply counts for less than a spring one
+by the time spring comes — about a third of a fresh game's weight after five
+months, a quarter after six. A slope rather than a cliff.
+
+Ninety days rather than thirty or sixty is because of the winter. Squad years
+run August to July with a four-month gap in the middle, and a fast half-life
+would make the autumn irrelevant by spring, which is a season split under
+another name.
 
 It changes the **fit and nothing else**. Games played, record and strength of
 schedule are descriptions of a season rather than beliefs about a team, and a
 side played twelve games whatever the fit leans on. Weights are normalised to
 average one, so the ridge is handed the same total evidence and nothing is
-regressed further toward the mean than it was before.
+regressed further toward the mean than it was before. The weights depend only on
+the gaps between games, never on the clock, so a rating is a pure function of
+the pool and two readings a week apart agree.
 
-**The constant has not been measured yet.** `scripts/recencySweep.ts` exists to
-choose it against a real pool — `npm run recency:sweep -- <backup.json>`, using
-the JSON backup Setup writes — and until that has been run, twenty games is a
-judgement call rather than a finding. Setup's **Check the model** card runs the
-same comparison in the app (`compareRecencySchemes`), so a pool this is wrong
-for will say so. Changing it is one line in `src/lib/ratingRecency.ts`: every
-candidate is in `RECENCY_SCHEMES`, and `noDecay` restores exactly the behaviour
-that shipped before weighting existed.
+**What the evidence is.** `scripts/recencySweep.ts` was run against a
+nationwide pool seven weeks into a squad year, the only backup small enough to
+export. It could not put the cross-winter question, because that pool had no
+winter in it. In season, at four nested cuts, the day-based schemes beat
+counting every game the same on every one, and the games-since schemes were
+indistinguishable from it — on a small hold-out, without the shuffled-calendar
+null run to completion, so a direction rather than a finding. Practice and the
+direction agree. Setup's **Check the model** card runs the same comparison in
+the app (`compareRecencySchemes`), so a pool this is wrong for will say so, and
+changing it is one line in `src/lib/ratingRecency.ts`: every candidate is in
+`RECENCY_SCHEMES`, and `noDecay` restores exactly the behaviour that shipped
+before weighting existed.
 
 #### Playing up and down
 

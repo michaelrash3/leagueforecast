@@ -222,6 +222,19 @@ describe("weighing a pool's games for the fit", () => {
     expect(weights[3]!).toBeGreaterThan(weights[0]!);
   });
 
+  it("weighs a day-based scheme by the gaps between games alone, not by the clock", () => {
+    const shifted = dated.map((game) => ({
+      ...game,
+      date: new Date(day(game.date) + 400 * DAY).toISOString().slice(0, 10),
+    }));
+    const original = weightsForGames(dated, byDays(90))!;
+    const later = weightsForGames(shifted, byDays(90))!;
+    expect(later).toHaveLength(original.length);
+    later.forEach((weight, i) => expect(weight).toBeCloseTo(original[i]!, 12));
+    // And it is weighting: the spring game outweighs the autumn ones by the gap between them.
+    expect(original[2]!).toBeGreaterThan(original[0]!);
+  });
+
   it("is a real scheme rather than a no-op, so shipping it changes something", () => {
     expect(ACTIVE_RECENCY_SCHEME.key).not.toBe(noDecay.key);
     expect(RECENCY_SCHEMES.map((scheme) => scheme.key)).toContain(ACTIVE_RECENCY_SCHEME.key);

@@ -4,11 +4,10 @@ import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from
 /**
  * What shipping a recency scheme actually buys, proved through the path the app ranks on.
  *
- * `byGamesSince` counts a team's own games, not the calendar, so this is not "the autumn is worth
- * less than the spring". A side that played its season and stopped keeps every one of those games
- * at full weight, because from its point of view nothing has happened since. What it does buy is
- * *form*: inside one team's record, the games it played most recently pull harder than the ones it
- * played first.
+ * The scheme is a half-life in days, so inside one squad year the games a team played most
+ * recently pull harder than the ones it played first. That is *form*: a side is rated closer to
+ * what it is now than to what it was in August. The squad year is still the pool and every game in
+ * it is still in the fit; the autumn ones just count for less by the spring.
  *
  * So the test is two clubs with the identical record, the identical opponents and the identical
  * margins, differing only in which half of the season the wins fell in. Unweighted they are the

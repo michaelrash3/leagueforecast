@@ -77,6 +77,27 @@ describe("parseScheduleText", () => {
     ]);
   });
 
+  it("reads a 0-0 against a game not yet played as no score at all", () => {
+    const text = [
+      "Date,Home Team,Home Team Score,Away Team,Away Team Score",
+      "2026-04-05,Aces,0,Bruins,0",
+      "2026-04-06,Aces,0,Bruins,0",
+      "2026-04-12,Aces,0,Bruins,0",
+      "2026-04-12,Aces,3,Bruins,0",
+      "Aces,0,Bruins,0",
+    ].join("\n");
+
+    const { games } = parseScheduleText(text, "2026-04-06");
+
+    expect(games.map((game) => [game.date, game.scoreA, game.scoreB])).toEqual([
+      ["2026-04-05", 0, 0],
+      ["2026-04-06", undefined, undefined],
+      ["2026-04-12", undefined, undefined],
+      ["2026-04-12", 3, 0],
+      [undefined, undefined, undefined],
+    ]);
+  });
+
   it("recognises the other names a game list gives its two sides", () => {
     const { games } = parseScheduleText(
       ["Date,Home,Home Score,Visitor,Visitor Score", "2026-08-22,Aces,4,Bears,2"].join("\n")
