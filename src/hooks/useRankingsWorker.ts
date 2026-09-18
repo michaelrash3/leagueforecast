@@ -7,7 +7,8 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
-import type { WorkerRequest, WorkerResponse } from "../workers/rankings.worker";
+import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
+import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
 
 type RankingsInput = {
   ageGroupId: string;
@@ -31,6 +32,15 @@ const DEBOUNCE_MS = 150;
 
 /** Referentially stable, so a consumer memoising on an empty result does not re-run every render. */
 const NO_ROWS: ScoutRankingRow[] = [];
+
+/**
+ * The pool the worker holds, as this hook last shipped it.
+ *
+ * Identity, all the way down. The arrays are the ones from the snapshot — a new array is a new
+ * pool, exactly as the staleness test below already reads it — and the worker is the one they were
+ * sent to, because a worker created after a failure knows nothing about what its predecessor held.
+ */
+type Shipped = { worker: Worker; teams: ScoutTeam[]; games: ScoutGame[]; revision: number };
 
 const createWorker = (): Worker | null => {
   if (typeof Worker === "undefined") return null;
@@ -61,6 +71,8 @@ export function useRankingsWorker(input: RankingsInput): {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
   const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
   const workerRef = useRef<Worker | null>(null);
+  const shippedRef = useRef<Shipped | null>(null);
+  const revisionRef = useRef(0);
   const nextIdRef = useRef(0);
   const latestIdRef = useRef(0);
 
@@ -68,6 +80,7 @@ export function useRankingsWorker(input: RankingsInput): {
     return () => {
       workerRef.current?.terminate();
       workerRef.current = null;
+      shippedRef.current = null;
     };
   }, []);
 
@@ -145,7 +158,8 @@ export function useRankingsWorker(input: RankingsInput): {
           snapshot.teams,
           snapshot.games,
           snapshot.myTeamId,
-          snapshot.ageGroups
+          snapshot.ageGroups,
+          snapshot.segment
         );
         if (latestIdRef.current !== id) return;
         setRows(fitted);
@@ -157,7 +171,45 @@ export function useRankingsWorker(input: RankingsInput): {
         return;
       }
 
+      /**
+       * Sends the pool itself, and remembers having done so.
+       *
+       * Compact on the wire — the tuples-and-dictionary form IndexedDB stores — because a
+       * structured clone of the objects is the cost this whole arrangement exists to stop paying:
+       * at nationwide scale the objects are several times the compact form's size, and were
+       * copied on every request. Encoding here is a pass over the pool on the main thread, paid
+       * once per change to the pool rather than once per fit.
+       */
+      const ship = (): PoolShipment => {
+        const revision = revisionRef.current + 1;
+        revisionRef.current = revision;
+        shippedRef.current = { worker, teams: snapshot.teams, games: snapshot.games, revision };
+        return {
+          revision,
+          teams: encodeScoutTeams(snapshot.teams),
+          games: encodeScoutGames(snapshot.games),
+        };
+      };
+      const request = (pool: PoolShipment): WorkerRequest => ({
+        kind: "rankings",
+        id,
+        ageGroupId: snapshot.ageGroupId,
+        ...(snapshot.myTeamId === undefined ? {} : { myTeamId: snapshot.myTeamId }),
+        ageGroups: snapshot.ageGroups,
+        ...(snapshot.segment === undefined ? {} : { segment: snapshot.segment }),
+        pool,
+      });
+
       const onMessage = (event: MessageEvent<WorkerResponse>) => {
+        if (event.data.kind === "pool-needed") {
+          // Whatever this hook believed the worker held, it does not. Ship it, if this request is
+          // still the one wanted; otherwise the next request will, because nothing is on record.
+          shippedRef.current = null;
+          if (event.data.id === id && latestIdRef.current === id) {
+            worker.postMessage(request(ship()));
+          }
+          return;
+        }
         if (event.data.kind !== "rankings" || event.data.id !== id) return;
         detach?.();
         detach = null;
@@ -171,6 +223,7 @@ export function useRankingsWorker(input: RankingsInput): {
         detach = null;
         worker.terminate();
         workerRef.current = null;
+        shippedRef.current = null;
         runInline();
       };
 
@@ -181,15 +234,20 @@ export function useRankingsWorker(input: RankingsInput): {
         worker.removeEventListener("error", onError);
       };
 
-      worker.postMessage({
-        kind: "rankings",
-        id,
-        ageGroupId: snapshot.ageGroupId,
-        teams: snapshot.teams,
-        games: snapshot.games,
-        ...(snapshot.myTeamId === undefined ? {} : { myTeamId: snapshot.myTeamId }),
-        ageGroups: snapshot.ageGroups,
-      } satisfies WorkerRequest);
+      // The pool rides along only when this worker has not been sent this one. A page switch, a
+      // different half of the year or a different "my team" is the same pool from another seat,
+      // and names it by revision alone.
+      const shipped = shippedRef.current;
+      worker.postMessage(
+        request(
+          shipped !== null &&
+            shipped.worker === worker &&
+            shipped.teams === snapshot.teams &&
+            shipped.games === snapshot.games
+            ? { revision: shipped.revision }
+            : ship()
+        )
+      );
     }, DEBOUNCE_MS);
 
     return () => {

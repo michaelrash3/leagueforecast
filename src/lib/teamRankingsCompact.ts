@@ -23,7 +23,15 @@
  * before this existed, and is read as such; the next save writes it compactly.
  */
 
-import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "./teamRankings";
+import {
+  isPlaceholderName,
+  type AgeGroup,
+  type GcTeamLink,
+  type ScoutGame,
+  type ScoutGameSource,
+  type ScoutTeam,
+} from "./teamRankings";
+import { isNumber, isRecord, isString } from "./validate";
 
 /** Bumped when the tuple layout changes in a way an older reader would misread. */
 export const COMPACT_VERSION = 2;
@@ -481,3 +489,153 @@ export const decodeScoutTeams = (
  * so every part of the pool is written through one module.
  */
 export const encodeAgeGroups = (ageGroups: AgeGroup[]): AgeGroup[] => ageGroups;
+
+/* --------------------------------------------------------------- reading back what was stored */
+
+/** A string with something in it — an id made of whitespace identifies nothing. */
+export const isFilledString = (value: unknown): value is string =>
+  isString(value) && value.trim() !== "";
+
+const coerceGcRecord = (raw: unknown): GcTeamLink["record"] | undefined =>
+  isRecord(raw) && isNumber(raw.win) && isNumber(raw.loss) && isNumber(raw.tie)
+    ? { win: raw.win, loss: raw.loss, tie: raw.tie }
+    : undefined;
+
+/**
+ * One GameChanger link, or null when it cannot be one. The three ids are what a link *is* — the
+ * GameChanger team, what it is called there, and the page its schedule is filed under — so a link
+ * missing any of them is dropped. Everything else is what GameChanger said last time and is kept
+ * only when it is the right shape; a bad record or a numeric season loses that field, not the link.
+ */
+export const coerceGcTeamLink = (raw: unknown): GcTeamLink | null => {
+  if (!isRecord(raw)) return null;
+  if (!isFilledString(raw.teamId) || !isString(raw.name) || !isFilledString(raw.ageGroupId)) {
+    return null;
+  }
+  const record = coerceGcRecord(raw.record);
+  return {
+    teamId: raw.teamId,
+    name: raw.name,
+    ageGroupId: raw.ageGroupId,
+    ...(isString(raw.season) ? { season: raw.season } : {}),
+    ...(isNumber(raw.seasonYear) ? { seasonYear: raw.seasonYear } : {}),
+    ...(isNumber(raw.ageLevel) ? { ageLevel: raw.ageLevel } : {}),
+    ...(isString(raw.avatarKey) ? { avatarKey: raw.avatarKey } : {}),
+    ...(record ? { record } : {}),
+    ...(isString(raw.importedAt) ? { importedAt: raw.importedAt } : {}),
+  };
+};
+
+/** The usable links out of a stored list; anything that is not a list yields none. */
+export const coerceGcTeamLinks = (raw: unknown): GcTeamLink[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    const link = coerceGcTeamLink(entry);
+    return link ? [link] : [];
+  });
+};
+
+/**
+ * Where a game came from, when the stored shape says GameChanger. Anything else — an unknown
+ * kind, a missing id — reads as no source, which turns the game back into a typed-in one rather
+ * than losing it: the result is still real even if its provenance is not.
+ */
+const coerceGameSource = (raw: unknown): ScoutGameSource | undefined =>
+  isRecord(raw) &&
+  raw.kind === "gamechanger" &&
+  isFilledString(raw.teamId) &&
+  isFilledString(raw.gameId)
+    ? { kind: "gamechanger", teamId: raw.teamId, gameId: raw.gameId }
+    : undefined;
+
+export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        isRecord(entry) && isString(entry.id) && isString(entry.name)
+    )
+    .map((entry) => {
+      // Malformed links are dropped one at a time; the team itself is never lost over one.
+      const gcTeams = coerceGcTeamLinks(entry.gcTeams);
+      return {
+        id: entry.id as string,
+        name: entry.name as string,
+        ...(entry.isMine === true ? { isMine: true } : {}),
+        ...(isString(entry.state) ? { state: entry.state } : {}),
+        ...(isString(entry.city) ? { city: entry.city } : {}),
+        ...(entry.placeholder === true ? { placeholder: true as const } : {}),
+        ...(gcTeams.length ? { gcTeams } : {}),
+      };
+    });
+};
+
+export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        isRecord(entry) &&
+        isString(entry.id) &&
+        isString(entry.teamAId) &&
+        isString(entry.teamBId) &&
+        isString(entry.ageGroupId) &&
+        (entry.teamAScore === undefined || isNumber(entry.teamAScore)) &&
+        (entry.teamBScore === undefined || isNumber(entry.teamBScore))
+    )
+    .map((entry) => {
+      const source = coerceGameSource(entry.source);
+      return {
+        id: entry.id as string,
+        teamAId: entry.teamAId as string,
+        teamBId: entry.teamBId as string,
+        ageGroupId: entry.ageGroupId as string,
+        ...(isNumber(entry.teamAScore) ? { teamAScore: entry.teamAScore } : {}),
+        ...(isNumber(entry.teamBScore) ? { teamBScore: entry.teamBScore } : {}),
+        ...(isString(entry.date) ? { date: entry.date } : {}),
+        ...(isString(entry.event) ? { event: entry.event } : {}),
+        ...(isString(entry.note) ? { note: entry.note } : {}),
+        ...(entry.excluded === true ? { excluded: true } : {}),
+        ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
+        ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
+        ...(isString(entry.season) ? { season: entry.season } : {}),
+        ...(isString(entry.startTs) ? { startTs: entry.startTs } : {}),
+        ...(Array.isArray(entry.alsoFrom) && entry.alsoFrom.some(isString)
+          ? { alsoFrom: entry.alsoFrom.filter(isString) }
+          : {}),
+        ...(source ? { source } : {}),
+      };
+    });
+};
+
+/**
+ * Marks the teams that were never teams.
+ *
+ * A pool saved before placeholders were understood holds them as ordinary clubs, and GameChanger
+ * writes an undecided bracket slot as "TBD- 08/04/26, 5:00 PM" — a different string every time —
+ * so a season of them filled the rankings with a row apiece. Reading the name again on the way out
+ * drops them from the tables without asking anyone to import it all a second time. It happens here
+ * rather than in either decoder because a pool can arrive through either, and a slot missed by one
+ * path would be a slot ranked.
+ *
+ * The games they hold are untouched: the result happened, whoever it turned out to be against.
+ */
+export const markPlaceholders = (teams: ScoutTeam[]): ScoutTeam[] =>
+  teams.map((team) =>
+    team.placeholder || !isPlaceholderName(team.name) ? team : { ...team, placeholder: true }
+  );
+
+/**
+ * Whatever was stored for the teams, as teams.
+ *
+ * Compact or the older array of objects, coerced, and with the stand-ins marked. This is the one
+ * path every reader of a stored pool goes through — the storage cache, a backup, and the workers,
+ * which are handed the compact form rather than a copy of every object — so a slot missed on one
+ * path cannot be a slot ranked on another.
+ */
+export const decodePoolTeams = (raw: unknown): ScoutTeam[] =>
+  markPlaceholders(decodeScoutTeams(raw, coerceScoutTeams));
+
+/** Whatever was stored for the games, as games. Games have no pass after decoding. */
+export const decodePoolGames = (raw: unknown): ScoutGame[] =>
+  decodeScoutGames(raw, coerceScoutGames);

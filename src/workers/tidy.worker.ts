@@ -1,6 +1,5 @@
 /// <reference lib="webworker" />
-import { tidyPool, type GcImportState, type PoolTidy } from "../lib/gameChangerImport";
-import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
+import { createTidyHandler, type WorkerRequest } from "./tidyProtocol";
 
 /**
  * Tidying a nationwide pool, off the main thread.
@@ -14,45 +13,10 @@ import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
  * to finish.
  *
  * Here it can take as long as it needs. The page stays usable and the answer arrives when it does.
+ * What it says and does is in `tidyProtocol.ts`, where it can be tested; this file only connects
+ * it to the message port.
  */
-
-export type TidyRequest = { kind: "tidy"; id: number; state: GcImportState };
-/** What a tidy would do, without doing it — the numbers behind the pool health card. */
-export type InspectRequest = { kind: "inspect"; id: number; state: GcImportState; stamp: string };
-export type WorkerRequest = TidyRequest | InspectRequest;
-
-export type TidyResponse = {
-  kind: "tidy";
-  id: number;
-  state: GcImportState;
-  tidy: Omit<PoolTidy, "state">;
-};
-export type InspectResponse = {
-  kind: "inspect";
-  id: number;
-  health: PoolHealth;
-  settleable: number;
-};
-export type WorkerResponse = TidyResponse | InspectResponse;
-
 const scope = self as unknown as DedicatedWorkerGlobalScope;
+const handle = createTidyHandler((response) => scope.postMessage(response));
 
-scope.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  const request = event.data;
-  if (request.kind === "inspect") {
-    const health = poolHealth(request.state, request.stamp);
-    scope.postMessage({
-      kind: "inspect",
-      id: request.id,
-      health,
-      // Only worth asking when something could be settled; on a tidy pool it is zero and cheap.
-      settleable: health.standInPlayed === 0 ? 0 : settleableNow(request.state),
-    } satisfies InspectResponse);
-    return;
-  }
-  if (request.kind === "tidy") {
-    const result = tidyPool(request.state);
-    const { state, ...counts } = result;
-    scope.postMessage({ kind: "tidy", id: request.id, state, tidy: counts } satisfies TidyResponse);
-  }
-};
+scope.onmessage = (event: MessageEvent<WorkerRequest>) => handle(event.data);
