@@ -272,6 +272,17 @@ const isCompactPool = (value: unknown): value is CompactPool =>
   !Array.isArray(value) &&
   Array.isArray((value as CompactPool).r);
 
+/**
+ * What a stored games value holds, without decoding it: how many games, and how many distinct
+ * teams they mention. The compact form keeps both as array lengths. The older array form has to
+ * be counted and says nothing about its teams; a value that is neither holds nothing.
+ */
+export const storedGamesStats = (raw: unknown): { games: number; teams: number | null } => {
+  if (isCompactPool(raw)) return { games: raw.r.length, teams: raw.t.length };
+  if (Array.isArray(raw)) return { games: raw.length, teams: null };
+  return { games: 0, teams: 0 };
+};
+
 /** A stored pool, whichever way it was written. An unreadable value reads as no games at all. */
 export const decodeScoutGames = (
   raw: unknown,

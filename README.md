@@ -719,6 +719,25 @@ every value is known to be in the new store. A browser without IndexedDB — a
 private window, an old one, blocked site data — never leaves the `localStorage`
 path, which is unchanged.
 
+**The games are stored one key per squad year.** Every game the pool had ever
+seen used to live under one key, and reading the pool meant decoding all of it:
+two hundred thousand objects for the season on screen and as many again for the
+one before it, which nobody was looking at. A squad year is already its own
+rating pool — nothing in one year's fit reads another year's games — so it is the
+unit of storage too. The Team Rankings view decodes the year on screen and keeps
+that one; switching years decodes the other and lets the first go. What needs the
+whole pool — a tidy, a pull, a backup, an archive, merging or renaming a club,
+the search box that finds a club on another year's page — reads every year from
+storage at the moment it runs and holds it only that long. Saving one year cannot
+touch another: a game filed under another year's page is laid over that year's
+copy by id rather than lost with the page it left. Changing an age group's year
+moves its games; deleting the group files them with the yearless, where nothing
+shows them and nothing loses them. Teams are not split, because one copy of a
+club is the only way a rename in one year is a rename in both. A pool written the
+old way is moved across on startup, and the old key emptied only once every
+year's write has been confirmed. The League Standings side reads only the years
+its linked age groups sit in.
+
 ### Backups
 
 **Backup JSON is a whole-browser backup.** It carries every storage key this app

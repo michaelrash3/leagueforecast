@@ -27,7 +27,7 @@ import {
 import { hasGcLinks, leagueScoutBridge, scoutLinkCandidates } from "./lib/teamRankings";
 import {
   loadAgeGroups,
-  loadScoutGames,
+  loadScoutGamesForSeason,
   loadScoutTeams,
   isPoolUnavailable,
   onPoolWriteError,
@@ -545,7 +545,7 @@ export default function App() {
       activeSeasonId,
       loadAgeGroups(),
       loadScoutTeams(),
-      loadScoutGames(),
+      loadScoutGamesForSeason(activeSeasonId),
       // The roster, not the computed teams: the bridge reads a team's id, name and stored pick,
       // all of which live on the roster row, and reading the computed teams here would need them
       // to exist before the rating that this feeds could be attached to them.
@@ -573,7 +573,7 @@ export default function App() {
         activeSeasonId,
         loadAgeGroups(),
         loadScoutTeams(),
-        loadScoutGames(),
+        loadScoutGamesForSeason(activeSeasonId),
         seasonFixtures
       );
     },
@@ -2540,7 +2540,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         logs,
         ageGroups: loadAgeGroups(),
         scoutTeams: loadScoutTeams(),
-        scoutGames: loadScoutGames(),
+        scoutGames: loadScoutGamesForSeason(activeSeasonId),
       })
     );
   };

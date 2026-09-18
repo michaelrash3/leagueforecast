@@ -6,19 +6,48 @@
  * the point of searching at all.
  */
 import { useCallback, useMemo } from "react";
-import { teamPages, type AgeGroup, type ScoutGame, type ScoutTeam } from "../lib/teamRankings";
+import {
+  teamPages,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+  type TeamPage,
+} from "../lib/teamRankings";
 import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
 import type { MergeCandidate } from "../components/TeamDetailPanel";
 
 type ClubSearchInput = {
   teams: ScoutTeam[];
-  games: ScoutGame[];
+  /**
+   * Every game in the pool, every year, read when the index is built rather than held. The view
+   * keeps one year's games in memory; finding a club on another year's page needs the others, and
+   * this reads them for as long as it takes to say where each team is, then lets them go.
+   */
+  games: () => ScoutGame[];
   ageGroups: AgeGroup[];
   /** The teams rated on the page on screen — the only ones a merge can name. */
   rankedTeams: MergeCandidate[];
+  /**
+   * Whether the search box is on a tab that shows it. Off, the index is not built at all — a pull
+   * in Setup saves the pool every few hundred teams, and rebuilding a whole-pool index on each save
+   * would be a decode of every year, every time, for a box nobody can see.
+   */
+  enabled: boolean;
+  /** Storage is not reactive; this is bumped when the pool changes, and the index follows it. */
+  revision: number;
 };
 
-export function useClubSearch({ teams, games, ageGroups, rankedTeams }: ClubSearchInput) {
+/** Referentially stable, so a consumer memoising on "no pages" does not re-run every render. */
+const NO_PAGES = new Map<string, TeamPage>();
+
+export function useClubSearch({
+  teams,
+  games,
+  ageGroups,
+  rankedTeams,
+  enabled,
+  revision,
+}: ClubSearchInput) {
   /**
    * Who coaches each team, gathered from every GameChanger id it is linked to.
    *
@@ -43,7 +72,11 @@ export function useClubSearch({ teams, games, ageGroups, rankedTeams }: ClubSear
    * Over the whole pool rather than this page: finding a club without already knowing its season
    * and age level is the one thing the age tabs cannot do, and is the point of searching at all.
    */
-  const pagesByTeam = useMemo(() => teamPages(teams, games, ageGroups), [teams, games, ageGroups]);
+  const pagesByTeam = useMemo(() => {
+    void revision;
+    if (!enabled) return NO_PAGES;
+    return teamPages(teams, games(), ageGroups);
+  }, [enabled, teams, games, ageGroups, revision]);
 
   const searchOptions = useMemo(() => {
     const byId = new Map(teams.map((team) => [team.id, team]));
