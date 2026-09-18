@@ -102,6 +102,7 @@ src/
   hooks/                # worker lifecycles, routing, shortcuts, theme, toasts
   workers/
     sim.worker.ts  rankings.worker.ts  tidy.worker.ts
+    rankingsProtocol.ts  tidyProtocol.ts  # what crosses to each worker; pure, so tested
   components/
     league/             # League Standings views: standings, games, forecast, settings
     teamRankings/       # Team Rankings sections and cards
@@ -943,6 +944,15 @@ the deterministic story is shown. To exercise the AI path locally, run
 ## Performance notes
 
 - Simulation and trend work run in `src/workers/sim.worker.ts`.
+- The rankings worker keeps one decoded pool and the page names it by revision.
+  The pool crosses to it only when the pool itself changes, in the compact form
+  IndexedDB stores, and a page switch, a half of the year or a different "my
+  team" ships nothing at all. Measured on a 40,000-team, 400,000-game pool, the
+  copy every request used to carry was 125 MB on the wire and about 3.3 s of
+  serialising and deserialising; the compact shipment is 33 MB and about 0.7 s,
+  and it happens once per change rather than once per fit. The tidy worker takes
+  the pool the same way and hands back only the parts it changed, so a tidy that
+  found nothing to do no longer re-saves the whole pool.
 - Hooks debounce updates and cancel in-flight runs.
 - Render lookups and scenario computations are memoized.
 - Simulation/projection apply evolving in-iteration team state for deterministic, non-stale forecasts.
