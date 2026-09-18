@@ -944,20 +944,27 @@ export const predictGame = (
   return predictMachinePitchGame(game, teams, settings, byId);
 };
 
-export const applyResult = (
-  teams: Team[],
+/**
+ * Books one simulated result onto its two sides, in place.
+ *
+ * The score is the model's predicted one, nudged so the drawn winner actually wins; the records,
+ * runs, run differential, head-to-head and the rating fields the tiebreakers read all move with it.
+ * Mutating is the point: this is the inner step of the Monte Carlo loop, and it used to run through
+ * `applyResult` below, which copies every team and every head-to-head record and re-runs the
+ * prediction it had just been handed — per game, per iteration. For twelve teams and sixty games
+ * that was some hundred and fifty thousand copies of the league per forecast.
+ *
+ * Callers hand it teams they own: `applyResult` its own fresh copies, the simulators their
+ * per-iteration scratch season.
+ */
+const settleGame = (
+  away: Team,
+  home: Team,
   game: Matchup,
   winnerId: string,
-  modelTeams: Team[],
+  prediction: Prediction,
   settings: Settings
-) => {
-  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
-  const byId = buildByIdMap(next);
-  const away = byId.get(game.away);
-  const home = byId.get(game.home);
-  if (!away || !home) return next;
-
-  const prediction = predictGame(game, modelTeams, settings);
+): void => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
 
@@ -994,8 +1001,58 @@ export const applyResult = (
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
   });
+};
 
+/**
+ * The teams with one result applied, as new objects; the inputs are untouched. What
+ * `projectStandings` and the tests use, and what the simulators used to, one clone per game.
+ */
+export const applyResult = (
+  teams: Team[],
+  game: Matchup,
+  winnerId: string,
+  modelTeams: Team[],
+  settings: Settings
+) => {
+  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  const byId = buildByIdMap(next);
+  const away = byId.get(game.away);
+  const home = byId.get(game.home);
+  if (!away || !home) return next;
+  settleGame(away, home, game, winnerId, predictGame(game, modelTeams, settings), settings);
   return next;
+};
+
+/**
+ * One iteration's copy of the league to play a season out on: every team and every head-to-head
+ * record copied once, so the loop can write results straight onto them, with the lookup built once
+ * beside them rather than once per game.
+ */
+const scratchSeason = (teams: Team[]): { season: Team[]; byId: Map<string, Team> } => {
+  const season = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  return { season, byId: buildByIdMap(season) };
+};
+
+/**
+ * Plays the remaining games once, in order, writing each result onto the scratch season so the
+ * next prediction sees the standings as they then are. Draws exactly one random number per game,
+ * before looking the sides up, so the stream of draws — and therefore every answer — is the same
+ * as when this loop copied the league per game.
+ */
+const playOut = (
+  season: Team[],
+  byId: Map<string, Team>,
+  remaining: Matchup[],
+  settings: Settings,
+  random: () => number
+): void => {
+  for (const game of remaining) {
+    const prediction = predictGame(game, season, settings, byId);
+    const winner = random() < prediction.awayWinPct ? game.away : game.home;
+    const away = byId.get(game.away);
+    const home = byId.get(game.home);
+    if (away && home) settleGame(away, home, game, winner, prediction, settings);
+  }
 };
 
 export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
@@ -1110,18 +1167,13 @@ export const simulateGoldOdds = (
   const convergenceThresholdPct = 0.35;
   let lastSnapshot: Record<string, number> | null = null;
   let completedIterations = 0;
+  const rankOptions = rankOptionsFromSettings(settings);
 
   for (let i = 0; i < iterations; i += 1) {
-    let simTeams = teams.map((team) => ({ ...team }));
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
 
-    remaining.forEach((game) => {
-      const simById = buildByIdMap(simTeams);
-      const prediction = predictGame(game, simTeams, settings, simById);
-      const winner = random() < prediction.awayWinPct ? game.away : game.home;
-      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
-    });
-
-    rankTeams(simTeams, rankOptionsFromSettings(settings))
+    rankTeams(season, rankOptions)
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
@@ -1180,7 +1232,7 @@ export type BracketOddsResult = {
 // from the model's win probability with the shared PRNG. Returns the champion and both finalists.
 const simulateBracketRun = (
   entrants: Team[],
-  allTeams: Team[],
+  byId: Map<string, Team>,
   settings: Settings,
   random: () => number
 ): { championId: string | null; finalistIds: string[] } => {
@@ -1191,7 +1243,8 @@ const simulateBracketRun = (
 
   const size = bracketNextPowerOfTwo(entrants.length);
   const totalRounds = Math.log2(size);
-  const byId = buildByIdMap(allTeams);
+  // The league as it stands at season's end, for the model to read both sides from.
+  const allTeams = [...byId.values()];
   let slots: (string | null)[] = bracketSeedOrder(size).map(
     (seed) => entrants[seed - 1]?.id ?? null
   );
@@ -1247,15 +1300,10 @@ export const simulateBracketOdds = (
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
 
   for (let i = 0; i < iterations; i += 1) {
-    let simTeams = teams.map((team) => ({ ...team }));
-    remaining.forEach((game) => {
-      const simById = buildByIdMap(simTeams);
-      const prediction = predictGame(game, simTeams, settings, simById);
-      const winner = random() < prediction.awayWinPct ? game.away : game.home;
-      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
-    });
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
 
-    const finalRanking = rankTeams(simTeams, rankOptions);
+    const finalRanking = rankTeams(season, rankOptions);
     finalRanking.forEach((team, index) => {
       const distribution = seedCounts[team.id];
       if (distribution && index >= 0 && index < distribution.length) {
@@ -1264,7 +1312,7 @@ export const simulateBracketOdds = (
     });
 
     const entrants = finalRanking.slice(0, bracketCutoff);
-    const { championId, finalistIds } = simulateBracketRun(entrants, simTeams, settings, random);
+    const { championId, finalistIds } = simulateBracketRun(entrants, byId, settings, random);
     if (championId) championCounts[championId] = (championCounts[championId] ?? 0) + 1;
     finalistIds.forEach((id) => {
       finalsCounts[id] = (finalsCounts[id] ?? 0) + 1;
