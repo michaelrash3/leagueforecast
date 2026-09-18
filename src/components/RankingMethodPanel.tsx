@@ -121,13 +121,12 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           <span className="font-bold text-slate-950 dark:text-white">
             5. Recent form counts more.
           </span>{" "}
-          Within a team&apos;s own record the newer games pull harder: {ACTIVE_RECENCY_SCHEME.label}
-          . A side that lost in September and has been winning since is rated closer to the side it
-          is now than to the one it was. This is counted in games, not in months, so a squad that
-          played its season and then stopped is <em>not</em> marked down for the calendar — from
-          that squad&apos;s point of view nothing has happened since, and those games are still the
-          only evidence anybody has. It changes the rating only: the record, the games played and
-          the strength of schedule are what the season was, and they do not move.
+          Newer games pull harder: {ACTIVE_RECENCY_SCHEME.label}. A side that lost in September and
+          has been winning since is rated closer to the side it is now than to the one it was. The
+          season is still the season: every game in the squad year stays in the fit, and an autumn
+          game simply counts for less than a spring one by the time spring comes. It changes the
+          rating only: the record, the games played and the strength of schedule are what the season
+          was, and they do not move.
         </li>
       </ol>
 

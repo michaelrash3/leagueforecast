@@ -195,24 +195,33 @@ export const dayInstant = (date: string | undefined): number =>
 /**
  * The scheme the app actually ranks with.
  *
- * `byGamesSince` because it is the one answer to the winter gap that does not punish a squad for
- * the calendar: a side that played twelve games in the fall and none since is still read off
- * twelve recent games, because from that squad's point of view nothing has happened. Time has
- * passed; evidence has not. A day-based half-life would instead read that side almost entirely
- * off the ridge by March, which is the one thing everybody agrees is wrong. It also needs no
- * clock, so a rating is a pure function of the pool and two runs a week apart agree.
+ * `byDays` — half weight for every ninety days of age — because that is what the systems this one
+ * is modelled on do. Massey's least-squares ratings de-weight early-season games; Pomeroy's weight
+ * a game by when it was played, with more weight the more recent, so that a rating says how strong
+ * a side is *now*; and the Elo family reaches the same place by construction, a recent result
+ * moving the number further than an old one. None of them steps the weight at a boundary inside
+ * the season, and neither does this: the squad year is still the pool, exactly as `inSquadYear`
+ * draws it, and an autumn game is still in the fit. It counts for less than a spring one by a slope
+ * rather than a cliff — about a third of a fresh game's weight after five months, a quarter after
+ * six.
  *
- * Twenty is the moderate rung of the four offered. For a squad with twenty games or fewer the
- * oldest still carries at least half weight, so this shades a season rather than discarding one —
- * which is the right size of step for a constant that has not yet been measured.
+ * Ninety rather than thirty or sixty because of the winter. A day-based half-life reads a side that
+ * stopped in October off the ridge by March in proportion to how fast it decays, and these seasons
+ * run August to July with a four-month gap in the middle: thirty days would make the autumn
+ * irrelevant by spring, which is a season split under another name. Ninety keeps it in.
  *
- * BECAUSE IT HAS NOT BEEN MEASURED: `scripts/recencySweep.ts` exists to choose this number against
- * a real pool, and until it has been run this is a judgement call, not a finding. Setup's "Check
- * the model" card runs the same comparison in-app (`compareRecencySchemes`), so a pool this is
- * wrong for will say so. Changing it is this one line — every candidate is in `RECENCY_SCHEMES`,
- * and `noDecay` restores exactly the behaviour that shipped before weighting existed.
+ * What the evidence is, honestly. `scripts/recencySweep.ts` was run on a nationwide pool seven
+ * weeks into a squad year — the only backup small enough to export — and could not put the
+ * cross-winter question, because that pool had no winter in it. In season, at four nested cuts, the
+ * day-based schemes beat the control on every one and the games-since schemes were
+ * indistinguishable from it; the hold-out was small and the shuffled-calendar null was not run to
+ * completion, so that is a direction rather than a finding. Practice and the direction agree, and
+ * that is the choice. A backup that crosses a winter lets the sweep decide it properly.
+ *
+ * Changing it is this one line — every candidate is in `RECENCY_SCHEMES`, and `noDecay` restores
+ * exactly the behaviour that shipped before weighting existed.
  */
-export const ACTIVE_RECENCY_SCHEME: RecencyScheme = byGamesSince(20);
+export const ACTIVE_RECENCY_SCHEME: RecencyScheme = byDays(90);
 
 /**
  * The weight of each game, in the order given, under `scheme`.
@@ -226,9 +235,10 @@ export const ACTIVE_RECENCY_SCHEME: RecencyScheme = byGamesSince(20);
  * and still counts toward the record shown beside the rating.
  *
  * `asOf` is the newest dated game rather than the clock, which keeps a rating a pure function of
- * the pool. Both schemes that could ask — `byGamesSince` and `byBlock` — ignore it, so nothing
- * currently reads it; a day-based scheme would want the real day instead, and switching to one
- * means passing it in.
+ * the pool: two readings a week apart agree. That costs a day-based scheme nothing. Every one of
+ * its weights is scaled by the same factor whatever `asOf` is, and normalising cancels the factor,
+ * so the weights depend only on the gaps between the games. `byGamesSince` and `byBlock` do not
+ * read it at all.
  */
 export const weightsForGames = (
   games: readonly { date?: string; home: string; away: string }[],
