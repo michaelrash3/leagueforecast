@@ -888,9 +888,15 @@ describe("leagueScoutBridge", () => {
 describe("telling two clubs of one name apart by who they played", () => {
   const groups: AgeGroup[] = [{ id: "ag1", name: "2027", seasonIds: ["spring2027"] }];
   // Two Trash Pandas on this season's pages. Only one has played the clubs our league plays.
+  // Both were pulled from GameChanger, which is what makes them worth offering at all; the
+  // opponents are deliberately left unlinked, because an opponent only has to have been played.
+  const linked = (id: string, name: string): ScoutTeam => ({
+    ...team(id, name),
+    gcTeams: [{ teamId: `gc-${id}`, name, ageGroupId: "ag1" }],
+  });
   const pool = [
-    team("S-OURS", "Trash Pandas"),
-    team("S-THEIRS", "Trash Pandas"),
+    linked("S-OURS", "Trash Pandas"),
+    linked("S-THEIRS", "Trash Pandas"),
     team("S-BEAR", "Bears"),
     team("S-COUG", "Cougars"),
     team("S-FARAWAY", "Rivercats"),
@@ -916,6 +922,30 @@ describe("telling two clubs of one name apart by who they played", () => {
     expect(found[0]!.sharedOpponents).toEqual(["Bears", "Cougars"]);
     const other = found.find((candidate) => candidate.scoutTeamId === "S-THEIRS")!;
     expect(other.sharedOpponents).toEqual([]);
+  });
+
+  it("does not offer a club with no GameChanger team behind it, however well it matches", () => {
+    // A name-only stand-in: known because somebody's schedule named it, pulled by nobody. It has
+    // exactly the opponents the league plays, and it is still not a link worth making - there is
+    // no schedule of its own to bridge, so searching past it is time wasted.
+    const standIn = { ...team("S-GHOST", "Trash Pandas"), nameOnly: true as const };
+    const withGhost = [...pool, standIn];
+    const ghostGames = [
+      ...games,
+      game("S-GHOST", "S-BEAR", 6, 1, "ag1"),
+      game("S-GHOST", "S-COUG", 2, 0, "ag1"),
+    ];
+    const found = scoutLinkCandidates(
+      "Trash Pandas",
+      "spring2027",
+      groups,
+      withGhost,
+      ghostGames,
+      fixtures
+    );
+    expect(found.map((candidate) => candidate.scoutTeamId)).not.toContain("S-GHOST");
+    // And the linked club it was competing with is still there, still first.
+    expect(found[0]!.scoutTeamId).toBe("S-OURS");
   });
 
   it("guesses the club whose schedule matches, where the name alone could not", () => {

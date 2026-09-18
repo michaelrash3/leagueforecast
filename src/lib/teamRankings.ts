@@ -1704,7 +1704,15 @@ export const teamRecordInPool = (
   return { wins, losses, ties, games: counted.length, crossAgeGames };
 };
 
-const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
+/**
+ * Whether a club has a GameChanger team behind it — a schedule that was pulled, or can be.
+ *
+ * Exported because linking a League Standings team to a club is only worth doing when there is
+ * one: a name-only stand-in is a club known solely because somebody else's schedule named it, and
+ * linking to it brings in nothing but the one-sided games that already reach the league through
+ * the opponents who reported them.
+ */
+export const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
 
 /**
  * The connected pieces of a schedule: which clubs can be compared to which at all.
@@ -2711,7 +2719,9 @@ export const scoutLinkCandidates = (
   const candidates: ScoutLinkCandidate[] = [];
   gameCount.forEach((count, scoutTeamId) => {
     const team = scoutById.get(scoutTeamId);
-    if (!team || team.placeholder) return;
+    // Only a club with a GameChanger team behind it is worth offering: a name-only stand-in has no
+    // schedule of its own to bridge, so linking to one gives the league nothing it did not have.
+    if (!team || team.placeholder || !hasGcLinks(team)) return;
     const opponents = played.get(scoutTeamId);
     const shared: string[] = [];
     opponents?.forEach((name, key) => {

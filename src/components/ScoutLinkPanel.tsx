@@ -176,7 +176,8 @@ function ScoutLinkPanelInner({
               checked={wide}
               onChange={(event) => setWide(event.target.checked)}
             />
-            Search every club in Team Rankings, not just the ones this season&apos;s pages hold
+            Search every GameChanger-linked club in Team Rankings, not just the ones this
+            season&apos;s pages hold
           </label>
 
           <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
