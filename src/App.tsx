@@ -88,6 +88,7 @@ import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildShareUrl } from "./lib/share";
+import { noteBackupTaken } from "./lib/lastBackup";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
   buildProjectionSnapshot,
@@ -2109,7 +2110,10 @@ This will replace the current season data and save an undo snapshot.`,
     URL.revokeObjectURL(url);
   };
 
-  const exportBackup = () => downloadBackup(readFullBackup(liveSeasonData()));
+  const exportBackup = () => {
+    downloadBackup(readFullBackup(liveSeasonData()));
+    noteBackupTaken("league");
+  };
 
   /**
    * A whole-browser restore: every season, the Team Rankings pool, and the UI preferences. It

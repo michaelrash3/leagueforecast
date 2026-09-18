@@ -1,3 +1,5 @@
+import { agoLabel, daysSince } from "../../lib/date";
+import { BACKUP_REMINDER_DAYS } from "../../lib/lastBackup";
 import { button, card } from "../../styles/tokens";
 
 type ResetRankingsCardProps = {
@@ -6,6 +8,8 @@ type ResetRankingsCardProps = {
   gameCount: number;
   /** Writes the whole pool out as one file, so there is a way back from the button below it. */
   onDownloadBackup: () => void;
+  /** When that was last done from this browser; null for never. */
+  lastBackupAt: string | null;
   onReset: () => void;
 };
 
@@ -25,9 +29,11 @@ export function ResetRankingsCard({
   teamCount,
   gameCount,
   onDownloadBackup,
+  lastBackupAt,
   onReset,
 }: ResetRankingsCardProps) {
   const empty = ageGroupCount === 0 && teamCount === 0 && gameCount === 0;
+  const overdue = !empty && (daysSince(lastBackupAt) ?? Infinity) > BACKUP_REMINDER_DAYS;
 
   return (
     <div className={`${card} border-red-200 p-5 dark:border-red-900/70`}>
@@ -55,6 +61,16 @@ export function ResetRankingsCard({
         data again: it is one CSV file, the same one the app&apos;s own export writes, and importing
         it puts the pool back.
       </p>
+      {!empty && (
+        <p
+          className={`mt-2 text-xs ${overdue ? "font-bold text-amber-700 dark:text-amber-300" : "text-slate-500"}`}
+          data-testid="pool-backup-freshness"
+        >
+          Last backup: {agoLabel(lastBackupAt)}.
+          {overdue &&
+            " This pool lives in this browser alone; a backup is the only copy elsewhere."}
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={onDownloadBackup} disabled={empty} className={button.ghost}>
           Download a backup first

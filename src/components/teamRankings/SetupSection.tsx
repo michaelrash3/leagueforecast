@@ -23,6 +23,8 @@ type SetupSectionProps = {
   teamCount: number;
   gameCount: number;
   onDownloadBackup: () => void;
+  /** When the pool was last backed up from this browser; null for never. */
+  lastBackupAt: string | null;
   onReset: () => void;
   /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
   poolHealth: {
@@ -63,6 +65,7 @@ export function SetupSection({
   teamCount,
   gameCount,
   onDownloadBackup,
+  lastBackupAt,
   onReset,
   poolHealth,
   archive,
@@ -183,6 +186,7 @@ export function SetupSection({
         teamCount={teamCount}
         gameCount={gameCount}
         onDownloadBackup={onDownloadBackup}
+        lastBackupAt={lastBackupAt}
         onReset={onReset}
       />
     </>

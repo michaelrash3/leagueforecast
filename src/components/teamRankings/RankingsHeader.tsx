@@ -2,6 +2,7 @@
  * The top of Team Rankings: which season year is open, which age level within it, and which area
  * of that page is showing. Every one of the three is a link somebody can send.
  */
+import { agoLabel } from "../../lib/date";
 import {
   ageGroupLevel,
   isRankedAgeLevel,
@@ -30,6 +31,8 @@ type RankingsHeaderProps = {
   onOpenYear: (year: number | undefined) => void;
   onOpenPage: (groupId: string) => void;
   onOpenSection: (section: RankingsSection) => void;
+  /** When the newest GameChanger schedule in the pool was fetched; null for a pool never pulled into. */
+  pulledAt: string | null;
 };
 
 export function RankingsHeader({
@@ -45,12 +48,19 @@ export function RankingsHeader({
   onOpenYear,
   onOpenPage,
   onOpenSection,
+  pulledAt,
 }: RankingsHeaderProps) {
   return (
     <div className={`${card} p-5`}>
       <h1 className="text-xl font-black tracking-tight text-slate-950 dark:text-white">
         Team Rankings
       </h1>
+      {/* The one fact about freshness the pool has always stored and never shown. */}
+      <p className="mt-1 text-xs text-slate-500" data-testid="rankings-freshness">
+        {pulledAt === null
+          ? "No GameChanger schedules pulled yet."
+          : `Schedules last pulled ${agoLabel(pulledAt)}.`}
+      </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500"

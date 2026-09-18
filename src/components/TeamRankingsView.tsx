@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -38,6 +39,7 @@ import {
   poolSignature,
   type GcImportState,
   type PoolTidy,
+  latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import {
@@ -176,6 +178,10 @@ export function TeamRankingsView({
   } = useRankingsPages(ageGroups, today);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
+  /** When the pool was last backed up from this browser; re-read after a download from here. */
+  const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
+  /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
+  const pulledAt = useMemo(() => latestImportedAt(scoutTeams), [scoutTeams]);
   const [reportTeamId, setReportTeamId] = useState<string>("");
 
   const [gameDraft, setGameDraft] = useState<AddGameDraft>(EMPTY_ADD_GAME_DRAFT);
@@ -1019,6 +1025,8 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     anchor.click();
     URL.revokeObjectURL(url);
     showToast(`Backup downloaded (${formatBytes(blob.size)}).`, { tone: "success" });
+    noteBackupTaken("pool");
+    setPoolBackupAt(lastBackupTakenAt("pool"));
   };
 
   /**
@@ -1202,6 +1210,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
   return (
     <div className="flex flex-col gap-6">
       <RankingsHeader
+        pulledAt={pulledAt}
         ageGroups={ageGroups}
         section={section}
         selectedYear={selectedYear}
@@ -1374,6 +1383,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               teamCount={scoutTeams.length}
               gameCount={scoutGames.length}
               onDownloadBackup={() => void downloadPoolBackup()}
+              lastBackupAt={poolBackupAt}
               /*
               The stored pool, not the merged roster: league-derived games are rebuilt from League
               Standings every render and must never be written back here.

@@ -30,7 +30,13 @@ const LEGACY_KEYS = {
 const DATA_KEYS = Object.keys(FLAT_KEYS) as DataKey[];
 const DEFAULT_SEASON_ID = "default";
 
-export type SeasonMeta = { id: string; name: string; createdAt: string };
+export type SeasonMeta = {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** When any of this season's data was last saved. Absent on a season from before it was kept. */
+  updatedAt?: string;
+};
 
 const safeGet = (key: string): string | null => {
   try {
@@ -86,7 +92,21 @@ const readSeasons = (): SeasonMeta[] => {
       id: entry.id,
       name: entry.name,
       createdAt: typeof entry.createdAt === "string" ? entry.createdAt : "",
+      ...(typeof entry.updatedAt === "string" ? { updatedAt: entry.updatedAt } : {}),
     }));
+};
+
+/**
+ * Marks a season as changed now. Called by every save of its data, so the list carries the one
+ * fact about freshness League Standings never had: not when a season was made, but when it was
+ * last touched. The undo snapshot is not a change to the season and does not call this.
+ */
+const touchSeason = (id: string): void => {
+  const seasons = readSeasons();
+  if (!seasons.some((season) => season.id === id)) return;
+  writeSeasons(
+    seasons.map((season) => (season.id === id ? { ...season, updatedAt: nowIso() } : season))
+  );
 };
 const writeSeasons = (seasons: SeasonMeta[]): boolean =>
   safeSet(SEASONS_KEY, JSON.stringify(seasons));
@@ -181,16 +201,18 @@ export const loadSettingsForSeason = (seasonId: string): Settings => loadSetting
 export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), [], loadSettingsFor(seasonId));
 
-export const saveTeams = (teams: TeamBase[]) =>
-  safeSet(seasonKey(activeId(), "teams"), JSON.stringify(teams));
-export const saveMatchups = (matchups: Matchup[]) =>
-  safeSet(seasonKey(activeId(), "matchups"), JSON.stringify(matchups));
-export const saveLogs = (logs: Record<string, GameLog>) =>
-  safeSet(seasonKey(activeId(), "logs"), JSON.stringify(logs));
-export const saveBracketLogs = (logs: Record<string, GameLog>) =>
-  safeSet(seasonKey(activeId(), "bracketLogs"), JSON.stringify(logs));
-export const saveSettings = (settings: Settings) =>
-  safeSet(seasonKey(activeId(), "settings"), JSON.stringify(settings));
+/** Writes one of the active season's keys and marks the season changed. */
+const saveActive = (dataKey: DataKey, value: unknown): boolean => {
+  const id = activeId();
+  const ok = safeSet(seasonKey(id, dataKey), JSON.stringify(value));
+  if (ok) touchSeason(id);
+  return ok;
+};
+export const saveTeams = (teams: TeamBase[]) => saveActive("teams", teams);
+export const saveMatchups = (matchups: Matchup[]) => saveActive("matchups", matchups);
+export const saveLogs = (logs: Record<string, GameLog>) => saveActive("logs", logs);
+export const saveBracketLogs = (logs: Record<string, GameLog>) => saveActive("bracketLogs", logs);
+export const saveSettings = (settings: Settings) => saveActive("settings", settings);
 export const saveUndoSnapshot = (snapshot: unknown) =>
   safeSet(seasonKey(activeId(), "undo"), JSON.stringify(snapshot));
 export const readUndoSnapshot = () => parseJson(safeGet(seasonKey(activeId(), "undo")));
