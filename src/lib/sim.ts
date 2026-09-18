@@ -1,4 +1,5 @@
 import { parseDateValue } from "./date";
+import { wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
   DEFAULT_TIEBREAKER_ORDER,
@@ -944,20 +945,27 @@ export const predictGame = (
   return predictMachinePitchGame(game, teams, settings, byId);
 };
 
-export const applyResult = (
-  teams: Team[],
+/**
+ * Books one simulated result onto its two sides, in place.
+ *
+ * The score is the model's predicted one, nudged so the drawn winner actually wins; the records,
+ * runs, run differential, head-to-head and the rating fields the tiebreakers read all move with it.
+ * Mutating is the point: this is the inner step of the Monte Carlo loop, and it used to run through
+ * `applyResult` below, which copies every team and every head-to-head record and re-runs the
+ * prediction it had just been handed — per game, per iteration. For twelve teams and sixty games
+ * that was some hundred and fifty thousand copies of the league per forecast.
+ *
+ * Callers hand it teams they own: `applyResult` its own fresh copies, the simulators their
+ * per-iteration scratch season.
+ */
+const settleGame = (
+  away: Team,
+  home: Team,
   game: Matchup,
   winnerId: string,
-  modelTeams: Team[],
+  prediction: Prediction,
   settings: Settings
-) => {
-  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
-  const byId = buildByIdMap(next);
-  const away = byId.get(game.away);
-  const home = byId.get(game.home);
-  if (!away || !home) return next;
-
-  const prediction = predictGame(game, modelTeams, settings);
+): void => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
 
@@ -994,8 +1002,58 @@ export const applyResult = (
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
   });
+};
 
+/**
+ * The teams with one result applied, as new objects; the inputs are untouched. What
+ * `projectStandings` and the tests use, and what the simulators used to, one clone per game.
+ */
+export const applyResult = (
+  teams: Team[],
+  game: Matchup,
+  winnerId: string,
+  modelTeams: Team[],
+  settings: Settings
+) => {
+  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  const byId = buildByIdMap(next);
+  const away = byId.get(game.away);
+  const home = byId.get(game.home);
+  if (!away || !home) return next;
+  settleGame(away, home, game, winnerId, predictGame(game, modelTeams, settings), settings);
   return next;
+};
+
+/**
+ * One iteration's copy of the league to play a season out on: every team and every head-to-head
+ * record copied once, so the loop can write results straight onto them, with the lookup built once
+ * beside them rather than once per game.
+ */
+const scratchSeason = (teams: Team[]): { season: Team[]; byId: Map<string, Team> } => {
+  const season = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  return { season, byId: buildByIdMap(season) };
+};
+
+/**
+ * Plays the remaining games once, in order, writing each result onto the scratch season so the
+ * next prediction sees the standings as they then are. Draws exactly one random number per game,
+ * before looking the sides up, so the stream of draws — and therefore every answer — is the same
+ * as when this loop copied the league per game.
+ */
+const playOut = (
+  season: Team[],
+  byId: Map<string, Team>,
+  remaining: Matchup[],
+  settings: Settings,
+  random: () => number
+): void => {
+  for (const game of remaining) {
+    const prediction = predictGame(game, season, settings, byId);
+    const winner = random() < prediction.awayWinPct ? game.away : game.home;
+    const away = byId.get(game.away);
+    const home = byId.get(game.home);
+    if (away && home) settleGame(away, home, game, winner, prediction, settings);
+  }
 };
 
 export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
@@ -1060,88 +1118,116 @@ export const makeRandom = (seed: number) => {
   };
 };
 
+/**
+ * A text that changes exactly when the forecast's inputs do: which games are final, and what they
+ * finished. It seeds the random draws, and it is the key the hooks use to say whether the odds on
+ * screen describe the current season.
+ *
+ * The score is in it because a corrected result — a 5–3 that was really 12–0 — changes every
+ * standing the simulation starts from and used to change nothing here: the game was final before
+ * and final after, so the key read "current" while the odds on screen were the ones from before
+ * the correction, for as long as the refit took.
+ */
 export const simulationSeed = (
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   extras: string
 ) => {
   const finals = [...matchups]
-    .map((game) => `${game.id}|${isFinal(logs[game.id]) ? "F" : "O"}`)
+    .map((game) => {
+      const log = logs[game.id];
+      return isFinal(log)
+        ? `${game.id}|F${log?.awayRuns ?? ""}-${log?.homeRuns ?? ""}`
+        : `${game.id}|O`;
+    })
     .sort()
     .join(",");
   return `${extras}::${finals}`;
 };
 
-const hasConvergedOdds = (
+/**
+ * How close the odds have to be known before the loop may stop: a 95% half-width, as a
+ * probability. Two points. A settled league — every team plainly in or plainly out — gets there in
+ * a couple of hundred seasons; a contested cut line runs to the ceiling instead, which is the
+ * right way round.
+ */
+export const ODDS_PRECISION = 0.02;
+/** Below this many seasons nothing is asked of the interval: too few draws to trust its width. */
+const ODDS_MIN_ITERATIONS = 200;
+const ODDS_CHECK_INTERVAL = 50;
+
+/**
+ * Whether every team's odds are known to within `tolerance`.
+ *
+ * The rule this replaces compared the running average with itself twenty-five seasons earlier and
+ * called the odds converged when the largest move was under a third of a point. A cumulative mean
+ * is guaranteed to move less as it grows, whatever it is converging to — at a hundred seasons and
+ * even odds the true 95% half-width is about ten points, and a drift under a third of a point
+ * satisfied the rule by construction. This asks the question that rule only looked like it was
+ * asking, how wide the interval is, with the same Wilson interval the app prints beside the odds,
+ * so the stop and the ± on screen mean the same thing.
+ */
+const oddsArePrecise = (
   teams: Team[],
   counts: Record<string, number>,
-  previous: Record<string, number> | null,
-  completedIterations: number,
-  thresholdPct: number
-) => {
-  if (!previous || completedIterations <= 0) return false;
+  completed: number,
+  tolerance: number
+): boolean =>
+  teams.every(
+    (team) => wilsonScoreInterval((counts[team.id] ?? 0) / completed, completed).margin <= tolerance
+  );
 
-  let maxDelta = 0;
-  teams.forEach((team) => {
-    const currentPct = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    const delta = Math.abs(currentPct - (previous[team.id] ?? 0));
-    if (delta > maxDelta) maxDelta = delta;
-  });
-
-  return maxDelta <= thresholdPct;
+export type GoldOddsRun = {
+  /** Per team, the probability (0–100) of finishing inside the cut. */
+  odds: Record<string, number>;
+  /**
+   * How many seasons were actually played out. The ± beside the odds has to be computed from
+   * this: the loop stops early when the odds are settled, and an interval computed from the
+   * ceiling would claim a precision the draws never reached.
+   */
+  iterations: number;
 };
 
-export const simulateGoldOdds = (
+/**
+ * Plays the rest of the season out `iterations` times, or until every team's odds are known to
+ * `ODDS_PRECISION`, and counts who finished inside the cut.
+ */
+export const simulateGoldOddsRun = (
   teams: Team[],
   remaining: Matchup[],
   iterations: number,
   seedText: string,
   cutoff: number,
   settings: Settings
-) => {
+): GoldOddsRun => {
   const counts: Record<string, number> = {};
   teams.forEach((team) => {
     counts[team.id] = 0;
   });
 
   const random = makeRandom(hashSeed(seedText));
-  const minIterations = Math.min(iterations, 100);
-  const convergenceCheckInterval = 25;
-  const convergenceThresholdPct = 0.35;
-  let lastSnapshot: Record<string, number> | null = null;
+  const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
+  const rankOptions = rankOptionsFromSettings(settings);
 
   for (let i = 0; i < iterations; i += 1) {
-    let simTeams = teams.map((team) => ({ ...team }));
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
 
-    remaining.forEach((game) => {
-      const simById = buildByIdMap(simTeams);
-      const prediction = predictGame(game, simTeams, settings, simById);
-      const winner = random() < prediction.awayWinPct ? game.away : game.home;
-      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
-    });
-
-    rankTeams(simTeams, rankOptionsFromSettings(settings))
+    rankTeams(season, rankOptions)
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
       });
 
     completedIterations += 1;
-    const reachedMinimum = completedIterations >= minIterations;
-    const onCheckInterval = completedIterations % convergenceCheckInterval === 0;
-    if (!reachedMinimum || !onCheckInterval) continue;
-
     if (
-      hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)
+      completedIterations >= minIterations &&
+      completedIterations % ODDS_CHECK_INTERVAL === 0 &&
+      oddsArePrecise(teams, counts, completedIterations, ODDS_PRECISION)
     ) {
       break;
     }
-
-    lastSnapshot = {};
-    teams.forEach((team) => {
-      lastSnapshot![team.id] = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    });
   }
 
   const denominator = Math.max(1, completedIterations);
@@ -1149,8 +1235,19 @@ export const simulateGoldOdds = (
   teams.forEach((team) => {
     odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
   });
-  return odds;
+  return { odds, iterations: completedIterations };
 };
+
+/** The odds alone, for callers that have no use for the count. */
+export const simulateGoldOdds = (
+  teams: Team[],
+  remaining: Matchup[],
+  iterations: number,
+  seedText: string,
+  cutoff: number,
+  settings: Settings
+): Record<string, number> =>
+  simulateGoldOddsRun(teams, remaining, iterations, seedText, cutoff, settings).odds;
 
 // Standard single-elimination bracket helpers (kept local to avoid a cycle with bracket.ts,
 // which already imports predictGame/hashSeed from this module).
@@ -1180,7 +1277,7 @@ export type BracketOddsResult = {
 // from the model's win probability with the shared PRNG. Returns the champion and both finalists.
 const simulateBracketRun = (
   entrants: Team[],
-  allTeams: Team[],
+  byId: Map<string, Team>,
   settings: Settings,
   random: () => number
 ): { championId: string | null; finalistIds: string[] } => {
@@ -1191,7 +1288,8 @@ const simulateBracketRun = (
 
   const size = bracketNextPowerOfTwo(entrants.length);
   const totalRounds = Math.log2(size);
-  const byId = buildByIdMap(allTeams);
+  // The league as it stands at season's end, for the model to read both sides from.
+  const allTeams = [...byId.values()];
   let slots: (string | null)[] = bracketSeedOrder(size).map(
     (seed) => entrants[seed - 1]?.id ?? null
   );
@@ -1247,15 +1345,10 @@ export const simulateBracketOdds = (
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
 
   for (let i = 0; i < iterations; i += 1) {
-    let simTeams = teams.map((team) => ({ ...team }));
-    remaining.forEach((game) => {
-      const simById = buildByIdMap(simTeams);
-      const prediction = predictGame(game, simTeams, settings, simById);
-      const winner = random() < prediction.awayWinPct ? game.away : game.home;
-      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
-    });
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
 
-    const finalRanking = rankTeams(simTeams, rankOptions);
+    const finalRanking = rankTeams(season, rankOptions);
     finalRanking.forEach((team, index) => {
       const distribution = seedCounts[team.id];
       if (distribution && index >= 0 && index < distribution.length) {
@@ -1264,7 +1357,7 @@ export const simulateBracketOdds = (
     });
 
     const entrants = finalRanking.slice(0, bracketCutoff);
-    const { championId, finalistIds } = simulateBracketRun(entrants, simTeams, settings, random);
+    const { championId, finalistIds } = simulateBracketRun(entrants, byId, settings, random);
     if (championId) championCounts[championId] = (championCounts[championId] ?? 0) + 1;
     finalistIds.forEach((id) => {
       finalsCounts[id] = (finalsCounts[id] ?? 0) + 1;

@@ -27,6 +27,7 @@ describe("simulateGoldOdds perf guardrail", () => {
     );
     const elapsed = performance.now() - t0;
     expect(Object.keys(odds)).toHaveLength(14);
-    expect(elapsed).toBeLessThan(2000);
+    // Was 2000 ms before the loop stopped copying the league per game; the budget holds it there.
+    expect(elapsed).toBeLessThan(400);
   });
 });

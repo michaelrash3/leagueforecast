@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { simulateBracketOdds, simulateGoldOdds, type BracketOddsResult } from "../lib/sim";
+import {
+  simulateBracketOdds,
+  simulateGoldOdds,
+  simulateGoldOddsRun,
+  type BracketOddsResult,
+} from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
 import type { WorkerRequest, WorkerResponse } from "../workers/sim.worker";
 
@@ -67,6 +72,8 @@ const createWorker = (): Worker | null => {
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   const [odds, setOdds] = useState<Record<string, number>>({});
+  /** Seasons the stored odds were counted over; what their ± must be computed from. */
+  const [iterations, setIterations] = useState(0);
   const [resultKey, setResultKey] = useState<string | null>(null);
   const [workerError, setWorkerError] = useState<string | null>(null);
   const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
@@ -115,10 +122,11 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
+      if (!handle.worker) handle.worker = createWorker();
 
       const runInline = () => {
         const start = performance.now();
-        const result = simulateGoldOdds(
+        const result = simulateGoldOddsRun(
           input.teams,
           input.remaining,
           input.iterations,
@@ -127,16 +135,21 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           input.settings
         );
         if (latestIdRef.current === id) {
-          setOdds(result);
+          setOdds(result.odds);
+          setIterations(result.iterations);
           setResultKey(key);
-          console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
+          if (import.meta.env.DEV) {
+            console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
+          }
         }
       };
 
       if (handle.worker) {
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
+            if (import.meta.env.DEV) {
+              console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
+            }
             return;
           }
           if (event.data.kind !== "odds" || event.data.id !== id) return;
@@ -145,12 +158,17 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           if (latestIdRef.current === id) {
             setWorkerError(null);
             setOdds(event.data.odds);
+            setIterations(event.data.iterations);
             setResultKey(key);
           }
         };
         const onError = (event: Event) => {
           removeWorkerListeners?.();
           removeWorkerListeners = null;
+          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
+          // fails every run and pays the inline fallback every time; the next run makes a new one.
+          handle.worker?.terminate();
+          handle.worker = null;
           setWorkerError(event.type);
           runInline();
         };
@@ -213,6 +231,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   // one render late.
   return {
     odds: idle ? EMPTY_ODDS : odds,
+    iterations: idle ? 0 : iterations,
     pending: !idle && resultKey !== key,
     inputKey: key,
     resultKey: idle ? key : resultKey,
@@ -268,6 +287,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
+      if (!handle.worker) handle.worker = createWorker();
 
       const runInline = () => {
         const start = performance.now();
@@ -290,13 +310,17 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
           });
         });
         if (latestIdRef.current === id) setTrend(result);
-        console.debug(`[sim-inline] trend ${(performance.now() - start).toFixed(1)}ms`);
+        if (import.meta.env.DEV) {
+          console.debug(`[sim-inline] trend ${(performance.now() - start).toFixed(1)}ms`);
+        }
       };
 
       if (handle.worker) {
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
+            if (import.meta.env.DEV) {
+              console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
+            }
             return;
           }
           if (event.data.kind !== "trend" || event.data.id !== id) return;
@@ -310,6 +334,10 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
         const onError = (event: Event) => {
           removeWorkerListeners?.();
           removeWorkerListeners = null;
+          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
+          // fails every run and pays the inline fallback every time; the next run makes a new one.
+          handle.worker?.terminate();
+          handle.worker = null;
           setWorkerError(event.type);
           runInline();
         };
@@ -418,6 +446,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
 
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
+      if (!handle.worker) handle.worker = createWorker();
 
       const runInline = () => {
         const inline = simulateBracketOdds(
@@ -437,7 +466,9 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       if (handle.worker) {
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] bracket ${event.data.elapsedMs.toFixed(1)}ms`);
+            if (import.meta.env.DEV) {
+              console.debug(`[sim-worker] bracket ${event.data.elapsedMs.toFixed(1)}ms`);
+            }
             return;
           }
           if (event.data.kind !== "bracket" || event.data.id !== id) return;
@@ -452,6 +483,10 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         const onError = (event: Event) => {
           removeWorkerListeners?.();
           removeWorkerListeners = null;
+          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
+          // fails every run and pays the inline fallback every time; the next run makes a new one.
+          handle.worker?.terminate();
+          handle.worker = null;
           setWorkerError(event.type);
           runInline();
         };

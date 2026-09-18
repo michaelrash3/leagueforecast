@@ -137,6 +137,7 @@ import {
   DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
+  TREND_ITERATIONS,
   TREND_STATES,
   type ActiveShareView,
   type GameLog,
@@ -707,12 +708,18 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds } = useSimulationOdds(oddsInput);
+  const { odds, iterations: oddsIterations } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
     if (!teamIds.length) {
-      return { teamIds: [], states: [], iterations: 70, cutoff: goldCutoff, settings };
+      return {
+        teamIds: [],
+        states: [],
+        iterations: TREND_ITERATIONS,
+        cutoff: goldCutoff,
+        settings,
+      };
     }
     const states = completedGames.slice(-TREND_STATES);
     // Build states from index=1 (drops the misleading empty-logs leading zero).
@@ -737,7 +744,7 @@ export default function App() {
       );
       built.push({ teams: stateTeams, remaining: stateRemaining, seedText });
     }
-    return { teamIds, states: built, iterations: 70, cutoff: goldCutoff, settings };
+    return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
   }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings]);
   const trendMap = useSimulationTrend(trendInput);
 
@@ -772,12 +779,23 @@ export default function App() {
         projectedRecord: projectedTeam ? recordText(projectedTeam) : recordText(team),
         projectedRunDiff: projectedTeam?.runDiff ?? team.runDiff,
         goldPct: odds[team.id] ?? 0,
-        goldPctMargin: wilsonScoreInterval((odds[team.id] ?? 0) / 100, SIM_ITERATIONS).margin * 100,
+        // From the seasons actually played out, not the ceiling: the loop stops early once the
+        // odds are settled, and a ± from the ceiling would claim a precision never reached.
+        goldPctMargin: wilsonScoreInterval((odds[team.id] ?? 0) / 100, oddsIterations).margin * 100,
         goldTrend: trendMap[team.id] ?? [],
         ...status,
       };
     });
-  }, [ranked, projectedById, odds, trendMap, remainingCounts, goldCutoff, settings]);
+  }, [
+    ranked,
+    projectedById,
+    odds,
+    oddsIterations,
+    trendMap,
+    remainingCounts,
+    goldCutoff,
+    settings,
+  ]);
 
   const dashboardById = useMemo(() => {
     const map = new Map<string, TeamWithProjection>();

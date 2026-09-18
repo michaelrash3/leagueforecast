@@ -8,7 +8,9 @@ import {
   predictGame,
   projectStandings,
   rankTeams,
+  simulateBracketOdds,
   simulateGoldOdds,
+  simulateGoldOddsRun,
   simulationSeed,
   standingsPoints,
   calibrateAwayWinPct,
@@ -621,6 +623,90 @@ describe("projectStandings + simulateGoldOdds", () => {
   });
 });
 
+/**
+ * The loop's answers, pinned to the digit, so that making it faster can be shown to have changed
+ * nothing else. An eight-team round robin with ten results in: enough teams for the cut to be
+ * contested and enough games left for the draws to matter.
+ */
+describe("the simulation loop, pinned", () => {
+  const rounded = (odds: Record<string, number>) =>
+    Object.fromEntries(Object.entries(odds).map(([id, pct]) => [id, Number(pct.toFixed(3))]));
+  const pinned = () => {
+    const eight: TeamBase[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `T${i + 1}`,
+      name: `Team ${i + 1}`,
+    }));
+    const games: Matchup[] = [];
+    eight.forEach((away, i) =>
+      eight
+        .slice(i + 1)
+        .forEach((home, j) =>
+          games.push({ id: `p${i}-${j}`, date: "5/1", away: away.id, home: home.id })
+        )
+    );
+    const logs: Record<string, GameLog> = {};
+    games.slice(0, 10).forEach((game, at) => {
+      logs[game.id] = finalLog({
+        awayRuns: String(2 + (at % 5)),
+        homeRuns: String(1 + ((at * 3) % 6)),
+      });
+    });
+    const live = calculateTeams(eight, games, logs, settings);
+    return { live, remaining: games.filter((game) => !logs[game.id]) };
+  };
+
+  it("gold odds", () => {
+    const { live, remaining } = pinned();
+    const odds = simulateGoldOdds(live, remaining, 150, "pinned", 3, settings);
+    expect(rounded(odds)).toMatchInlineSnapshot(`
+      {
+        "T1": 99.333,
+        "T2": 47.333,
+        "T3": 46,
+        "T4": 10,
+        "T5": 11.333,
+        "T6": 15.333,
+        "T7": 50,
+        "T8": 20.667,
+      }
+    `);
+  });
+
+  it("bracket odds", () => {
+    const { live, remaining } = pinned();
+    const result = simulateBracketOdds(live, remaining, 80, "pinned", 4, settings);
+    expect({
+      champion: rounded(result.championOdds),
+      finals: rounded(result.finalsOdds),
+      iterations: result.iterations,
+    }).toMatchInlineSnapshot(`
+      {
+        "champion": {
+          "T1": 23.75,
+          "T2": 15,
+          "T3": 15,
+          "T4": 0,
+          "T5": 7.5,
+          "T6": 6.25,
+          "T7": 22.5,
+          "T8": 10,
+        },
+        "finals": {
+          "T1": 51.25,
+          "T2": 33.75,
+          "T3": 31.25,
+          "T4": 3.75,
+          "T5": 12.5,
+          "T6": 12.5,
+          "T7": 37.5,
+          "T8": 17.5,
+        },
+        "iterations": 80,
+      }
+    `);
+  });
+});
+
 describe("simulationSeed", () => {
   it("is stable across key ordering of logs", () => {
     const logsA: Record<string, GameLog> = {
@@ -632,6 +718,35 @@ describe("simulationSeed", () => {
       g1: finalLog({}),
     };
     expect(simulationSeed(matchups, logsA, "x")).toBe(simulationSeed(matchups, logsB, "x"));
+  });
+
+  it("changes when a final's score is corrected, not only when a game goes final", () => {
+    const before = { g1: finalLog({ awayRuns: "5", homeRuns: "3" }) };
+    const after = { g1: finalLog({ awayRuns: "12", homeRuns: "0" }) };
+    expect(simulationSeed(matchups, before, "x")).not.toBe(simulationSeed(matchups, after, "x"));
+  });
+});
+
+describe("how many seasons the odds are counted over", () => {
+  it("stops a couple of hundred in when every team is plainly in or plainly out", () => {
+    // Nothing left to play, so every season ends the same way and the interval closes at once.
+    const live = calculateTeams(teams, matchups, {
+      g1: finalLog({ awayRuns: "9", homeRuns: "1" }),
+      g2: finalLog({ awayRuns: "8", homeRuns: "2" }),
+      g3: finalLog({ awayRuns: "7", homeRuns: "3" }),
+    });
+    const run = simulateGoldOddsRun(live, [], 4000, "settled", 2, settings);
+    expect(run.iterations).toBe(200);
+    expect(run.odds.A).toBe(100);
+  });
+
+  it("runs to the ceiling while a cut line is still contested", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const run = simulateGoldOddsRun(live, matchups, 1000, "contested", 2, settings);
+    expect(run.iterations).toBe(1000);
+    // And the odds are counted over the seasons actually played, so they still fill the cut.
+    const total = Object.values(run.odds).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(total)).toBe(200);
   });
 });
 

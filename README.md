@@ -953,6 +953,12 @@ the deterministic story is shown. To exercise the AI path locally, run
   and it happens once per change rather than once per fit. The tidy worker takes
   the pool the same way and hands back only the parts it changed, so a tidy that
   found nothing to do no longer re-saves the whole pool.
+- The Monte Carlo loop copies the league once per simulated season and writes
+  results onto that copy, rather than copying every team per game; on twelve
+  teams and sixty games that took 220 seasons from 195 ms to 7 ms. It stops
+  once every team's odds are known to two points by the same Wilson interval
+  shown beside them, with a ceiling of 4,000 seasons, and the ± on screen is
+  computed from the seasons actually played.
 - Hooks debounce updates and cancel in-flight runs.
 - Render lookups and scenario computations are memoized.
 - Simulation/projection apply evolving in-iteration team state for deterministic, non-stale forecasts.
