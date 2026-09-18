@@ -24,7 +24,7 @@ import {
   summarizeLeagueFill,
   type LeagueFillPlan,
 } from "./lib/leagueScoreFill";
-import { leagueScoutBridge, scoutLinkCandidates } from "./lib/teamRankings";
+import { hasGcLinks, leagueScoutBridge, scoutLinkCandidates } from "./lib/teamRankings";
 import {
   loadAgeGroups,
   loadScoutGames,
@@ -580,7 +580,9 @@ export default function App() {
 
   const allScoutClubs = useCallback(() => {
     void scoutRevision;
-    return loadScoutTeams().filter((team) => !team.placeholder);
+    // Linked clubs only. Searching forty thousand names to land on one that has no GameChanger
+    // team behind it is a search that could not have succeeded.
+    return loadScoutTeams().filter((team) => !team.placeholder && hasGcLinks(team));
   }, [scoutRevision]);
 
   /** Stores which Team Rankings club a league team is, or clears the answer. */
