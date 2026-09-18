@@ -37,6 +37,7 @@ import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClien
 import {
   describeTidy,
   poolSignature,
+  poolSignatureOf,
   type GcImportState,
   type PoolTidy,
   latestImportedAt,
@@ -56,6 +57,7 @@ import {
   loadPullProgress,
   loadRefreshLog,
   loadScoutGames,
+  loadScoutGamesForYear,
   loadScoutTeams,
   loadTidyStamp,
   onPoolChangedElsewhere,
@@ -65,8 +67,10 @@ import {
   saveArchivedSeasons,
   saveRefreshLog,
   saveScoutGames,
+  saveScoutGamesForYear,
   saveScoutTeams,
   saveTidyStamp,
+  storedGamesByYear,
 } from "../lib/teamRankingsStorage";
 import {
   estimateBackupBytes,
@@ -136,6 +140,9 @@ type TeamRankingsViewProps = {
  * alike: a section is a view of one age group in one year, never of the pool at large.
  */
 /** What a section is called when a boundary has to say which one could not be drawn. */
+/** Referentially stable, so nothing memoised on "no games" re-runs every render. */
+const NO_STORED_GAMES: ScoutGame[] = [];
+
 const sectionLabel = (section: RankingsSection): string =>
   ({
     rankings: "The rankings",
@@ -177,7 +184,43 @@ export function TeamRankingsView({
     pickPage,
   } = useRankingsPages(ageGroups, today);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
-  const [scoutGames, setScoutGames] = useState<ScoutGame[]>(() => loadScoutGames());
+  /**
+   * Bumped whenever this view, or another tab, writes the games. Storage is not reactive, and the
+   * games are read from it below rather than held here — one year at a time — so this is the
+   * signal that a read is due.
+   */
+  const [poolRevision, setPoolRevision] = useState(0);
+  const bumpPool = useCallback(() => setPoolRevision((revision) => revision + 1), []);
+  /**
+   * The season on screen's games, and only those.
+   *
+   * The pool used to be held whole, every year of it, for a view that shows one year at a time
+   * and rates each year on its own games. The games are stored a year at a time now, and this is
+   * the one year decoded and kept; switching years decodes the other and lets this one go. What
+   * needs the whole pool — a tidy, a pull, a backup, an archive, merging or renaming a club —
+   * reads it from storage at the moment it runs, and holds it only that long.
+   */
+  const scoutGames = useMemo(() => {
+    void poolRevision;
+    return loadScoutGamesForYear(selectedYear);
+  }, [selectedYear, poolRevision]);
+  /** What each stored year holds, counted off the store without decoding any of it. */
+  const storedYears = useMemo(() => {
+    void poolRevision;
+    return storedGamesByYear();
+  }, [poolRevision]);
+  const storedGameCount = useMemo(
+    () => storedYears.reduce((sum, entry) => sum + entry.games, 0),
+    [storedYears]
+  );
+  /**
+   * The whole pool, every year, for as long as Setup is open and not a moment longer. The import
+   * panel and the pool health card work on all of it; nothing else on this view does.
+   */
+  const setupGames = useMemo(() => {
+    void poolRevision;
+    return section === "setup" ? loadScoutGames() : NO_STORED_GAMES;
+  }, [section, poolRevision]);
   /** When the pool was last backed up from this browser; re-read after a download from here. */
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
   /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
@@ -212,14 +255,28 @@ export function TeamRankingsView({
     },
     [showToast, onDataChange]
   );
+  /** Saves the season on screen's games, and only those; see `scoutGames`. */
   const persistGames = useCallback(
     (games: ScoutGame[]) => {
-      setScoutGames(games);
-      if (!saveScoutGames(games))
+      if (!saveScoutGamesForYear(selectedYear, games))
         showToast("Could not save games (storage full).", { tone: "error" });
+      bumpPool();
       onDataChange?.();
     },
-    [showToast, onDataChange]
+    [selectedYear, showToast, onDataChange, bumpPool]
+  );
+  /**
+   * Saves the whole pool, every year. Only for the operations that hold all of it: a list that
+   * is one year's games saved through here would delete every other year.
+   */
+  const persistAllGames = useCallback(
+    (games: ScoutGame[]) => {
+      if (!saveScoutGames(games))
+        showToast("Could not save games (storage full).", { tone: "error" });
+      bumpPool();
+      onDataChange?.();
+    },
+    [showToast, onDataChange, bumpPool]
   );
   const persistAgeGroups = useCallback(
     (groups: AgeGroup[]) => {
@@ -248,11 +305,11 @@ export function TeamRankingsView({
       onPoolChangedElsewhere(() => {
         setAgeGroups(loadAgeGroups());
         setScoutTeams(loadScoutTeams());
-        setScoutGames(loadScoutGames());
+        bumpPool();
         setPullProgress(loadPullProgress());
         setRefreshLog(loadRefreshLog());
       }),
-    []
+    [bumpPool]
   );
 
   /**
@@ -265,16 +322,22 @@ export function TeamRankingsView({
   const { tidy: tidyInWorker } = usePoolTidy();
   const tidyingRef = useRef(false);
   useEffect(() => {
-    if (scoutGames.length === 0 || tidyingRef.current) return;
+    if (storedGameCount === 0 || tidyingRef.current) return;
     /*
      * A pull still running tidies when it finishes, and a tidy already going is the same work; both
      * write the whole pool, so the one that finished first would be overwritten by the other.
      */
     if (isPoolBusy()) return;
     if (pullProgress && remainingIds(pullProgress).length > 0) return;
-    const pool: GcImportState = { ageGroups, teams: scoutTeams, games: scoutGames };
-    if (poolSignature(pool) === loadTidyStamp()) return;
+    // From counts, so a pool the tidy has already seen is recognised without decoding a year of it.
+    const stamp = poolSignatureOf(
+      { ageGroups: ageGroups.length, teams: scoutTeams.length, games: storedGameCount },
+      latestImportedAt(scoutTeams)
+    );
+    if (stamp === loadTidyStamp()) return;
     tidyingRef.current = true;
+    // Only now, with work to do: every year, for the one pass that has to see them together.
+    const pool: GcImportState = { ageGroups, teams: scoutTeams, games: loadScoutGames() };
     /*
      * No size limit on this any more. There used to be one — above 20,000 games it was left to a
      * button in Setup — because five passes over two hundred thousand games is twenty-odd seconds
@@ -293,7 +356,7 @@ export function TeamRankingsView({
       saveTidyStamp(poolSignature(tidy.state));
       if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
       if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
-      if (tidy.state.games !== pool.games) persistGames(tidy.state.games);
+      if (tidy.state.games !== pool.games) persistAllGames(tidy.state.games);
       const lines = describeTidy(tidy);
       if (lines.length > 0) showToast(lines.join(" "));
     });
@@ -304,11 +367,11 @@ export function TeamRankingsView({
   }, [
     ageGroups,
     scoutTeams,
-    scoutGames,
+    storedGameCount,
     pullProgress,
     persistAgeGroups,
     persistTeams,
-    persistGames,
+    persistAllGames,
     showToast,
     tidyInWorker,
   ]);
@@ -713,7 +776,8 @@ export function TeamRankingsView({
       game.ageGroupId === selectedAgeGroupId &&
       (game.teamAId === team.id || game.teamBId === team.id);
     const relatedGames = scoutGames.filter(isHere);
-    const playedElsewhere = scoutGames.some(
+    // Every year, not the one on screen: a club with games in another season keeps its record.
+    const playedElsewhere = loadScoutGames().some(
       (game) => !isHere(game) && (game.teamAId === team.id || game.teamBId === team.id)
     );
     const confirmed = await requestConfirmation({
@@ -774,7 +838,7 @@ export function TeamRankingsView({
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
     if (!from || !into) return;
-    const preview = mergeScoutTeams(fromId, intoId, scoutTeams, scoutGames, ageGroups);
+    const preview = mergeScoutTeams(fromId, intoId, scoutTeams, loadScoutGames(), ageGroups);
     const confirmed = await requestConfirmation({
       title: `Fold ${from.name} into ${into.name}?`,
       message: `Every game moves to ${into.name} and ${from.name} is removed.${
@@ -786,16 +850,27 @@ export function TeamRankingsView({
     });
     if (!confirmed) return;
     persistTeams(preview.teams);
-    persistGames(preview.games);
+    persistAllGames(preview.games);
     setOpenTeamId(intoId);
     showToast(`Folded into ${into.name}.`, { tone: "success" });
   };
 
+  /**
+   * Every game the search can land on: the league's derived fixtures and every stored year, read
+   * when the index is built. Stable across renders so the index is rebuilt on a change, not a render.
+   */
+  const everyKnownGame = useCallback(
+    () => dedupeLeagueFixtures([...allKnown.derivedGames, ...loadScoutGames()]),
+    [allKnown.derivedGames]
+  );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
-    games: allKnown.games,
+    games: everyKnownGame,
     ageGroups,
     rankedTeams,
+    // Setup has no search box, and it is where a pull saves the pool every few hundred teams.
+    enabled: section !== "setup",
+    revision: poolRevision,
   });
 
   /** Goes to the page a team is on and opens it, whichever season and level that turns out to be. */
@@ -812,9 +887,10 @@ export function TeamRankingsView({
    * misspelling can be routed to the real team rather than leaving its games stranded.
    */
   const renameTeam = async (teamId: string, nextName: string) => {
-    const preview = renameScoutTeam(teamId, nextName, allKnown.teams, scoutGames, ageGroups);
+    const everyGame = loadScoutGames();
+    const preview = renameScoutTeam(teamId, nextName, allKnown.teams, everyGame, ageGroups);
     if (preview.mergedInto) {
-      const moved = scoutGames.filter(
+      const moved = everyGame.filter(
         (game) => game.teamAId === teamId || game.teamBId === teamId
       ).length;
       const confirmed = await requestConfirmation({
@@ -830,7 +906,7 @@ export function TeamRankingsView({
     }
 
     persistTeams(preview.teams);
-    persistGames(preview.games);
+    persistAllGames(preview.games);
     if (preview.mergedInto) {
       // The merged-away team no longer exists, so follow the games to the one that does.
       const survivor = preview.mergedInto;
@@ -1047,31 +1123,23 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
    * derived and go from the archive's point of view by the page going, not by being deleted.
    */
   const archivableSummaries = useMemo(() => {
-    const yearOf = new Map<string, number>();
+    const pages = new Map<number, number>();
     ageGroups.forEach((group) => {
       const year = ageGroupYear(group);
-      if (year !== undefined) yearOf.set(group.id, year);
+      if (year !== undefined) pages.set(year, (pages.get(year) ?? 0) + 1);
     });
-    const pages = new Map<number, number>();
-    yearOf.forEach((year) => pages.set(year, (pages.get(year) ?? 0) + 1));
-    const games = new Map<number, number>();
-    const sides = new Map<number, Set<string>>();
-    scoutGames.forEach((game) => {
-      const year = yearOf.get(game.ageGroupId);
-      if (year === undefined) return;
-      games.set(year, (games.get(year) ?? 0) + 1);
-      const seen = sides.get(year) ?? new Set<string>();
-      seen.add(game.teamAId);
-      seen.add(game.teamBId);
-      sides.set(year, seen);
-    });
+    // Games and the sides they name, per year, as the store counts them — no year is decoded to
+    // say what it holds.
+    const stored = new Map(
+      storedYears.flatMap((entry) => (entry.year === undefined ? [] : [[entry.year, entry]]))
+    );
     return archivableYears(ageGroups).map((year) => ({
       year,
       pages: pages.get(year) ?? 0,
-      games: games.get(year) ?? 0,
-      teams: sides.get(year)?.size ?? 0,
+      games: stored.get(year)?.games ?? 0,
+      teams: stored.get(year)?.teams ?? 0,
     }));
-  }, [ageGroups, scoutGames]);
+  }, [ageGroups, storedYears]);
 
   /**
    * Freezes a baseball year's tables and deletes the games behind them.
@@ -1085,8 +1153,13 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
    * already gone is the one outcome there is no coming back from.
    */
   const archiveYear = async (year: number) => {
-    const shown = { teams: allKnown.teams, games: allKnownGames };
-    const stored = { ageGroups, teams: scoutTeams, games: scoutGames };
+    // Every year: the one being archived need not be the one on screen.
+    const everyGame = loadScoutGames();
+    const shown = {
+      teams: allKnown.teams,
+      games: dedupeLeagueFixtures([...allKnown.derivedGames, ...everyGame]),
+    };
+    const stored = { ageGroups, teams: scoutTeams, games: everyGame };
     /*
      * Whether the pool was tidy before this, checked before anything changes.
      *
@@ -1140,7 +1213,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       // Only now: the tables are on disk, so the games they replace can go.
       persistAgeGroups(done.state.ageGroups);
       persistTeams(done.state.teams);
-      persistGames(done.state.games);
+      persistAllGames(done.state.games);
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
@@ -1180,7 +1253,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
 
     setAgeGroups([]);
     setScoutTeams([]);
-    setScoutGames([]);
+    bumpPool();
     setPullProgress(null);
     setRefreshLog({});
     setArchives([]);
@@ -1321,7 +1394,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                * rebuilt from League Standings on every render and must never be written back here, or
                * a pull would persist a second copy of every league game it happened to see.
                */
-              pool={{ ageGroups, teams: scoutTeams, games: scoutGames }}
+              pool={{ ageGroups, teams: scoutTeams, games: setupGames }}
               savedProgress={pullProgress}
               onPersist={(next) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);
@@ -1329,7 +1402,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 const savedGames = saveScoutGames(next.games);
                 setAgeGroups(next.ageGroups);
                 setScoutTeams(next.teams);
-                setScoutGames(next.games);
+                bumpPool();
                 onDataChange?.();
                 return savedGroups && savedTeams && savedGames;
               }}
@@ -1381,7 +1454,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onAssignSeason={assignSeasonToAge}
               yearOptions={yearOptions}
               teamCount={scoutTeams.length}
-              gameCount={scoutGames.length}
+              gameCount={storedGameCount}
               onDownloadBackup={() => void downloadPoolBackup()}
               lastBackupAt={poolBackupAt}
               /*
@@ -1389,13 +1462,13 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               Standings every render and must never be written back here.
             */
               poolHealth={{
-                pool: { ageGroups, teams: scoutTeams, games: scoutGames },
+                pool: { ageGroups, teams: scoutTeams, games: setupGames },
                 tidyStamp: loadTidyStamp() ?? "",
                 onTidied: ({ state: tidied }) => {
                   saveTidyStamp(poolSignature(tidied));
                   if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
                   if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
-                  if (tidied.games !== scoutGames) persistGames(tidied.games);
+                  if (tidied.games !== setupGames) persistAllGames(tidied.games);
                 },
               }}
               /*

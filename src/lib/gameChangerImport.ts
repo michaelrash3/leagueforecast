@@ -2511,10 +2511,22 @@ export const latestImportedAt = (teams: readonly ScoutTeam[]): string | null => 
   return latest || null;
 };
 
-export const poolSignature = (state: GcImportState): string => {
-  const latest = latestImportedAt(state.teams) ?? "";
-  return `r${TIDY_RULES_VERSION}|${state.ageGroups.length}|${state.teams.length}|${state.games.length}|${latest}`;
-};
+/**
+ * The fingerprint from its parts, for a caller that knows how many games there are without
+ * holding them: the games are stored a year at a time and counted off the store, so deciding
+ * whether the tidy has seen this pool need not decode two hundred thousand of them to find out.
+ */
+export const poolSignatureOf = (
+  counts: { ageGroups: number; teams: number; games: number },
+  latestImport: string | null
+): string =>
+  `r${TIDY_RULES_VERSION}|${counts.ageGroups}|${counts.teams}|${counts.games}|${latestImport ?? ""}`;
+
+export const poolSignature = (state: GcImportState): string =>
+  poolSignatureOf(
+    { ageGroups: state.ageGroups.length, teams: state.teams.length, games: state.games.length },
+    latestImportedAt(state.teams)
+  );
 
 /** One line per thing the tidy did; nothing for a pass that found nothing. */
 export const describeTidy = (tidy: PoolTidy): string[] => {

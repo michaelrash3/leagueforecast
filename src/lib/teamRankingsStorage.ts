@@ -868,10 +868,20 @@ export const loadScoutGamesForGroups = (groupIds: readonly string[]): ScoutGame[
   const years = yearsByGroup(loadAgeGroups());
   const labels = groupIds.filter((id) => years.has(id)).map((id) => labelForYear(years.get(id)));
   const stored = new Set(storedShardLabels());
-  return orderedLabels(labels)
-    .filter((label) => stored.has(label))
-    .flatMap((label) => decodeShard(shardKeyFor(label)));
+  const wanted = orderedLabels(labels).filter((label) => stored.has(label));
+  // One year is the common case, and a season's groups are all in one year, so it is pinned: the
+  // League Standings side re-reads on every edit of its own and must not decode each time.
+  if (wanted.length === 1) return loadScoutGamesForYear(yearForLabel(wanted[0]!));
+  return wanted.flatMap((label) => decodeShard(shardKeyFor(label)));
 };
+
+/** The games of the years whose age groups include this League Standings season. */
+export const loadScoutGamesForSeason = (seasonId: string): ScoutGame[] =>
+  loadScoutGamesForGroups(
+    loadAgeGroups()
+      .filter((group) => group.seasonIds.includes(seasonId))
+      .map((group) => group.id)
+  );
 
 /**
  * What each stored year holds, without decoding any of it: how many games, and how many distinct
