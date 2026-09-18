@@ -14,6 +14,7 @@ import {
   loadRefreshLog,
   loadTidyStamp,
   loadScoutGames,
+  loadScoutGamesForYear,
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
@@ -22,6 +23,7 @@ import {
   saveRefreshLog,
   saveTidyStamp,
   saveScoutGames,
+  saveScoutGamesForYear,
   saveScoutTeams,
   type PoolStoreIo,
 } from "../teamRankingsStorage";
@@ -271,11 +273,12 @@ describe("decoding the pool once per version of it", () => {
     ]);
 
     const teams1 = loadScoutTeams();
-    const games1 = loadScoutGames();
+    // The year on screen is the one that is kept; `ag1` has no year, so that is the "none" year.
+    const games1 = loadScoutGamesForYear(undefined);
     // Twelve reads in a row, as the panel makes them: one decode, eleven free.
     for (let i = 0; i < 11; i += 1) {
       expect(loadScoutTeams()).toBe(teams1);
-      expect(loadScoutGames()).toBe(games1);
+      expect(loadScoutGamesForYear(undefined)).toBe(games1);
     }
     expect(teams1).toEqual([
       { id: "A", name: "Aces" },
@@ -315,10 +318,10 @@ describe("decoding the pool once per version of it", () => {
       { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
     ];
     saveScoutTeams(teams);
-    saveScoutGames(games);
+    saveScoutGamesForYear(undefined, games);
 
     const readTeams = loadScoutTeams();
-    const readGames = loadScoutGames();
+    const readGames = loadScoutGamesForYear(undefined);
     // The objects are the caller's own - not decoded copies of them.
     expect(readTeams[0]).toBe(teams[0]);
     expect(readTeams[1]).toBe(teams[1]);

@@ -1,4 +1,4 @@
-import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings";
+import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
 import type { RefreshLog } from "./gameChangerSchedule";
@@ -25,6 +25,7 @@ import {
   encodeScoutTeams,
   isFilledString,
   markPlaceholders,
+  storedGamesStats,
 } from "./teamRankingsCompact";
 
 /**
@@ -45,7 +46,36 @@ export {
  * are the only scoping concept here, and one age group can bundle several League Standings seasons.
  */
 const TEAMS_KEY = "league_forecast_scout_teams_v1";
+/**
+ * Where every game used to live, as one value. Still read — a pool written before the years were
+ * split is moved out of it on first access, and the key emptied — and still in `POOL_KEYS`, so it
+ * is loaded, cleared and heard about like the rest until that happens.
+ */
 const GAMES_KEY = "league_forecast_scout_games_v1";
+/**
+ * The games, one key per squad year.
+ *
+ * `GAMES_KEY` held every game the pool had ever seen as one value, and reading the pool meant
+ * decoding all of it: two hundred thousand objects for the season on screen and as many again for
+ * the one before it, which nobody was looking at. A squad year is already its own rating pool —
+ * nothing in one year's fit reads another year's games — so it is the natural unit of storage too.
+ * The year on screen is decoded and kept (`loadScoutGamesForYear`); the others stay compact until
+ * something asks for the whole pool — a tidy, a pull, a backup, an archive — and are let go of
+ * again afterwards.
+ *
+ * The suffix is the squad year of the game's age group, or `none` for a game whose group has no
+ * year, or is no longer there. Teams are not split this way: a club can be named by games in two
+ * years, and one copy of it is the only way a rename in one year is a rename in the other.
+ */
+const GAMES_SHARD_PREFIX = "league_forecast_scout_games_v2:";
+const NO_YEAR_SHARD = "none";
+/**
+ * Which years have games stored, as their labels. One small key rather than enumerating the
+ * store's keys: `localStorage` cannot be enumerated where it is stubbed, IndexedDB's listing is
+ * asynchronous, and what a pool holds must be answerable during a render. Kept true by
+ * `writeShards`, the only thing that writes a year.
+ */
+const GAMES_INDEX_KEY = "league_forecast_scout_games_v2_index";
 const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 /** Where an interrupted GameChanger pull keeps its place. Its own key, so clearing it never touches the pool. */
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
@@ -116,7 +146,14 @@ const MIGRATED_KEY = "league_forecast_pool_in_idb_v1";
 const cache = new Map<string, unknown>();
 /** The pool decoded from the cache's compact form, once per version of it; see `loadScoutTeams`. */
 let decodedTeams: { source: unknown; teams: ScoutTeam[] } | null = null;
-let decodedGames: { source: unknown; games: ScoutGame[] } | null = null;
+/**
+ * One year's games, decoded, for as long as that year's stored value is the one it was decoded
+ * from. A single slot on purpose: the view shows one year at a time, and pinning every year ever
+ * looked at would put back the memory the shards exist to save. See `loadScoutGamesForYear`.
+ */
+let decodedYear: { key: string; source: unknown; games: ScoutGame[] } | null = null;
+/** Whether a pool written as one value is on its way into shards and has not yet been let go of. */
+let migratingGames = false;
 let usingIdb = false;
 /**
  * The pool is known to live in IndexedDB and IndexedDB would not open. Reads answer empty because
@@ -191,7 +228,7 @@ export const notePoolChangedElsewhere = async (key: string): Promise<void> => {
    * either: the cache holds what every tab keeps in memory for as long as the tab is open, and
    * load-on-demand means nothing if hearing about a write is enough to load it.
    */
-  if (key && !POOL_KEYS.includes(key)) return;
+  if (key && !isPoolKey(key)) return;
   if (usingIdb && key) cache.set(key, await (activeIo ?? browserIo).get(key));
   announceChange();
 };
@@ -294,6 +331,7 @@ const parseJson = (raw: string | null): unknown => {
 const POOL_KEYS = [
   TEAMS_KEY,
   GAMES_KEY,
+  GAMES_INDEX_KEY,
   AGE_GROUPS_KEY,
   GC_PULL_KEY,
   GC_REFRESH_KEY,
@@ -307,6 +345,10 @@ const POOL_KEYS = [
  * the only thing the startup path does with them.
  */
 const LAZY_KEYS = [GC_TRACK_KEY];
+
+const isGamesShardKey = (key: string): boolean => key.startsWith(GAMES_SHARD_PREFIX);
+/** Whether a key is part of the pool: one of the fixed keys above, or one year's games. */
+const isPoolKey = (key: string): boolean => POOL_KEYS.includes(key) || isGamesShardKey(key);
 
 /**
  * A stored value. From the cache once the store has been opened, and straight off `localStorage`
@@ -380,6 +422,10 @@ const browserIo: PoolStoreIo = {
   clearLocal: safeRemove,
 };
 
+/** The stored shard labels a raw index value names; anything else names none. */
+const coerceShardIndex = (raw: unknown): string[] =>
+  Array.isArray(raw) ? raw.filter((entry): entry is string => isFilledString(entry)) : [];
+
 /**
  * Moves the pool into the store and reads it back, or reports that it could not.
  *
@@ -391,8 +437,13 @@ const browserIo: PoolStoreIo = {
  */
 export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknown>> => {
   const existing = new Set(await io.keys());
+  // Years' games written while this browser was on localStorage travel with the rest; the index
+  // there says which they are.
+  const localShards = coerceShardIndex(io.readLocal(GAMES_INDEX_KEY)).map(
+    (label) => `${GAMES_SHARD_PREFIX}${label}`
+  );
 
-  for (const key of [...POOL_KEYS, ...LAZY_KEYS]) {
+  for (const key of [...POOL_KEYS, ...LAZY_KEYS, ...localShards]) {
     // Already carried across; localStorage has nothing to say about it.
     if (existing.has(key)) continue;
     const raw = io.readLocal(key);
@@ -407,10 +458,14 @@ export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknow
    * startup path — `main.tsx` waits on it before anything mounts — so serial reads made the wait
    * the sum of every key rather than the slowest one. The migration above stays serial: it writes,
    * and a key is only cleared from localStorage once the store has confirmed it.
+   *
+   * The years' games are read by the index that names them, plus any stored under the prefix that
+   * the index has lost track of, so an interrupted write cannot hide a year that is in the store.
    */
-  const values = await Promise.all(POOL_KEYS.map((key) => io.get(key)));
+  const wanted = [...POOL_KEYS, ...new Set([...existing, ...localShards].filter(isGamesShardKey))];
+  const values = await Promise.all(wanted.map((key) => io.get(key)));
   const filled = new Map<string, unknown>();
-  POOL_KEYS.forEach((key, at) => {
+  wanted.forEach((key, at) => {
     // A key that could not be carried is still readable where it is, so a failed move costs
     // nothing but a retry — rather than hiding data that is sitting in localStorage.
     filled.set(key, values[at] ?? io.readLocal(key));
@@ -441,6 +496,7 @@ export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => 
     filled.forEach((value, key) => cache.set(key, value));
     usingIdb = true;
     if (!io) safeSet(MIGRATED_KEY, "1");
+    await splitLegacyGames(activeIo);
   } catch {
     // Anything unexpected leaves `usingIdb` false, which is the working localStorage path.
   }
@@ -483,7 +539,11 @@ export const clearTeamRankings = (): boolean => {
    * be able to find again. Read the list before it goes.
    */
   const archived = loadArchiveIndex();
+  // Each year's games has a key of its own, named by the index; read them before the index goes.
+  const shards = gamesShardKeys();
   POOL_KEYS.forEach((key) => forgetValue(key));
+  shards.forEach((key) => forgetValue(key));
+  decodedYear = null;
   archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
   // The pull's record is read on demand and so is in no key the walk above reaches.
   void dropBlob(GC_TRACK_KEY);
@@ -497,7 +557,8 @@ export const resetTeamRankingsStore = (): void => {
   // which is never the identity they hold - but a reset should not keep a pool's worth of objects
   // alive until somebody happens to ask.
   decodedTeams = null;
-  decodedGames = null;
+  decodedYear = null;
+  migratingGames = false;
   pendingWrites.clear();
   usingIdb = false;
   poolUnavailable = false;
@@ -587,24 +648,302 @@ export const saveScoutTeams = (teams: ScoutTeam[]): boolean => {
   return accepted;
 };
 
-export const loadScoutGames = (): ScoutGame[] => {
-  const source = readValue(GAMES_KEY);
-  if (decodedGames && decodedGames.source === source) return decodedGames.games;
-  const games = decodePoolGames(source);
-  decodedGames = { source, games };
-  return games;
-};
-export const saveScoutGames = (games: ScoutGame[]): boolean => {
-  const encoded = encodeScoutGames(games);
-  const accepted = writeValue(GAMES_KEY, encoded);
-  // Games have no placeholder pass, so the caller's array is exactly the decoded form.
-  if (accepted) decodedGames = { source: encoded, games };
-  return accepted;
+/* -------------------------------------------------------------------- the games, by squad year */
+
+const shardKeyFor = (label: string): string => `${GAMES_SHARD_PREFIX}${label}`;
+const shardLabelOf = (key: string): string => key.slice(GAMES_SHARD_PREFIX.length);
+const labelForYear = (year: number | undefined): string =>
+  year === undefined ? NO_YEAR_SHARD : String(year);
+const yearForLabel = (label: string): number | undefined =>
+  label === NO_YEAR_SHARD ? undefined : Number(label);
+
+/** Shard labels in the order the pool reads back: years ascending, then the games with none. */
+const orderedLabels = (labels: Iterable<string>): string[] =>
+  [...new Set(labels)].sort((a, b) => {
+    if (a === NO_YEAR_SHARD) return 1;
+    if (b === NO_YEAR_SHARD) return -1;
+    return Number(a) - Number(b);
+  });
+
+/**
+ * Every stored year's key, by the index. On IndexedDB a year in the cache that the index has lost
+ * track of counts too: the cache is what the store holds, and a year with games in it is a year.
+ */
+const gamesShardKeys = (): string[] => {
+  if (poolUnavailable) return [];
+  const keys = new Set(coerceShardIndex(readValue(GAMES_INDEX_KEY)).map(shardKeyFor));
+  if (usingIdb) {
+    cache.forEach((value, key) => {
+      if (isGamesShardKey(key) && value !== null && value !== undefined) keys.add(key);
+    });
+  }
+  return [...keys];
 };
 
+const storedShardLabels = (): string[] => orderedLabels(gamesShardKeys().map(shardLabelOf));
+
+const yearsByGroup = (ageGroups: AgeGroup[]): Map<string, number | undefined> =>
+  new Map(ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+
+/** The given games, each under the label of its year, in the order given. */
+const splitByYear = (games: ScoutGame[], ageGroups: AgeGroup[]): Map<string, ScoutGame[]> => {
+  const years = yearsByGroup(ageGroups);
+  const shards = new Map<string, ScoutGame[]>();
+  games.forEach((game) => {
+    const label = labelForYear(years.get(game.ageGroupId));
+    const list = shards.get(label);
+    if (list) list.push(game);
+    else shards.set(label, [game]);
+  });
+  // All one year: the caller's own array is the shard, so the pin after a save is the array the
+  // caller holds and the read that follows does not even copy it.
+  if (shards.size === 1) {
+    const [label] = shards.keys();
+    shards.set(label!, games);
+  }
+  return shards;
+};
+
+/** One year's games, decoded; the pinned copy when this is the year that is pinned. */
+const decodeShard = (key: string): ScoutGame[] => {
+  const source = readValue(key);
+  if (decodedYear && decodedYear.key === key && decodedYear.source === source) {
+    return decodedYear.games;
+  }
+  return decodePoolGames(source);
+};
+
+/**
+ * Writes each year given: to its own key, or to nothing when it has no games left. A year that is
+ * the pinned one is re-pinned to the array just written, so the read that follows a save does not
+ * decode the pool it was handed a moment ago.
+ */
+const writeShards = (shards: Map<string, ScoutGame[]>): boolean => {
+  let ok = true;
+  shards.forEach((games, label) => {
+    const key = shardKeyFor(label);
+    if (games.length === 0) {
+      forgetValue(key);
+      if (decodedYear?.key === key) decodedYear = { key, source: null, games };
+      return;
+    }
+    const encoded = encodeScoutGames(games);
+    if (!writeValue(key, encoded)) {
+      ok = false;
+      return;
+    }
+    if (decodedYear?.key === key) decodedYear = { key, source: encoded, games };
+  });
+  // The index follows what was actually written: a year emptied leaves it, a year written joins it.
+  const index = new Set(coerceShardIndex(readValue(GAMES_INDEX_KEY)));
+  shards.forEach((games, label) => {
+    if (games.length === 0) index.delete(label);
+    else index.add(label);
+  });
+  const next = orderedLabels(index);
+  const current = coerceShardIndex(readValue(GAMES_INDEX_KEY));
+  if (next.join("|") !== current.join("|") && !writeValue(GAMES_INDEX_KEY, next)) ok = false;
+  return ok;
+};
+
+/**
+ * Files `games` by year and writes them.
+ *
+ * The years in `replace` are rewritten to hold exactly the games filed under them, and dropped
+ * when that is none. A game filed under any other year is laid over that year's stored games by
+ * id — so a save that holds one year's list cannot empty a year it was not holding, and a game
+ * moved to another year's page arrives there rather than being lost with the page it left.
+ */
+const writeRouted = (games: ScoutGame[], replace: ReadonlySet<string> | "all"): boolean => {
+  const split = splitByYear(games, loadAgeGroups());
+  const replacing =
+    replace === "all" ? new Set([...storedShardLabels(), ...split.keys()]) : replace;
+  const toWrite = new Map<string, ScoutGame[]>();
+  replacing.forEach((label) => toWrite.set(label, split.get(label) ?? []));
+  split.forEach((strays, label) => {
+    if (replacing.has(label)) return;
+    const byId = new Map(decodeShard(shardKeyFor(label)).map((game) => [game.id, game]));
+    strays.forEach((game) => byId.set(game.id, game));
+    toWrite.set(label, [...byId.values()]);
+  });
+  return writeShards(toWrite);
+};
+
+/**
+ * Moves a pool written as one value into a key per year, on the store's own terms.
+ *
+ * Awaited, and the old key is emptied only once every year's write has been confirmed, so a
+ * write that fails leaves the pool exactly where it was and this runs again next time. Runs on
+ * the startup path, before anything mounts, so the app never sees both shapes at once.
+ */
+const splitLegacyGames = async (io: PoolStoreIo): Promise<void> => {
+  const legacy = cache.get(GAMES_KEY);
+  if (legacy === null || legacy === undefined) return;
+  const groups = coerceAgeGroups(cache.get(AGE_GROUPS_KEY));
+  const shards = splitByYear(decodePoolGames(legacy), groups);
+  const entries = [...shards].map(
+    ([label, games]) => [shardKeyFor(label), encodeScoutGames(games)] as const
+  );
+  // A year left over from an attempt that did not finish is rewritten below or emptied here.
+  const stale = gamesShardKeys().filter((key) => !shards.has(shardLabelOf(key)));
+  const index = orderedLabels(shards.keys());
+  const landed = await Promise.all([
+    ...entries.map(([key, value]) => io.set(key, value)),
+    ...stale.map((key) => io.set(key, null)),
+    io.set(GAMES_INDEX_KEY, index),
+  ]);
+  if (!landed.every(Boolean)) return;
+  entries.forEach(([key, value]) => cache.set(key, value));
+  stale.forEach((key) => cache.set(key, null));
+  cache.set(GAMES_INDEX_KEY, index);
+  if (await io.set(GAMES_KEY, null)) cache.set(GAMES_KEY, null);
+};
+
+/**
+ * The same move, where it could not be awaited: on localStorage, where every write is synchronous
+ * and truthful, and as the fallback for a startup whose move did not finish.
+ *
+ * On IndexedDB the shards are in the cache at once and the old key is emptied only after the
+ * queued writes have landed. Until then the old value is authoritative and every read goes to the
+ * shards it was copied into, which hold the same games; a startup that finds it still there does
+ * the move again from it.
+ */
+const ensureGamesSharded = (): void => {
+  if (migratingGames) return;
+  const legacy = readValue(GAMES_KEY);
+  if (legacy === null || legacy === undefined) return;
+  const shards = splitByYear(decodePoolGames(legacy), loadAgeGroups());
+  storedShardLabels().forEach((label) => {
+    if (!shards.has(label)) shards.set(label, []);
+  });
+  const accepted = writeShards(shards);
+  if (!usingIdb) {
+    if (accepted) forgetValue(GAMES_KEY);
+    return;
+  }
+  migratingGames = true;
+  void flushPoolWrites().then((landed) => {
+    migratingGames = false;
+    if (landed && accepted) forgetValue(GAMES_KEY);
+  });
+};
+
+/**
+ * Every game in the pool, every year.
+ *
+ * Decodes the years that are not pinned and keeps none of them: this is for the operations that
+ * genuinely need the whole pool — a tidy, a pull, a backup, an archive, merging or renaming a
+ * club — and they hold the array only for as long as they run. Read on a render it would put back
+ * exactly the memory the shards exist to save, so the view reads its year instead.
+ */
+export const loadScoutGames = (): ScoutGame[] => {
+  ensureGamesSharded();
+  return storedShardLabels().flatMap((label) => decodeShard(shardKeyFor(label)));
+};
+
+/**
+ * One squad year's games — `undefined` for the games whose age group has no year — decoded once
+ * per version of that year and kept while it is the year asked for. This is what the view holds:
+ * the season on screen, and nothing from the seasons that are not.
+ */
+export const loadScoutGamesForYear = (year: number | undefined): ScoutGame[] => {
+  ensureGamesSharded();
+  const key = shardKeyFor(labelForYear(year));
+  const source = readValue(key);
+  if (decodedYear && decodedYear.key === key && decodedYear.source === source) {
+    return decodedYear.games;
+  }
+  const games = decodePoolGames(source);
+  decodedYear = { key, source, games };
+  return games;
+};
+
+/**
+ * The games of the years these age groups sit in — for the League Standings side, which reads the
+ * pool only through the age groups a season is linked to, and had been decoding every year to do
+ * it. Callers still filter to their groups; this only spares them the years none of them is in.
+ */
+export const loadScoutGamesForGroups = (groupIds: readonly string[]): ScoutGame[] => {
+  ensureGamesSharded();
+  const years = yearsByGroup(loadAgeGroups());
+  const labels = groupIds.filter((id) => years.has(id)).map((id) => labelForYear(years.get(id)));
+  const stored = new Set(storedShardLabels());
+  return orderedLabels(labels)
+    .filter((label) => stored.has(label))
+    .flatMap((label) => decodeShard(shardKeyFor(label)));
+};
+
+/**
+ * What each stored year holds, without decoding any of it: how many games, and how many distinct
+ * teams they name. What the archive card lists, on a pool it would cost a full decode to walk.
+ */
+export const storedGamesByYear = (): {
+  year: number | undefined;
+  games: number;
+  teams: number | null;
+}[] => {
+  ensureGamesSharded();
+  return storedShardLabels().map((label) => ({
+    year: yearForLabel(label),
+    ...storedGamesStats(readValue(shardKeyFor(label))),
+  }));
+};
+
+/**
+ * Replaces the whole pool: every year rewritten from `games`, and a stored year with no games left
+ * in it dropped. For the operations that hold the whole pool; see `loadScoutGames`.
+ */
+export const saveScoutGames = (games: ScoutGame[]): boolean => {
+  ensureGamesSharded();
+  return writeRouted(games, "all");
+};
+
+/**
+ * Replaces one squad year's games, leaving every other year exactly as stored. `games` is that
+ * year's complete list as it should now be; a game in it filed under another year's page is filed
+ * there (see `writeRouted`). The year is pinned afterwards, so the read that follows is free.
+ */
+export const saveScoutGamesForYear = (year: number | undefined, games: ScoutGame[]): boolean => {
+  ensureGamesSharded();
+  const label = labelForYear(year);
+  const key = shardKeyFor(label);
+  // Pin first, so `writeShards` re-pins this year to the array it writes.
+  if (decodedYear?.key !== key) decodedYear = { key, source: readValue(key), games: [] };
+  return writeRouted(games, new Set([label]));
+};
+
+/** The shard label of a year, for callers that key their own caches the way storage does. */
+export const gamesShardLabel = labelForYear;
+
 export const loadAgeGroups = (): AgeGroup[] => coerceAgeGroups(readValue(AGE_GROUPS_KEY));
-export const saveAgeGroups = (ageGroups: AgeGroup[]): boolean =>
-  writeValue(AGE_GROUPS_KEY, ageGroups);
+
+/**
+ * Saves the age groups and moves games between years when a group's year moved.
+ *
+ * A game is filed under its group's year, so changing a group's year — or deleting the group —
+ * changes which key its games belong in. The years on either side of every such change are read,
+ * their games filed again by the groups as they now stand, and written back; a group that merely
+ * changed its name or its seasons touches nothing.
+ */
+export const saveAgeGroups = (ageGroups: AgeGroup[]): boolean => {
+  const before = yearsByGroup(loadAgeGroups());
+  const ok = writeValue(AGE_GROUPS_KEY, ageGroups);
+  if (!ok) return false;
+  const after = yearsByGroup(ageGroups);
+  const touched = new Set<string>();
+  before.forEach((year, id) => {
+    if (!after.has(id) || after.get(id) !== year) {
+      touched.add(labelForYear(year));
+      touched.add(labelForYear(after.get(id)));
+    }
+  });
+  if (touched.size === 0) return true;
+  ensureGamesSharded();
+  const stored = storedShardLabels().filter((label) => touched.has(label));
+  if (stored.length === 0) return true;
+  const games = stored.flatMap((label) => decodeShard(shardKeyFor(label)));
+  return writeRouted(games, touched);
+};
 
 /**
  * The cursor of a GameChanger pull, so closing the tab mid-run costs nothing but the request in
