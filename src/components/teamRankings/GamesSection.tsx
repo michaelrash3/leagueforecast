@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { isScoutGamePlayed } from "../../lib/teamRankings";
 import type { ToastTone } from "../../hooks/useToast";
@@ -62,6 +63,15 @@ type GamesSectionProps = {
 };
 
 /** Everything that puts a result into the pool by hand: the form, the paste/CSV import, the log. */
+/**
+ * How many logged games the list shows before asking. A nationwide page can hold tens of thousands
+ * of pulled games, and rendering every one as DOM cost more than the pool itself: each row is a
+ * dozen elements, so a 60,000-game page was over half a million nodes for a list nobody scrolls
+ * to the end of. The first hundred is what anyone actually looks at; the rest is a click away.
+ */
+export const GAMES_SHOWN_FIRST = 100;
+export const GAMES_SHOWN_STEP = 200;
+
 export function GamesSection({
   groupName,
   ageGroupId,
@@ -93,6 +103,15 @@ export function GamesSection({
   onToggleExcluded,
   onRemoveGame,
 }: GamesSectionProps) {
+  /*
+   * Keyed on the page rather than reset in an effect: a different age group starts at the top
+   * again by itself, and nothing has to fire after render to make it so.
+   */
+  const [listLimit, setListLimit] = useState({ key: ageGroupId, count: GAMES_SHOWN_FIRST });
+  const shown = listLimit.key === ageGroupId ? listLimit.count : GAMES_SHOWN_FIRST;
+  const shownGames = loggedGames.slice(0, shown);
+  const hiddenGames = loggedGames.length - shownGames.length;
+
   return (
     <>
       <div className={`${card} p-5`}>
@@ -218,7 +237,7 @@ export function GamesSection({
           isn&apos;t listed here.
         </p>
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-          {loggedGames.map((game) => {
+          {shownGames.map((game) => {
             const played = isScoutGamePlayed(game);
             return (
               <li
@@ -317,6 +336,20 @@ export function GamesSection({
             );
           })}
         </ul>
+        {hiddenGames > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+            <span>
+              Showing {shownGames.length} of {loggedGames.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => setListLimit({ key: ageGroupId, count: shown + GAMES_SHOWN_STEP })}
+              className={button.ghost}
+            >
+              Show {Math.min(GAMES_SHOWN_STEP, hiddenGames)} more
+            </button>
+          </div>
+        )}
         {loggedGames.length === 0 && (
           <p className="py-6 text-center text-sm text-slate-500">No games logged yet.</p>
         )}

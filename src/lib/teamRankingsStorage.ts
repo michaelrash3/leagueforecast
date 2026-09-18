@@ -680,8 +680,23 @@ export const loadScoutTeams = (): ScoutTeam[] => {
   decodedTeams = { source, teams };
   return teams;
 };
-export const saveScoutTeams = (teams: ScoutTeam[]): boolean =>
-  writeValue(TEAMS_KEY, encodeScoutTeams(teams));
+/**
+ * Saving also seeds the decoded copy. The caller holds the very array it just encoded, so the next
+ * `loadScoutTeams()` — which every save triggers, through the bridge and the refit — need not
+ * decode the pool it was handed a moment ago. Without this, a pull flush or a score edit paid a
+ * full decode (~270 ms and ~28 MB at nationwide scale) to read back what it had just written.
+ *
+ * `markPlaceholders` is applied so the seeded copy is exactly what a decode would have produced;
+ * it is a `.map`, so the objects are shared with the caller's array and only the pointer array is
+ * new. Seeded on acceptance only: a refused write leaves the cache holding the old compact value,
+ * and a seed keyed on the new one would simply never be hit.
+ */
+export const saveScoutTeams = (teams: ScoutTeam[]): boolean => {
+  const encoded = encodeScoutTeams(teams);
+  const accepted = writeValue(TEAMS_KEY, encoded);
+  if (accepted) decodedTeams = { source: encoded, teams: markPlaceholders(teams) };
+  return accepted;
+};
 
 export const loadScoutGames = (): ScoutGame[] => {
   const source = readValue(GAMES_KEY);
@@ -690,8 +705,13 @@ export const loadScoutGames = (): ScoutGame[] => {
   decodedGames = { source, games };
   return games;
 };
-export const saveScoutGames = (games: ScoutGame[]): boolean =>
-  writeValue(GAMES_KEY, encodeScoutGames(games));
+export const saveScoutGames = (games: ScoutGame[]): boolean => {
+  const encoded = encodeScoutGames(games);
+  const accepted = writeValue(GAMES_KEY, encoded);
+  // Games have no placeholder pass, so the caller's array is exactly the decoded form.
+  if (accepted) decodedGames = { source: encoded, games };
+  return accepted;
+};
 
 export const loadAgeGroups = (): AgeGroup[] => coerceAgeGroups(readValue(AGE_GROUPS_KEY));
 export const saveAgeGroups = (ageGroups: AgeGroup[]): boolean =>
