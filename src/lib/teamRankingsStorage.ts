@@ -59,6 +59,13 @@ const GC_TIDY_KEY = "league_forecast_gc_tidy_v1";
  * Its own key, written independently of the pool, because it is the largest thing here after the
  * games and the one thing that must never be the reason a run stops. A refused pool save aborts
  * the pull; a refused record is a blank cell in a file.
+ *
+ * Not in `POOL_KEYS`, for the same reason an archive's rows are not: it is read only to be turned
+ * into a CSV from one panel, and a row per team in a nationwide pull is tens of thousands of rows
+ * that every page was holding in memory for the sake of a download button on one of them. It goes
+ * through `putBlob`/`getBlob` below — loaded when the import panel asks, never cached, never
+ * broadcast — and is still carried out of `localStorage` with the pool (see `LAZY_KEYS`) and
+ * dropped by a reset.
  */
 const GC_TRACK_KEY = "league_forecast_gc_track_v1";
 /**
@@ -291,10 +298,15 @@ const POOL_KEYS = [
   GC_PULL_KEY,
   GC_REFRESH_KEY,
   GC_TIDY_KEY,
-  GC_TRACK_KEY,
   GC_AGELESS_KEY,
   GC_ARCHIVE_KEY,
 ];
+/**
+ * Keys that live beside the pool in the store but are read on demand rather than into the cache.
+ * They move out of `localStorage` with everything else the first time the store opens, and that is
+ * the only thing the startup path does with them.
+ */
+const LAZY_KEYS = [GC_TRACK_KEY];
 
 /**
  * A stored value. From the cache once the store has been opened, and straight off `localStorage`
@@ -380,7 +392,7 @@ const browserIo: PoolStoreIo = {
 export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknown>> => {
   const existing = new Set(await io.keys());
 
-  for (const key of POOL_KEYS) {
+  for (const key of [...POOL_KEYS, ...LAZY_KEYS]) {
     // Already carried across; localStorage has nothing to say about it.
     if (existing.has(key)) continue;
     const raw = io.readLocal(key);
@@ -473,6 +485,8 @@ export const clearTeamRankings = (): boolean => {
   const archived = loadArchiveIndex();
   POOL_KEYS.forEach((key) => forgetValue(key));
   archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
+  // The pull's record is read on demand and so is in no key the walk above reaches.
+  void dropBlob(GC_TRACK_KEY);
   return true;
 };
 
@@ -634,20 +648,23 @@ export const saveTidyStamp = (stamp: string): boolean => writeValue(GC_TIDY_KEY,
 /**
  * The last pull's record, so the files can still be written after a reload.
  *
- * Unvalidated on the way back in beyond its version: it is read only to be turned into a CSV, and
- * a record that has drifted is better read as the odd blank cell than refused outright — refusing
- * it would throw away the only account of a run that cannot be repeated.
+ * Read from the store when asked rather than from the startup cache — see `GC_TRACK_KEY` — which
+ * is why it is asynchronous where its neighbours are not. Unvalidated on the way back in beyond
+ * its version: it is read only to be turned into a CSV, and a record that has drifted is better
+ * read as the odd blank cell than refused outright — refusing it would throw away the only account
+ * of a run that cannot be repeated.
  */
-export const loadPullLog = (): PullRunLog | null => {
-  const raw = readValue(GC_TRACK_KEY);
+export const loadPullLog = async (): Promise<PullRunLog | null> => {
+  const raw = await getBlob(GC_TRACK_KEY);
   if (!raw || typeof raw !== "object") return null;
   const log = raw as PullRunLog;
   return log.version === PULL_TRACKER_VERSION ? log : null;
 };
 
-export const savePullLog = (log: PullRunLog): boolean => writeValue(GC_TRACK_KEY, log);
+/** Resolves to whether the record landed; a refusal is the caller's to note in the record. */
+export const savePullLog = (log: PullRunLog): Promise<boolean> => putBlob(GC_TRACK_KEY, log);
 
-export const clearPullLog = (): void => forgetValue(GC_TRACK_KEY);
+export const clearPullLog = (): Promise<void> => dropBlob(GC_TRACK_KEY);
 
 /** The teams still waiting for somebody to say what age they are. */
 export const loadAgeUnknown = (): AgeUnknownList => coerceAgeUnknown(readValue(GC_AGELESS_KEY));

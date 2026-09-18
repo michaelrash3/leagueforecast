@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import {
@@ -73,6 +73,7 @@ import {
   type PullEndReason,
   type PullLiveSummary,
   type PullRunLog,
+  type PullTracker,
 } from "../lib/pullTracker";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
@@ -107,6 +108,20 @@ type Stage = "picking" | "pulling" | "review";
  * advanced *after* the write, so a crash re-fetches the batch rather than claiming teams it never
  * kept.
  */
+/**
+ * Writes the run's record beside the pool. Written asynchronously — the record is read on demand,
+ * not from the pool's cache — and a refusal, or a store that throws, is noted in the record itself
+ * rather than allowed anywhere near the run.
+ */
+const persistLog = (tracker: PullTracker, log: PullRunLog): void => {
+  savePullLog(log).then(
+    (ok) => {
+      if (!ok) tracker.unpersisted();
+    },
+    () => tracker.unpersisted()
+  );
+};
+
 /**
  * How many teams to fetch between saves, given how big the pool already is.
  *
@@ -645,7 +660,7 @@ export function GameChangerImportPanel({
               // never be the thing that stops the run it is recording.
               const current = tracker?.log();
               if (current) {
-                if (!savePullLog(current)) tracker?.unpersisted();
+                if (tracker) persistLog(tracker, current);
                 setLive(
                   liveSummary(current, progressRef.current?.settled.length ?? 0, msNow() - runFrom)
                 );
@@ -825,7 +840,7 @@ export function GameChangerImportPanel({
         // into the record would put a second copy of every game in storage.
         if (outcome) tracker?.tidied(outcome.tidy);
         tracker?.finish(nowIso(), endReason);
-        if (tracker && !savePullLog(tracker.log())) tracker.unpersisted();
+        if (tracker) persistLog(tracker, tracker.log());
       });
 
       const finished = progressRef.current;
@@ -952,14 +967,31 @@ export function GameChangerImportPanel({
   };
 
   /**
+   * The record storage kept of the last run, read once this panel is open.
+   *
+   * On demand rather than with the pool: a row per team in a nationwide pull is tens of thousands
+   * of rows, and every page was holding them for the sake of the download buttons below. It is
+   * asked for here, when the panel that has those buttons mounts, and nowhere else.
+   */
+  const [storedLog, setStoredLog] = useState<PullRunLog | null>(null);
+  useEffect(() => {
+    let wanted = true;
+    void loadPullLog().then((log) => {
+      if (wanted) setStoredLog(log);
+    });
+    return () => {
+      wanted = false;
+    };
+  }, []);
+
+  /**
    * The run's own record, live or the last one finished, falling back to what storage kept.
    *
    * Three sources because the record has to be downloadable in all three situations: while the run
    * is going, after it has ended in this panel, and after a reload that lost every component but
    * not the file.
    */
-  const runLog = (): PullRunLog | null =>
-    livePullTracker()?.log() ?? lastPullLog() ?? loadPullLog();
+  const runLog = (): PullRunLog | null => livePullTracker()?.log() ?? lastPullLog() ?? storedLog;
   /*
    * Read again when the button is pressed rather than used from the render that drew it. A run
    * still going is writing to this the whole time, and a file built from the copy that happened to

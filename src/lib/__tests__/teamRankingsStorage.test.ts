@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
+import { emptyPullRunLog } from "../pullTracker";
 import {
   clearTeamRankings,
   coerceGcTeamLink,
@@ -8,6 +9,7 @@ import {
   coerceScoutTeams,
   initTeamRankingsStore,
   loadAgeGroups,
+  loadPullLog,
   loadPullProgress,
   loadRefreshLog,
   loadTidyStamp,
@@ -15,6 +17,7 @@ import {
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
+  savePullLog,
   savePullProgress,
   saveRefreshLog,
   saveTidyStamp,
@@ -446,5 +449,77 @@ describe("the tidy stamp", () => {
     expect(loadTidyStamp()).toBeNull();
     expect(saveTidyStamp("1|2|3|2026-09-15T18:02:58.539Z")).toBe(true);
     expect(loadTidyStamp()).toBe("1|2|3|2026-09-15T18:02:58.539Z");
+  });
+});
+
+/**
+ * The pull's record is the largest thing in storage after the games, and every page was loading
+ * it at startup for the sake of two download buttons in Setup. It is read when asked now.
+ */
+describe("the pull log, read on demand", () => {
+  const TRACK_KEY = "league_forecast_gc_track_v1";
+  const storeIo = (store: Map<string, unknown>, reads: string[] = []) => {
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => {
+        reads.push(key);
+        return store.get(key) ?? null;
+      },
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    return io;
+  };
+
+  it("is not read at startup, and comes back when asked for", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    const store = new Map<string, unknown>([[TRACK_KEY, log]]);
+    const reads: string[] = [];
+    await initTeamRankingsStore(storeIo(store, reads));
+    expect(reads).not.toContain(TRACK_KEY);
+
+    expect(await loadPullLog()).toEqual(log);
+    expect(reads).toContain(TRACK_KEY);
+  });
+
+  it("is saved past the cache and dropped by a reset", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore(storeIo(store));
+    expect(await savePullLog(emptyPullRunLog("2026-09-18T12:00:00.000Z"))).toBe(true);
+    expect(store.has(TRACK_KEY)).toBe(true);
+
+    expect(clearTeamRankings()).toBe(true);
+    // The drop is asynchronous; give it the turn it needs.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.get(TRACK_KEY) ?? null).toBeNull();
+    expect(await loadPullLog()).toBeNull();
+  });
+
+  it("still moves out of localStorage with the pool, though it is not cached", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    const store = new Map<string, unknown>();
+    const cleared: string[] = [];
+    const io: PoolStoreIo = {
+      ...storeIo(store),
+      readLocal: (key) => (key === TRACK_KEY ? log : null),
+      clearLocal: (key) => {
+        cleared.push(key);
+      },
+    };
+    await initTeamRankingsStore(io);
+    expect(store.get(TRACK_KEY)).toEqual(log);
+    expect(cleared).toContain(TRACK_KEY);
+  });
+
+  it("answers from localStorage where there is no IndexedDB", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    expect(await savePullLog(log)).toBe(true);
+    expect(await loadPullLog()).toEqual(log);
+    clearTeamRankings();
+    expect(await loadPullLog()).toBeNull();
   });
 });
