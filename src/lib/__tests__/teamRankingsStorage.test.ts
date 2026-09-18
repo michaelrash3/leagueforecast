@@ -297,6 +297,35 @@ describe("decoding the pool once per version of it", () => {
     expect(before).toEqual([{ id: "A", name: "Aces" }]);
   });
 
+  /*
+   * Every save is followed by a read - the league bridge and the refit both ask - and the caller
+   * holds the very array it just encoded. Seeding the memo at save time means that read is free
+   * rather than a full decode of what was written a moment ago.
+   */
+  it("does not decode the pool it was just handed", async () => {
+    await initTeamRankingsStore(idbIo());
+    const teams: ScoutTeam[] = [
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ];
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+    ];
+    saveScoutTeams(teams);
+    saveScoutGames(games);
+
+    const readTeams = loadScoutTeams();
+    const readGames = loadScoutGames();
+    // The objects are the caller's own - not decoded copies of them.
+    expect(readTeams[0]).toBe(teams[0]);
+    expect(readTeams[1]).toBe(teams[1]);
+    expect(readGames).toBe(games);
+    // And a placeholder-named team the caller forgot to flag is still caught, exactly as a decode
+    // would have caught it - the seed is what a decode produces, not a shortcut past it.
+    saveScoutTeams([{ id: "T", name: "TBD" }]);
+    expect(loadScoutTeams()[0]!.placeholder).toBe(true);
+  });
+
   it("does not let a reset keep a decoded pool alive", async () => {
     await initTeamRankingsStore(idbIo());
     saveScoutTeams([{ id: "A", name: "Aces" }]);
