@@ -10,6 +10,7 @@ import {
   type ScoutTeam,
 } from "../teamRankings";
 import { buildOpponentAdjustedRatings } from "../powerRating";
+import { weightsForGames } from "../ratingRecency";
 
 /** A fit's worth of the two things the discount needs: how noisy the pool is and who played how much. */
 const fit = (residualScale: number, games: Record<string, number>) => ({
@@ -180,13 +181,20 @@ describe("a 3-0 club and an 11-1 club", () => {
     const { teams, games, thin } = ranked();
     // Refit the same games directly, so the table's number is tied to the model's own output
     // rather than to a constant remembered from when this was written.
+    // Weighted exactly as the table weights it. Refitting unweighted would tie the assertion to a
+    // model the app no longer runs, and the mismatch would read as a discount bug rather than as
+    // the recency weighting it actually is.
+    const weights = weightsForGames(
+      games.map((game) => ({ date: game.date, home: game.teamAId, away: game.teamBId }))
+    );
     const refit = buildOpponentAdjustedRatings(
       teams.map((team) => team.id),
-      games.map((game) => ({
+      games.map((game, at) => ({
         home: game.teamAId,
         away: game.teamBId,
         homeMargin: game.teamAScore! - game.teamBScore!,
         neutral: true,
+        ...(weights ? { weight: weights[at] ?? 1 } : {}),
       })),
       { cap: RATING_CAP }
     );
