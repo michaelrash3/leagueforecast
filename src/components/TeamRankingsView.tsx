@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import {
   ageGroupChain,
@@ -88,7 +88,7 @@ import {
 import type { Command } from "./CommandPalette";
 import { archivableYears, archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
 import { ArchiveSection } from "./teamRankings/ArchiveSection";
-import { isPoolBusy } from "../lib/pullSession";
+import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
@@ -279,6 +279,33 @@ export function TeamRankingsView({
    */
   const [poolRevision, setPoolRevision] = useState(0);
   const bumpPool = useCallback(() => setPoolRevision((revision) => revision + 1), []);
+  const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
+  /**
+   * The revision the expensive reads follow, which stands still while a pull owns the pool.
+   *
+   * A pull saves every few hundred teams and can run for the better part of an hour. Every one of
+   * those saves bumped `poolRevision`, and every bump made this view decode the pool again — the
+   * year on screen, and on the Import section the whole pool, every year of it. Measured on a
+   * synthetic pool of two hundred thousand games that is about 110 ms of decode on top of the
+   * 250 ms of encode the save itself costs, on the one thread that also has to draw the page,
+   * several hundred times over a full refresh. The Import section's copy is pure waste besides:
+   * the GameChanger panel seeds itself from that prop once and never reads it again, so the whole
+   * pool was being decoded for nobody.
+   *
+   * While a run is going the view therefore shows the pool as it stood when the run started —
+   * which is what it showed between saves anyway — and the panel's own progress is what moves.
+   * The moment the run releases the pool this catches up, once.
+   */
+  const [settled, setSettled] = useState({ revision: poolRevision, live: false });
+  if (settled.live !== pullLive || (!pullLive && settled.revision !== poolRevision)) {
+    /*
+     * Followed during render rather than in an effect, the way `GameDateInput` follows its value:
+     * React applies a set made here before painting, so no read below is ever made against a
+     * revision that is about to be replaced — and no frame shows the pool from before the run.
+     */
+    setSettled({ live: pullLive, revision: pullLive ? settled.revision : poolRevision });
+  }
+  const settledRevision = settled.revision;
   /**
    * The season on screen's games, and only those.
    *
@@ -289,9 +316,9 @@ export function TeamRankingsView({
    * reads it from storage at the moment it runs, and holds it only that long.
    */
   const scoutGames = useMemo(() => {
-    void poolRevision;
+    void settledRevision;
     return loadScoutGamesForYear(selectedYear);
-  }, [selectedYear, poolRevision]);
+  }, [selectedYear, settledRevision]);
   /** What each stored year holds, counted off the store without decoding any of it. */
   const storedYears = useMemo(() => {
     void poolRevision;
@@ -312,9 +339,9 @@ export function TeamRankingsView({
    * every year the pull did not itself refetch. `poolWrite.test.tsx` is the guard.
    */
   const wholePoolGames = useMemo(() => {
-    void poolRevision;
+    void settledRevision;
     return section === "setup" || section === "import" ? loadScoutGames() : NO_STORED_GAMES;
-  }, [section, poolRevision]);
+  }, [section, settledRevision]);
   /** When the pool was last backed up from this browser; re-read after a download from here. */
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
   /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
@@ -966,9 +993,22 @@ export function TeamRankingsView({
     games: everyKnownGame,
     ageGroups,
     rankedTeams,
-    // Setup has no search box, and it is where a pull saves the pool every few hundred teams.
-    enabled: section !== "setup",
-    revision: poolRevision,
+    /*
+     * Not while a pull is running, and that is the expensive half of this.
+     *
+     * Rebuilding the index reads every stored year and walks every team against every game. The
+     * note that used to sit here said Setup was where a pull saves the pool every few hundred
+     * teams — right reason, wrong section: a pull runs from Import, where the index was enabled,
+     * so every save during a run rebuilt the whole thing. Nor is the revision enough to stop it,
+     * because a save hands back new `teams` and `ageGroups` arrays and the index follows those by
+     * identity, as it should.
+     *
+     * What it powers is a search box and the place line under a team's name. Both can wait for a
+     * run that is adding the very teams they would be searching; the index comes back, once, when
+     * the pool is released.
+     */
+    enabled: section !== "setup" && !pullLive,
+    revision: settledRevision,
   });
 
   /** Goes to the page a team is on and opens it, whichever season and level that turns out to be. */
