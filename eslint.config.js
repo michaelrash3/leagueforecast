@@ -41,6 +41,21 @@ export default tseslint.config(
 
       "react/prop-types": "off",
 
+      /*
+       * An error, not a warning, and `npm run lint` fails on any warning besides.
+       *
+       * This rule was a warning, so four hand-kept dependency lists sat in App.tsx behind
+       * suppressions. Three carried a comment saying the listed values covered the helper they
+       * left out, which was true when written. One carried nothing and was wrong: switching a
+       * league's postseason format flipped `hasCutLine` without moving anything the list watched,
+       * so "Bubble Game" stayed on games that no longer had a cut line to be near. The same shape
+       * had already produced a real bug in the command palette, which shared a stale view for a
+       * whole season.
+       *
+       * A warning does not fail CI, so nothing stopped the next one. This does.
+       */
+      "react-hooks/exhaustive-deps": "error",
+
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
