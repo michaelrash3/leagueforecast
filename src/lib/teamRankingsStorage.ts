@@ -755,17 +755,14 @@ const writeShards = (shards: Map<string, ScoutGame[]>): boolean => {
 };
 
 /**
- * Files `games` by year and writes them.
+ * Writes games already filed by year.
  *
- * The years in `replace` are rewritten to hold exactly the games filed under them, and dropped
+ * The years in `replacing` are rewritten to hold exactly the games filed under them, and dropped
  * when that is none. A game filed under any other year is laid over that year's stored games by
  * id — so a save that holds one year's list cannot empty a year it was not holding, and a game
  * moved to another year's page arrives there rather than being lost with the page it left.
  */
-const writeRouted = (games: ScoutGame[], replace: ReadonlySet<string> | "all"): boolean => {
-  const split = splitByYear(games, loadAgeGroups());
-  const replacing =
-    replace === "all" ? new Set([...storedShardLabels(), ...split.keys()]) : replace;
+const writeSplit = (split: Map<string, ScoutGame[]>, replacing: ReadonlySet<string>): boolean => {
   const toWrite = new Map<string, ScoutGame[]>();
   replacing.forEach((label) => toWrite.set(label, split.get(label) ?? []));
   split.forEach((strays, label) => {
@@ -776,6 +773,10 @@ const writeRouted = (games: ScoutGame[], replace: ReadonlySet<string> | "all"): 
   });
   return writeShards(toWrite);
 };
+
+/** The same, for a caller that has the games rather than the split. */
+const writeRouted = (games: ScoutGame[], replacing: ReadonlySet<string>): boolean =>
+  writeSplit(splitByYear(games, loadAgeGroups()), replacing);
 
 /**
  * Moves a pool written as one value into a key per year, on the store's own terms.
@@ -907,13 +908,62 @@ export const storedGamesByYear = (): {
   }));
 };
 
+/** What became of a save that holds the whole pool. */
+export type PoolWrite = {
+  /** Every key the save needed landed. */
+  written: boolean;
+  /**
+   * The stored squad years the save held no games for and was not told to empty, so they were
+   * left exactly as they were.
+   *
+   * A save that really does hold the whole pool spares nothing, so anything in here is a caller
+   * saving a pool it does not have — and that is worth putting in front of somebody rather than
+   * counting as a successful save.
+   */
+  spared: (number | undefined)[];
+};
+
 /**
- * Replaces the whole pool: every year rewritten from `games`, and a stored year with no games left
- * in it dropped. For the operations that hold the whole pool; see `loadScoutGames`.
+ * Saves the whole pool back: every year rewritten from `games`.
+ *
+ * A stored year that `games` holds nothing for is emptied only when `emptying` names it. That
+ * default is the whole point of the signature. The old one had no such parameter and emptied
+ * every such year unasked, which reads as obviously right — the caller holds the whole pool, so a
+ * year it has nothing for is a year with nothing in it — and is ruinous for a caller that does
+ * not. Handed an empty array by a wiring mistake, this deleted a hundred thousand games and
+ * reported success, because "the whole pool" is a claim about the caller that the array itself
+ * cannot make. Now the array cannot make it: emptying a year is a thing a caller says, and the
+ * one caller that means it says which year.
+ *
+ * It is not a whole guarantee and is not meant to read as one. A save holding a year's games can
+ * still overwrite that year with fewer of them, and no arithmetic here can tell that from a
+ * deletion the user asked for. What it does close is the whole-year case, which is the one that
+ * loses a season, and it closes it without decoding anything: a stored year with no games is
+ * dropped rather than written empty, so the stored labels already are the years that hold games.
  */
-export const saveScoutGames = (games: ScoutGame[]): boolean => {
+export const saveScoutGames = (
+  games: ScoutGame[],
+  emptying: readonly (number | undefined)[] = []
+): PoolWrite => {
   ensureGamesSharded();
-  return writeRouted(games, "all");
+  const split = splitByYear(games, loadAgeGroups());
+  const replacing = new Set([...split.keys(), ...emptying.map(labelForYear)]);
+  const spared = storedShardLabels().filter((label) => !replacing.has(label));
+  return { written: writeSplit(split, replacing), spared: spared.map(yearForLabel) };
+};
+
+/**
+ * Replaces the pool outright, from something that is not the pool: a restored backup. Every
+ * stored year the file has no games for goes, because the file is the pool now.
+ *
+ * Its own function rather than a flag on `saveScoutGames`, so that emptying every year is
+ * something a caller can only do by naming this — and restoring a backup is the only caller that
+ * has any business doing it.
+ */
+export const replaceScoutGames = (games: ScoutGame[]): boolean => {
+  ensureGamesSharded();
+  const split = splitByYear(games, loadAgeGroups());
+  return writeSplit(split, new Set([...storedShardLabels(), ...split.keys()]));
 };
 
 /**

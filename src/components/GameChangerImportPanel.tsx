@@ -502,9 +502,13 @@ export function GameChangerImportPanel({
     };
     const ok = onPersist(snapshot);
     if (!ok) {
-      showToast(`Could not save the pull (storage full).${note ? ` ${note}` : ""}`, {
-        tone: "error",
-      });
+      /*
+       * No cause named here. A save refuses for more than one reason now — the store being full,
+       * and the store declining to take this snapshot as the whole pool — and the caller has
+       * already said which on its way to returning false. Guessing "storage full" over the top of
+       * that would be the wrong one half the time.
+       */
+      showToast(`Could not save the pull.${note ? ` ${note}` : ""}`, { tone: "error" });
     }
     return ok;
   };

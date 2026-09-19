@@ -15,8 +15,8 @@ import {
   loadAgeGroups,
   loadScoutGames,
   loadScoutTeams,
+  replaceScoutGames,
   saveAgeGroups,
-  saveScoutGames,
   saveScoutTeams,
 } from "./teamRankingsStorage";
 import type { UndoSnapshot } from "./types";
@@ -137,7 +137,9 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
 export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => {
   const wroteAgeGroups = saveAgeGroups(backup.ageGroups);
   const wroteTeams = saveScoutTeams(backup.teams);
-  const wroteGames = saveScoutGames(backup.games);
+  // A restore is the pool now, so a stored year the file has nothing for is meant to go; see
+  // `replaceScoutGames`, which is the only caller entitled to that.
+  const wroteGames = replaceScoutGames(backup.games);
   return wroteAgeGroups && wroteTeams && wroteGames;
 };
 
