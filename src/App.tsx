@@ -59,6 +59,8 @@ import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
+import { useLeagueCommands } from "./hooks/useLeagueCommands";
+import { buildScheduleCsv, scheduleCsvFilename } from "./lib/scheduleCsvExport";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
@@ -69,7 +71,7 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import { CSV_SECTIONS, csvEscape, csvSectionMarker } from "./lib/csv";
+import { csvEscape } from "./lib/csv";
 import {
   formatGameDate,
   normalizeDateInput,
@@ -155,7 +157,6 @@ import {
   buildLeagueAverageStats,
   buildTeamSplitSummary,
   buildTeamStatRankings,
-  calcBip,
   emptySplitLine,
 } from "./lib/teamStats";
 import { buildDemoSeason } from "./lib/demoSeason";
@@ -213,7 +214,6 @@ const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 const PROJECT_STANDINGS_REMAINING_GAME_LIMIT = 250;
 const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
-const EMPTY_GAME_LOG = blankLog();
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
@@ -291,7 +291,6 @@ export default function App() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => linkedTeamIdFromUrl());
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
   /*
    * The palette used to exist only on the league half, which left the half with a nationwide pool
    * and the most places to be without one. Team Rankings owns its own navigation state, so rather
@@ -1982,94 +1981,18 @@ This will replace the current season data and save an undo snapshot.`,
   };
 
   const exportCSV = useCallback(() => {
-    const headers =
-      settings.pitchMode === "player"
-        ? [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away E",
-            "Away BB",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home E",
-            "Home BB",
-          ]
-        : [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away K",
-            "Away BIP",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home K",
-            "Home BIP",
-          ];
-    const rows = matchups.map((game) => {
-      const log = logs[game.id] || EMPTY_GAME_LOG;
-      const away = teamBaseById.get(game.away)?.name || game.away;
-      const home = teamBaseById.get(game.home)?.name || game.home;
-      const awayBip = calcBip(log.awayHits, log.awayRuns, log.awayK, log.innings);
-      const homeBip = calcBip(log.homeHits, log.homeRuns, log.homeK, log.innings);
-      const values =
-        settings.pitchMode === "player"
-          ? [
-              game.id,
-              formatGameDate(game.date),
-              away,
-              log.innings,
-              log.awayRuns,
-              log.awayHits,
-              log.awayErrors ?? "",
-              log.homeWalksAllowed ?? "",
-              home,
-              log.homeRuns,
-              log.homeHits,
-              log.homeErrors ?? "",
-              log.awayWalksAllowed ?? "",
-            ]
-          : [
-              game.id,
-              formatGameDate(game.date),
-              away,
-              log.innings,
-              log.awayRuns,
-              log.awayHits,
-              log.awayK,
-              awayBip,
-              home,
-              log.homeRuns,
-              log.homeHits,
-              log.homeK,
-              homeBip,
-            ];
-      return values.map(csvEscape).join(",");
+    const csv = buildScheduleCsv({
+      matchups,
+      logs,
+      teamsById: teamBaseById,
+      pitchMode: settings.pitchMode,
+      rankingsSections: teamRankingsCsvSections(readTeamRankingsBackup()),
     });
-    const schedule = [headers.join(","), ...rows].join("\n");
-    // Team Rankings is stored outside this season, so a CSV of the schedule alone is not a full
-    // backup. Its sections ride along after the schedule, and the schedule block gets its own
-    // marker so the file reads as the sectioned document it has become. A league that never used
-    // Team Rankings has nothing to append and gets the same flat CSV as before.
-    const rankings = teamRankingsCsvSections(readTeamRankingsBackup());
-    const csv = rankings
-      ? `${csvSectionMarker(CSV_SECTIONS.schedule)}\n${schedule}\n\n${rankings}\n`
-      : schedule;
-    const blob = new Blob([csv], {
-      type: "text/csv",
-    });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${settings.seasonLabel.replace(/\s+/g, "_")}_Schedule_Data.csv`;
+    anchor.download = scheduleCsvFilename(settings.seasonLabel);
     anchor.click();
     URL.revokeObjectURL(url);
   }, [settings, matchups, logs, teamBaseById]);
@@ -3107,90 +3030,33 @@ League Standings — your seasons, schedules and scores — is not touched.`,
 
   // ---------- Command palette + shortcuts ----------
 
-  const runTrackedCommand = useCallback(
-    (id: string, run: () => void) => () => {
-      setCommandHistory((prev) => [id, ...prev.filter((item) => item !== id)].slice(0, 6));
-      run();
-    },
+  const describeCommandTeam = useCallback(
+    (team: TeamWithProjection) => ({ name: displayName(team.name), record: recordText(team) }),
     []
   );
 
-  const commands: Command[] = useMemo(() => {
-    const teamCmds: Command[] = dashboardRows.map((team) => ({
-      id: `team-${team.id}`,
-      label: `View ${displayName(team.name)}`,
-      group: "Team",
-      hint: `#${team.rank} · ${recordText(team)}`,
-      run: runTrackedCommand(`team-${team.id}`, () => openTeamData(team.id)),
-    }));
-    const viewCmds: Command[] = VIEW_ORDER.map((view) => ({
-      id: `view-${view}`,
-      label: `Go to ${VIEW_LABELS[view]}`,
-      group: "View",
-      run: runTrackedCommand(`view-${view}`, () => setActiveView(view)),
-    }));
-    const actionCmds: Command[] = [
-      {
-        id: "action-share",
-        label: "Share this season (copy URL)",
-        group: "Action",
-        run: runTrackedCommand("action-share", shareSeason),
-      },
-      {
-        id: "action-export",
-        label: "Export schedule CSV",
-        group: "Action",
-        run: runTrackedCommand("action-export", () => exportCSV()),
-      },
-      {
-        id: "action-backup",
-        label: "Download backup JSON",
-        group: "Action",
-        run: runTrackedCommand("action-backup", () => exportBackup()),
-      },
-      {
-        id: "action-demo",
-        label: "Load demo season",
-        group: "Action",
-        run: runTrackedCommand("action-demo", loadDemoSeason),
-      },
-      {
-        id: "action-toggle-theme",
-        label: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
-        group: "Action",
-        run: runTrackedCommand("action-toggle-theme", toggleTheme),
-      },
-      {
-        id: "action-shortcuts",
-        label: "Show keyboard shortcuts",
-        group: "Help",
-        run: runTrackedCommand("action-shortcuts", () => setShowShortcuts(true)),
-      },
-      {
-        id: "action-tour",
-        label: "Show app tour",
-        group: "Help",
-        run: runTrackedCommand("action-tour", () => setShowTour(true)),
-      },
-    ];
-    const byId = new Map([...viewCmds, ...teamCmds, ...actionCmds].map((c) => [c.id, c]));
-    const historyCmds = commandHistory
-      .map((id) => byId.get(id))
-      .filter((cmd): cmd is Command => !!cmd)
-      .map((cmd) => ({ ...cmd, group: "Recent" }));
-    return [...historyCmds, ...viewCmds, ...teamCmds, ...actionCmds];
-  }, [
-    commandHistory,
-    dashboardRows,
+  const commandActions = useMemo(
+    () => ({
+      openTeam: openTeamData,
+      openView: (view: ActiveShareView) => setActiveView(view),
+      shareSeason: () => void shareSeason(),
+      exportCSV: () => exportCSV(),
+      exportBackup: () => exportBackup(),
+      loadDemoSeason: () => void loadDemoSeason(),
+      toggleTheme,
+      showShortcuts: () => setShowShortcuts(true),
+      showTour: () => setShowTour(true),
+    }),
+    [openTeamData, shareSeason, exportCSV, exportBackup, loadDemoSeason, toggleTheme]
+  );
+
+  const commands = useLeagueCommands({
+    teams: dashboardRows,
+    views: VIEW_ORDER.map((view) => ({ view, label: VIEW_LABELS[view] })),
     theme,
-    runTrackedCommand,
-    openTeamData,
-    shareSeason,
-    exportCSV,
-    exportBackup,
-    loadDemoSeason,
-    toggleTheme,
-  ]);
+    describeTeam: describeCommandTeam,
+    actions: commandActions,
+  });
 
   const shortcuts: Shortcut[] = useMemo(
     () => [
