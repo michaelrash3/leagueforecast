@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { currentDiagnosticsReport, recordDiagnostic } from "../lib/diagnostics";
 import { button, card } from "../styles/tokens";
 
 type ErrorBoundaryProps = {
@@ -16,7 +17,7 @@ type ErrorBoundaryProps = {
   onReset?: () => void;
 };
 
-type ErrorBoundaryState = { error: Error | null };
+type ErrorBoundaryState = { error: Error | null; copied: boolean };
 
 /**
  * Stops one thrown error from blanking the page.
@@ -33,21 +34,40 @@ type ErrorBoundaryState = { error: Error | null };
  * season's results in it is to assume the results went with it.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { error: null };
+  state: ErrorBoundaryState = { error: null, copied: false };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error };
+    return { error, copied: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // The console is the only record there is — there is no server to report to — and without the
-    // component stack a bug report is "it went blank", which is not enough to fix anything.
     console.error(`${this.props.area} failed to render.`, error, info.componentStack);
+    /*
+     * And written down, because the console is not a record. Nobody reads a console on a phone at
+     * a ballfield, and by the time the app is opened again on something with a keyboard the
+     * console is gone — so a crash on somebody else's device used to be lost entirely. This keeps
+     * the last few in this browser, to be copied out if the person wants to send them on.
+     */
+    recordDiagnostic({
+      kind: "crash",
+      where: this.props.area,
+      message: error.message || String(error),
+      ...(info.componentStack ? { detail: info.componentStack } : {}),
+    });
   }
 
   private retry = () => {
     this.props.onReset?.();
-    this.setState({ error: null });
+    this.setState({ error: null, copied: false });
+  };
+
+  private copyDiagnostics = () => {
+    // Best effort: an old browser or a denied permission leaves the text on screen in the details
+    // below, which is where it was going to be read from anyway.
+    void navigator.clipboard
+      ?.writeText(currentDiagnosticsReport())
+      .then(() => this.setState({ copied: true }))
+      .catch(() => this.setState({ copied: false }));
   };
 
   render() {
@@ -74,7 +94,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <button type="button" onClick={() => window.location.reload()} className={button.ghost}>
             Reload the page
           </button>
+          <button type="button" onClick={this.copyDiagnostics} className={button.ghost}>
+            {this.state.copied ? "Copied" : "Copy diagnostics"}
+          </button>
         </div>
+        <p className="mt-2 text-xs text-slate-500">
+          The copy is this browser&apos;s last few failures and nothing else — no scores, no team
+          names beyond whatever is in the message below. It is not sent anywhere; it goes on your
+          clipboard for you to paste wherever you like.
+        </p>
         <details className="mt-3">
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
             What went wrong

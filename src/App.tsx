@@ -13,6 +13,7 @@ import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
+import { recordDiagnostic } from "./lib/diagnostics";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
@@ -322,9 +323,16 @@ export default function App() {
    * save was reported as accepted. This is the only place that can still say so.
    */
   useEffect(() => {
-    onPoolWriteError(() =>
-      showToast("Team Rankings could not be saved — storage is full.", { tone: "error" })
-    );
+    onPoolWriteError((key) => {
+      // Written down as well as said, because this is the failure somebody reports days later —
+      // "it stopped saving at some point" — and the key and the time are what answer it.
+      recordDiagnostic({
+        kind: "pool-write",
+        where: key,
+        message: "A Team Rankings write did not land; storage is full or unavailable.",
+      });
+      showToast("Team Rankings could not be saved — storage is full.", { tone: "error" });
+    });
     return () => onPoolWriteError(null);
   }, [showToast]);
 
