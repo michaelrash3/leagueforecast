@@ -132,7 +132,10 @@ export function useRankingsWorker(input: RankingsInput): {
     if (idle || small) return;
     if (!workerRef.current)
       workerRef.current = createWorker(
-        new URL("../workers/rankings.worker.ts", import.meta.url),
+        () =>
+          new Worker(new URL("../workers/rankings.worker.ts", import.meta.url), {
+            type: "module",
+          }),
         "Rankings"
       );
 

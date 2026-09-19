@@ -76,7 +76,10 @@ export function useWorkerJob<Res>(spec: WorkerJobSpec<Res>): string | null {
   useEffect(() => {
     const handle = handleRef.current;
     if (!handle.worker)
-      handle.worker = createWorker(new URL("../workers/sim.worker.ts", import.meta.url), "Sim");
+      handle.worker = createWorker(
+        () => new Worker(new URL("../workers/sim.worker.ts", import.meta.url), { type: "module" }),
+        "Sim"
+      );
     return () => {
       handle.worker?.terminate();
       handle.worker = null;
@@ -97,7 +100,11 @@ export function useWorkerJob<Res>(spec: WorkerJobSpec<Res>): string | null {
       if (latestIdRef.current !== id) return;
       const job = specRef.current;
       if (!handle.worker)
-        handle.worker = createWorker(new URL("../workers/sim.worker.ts", import.meta.url), "Sim");
+        handle.worker = createWorker(
+          () =>
+            new Worker(new URL("../workers/sim.worker.ts", import.meta.url), { type: "module" }),
+          "Sim"
+        );
 
       const runInline = () => {
         const start = performance.now();

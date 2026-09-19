@@ -59,7 +59,8 @@ export function usePoolTidy() {
     ): Promise<T | null> => {
       if (!workerRef.current)
         workerRef.current = createWorker(
-          new URL("../workers/tidy.worker.ts", import.meta.url),
+          () =>
+            new Worker(new URL("../workers/tidy.worker.ts", import.meta.url), { type: "module" }),
           "Tidy"
         );
       const worker = workerRef.current;
