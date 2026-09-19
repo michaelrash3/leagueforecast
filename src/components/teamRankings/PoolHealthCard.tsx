@@ -1,9 +1,11 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { isPullLive, watchPull } from "../../lib/pullSession";
 import { useState } from "react";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import { describeTidy } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
+import { squadYearHoldings } from "../../lib/poolHealth";
+import { storedGamesByYear } from "../../lib/teamRankingsStorage";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { button, card, pill } from "../../styles/tokens";
@@ -16,6 +18,11 @@ type PoolHealthCardProps = {
 };
 
 const count = (value: number) => value.toLocaleString();
+
+const plural = (value: number, noun: string) => `${count(value)} ${noun}${value === 1 ? "" : "s"}`;
+
+/** A page with no date belongs to no squad year; it still has to be called something. */
+const yearLabel = (year: number | undefined) => (year === undefined ? "No year" : String(year));
 
 const Row = ({ label, value, note }: { label: string; value: string; note?: string }) => (
   <>
@@ -36,6 +43,17 @@ const Row = ({ label, value, note }: { label: string; value: string; note?: stri
  * are the numbers that say which.
  */
 export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProps) {
+  /*
+   * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
+   * costs nothing to show. It is the one place a year that has lost its games can be seen at all:
+   * emptying a year drops it from storage instead of writing it empty, so the games have no gap
+   * to find — only the age groups still say the year was ever there.
+   */
+  const holdings = useMemo(
+    () => squadYearHoldings(pool.ageGroups, pool.teams, storedGamesByYear()),
+    [pool.ageGroups, pool.teams]
+  );
+  const emptied = holdings.filter((holding) => holding.emptied);
   /*
    * A pull keeps running when its panel is closed, so this card can be looking at a pool that is
    * still moving. A tidy started now would write the whole pool over what the pull has since
@@ -96,6 +114,23 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
         stand-in counts for nobody — the club that played it is sitting on the other side&apos;s
         schedule, waiting to be matched.
       </p>
+
+      {emptied.length > 0 && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
+          <p className="text-sm font-black text-red-700 dark:text-red-300">
+            {emptied.length === 1
+              ? `${yearLabel(emptied[0]?.year)} has lost its games`
+              : `${count(emptied.length)} squad years have lost their games: ${emptied
+                  .map((holding) => yearLabel(holding.year))
+                  .join(", ")}`}
+          </p>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+            Its pages and its teams are still here, and not one game is stored against it. That is
+            not what an unpulled year looks like — a year nobody has pulled has no teams either.
+            Restore a backup from before it went, or pull that year again.
+          </p>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
@@ -194,6 +229,32 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
               <>Nothing is waiting.</>
             )}
           </p>
+        </div>
+      )}
+
+      {holdings.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            What each squad year holds
+          </h3>
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+            {holdings.map((holding) => (
+              <li key={String(holding.year)}>
+                <span
+                  className={
+                    holding.emptied
+                      ? "font-bold text-red-700 dark:text-red-300"
+                      : "font-bold text-slate-700 dark:text-slate-200"
+                  }
+                >
+                  {yearLabel(holding.year)}
+                </span>
+                {" — "}
+                {plural(holding.pages, "page")}, {plural(holding.teams, "team")},{" "}
+                {plural(holding.games, "game")}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
