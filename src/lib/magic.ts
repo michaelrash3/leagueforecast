@@ -72,14 +72,38 @@ const solveCutoff = (
 ) => {
   const base = buildPointsMap(teams, settings);
   const myRemaining = remainingGamesFor(teamId, remaining).length;
-  if (requiredOwnWins > myRemaining || extraForcedLosses > myRemaining) return false;
+  /*
+   * The wins and the losses come out of the same games, so it is their total that has to fit.
+   *
+   * Checked against the count each on its own, an unsatisfiable pair got through — one win and
+   * three losses out of three games — and every branch then fell outside the scenario. Vacuously
+   * true under `all`, which is to say the team was told a scenario it cannot reach would clinch
+   * for it. Asking for a win in a season with nothing left to play is the same mistake, and this
+   * covers that too, since both terms are counts of games.
+   */
+  if (requiredOwnWins + extraForcedLosses > myRemaining) return false;
 
   const ids = sortedTeamIds(teams);
   const memo = new Map<string, boolean>();
 
   const dfs = (idx: number, ownWins: number, forcedLosses: number, points: PointsMap): boolean => {
     if (idx === remaining.length) {
-      if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return false;
+      /*
+       * This branch is outside the scenario being asserted, so it is not evidence either way.
+       *
+       * Which way "not evidence" falls depends on what is being asked. "all" asks whether the
+       * team is in the cutoff in *every* branch where it wins at least `requiredOwnWins` and
+       * loses at least `extraForcedLosses` — so a branch that does not meet those minimums is
+       * vacuously fine and must not count against it. "any" asks whether there is *some* such
+       * branch, and a branch outside the scenario is not one.
+       *
+       * Returning false either way is what made a magic number unreachable. `every` over the
+       * branches meant the claim "N more wins clinches" was refused by the branch where the team
+       * wins none — which is every schedule with a game left in it — so `magicForGold` fell
+       * through to "Cannot mathematically clinch a Gold Bracket spot." for every team that had
+       * not already clinched, including the ones a single win would settle it for.
+       */
+      if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return mode === "all";
       return rankOfTeam(teamId, points, teams) <= settings.goldCutoff;
     }
 
