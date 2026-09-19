@@ -743,17 +743,45 @@ const blendWithRating = (prior: RatingPrior | null, modelMargin: number, modelEd
   };
 };
 
+/**
+ * What the model needs to know about the league as a whole, carried rather than recounted.
+ *
+ * Both models place a game against the league's scoring rate, which meant two or three full passes
+ * over every team on every prediction — and the simulators predict once per remaining game per
+ * iteration, so those passes dominated. A settled game moves the totals by exactly what it added,
+ * so the loop builds this once and hands it down. The cap on one game's run differential is a pure
+ * function of settings, so it is resolved here too instead of per settled game.
+ *
+ * Runs and games are counts, so carrying them is exact: integers this small add without rounding,
+ * and the pinned answers in sim.test.ts hold to the digit. Strikeouts are not — `kpg` is a rate, so
+ * a carried sum of kpg times games and a recounted one can differ in the last bit, and that is a
+ * published number moving for no reason anybody chose. So the machine-pitch model still counts
+ * that one, and loses the other two.
+ */
+export type LeagueTally = {
+  runs: number;
+  games: number;
+  runDiffCap: number;
+};
+
+const leagueTallyOf = (teams: Team[], settings: Settings): LeagueTally => ({
+  runs: teams.reduce((sum, team) => sum + team.rs, 0),
+  games: teams.reduce((sum, team) => sum + team.games, 0),
+  runDiffCap: resolveMaxRunDifferential(settings),
+});
+
 export const predictPlayerPitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
   const home = lookup.get(game.home);
-  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
-  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const totalRuns = tally ? tally.runs : teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = tally ? tally.games : teams.reduce((sum, team) => sum + team.games, 0);
   const leagueRuns = totalGames ? totalRuns / totalGames : 7;
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
@@ -838,13 +866,15 @@ export const predictMachinePitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
   const home = lookup.get(game.home);
-  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
-  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const totalRuns = tally ? tally.runs : teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = tally ? tally.games : teams.reduce((sum, team) => sum + team.games, 0);
+  // Counted, not carried: see LeagueTally on why this one cannot be added up as it goes.
   const totalStrikeouts = teams.reduce((sum, team) => sum + team.kpg * team.games, 0);
   const leagueRuns = totalGames ? totalRuns / totalGames : 7;
   const leagueK6 = totalGames ? totalStrikeouts / totalGames : 4.5;
@@ -939,10 +969,12 @@ export const predictGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression" | "pitchMode">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
-  if (settings.pitchMode === "player") return predictPlayerPitchGame(game, teams, settings, byId);
-  return predictMachinePitchGame(game, teams, settings, byId);
+  if (settings.pitchMode === "player")
+    return predictPlayerPitchGame(game, teams, settings, byId, tally);
+  return predictMachinePitchGame(game, teams, settings, byId, tally);
 };
 
 /**
@@ -964,7 +996,8 @@ const settleGame = (
   game: Matchup,
   winnerId: string,
   prediction: Prediction,
-  settings: Settings
+  settings: Settings,
+  tally?: LeagueTally
 ): void => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
@@ -978,7 +1011,12 @@ const settleGame = (
   away.ra += homeRuns;
   home.rs += homeRuns;
   home.ra += awayRuns;
-  const runDiffCap = resolveMaxRunDifferential(settings);
+  const runDiffCap = tally ? tally.runDiffCap : resolveMaxRunDifferential(settings);
+  if (tally) {
+    // Exactly what was just booked onto the two sides, so the carried totals stay the counted ones.
+    tally.runs += awayRuns + homeRuns;
+    tally.games += 2;
+  }
   away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
   home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
@@ -1047,12 +1085,13 @@ const playOut = (
   settings: Settings,
   random: () => number
 ): void => {
+  const tally = leagueTallyOf(season, settings);
   for (const game of remaining) {
-    const prediction = predictGame(game, season, settings, byId);
+    const prediction = predictGame(game, season, settings, byId, tally);
     const winner = random() < prediction.awayWinPct ? game.away : game.home;
     const away = byId.get(game.away);
     const home = byId.get(game.home);
-    if (away && home) settleGame(away, home, game, winner, prediction, settings);
+    if (away && home) settleGame(away, home, game, winner, prediction, settings, tally);
   }
 };
 
@@ -1290,6 +1329,8 @@ const simulateBracketRun = (
   const totalRounds = Math.log2(size);
   // The league as it stands at season's end, for the model to read both sides from.
   const allTeams = [...byId.values()];
+  // A bracket game is drawn, not booked, so the league behind it is the same for every round.
+  const tally = leagueTallyOf(allTeams, settings);
   let slots: (string | null)[] = bracketSeedOrder(size).map(
     (seed) => entrants[seed - 1]?.id ?? null
   );
@@ -1310,7 +1351,7 @@ const simulateBracketRun = (
           away: top,
           home: bottom,
         };
-        const prediction = predictGame(matchup, allTeams, settings, byId);
+        const prediction = predictGame(matchup, allTeams, settings, byId, tally);
         next.push(random() < prediction.awayWinPct ? top : bottom);
       } else {
         next.push(top ?? bottom);

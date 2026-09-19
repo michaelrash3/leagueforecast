@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   simulateBracketOdds,
   simulateGoldOdds,
@@ -6,7 +6,8 @@ import {
   type BracketOddsResult,
 } from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
-import type { WorkerRequest, WorkerResponse } from "../workers/sim.worker";
+import type { WorkerResponse } from "../workers/sim.worker";
+import { useWorkerJob } from "./useWorkerJob";
 
 type OddsInput = {
   teams: Team[];
@@ -53,42 +54,15 @@ const EMPTY_BRACKET: BracketOddsResult = {
   iterations: 0,
 };
 
-type WorkerHandle = {
-  worker: Worker | null;
-  nextId: number;
-};
-
-const createWorker = (): Worker | null => {
-  if (typeof Worker === "undefined") return null;
-  try {
-    return new Worker(new URL("../workers/sim.worker.ts", import.meta.url), {
-      type: "module",
-    });
-  } catch (err) {
-    console.warn("Sim worker unavailable, falling back to inline.", err);
-    return null;
-  }
-};
+/** The odds, and the number of seasons they were counted over. */
+type OddsResult = { odds: Record<string, number>; iterations: number };
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
-  const [odds, setOdds] = useState<Record<string, number>>({});
-  /** Seasons the stored odds were counted over; what their ± must be computed from. */
-  const [iterations, setIterations] = useState(0);
+  const [result, setResult] = useState<OddsResult>({ odds: EMPTY_ODDS, iterations: 0 });
   const [resultKey, setResultKey] = useState<string | null>(null);
-  const [workerError, setWorkerError] = useState<string | null>(null);
-  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
-  const latestIdRef = useRef(0);
 
-  useEffect(() => {
-    const handle = handleRef.current;
-    if (!handle.worker) handle.worker = createWorker();
-    return () => {
-      handle.worker?.terminate();
-      handle.worker = null;
-    };
-  }, []);
-
-  // Stable hash of inputs so we don't re-run on identity changes.
+  // Stable hash of inputs so we don't re-run on identity changes. The seed text carries every
+  // final score (see `simulationSeed`), so correcting a score already marked final changes it.
   const key = useMemo(
     () =>
       JSON.stringify([
@@ -112,116 +86,43 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   // Nothing to simulate; see EMPTY_ODDS above.
   const idle = input.teams.length === 0;
 
-  useEffect(() => {
-    if (idle) return;
-    const handle = handleRef.current;
-    const id = handle.nextId + 1;
-    handle.nextId = id;
-    latestIdRef.current = id;
-    let removeWorkerListeners: (() => void) | null = null;
+  const onResult = useCallback((next: OddsResult, forKey: string) => {
+    setResult(next);
+    setResultKey(forKey);
+  }, []);
 
-    const timer = window.setTimeout(() => {
-      if (latestIdRef.current !== id) return;
-      if (!handle.worker) handle.worker = createWorker();
-
-      const runInline = () => {
-        const start = performance.now();
-        const result = simulateGoldOddsRun(
-          input.teams,
-          input.remaining,
-          input.iterations,
-          input.seedText,
-          input.cutoff,
-          input.settings
-        );
-        if (latestIdRef.current === id) {
-          setOdds(result.odds);
-          setIterations(result.iterations);
-          setResultKey(key);
-          if (import.meta.env.DEV) {
-            console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
-          }
-        }
-      };
-
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            if (import.meta.env.DEV) {
-              console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
-            }
-            return;
-          }
-          if (event.data.kind !== "odds" || event.data.id !== id) return;
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          if (latestIdRef.current === id) {
-            setWorkerError(null);
-            setOdds(event.data.odds);
-            setIterations(event.data.iterations);
-            setResultKey(key);
-          }
-        };
-        const onError = (event: Event) => {
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
-          // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
-          setWorkerError(event.type);
-          runInline();
-        };
-        handle.worker.addEventListener("message", onMessage);
-        handle.worker.addEventListener("error", onError);
-        handle.worker.addEventListener("messageerror", onError);
-        removeWorkerListeners = () => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
-        };
-        const req: WorkerRequest = {
-          kind: "odds",
-          id,
-          teams: input.teams,
-          remaining: input.remaining,
-          iterations: input.iterations,
-          seedText: input.seedText,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        try {
-          handle.worker.postMessage(req);
-        } catch (err) {
-          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
-          runInline();
-        }
-      } else {
-        runInline();
-      }
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timer);
-      removeWorkerListeners?.();
-      removeWorkerListeners = null;
-      try {
-        handle.worker?.postMessage({ kind: "cancel", id });
-      } catch {
-        // Worker may already be terminating; stale responses are ignored by id.
-      }
-    };
-  }, [
+  const workerError = useWorkerJob<OddsResult>({
     idle,
     key,
     debounceMs,
-    input.teams,
-    input.remaining,
-    input.iterations,
-    input.seedText,
-    input.cutoff,
-    input.settings,
-  ]);
+    label: "odds",
+    request: (id) => ({
+      kind: "odds",
+      id,
+      teams: input.teams,
+      remaining: input.remaining,
+      iterations: input.iterations,
+      seedText: input.seedText,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "odds" && data.id === id
+        ? { odds: data.odds, iterations: data.iterations }
+        : null,
+    inline: () => {
+      const run = simulateGoldOddsRun(
+        input.teams,
+        input.remaining,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings
+      );
+      return { odds: run.odds, iterations: run.iterations };
+    },
+    onResult,
+  });
 
   // `resultKey` matching `inputKey` is how callers know the odds describe the current input, so an
   // idle pool reports the current key: an empty answer for no teams is up to date, not stale.
@@ -230,8 +131,8 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   // be flipped on either side of the same await, and it is true from the first render rather than
   // one render late.
   return {
-    odds: idle ? EMPTY_ODDS : odds,
-    iterations: idle ? 0 : iterations,
+    odds: idle ? EMPTY_ODDS : result.odds,
+    iterations: idle ? 0 : result.iterations,
     pending: !idle && resultKey !== key,
     inputKey: key,
     resultKey: idle ? key : resultKey,
@@ -241,18 +142,6 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
   const [trend, setTrend] = useState<Record<string, number[]>>({});
-  const [workerError, setWorkerError] = useState<string | null>(null);
-  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
-  const latestIdRef = useRef(0);
-
-  useEffect(() => {
-    const handle = handleRef.current;
-    if (!handle.worker) handle.worker = createWorker();
-    return () => {
-      handle.worker?.terminate();
-      handle.worker = null;
-    };
-  }, []);
 
   const key = useMemo(
     () =>
@@ -277,120 +166,48 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     return empty;
   }, [input.teamIds]);
 
-  useEffect(() => {
-    if (idle) return;
-    const handle = handleRef.current;
-    const id = handle.nextId + 1;
-    handle.nextId = id;
-    latestIdRef.current = id;
-    let removeWorkerListeners: (() => void) | null = null;
+  const onResult = useCallback((next: Record<string, number[]>) => setTrend(next), []);
 
-    const timer = window.setTimeout(() => {
-      if (latestIdRef.current !== id) return;
-      if (!handle.worker) handle.worker = createWorker();
-
-      const runInline = () => {
-        const start = performance.now();
-        const result: Record<string, number[]> = {};
-        input.teamIds.forEach((tid) => {
-          result[tid] = [];
-        });
-        input.states.forEach((state) => {
-          const odds = simulateGoldOdds(
-            state.teams,
-            state.remaining,
-            input.iterations,
-            state.seedText,
-            input.cutoff,
-            input.settings
-          );
-          input.teamIds.forEach((tid) => {
-            const series = result[tid];
-            if (series) series.push(odds[tid] ?? 0);
-          });
-        });
-        if (latestIdRef.current === id) setTrend(result);
-        if (import.meta.env.DEV) {
-          console.debug(`[sim-inline] trend ${(performance.now() - start).toFixed(1)}ms`);
-        }
-      };
-
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            if (import.meta.env.DEV) {
-              console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
-            }
-            return;
-          }
-          if (event.data.kind !== "trend" || event.data.id !== id) return;
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          if (latestIdRef.current === id) {
-            setWorkerError(null);
-            setTrend(event.data.trend);
-          }
-        };
-        const onError = (event: Event) => {
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
-          // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
-          setWorkerError(event.type);
-          runInline();
-        };
-        handle.worker.addEventListener("message", onMessage);
-        handle.worker.addEventListener("error", onError);
-        handle.worker.addEventListener("messageerror", onError);
-        removeWorkerListeners = () => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
-        };
-        const req: WorkerRequest = {
-          kind: "trend",
-          id,
-          teamIds: input.teamIds,
-          states: input.states,
-          iterations: input.iterations,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        try {
-          handle.worker.postMessage(req);
-        } catch (err) {
-          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
-          runInline();
-        }
-      } else {
-        runInline();
-      }
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timer);
-      removeWorkerListeners?.();
-      removeWorkerListeners = null;
-      try {
-        handle.worker?.postMessage({ kind: "cancel", id });
-      } catch {
-        // Worker may already be terminating; stale responses are ignored by id.
-      }
-    };
-  }, [
+  useWorkerJob<Record<string, number[]>>({
     idle,
     key,
     debounceMs,
-    input.teamIds,
-    input.states,
-    input.iterations,
-    input.cutoff,
-    input.settings,
-  ]);
+    label: "trend",
+    request: (id) => ({
+      kind: "trend",
+      id,
+      teamIds: input.teamIds,
+      states: input.states,
+      iterations: input.iterations,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "trend" && data.id === id ? data.trend : null,
+    inline: () => {
+      const series: Record<string, number[]> = {};
+      input.teamIds.forEach((tid) => {
+        series[tid] = [];
+      });
+      input.states.forEach((state) => {
+        const odds = simulateGoldOdds(
+          state.teams,
+          state.remaining,
+          input.iterations,
+          state.seedText,
+          input.cutoff,
+          input.settings
+        );
+        input.teamIds.forEach((tid) => {
+          const row = series[tid];
+          if (row) row.push(odds[tid] ?? 0);
+        });
+      });
+      return series;
+    },
+    onResult,
+  });
 
-  void workerError;
   return idle ? idleTrend : trend;
 }
 
@@ -398,18 +215,6 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
   const [result, setResult] = useState<BracketOddsResult>(EMPTY_BRACKET);
   /** Which input the stored bracket describes, so `pending` can be derived rather than tracked. */
   const [resultKey, setResultKey] = useState<string | null>(null);
-  const [workerError, setWorkerError] = useState<string | null>(null);
-  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
-  const latestIdRef = useRef(0);
-
-  useEffect(() => {
-    const handle = handleRef.current;
-    if (!handle.worker) handle.worker = createWorker();
-    return () => {
-      handle.worker?.terminate();
-      handle.worker = null;
-    };
-  }, []);
 
   const key = useMemo(
     () =>
@@ -433,116 +238,42 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
     ]
   );
 
-  // A bracket needs at least two teams inside the cut to mean anything.
-  const idle = !input.enabled || input.teams.length === 0 || input.cutoff < 2;
+  const idle = !input.enabled || input.teams.length === 0;
 
-  useEffect(() => {
-    if (idle) return;
-    const handle = handleRef.current;
-    const id = handle.nextId + 1;
-    handle.nextId = id;
-    latestIdRef.current = id;
-    let removeWorkerListeners: (() => void) | null = null;
+  const onResult = useCallback((next: BracketOddsResult, forKey: string) => {
+    setResult(next);
+    setResultKey(forKey);
+  }, []);
 
-    const timer = window.setTimeout(() => {
-      if (latestIdRef.current !== id) return;
-      if (!handle.worker) handle.worker = createWorker();
-
-      const runInline = () => {
-        const inline = simulateBracketOdds(
-          input.teams,
-          input.remaining,
-          input.iterations,
-          input.seedText,
-          input.cutoff,
-          input.settings
-        );
-        if (latestIdRef.current === id) {
-          setResult(inline);
-          setResultKey(key);
-        }
-      };
-
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            if (import.meta.env.DEV) {
-              console.debug(`[sim-worker] bracket ${event.data.elapsedMs.toFixed(1)}ms`);
-            }
-            return;
-          }
-          if (event.data.kind !== "bracket" || event.data.id !== id) return;
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          if (latestIdRef.current === id) {
-            setWorkerError(null);
-            setResult(event.data.result);
-            setResultKey(key);
-          }
-        };
-        const onError = (event: Event) => {
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
-          // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
-          setWorkerError(event.type);
-          runInline();
-        };
-        handle.worker.addEventListener("message", onMessage);
-        handle.worker.addEventListener("error", onError);
-        handle.worker.addEventListener("messageerror", onError);
-        removeWorkerListeners = () => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
-        };
-        const req: WorkerRequest = {
-          kind: "bracket",
-          id,
-          teams: input.teams,
-          remaining: input.remaining,
-          iterations: input.iterations,
-          seedText: input.seedText,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        try {
-          handle.worker.postMessage(req);
-        } catch (err) {
-          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
-          runInline();
-        }
-      } else {
-        runInline();
-      }
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timer);
-      removeWorkerListeners?.();
-      removeWorkerListeners = null;
-      try {
-        handle.worker?.postMessage({ kind: "cancel", id });
-      } catch {
-        // Worker may already be terminating; stale responses are ignored by id.
-      }
-    };
-  }, [
+  useWorkerJob<BracketOddsResult>({
     idle,
     key,
     debounceMs,
-    input.enabled,
-    input.teams,
-    input.remaining,
-    input.iterations,
-    input.seedText,
-    input.cutoff,
-    input.settings,
-  ]);
+    label: "bracket",
+    request: (id) => ({
+      kind: "bracket",
+      id,
+      teams: input.teams,
+      remaining: input.remaining,
+      iterations: input.iterations,
+      seedText: input.seedText,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "bracket" && data.id === id ? data.result : null,
+    inline: () =>
+      simulateBracketOdds(
+        input.teams,
+        input.remaining,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings
+      ),
+    onResult,
+  });
 
-  void workerError;
   return {
     bracketOdds: idle ? EMPTY_BRACKET : result,
     pending: !idle && resultKey !== key,

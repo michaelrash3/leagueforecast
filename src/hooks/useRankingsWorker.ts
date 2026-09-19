@@ -9,6 +9,7 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
+import { createWorker } from "./createWorker";
 
 type RankingsInput = {
   ageGroupId: string;
@@ -41,18 +42,6 @@ const NO_ROWS: ScoutRankingRow[] = [];
  * sent to, because a worker created after a failure knows nothing about what its predecessor held.
  */
 type Shipped = { worker: Worker; teams: ScoutTeam[]; games: ScoutGame[]; revision: number };
-
-const createWorker = (): Worker | null => {
-  if (typeof Worker === "undefined") return null;
-  try {
-    return new Worker(new URL("../workers/rankings.worker.ts", import.meta.url), {
-      type: "module",
-    });
-  } catch (error) {
-    console.warn("Rankings worker unavailable, falling back to inline.", error);
-    return null;
-  }
-};
 
 /**
  * The ranking table, fitted off the main thread once the pool is big enough to be felt.
@@ -141,7 +130,11 @@ export function useRankingsWorker(input: RankingsInput): {
 
   useEffect(() => {
     if (idle || small) return;
-    if (!workerRef.current) workerRef.current = createWorker();
+    if (!workerRef.current)
+      workerRef.current = createWorker(
+        new URL("../workers/rankings.worker.ts", import.meta.url),
+        "Rankings"
+      );
 
     const id = nextIdRef.current + 1;
     nextIdRef.current = id;

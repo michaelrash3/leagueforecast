@@ -19,6 +19,23 @@ export const raceToneForTeam = (team: TeamWithProjection, goldCutoff: number): R
   return "chasing";
 };
 
+/**
+ * What each tone says, in words.
+ *
+ * The six states were carried by a background gradient and a badge colour alone, which is no
+ * signal at all to anyone who cannot separate those hues, and none to a screen reader either. The
+ * row keeps the colour and gains this as its accessible name, so the reading is available without
+ * the colour rather than instead of it.
+ */
+export const raceToneLabels: Record<RaceTone, string> = {
+  clinched: "Clinched a gold bracket place",
+  safe: "Comfortably inside the gold bracket",
+  inside: "Inside the gold bracket",
+  bubble: "On the bubble for the gold bracket",
+  chasing: "Chasing a gold bracket place",
+  out: "Out of the gold bracket",
+};
+
 export const raceRowToneClasses: Record<RaceTone, string> = {
   clinched:
     "bg-linear-to-r from-slate-950/8 via-slate-900/4 to-transparent ring-slate-900/20 dark:from-white/10 dark:via-white/5 dark:ring-white/15",

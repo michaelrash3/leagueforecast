@@ -34,7 +34,7 @@ import { LoadingPanel } from "../LoadingPanel";
 import { ModelHealthPanel } from "../ModelHealthPanel";
 import { SeasonTimelinePanel } from "../SeasonTimelinePanel";
 import { SeedOddsPanel } from "../SeedOddsPanel";
-import { card, pill } from "../../styles/tokens";
+import { card, focusRing, pill } from "../../styles/tokens";
 
 /** Charts belong to this view alone, and most visits never reach it. */
 const GoldOddsTrendChart = lazy(() =>
@@ -342,7 +342,7 @@ export function ModelView(props: {
                               event.preventDefault();
                               onSelectTeam(team.id);
                             }}
-                            className="rounded-lg text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200 dark:focus:ring-offset-slate-900"
+                            className={`rounded-lg text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 ${focusRing} dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200`}
                             aria-label={`View stats for ${displayName(team.name)}`}
                           >
                             {displayName(team.name)}
@@ -426,7 +426,7 @@ export function ModelView(props: {
                           event.preventDefault();
                           onSelectTeam(team.id);
                         }}
-                        className="block truncate rounded-lg text-left text-sm font-bold text-blue-700 underline decoration-blue-300 underline-offset-4 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:text-blue-300 dark:decoration-blue-700 dark:focus:ring-offset-slate-900"
+                        className={`block truncate rounded-lg text-left text-sm font-bold text-blue-700 underline decoration-blue-300 underline-offset-4 ${focusRing} dark:text-blue-300 dark:decoration-blue-700`}
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
                         {displayName(team.name)}

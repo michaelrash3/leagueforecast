@@ -28,7 +28,7 @@ import {
 import { blankLog, isFinal } from "../../lib/util";
 import { LeagueScoreFillPanel } from "../LeagueScoreFillPanel";
 import type { LeagueFillPlan } from "../../lib/leagueScoreFill";
-import { card, tab } from "../../styles/tokens";
+import { card, fieldFocusRing, tab } from "../../styles/tokens";
 
 /** A blank log, shared so a row with nothing entered is one object rather than thousands. */
 const EMPTY_GAME_LOG = blankLog();
@@ -69,7 +69,7 @@ function GameDateInput({
       onKeyDown={(event) => {
         if (event.key === "Enter") event.currentTarget.blur();
       }}
-      className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-950 outline-hidden focus:border-slate-950 focus:ring-2 focus:ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white dark:focus:ring-slate-700"
+      className={`w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-950 ${fieldFocusRing} dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
       aria-label={ariaLabel ?? "Game date in M/D format"}
     />
   );

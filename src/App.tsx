@@ -34,7 +34,6 @@ import {
   replaceArchivedSeasons,
 } from "./lib/teamRankingsStorage";
 import {
-  coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
   readTeamRankingsBackup,
   parseTeamRankingsJson,
@@ -43,7 +42,6 @@ import {
   teamRankingsCsvSections,
   writeTeamRankingsBackup,
   type TeamRankingsBackup,
-  type UndoSnapshotWithRankings,
 } from "./lib/teamRankingsBackup";
 import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
 import {
@@ -58,7 +56,10 @@ import {
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
-import { useFocusTrap } from "./hooks/useFocusTrap";
+import { useConfirmation } from "./hooks/useConfirmation";
+import { useLeagueCommands } from "./hooks/useLeagueCommands";
+import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
+import { buildScheduleCsv, scheduleCsvFilename } from "./lib/scheduleCsvExport";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
@@ -69,7 +70,7 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import { CSV_SECTIONS, csvEscape, csvSectionMarker } from "./lib/csv";
+import { csvEscape } from "./lib/csv";
 import {
   formatGameDate,
   normalizeDateInput,
@@ -123,14 +124,12 @@ import {
   loadMatchups,
   loadSettings,
   loadTeams,
-  readUndoSnapshot,
   renameSeason,
   saveBracketLogs,
   saveLogs,
   saveMatchups,
   saveSettings,
   saveTeams,
-  saveUndoSnapshot,
   setActiveSeason,
   type SeasonMeta,
 } from "./lib/storage";
@@ -155,7 +154,6 @@ import {
   buildLeagueAverageStats,
   buildTeamSplitSummary,
   buildTeamStatRankings,
-  calcBip,
   emptySplitLine,
 } from "./lib/teamStats";
 import { buildDemoSeason } from "./lib/demoSeason";
@@ -170,19 +168,13 @@ import { PowerRatingsView } from "./components/league/PowerRatingsView";
 import { SeasonManager } from "./components/league/SeasonManager";
 import { TeamStatsView } from "./components/league/TeamStatsView";
 import { SettingsView } from "./components/league/SettingsView";
-import { button as buttonClasses, tab } from "./styles/tokens";
+import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
   titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
 } from "./lib/standingsView";
 
 type ActiveView = ActiveShareView;
-type ConfirmState = {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-};
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -219,7 +211,6 @@ const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 const PROJECT_STANDINGS_REMAINING_GAME_LIMIT = 250;
 const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
-const EMPTY_GAME_LOG = blankLog();
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
@@ -297,7 +288,12 @@ export default function App() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => linkedTeamIdFromUrl());
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  /*
+   * The palette used to exist only on the league half, which left the half with a nationwide pool
+   * and the most places to be without one. Team Rankings owns its own navigation state, so rather
+   * than lift all of it up here it publishes the commands it can run and this holds them.
+   */
+  const [rankingsCommands, setRankingsCommands] = useState<Command[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [isOffline, setIsOffline] = useState(
@@ -320,11 +316,13 @@ export default function App() {
     Map<string, ScoreboardPrediction>
   >(() => new Map());
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
-  const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
-  const confirmDialogRef = useRef<HTMLElement>(null);
+  const {
+    state: confirmState,
+    dialogRef: confirmDialogRef,
+    request: requestConfirmation,
+    resolve: resolveConfirmation,
+  } = useConfirmation();
 
-  const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   /**
@@ -388,19 +386,6 @@ export default function App() {
     uiState: sharedUiState,
     clear: clearSharedSnapshot,
   } = useUrlSnapshot();
-  const requestConfirmation = useCallback(
-    (options: ConfirmState) =>
-      new Promise<boolean>((resolve) => {
-        confirmResolverRef.current = resolve;
-        setConfirmState(options);
-      }),
-    []
-  );
-  const resolveConfirmation = useCallback((confirmed: boolean) => {
-    confirmResolverRef.current?.(confirmed);
-    confirmResolverRef.current = null;
-    setConfirmState(null);
-  }, []);
   const openTeamData = useCallback((teamId: string) => {
     setSelectedTeamId(teamId);
     replaceTeamDataUrl(teamId);
@@ -427,16 +412,6 @@ export default function App() {
     setCompareTeamId(null);
     replaceTeamDataUrl(null);
   }, []);
-
-  useFocusTrap(!!confirmState, confirmDialogRef as React.RefObject<HTMLElement>);
-  useEffect(() => {
-    if (!confirmState) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") resolveConfirmation(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [confirmState, resolveConfirmation]);
 
   /**
    * Whether this league writes down the final score and nothing else. Runs are
@@ -1745,47 +1720,32 @@ export default function App() {
    * need the pool in the snapshot, and it is large enough that carrying it on every undo-able
    * action would risk filling storage for nothing.
    */
-  const captureUndo = (label: string, options?: { withTeamRankings?: boolean }) => {
-    const snapshot: UndoSnapshotWithRankings = {
-      teams,
-      matchups,
-      logs,
-      bracketLogs,
-      label,
-      timestamp: Date.now(),
-      ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
-    };
-    undoRef.current = snapshot;
-    if (!saveUndoSnapshot(snapshot)) {
-      /*
-       * The undo itself is fine — it is in memory, which is where Undo reads from first. What
-       * failed is the copy that would survive a reload, and at a nationwide pool size that copy
-       * simply does not fit in localStorage. Saying "storage full" as an error made a working
-       * undo read as a broken one; say what is actually true instead, and only for the snapshots
-       * that carry the pool, since a plain one failing really is a storage problem.
-       */
-      if (options?.withTeamRankings) {
-        showToast("Undo is ready, but this pool is too big to keep it past a reload.");
-      } else {
-        showToast("Could not save undo snapshot (storage full).", { tone: "error" });
-      }
-    }
-  };
+  const readSeasonForUndo = useCallback(
+    () => ({ teams, matchups, logs, bracketLogs }),
+    [teams, matchups, logs, bracketLogs]
+  );
 
-  const restoreUndo = () => {
-    const snapshot = undoRef.current ?? (readUndoSnapshot() as UndoSnapshotWithRankings | null);
-    if (!snapshot) return;
-    setTeams(snapshot.teams);
-    setMatchups(snapshot.matchups);
-    setLogs(snapshot.logs);
-    setBracketLogs(snapshot.bracketLogs ?? {});
-    // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
-    const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);
-    if (rankings && writeTeamRankingsBackup(rankings)) noteScoutChange();
-    closeTeamData();
-    undoRef.current = null;
-    showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
-  };
+  const applySeasonFromUndo = useCallback(
+    (season: UndoableSeason) => {
+      setTeams(season.teams);
+      setMatchups(season.matchups);
+      setLogs(season.logs);
+      setBracketLogs(season.bracketLogs);
+      closeTeamData();
+    },
+    [closeTeamData]
+  );
+
+  const {
+    capture: captureUndo,
+    restore: restoreUndo,
+    forget: forgetUndo,
+  } = useUndoSnapshot({
+    readSeason: readSeasonForUndo,
+    applySeason: applySeasonFromUndo,
+    onRankingsRestored: noteScoutChange,
+    showToast,
+  });
 
   // ---------- Seasons ----------
 
@@ -1801,8 +1761,8 @@ export default function App() {
     setSelectedTeamId(null);
     setCompareTeamId(null);
     setLastImpact(null);
-    undoRef.current = null;
-  }, []);
+    forgetUndo();
+  }, [forgetUndo]);
 
   const switchSeason = useCallback(
     (id: string) => {
@@ -1998,109 +1958,36 @@ This will replace the current season data and save an undo snapshot.`,
     reader.readAsText(file);
   };
 
-  const exportCSV = () => {
-    const headers =
-      settings.pitchMode === "player"
-        ? [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away E",
-            "Away BB",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home E",
-            "Home BB",
-          ]
-        : [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away K",
-            "Away BIP",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home K",
-            "Home BIP",
-          ];
-    const rows = matchups.map((game) => {
-      const log = logs[game.id] || EMPTY_GAME_LOG;
-      const away = teamBaseById.get(game.away)?.name || game.away;
-      const home = teamBaseById.get(game.home)?.name || game.home;
-      const awayBip = calcBip(log.awayHits, log.awayRuns, log.awayK, log.innings);
-      const homeBip = calcBip(log.homeHits, log.homeRuns, log.homeK, log.innings);
-      const values =
-        settings.pitchMode === "player"
-          ? [
-              game.id,
-              formatGameDate(game.date),
-              away,
-              log.innings,
-              log.awayRuns,
-              log.awayHits,
-              log.awayErrors ?? "",
-              log.homeWalksAllowed ?? "",
-              home,
-              log.homeRuns,
-              log.homeHits,
-              log.homeErrors ?? "",
-              log.awayWalksAllowed ?? "",
-            ]
-          : [
-              game.id,
-              formatGameDate(game.date),
-              away,
-              log.innings,
-              log.awayRuns,
-              log.awayHits,
-              log.awayK,
-              awayBip,
-              home,
-              log.homeRuns,
-              log.homeHits,
-              log.homeK,
-              homeBip,
-            ];
-      return values.map(csvEscape).join(",");
+  const exportCSV = useCallback(() => {
+    const csv = buildScheduleCsv({
+      matchups,
+      logs,
+      teamsById: teamBaseById,
+      pitchMode: settings.pitchMode,
+      rankingsSections: teamRankingsCsvSections(readTeamRankingsBackup()),
     });
-    const schedule = [headers.join(","), ...rows].join("\n");
-    // Team Rankings is stored outside this season, so a CSV of the schedule alone is not a full
-    // backup. Its sections ride along after the schedule, and the schedule block gets its own
-    // marker so the file reads as the sectioned document it has become. A league that never used
-    // Team Rankings has nothing to append and gets the same flat CSV as before.
-    const rankings = teamRankingsCsvSections(readTeamRankingsBackup());
-    const csv = rankings
-      ? `${csvSectionMarker(CSV_SECTIONS.schedule)}\n${schedule}\n\n${rankings}\n`
-      : schedule;
-    const blob = new Blob([csv], {
-      type: "text/csv",
-    });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${settings.seasonLabel.replace(/\s+/g, "_")}_Schedule_Data.csv`;
+    anchor.download = scheduleCsvFilename(settings.seasonLabel);
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, [settings, matchups, logs, teamBaseById]);
 
   /** The active season's live React state — fresher than storage, whose score writes are debounced. */
-  const liveSeasonData = (): LiveSeasonData => ({
-    teams,
-    matchups,
-    logs,
-    bracketLogs,
-    settings,
-  });
+  const liveSeasonData = useCallback(
+    (): LiveSeasonData => ({
+      teams,
+      matchups,
+      logs,
+      bracketLogs,
+      settings,
+    }),
+    [teams, matchups, logs, bracketLogs, settings]
+  );
 
-  const downloadBackup = (backup: FullBackup) => {
+  const downloadBackup = useCallback((backup: FullBackup) => {
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -2108,12 +1995,12 @@ This will replace the current season data and save an undo snapshot.`,
     anchor.download = backupFilename(backup.exportedAt);
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, []);
 
-  const exportBackup = () => {
+  const exportBackup = useCallback(() => {
     downloadBackup(readFullBackup(liveSeasonData()));
     noteBackupTaken("league");
-  };
+  }, [downloadBackup, liveSeasonData]);
 
   /**
    * A whole-browser restore: every season, the Team Rankings pool, and the UI preferences. It
@@ -2613,7 +2500,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     });
   };
 
-  const loadDemoSeason = async () => {
+  const loadDemoSeason = useCallback(async () => {
     // Nothing to overwrite on an empty season, and the first thing a new user
     // is invited to do should not open with a warning about losing data.
     if (teams.length > 0 || matchups.length > 0) {
@@ -2639,7 +2526,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
-  };
+  }, [teams, matchups, requestConfirmation, captureUndo, closeTeamData, showToast, restoreUndo]);
 
   // ---------- Season builder ----------
 
@@ -3088,7 +2975,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharedSnapshot, sharedUiState]);
 
-  const shareSeason = async () => {
+  const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
       const url = buildShareUrl(window.location.href, snapshot, {
@@ -3117,99 +3004,62 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         }
       );
     }
-  };
+  }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
 
   // ---------- Command palette + shortcuts ----------
 
-  const runTrackedCommand = (id: string, run: () => void) => () => {
-    setCommandHistory((prev) => [id, ...prev.filter((item) => item !== id)].slice(0, 6));
-    run();
-  };
+  const describeCommandTeam = useCallback(
+    (team: TeamWithProjection) => ({ name: displayName(team.name), record: recordText(team) }),
+    []
+  );
 
-  const commands: Command[] = useMemo(() => {
-    const teamCmds: Command[] = dashboardRows.map((team) => ({
-      id: `team-${team.id}`,
-      label: `View ${displayName(team.name)}`,
-      group: "Team",
-      hint: `#${team.rank} · ${recordText(team)}`,
-      run: runTrackedCommand(`team-${team.id}`, () => openTeamData(team.id)),
-    }));
-    const viewCmds: Command[] = VIEW_ORDER.map((view) => ({
-      id: `view-${view}`,
-      label: `Go to ${VIEW_LABELS[view]}`,
-      group: "View",
-      run: runTrackedCommand(`view-${view}`, () => setActiveView(view)),
-    }));
-    const actionCmds: Command[] = [
-      {
-        id: "action-share",
-        label: "Share this season (copy URL)",
-        group: "Action",
-        run: runTrackedCommand("action-share", shareSeason),
-      },
-      {
-        id: "action-export",
-        label: "Export schedule CSV",
-        group: "Action",
-        run: runTrackedCommand("action-export", () => exportCSV()),
-      },
-      {
-        id: "action-backup",
-        label: "Download backup JSON",
-        group: "Action",
-        run: runTrackedCommand("action-backup", () => exportBackup()),
-      },
-      {
-        id: "action-demo",
-        label: "Load demo season",
-        group: "Action",
-        run: runTrackedCommand("action-demo", loadDemoSeason),
-      },
-      {
-        id: "action-toggle-theme",
-        label: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
-        group: "Action",
-        run: runTrackedCommand("action-toggle-theme", toggleTheme),
-      },
-      {
-        id: "action-shortcuts",
-        label: "Show keyboard shortcuts",
-        group: "Help",
-        run: runTrackedCommand("action-shortcuts", () => setShowShortcuts(true)),
-      },
-      {
-        id: "action-tour",
-        label: "Show app tour",
-        group: "Help",
-        run: runTrackedCommand("action-tour", () => setShowTour(true)),
-      },
-    ];
-    const byId = new Map([...viewCmds, ...teamCmds, ...actionCmds].map((c) => [c.id, c]));
-    const historyCmds = commandHistory
-      .map((id) => byId.get(id))
-      .filter((cmd): cmd is Command => !!cmd)
-      .map((cmd) => ({ ...cmd, group: "Recent" }));
-    return [...historyCmds, ...viewCmds, ...teamCmds, ...actionCmds];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commandHistory, dashboardRows, theme]);
+  const commandActions = useMemo(
+    () => ({
+      openTeam: openTeamData,
+      openView: (view: ActiveShareView) => setActiveView(view),
+      shareSeason: () => void shareSeason(),
+      exportCSV: () => exportCSV(),
+      exportBackup: () => exportBackup(),
+      loadDemoSeason: () => void loadDemoSeason(),
+      toggleTheme,
+      showShortcuts: () => setShowShortcuts(true),
+      showTour: () => setShowTour(true),
+    }),
+    [openTeamData, shareSeason, exportCSV, exportBackup, loadDemoSeason, toggleTheme]
+  );
+
+  const commands = useLeagueCommands({
+    teams: dashboardRows,
+    views: VIEW_ORDER.map((view) => ({ view, label: VIEW_LABELS[view] })),
+    theme,
+    describeTeam: describeCommandTeam,
+    actions: commandActions,
+  });
 
   const shortcuts: Shortcut[] = useMemo(
-    () =>
-      appMode !== "league"
+    () => [
+      // The palette, the shortcut sheet and the theme are the app's, not one half's.
+      {
+        combo: "mod+k",
+        description: "Open command palette",
+        group: "General",
+        handler: () => setShowCommandPalette(true),
+      },
+      {
+        combo: "shift+/",
+        description: "Show shortcuts",
+        group: "General",
+        handler: () => setShowShortcuts(true),
+      },
+      {
+        combo: "d",
+        description: "Toggle dark mode",
+        group: "Action",
+        handler: toggleTheme,
+      },
+      ...(appMode !== "league"
         ? []
         : [
-            {
-              combo: "mod+k",
-              description: "Open command palette",
-              group: "General",
-              handler: () => setShowCommandPalette(true),
-            },
-            {
-              combo: "shift+/",
-              description: "Show shortcuts",
-              group: "General",
-              handler: () => setShowShortcuts(true),
-            },
             {
               combo: "g s",
               description: "Go to Standings",
@@ -3240,13 +3090,8 @@ League Standings — your seasons, schedules and scores — is not touched.`,
               group: "Navigate",
               handler: () => setActiveView("settings"),
             },
-            {
-              combo: "d",
-              description: "Toggle dark mode",
-              group: "Action",
-              handler: toggleTheme,
-            },
-          ],
+          ]),
+    ],
     [appMode, toggleTheme]
   );
   useShortcuts(shortcuts);
@@ -3259,6 +3104,19 @@ League Standings — your seasons, schedules and scores — is not touched.`,
 
   return (
     <>
+      {/*
+       * Before this, a keyboard reached the content by tabbing the mode tablist and then seven
+       * view tabs, on every single page. The link is the first thing in the tab order and shows
+       * only once it has focus, and the two mains it points at take focus themselves so the next
+       * Tab continues from the content rather than from the top again. The league main is also the
+       * tabpanel, so its id moves with the open tab and the link follows it.
+       */}
+      <a
+        href={appMode === "rankings" ? "#main-content" : `#panel-${activeView}`}
+        className={`sr-only rounded-lg bg-slate-950 px-4 py-2 text-sm font-black text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 dark:bg-white dark:text-slate-950 ${focusRing}`}
+      >
+        Skip to main content
+      </a>
       {isOffline && (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">
           You are offline. Showing cached app shell and local data; score edits still save in this
@@ -3415,19 +3273,25 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         )}
 
         {appMode === "rankings" ? (
-          <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+          >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <TeamRankingsView
                 seasons={seasons}
                 showToast={showToast}
                 requestConfirmation={requestConfirmation}
                 onDataChange={noteScoutChange}
+                onCommands={setRankingsCommands}
               />
             </Suspense>
           </main>
         ) : (
           <main
             className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            tabIndex={-1}
             id={`panel-${activeView}`}
             role="tabpanel"
             aria-labelledby={`tab-${activeView}`}
@@ -3649,12 +3513,13 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 baseline: selectedTeam.rank ?? 99,
               }
             }
-            bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
+            bubble={selectedTeamDetail?.bubble ?? ""}
+            detailsPending={!selectedTeamDetail}
             currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-            sos={selectedTeamDetail?.sos ?? { label: "Loading…", rating: 0, opponents: "" }}
+            sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
             swings={selectedTeamDetail?.swings ?? []}
-            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
-            titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
+            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
+            titleRace={selectedTeamDetail?.titleRace ?? ""}
             goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
             cutoff={goldCutoff}
             magicForGold={
@@ -3662,7 +3527,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 type: "magic",
                 ownWinsNeeded: 0,
                 opponentLossesNeeded: 0,
-                description: "Loading magic number…",
+                description: "",
               }
             }
             eliminationNumber={
@@ -3670,7 +3535,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 type: "elimination",
                 ownWinsNeeded: 0,
                 opponentLossesNeeded: 0,
-                description: "Loading elimination number…",
+                description: "",
               }
             }
             splitSummary={selectedTeamSplitSummary}
@@ -3706,7 +3571,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
           />
         )}
 
-        {appMode === "league" && (
+        {
           /*
             Guarded by the open flags as well as rendered lazily: each of these returns null when
             closed, so rendering them unconditionally would fetch all three on page load and show
@@ -3717,7 +3582,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             {showCommandPalette && (
               <CommandPalette
                 open={showCommandPalette}
-                commands={commands}
+                commands={appMode === "rankings" ? rankingsCommands : commands}
                 onClose={() => setShowCommandPalette(false)}
               />
             )}
@@ -3730,7 +3595,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             )}
             {showTour && <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />}
           </Suspense>
-        )}
+        }
         {confirmState && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
