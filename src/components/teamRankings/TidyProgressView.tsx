@@ -1,5 +1,5 @@
-import { TIDY_STEPS, type TidyStepName } from "../../lib/gameChangerImport";
-import type { TidyProgress } from "../../hooks/usePoolTidy";
+import { TIDY_STEPS, type TidyStep, type TidyStepName } from "../../lib/gameChangerImport";
+import type { TidyWatch } from "../../lib/pullSession";
 
 /**
  * What the tidy is doing, while it does it.
@@ -32,22 +32,27 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
 
 const count = (value: number) => value.toLocaleString();
 
-const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-
 type TidyProgressViewProps = {
-  steps: TidyProgress[];
+  watch: TidyWatch;
   /** Whether the tidy is still going, which is what the difference between live and done is. */
   running: boolean;
 };
 
-export function TidyProgressView({ steps, running }: TidyProgressViewProps) {
-  if (steps.length === 0) {
+export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
+  const { steps, now } = watch;
+  if (steps.length === 0 && !now) {
     return running ? <p className="mt-3 text-xs text-slate-500">Starting the first pass…</p> : null;
   }
 
-  const passes = [...new Set(steps.map((step) => step.pass))].sort((a, b) => a - b);
+  /*
+   * The step in flight counts as a row of its own, so the pass a tidy has only just started shows
+   * up instead of the table waiting a whole step before it grows.
+   */
+  const passes = [...new Set([...steps, ...(now ? [now] : [])].map((step) => step.pass))].sort(
+    (a, b) => a - b
+  );
   const byKey = new Map(steps.map((step) => [`${step.pass}|${step.step}`, step]));
-  const last = steps[steps.length - 1]!;
+  const last: TidyStep = now ?? steps[steps.length - 1]!;
 
   /*
    * The scale every cell is shaded against. The first pass does nearly all of the work, so shading
@@ -71,12 +76,12 @@ export function TidyProgressView({ steps, running }: TidyProgressViewProps) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">
           {running
-            ? `Pass ${last.pass}, ${STEP_LABEL[last.step].short.toLowerCase()}`
+            ? `Pass ${last.pass} · ${STEP_LABEL[last.step].short.toLowerCase()}${now ? "…" : ""}`
             : "What the tidy did"}
         </p>
         <p className="text-xs text-slate-500 tabular-nums">
-          {count(total)} changed in {seconds(last.ms)} · {count(last.games)} games,{" "}
-          {count(last.teams)} teams
+          {count(total)} changed · {count(steps.length)} of {passes.length * TIDY_STEPS.length}{" "}
+          steps · {count(last.games)} games, {count(last.teams)} teams
         </p>
       </div>
 
@@ -114,7 +119,7 @@ export function TidyProgressView({ steps, running }: TidyProgressViewProps) {
                 </th>
                 {TIDY_STEPS.map((name) => {
                   const cell = byKey.get(`${pass}|${name}`);
-                  const isNow = running && cell === last;
+                  const isNow = now?.pass === pass && now.step === name;
                   return (
                     <td key={name} className="p-0">
                       <div
@@ -133,12 +138,14 @@ export function TidyProgressView({ steps, running }: TidyProgressViewProps) {
                             : undefined
                         }
                         aria-label={
-                          cell === undefined
-                            ? `Pass ${pass}, ${STEP_LABEL[name].short}: not reached`
-                            : `Pass ${pass}, ${STEP_LABEL[name].full}: ${count(cell.found)}`
+                          isNow
+                            ? `Pass ${pass}, ${STEP_LABEL[name].full}: running now`
+                            : cell === undefined
+                              ? `Pass ${pass}, ${STEP_LABEL[name].short}: not reached`
+                              : `Pass ${pass}, ${STEP_LABEL[name].full}: ${count(cell.found)}`
                         }
                       >
-                        {cell === undefined ? "·" : count(cell.found)}
+                        {isNow ? "…" : cell === undefined ? "·" : count(cell.found)}
                       </div>
                     </td>
                   );

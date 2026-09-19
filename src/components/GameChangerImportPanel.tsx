@@ -1366,6 +1366,12 @@ export function GameChangerImportPanel({
               </>
             )}
           </p>
+          {/*
+           * What that tidy is doing. It is not this component's tidy — something else on the page
+           * started it — so this reads the slot that told the banner to appear, which is the only
+           * thing that can see across.
+           */}
+          {!pullLive && <TidyProgressView watch={tidyProgress} running />}
           {pullLive ? (
             <button type="button" onClick={stop} className={`${button.ghost} mt-2`}>
               Stop the running pull
@@ -1730,7 +1736,7 @@ export function GameChangerImportPanel({
                 several times over, so on a big pool this takes a while; it runs off the main
                 thread, so the page stays usable and leaving this open is not needed.
               </p>
-              <TidyProgressView steps={tidyProgress} running />
+              <TidyProgressView watch={tidyProgress} running />
             </>
           ) : (
             <div className="mt-3">

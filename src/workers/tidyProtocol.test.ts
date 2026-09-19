@@ -112,13 +112,21 @@ describe("what the tidy says while it runs", () => {
 
     handle({ kind: "tidy", id: 7, state: packPool(withStandIn()) });
 
-    const steps = posted.filter((response) => response.kind === "tidy-progress");
+    const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
     expect(steps.length).toBeGreaterThan(0);
-    // Nine steps a pass, and the tidy runs at least twice: once to do the work, once to find
-    // nothing and stop.
-    expect(steps.length % 9).toBe(0);
-    const firstPass = steps.slice(0, 9);
-    expect(firstPass.map((s) => s.kind === "tidy-progress" && s.step.step)).toEqual([
+    /*
+     * Each step reports twice — once going in, once coming out — because a step is where the time
+     * goes, and a run reported only on the way out shows nothing moving while a slow one runs.
+     */
+    expect(steps.length % 18).toBe(0);
+    expect(steps.slice(0, 4).map((r) => [r.step.step, r.step.done])).toEqual([
+      ["notBaseball", false],
+      ["notBaseball", true],
+      ["releveled", false],
+      ["releveled", true],
+    ]);
+    const firstPass = steps.filter((r) => r.step.pass === 1 && r.step.done);
+    expect(firstPass.map((r) => r.step.step)).toEqual([
       "notBaseball",
       "releveled",
       "pruned",
@@ -147,7 +155,7 @@ describe("what the tidy says while it runs", () => {
     handle({ kind: "tidy", id: 1, state: packPool(withStandIn()) });
 
     const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
-    const named = steps.find((r) => r.step.step === "named" && r.step.pass === 1);
+    const named = steps.find((r) => r.step.step === "named" && r.step.pass === 1 && r.step.done);
     // The stand-in in the fixture is exactly one settleable row, found on the first pass.
     expect(named?.step.found).toBe(1);
     expect(named?.step.pass).toBe(1);
@@ -163,7 +171,7 @@ describe("what the tidy says while it runs", () => {
 
     const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
     const lastPass = Math.max(...steps.map((r) => r.step.pass));
-    const lastPassSteps = steps.filter((r) => r.step.pass === lastPass);
+    const lastPassSteps = steps.filter((r) => r.step.pass === lastPass && r.step.done);
     expect(lastPassSteps).toHaveLength(9);
     expect(lastPassSteps.reduce((sum, r) => sum + r.step.found, 0)).toBe(0);
   });
@@ -192,5 +200,37 @@ describe("what the tidy says while it runs", () => {
     });
 
     expect(posted.filter((response) => response.kind === "tidy-progress")).toEqual([]);
+  });
+});
+
+describe("saying a step has started, not only that it finished", () => {
+  /*
+   * A step is where the time goes: on a nationwide pool one of them is seconds of silence. A run
+   * reported only on the way out of each step shows nothing moving for all of that, which is the
+   * thing the progress view was built to stop.
+   */
+  it("reports each step going in, with no count and the pool as it found it", () => {
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 1, state: packPool(withStandIn()) });
+
+    const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
+    const going = steps.filter((r) => !r.step.done);
+    const coming = steps.filter((r) => r.step.done);
+    expect(going).toHaveLength(coming.length);
+    // Nothing has run yet, so there is nothing to have found.
+    expect(going.every((r) => r.step.found === 0)).toBe(true);
+  });
+
+  it("reports the naming step going in before it reports it coming out", () => {
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 1, state: packPool(withStandIn()) });
+
+    const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
+    const inAt = steps.findIndex((r) => r.step.step === "named" && !r.step.done);
+    const outAt = steps.findIndex((r) => r.step.step === "named" && r.step.done);
+    expect(inAt).toBeGreaterThanOrEqual(0);
+    expect(inAt).toBeLessThan(outAt);
   });
 });

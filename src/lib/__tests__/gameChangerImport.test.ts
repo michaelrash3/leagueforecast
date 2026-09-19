@@ -3472,12 +3472,19 @@ describe("watching a tidy run", () => {
     const steps: TidyStep[] = [];
     const result = tidyPool(watched(), (step) => steps.push(step));
 
+    // Only what a step reported on the way out: going in it has not run, so it has found nothing.
     const summed = (name: TidyStep["step"]) =>
-      steps.filter((step) => step.step === name).reduce((total, step) => total + step.found, 0);
+      steps
+        .filter((step) => step.step === name && step.done)
+        .reduce((total, step) => total + step.found, 0);
     expect(summed("named")).toBe(result.named);
     expect(summed("collapsed")).toBe(result.collapsed);
     expect(summed("folded")).toBe(result.folded);
-    expect(steps.filter((step) => step.step === "named")).toHaveLength(result.passes);
+    expect(steps.filter((step) => step.step === "named" && step.done)).toHaveLength(result.passes);
+    // And every step that started also finished, or the run stopped somewhere it should not have.
+    expect(steps.filter((step) => !step.done)).toHaveLength(
+      steps.filter((step) => step.done).length
+    );
   });
 
   it("carries on when the watcher throws", () => {
