@@ -34,7 +34,6 @@ import {
   replaceArchivedSeasons,
 } from "./lib/teamRankingsStorage";
 import {
-  coerceTeamRankingsBackup,
   parseTeamRankingsCsv,
   readTeamRankingsBackup,
   parseTeamRankingsJson,
@@ -43,7 +42,6 @@ import {
   teamRankingsCsvSections,
   writeTeamRankingsBackup,
   type TeamRankingsBackup,
-  type UndoSnapshotWithRankings,
 } from "./lib/teamRankingsBackup";
 import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
 import {
@@ -60,6 +58,7 @@ import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
 import { useLeagueCommands } from "./hooks/useLeagueCommands";
+import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { buildScheduleCsv, scheduleCsvFilename } from "./lib/scheduleCsvExport";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
@@ -125,14 +124,12 @@ import {
   loadMatchups,
   loadSettings,
   loadTeams,
-  readUndoSnapshot,
   renameSeason,
   saveBracketLogs,
   saveLogs,
   saveMatchups,
   saveSettings,
   saveTeams,
-  saveUndoSnapshot,
   setActiveSeason,
   type SeasonMeta,
 } from "./lib/storage";
@@ -326,7 +323,6 @@ export default function App() {
     resolve: resolveConfirmation,
   } = useConfirmation();
 
-  const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   /**
@@ -1724,50 +1720,32 @@ export default function App() {
    * need the pool in the snapshot, and it is large enough that carrying it on every undo-able
    * action would risk filling storage for nothing.
    */
-  const captureUndo = useCallback(
-    (label: string, options?: { withTeamRankings?: boolean }) => {
-      const snapshot: UndoSnapshotWithRankings = {
-        teams,
-        matchups,
-        logs,
-        bracketLogs,
-        label,
-        timestamp: Date.now(),
-        ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
-      };
-      undoRef.current = snapshot;
-      if (!saveUndoSnapshot(snapshot)) {
-        /*
-         * The undo itself is fine — it is in memory, which is where Undo reads from first. What
-         * failed is the copy that would survive a reload, and at a nationwide pool size that copy
-         * simply does not fit in localStorage. Saying "storage full" as an error made a working
-         * undo read as a broken one; say what is actually true instead, and only for the snapshots
-         * that carry the pool, since a plain one failing really is a storage problem.
-         */
-        if (options?.withTeamRankings) {
-          showToast("Undo is ready, but this pool is too big to keep it past a reload.");
-        } else {
-          showToast("Could not save undo snapshot (storage full).", { tone: "error" });
-        }
-      }
-    },
-    [teams, matchups, logs, bracketLogs, showToast]
+  const readSeasonForUndo = useCallback(
+    () => ({ teams, matchups, logs, bracketLogs }),
+    [teams, matchups, logs, bracketLogs]
   );
 
-  const restoreUndo = useCallback(() => {
-    const snapshot = undoRef.current ?? (readUndoSnapshot() as UndoSnapshotWithRankings | null);
-    if (!snapshot) return;
-    setTeams(snapshot.teams);
-    setMatchups(snapshot.matchups);
-    setLogs(snapshot.logs);
-    setBracketLogs(snapshot.bracketLogs ?? {});
-    // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
-    const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);
-    if (rankings && writeTeamRankingsBackup(rankings)) noteScoutChange();
-    closeTeamData();
-    undoRef.current = null;
-    showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
-  }, [closeTeamData, noteScoutChange, showToast]);
+  const applySeasonFromUndo = useCallback(
+    (season: UndoableSeason) => {
+      setTeams(season.teams);
+      setMatchups(season.matchups);
+      setLogs(season.logs);
+      setBracketLogs(season.bracketLogs);
+      closeTeamData();
+    },
+    [closeTeamData]
+  );
+
+  const {
+    capture: captureUndo,
+    restore: restoreUndo,
+    forget: forgetUndo,
+  } = useUndoSnapshot({
+    readSeason: readSeasonForUndo,
+    applySeason: applySeasonFromUndo,
+    onRankingsRestored: noteScoutChange,
+    showToast,
+  });
 
   // ---------- Seasons ----------
 
@@ -1783,8 +1761,8 @@ export default function App() {
     setSelectedTeamId(null);
     setCompareTeamId(null);
     setLastImpact(null);
-    undoRef.current = null;
-  }, []);
+    forgetUndo();
+  }, [forgetUndo]);
 
   const switchSeason = useCallback(
     (id: string) => {
