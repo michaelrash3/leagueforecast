@@ -1,6 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -14,14 +14,14 @@ import {
  * The rankings table, read on a phone.
  *
  * Eight columns is four too many for one, and this is the table a phone is most likely to be
- * holding: the nationwide pool, at a field. The answer everywhere else in this app is a stacked
- * card below `sm` beside the table above it — `PowerRatingsView` does it, the standings do it —
- * and the cost of that answer is that there are now two shapes to keep in step. A column added to
- * the table and not to the card is invisible on a phone and nothing would say so.
+ * holding: the nationwide pool, at a field. So below `sm` the same rows are stacked into cards.
  *
- * So this asserts the two carry the same readings. jsdom applies no media queries, so both are in
- * the document at once; that is what makes them comparable here, and it is the only way to compare
- * them at all without a real viewport.
+ * One of the two is rendered, chosen by reading the breakpoint, rather than both with CSS hiding
+ * one — this list is bounded to a first page precisely because rendering a nationwide page was
+ * more memory than the pool behind it, and rendering every visible row twice puts half of that
+ * straight back. The cost of choosing is that there are two shapes to keep in step, and a column
+ * added to the table and not to the card is invisible on a phone with nothing to say so. That is
+ * what these compare.
  */
 const pool = (): Pool => {
   const teams = [
@@ -37,17 +37,17 @@ const pool = (): Pool => {
   return { ageGroups: [ageGroup(10, 2027)], teams, games };
 };
 
-/** The full table, found by the header row only it has. */
-const fullTable = (): HTMLElement => {
-  const header = screen.getByRole("columnheader", { name: "Best guess" });
-  return header.closest("table") as HTMLElement;
+/** jsdom has no `matchMedia` at all, so a width is something a test has to say out loud. */
+const atWidth = (wide: boolean) => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: wide,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+  );
 };
-
-/** The stacked list beside it: the one whose items carry a Record term. */
-const stackedCards = (): HTMLElement[] =>
-  screen
-    .getAllByRole("listitem")
-    .filter((item) => /Record/.test(item.textContent ?? "") && /SOS/.test(item.textContent ?? ""));
 
 /** The full table is collapsed by default: a nationwide pool is thousands of rows. */
 const openFullTable = async () => {
@@ -56,54 +56,82 @@ const openFullTable = async () => {
   await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
 };
 
-describe("the rankings table on a phone", () => {
-  it("offers the same rows stacked, not only a table to drag sideways", async () => {
-    await openFullTable();
+const stackedCards = (): HTMLElement[] =>
+  screen
+    .getAllByRole("listitem")
+    .filter((item) => /Record/.test(item.textContent ?? "") && /SOS/.test(item.textContent ?? ""));
 
-    const cards = stackedCards();
-    const rows = within(fullTable()).getAllByRole("row").slice(1);
-    expect(cards.length).toBeGreaterThan(0);
-    expect(cards).toHaveLength(rows.length);
+describe("the rankings table on a phone", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is a table on a wide screen and cards on a narrow one, never both", async () => {
+    atWidth(true);
+    await openFullTable();
+    expect(screen.getByRole("columnheader", { name: "Best guess" })).toBeInTheDocument();
+    expect(stackedCards()).toHaveLength(0);
+
+    cleanup();
+    atWidth(false);
+    await openFullTable();
+    // Not a table hidden by a class: no table at all, so a phone renders one set of rows.
+    expect(screen.queryByRole("columnheader", { name: "Best guess" })).toBeNull();
+    expect(stackedCards().length).toBeGreaterThan(0);
   });
 
   it("carries every column the table has, so nothing is invisible on a phone", async () => {
+    atWidth(true);
     await openFullTable();
-
-    const headers = within(fullTable())
+    const headers = within(
+      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+    )
       .getAllByRole("columnheader")
       .map((cell) => cell.textContent ?? "")
       /*
        * Rank, Team and Rating are the card's headline line rather than labelled pairs — they are
-       * the reading, so they go at the top the way `PowerRatingsView` puts them — and Actions is
-       * the screen-reader name of a column of buttons. The three are checked by value in the test
-       * below instead, which is the stronger assertion anyway.
+       * the reading, so they go at the top — and Actions is the screen-reader name of a column of
+       * buttons. The three are checked by value below, which is the stronger assertion anyway.
        */
       .filter((label) => !["Rank", "Team", "Rating", "Actions"].includes(label));
-    const card = stackedCards()[0]!;
+    const rows = within(
+      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+    ).getAllByRole("row").length;
 
+    cleanup();
+    atWidth(false);
+    await openFullTable();
+    const cards = stackedCards();
+
+    expect(cards).toHaveLength(rows - 1);
     headers.forEach((label) => {
-      expect(within(card).getByText(label)).toBeInTheDocument();
+      expect(within(cards[0]!).getByText(label)).toBeInTheDocument();
     });
   });
 
   it("names the same team, at the same rank, with the same rating", async () => {
+    atWidth(true);
     await openFullTable();
+    const firstRow = within(
+      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+    ).getAllByRole("row")[1]!;
+    const rating = within(firstRow).getAllByRole("cell")[3]!.textContent!.trim();
+    expect(firstRow.textContent).toContain("Rays");
+    expect(rating).toMatch(/^[+-]?\d/);
 
-    const firstRow = within(fullTable()).getAllByRole("row")[1]!;
+    cleanup();
+    atWidth(false);
+    await openFullTable();
     const firstCard = stackedCards()[0]!;
 
-    // The ladder makes Rays the top side, so both shapes have to say so.
-    expect(firstRow.textContent).toContain("Rays");
+    // The ladder makes Rays the top side, so both shapes have to say so, and say the same number.
     expect(firstCard.textContent).toContain("Rays");
     expect(firstCard.textContent).toContain("#1");
-
-    // And the rating itself, which is the card's headline number rather than a labelled pair.
-    const rating = within(firstRow).getAllByRole("cell")[3]!.textContent!.trim();
-    expect(rating).toMatch(/^[+-]?\d/);
     expect(firstCard.textContent).toContain(rating);
   });
 
   it("keeps the actions on the card, so a phone can still mark a team", async () => {
+    atWidth(false);
     await openFullTable();
 
     const firstCard = stackedCards()[0]!;
