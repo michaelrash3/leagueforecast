@@ -10,6 +10,7 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from "../workers/tidyProtocol";
+import { createWorker } from "./createWorker";
 
 /**
  * Inspecting and tidying the pool without locking the page up.
@@ -21,16 +22,6 @@ import {
 
 export type PoolInspection = { health: PoolHealth; settleable: number };
 export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
-
-const createWorker = (): Worker | null => {
-  if (typeof Worker === "undefined") return null;
-  try {
-    return new Worker(new URL("../workers/tidy.worker.ts", import.meta.url), { type: "module" });
-  } catch (error) {
-    console.warn("Tidy worker unavailable, falling back to inline.", error);
-    return null;
-  }
-};
 
 export function usePoolTidy() {
   const workerRef = useRef<Worker | null>(null);
@@ -66,7 +57,11 @@ export function usePoolTidy() {
       matches: (response: WorkerResponse, id: number) => T | null,
       inline: () => T
     ): Promise<T | null> => {
-      if (!workerRef.current) workerRef.current = createWorker();
+      if (!workerRef.current)
+        workerRef.current = createWorker(
+          new URL("../workers/tidy.worker.ts", import.meta.url),
+          "Tidy"
+        );
       const worker = workerRef.current;
       setBusy(job);
       if (!worker) {
