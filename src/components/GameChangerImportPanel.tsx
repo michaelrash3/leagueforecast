@@ -61,6 +61,7 @@ import {
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
 import { describeAgeUnknown, updateAgeUnknown, type AgeUnknownList } from "../lib/ageUnknown";
 import { usePoolTidy } from "../hooks/usePoolTidy";
+import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import {
   flushPoolWrites,
@@ -325,7 +326,7 @@ export function GameChangerImportPanel({
    * pool — and on the main thread that is half a minute of frozen tab at the very end of an hour
    * of fetching, which is exactly when somebody reloads the page and throws it away.
    */
-  const { tidy: tidyInWorker, busy: tidying } = usePoolTidy();
+  const { tidy: tidyInWorker, busy: tidying, progress: tidyProgress } = usePoolTidy();
   const [pairings, setPairings] = useState<GcSeasonPairing[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   /** Narrows the pairing list by name, state or season. */
@@ -1722,12 +1723,15 @@ export function GameChangerImportPanel({
             </dl>
           )}
           {tidying === "tidy" ? (
-            <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-              Everything is in. Tidying now — naming the stand-ins the other side&apos;s schedule
-              can settle, folding the clubs pulled under more than one id. It walks every game
-              several times over, so on a big pool this takes a while; it runs off the main thread,
-              so the page stays usable and leaving this open is not needed.
-            </p>
+            <>
+              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                Everything is in. Tidying now — naming the stand-ins the other side&apos;s schedule
+                can settle, folding the clubs pulled under more than one id. It walks every game
+                several times over, so on a big pool this takes a while; it runs off the main
+                thread, so the page stays usable and leaving this open is not needed.
+              </p>
+              <TidyProgressView steps={tidyProgress} running />
+            </>
           ) : (
             <div className="mt-3">
               <button type="button" onClick={stop} className={button.ghost}>

@@ -41,15 +41,21 @@ const withStandIn = (): GcImportState => ({
 const harness = () => {
   const posted: WorkerResponse[] = [];
   const handle = createTidyHandler((response) => posted.push(response));
-  return { posted, handle };
+  /*
+   * The answer, wherever it sits. It used to be the only thing posted, so the tests took the first
+   * message; a tidy now reports each step as it finishes, and the answer is the last of many.
+   */
+  const answersOf = (kind: "tidy" | "inspect") =>
+    posted.filter((response) => response.kind === kind);
+  return { posted, handle, answersOf };
 };
 
 describe("the tidy worker's side of the protocol", () => {
   it("hands back only the parts of the pool it changed", () => {
-    const { posted, handle } = harness();
+    const { handle, answersOf } = harness();
     const before = withStandIn();
     handle({ kind: "tidy", id: 1, state: packPool(before) });
-    const answer = posted[0];
+    const answer = answersOf("tidy")[0];
     expect(answer?.kind).toBe("tidy");
     if (answer?.kind !== "tidy") return;
     expect(answer.tidy.named).toBe(1);
@@ -59,15 +65,15 @@ describe("the tidy worker's side of the protocol", () => {
   });
 
   it("hands back nothing for a pool with nothing to do, so nothing is re-saved", () => {
-    const { posted, handle } = harness();
+    const { handle, answersOf } = harness();
     const before = withStandIn();
     handle({ kind: "tidy", id: 1, state: packPool(before) });
-    const first = posted[0];
+    const first = answersOf("tidy")[0];
     if (first?.kind !== "tidy") throw new Error("expected a tidy answer");
     const tidied = applyTidied(before, first.changed);
 
     handle({ kind: "tidy", id: 2, state: packPool(tidied) });
-    const second = posted[1];
+    const second = answersOf("tidy")[1];
     if (second?.kind !== "tidy") throw new Error("expected a tidy answer");
     expect(second.changed).toEqual({});
     // And laying nothing over the pool gives back the very arrays the caller holds.
@@ -78,7 +84,7 @@ describe("the tidy worker's side of the protocol", () => {
   });
 
   it("inspects the pool it was shipped without tidying it", () => {
-    const { posted, handle } = harness();
+    const { handle, answersOf } = harness();
     handle({
       kind: "inspect",
       id: 1,
@@ -86,10 +92,105 @@ describe("the tidy worker's side of the protocol", () => {
       stamp: "",
       today: "2026-09-18",
     });
-    const answer = posted[0];
+    const answer = answersOf("inspect")[0];
     expect(answer?.kind).toBe("inspect");
     if (answer?.kind !== "inspect") return;
     expect(answer.health.games).toBe(2);
     expect(answer.settleable).toBe(1);
+  });
+});
+
+describe("what the tidy says while it runs", () => {
+  /*
+   * The tidy is the longest thing this app does, and it used to say nothing at all until it was
+   * finished. On a pool where that is half a minute, silence and a hang look the same — which is
+   * how a tidy came to be interrupted often enough to leave eleven thousand results filed against
+   * "TBD" while the code to settle them worked perfectly.
+   */
+  it("reports every step of every pass, in the order it does them", () => {
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 7, state: packPool(withStandIn()) });
+
+    const steps = posted.filter((response) => response.kind === "tidy-progress");
+    expect(steps.length).toBeGreaterThan(0);
+    // Nine steps a pass, and the tidy runs at least twice: once to do the work, once to find
+    // nothing and stop.
+    expect(steps.length % 9).toBe(0);
+    const firstPass = steps.slice(0, 9);
+    expect(firstPass.map((s) => s.kind === "tidy-progress" && s.step.step)).toEqual([
+      "notBaseball",
+      "releveled",
+      "pruned",
+      "named",
+      "reclaimed",
+      "refiled",
+      "folded",
+      "paired",
+      "collapsed",
+    ]);
+  });
+
+  it("carries the id of the tidy it belongs to", () => {
+    // Two tidies can be in flight across a remount; a step with nobody's id is a step nobody can
+    // place, and the page would draw the wrong run's progress.
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 42, state: packPool(withStandIn()) });
+
+    expect(posted.filter((r) => r.kind === "tidy-progress").every((r) => r.id === 42)).toBe(true);
+  });
+
+  it("counts the pass and the pool as each step leaves it", () => {
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 1, state: packPool(withStandIn()) });
+
+    const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
+    const named = steps.find((r) => r.step.step === "named" && r.step.pass === 1);
+    // The stand-in in the fixture is exactly one settleable row, found on the first pass.
+    expect(named?.step.found).toBe(1);
+    expect(named?.step.pass).toBe(1);
+    // And the pool it reports is the pool after that step, not before it.
+    expect(named?.step.games).toBeGreaterThan(0);
+    expect(named?.step.teams).toBeGreaterThan(0);
+  });
+
+  it("finds nothing on its last pass, which is how it knows to stop", () => {
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 1, state: packPool(withStandIn()) });
+
+    const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
+    const lastPass = Math.max(...steps.map((r) => r.step.pass));
+    const lastPassSteps = steps.filter((r) => r.step.pass === lastPass);
+    expect(lastPassSteps).toHaveLength(9);
+    expect(lastPassSteps.reduce((sum, r) => sum + r.step.found, 0)).toBe(0);
+  });
+
+  it("still answers, after all of that", () => {
+    // The progress must not become the reply: the caller is waiting on a "tidy" message.
+    const { posted, handle } = harness();
+
+    handle({ kind: "tidy", id: 3, state: packPool(withStandIn()) });
+
+    const answers = posted.filter((response) => response.kind === "tidy");
+    expect(answers).toHaveLength(1);
+    expect(posted[posted.length - 1]).toBe(answers[0]);
+  });
+
+  it("says nothing at all while inspecting", () => {
+    // Inspect does not tidy; a progress message from it would draw a run that is not happening.
+    const { posted, handle } = harness();
+
+    handle({
+      kind: "inspect",
+      id: 1,
+      state: packPool(withStandIn()),
+      stamp: "",
+      today: "2026-09-19",
+    });
+
+    expect(posted.filter((response) => response.kind === "tidy-progress")).toEqual([]);
   });
 });

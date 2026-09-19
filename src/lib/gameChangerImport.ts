@@ -2552,22 +2552,82 @@ const relevelFromNames = (state: GcImportState): { state: GcImportState; relevel
     : { state: { ...state, teams, games }, releveled };
 };
 
-const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
+/**
+ * The nine things a tidy pass does, in the order it does them. The order is load-bearing and the
+ * comments below say why; this is the same list, named, so a watcher can be told where it is.
+ */
+export const TIDY_STEPS = [
+  "notBaseball",
+  "releveled",
+  "pruned",
+  "named",
+  "reclaimed",
+  "refiled",
+  "folded",
+  "paired",
+  "collapsed",
+] as const;
+
+export type TidyStepName = (typeof TIDY_STEPS)[number];
+
+/** What one step of one pass did, reported as it finishes rather than at the end of the run. */
+export type TidyStep = {
+  /** 1-based, as a person counts passes. */
+  pass: number;
+  step: TidyStepName;
+  /** How many rows or teams this step changed, this pass. */
+  found: number;
+  /** The pool as the step leaves it, so the shrinking is visible while it happens. */
+  teams: number;
+  games: number;
+};
+
+/** Told after every step, so a caller can show the work rather than a spinner. */
+export type TidyWatcher = (step: TidyStep) => void;
+
+const tidyOnce = (
+  state: GcImportState,
+  pass: number,
+  watch?: TidyWatcher
+): Omit<PoolTidy, "passes"> => {
+  /*
+   * Reported from here rather than from the passes themselves: each one is a pure function of a
+   * pool that knows nothing about being watched, and it should stay that way. A watcher that
+   * throws must not take the tidy down with it — half an hour of work is not worth a progress bar.
+   */
+  const say = (step: TidyStepName, found: number, next: GcImportState) => {
+    if (!watch) return;
+    try {
+      watch({ pass, step, found, teams: next.teams.length, games: next.games.length });
+    } catch {
+      /* never at the tidy's expense */
+    }
+  };
   // Before everything, because a team that should not be here at all should not be settled,
   // folded, paired or levelled first.
   const kept = dropNotBaseball(state);
+  say("notBaseball", kept.dropped, kept.state);
   // Then levels, because every pass after it compares them: a side whose level is about to be
   // worked out should be worked out before anything decides whether two rows mean one game.
   const levels = relevelFromNames(kept.state);
+  say("releveled", levels.releveled, levels.state);
   const season = pruneOutOfSeason(levels.state);
+  say("pruned", season.pruned, season.state);
   const named = resolveSlotGames(season.state);
+  say("named", named.resolved, named.state);
   const moved = reclaimMisfiled(named.state);
+  say("reclaimed", moved.reclaimed, moved.state);
   const placed = refileStandIns(moved.state);
+  say("refiled", placed.refiled, placed.state);
   const squads = mergeSameSquadIds(placed.state);
+  say("folded", squads.merged, squads.state);
   const seasons = pairSettledSquads(squads.state);
+  say("paired", seasons.paired, seasons.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
+  const after = same.collapsed > 0 ? { ...seasons.state, games: same.games } : seasons.state;
+  say("collapsed", same.collapsed, after);
   return {
-    state: same.collapsed > 0 ? { ...seasons.state, games: same.games } : seasons.state,
+    state: after,
     named: named.resolved,
     folded: squads.merged,
     paired: seasons.paired,
@@ -2585,7 +2645,7 @@ const tidyOnce = (state: GcImportState): Omit<PoolTidy, "passes"> => {
  * settled in pass one is the row that lets a second slot settle in pass two — so a single pass
  * left 416 stand-ins that the next pass found, then 54, then 5.
  */
-export const tidyPool = (state: GcImportState): PoolTidy => {
+export const tidyPool = (state: GcImportState, watch?: TidyWatcher): PoolTidy => {
   const total: PoolTidy = {
     state,
     named: 0,
@@ -2600,7 +2660,7 @@ export const tidyPool = (state: GcImportState): PoolTidy => {
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state);
+    const step = tidyOnce(total.state, pass + 1, watch);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;

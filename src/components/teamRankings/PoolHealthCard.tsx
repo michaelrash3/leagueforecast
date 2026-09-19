@@ -12,6 +12,7 @@ import { squadYearHoldings } from "../../lib/poolHealth";
 import { storedGamesByYear } from "../../lib/teamRankingsStorage";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
+import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
 
 type PoolHealthCardProps = {
@@ -70,7 +71,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
    * not fetch them again.
    */
   const pullLive = useSyncExternalStore(watchPull, isPullLive, () => false);
-  const { inspect, tidy, busy } = usePoolTidy();
+  const { inspect, tidy, busy, progress } = usePoolTidy();
   const [health, setHealth] = useState<PoolHealth | null>(null);
   const [settleable, setSettleable] = useState(0);
   const [lastTidy, setLastTidy] = useState<string[] | null>(null);
@@ -207,11 +208,16 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
         </p>
       )}
 
-      {busy === "tidy" && (
-        <p className="mt-2 text-xs text-slate-500">
-          Walking every game, several times over. On a nationwide pool this takes a while — the page
-          stays usable while it runs.
-        </p>
+      {(busy === "tidy" || progress.length > 0) && (
+        <>
+          {busy === "tidy" && (
+            <p className="mt-2 text-xs text-slate-500">
+              Walking every game, several times over. On a nationwide pool this takes a while — the
+              page stays usable while it runs.
+            </p>
+          )}
+          <TidyProgressView steps={progress} running={busy === "tidy"} />
+        </>
       )}
 
       {health && (
