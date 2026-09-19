@@ -1455,12 +1455,19 @@ export const importGcSchedules = (
  * saying who turned up — so it wins, and the slot's row is folded into it.
  *
  * What makes this safe rather than a guess is where the naming row comes from and when it kicked
- * off. It has to come from a *different* GameChanger team's schedule: if a club's own schedule
- * lists both a placeholder and a named opponent that day, those are two different games it is
- * playing, and neither names the other. Where both rows carry a start time they must agree on it,
- * which is what tells the two halves of a doubleheader apart. Without times, the day has to hold
- * exactly one candidate; anything less certain is left as it is, because a wrong answer here
- * silently moves a result onto a club that never played it.
+ * off. It usually has to come from a *different* GameChanger team's schedule: if a club's own
+ * schedule lists both a placeholder and a named opponent that day, those are as a rule two
+ * different games it is playing, and neither names the other. Where both rows carry a start time
+ * they must agree on it, which is what tells the two halves of a doubleheader apart. Without
+ * times, the day has to hold exactly one candidate; anything less certain is left as it is,
+ * because a wrong answer here silently moves a result onto a club that never played it.
+ *
+ * The exception is the clock, and it is not a heuristic. One schedule listing a placeholder and a
+ * named opponent at the *same instant* is not two games: nobody plays two at once. That is a
+ * bracket slot the club posted before the opponent was known and then posted again once it was,
+ * and left alone it stands in the pool as a second result — a phantom extra win or loss on a
+ * record that already counts the real one. Every GameChanger row carries the time, because the
+ * date is worked out from it, so this costs nothing to ask.
  */
 export const resolveSlotGames = (
   state: GcImportState
@@ -1529,9 +1536,12 @@ export const resolveSlotGames = (
     const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
       (named) =>
         !spoken.has(named.id) &&
-        // The other club's schedule, never the same one this slot came from.
+        /*
+         * The other club's schedule — or this very one, where the two rows start at the same
+         * instant, since a club cannot be playing both of them.
+         */
         sourceOf(named) !== undefined &&
-        sourceOf(named) !== sourceOf(slotGame) &&
+        (sourceOf(named) !== sourceOf(slotGame) || sameTime(named)) &&
         /*
          * Two results that contradict are two games, full stop. Folding the slot into the one
          * named row of the day regardless was deleting real results: on a pool with no start
