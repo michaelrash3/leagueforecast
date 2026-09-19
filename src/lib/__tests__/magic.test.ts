@@ -31,12 +31,22 @@ const finalLog = (a: number, h: number): GameLog => ({
 const settings = { ...DEFAULT_SETTINGS };
 
 describe("magicForGold", () => {
-  it("returns impossible when no guarantees can be made", () => {
+  /*
+   * These three used to assert "impossible", and all three were pinning a bug: `magicForGold`
+   * could not return a magic number at all, so every team that had not already clinched was told
+   * it could not mathematically clinch. Each is worked through by hand below rather than read off
+   * the new output.
+   */
+  it("names the one win that settles a top-two place", () => {
+    // A has beaten B; g3 is its last game. Win it and A has 2. B and C can reach 1 each, D can
+    // reach 2 — and a tie with D goes to A on id, so A is second at worst.
     const live = calculateTeams(teams, matchups, {
       g1: finalLog(5, 1),
     });
     const result = magicForGold("A", live, matchups, 2, settings);
-    expect(result.type).toBe("impossible");
+    expect(result.type).toBe("magic");
+    expect(result.ownWinsNeeded).toBe(1);
+    expect(result.opponentLossesNeeded).toBe(0);
   });
 
   it("clinched when nobody can pass", () => {
@@ -81,10 +91,32 @@ describe("magicForGold", () => {
     ];
 
     const live = calculateTeams(symmetricTeams, symmetricMatchups, {});
-    expect(magicForGold("A", live, symmetricMatchups, 1, settings).type).toBe("impossible");
-    expect(
-      magicForGold("A", live, symmetricMatchups, symmetricTeams.length - 1, settings).type
-    ).toBe("impossible");
+
+    /*
+     * First place takes all three. Run the table and A has 3; B, C and D have only the three
+     * games among themselves left, so none can pass 2. Two wins is not enough — the club that
+     * beat A can still reach 3 and finish above it.
+     */
+    const forFirst = magicForGold("A", live, symmetricMatchups, 1, settings);
+    expect(forFirst.type).toBe("magic");
+    expect(forFirst.ownWinsNeeded).toBe(3);
+
+    /*
+     * Third of four takes two, and the reason is the tie. On one win A has a point and can still
+     * be passed by all three: the club that beat A wins their head-to-head, and the other two
+     * split what is left — one wins a game and ties another for 1.5, the third takes the rest —
+     * which the three games they have between them will just pay for at half a point a tie. On
+     * two wins the two clubs A beat would each need more than two points out of two games.
+     */
+    const forThird = magicForGold(
+      "A",
+      live,
+      symmetricMatchups,
+      symmetricTeams.length - 1,
+      settings
+    );
+    expect(forThird.type).toBe("magic");
+    expect(forThird.ownWinsNeeded).toBe(2);
   });
 
   it("returns known-answer magic number in a manually provable 3-team race", () => {
@@ -101,10 +133,50 @@ describe("magicForGold", () => {
     const live = calculateTeams(tinyTeams, tinyMatchups, {});
     const result = magicForGold("A", live, tinyMatchups, 1, settings);
 
-    // Even winning out cannot guarantee first because B/C can also finish ahead on points.
-    expect(result.type).toBe("impossible");
-    expect(result.ownWinsNeeded).toBe(0);
+    /*
+     * A plays both of the others and they never play each other, so one win puts A level with
+     * whoever beat it and ahead of the club it beat — and a tie goes to A on id. The old comment
+     * here said "even winning out cannot guarantee first because B/C can also finish ahead on
+     * points", which is not true of this schedule: B and C have no game to pass each other in.
+     */
+    expect(result.type).toBe("magic");
+    expect(result.ownWinsNeeded).toBe(1);
     expect(result.opponentLossesNeeded).toBe(0);
+  });
+
+  it("still says impossible when a win cannot put the team in", () => {
+    // Bottom of three with nothing left to play: there is no number of wins that changes it.
+    const tinyTeams: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+      { id: "C", name: "C" },
+    ];
+    const played: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "B" },
+      { id: "p2", date: "5/2", away: "A", home: "C" },
+    ];
+    const live = calculateTeams(tinyTeams, played, { p1: finalLog(0, 9), p2: finalLog(0, 9) });
+
+    expect(magicForGold("A", live, [], 1, settings).type).toBe("impossible");
+  });
+
+  it("says one win, in the smallest race there is", () => {
+    /*
+     * Two clubs level, one game between them, one place. Win it and you are first — and this is
+     * what the app told the user could not mathematically happen.
+     */
+    const pair: TeamBase[] = [
+      { id: "A", name: "A" },
+      { id: "B", name: "B" },
+    ];
+    const decider: Matchup[] = [{ id: "d1", date: "5/1", away: "A", home: "B" }];
+    const live = calculateTeams(pair, decider, {});
+
+    const result = magicForGold("A", live, decider, 1, settings);
+
+    expect(result.type).toBe("magic");
+    expect(result.ownWinsNeeded).toBe(1);
+    expect(result.description).toBe("1 more win clinches a Gold Bracket spot.");
   });
 
   it("returns impossible for mathematically impossible clinch cases", () => {
