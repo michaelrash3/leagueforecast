@@ -3251,3 +3251,182 @@ describe("one squad listed twice in one season", () => {
     expect(pairing && isSettledPairing(pairing)).toBe(false);
   });
 });
+
+describe("a bracket slot and the named game beside it on one schedule", () => {
+  /*
+   * Legacy Baseball Club, 22 August 2026. Its own schedule listed a pool game against the River
+   * City Raptors it lost 7-15, and a "TBD- 08/22/26, 3:00 PM" it also lost 7-15 — the same game,
+   * posted once as a bracket slot before the opponent was known and once after. The Raptors' own
+   * schedule named both of the day's meetings, so both of its rows folded into Legacy's at import
+   * and there was nothing left of a different source to answer the slot with.
+   *
+   * The slot stood as a fourth game. The club read 14-4 from 18 games when it was 14-3 from 17,
+   * and the extra loss was against a stand-in that is nobody, so it counted for the Raptors on
+   * neither side. Nothing here was a regression: `resolveSlotGames` has refused a naming row from
+   * the slot's own schedule since it was written, on the grounds that a club listing a placeholder
+   * and a named opponent the same day is playing two games.
+   *
+   * Which is true of a day, and not of an instant. One schedule listing both at the same start
+   * time is not two games, because nobody plays two at once. The real doubleheader on the same
+   * day — 13-10, two hours earlier — has to survive it untouched.
+   */
+  const AT_3PM = "2026-08-22T19:00:00Z";
+  const AT_1PM = "2026-08-22T17:00:00Z";
+  const RAPTORS = "River City Raptors 11U";
+
+  const season = { season: "fall", year: 2026 } as const;
+
+  /**
+   * The day as both clubs posted it. The Raptors have to be pulled for their name on Legacy's
+   * schedule to be a club rather than another stand-in — which is the whole starting position:
+   * their rows fold into Legacy's at import, leaving the slot with nobody else to answer it.
+   */
+  const legacyDay = (
+    slot: { startTs?: string; score?: [number, number] },
+    /** Dropped from every row, for the pools that reach here with no clock on anything. */
+    times = true
+  ): GcImportState => {
+    const importer = createGcImporter({ ageGroups: [], teams: [], games: [] });
+    importer.add({
+      profile: { id: "gcLegacy0001", name: "Legacy Fall Ball 11U", ageLevel: 11, season },
+      games: [
+        {
+          id: "L-early",
+          date: "2026-08-22",
+          ...(times ? { startTs: AT_1PM } : {}),
+          opponentName: RAPTORS,
+          teamScore: 13,
+          opponentScore: 10,
+          status: "completed",
+        },
+        {
+          id: "L-late",
+          date: "2026-08-22",
+          ...(times ? { startTs: AT_3PM } : {}),
+          opponentName: RAPTORS,
+          teamScore: 7,
+          opponentScore: 15,
+          status: "completed",
+        },
+        {
+          id: "L-slot",
+          date: "2026-08-22",
+          ...(slot.startTs ? { startTs: slot.startTs } : {}),
+          opponentName: "TBD- 08/22/26, 3:00 PM",
+          ...(slot.score ? { teamScore: slot.score[0], opponentScore: slot.score[1] } : {}),
+          status: slot.score ? "completed" : "scheduled",
+        },
+      ],
+      fetchedAt: "2026-09-19T00:00:00.000Z",
+    });
+    importer.add({
+      profile: { id: "gcRaptors001", name: RAPTORS, ageLevel: 11, season },
+      games: [
+        {
+          id: "R-early",
+          date: "2026-08-22",
+          ...(times ? { startTs: AT_1PM } : {}),
+          opponentName: "Legacy Fall Ball 11U",
+          teamScore: 10,
+          opponentScore: 13,
+          status: "completed",
+        },
+        {
+          id: "R-late",
+          date: "2026-08-22",
+          ...(times ? { startTs: AT_3PM } : {}),
+          opponentName: "Legacy Fall Ball 11U",
+          teamScore: 15,
+          opponentScore: 7,
+          status: "completed",
+        },
+      ],
+      fetchedAt: "2026-09-19T00:00:00.000Z",
+    });
+    return importer.state;
+  };
+
+  /** What Legacy's day reads as, "us-them" from its seat, so a lost half of a pair shows up. */
+  const legacyScores = (state: GcImportState) => {
+    const legacy = state.teams.find((team) => team.gcTeams?.[0]?.teamId === "gcLegacy0001")!;
+    return state.games
+      .map((game) =>
+        game.teamAId === legacy.id
+          ? `${game.teamAScore}-${game.teamBScore}`
+          : `${game.teamBScore}-${game.teamAScore}`
+      )
+      .sort();
+  };
+
+  it("starts with the slot standing as a game of its own", () => {
+    // The position this is about: three rows for two meetings, and nothing of another source left.
+    expect(legacyDay({ startTs: AT_3PM, score: [7, 15] }).games).toHaveLength(3);
+  });
+
+  it("folds the slot into the named game that starts at the same instant", () => {
+    const { state, resolved } = resolveSlotGames(legacyDay({ startTs: AT_3PM, score: [7, 15] }));
+
+    expect(resolved).toBe(1);
+    // The doubleheader survives whole: two meetings, two different results.
+    expect(legacyScores(state)).toEqual(["13-10", "7-15"]);
+  });
+
+  it("leaves a slot at a different time alone, because that is a third game", () => {
+    /*
+     * Three meetings in a day happens — pool play and then a bracket — and the slot can be the
+     * only record of the third. Folding it away on a matching score would delete a real game.
+     */
+    const { state, resolved } = resolveSlotGames(legacyDay({ startTs: AT_1PM, score: [7, 15] }));
+
+    expect(resolved).toBe(0);
+    expect(state.games).toHaveLength(3);
+  });
+
+  it("leaves a slot with no time alone, however well the score matches", () => {
+    // Without the clock there is nothing here that a doubleheader does not also look like.
+    expect(resolveSlotGames(legacyDay({ score: [7, 15] })).resolved).toBe(0);
+  });
+
+  it("will not read two rows with no time at all as starting at the same one", () => {
+    /*
+     * Both absent is not both equal. A pool that reached here with no clock on anything — an older
+     * export, a hand-typed season — would otherwise have every slot on a schedule answered by that
+     * schedule's own named game of the day, which is the guess this whole function refuses to make
+     * and the one that deleted 1,976 scored games the last time it was made.
+     */
+    expect(resolveSlotGames(legacyDay({ score: [7, 15] }, false)).resolved).toBe(0);
+  });
+
+  it("folds an unplayed slot that starts when a named game does", () => {
+    // A bracket slot nobody went back to score, sitting on top of the game it became.
+    const { state, resolved } = resolveSlotGames(legacyDay({ startTs: AT_3PM }));
+
+    expect(resolved).toBe(1);
+    expect(legacyScores(state)).toEqual(["13-10", "7-15"]);
+  });
+
+  it("will not let one named game answer two slots at its own start time", () => {
+    /*
+     * A schedule that posted the same bracket slot twice. The first takes the named row and the
+     * second finds it spoken for, rather than both collapsing onto the one result.
+     */
+    const importer = createGcImporter(legacyDay({ startTs: AT_3PM, score: [7, 15] }));
+    importer.add({
+      profile: { id: "gcLegacy0001", name: "Legacy Fall Ball 11U", ageLevel: 11, season },
+      games: [
+        {
+          id: "L-slot2",
+          date: "2026-08-22",
+          startTs: AT_3PM,
+          opponentName: "TBD- 08/22/26, 3:00 PM (2)",
+          teamScore: 7,
+          opponentScore: 15,
+          status: "completed",
+        },
+      ],
+      fetchedAt: "2026-09-19T00:00:00.000Z",
+    });
+
+    expect(resolveSlotGames(importer.state).resolved).toBe(1);
+  });
+});
