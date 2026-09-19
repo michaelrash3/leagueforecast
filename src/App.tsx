@@ -13,6 +13,7 @@ import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
+import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ModelView } from "./components/league/ModelView";
@@ -24,7 +25,6 @@ import {
   summarizeLeagueFill,
   type LeagueFillPlan,
 } from "./lib/leagueScoreFill";
-import { hasGcLinks, leagueScoutBridge, scoutLinkCandidates } from "./lib/teamRankings";
 import {
   loadAgeGroups,
   loadScoutGamesForSeason,
@@ -348,12 +348,6 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
-  /**
-   * Bumped whenever Team Rankings saves. That data lives in its own storage keys, so nothing here
-   * would otherwise notice it changed — and the league's forecasts read it.
-   */
-  const [scoutRevision, setScoutRevision] = useState(0);
-  const noteScoutChange = useCallback(() => setScoutRevision((value) => value + 1), []);
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -494,66 +488,6 @@ export default function App() {
     }));
   }, [teams, matchups]);
 
-  // Tournament results logged in Team Rankings, for age groups that include this season. Read
-  // from storage rather than held in state: Team Rankings owns them, this view only borrows.
-  const scoutBridge = useMemo(() => {
-    // Storage is not reactive, so the counter is the signal that it changed. Referenced rather
-    // than merely listed, so it reads as the dependency it is.
-    void scoutRevision;
-    const empty = {
-      results: [],
-      seasonLinked: false,
-      rows: [],
-      linkedCount: 0,
-      countedResults: 0,
-    };
-    if (!activeSeasonId) return empty;
-    return leagueScoutBridge(
-      activeSeasonId,
-      loadAgeGroups(),
-      loadScoutTeams(),
-      loadScoutGamesForSeason(activeSeasonId),
-      // The roster, not the computed teams: the bridge reads a team's id, name and stored pick,
-      // all of which live on the roster row, and reading the computed teams here would need them
-      // to exist before the rating that this feeds could be attached to them.
-      teams,
-      seasonFixtures
-    );
-  }, [activeSeasonId, teams, seasonFixtures, scoutRevision]);
-
-  /**
-   * The bridge is read whether or not the setting lets it count, so the panel can say how much is
-   * ready and waiting; only the results are withheld.
-   */
-  const externalResults = useMemo(
-    () => (settings.useScoutResults ? scoutBridge.results : []),
-    [settings.useScoutResults, scoutBridge]
-  );
-
-  /** The clubs that could be a given league team, best evidence first: who they have both played. */
-  const scoutCandidatesFor = useCallback(
-    (leagueTeamName: string) => {
-      void scoutRevision;
-      if (!activeSeasonId) return [];
-      return scoutLinkCandidates(
-        leagueTeamName,
-        activeSeasonId,
-        loadAgeGroups(),
-        loadScoutTeams(),
-        loadScoutGamesForSeason(activeSeasonId),
-        seasonFixtures
-      );
-    },
-    [activeSeasonId, seasonFixtures, scoutRevision]
-  );
-
-  const allScoutClubs = useCallback(() => {
-    void scoutRevision;
-    // Linked clubs only. Searching forty thousand names to land on one that has no GameChanger
-    // team behind it is a search that could not have succeeded.
-    return loadScoutTeams().filter((team) => !team.placeholder && hasGcLinks(team));
-  }, [scoutRevision]);
-
   /** Stores which Team Rankings club a league team is, or clears the answer. */
   const setScoutLink = useCallback(
     (leagueTeamId: string, scoutTeamId: string | undefined) => {
@@ -569,6 +503,21 @@ export default function App() {
     },
     [setTeams]
   );
+
+  /** What Team Rankings has for this season: the results, the picks and the search behind them. */
+  const {
+    bridge: scoutBridge,
+    externalResults,
+    candidatesFor: scoutCandidatesFor,
+    allClubs: allScoutClubs,
+    noteChange: noteScoutChange,
+  } = useScoutBridge({
+    activeSeasonId,
+    teams,
+    seasonFixtures,
+    useScoutResults: settings.useScoutResults,
+    onLink: setScoutLink,
+  });
 
   const predictionEngine = useMemo(
     () => buildPredictionEngine(baseTeams, matchups, deferredLogs, settings, externalResults),
