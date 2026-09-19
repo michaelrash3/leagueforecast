@@ -15,6 +15,7 @@ import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
+import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
@@ -1147,194 +1148,22 @@ export default function App() {
     seedForScenario,
   ]);
 
-  const nextGameByTeam = useMemo(() => {
-    const map = new Map<string, Matchup>();
-    [...remainingGames]
-      .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
-      .forEach((game) => {
-        if (!map.has(game.away)) map.set(game.away, game);
-        if (!map.has(game.home)) map.set(game.home, game);
-      });
-    return map;
-  }, [remainingGames]);
-
-  /*
-   * The clinch and elimination helpers are memoised from here down, and that is not a rendering
-   * optimisation. They are read inside memos, and a plain function redeclared every render cannot
-   * be listed as a dependency of one — which is why the memos below used to list the values these
-   * close over by hand and suppress the lint rule. A hand-kept list is right until somebody adds a
-   * closure to one of these, and then it is silently wrong: the memo keeps the answer it worked
-   * out before, and a label that is no longer true stays on screen.
+  /**
+   * What one more result would do to the table: who clinches, who goes out, what a game is worth.
+   *
+   * Seven of these, all the same shape — play the game forward, rank what comes out, ask the
+   * clinching maths — and they sat here among everything else App does. Out in a hook they are a
+   * closed question over the season, and they have a test, which they did not before.
    */
-  const isTeamNextGame = useCallback(
-    (teamId: string, game: Matchup) => nextGameByTeam.get(teamId)?.id === game.id,
-    [nextGameByTeam]
-  );
-
-  const goldStatusAfterScenario = useCallback(
-    (teamId: string, game: Matchup, winnerId: string) => {
-      const scenarioTeams = rankTeams(
-        applyResult(liveTeams, game, winnerId, liveTeams, settings),
-        rankOptionsFromSettings(settings)
-      );
-      const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
-      const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
-      const scenarioTeam = scenarioTeams.find((team) => team.id === teamId);
-      if (!scenarioTeam) return null;
-      return getMathGoldStatus(scenarioTeam, scenarioTeams, scenarioCounts, goldCutoff, settings)
-        .goldStatus;
-    },
-    [liveTeams, settings, remainingGames, goldCutoff]
-  );
-
-  const teamsClinchingAfterGameResult = useCallback(
-    (game: Matchup, winnerId: string) => {
-      const scenarioTeams = rankTeams(
-        applyResult(liveTeams, game, winnerId, liveTeams, settings),
-        rankOptionsFromSettings(settings)
-      );
-      const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
-      const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
-
-      return scenarioTeams
-        .filter((scenarioTeam) => {
-          const before = dashboardById.get(scenarioTeam.id);
-          if (!before || before.goldStatus === "Clinched" || before.goldStatus === "Eliminated")
-            return false;
-          const after = getMathGoldStatus(
-            scenarioTeam,
-            scenarioTeams,
-            scenarioCounts,
-            goldCutoff,
-            settings
-          ).goldStatus;
-          return after === "Clinched";
-        })
-        .map((team) => team.id);
-    },
-    [liveTeams, settings, remainingGames, dashboardById, goldCutoff]
-  );
-
-  const teamClinchesGoldWithWin = useCallback(
-    (teamId: string, game: Matchup) => {
-      const team = dashboardById.get(teamId);
-      if (!team || team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") return false;
-      if (!isTeamNextGame(teamId, game)) return false;
-      return goldStatusAfterScenario(teamId, game, teamId) === "Clinched";
-    },
-    [dashboardById, isTeamNextGame, goldStatusAfterScenario]
-  );
-
-  const teamCanBeEliminatedWithLoss = useCallback(
-    (teamId: string, game: Matchup) => {
-      const team = dashboardById.get(teamId);
-      if (!team || team.goldStatus === "Clinched" || team.goldStatus === "Eliminated") return false;
-      if (!isTeamNextGame(teamId, game)) return false;
-      const opponentId = game.away === teamId ? game.home : game.away;
-      return goldStatusAfterScenario(teamId, game, opponentId) === "Eliminated";
-    },
-    [dashboardById, isTeamNextGame, goldStatusAfterScenario]
-  );
-
-  const teamClinchesRegularSeasonTitleWithWin = useCallback(
-    (teamId: string, game: Matchup) => {
-      const team = dashboardById.get(teamId);
-      if (!team || team.goldStatus === "Eliminated") return false;
-      if (!isTeamNextGame(teamId, game)) return false;
-
-      const scenarioTeams = rankTeams(
-        applyResult(liveTeams, game, teamId, liveTeams, settings),
-        rankOptionsFromSettings(settings)
-      );
-      const scenarioRemaining = remainingGames.filter((item) => item.id !== game.id);
-      const scenarioCounts = getRemainingCounts(scenarioTeams, scenarioRemaining);
-      const scenarioTeam = scenarioTeams.find((item) => item.id === teamId);
-      if (!scenarioTeam) return false;
-
-      const titlePoints = standingsPoints(scenarioTeam, settings);
-      return scenarioTeams.every((other) => {
-        if (other.id === teamId) return true;
-        const otherMax =
-          standingsPoints(other, settings) + (scenarioCounts[other.id] ?? 0) * settings.winPoints;
-        return otherMax < titlePoints;
-      });
-    },
-    [dashboardById, isTeamNextGame, liveTeams, settings, remainingGames]
-  );
-
-  const gameScenarioBadgesForGame = useCallback(
-    (game: Matchup) => {
-      const away = dashboardById.get(game.away);
-      const home = dashboardById.get(game.home);
-      const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
-      const badges: string[] = [];
-
-      const clinchTeams = new Set<string>();
-      teamsInGame.forEach((team) => {
-        if (teamClinchesGoldWithWin(team.id, game)) clinchTeams.add(displayName(team.name));
-      });
-      teamsClinchingAfterGameResult(game, game.away).forEach((teamId) => {
-        const team = dashboardById.get(teamId);
-        clinchTeams.add(displayName(team?.name || teamId));
-      });
-      teamsClinchingAfterGameResult(game, game.home).forEach((teamId) => {
-        const team = dashboardById.get(teamId);
-        clinchTeams.add(displayName(team?.name || teamId));
-      });
-      if (clinchTeams.size > 0) {
-        badges.push(`Clinch Scenario: ${[...clinchTeams].join(", ")}`);
-      }
-
-      const eliminationTeams = new Set<string>();
-      teamsInGame.forEach((team) => {
-        if (teamCanBeEliminatedWithLoss(team.id, game))
-          eliminationTeams.add(displayName(team.name));
-      });
-      if (eliminationTeams.size > 0) {
-        badges.push(`Elimination Scenario: ${[...eliminationTeams].join(", ")}`);
-      }
-
-      return badges;
-    },
-    [
-      dashboardById,
-      teamClinchesGoldWithWin,
-      teamsClinchingAfterGameResult,
-      teamCanBeEliminatedWithLoss,
-    ]
-  );
-
-  const gameStatusForGame = useCallback(
-    (game: Matchup) => {
-      const impact = getGameScenarioImpactMap.get(game.id);
-      const away = dashboardById.get(game.away);
-      const home = dashboardById.get(game.home);
-      const teamsInGame = [away, home].filter(Boolean) as TeamWithProjection[];
-      const titleTeam = teamsInGame.find((team) =>
-        teamClinchesRegularSeasonTitleWithWin(team.id, game)
-      );
-      if (titleTeam) return `Title Clinch-${displayName(titleTeam.name)}`;
-      const scenarioBadges = gameScenarioBadgesForGame(game);
-      if (scenarioBadges.length > 0) return scenarioBadges[0] ?? "Clinch Scenario";
-
-      // "Bubble" only means something relative to a cut line; without one, a
-      // tight game is just a high-leverage seeding game.
-      const nearCutLine =
-        hasCutLine && teamsInGame.some((team) => Math.abs((team.rank ?? 99) - goldCutoff) <= 1);
-      if (impact && impact.seedImpact >= 2) return "High Impact";
-      if (nearCutLine) return "Bubble Game";
-      if (impact && impact.seedImpact >= 1) return "Seeding Game";
-      return "Low Impact";
-    },
-    [
-      getGameScenarioImpactMap,
-      dashboardById,
-      teamClinchesRegularSeasonTitleWithWin,
-      gameScenarioBadgesForGame,
-      hasCutLine,
-      goldCutoff,
-    ]
-  );
+  const { gameStatusForGame } = useClinchScenarios({
+    liveTeams,
+    settings,
+    remainingGames,
+    goldCutoff,
+    hasCutLine,
+    dashboardById,
+    scenarioImpact: getGameScenarioImpactMap,
+  });
 
   const gameStatusClasses = (label: string) => {
     if (label.startsWith("Title Clinch-")) return "bg-purple-100 text-purple-700";
