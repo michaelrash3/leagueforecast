@@ -46,29 +46,38 @@ export const useSeedRanges = ({
   ranked,
 }: SeedRangeInput) => {
   /*
-   * The caches, and the season they are about, in one object that is rebuilt whenever that season
-   * changes. Holding the inputs here rather than closing over them separately is what makes this a
-   * memo rather than a ref followed during render — refs may not be read while rendering, and
-   * these are read while rendering — and it leaves one place, rather than four, that decides which
-   * teams and games an answer in here was worked out from.
+   * The caches, and the question they are answers to, in one object that is rebuilt whenever that
+   * question changes. Holding the inputs here rather than closing over them separately is what
+   * makes this a memo rather than a ref followed during render — refs may not be read while
+   * rendering, and these are read while rendering — and it leaves one place, rather than four,
+   * that decides what an answer in here was worked out from.
+   *
+   * `exact` belongs in that question as much as the season does, and leaving it out was a bug you
+   * could see: it is `activeView === "model"` and a games-remaining limit, so it flips without any
+   * of the teams, games or settings changing. With it off the walk is not run — a range is the
+   * team's projection at both ends, and a scenario seed is the 99 that stands for "not worked
+   * out" — and both were being written into the caches anyway. Open a team from the standings, go
+   * to the model table, and every Range read #3–#3 and every win/loss seed read 99, because the
+   * answers to a question nobody had asked were sitting there waiting.
    */
   const caches = useMemo(
     () => ({
       teams: liveTeams,
       games: remainingGames,
       settings,
+      exact,
       scenarios: new Map<string, Map<string, number>>(),
       teamScenarios: new Map<string, number>(),
       ranges: new Map<string, SeedRange>(),
     }),
-    [liveTeams, remainingGames, settings]
+    [liveTeams, remainingGames, settings, exact]
   );
 
   /** The whole projected table as it would stand if this game went this way. */
   const getScenarioRankMap = useCallback(
     (game: Matchup, winnerId: string) => {
       const scenarioKey = `${game.id}|${winnerId}`;
-      if (!exact) return new Map<string, number>();
+      if (!caches.exact) return new Map<string, number>();
       const cached = caches.scenarios.get(scenarioKey);
       if (cached) return cached;
       const scenario = applyResult(caches.teams, game, winnerId, caches.teams, caches.settings);
@@ -79,7 +88,7 @@ export const useSeedRanges = ({
       caches.scenarios.set(scenarioKey, rankMap);
       return rankMap;
     },
-    [exact, caches]
+    [caches]
   );
 
   /** One team's seed in that scenario, kept separately so a row does not re-read the whole map. */
@@ -108,7 +117,7 @@ export const useSeedRanges = ({
       if (cached) return cached;
       const baseline =
         projectedById.get(teamId)?.rank ?? ranked.find((item) => item.id === teamId)?.rank ?? 99;
-      if (!exact) {
+      if (!caches.exact) {
         const result = { best: baseline, worst: baseline, baseline };
         caches.ranges.set(teamId, result);
         return result;
@@ -130,7 +139,7 @@ export const useSeedRanges = ({
       caches.ranges.set(teamId, result);
       return result;
     },
-    [projectedById, ranked, exact, seedForScenario, caches]
+    [projectedById, ranked, seedForScenario, caches]
   );
 
   return { getScenarioRankMap, seedForScenario, seedRangeForTeam };
