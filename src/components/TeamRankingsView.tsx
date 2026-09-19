@@ -80,7 +80,11 @@ import {
   summarizeTeamRankingsBackup,
   teamRankingsJsonParts,
 } from "../lib/teamRankingsBackup";
-import { type RankingsSection } from "../lib/rankingsRoute";
+import {
+  RANKINGS_COMMAND_SECTIONS,
+  rankingsSectionCommandId,
+  type RankingsSection,
+} from "../lib/rankingsRoute";
 import type { Command } from "./CommandPalette";
 import { archivableYears, archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
 import { ArchiveSection } from "./teamRankings/ArchiveSection";
@@ -117,14 +121,6 @@ type ConfirmOptions = {
  * rather than imported from the nav, because the nav's list is what it draws and this is what can
  * be asked for by name; they happen to agree today and a test says so.
  */
-const RANKINGS_COMMAND_SECTIONS: { section: RankingsSection; label: string }[] = [
-  { section: "rankings", label: "Rankings" },
-  { section: "games", label: "Games" },
-  { section: "import", label: "Import" },
-  { section: "scouting", label: "Scouting" },
-  { section: "archive", label: "Archive" },
-  { section: "setup", label: "Setup" },
-];
 
 type TeamRankingsViewProps = {
   seasons: SeasonMeta[];
@@ -257,7 +253,7 @@ export function TeamRankingsView({
   const commands = useMemo<Command[]>(
     () => [
       ...RANKINGS_COMMAND_SECTIONS.map(({ section: target, label }) => ({
-        id: `rankings-section-${target}`,
+        id: rankingsSectionCommandId(target),
         label: `Go to ${label}`,
         group: "Team Rankings",
         run: () => navigateRef.current.openSection(target),

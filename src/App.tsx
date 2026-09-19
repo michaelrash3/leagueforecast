@@ -13,6 +13,7 @@ import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
+import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
@@ -3034,6 +3035,30 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         group: "Action",
         handler: toggleTheme,
       },
+      /*
+       * Team Rankings had the palette and the shortcut sheet — those are the app's, not one
+       * half's — but no way to move between its six sections from the keyboard, on the half with a
+       * nationwide pool and the most places to be. These are built from the commands the view
+       * publishes rather than from a second navigation path: the view owns its own route, and a
+       * section it adds arrives here with a key already attached.
+       */
+      ...(appMode !== "rankings"
+        ? []
+        : RANKINGS_COMMAND_SECTIONS.flatMap(({ section, label, key }) => {
+            const command = rankingsCommands.find(
+              (entry) => entry.id === rankingsSectionCommandId(section)
+            );
+            return command
+              ? [
+                  {
+                    combo: `g ${key}`,
+                    description: `Go to ${label}`,
+                    group: "Navigate",
+                    handler: command.run,
+                  },
+                ]
+              : [];
+          })),
       ...(appMode !== "league"
         ? []
         : [
@@ -3069,7 +3094,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             },
           ]),
     ],
-    [appMode, toggleTheme]
+    [appMode, toggleTheme, rankingsCommands]
   );
   useShortcuts(shortcuts);
 

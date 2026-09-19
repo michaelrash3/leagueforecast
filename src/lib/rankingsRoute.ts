@@ -96,6 +96,33 @@ const SECTION_URLS: Record<RankingsSection, string> = {
 export const RANKINGS_SECTIONS = Object.keys(SECTION_URLS) as RankingsSection[];
 
 /**
+ * The sections the palette can jump to, and the key that jumps there.
+ *
+ * Here rather than in the view because App reads it too, and the view is lazy-loaded: importing
+ * this from there would pull the whole Team Rankings chunk into the first bundle to get at two
+ * constants. The label and the key sit together so a section added to the union arrives with both
+ * or with a type error, rather than with a command nobody can reach from the keyboard.
+ *
+ * The letters collide with the league half's on purpose — `g g` is Schedule there and Games here.
+ * Only one half is ever on screen, and somebody in Team Rankings pressing `g g` means this one.
+ */
+export const RANKINGS_COMMAND_SECTIONS: {
+  section: RankingsSection;
+  label: string;
+  key: string;
+}[] = [
+  { section: "rankings", label: "Rankings", key: "r" },
+  { section: "games", label: "Games", key: "g" },
+  { section: "import", label: "Import", key: "i" },
+  { section: "scouting", label: "Scouting", key: "s" },
+  { section: "archive", label: "Archive", key: "a" },
+  { section: "setup", label: "Setup", key: "e" },
+];
+
+/** The id a section's palette command carries, and what a shortcut matches against. */
+export const rankingsSectionCommandId = (section: RankingsSection) => `rankings-section-${section}`;
+
+/**
  * Both halves, for a picker and for a test that must not hardcode them.
  *
  * Off `HALF_URLS`, whose type forces a key per half, so a half added to the union and forgotten
