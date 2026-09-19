@@ -98,3 +98,78 @@ export const poolHealth = (
  * second on a pool of two hundred thousand games, so it is asked for rather than computed on sight.
  */
 export const settleableNow = (state: GcImportState): number => resolveSlotGames(state).resolved;
+
+/** What one squad year holds, as storage has it rather than as a decode would say. */
+export type SquadYearHolding = {
+  /** Undefined for the pages that carry no year; they are kept together under one heading. */
+  year: number | undefined;
+  /** Age groups filed under this year. */
+  pages: number;
+  /** Teams whose games are filed under one of those pages. */
+  teams: number;
+  /** Games stored for it. */
+  games: number;
+  /**
+   * Pages and teams are there, and the games are not.
+   *
+   * A year is only ever stored when it holds something — emptying one drops it rather than
+   * writing it empty — so a year that has lost its games leaves no trace in the games at all.
+   * The age groups are what survives to say it existed, which is why the two are compared here
+   * rather than the games being read alone.
+   */
+  emptied: boolean;
+};
+
+/**
+ * What each squad year holds, and which of them have lost what they held.
+ *
+ * Written after a pull started from the Import section wrote an empty pool over every year it did
+ * not itself refetch. Nothing said so: the pull reported success, the open year looked right, and
+ * a year nobody had opened lately was simply gone. The one thing that would have shown it is the
+ * disagreement between what the pages say the pool covers and what the games actually cover.
+ *
+ * Takes counts rather than the pool, because a stored year's size is known without decoding it and
+ * this has to be cheap enough to show on sight for a pool of a couple of hundred thousand games.
+ */
+export const squadYearHoldings = (
+  ageGroups: { id: string; year?: number }[],
+  teams: { gcTeams?: { ageGroupId: string }[] }[],
+  storedByYear: { year: number | undefined; games: number }[]
+): SquadYearHolding[] => {
+  const yearOfPage = new Map(ageGroups.map((group) => [group.id, group.year]));
+  const pages = new Map<number | undefined, number>();
+  ageGroups.forEach((group) => pages.set(group.year, (pages.get(group.year) ?? 0) + 1));
+
+  const teamsPerYear = new Map<number | undefined, number>();
+  teams.forEach((entry) => {
+    const years = new Set<number | undefined>();
+    (entry.gcTeams ?? []).forEach((link) => {
+      if (yearOfPage.has(link.ageGroupId)) years.add(yearOfPage.get(link.ageGroupId));
+    });
+    years.forEach((year) => teamsPerYear.set(year, (teamsPerYear.get(year) ?? 0) + 1));
+  });
+
+  const gamesPerYear = new Map(storedByYear.map((entry) => [entry.year, entry.games]));
+  const years = new Set<number | undefined>([...pages.keys(), ...gamesPerYear.keys()]);
+
+  return [...years]
+    .map((year) => {
+      const pageCount = pages.get(year) ?? 0;
+      const teamCount = teamsPerYear.get(year) ?? 0;
+      const gameCount = gamesPerYear.get(year) ?? 0;
+      return {
+        year,
+        pages: pageCount,
+        teams: teamCount,
+        games: gameCount,
+        // Teams as well as pages: a year whose pages were only ever created and never pulled has
+        // no games either, and has lost nothing.
+        emptied: gameCount === 0 && pageCount > 0 && teamCount > 0,
+      };
+    })
+    .sort((a, b) => {
+      if (a.year === undefined) return 1;
+      if (b.year === undefined) return -1;
+      return a.year - b.year;
+    });
+};
