@@ -459,10 +459,15 @@ A run of a few thousand teams takes a while and saves as it goes: the pool is
 written every five hundred teams and the cursor only advances after the write,
 so stopping, reloading or closing the tab costs at most those five hundred.
 
-#### The weekly rota
+#### How much comes round at once
 
-Re-pulling a whole list nightly is thousands of requests for data that has mostly
-not moved, so each age group comes round once a week instead:
+Two cadences, chosen in the import panel and remembered. **Every age group, daily**
+is the default: the board is only as current as its newest game, and waiting for a
+level's turn means answering with a week-old week. It costs a full run's worth of
+requests and of saving each day, which is the reason the other choice exists.
+
+**One or two levels a day** spreads the work over a week instead, so no day's run
+is long enough to be worth interrupting and nothing is more than seven days old:
 
 | Day       |          | Day      |                      |
 | --------- | -------- | -------- | -------------------- |
@@ -471,14 +476,20 @@ not moved, so each age group comes round once a week instead:
 | Tuesday   | 10U, 11U | Saturday | 14U, 15U             |
 | Wednesday | 18U      |          |                      |
 
-Every level is at most seven days old and no day's run is long enough to be worth
-interrupting. `WEEKLY_ROTATION` in `src/lib/gameChangerSchedule.ts` is the whole
-of the schedule; nothing else reads a day or a level.
+`WEEKLY_ROTATION` in `src/lib/gameChangerSchedule.ts` is the whole of that table;
+nothing else reads a day or a level. On the daily cadence every day is also a
+catch-up day, which matters more than it sounds: a team with no age is on no page,
+so a refresh by level walks past it for ever, and on the rota Friday is the only
+day that asks about them at all.
+
+Either way a day is counted once — opening the app twice in an evening does not
+pull twice — and a level is marked done only when its run actually finishes, so
+stopping half way leaves it due. When today is already done there is a button to
+run it again anyway, for when something has changed that a day log cannot know
+about.
 
 Nothing fires by itself — there is no server here, and a browser cannot run while
-it is closed — so the panel answers "what is due?" when the app is next opened. A
-level is marked done only when its run actually finishes, so stopping half way
-leaves it due.
+it is closed — so the panel answers "what is due?" when the app is next opened.
 
 ### States
 

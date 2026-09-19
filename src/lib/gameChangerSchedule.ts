@@ -1,17 +1,31 @@
 /**
- * Which age groups get refreshed on which day.
+ * What is due to be refreshed, and when.
  *
- * A pull of a whole team list is thousands of requests and the best part of an hour, which is not
- * something to do every night for data that mostly has not changed. Spreading it by age group over
- * the week turns it into a few minutes a day: each level comes round once a week, every level is
- * no more than seven days stale, and no single run is long enough to be worth interrupting.
+ * Two cadences, because the right answer depends on how much of the season is actually moving.
+ *
+ * The rotation spreads the levels over a week, one or two a day. A pull of a whole team list is
+ * thousands of requests and the best part of an hour, and for a pool that mostly has not changed
+ * that is not worth doing nightly; spread out it is a few minutes a day, nothing is more than
+ * seven days stale, and no single run is long enough to be worth interrupting.
+ *
+ * Daily offers every level every day. In season that is what you want — a team's last game is
+ * worth more to a rating than a team's game from six days ago, and waiting for a level's turn
+ * means the board is answering with a week-old week. It costs a full run's worth of requests and
+ * of saving each day rather than a seventh of one, which is a real cost and is why it is a choice
+ * rather than the only way.
  *
  * Nothing here schedules anything by itself — there is no server, and a browser cannot run while
- * it is closed. What this does is answer "what is due?" when the app is next opened, which for a
- * nightly rotation usually amounts to the same thing.
+ * it is closed. What this does is answer "what is due?" when the app is next opened, and a person
+ * still presses the button.
  */
 
-import { ageGroupLevel, ageGroupYear, type AgeGroup, type ScoutTeam } from "./teamRankings";
+import {
+  AGE_LEVELS,
+  ageGroupLevel,
+  ageGroupYear,
+  type AgeGroup,
+  type ScoutTeam,
+} from "./teamRankings";
 import { ageUnknownDue, type AgeUnknownList } from "./ageUnknown";
 
 /** Sunday is 0, as `Date.getDay` has it. */
@@ -42,6 +56,19 @@ export const WEEKLY_ROTATION: RefreshDay[] = [
   { day: 5, label: "Friday", ageLevels: [], catchUp: true },
   { day: 6, label: "Saturday", ageLevels: [14, 15] },
 ];
+
+/**
+ * How much comes round at once.
+ *
+ * `rotation` is the week spread by level. `daily` offers every level every day, and is the default
+ * because a rating is only as current as its newest game.
+ */
+export type RefreshCadence = "rotation" | "daily";
+
+export const DEFAULT_REFRESH_CADENCE: RefreshCadence = "daily";
+
+export const isRefreshCadence = (value: unknown): value is RefreshCadence =>
+  value === "rotation" || value === "daily";
 
 export const refreshDayFor = (day: Weekday): RefreshDay =>
   WEEKLY_ROTATION.find((entry) => entry.day === day) ?? {
@@ -127,6 +154,8 @@ export type DueRefresh = {
   /** The day's own description, for the prompt. */
   label: string;
   catchUp: boolean;
+  /** Which cadence produced this, so the copy can say what "today" covers. */
+  cadence: RefreshCadence;
   /**
    * Teams with no age, due to be asked again today.
    *
@@ -148,35 +177,82 @@ export type DueRefresh = {
  * The catch-up day brings nothing of its own; the panel points it at what failed instead.
  */
 /**
- * The most ageless teams asked about in one catch-up day.
+ * The most ageless teams asked about in one catch-up run.
  *
- * A cap rather than the whole list, because it could be thousands and the catch-up day also has
- * the week's failures to get through. `ageUnknownDue` hands over the stalest first, so a list
- * longer than this still comes round instead of the same head of it being asked every week.
+ * A cap rather than the whole list, because it could be thousands and a catch-up also has the
+ * failures to get through. `ageUnknownDue` hands over the stalest first, so a list longer than
+ * this still comes round instead of the same head of it being asked every time. Per run, not per
+ * week: on the rotation a catch-up is Friday, and on the daily cadence it is every day, so the
+ * same cap simply comes round seven times as often.
  */
-export const AGELESS_PER_WEEK = 2_000;
+export const AGELESS_PER_CATCH_UP = 2_000;
+
+export type DueRefreshOptions = {
+  /** Keeps a run to the season being played rather than dragging every past year round with it. */
+  seasonYear?: number;
+  ageless?: AgeUnknownList;
+  cadence?: RefreshCadence;
+  /**
+   * Ignore what has already been done today and offer the lot.
+   *
+   * The log exists so opening the app twice in an evening does not pull twice. But a person who
+   * has just fixed a link, or who knows a tournament finished an hour ago, is asking for something
+   * the log cannot know about, and "come back tomorrow" is the wrong answer to that.
+   */
+  force?: boolean;
+};
 
 export const dueRefresh = (
   now: Date,
   log: RefreshLog,
   ageGroups: AgeGroup[],
   teams: ScoutTeam[],
-  seasonYear?: number,
-  ageless: AgeUnknownList = []
+  {
+    seasonYear,
+    ageless = [],
+    cadence = DEFAULT_REFRESH_CADENCE,
+    force = false,
+  }: DueRefreshOptions = {}
 ): DueRefresh => {
-  const entry = refreshDayFor(now.getDay() as Weekday);
-  const outstanding = entry.ageLevels.filter((level) => !refreshedToday(log, level, now));
+  /*
+   * On the daily cadence every level is on today's list and every day is a catch-up day. The
+   * second half matters as much as the first: teams with no age are on no page, so the per-level
+   * walk goes straight past them for ever, and on the rotation Friday is the only thing that ever
+   * asks about them. A cadence with no Friday would have quietly stopped asking.
+   */
+  const entry =
+    cadence === "daily"
+      ? { day: now.getDay() as Weekday, label: "Today", ageLevels: AGE_LEVELS, catchUp: true }
+      : refreshDayFor(now.getDay() as Weekday);
+  const outstanding = force
+    ? entry.ageLevels
+    : entry.ageLevels.filter((level) => !refreshedToday(log, level, now));
   return {
     ageLevels: outstanding,
     teamIds: gcTeamIdsForLevels(outstanding, ageGroups, teams, seasonYear),
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
-    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_WEEK) : [],
+    cadence,
+    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP) : [],
   };
 };
 
 /** A line for the panel: what today is for, and whether it is still to do. */
 export const describeDue = (due: DueRefresh): string => {
+  if (due.cadence === "daily") {
+    const ageless =
+      due.agelessIds.length > 0
+        ? ` Plus ${due.agelessIds.length.toLocaleString()} team${
+            due.agelessIds.length === 1 ? "" : "s"
+          } still waiting on an age.`
+        : "";
+    if (due.ageLevels.length === 0) return `Every age group has been refreshed today.${ageless}`;
+    if (due.teamIds.length === 0)
+      return `Every age group is due today, but nothing has been pulled yet.${ageless}`;
+    return `Every age group is due today — ${due.teamIds.length.toLocaleString()} team${
+      due.teamIds.length === 1 ? "" : "s"
+    } to refresh.${ageless}`;
+  }
   if (due.catchUp) {
     const ageless =
       due.agelessIds.length > 0
@@ -196,6 +272,12 @@ export const describeDue = (due: DueRefresh): string => {
     due.teamIds.length === 1 ? "" : "s"
   } to refresh.`;
 };
+
+/** What a cadence covers, in one line, for the control that chooses between them. */
+export const describeCadence = (cadence: RefreshCadence): string =>
+  cadence === "daily"
+    ? "Every age group, every day. A full run each time, so the longest and the most current."
+    : "One or two age levels a day, round the week. Short runs; nothing older than seven days.";
 
 /** The rotation as lines, so the panel can show the week without knowing how it is built. */
 export const describeRotation = (): string[] =>

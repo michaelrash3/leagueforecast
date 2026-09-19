@@ -1,7 +1,12 @@
 import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
-import type { RefreshLog } from "./gameChangerSchedule";
+import {
+  DEFAULT_REFRESH_CADENCE,
+  isRefreshCadence,
+  type RefreshCadence,
+  type RefreshLog,
+} from "./gameChangerSchedule";
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import {
@@ -81,6 +86,8 @@ const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
 /** When each age level last had its turn in the weekly rotation. */
 const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
+/** How much comes round at once: the week's rotation, or every age group every day. */
+const GC_CADENCE_KEY = "league_forecast_gc_cadence_v1";
 /** The shape of the pool the last time it was tidied, so a load can tell whether it needs to be. */
 const GC_TIDY_KEY = "league_forecast_gc_tidy_v1";
 /**
@@ -335,6 +342,7 @@ const POOL_KEYS = [
   AGE_GROUPS_KEY,
   GC_PULL_KEY,
   GC_REFRESH_KEY,
+  GC_CADENCE_KEY,
   GC_TIDY_KEY,
   GC_AGELESS_KEY,
   GC_ARCHIVE_KEY,
@@ -981,6 +989,18 @@ export const loadRefreshLog = (): RefreshLog => {
 };
 
 export const saveRefreshLog = (log: RefreshLog): boolean => writeValue(GC_REFRESH_KEY, log);
+
+/**
+ * Which cadence the refresh offers. Anything unreadable falls back to the default rather than to
+ * the other choice, so a corrupted preference cannot quietly halve or septuple a day's work.
+ */
+export const loadRefreshCadence = (): RefreshCadence => {
+  const raw = readValue(GC_CADENCE_KEY);
+  return isRefreshCadence(raw) ? raw : DEFAULT_REFRESH_CADENCE;
+};
+
+export const saveRefreshCadence = (cadence: RefreshCadence): boolean =>
+  writeValue(GC_CADENCE_KEY, cadence);
 
 /**
  * The pool as it stood when it was last tidied (`poolSignature`). The tidy runs at the end of

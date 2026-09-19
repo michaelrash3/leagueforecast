@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_REFRESH_CADENCE,
   WEEKLY_ROTATION,
+  describeCadence,
+  isRefreshCadence,
   dayForLevel,
   describeDue,
   describeRotation,
@@ -41,6 +44,7 @@ const SUNDAY = new Date(2027, 2, 7);
 const TUESDAY = new Date(2027, 2, 9);
 const THURSDAY = new Date(2027, 2, 11);
 const FRIDAY = new Date(2027, 2, 12);
+const WEDNESDAY = new Date(2027, 2, 10);
 
 describe("the rotation itself", () => {
   it("uses every day of the week exactly once", () => {
@@ -109,7 +113,7 @@ describe("what is due", () => {
   const empty: RefreshLog = {};
 
   it("is the levels this weekday is for", () => {
-    const due = dueRefresh(SUNDAY, empty, groups, teams);
+    const due = dueRefresh(SUNDAY, empty, groups, teams, { cadence: "rotation" });
     expect(due.ageLevels).toEqual([8, 9]);
     expect(due.teamIds.sort()).toEqual(["gc8a", "gc9a", "gc9b", "gc9old"]);
     expect(due.catchUp).toBe(false);
@@ -117,7 +121,7 @@ describe("what is due", () => {
 
   it("is nothing once the day has been done", () => {
     const log = markRefreshed(empty, [8, 9], SUNDAY);
-    const due = dueRefresh(SUNDAY, log, groups, teams);
+    const due = dueRefresh(SUNDAY, log, groups, teams, { cadence: "rotation" });
     expect(due.ageLevels).toEqual([]);
     expect(due.teamIds).toEqual([]);
   });
@@ -127,54 +131,60 @@ describe("what is due", () => {
     const log = markRefreshed(empty, [8, 9], SUNDAY);
     const nextSunday = new Date(2027, 2, 14);
     expect(refreshedToday(log, 9, nextSunday)).toBe(false);
-    expect(dueRefresh(nextSunday, log, groups, teams).ageLevels).toEqual([8, 9]);
+    expect(dueRefresh(nextSunday, log, groups, teams, { cadence: "rotation" }).ageLevels).toEqual([
+      8, 9,
+    ]);
   });
 
   it("only clears the levels that actually ran", () => {
     const log = markRefreshed(empty, [8], SUNDAY);
-    expect(dueRefresh(SUNDAY, log, groups, teams).ageLevels).toEqual([9]);
+    expect(dueRefresh(SUNDAY, log, groups, teams, { cadence: "rotation" }).ageLevels).toEqual([9]);
   });
 
   it("brings nothing of its own on the catch-up day", () => {
-    const due = dueRefresh(FRIDAY, empty, groups, teams);
+    const due = dueRefresh(FRIDAY, empty, groups, teams, { cadence: "rotation" });
     expect(due.catchUp).toBe(true);
     expect(due.ageLevels).toEqual([]);
   });
 
   it("finds Tuesday's levels on a Tuesday", () => {
-    expect(dueRefresh(TUESDAY, empty, groups, teams).ageLevels).toEqual([10, 11]);
+    expect(dueRefresh(TUESDAY, empty, groups, teams, { cadence: "rotation" }).ageLevels).toEqual([
+      10, 11,
+    ]);
   });
 });
 
 describe("what the panel says", () => {
   it("names the levels and the count", () => {
-    expect(describeDue(dueRefresh(SUNDAY, {}, groups, teams))).toBe(
+    expect(describeDue(dueRefresh(SUNDAY, {}, groups, teams, { cadence: "rotation" }))).toBe(
       "8U and 9U due today — 4 teams to refresh."
     );
   });
 
   it("says when the day is already done", () => {
     const log = markRefreshed({}, [8, 9], SUNDAY);
-    expect(describeDue(dueRefresh(SUNDAY, log, groups, teams))).toBe(
+    expect(describeDue(dueRefresh(SUNDAY, log, groups, teams, { cadence: "rotation" }))).toBe(
       "8U and 9U already refreshed today."
     );
   });
 
   it("says when there is nothing pulled at those levels yet", () => {
     // Nothing in the fixture is filed at 12U or 13U.
-    expect(describeDue(dueRefresh(THURSDAY, {}, groups, teams))).toBe(
+    expect(describeDue(dueRefresh(THURSDAY, {}, groups, teams, { cadence: "rotation" }))).toBe(
       "12U and 13U are due today, but nothing has been pulled yet."
     );
   });
 
   it("counts one team as one team", () => {
-    expect(describeDue(dueRefresh(TUESDAY, {}, groups, teams))).toBe(
+    expect(describeDue(dueRefresh(TUESDAY, {}, groups, teams, { cadence: "rotation" }))).toBe(
       "10U and 11U due today — 1 team to refresh."
     );
   });
 
   it("says what the catch-up day is for", () => {
-    expect(describeDue(dueRefresh(FRIDAY, {}, groups, teams))).toContain("catch-up day");
+    expect(describeDue(dueRefresh(FRIDAY, {}, groups, teams, { cadence: "rotation" }))).toContain(
+      "catch-up day"
+    );
   });
 });
 
@@ -192,7 +202,7 @@ describe("the day a refresh is counted in", () => {
   });
 
   it("treats an unknown weekday as having nothing scheduled", () => {
-    const due = dueRefresh(SUNDAY, {}, [], []);
+    const due = dueRefresh(SUNDAY, {}, [], [], { cadence: "rotation" });
     expect(due.teamIds).toEqual([]);
     expect(levelsDueOn(3 as Weekday)).toEqual([18]);
   });
@@ -214,31 +224,146 @@ describe("the teams nobody could age", () => {
    * so nothing retries them either. The catch-up day is the only place they can be asked about.
    */
   it("brings them round on the catch-up day", () => {
-    const due = dueRefresh(friday, {}, [], [], undefined, [
-      ageless("A", "2026-09-11T00:00:00.000Z"),
-      ageless("B", "2026-09-11T00:00:00.000Z"),
-    ]);
+    const due = dueRefresh(friday, {}, [], [], {
+      cadence: "rotation",
+      ageless: [ageless("A", "2026-09-11T00:00:00.000Z"), ageless("B", "2026-09-11T00:00:00.000Z")],
+    });
     expect(due.catchUp).toBe(true);
     expect(due.agelessIds).toEqual(["A", "B"]);
   });
 
   it("leaves them alone on a day that belongs to a level", () => {
-    const due = dueRefresh(sunday, {}, [], [], undefined, [
-      ageless("A", "2026-09-11T00:00:00.000Z"),
-    ]);
+    const due = dueRefresh(sunday, {}, [], [], {
+      cadence: "rotation",
+      ageless: [ageless("A", "2026-09-11T00:00:00.000Z")],
+    });
     expect(due.agelessIds).toEqual([]);
   });
 
   it("says how many are waiting", () => {
-    const due = dueRefresh(friday, {}, [], [], undefined, [
-      ageless("A", "2026-09-11T00:00:00.000Z"),
-    ]);
+    const due = dueRefresh(friday, {}, [], [], {
+      cadence: "rotation",
+      ageless: [ageless("A", "2026-09-11T00:00:00.000Z")],
+    });
     expect(describeDue(due)).toMatch(/1 team still waiting on an age/);
   });
 
   it("says nothing of the sort when none are", () => {
-    expect(describeDue(dueRefresh(friday, {}, [], []))).toBe(
+    expect(describeDue(dueRefresh(friday, {}, [], [], { cadence: "rotation" }))).toBe(
       "Friday is the catch-up day — anything that failed this week."
     );
+  });
+});
+
+/**
+ * The daily cadence, which is now the default.
+ *
+ * The rotation exists because a full run is thousands of requests and the best part of an hour,
+ * spread over a week so no day is long. In season that trade goes the other way: a board answering
+ * with a week-old week is worse than a long run, and the run is still something a person starts.
+ */
+describe("every age group, every day", () => {
+  const empty: RefreshLog = {};
+
+  it("is what you get when nothing says otherwise", () => {
+    expect(DEFAULT_REFRESH_CADENCE).toBe("daily");
+    // The same call the panel makes, with no cadence named.
+    expect(dueRefresh(WEDNESDAY, empty, groups, teams).ageLevels).toEqual(AGE_LEVELS);
+  });
+
+  it("offers every level whatever the weekday, not that weekday's one or two", () => {
+    for (const day of [SUNDAY, TUESDAY, THURSDAY, FRIDAY]) {
+      const due = dueRefresh(day, empty, groups, teams, { cadence: "daily" });
+      expect(due.ageLevels).toEqual(AGE_LEVELS);
+      expect(due.cadence).toBe("daily");
+    }
+  });
+
+  it("gathers every id across every level and every squad year in one list", () => {
+    const due = dueRefresh(WEDNESDAY, empty, groups, teams, { cadence: "daily" });
+    // Wednesday is 18U alone on the rotation. These are 8U, 9U, 10U and a past year's 9U, so
+    // every one of them is a level and a year this weekday would otherwise have walked past.
+    expect(due.teamIds.sort()).toEqual(["gc10a", "gc8a", "gc9a", "gc9b", "gc9old"]);
+    expect(dueRefresh(WEDNESDAY, empty, groups, teams, { cadence: "rotation" }).teamIds).toEqual(
+      []
+    );
+  });
+
+  it("still counts a day as done once, so opening the app twice does not pull twice", () => {
+    const log = markRefreshed(empty, AGE_LEVELS, WEDNESDAY);
+    const due = dueRefresh(WEDNESDAY, log, groups, teams, { cadence: "daily" });
+    expect(due.ageLevels).toEqual([]);
+    expect(due.teamIds).toEqual([]);
+  });
+
+  it("comes round again the next day", () => {
+    const log = markRefreshed(empty, AGE_LEVELS, WEDNESDAY);
+    const thursday = new Date(WEDNESDAY.getTime() + 24 * 60 * 60 * 1000);
+    expect(dueRefresh(thursday, log, groups, teams, { cadence: "daily" }).ageLevels).toEqual(
+      AGE_LEVELS
+    );
+  });
+
+  /*
+   * A team with no age is on no page, so a refresh by level walks past it for ever. On the
+   * rotation Friday is the only day that asks. A daily cadence with no Friday would have quietly
+   * stopped asking altogether, which is why every day is a catch-up day.
+   */
+  it("keeps asking about teams with no age, which the rotation only does on Fridays", () => {
+    const options = {
+      cadence: "daily" as const,
+      ageless: [
+        {
+          teamId: "A",
+          firstSeen: "2026-09-01T00:00:00.000Z",
+          lastTried: "2026-09-11T00:00:00.000Z",
+          tries: 1,
+        },
+        {
+          teamId: "B",
+          firstSeen: "2026-09-01T00:00:00.000Z",
+          lastTried: "2026-09-11T00:00:00.000Z",
+          tries: 1,
+        },
+      ],
+    };
+    for (const day of [SUNDAY, TUESDAY, WEDNESDAY]) {
+      const due = dueRefresh(day, empty, [], [], options);
+      expect(due.catchUp).toBe(true);
+      expect(due.agelessIds).toEqual(["A", "B"]);
+    }
+    // The rotation asks on its catch-up day and no other.
+    expect(
+      dueRefresh(SUNDAY, empty, [], [], { ...options, cadence: "rotation" }).agelessIds
+    ).toEqual([]);
+  });
+
+  it("offers the lot again when asked, even though today is marked done", () => {
+    const log = markRefreshed(empty, AGE_LEVELS, WEDNESDAY);
+    const forced = dueRefresh(WEDNESDAY, log, groups, teams, { cadence: "daily", force: true });
+    expect(forced.ageLevels).toEqual(AGE_LEVELS);
+    expect(forced.teamIds.sort()).toEqual(["gc10a", "gc8a", "gc9a", "gc9b", "gc9old"]);
+  });
+
+  it("says what is due in words that do not name a weekday", () => {
+    expect(describeDue(dueRefresh(WEDNESDAY, empty, groups, teams, { cadence: "daily" }))).toBe(
+      "Every age group is due today — 5 teams to refresh."
+    );
+    const log = markRefreshed(empty, AGE_LEVELS, WEDNESDAY);
+    expect(describeDue(dueRefresh(WEDNESDAY, log, groups, teams, { cadence: "daily" }))).toBe(
+      "Every age group has been refreshed today."
+    );
+  });
+
+  it("describes each cadence in a line the chooser can show", () => {
+    expect(describeCadence("daily")).toContain("Every age group, every day");
+    expect(describeCadence("rotation")).toContain("round the week");
+  });
+
+  it("recognises a stored cadence and nothing else", () => {
+    expect(isRefreshCadence("daily")).toBe(true);
+    expect(isRefreshCadence("rotation")).toBe(true);
+    expect(isRefreshCadence("nightly")).toBe(false);
+    expect(isRefreshCadence(undefined)).toBe(false);
   });
 });
