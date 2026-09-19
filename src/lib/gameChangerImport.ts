@@ -51,6 +51,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
+import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 
 /**
  * The lookups an import does, precomputed.
@@ -371,25 +372,54 @@ export type GcSeasonPairing = {
   sameName: boolean;
   /** A picture, or a name plus a place they both give, is as strong as this gets. */
   confidence: "strong" | "likely";
+  /**
+   * What kind of pairing this is, because the two read very differently to whoever is deciding.
+   *
+   * "next-season" is a squad carrying on — a Fall id and the Spring id that follows it. "same
+   * season" is one squad listed twice inside a single season, which is not a squad carrying on at
+   * all: GameChanger mints an id per team per season, and a club that creates one, abandons it and
+   * creates another ends up with two ids for one roster in one season, one of them holding every
+   * game and the other holding whatever other schedules happened to name it.
+   */
+  kind: "next-season" | "same-season";
 };
 
 /** The things that are not coincidences when two GameChanger teams are the same club. */
 export type GcPairingEvidence =
   /** The same badge. GameChanger keeps a club's picture across seasons; nobody else has it. */
   | "avatar"
+  /**
+   * Two or more coaches in common, neither of them an organisation's officer.
+   *
+   * The strongest thing in the data, and `gcStaff.ts` has the measurements: over an export of
+   * 52,470 teams, two teams sharing two staff names are in the same town 89.0% of the time, where
+   * sharing one is 43.1% — barely better than picking a team at random from the same part of the
+   * country. It is the only field that says anything about an organisation, because GameChanger
+   * never names one.
+   */
+  | "staff"
   /** Both give the same town. */
   | "city"
   /** Both give the same state. */
   | "state"
   /** They played a club in common. */
-  | "shared-opponent";
+  | "shared-opponent"
+  /**
+   * One of the two has no schedule of its own: every game filed against it came off somebody
+   * else's. That is what an abandoned duplicate looks like and what a club's second squad at one
+   * age does not — a real B team has its own schedule, an id somebody created and never used has
+   * none. It is the whole of what separates the two in a single season.
+   */
+  | "no-schedule";
 
 /** What the panel calls each piece of evidence. */
 export const GC_PAIRING_EVIDENCE_LABEL: Record<GcPairingEvidence, string> = {
   avatar: "same picture",
+  staff: "the same coaches",
   city: "same town",
   state: "same state",
   "shared-opponent": "a club in common",
+  "no-schedule": "one has no schedule of its own",
 };
 
 /** Seasons in the order a squad plays them, so "the next one" has a meaning. */
@@ -409,6 +439,18 @@ const isNextSeason = (from: GcTeamLink, to: GcTeamLink): boolean => {
     squadYearForGcSeason(to.season, to.seasonYear ?? 0)
   );
 };
+
+/**
+ * The same season, on both cards. Not a squad carrying on — the same squad, twice.
+ *
+ * Both labels have to be there. An id GameChanger gave no season is not evidence of anything, and
+ * treating two unlabelled ids as one season would pair every such id in the pool with every other.
+ */
+const isSameSeason = (from: GcTeamLink, to: GcTeamLink): boolean =>
+  from.season !== undefined &&
+  from.season === to.season &&
+  from.seasonYear !== undefined &&
+  from.seasonYear === to.seasonYear;
 
 /** The level a profile is for: what GameChanger says, else what the name says. */
 const profileAgeLevel = (profile: GcTeamProfile): number | undefined =>
@@ -1582,10 +1624,18 @@ export const resolveSlotGames = (
 };
 
 /**
- * Clubs that look like the same club a season on — a Fall squad and a Spring squad with the same
- * picture, or the same name at the same level. Offered, never applied: only the user can say that
- * a Fall roster and a Spring roster are the same team, and merging two clubs that merely share a
- * name would quietly ruin both their ratings.
+ * Clubs that look like one club listed twice. Offered, never applied: only the user can say that
+ * two rosters are the same team, and merging two clubs that merely share a name would quietly ruin
+ * both their ratings.
+ *
+ * Two shapes, because GameChanger mints an id per team per season and both of its consequences
+ * reach the pool. A squad carrying on is the one this started as — a Fall id and the Spring id
+ * that follows it, which must be joined or a rating cannot carry across a winter it cannot see.
+ * The other is a squad listed *twice in one season*: a club creates an id, abandons it, creates
+ * another, and the pool ends up with two entries for one roster — one holding every game, the
+ * other holding only what other schedules happened to name it. That one was invisible here until
+ * now, because the test for a pairing was that the seasons were consecutive, and these are the
+ * same season.
  *
  * Teams already paired onto one entry are not offered again, since they are the same team here
  * already.
@@ -1646,17 +1696,64 @@ export const proposeSeasonPairings = (
     return pictured.length === 0 ? same : [...new Set([...same, ...pictured])];
   };
 
+  /**
+   * Who coaches each team, over every GameChanger id it is linked to.
+   *
+   * The staff comes off the user's own team list — GameChanger's public API returns none — so a
+   * pool built by hand, or pulled before the list carried it, simply has no staff and everything
+   * that reads this falls back on what it always used. Where it is there it is the best thing in
+   * the data: `gcStaff.ts` has the measurements.
+   */
+  const staffIndex = buildStaffIndex(
+    teams.map((team) => ({
+      teamId: team.id,
+      staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
+    }))
+  );
+
+  /**
+   * How many games each GameChanger id put into the pool off its own schedule.
+   *
+   * Zero is the tell. An id somebody created and never used still collects games — every club that
+   * played it lists the fixture, and those arrive filed against it from the other side — so it
+   * looks like a team with a record until you ask which of those games it listed itself. None of
+   * them. A club's real second squad at one age level has its own schedule; an abandoned duplicate
+   * cannot have one, because nobody ever put a game on it.
+   */
+  const ownSchedule = new Map<string, number>();
+  games.forEach((game) => {
+    const listed = game.source?.teamId;
+    if (listed === undefined) return;
+    ownSchedule.set(listed, (ownSchedule.get(listed) ?? 0) + 1);
+  });
+  const ownGames = (link: GcTeamLink): number => ownSchedule.get(link.teamId) ?? 0;
+
   const candidates: GcSeasonPairing[] = [];
   for (const from of linked) {
     for (const to of candidatesFor(from)) {
       if (from.team.id === to.team.id) continue;
-      if (!isNextSeason(from.link, to.link)) continue;
-      // A level apart is an age-up, not the same squad carrying on through a season.
+      const sameSeason = isSameSeason(from.link, to.link);
+      if (!sameSeason && !isNextSeason(from.link, to.link)) continue;
+      // A level apart is an age-up, not the same squad — carrying on, or listed twice.
       if (from.link.ageLevel !== to.link.ageLevel) continue;
+      /*
+       * One direction only, for a pair in one season. There is no earlier and later to order them
+       * by, so both directions qualify and the pair would be offered twice, pointing opposite
+       * ways. The one folded away is the one with less of a schedule of its own — which in the
+       * case this was written for is the one with none at all — and the id settles a tie so the
+       * list does not depend on which team the loop reached first.
+       */
+      if (sameSeason) {
+        const mine = ownGames(from.link);
+        const theirs = ownGames(to.link);
+        if (mine > theirs) continue;
+        if (mine === theirs && from.link.teamId >= to.link.teamId) continue;
+      }
 
       const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
       const evidence: GcPairingEvidence[] = [];
       if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
+      if (sharedStaff(from.team.id, to.team.id, staffIndex).length >= 2) evidence.push("staff");
       // A town is evidence only in its own state: Lawrenceburg IN is not Lawrenceburg KY.
       const city = townKey(from.team.city);
       if (city && city === townKey(to.team.city) && from.team.state === to.team.state) {
@@ -1664,6 +1761,9 @@ export const proposeSeasonPairings = (
       }
       if (from.team.state && from.team.state === to.team.state) evidence.push("state");
       if (shareAnOpponent(from.team.id, to.team.id)) evidence.push("shared-opponent");
+      if (sameSeason && (ownGames(from.link) === 0 || ownGames(to.link) === 0)) {
+        evidence.push("no-schedule");
+      }
 
       /**
        * A shared name is not enough on its own, and this is where that used to be the whole test.
@@ -1680,6 +1780,30 @@ export const proposeSeasonPairings = (
        */
       if (evidence.every((item) => item === "state")) continue;
 
+      /*
+       * A single season asks more than that, because inside one season the innocent explanation is
+       * a real one: a club running an A and a B squad at 9U names them the same thing, in the same
+       * town, in the same state, and merging those two destroys both. Only two things tell that
+       * apart from one roster listed twice. The coaches — two in common is the same town 89% of
+       * the time, against 43% for one, and `likelySameSquad` is that rule written down with the
+       * age level and the season it needs. Or a side with no schedule of its own, which an A and a
+       * B squad both have and an id nobody ever used cannot.
+       */
+      if (sameSeason) {
+        const squadOf = (teamId: string) => {
+          const link = teamId === from.team.id ? from.link : to.link;
+          return {
+            ...(link.ageLevel === undefined ? {} : { ageLevel: link.ageLevel }),
+            ...(link.season === undefined || link.seasonYear === undefined
+              ? {}
+              : { season: { season: link.season, year: link.seasonYear } }),
+          };
+        };
+        const byStaff = likelySameSquad(from.team.id, to.team.id, staffIndex, squadOf);
+        const byShell = sameName && evidence.includes("city") && evidence.includes("no-schedule");
+        if (!byStaff && !byShell) continue;
+      }
+
       candidates.push({
         fromTeamId: from.team.id,
         fromTeamName: from.team.name,
@@ -1690,7 +1814,12 @@ export const proposeSeasonPairings = (
         evidence,
         sameName,
         confidence:
-          evidence.includes("avatar") || (sameName && evidence.length > 1) ? "strong" : "likely",
+          evidence.includes("avatar") ||
+          evidence.includes("staff") ||
+          (sameName && evidence.length > 1)
+            ? "strong"
+            : "likely",
+        kind: sameSeason ? "same-season" : "next-season",
       });
     }
   }
@@ -1720,9 +1849,19 @@ export const proposeSeasonPairings = (
  * state at 9U, one Fall and one Spring, are the same roster with a new GameChanger id. Anything
  * short of all three is offered rather than applied: a name and a state alone still fit a dozen
  * clubs across a state, and a name and a club in common fits any two teams from one league.
+ *
+ * Never a pairing inside one season, however much evidence it carries. A season apart, the same
+ * name in one town is one roster because a club does not run two squads a season apart under one
+ * name at one age; inside a season it is exactly what an A squad and a B squad look like, and the
+ * thing telling those apart from one roster listed twice — a side with no schedule of its own, or
+ * the coaches — is inference rather than arithmetic. `gcStaff.ts` says it plainly of its own
+ * evidence: nothing there merges anything, it proposes. So does this.
  */
 export const isSettledPairing = (pairing: GcSeasonPairing): boolean =>
-  pairing.sameName && pairing.evidence.includes("city") && pairing.evidence.includes("state");
+  pairing.kind === "next-season" &&
+  pairing.sameName &&
+  pairing.evidence.includes("city") &&
+  pairing.evidence.includes("state");
 
 /**
  * Applies the settled pairings — earlier squad folded into the later one, as the panel does when

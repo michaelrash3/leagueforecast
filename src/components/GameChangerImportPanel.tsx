@@ -8,6 +8,7 @@ import {
   isPoolBusy,
   isPullLive,
   lastPullLog,
+  type PullSession,
   livePull,
   livePullTracker,
   stopLivePull,
@@ -65,11 +66,14 @@ import {
   flushPoolWrites,
   loadAgeUnknown,
   loadRefreshCadence,
+  loadScoutGames,
+  loadScoutGamesForPages,
   saveRefreshCadence,
   loadPullLog,
   saveAgeUnknown,
   savePullLog,
   saveTidyStamp,
+  type PoolHolding,
 } from "../lib/teamRankingsStorage";
 import {
   liveSummary,
@@ -82,6 +86,7 @@ import {
 } from "../lib/pullTracker";
 import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
 import type { ToastTone } from "../hooks/useToast";
+import { pullSections } from "../lib/pullSections";
 import { button, card, pill } from "../styles/tokens";
 
 type GameChangerImportPanelProps = {
@@ -90,8 +95,12 @@ type GameChangerImportPanelProps = {
   /**
    * Saves the pool. Called as the pull runs, not only at the end: a run of a few thousand teams
    * will be interrupted, and what it fetched before that should still be there.
+   *
+   * `holding` says what `pool.games` actually is. A sectioned run holds one age page at a time, so
+   * saving its games as the whole pool would delete every other page. Absent means the caller is
+   * holding the whole pool, which is what every other save is.
    */
-  onPersist: (pool: GcImportState) => boolean;
+  onPersist: (pool: GcImportState, holding?: PoolHolding) => boolean;
   /** A run already under way when the panel opened, so it can offer to carry on. */
   savedProgress: GcPullProgress | null;
   onSaveProgress: (progress: GcPullProgress) => void;
@@ -338,6 +347,12 @@ export function GameChangerImportPanel({
    * Once every five hundred teams is about once a minute, which is the rate a person reads at.
    */
   const [live, setLive] = useState<PullLiveSummary | null>(null);
+  /** Which section of a sectioned run is going, for the bar to say so. Null when it is one run. */
+  const [sectioning, setSectioning] = useState<{
+    index: number;
+    of: number;
+    label: string;
+  } | null>(null);
   /** What the run came to, worked out once when it finishes rather than on every render. */
   const [result, setResult] = useState<{
     summary: string[];
@@ -354,6 +369,15 @@ export function GameChangerImportPanel({
   const abortRef = useRef<AbortController | null>(null);
   /** The levels a scheduled run is for, so they can be marked done when it finishes. */
   const dueLevelsRef = useRef<number[]>([]);
+  /**
+   * What the pool in `poolRef` is, for whatever saves it next — undefined for the whole of it.
+   *
+   * A ref rather than an argument because `persist` is called from several places inside a run —
+   * every flush, the write after the tidy, the pairing approval — and all of them have to agree
+   * about what is being held. Getting it wrong in one direction deletes five age pages; in the
+   * other it writes a whole pool that the run is not holding.
+   */
+  const holdingRef = useRef<PoolHolding | undefined>(undefined);
 
   /**
    * The list as pasted, less the levels this app does not rank.
@@ -500,7 +524,7 @@ export function GameChangerImportPanel({
       teams: poolRef.current.teams.slice(),
       games: poolRef.current.games.slice(),
     };
-    const ok = onPersist(snapshot);
+    const ok = onPersist(snapshot, holdingRef.current);
     if (!ok) {
       /*
        * No cause named here. A save refuses for more than one reason now — the store being full,
@@ -514,16 +538,48 @@ export function GameChangerImportPanel({
   };
 
   /**
-   * Runs the pull. Each schedule is folded in as it arrives rather than collected and applied at
-   * the end, so stopping — or closing the tab — keeps everything already fetched.
+   * One section of a sectioned run, and where it sits in the sequence.
+   *
+   * What the fold holds is not in here: `poolRef` is seeded before the section starts, and a
+   * section that reached in to seed it would be a second place that decides what a section holds.
    */
-  const run = async (ids: string[], progress: GcPullProgress) => {
+  type RunPart = {
+    /** Claimed once, by the sequence, and held to the end. */
+    session: PullSession;
+    /** Whether the paste and the estimate have been recorded yet. */
+    first: boolean;
+    /** Whether the tidy, the summary and the review screen fall to this one. */
+    last: boolean;
+    /** What the whole sequence was asked for, which is not what this section was asked for. */
+    asked: number;
+  };
+
+  /**
+   * Runs the pull, or one section of it. Each schedule is folded in as it arrives rather than
+   * collected and applied at the end, so stopping — or closing the tab — keeps everything already
+   * fetched.
+   *
+   * `part` is what makes a section a section. Absent, this claims the slot, folds over the whole
+   * pool and finishes the run at the bottom — which is what it always did, and is still what a
+   * run of one section does. Given, the session is the one the sequence holds, the fold is over
+   * whatever `poolRef` was seeded with, and the opening and closing work is done once for the
+   * sequence rather than once per section.
+   */
+  const run = async (
+    ids: string[],
+    progress: GcPullProgress,
+    part?: RunPart
+  ): Promise<PullEndReason> => {
     /*
      * Claimed before anything is fetched. A pull survives its panel — closing it hides the run
      * rather than stopping it — so a reopened panel could otherwise start a second, and the two
      * would write whole-pool snapshots over each other while the cursor marked the losers settled.
+     *
+     * A section does not claim: the sequence claimed once, before the first, and holds it to the
+     * end. Six claims would be six chances for something else to take the slot in between and
+     * leave half a pool refreshed.
      */
-    const session = beginPull(nowIso());
+    const session = part?.session ?? beginPull(nowIso());
     if (!session) {
       // What is actually holding it, rather than a guess. A tidy refuses a pull exactly as another
       // pull does, and saying "a pull is already running" when one is not sends somebody looking
@@ -535,8 +591,9 @@ export function GameChangerImportPanel({
           : "A pull is already running. Reopen Import to watch it, or stop it there.",
         { tone: "error" }
       );
-      return;
+      return "stopped";
     }
+    const last = part?.last ?? true;
     const controller = session.controller;
     abortRef.current = controller;
     /*
@@ -546,10 +603,21 @@ export function GameChangerImportPanel({
      * `endPull` ignores a session that is no longer the live one, so calling it twice is free.
      */
     let released = false;
+    /**
+     * Whether this section is the one that ends the run: the last of them, or whichever one
+     * something stopped. A run that gave up in its third section is still owed a tidy, a summary
+     * and a review screen, and there is no seventh section coming to give it one.
+     *
+     * Out here with `released` so that a throw before the try body cannot leave the `finally`
+     * reading it in its dead zone, where the error it raised would bury the one that got there.
+     */
+    let ending = last;
     /** Declared out here so the `finally` can take it off again however the run ends. */
     let onVisibility: (() => void) | null = null;
     const giveUpSlot = () => {
-      if (released) return;
+      // Not this section's to give up. The sequence releases it once, in its own `finally`, so a
+      // section that throws half way still frees the slot without the next one finding it gone.
+      if (!ending || released) return;
       released = true;
       endPull(session);
     };
@@ -571,6 +639,12 @@ export function GameChangerImportPanel({
         }
       };
       const runFrom = msNow();
+      /*
+       * What the whole sequence was asked for, which is not what this section was asked for. The
+       * paste and the estimate are facts about the run, so a sectioned run must not record the
+       * last section's numbers as if they were the run's.
+       */
+      const askedInRun = part?.asked ?? ids.length;
       track(() => {
         tracker?.beginSegment(session.startedAt, ids);
         tracker?.config({
@@ -579,16 +653,18 @@ export function GameChangerImportPanel({
           batchSize: BATCH_SIZE,
           saveEvery: saveEvery(poolRef.current.games.length),
         });
-        tracker?.eta(estimatedMinutes(ids.length));
-        tracker?.paste({
-          lines: parsed.lines,
-          parsed: parsed.entries.length,
-          skipped: parsed.skipped.length,
-          skippedSamples: parsed.skipped,
-          tooYoung: parsed.tooYoung + parsed.notBaseball,
-          alreadyHere: split.seen,
-          asked: ids.length,
-        });
+        if (part === undefined || part.first) {
+          tracker?.eta(estimatedMinutes(askedInRun));
+          tracker?.paste({
+            lines: parsed.lines,
+            parsed: parsed.entries.length,
+            skipped: parsed.skipped.length,
+            skippedSamples: parsed.skipped,
+            tooYoung: parsed.tooYoung + parsed.notBaseball,
+            alreadyHere: split.seen,
+            asked: askedInRun,
+          });
+        }
       });
 
       /*
@@ -616,7 +692,8 @@ export function GameChangerImportPanel({
        */
       const importer = createGcImporter(poolRef.current);
       progressRef.current = progress;
-      outcomesRef.current = [];
+      // The summary is the whole run's, so a section adds to what the sections before it found.
+      if (part === undefined || part.first) outcomesRef.current = [];
       /**
        * What the list claimed about each id, beside what GameChanger returned for it, so the report
        * can say which ids do not look like the team that was asked for. Only ids the list described
@@ -803,7 +880,6 @@ export function GameChangerImportPanel({
       });
 
       await flush();
-      abortRef.current = null;
       if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
       track(() => {
         // A spell that is still running when the pull ends is still time the tab was hidden.
@@ -817,6 +893,11 @@ export function GameChangerImportPanel({
         if (endReason === "finished" && controller.signal.aborted) endReason = "stopped";
         tracker?.endSegment(nowIso(), endReason);
       });
+      // A section that finished and is not the last one ends here. Everything below is the run's
+      // ending, and a run of six sections has one.
+      if (!ending && endReason === "finished") return endReason;
+      ending = true;
+      abortRef.current = null;
       // Given up here rather than at the end: what follows is the tidy and the summary, neither of
       // which is a reason to refuse a run somebody starts in the meantime.
       giveUpSlot();
@@ -835,6 +916,19 @@ export function GameChangerImportPanel({
        * fold the clubs holding several GameChanger ids, and collapse the rows those folds made into
        * one game. A whole run is the first point at which both halves of each are certainly present.
        */
+      /*
+       * Back to the whole pool for the ending. A sectioned run has been holding one age page at a
+       * time, so `poolRef` is whatever the last section held — and the tidy names stand-ins from
+       * the other side's schedule, folds clubs holding several ids and collapses the rows those
+       * folds make, none of which it can do without seeing every side. Read back from the store
+       * rather than accumulated across the sections, because accumulating it is the thing the
+       * sections exist not to do: held all at once it is the 332 MB that was running the tab out
+       * of memory, and the fold's index — 253 MB of that — is out of scope by the time this runs.
+       */
+      if (part !== undefined) {
+        holdingRef.current = undefined;
+        poolRef.current = { ...poolRef.current, games: loadScoutGames() };
+      }
       const outcome = await tidyInWorker(poolRef.current);
       /*
        * Refused only if something else claimed the pool in the moment between this run giving it up
@@ -897,9 +991,99 @@ export function GameChangerImportPanel({
       setOpenPair(null);
       setStage("review");
       syncStats();
+      return endReason;
     } finally {
       giveUpSlot();
       if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
+    }
+  };
+
+  /**
+   * Runs a pull as a sequence of sections, one age page at a time.
+   *
+   * This is the whole point of the exercise. A fold over the whole pool was measured at 332 MB on
+   * forty thousand teams and two hundred thousand games — 79 MB of pool and 253 MB of the index
+   * the fold builds over it — and that is what has been running the tab out of memory an hour into
+   * a nationwide refresh. One age page of six is 99 MB, and the roster, which every section needs
+   * in full so that an opponent can be matched at all, is only 25 MB of it. The games are the rest
+   * and they scale with how many are held, so holding a sixth of them holds a third of the memory.
+   *
+   * What it costs is written down in `pullSections` and `saveScoutGamesForGroups`: a section
+   * cannot see another page's games while it folds, matching is keyed on the squad year rather
+   * than the page, and so one cross-age tournament fixture can arrive twice during a run. The
+   * end-of-run tidy runs over the whole pool and collapses them, so it is a state the pool passes
+   * through rather than one it is left in.
+   */
+  const runSectioned = async (ids: string[], progress: GcPullProgress): Promise<void> => {
+    const sections = pullSections(ids, pool.teams, pool.ageGroups);
+    /*
+     * One section is the run. Sectioning a single page would hold exactly what an unsectioned run
+     * holds and pay a second fold to arrive there, and — because nothing else is being refreshed
+     * alongside it — it would take the duplicate-fixture trade for nothing in return.
+     */
+    if (sections.length <= 1) {
+      await run(ids, progress);
+      return;
+    }
+
+    /*
+     * Claimed here rather than in `run`, and held across every section. Six claims would be six
+     * moments where a tidy could take the slot between two sections and leave the pool half
+     * refreshed, with the cursor saying the rest was done.
+     */
+    const session = beginPull(nowIso());
+    if (!session) {
+      const holder = livePull();
+      showToast(
+        holder?.kind === "tidy"
+          ? "The pool is being tidied. That takes a moment — try again when it finishes."
+          : "A pull is already running. Reopen Import to watch it, or stop it there.",
+        { tone: "error" }
+      );
+      return;
+    }
+
+    try {
+      for (const [index, section] of sections.entries()) {
+        /*
+         * What this section folds over: every team, and only this page's games. The teams have to
+         * be whole — an opponent that is not in the roster is a stand-in, and a section that could
+         * not see the rest of the country would invent one for half its schedule — and they are
+         * nearly free. The games are the cost, so they are this page's and nothing else's.
+         */
+        poolRef.current = {
+          ageGroups: poolRef.current.ageGroups,
+          teams: poolRef.current.teams,
+          games: loadScoutGamesForPages(section.ageGroupIds),
+        };
+        /*
+         * A section that owns pages is authoritative for them and replaces them. The section of
+         * ids nobody has pulled before owns none — it never read a page, so it cannot say what one
+         * ought to contain — and it can only add.
+         */
+        holdingRef.current =
+          section.ageGroupIds.length > 0
+            ? { kind: "pages", ageGroupIds: section.ageGroupIds }
+            : { kind: "additions" };
+        setSectioning({ index: index + 1, of: sections.length, label: section.label });
+
+        // The cursor the sections before it advanced, not the one the run started from: passing
+        // the original back would throw away what they settled and have a resume fetch it again.
+        const reason = await run(section.teamIds, progressRef.current ?? progress, {
+          session,
+          first: index === 0,
+          last: index === sections.length - 1,
+          asked: ids.length,
+        });
+        // Stopped, refused or given up. That section did the run's ending on the way out.
+        if (reason !== "finished") break;
+      }
+    } finally {
+      holdingRef.current = undefined;
+      setSectioning(null);
+      // `endPull` ignores a session that is no longer the live one, so the section that ended the
+      // run having already released it costs nothing; a section that threw is why this is here.
+      endPull(session);
     }
   };
 
@@ -921,7 +1105,7 @@ export function GameChangerImportPanel({
     onSaveProgress(progress);
     // Not a rota run, so nothing is marked refreshed when it finishes.
     dueLevelsRef.current = [];
-    void run(remainingIds(progress), progress);
+    void runSectioned(remainingIds(progress), progress);
   };
 
   /**
@@ -937,7 +1121,7 @@ export function GameChangerImportPanel({
     const progress = startPull(due.agelessIds, nowIso(), null);
     onSaveProgress(progress);
     dueLevelsRef.current = [];
-    void run(remainingIds(progress), progress);
+    void runSectioned(remainingIds(progress), progress);
   };
 
   const runRefresh = (target: DueRefresh) => {
@@ -945,7 +1129,7 @@ export function GameChangerImportPanel({
     const progress = startPull(target.teamIds, nowIso(), null);
     onSaveProgress(progress);
     dueLevelsRef.current = target.ageLevels;
-    void run(remainingIds(progress), progress);
+    void runSectioned(remainingIds(progress), progress);
   };
 
   const runDue = () => runRefresh(due);
@@ -1000,12 +1184,12 @@ export function GameChangerImportPanel({
     }
     const progress = startPull(ids, nowIso(), savedProgress);
     onSaveProgress(progress);
-    void run(remainingIds(progress), progress);
+    void runSectioned(remainingIds(progress), progress);
   };
 
   const resume = () => {
     if (!savedProgress) return;
-    void run(remainingIds(savedProgress), savedProgress);
+    void runSectioned(remainingIds(savedProgress), savedProgress);
   };
 
   const retry = () => {
@@ -1013,7 +1197,7 @@ export function GameChangerImportPanel({
     if (!current) return;
     const next = retryFailures(current, nowIso());
     onSaveProgress(next);
-    void run(remainingIds(next), next);
+    void runSectioned(remainingIds(next), next);
   };
 
   /**
@@ -1492,6 +1676,13 @@ export function GameChangerImportPanel({
             {stats.done} of {stats.total} pulled
             {stats.failed ? `, ${stats.failed} failed` : ""}.
           </p>
+          {sectioning && (
+            <p className="mt-1 text-xs text-slate-500">
+              Age group {sectioning.index} of {sectioning.of}: <strong>{sectioning.label}</strong>.
+              A run this size is done a page at a time so the tab is never holding the whole pool —
+              the count above is the whole run, and it carries on across them.
+            </p>
+          )}
           <p className="mt-1 text-xs text-slate-500">
             Saved every {SAVE_EVERY_MIN}–{SAVE_EVERY_MAX} teams, less often as the pool grows. You
             can stop, close this, or leave the tab — it picks up where it left off.
@@ -1748,7 +1939,11 @@ export function GameChangerImportPanel({
                           </button>{" "}
                           <label htmlFor={`pair-${key}`}>
                             <span className="text-slate-500">
-                              {pairing.fromSeason} → {pairing.toSeason}
+                              {/* One season on both cards reads as nonsense with an arrow through
+                                  it, and the arrow is not what happened: nothing carried on. */}
+                              {pairing.kind === "same-season"
+                                ? `${pairing.toSeason}, listed twice`
+                                : `${pairing.fromSeason} → ${pairing.toSeason}`}
                             </span>{" "}
                             <span
                               className={pill(

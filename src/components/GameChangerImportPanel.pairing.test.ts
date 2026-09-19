@@ -19,6 +19,7 @@ const pairing = (over: Partial<GcSeasonPairing> = {}): GcSeasonPairing => ({
   evidence: ["state", "shared-opponent"],
   sameName: true,
   confidence: "likely",
+  kind: "next-season",
   ...over,
 });
 

@@ -1,8 +1,12 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { isPullLive, watchPull } from "../../lib/pullSession";
 import { useState } from "react";
-import type { GcImportState } from "../../lib/gameChangerImport";
-import { describeTidy } from "../../lib/gameChangerImport";
+import type { GcImportState, GcSeasonPairing } from "../../lib/gameChangerImport";
+import {
+  describeTidy,
+  proposeSeasonPairings,
+  GC_PAIRING_EVIDENCE_LABEL,
+} from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
 import { storedGamesByYear } from "../../lib/teamRankingsStorage";
@@ -15,6 +19,11 @@ type PoolHealthCardProps = {
   tidyStamp: string;
   /** Saves a tidied pool and stamps it, so the work is not done again for nothing. */
   onTidied: (outcome: TidyOutcome) => void;
+  /**
+   * Folds one entry into another, asking first. Answers whether it happened, so a list of them
+   * can drop the one that did and keep the ones the user said no to.
+   */
+  onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
 };
 
 const count = (value: number) => value.toLocaleString();
@@ -42,7 +51,7 @@ const Row = ({ label, value, note }: { label: string; value: string; note?: stri
  * never finished running, and a pool in that state looks exactly like a pool in good order. These
  * are the numbers that say which.
  */
-export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProps) {
+export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
    * costs nothing to show. It is the one place a year that has lost its games can be seen at all:
@@ -66,6 +75,24 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
   const [settleable, setSettleable] = useState(0);
   const [lastTidy, setLastTidy] = useState<string[] | null>(null);
   const [toPull, setToPull] = useState<ReturnType<typeof unpulledClubs> | null>(null);
+  /**
+   * One club sitting in the pool as two entries of the same season.
+   *
+   * Worked out when the button is pressed rather than on render: it walks every game once and
+   * every GameChanger link against the few that share its name, which is nothing on a club's pool
+   * and is not free on a nationwide one.
+   *
+   * These were offered only on the screen that comes up when a pull finishes — so a club split in
+   * two was findable for about a minute, and after that the pool simply had two of it, ranked
+   * separately, each holding part of the same season's games.
+   */
+  const [duplicates, setDuplicates] = useState<GcSeasonPairing[] | null>(null);
+  const [merging, setMerging] = useState<string | null>(null);
+
+  const sameSeasonPairs = (state: GcImportState) =>
+    proposeSeasonPairings(state.teams, state.games).filter(
+      (pairing) => pairing.kind === "same-season"
+    );
 
   const look = async () => {
     const found = await inspect(pool, tidyStamp);
@@ -75,6 +102,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
     setSettleable(found.settleable);
     setLastTidy(null);
     setToPull(unpulledClubs(pool));
+    setDuplicates(sameSeasonPairs(pool));
   };
 
   const run = async () => {
@@ -89,6 +117,25 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
     setHealth(found.health);
     setSettleable(found.settleable);
     setToPull(unpulledClubs(outcome.state));
+    setDuplicates(sameSeasonPairs(outcome.state));
+  };
+
+  /** Folds one of the pairs in, and takes it off the list only if it actually happened. */
+  const fold = async (pairing: GcSeasonPairing) => {
+    const key = `${pairing.fromTeamId}>${pairing.toTeamId}`;
+    setMerging(key);
+    try {
+      const done = await onMergeTeams(pairing.fromTeamId, pairing.toTeamId);
+      if (!done) return;
+      setDuplicates((current) =>
+        (current ?? []).filter(
+          (entry) =>
+            entry.fromTeamId !== pairing.fromTeamId && entry.toTeamId !== pairing.fromTeamId
+        )
+      );
+    } finally {
+      setMerging(null);
+    }
   };
 
   /**
@@ -255,6 +302,60 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied }: PoolHealthCardProp
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {duplicates && duplicates.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            One club, listed twice
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(duplicates.length)}</strong>{" "}
+            {duplicates.length === 1 ? "club is" : "clubs are"} here as two entries of the same
+            season at the same age. GameChanger gives a team a new id every season, so a club that
+            makes one, leaves it and makes another ends up with two — and the games of one season
+            are split between them, with each side ranked on half a record.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {duplicates.slice(0, 10).map((pairing) => {
+              const key = `${pairing.fromTeamId}>${pairing.toTeamId}`;
+              return (
+                <li key={key} className="text-xs">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {pairing.fromTeamName}
+                  </span>{" "}
+                  <span className="text-slate-500">into {pairing.toTeamName}</span>{" "}
+                  <span className={pill(pairing.confidence === "strong" ? "emerald" : "amber")}>
+                    {[
+                      ...(pairing.sameName ? ["same name"] : []),
+                      ...pairing.evidence.map((item) => GC_PAIRING_EVIDENCE_LABEL[item]),
+                    ].join(" · ")}
+                  </span>{" "}
+                  <button
+                    type="button"
+                    onClick={() => void fold(pairing)}
+                    disabled={merging !== null || pullLive}
+                    className={`${button.ghost} text-xs`}
+                  >
+                    {merging === key ? "Folding…" : "Fold in"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {duplicates.length > 10 && (
+            <p className="mt-2 text-xs text-slate-500">
+              Drawing 10 of {count(duplicates.length)}. Check the pool again after folding these in
+              for the rest.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-500">
+            Never done for you, however certain it looks. A club running an A and a B squad at one
+            age names them the same thing in the same town, and folding those two together costs the
+            club half its history — so the side with no schedule of its own, or two coaches in
+            common, is what puts a pair on this list, and you say whether it is right.
+          </p>
         </div>
       )}
 
