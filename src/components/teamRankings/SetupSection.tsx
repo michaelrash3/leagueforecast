@@ -32,6 +32,7 @@ type SetupSectionProps = {
     pool: GcImportState;
     tidyStamp: string;
     onTidied: (outcome: TidyOutcome) => void;
+    onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
   };
   /** The years that could be frozen, and the one the app is showing as current. */
   archive: {
@@ -165,6 +166,7 @@ export function SetupSection({
         pool={poolHealth.pool}
         tidyStamp={poolHealth.tidyStamp}
         onTidied={poolHealth.onTidied}
+        onMergeTeams={poolHealth.onMergeTeams}
       />
 
       <ModelCheckCard

@@ -1939,7 +1939,11 @@ export function GameChangerImportPanel({
                           </button>{" "}
                           <label htmlFor={`pair-${key}`}>
                             <span className="text-slate-500">
-                              {pairing.fromSeason} → {pairing.toSeason}
+                              {/* One season on both cards reads as nonsense with an arrow through
+                                  it, and the arrow is not what happened: nothing carried on. */}
+                              {pairing.kind === "same-season"
+                                ? `${pairing.toSeason}, listed twice`
+                                : `${pairing.fromSeason} → ${pairing.toSeason}`}
                             </span>{" "}
                             <span
                               className={pill(

@@ -961,10 +961,11 @@ export function TeamRankingsView({
    * The "same team as" the pull can only ever propose. Folding is confirmed first because it moves
    * every game and removes an entry, and a wrong one is tedious to undo by hand.
    */
-  const mergeInto = async (fromId: string, intoId: string) => {
+  /** Answers whether the fold happened, so a list offering several can drop just the one. */
+  const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
-    if (!from || !into) return;
+    if (!from || !into) return false;
     const preview = mergeScoutTeams(fromId, intoId, scoutTeams, loadScoutGames(), ageGroups);
     const confirmed = await requestConfirmation({
       title: `Fold ${from.name} into ${into.name}?`,
@@ -975,11 +976,12 @@ export function TeamRankingsView({
       }`,
       confirmLabel: "Fold in",
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
     persistTeams(preview.teams);
     persistAllGames(preview.games);
     setOpenTeamId(intoId);
     showToast(`Folded into ${into.name}.`, { tone: "success" });
+    return true;
   };
 
   /**
@@ -1648,6 +1650,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                   if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
                   if (tidied.games !== wholePoolGames) persistAllGames(tidied.games);
                 },
+                onMergeTeams: mergeInto,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so

@@ -3088,3 +3088,166 @@ describe("teams that are not playing baseball", () => {
     ).toBeUndefined();
   });
 });
+
+describe("one squad listed twice in one season", () => {
+  /*
+   * The Ambush case. Two GameChanger entries called "Ambush 9U", both Fall 2026, both 9U, both in
+   * Prestonsburg KY — one with eight games on its own schedule and one with none at all, which
+   * still shows a record because every club that played it listed the fixture from its side.
+   *
+   * Nothing here would offer them. The test for a pairing was that the two seasons were
+   * consecutive, and these are the same season, so a club split across two entries in one season
+   * was invisible however obvious it looked on the page.
+   *
+   * What makes it hard is the innocent explanation: a club running an A and a B squad at 9U gives
+   * them the same name, in the same town, in the same state. Only two things tell that apart —
+   * the coaches, and whether one of the two has a schedule of its own.
+   */
+  const staffed = (
+    id: string,
+    name: string,
+    link: Partial<NonNullable<ScoutTeam["gcTeams"]>[number]> = {},
+    place: Partial<ScoutTeam> = {}
+  ): ScoutTeam => ({
+    id,
+    name,
+    city: "Prestonsburg",
+    state: "KY",
+    ...place,
+    gcTeams: [
+      {
+        teamId: `gc-${id}`,
+        name,
+        ageGroupId: "ag1",
+        ageLevel: 9,
+        season: "fall",
+        seasonYear: 2026,
+        ...link,
+      },
+    ],
+  });
+
+  /** A game the named GameChanger id listed on its own schedule. */
+  const listed = (by: string, id: string): ScoutGame => ({
+    id,
+    teamAId: "x",
+    teamBId: "y",
+    ageGroupId: "ag1",
+    teamAScore: 2,
+    teamBScore: 12,
+    source: { kind: "gamechanger", teamId: by, gameId: id },
+  });
+
+  it("offers the entry with no schedule of its own, folded into the one that has one", () => {
+    const pairings = proposeSeasonPairings(
+      [staffed("shell", "Ambush 9U"), staffed("real", "Ambush 9U")],
+      [listed("gc-real", "g1"), listed("gc-real", "g2")]
+    );
+
+    expect(pairings).toHaveLength(1);
+    expect(pairings[0]).toMatchObject({
+      fromTeamId: "shell",
+      toTeamId: "real",
+      kind: "same-season",
+      sameName: true,
+    });
+    expect(pairings[0]?.evidence).toContain("no-schedule");
+  });
+
+  it("offers it once, not once in each direction", () => {
+    /*
+     * A season apart there is an earlier and a later and the pairing points one way by itself. In
+     * one season there is no such order, so both directions qualify and the same pair would be
+     * offered twice pointing opposite ways — and approving both folds each into the other.
+     */
+    const pairings = proposeSeasonPairings(
+      [staffed("shell", "Ambush 9U"), staffed("real", "Ambush 9U")],
+      [listed("gc-real", "g1")]
+    );
+
+    expect(pairings).toHaveLength(1);
+  });
+
+  it("offers nothing when both sides have a schedule of their own", () => {
+    // Two real squads at one age in one town: an A team and a B team, and merging them is a
+    // club losing half its history.
+    const pairings = proposeSeasonPairings(
+      [staffed("a", "Ambush 9U"), staffed("b", "Ambush 9U")],
+      [listed("gc-a", "g1"), listed("gc-b", "g2")]
+    );
+
+    expect(pairings).toEqual([]);
+  });
+
+  it("offers two real squads anyway when the same coaches run both", () => {
+    /*
+     * Two coaches in common is the same town 89% of the time against 43% for one — see
+     * `gcStaff.ts` — and at one age level in one season that is a roster somebody listed twice far
+     * more often than a club fielding two identical squads. Strong enough to offer; never strong
+     * enough to apply on its own.
+     */
+    const coaches = ["Dana Hall", "Rory Estes"];
+    const pairings = proposeSeasonPairings(
+      [
+        staffed("a", "Ambush 9U", { staff: coaches }),
+        staffed("b", "Ambush 9U", { staff: coaches }),
+      ],
+      [listed("gc-a", "g1"), listed("gc-b", "g2")]
+    );
+
+    expect(pairings).toHaveLength(1);
+    expect(pairings[0]).toMatchObject({ kind: "same-season", confidence: "strong" });
+    expect(pairings[0]?.evidence).toContain("staff");
+  });
+
+  it("will not take one shared coach for two", () => {
+    // One name in common is as likely to be a club officer sitting on both cards as anything else.
+    const pairings = proposeSeasonPairings(
+      [
+        staffed("a", "Ambush 9U", { staff: ["Dana Hall", "Rory Estes"] }),
+        staffed("b", "Ambush 9U", { staff: ["Dana Hall", "Wes Pruitt"] }),
+      ],
+      [listed("gc-a", "g1"), listed("gc-b", "g2")]
+    );
+
+    expect(pairings).toEqual([]);
+  });
+
+  it("will not pair two towns, however empty one of the schedules is", () => {
+    const pairings = proposeSeasonPairings(
+      [staffed("shell", "Ambush 9U", {}, { city: "Pikeville" }), staffed("real", "Ambush 9U")],
+      [listed("gc-real", "g1")]
+    );
+
+    expect(pairings).toEqual([]);
+  });
+
+  it("will not pair two ids GameChanger gave no season", () => {
+    // Two unlabelled ids are not "the same season" — they are two questions nobody has answered,
+    // and treating them as one would pair every such id in the pool with every other.
+    const pairings = proposeSeasonPairings(
+      [
+        staffed("shell", "Ambush 9U", { season: undefined, seasonYear: undefined }),
+        staffed("real", "Ambush 9U", { season: undefined, seasonYear: undefined }),
+      ],
+      [listed("gc-real", "g1")]
+    );
+
+    expect(pairings).toEqual([]);
+  });
+
+  it("is never applied without being asked, whatever it carries", () => {
+    /*
+     * A season apart, the same name in one town is one roster: a club does not run two squads a
+     * season apart under one name at one age. Inside a season that is exactly what an A and a B
+     * squad look like, so this one is always a question for the user.
+     */
+    const [pairing] = proposeSeasonPairings(
+      [staffed("shell", "Ambush 9U"), staffed("real", "Ambush 9U")],
+      [listed("gc-real", "g1")]
+    );
+
+    expect(pairing?.evidence).toEqual(expect.arrayContaining(["city", "state"]));
+    expect(pairing && isSettledPairing(pairing)).toBe(false);
+  });
+});
