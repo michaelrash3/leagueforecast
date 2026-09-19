@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import {
@@ -41,10 +41,13 @@ import {
   type GcPullView,
 } from "../lib/gameChangerPull";
 import {
+  describeCadence,
   describeDue,
   describeRotation,
   dueRefresh,
   markRefreshed,
+  type DueRefresh,
+  type RefreshCadence,
   type RefreshLog,
 } from "../lib/gameChangerSchedule";
 import {
@@ -61,6 +64,8 @@ import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
 import {
   flushPoolWrites,
   loadAgeUnknown,
+  loadRefreshCadence,
+  saveRefreshCadence,
   loadPullLog,
   saveAgeUnknown,
   savePullLog,
@@ -409,9 +414,31 @@ export function GameChangerImportPanel({
    * below has to see the new one without the panel being closed and reopened.
    */
   const [ageless, setAgeless] = useState<AgeUnknownList>(() => loadAgeUnknown());
+  const [cadence, setCadence] = useState<RefreshCadence>(() => loadRefreshCadence());
+  const chooseCadence = useCallback((next: RefreshCadence) => {
+    setCadence(next);
+    saveRefreshCadence(next);
+  }, []);
+
   const due = useMemo(
-    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, undefined, ageless),
-    [refreshLog, pool.ageGroups, pool.teams, ageless]
+    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, { ageless, cadence }),
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]
+  );
+
+  /*
+   * The same day, with what has already been done today set aside. Only ever used by the button
+   * that asks for it: a person who has just fixed a link, or who knows a tournament finished an
+   * hour ago, is asking about something the day log cannot know, and "come back tomorrow" is the
+   * wrong answer to that.
+   */
+  const everything = useMemo(
+    () =>
+      dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
+        ageless,
+        cadence,
+        force: true,
+      }),
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -904,13 +931,17 @@ export function GameChangerImportPanel({
     void run(remainingIds(progress), progress);
   };
 
-  const runDue = () => {
-    if (due.teamIds.length === 0) return;
-    const progress = startPull(due.teamIds, nowIso(), null);
+  const runRefresh = (target: DueRefresh) => {
+    if (target.teamIds.length === 0) return;
+    const progress = startPull(target.teamIds, nowIso(), null);
     onSaveProgress(progress);
-    dueLevelsRef.current = due.ageLevels;
+    dueLevelsRef.current = target.ageLevels;
     void run(remainingIds(progress), progress);
   };
+
+  const runDue = () => runRefresh(due);
+  /** Everything the cadence covers, whether or not it has already been done today. */
+  const runEverything = () => runRefresh(everything);
 
   /**
    * The end-of-run tidy on its own. It also runs by itself whenever the app opens on a pool it has
@@ -1147,21 +1178,46 @@ export function GameChangerImportPanel({
           <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-bold text-slate-950 dark:text-white">{describeDue(due)}</p>
-              <button
-                type="button"
-                onClick={() => setShowWeek((value) => !value)}
-                aria-expanded={showWeek}
-                className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {showWeek ? "Hide the week" : "The week"}
-              </button>
+              {cadence === "rotation" && (
+                <button
+                  type="button"
+                  onClick={() => setShowWeek((value) => !value)}
+                  aria-expanded={showWeek}
+                  className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {showWeek ? "Hide the week" : "The week"}
+                </button>
+              )}
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Each age group comes round once a week, so no level is more than seven days old and no
-              day&apos;s run is long enough to be worth interrupting. Nothing happens on its own — a
-              browser cannot run while it is closed — so this is here whenever you next open it.
+              {describeCadence(cadence)} Nothing happens on its own — a browser cannot run while it
+              is closed — so this is here whenever you next open it.
             </p>
-            {showWeek && (
+            <fieldset className="mt-3">
+              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                How much comes round at once
+              </legend>
+              <div className="mt-1 flex flex-wrap gap-3">
+                {(
+                  [
+                    ["daily", "Every age group, daily"],
+                    ["rotation", "One or two levels a day"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <label key={value} className="flex items-center gap-1.5 text-xs font-bold">
+                    <input
+                      type="radio"
+                      name="gc-refresh-cadence"
+                      value={value}
+                      checked={cadence === value}
+                      onChange={() => chooseCadence(value)}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {cadence === "rotation" && showWeek && (
               <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
                 {describeRotation().map((line) => (
                   <li key={line}>{line}</li>
@@ -1169,9 +1225,28 @@ export function GameChangerImportPanel({
               </ul>
             )}
             {due.teamIds.length > 0 && (
-              <button type="button" onClick={runDue} className={`${button.primary} mt-3`}>
-                Refresh today&apos;s {due.ageLevels.map((level) => `${level}U`).join(" and ")}
-              </button>
+              <>
+                <button type="button" onClick={runDue} className={`${button.primary} mt-3`}>
+                  {cadence === "daily"
+                    ? `Refresh all ${due.teamIds.length.toLocaleString()} teams`
+                    : `Refresh today's ${due.ageLevels.map((level) => `${level}U`).join(" and ")}`}
+                </button>
+                <p className="mt-1 text-xs text-slate-500">
+                  About {estimatedMinutes(due.teamIds.length)} minute(s) of requests, and the whole
+                  pool is written back several times along the way, which is the slower half.
+                </p>
+              </>
+            )}
+            {due.teamIds.length === 0 && everything.teamIds.length > 0 && (
+              <>
+                <button type="button" onClick={runEverything} className={`${button.ghost} mt-3`}>
+                  Refresh all {everything.teamIds.length.toLocaleString()} teams again
+                </button>
+                <p className="mt-1 text-xs text-slate-500">
+                  Today is already marked done. Run it again if something has changed since — a
+                  fixed link, a tournament that finished this afternoon.
+                </p>
+              </>
             )}
             {due.agelessIds.length > 0 && (
               <>
@@ -1180,12 +1255,12 @@ export function GameChangerImportPanel({
                   {due.agelessIds.length === 1 ? "" : "s"} with no age
                 </button>
                 <p className="mt-1 text-xs text-slate-500">
-                  {describeAgeUnknown(ageless)} They are on no page, so the weekly rotation never
+                  {describeAgeUnknown(ageless)} They are on no page, so a refresh by age level never
                   reaches them, and the fetch worked, so nothing retries them either. Asking again
                   is the only thing that can answer it — GameChanger may have filled the field in
                   since, the club may have renamed the squad, or enough of the team&apos;s opponents
                   may have been pulled that their names now settle it. One that comes back with an
-                  age drops off this list and joins the ordinary rotation for its level.
+                  age drops off this list and is refreshed with its level from then on.
                 </p>
               </>
             )}
