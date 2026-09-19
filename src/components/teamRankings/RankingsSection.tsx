@@ -4,6 +4,7 @@ import { UNKNOWN_STATE } from "../../lib/teamRankings";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
+import { useWideViewport } from "../../hooks/useWideViewport";
 import { card, pill } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
@@ -104,6 +105,7 @@ export function RankingsSection({
    * say about it, so it keeps its own state rather than borrowing the view's.
    */
   const [methodOpen, setMethodOpen] = useState(false);
+  const wide = useWideViewport();
   const methodPanelId = useId();
 
   return (
@@ -260,59 +262,76 @@ export function RankingsSection({
         )}
         {showAll && (
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="py-2">Rank</th>
-                  <th>Team</th>
-                  <th>Record</th>
-                  <th>Rating</th>
-                  {/* The fit's own estimate, so the discount in the column before it is visible
-                      rather than asserted: "+7.3 off four games, ranked at +6.5". */}
-                  <th className="whitespace-nowrap">Best guess</th>
-                  <th>Games</th>
-                  <th>SOS</th>
-                  <th className="sr-only">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+            {/*
+             * Eight columns is four too many for a phone, and this is the table a phone is most
+             * likely to be holding: the nationwide pool, read at a field, on the half of the app
+             * that carries fifty thousand teams. Sideways scrolling inside a card is the gesture
+             * nobody finds, so below `sm` the same rows are stacked — rank, team and rating on one
+             * line because that is the reading, the rest labelled underneath, and the actions last.
+             *
+             * One of the two, chosen by reading the breakpoint, rather than both with CSS hiding
+             * one. This list is bounded to a first page precisely because rendering a nationwide
+             * page was more memory than the pool behind it; rendering every visible row twice puts
+             * half of that straight back, and it was enough to push `ListBounds` past its timeout
+             * on a slower machine.
+             *
+             * One source, two shapes. A column added to the table has to be added here too, which
+             * is the point: a column nobody can see on a phone is a column nobody has decided
+             * about.
+             */}
+            {wide ? null : (
+              <ul className="space-y-2">
                 {visibleSlice.map((row) => {
                   const place = placeOf(row.teamId);
                   return (
-                    <tr
+                    <li
                       key={row.teamId}
-                      className="border-t border-slate-100 dark:border-slate-800"
+                      className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
                     >
-                      <td className="py-3 font-black">
-                        #{row.rank}
-                        {row.overallRank !== undefined && row.overallRank !== row.rank && (
-                          <span className="ml-1 text-xs font-bold text-slate-400">
-                            #{row.overallRank}
-                          </span>
-                        )}
-                      </td>
-                      <td className="font-bold text-slate-950 dark:text-white">
-                        <button
-                          type="button"
-                          onClick={() => onOpenTeam(row.teamId)}
-                          className="text-left font-bold hover:underline"
-                          title="Every game logged for this team"
-                        >
-                          {row.teamName}
-                        </button>
-                        {isLeagueTeam(row.teamId) && (
-                          <span className={`ml-2 ${pill("blue")}`}>League</span>
-                        )}
-                        {place && (
-                          <span className="block text-xs font-normal text-slate-500">{place}</span>
-                        )}
-                      </td>
-                      <td>{row.record}</td>
-                      <td>{formatRating(row.rating)}</td>
-                      <td className="text-slate-500">{formatRating(row.pointRating)}</td>
-                      <td>{row.games}</td>
-                      <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
-                      <td className="space-x-2 text-right">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-black">
+                          #{row.rank}
+                          {row.overallRank !== undefined && row.overallRank !== row.rank && (
+                            <span className="ml-1 text-xs font-bold text-slate-400">
+                              #{row.overallRank}
+                            </span>
+                          )}{" "}
+                          <button
+                            type="button"
+                            onClick={() => onOpenTeam(row.teamId)}
+                            className="text-left font-black hover:underline"
+                            title="Every game logged for this team"
+                          >
+                            {row.teamName}
+                          </button>
+                          {isLeagueTeam(row.teamId) && (
+                            <span className={`ml-2 ${pill("blue")}`}>League</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-sm font-black">
+                          {formatRating(row.rating)}
+                        </span>
+                      </div>
+                      {place && <p className="mt-0.5 text-xs text-slate-500">{place}</p>}
+                      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-slate-500 dark:text-slate-400">Record</dt>
+                          <dd>{row.record}</dd>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-slate-500 dark:text-slate-400">Best guess</dt>
+                          <dd>{formatRating(row.pointRating)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-slate-500 dark:text-slate-400">Games</dt>
+                          <dd>{row.games}</dd>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-slate-500 dark:text-slate-400">SOS</dt>
+                          <dd>{row.sosRank ? `#${row.sosRank}` : "—"}</dd>
+                        </div>
+                      </dl>
+                      <div className="mt-2 space-x-3 text-right">
                         <button
                           type="button"
                           onClick={() => onMarkMine(row.teamId)}
@@ -331,12 +350,93 @@ export function RankingsSection({
                             Remove
                           </button>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                    </li>
                   );
                 })}
-              </tbody>
-            </table>
+              </ul>
+            )}
+            {wide && (
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2">Rank</th>
+                    <th>Team</th>
+                    <th>Record</th>
+                    <th>Rating</th>
+                    {/* The fit's own estimate, so the discount in the column before it is visible
+                      rather than asserted: "+7.3 off four games, ranked at +6.5". */}
+                    <th className="whitespace-nowrap">Best guess</th>
+                    <th>Games</th>
+                    <th>SOS</th>
+                    <th className="sr-only">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleSlice.map((row) => {
+                    const place = placeOf(row.teamId);
+                    return (
+                      <tr
+                        key={row.teamId}
+                        className="border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="py-3 font-black">
+                          #{row.rank}
+                          {row.overallRank !== undefined && row.overallRank !== row.rank && (
+                            <span className="ml-1 text-xs font-bold text-slate-400">
+                              #{row.overallRank}
+                            </span>
+                          )}
+                        </td>
+                        <td className="font-bold text-slate-950 dark:text-white">
+                          <button
+                            type="button"
+                            onClick={() => onOpenTeam(row.teamId)}
+                            className="text-left font-bold hover:underline"
+                            title="Every game logged for this team"
+                          >
+                            {row.teamName}
+                          </button>
+                          {isLeagueTeam(row.teamId) && (
+                            <span className={`ml-2 ${pill("blue")}`}>League</span>
+                          )}
+                          {place && (
+                            <span className="block text-xs font-normal text-slate-500">
+                              {place}
+                            </span>
+                          )}
+                        </td>
+                        <td>{row.record}</td>
+                        <td>{formatRating(row.rating)}</td>
+                        <td className="text-slate-500">{formatRating(row.pointRating)}</td>
+                        <td>{row.games}</td>
+                        <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
+                        <td className="space-x-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onMarkMine(row.teamId)}
+                            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                            aria-pressed={row.isMine}
+                            title="Mark as my team"
+                          >
+                            {row.isMine ? "★ My team" : "☆ Mark mine"}
+                          </button>
+                          {!isLeagueTeam(row.teamId) && hasGamesFiledHere(row.teamId) && (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveTeam(row.teamId)}
+                              className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
             {hiddenRows > 0 && (
               <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
                 <span>

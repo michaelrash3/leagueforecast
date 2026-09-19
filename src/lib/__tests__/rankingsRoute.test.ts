@@ -8,6 +8,8 @@ import {
   parseRankingsRoute,
   rankingsSearch,
   sameRankingsRoute,
+  RANKINGS_COMMAND_SECTIONS,
+  rankingsSectionCommandId,
 } from "../rankingsRoute";
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../teamRankings";
 
@@ -152,5 +154,33 @@ describe("sameRankingsRoute", () => {
       false
     );
     expect(sameRankingsRoute({ ageLevel: 10 }, { ageLevel: 10, mode: "rankings" })).toBe(false);
+  });
+});
+
+/**
+ * Every section reachable from the keyboard.
+ *
+ * The shortcuts App offers are built from `RANKINGS_COMMAND_SECTIONS`, so a section added to the
+ * union and left out of that list has a tab and a URL and no key — and nothing would say so,
+ * because a test that walks the same list walks past the gap with it. `RANKINGS_SECTIONS` is
+ * derived from the type, so comparing the two is the one check that notices.
+ */
+describe("the sections a key can reach", () => {
+  it("covers every section there is, exactly once", () => {
+    const keyed = RANKINGS_COMMAND_SECTIONS.map((entry) => entry.section);
+
+    expect([...keyed].sort()).toEqual([...RANKINGS_SECTIONS].sort());
+  });
+
+  it("gives each one a key of its own", () => {
+    const keys = RANKINGS_COMMAND_SECTIONS.map((entry) => entry.key);
+
+    expect(keys.every((key) => key.length === 1)).toBe(true);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("names the command the shortcut has to find", () => {
+    // The two halves of the wiring: the view builds a command under this id, App looks it up.
+    expect(rankingsSectionCommandId("scouting")).toBe("rankings-section-scouting");
   });
 });

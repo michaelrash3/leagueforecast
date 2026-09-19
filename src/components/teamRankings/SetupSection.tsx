@@ -12,6 +12,7 @@ import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import { ResetRankingsCard } from "./ResetRankingsCard";
 import { ArchiveSeasonCard, type ArchivableYear } from "./ArchiveSeasonCard";
+import { DiagnosticsCard } from "./DiagnosticsCard";
 import { card } from "../../styles/tokens";
 
 type SetupSectionProps = {
@@ -173,6 +174,8 @@ export function SetupSection({
         games={modelCheck.games}
         ageGroups={ageGroups}
       />
+
+      <DiagnosticsCard />
 
       <ArchiveSeasonCard
         years={archive.years}

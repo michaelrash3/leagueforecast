@@ -1,5 +1,10 @@
 import { displayName } from "./format";
-import { RATING_PRIOR_FLOOR, RATING_PRIOR_GROWTH, RATING_PRIOR_MIDPOINT } from "./sim";
+import {
+  EDGE_PER_RUN_BEST_FIT,
+  RATING_PRIOR_FLOOR,
+  RATING_PRIOR_GROWTH,
+  RATING_PRIOR_MIDPOINT,
+} from "./sim";
 import type { GameLog, Matchup, Team } from "./types";
 import { isFinal, parseNumber } from "./util";
 
@@ -12,7 +17,28 @@ export type ScheduleDifficulty = {
 const average = (values: number[]) =>
   values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 
-const recordAdjustment = (team: Team) => (team.pct - 0.5) * 6;
+/**
+ * A record, as runs of margin against an average team.
+ *
+ * This was `(pct - 0.5) * 6`. The six came from nowhere — no sweep, no fit, nothing measured —
+ * while the app already knew the answer: `EDGE_PER_RUN_BEST_FIT` is runs of margin per unit of win
+ * edge, measured on simulated seasons, and a win percentage is a win edge once it is put through
+ * a logit. So the conversion is the one the rest of the app uses, rather than a second one.
+ *
+ * The percentage is smoothed by half a win in one extra game before that. Two reasons, and both
+ * were live bugs. A logit of 1.0 is infinite, so an undefeated team had no finite answer at all
+ * under a principled conversion — and under the old linear one a 1-0 team read exactly as strong
+ * as a 20-0 team, which is the same claim made quietly. And a team with no games at all had
+ * `pct` of zero, so it read as the worst side in the league rather than as unknown; smoothing
+ * lands it on 0.5, which is what "we have not seen them play" should say.
+ *
+ * None of this reaches a forecast. Strength of schedule is a figure on the Model view and in the
+ * written summaries, and nothing in `sim.ts` reads it.
+ */
+const recordAdjustment = (team: Team) => {
+  const smoothed = (team.w + team.t * 0.5 + 0.5) / (team.games + 1);
+  return Math.log(smoothed / (1 - smoothed)) / EDGE_PER_RUN_BEST_FIT;
+};
 
 type TeamGameVsAverage = {
   offenseVsAllowed: number;
