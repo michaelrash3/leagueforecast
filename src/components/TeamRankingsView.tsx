@@ -161,6 +161,23 @@ type TeamRankingsViewProps = {
  * The season-year picker and the age tabs stay above every section, because they scope all of them
  * alike: a section is a view of one age group in one year, never of the pool at large.
  */
+/**
+ * The largest pool the tidy may work through on the main thread without being asked to.
+ *
+ * There used to be a limit like this on the automatic tidy and it was removed when the work moved
+ * into a worker, on the reasoning that in a worker there is nothing to freeze. That reasoning is
+ * sound and the limit is not coming back for pools that have one — it is back for pools that do
+ * not. When a worker cannot be started, the same pass runs here instead, and on a nationwide pool
+ * that is twenty or thirty seconds of frozen tab: long enough for the browser to reload the page,
+ * which cancels the run before it can record that it happened, so the next load starts it again
+ * and it never finishes. Twenty thousand games is the number the old limit used, and a pass over
+ * that many is a blink rather than a hang.
+ *
+ * Above it, with no worker, the pool is left untidied until someone presses the button in Setup.
+ * That is the right way round: untidied is cosmetic, and an app that reloads every minute is not.
+ */
+const AUTOMATIC_INLINE_GAME_LIMIT = 20_000;
+
 /** What a section is called when a boundary has to say which one could not be drawn. */
 /** Referentially stable, so nothing memoised on "no games" re-runs every render. */
 const NO_STORED_GAMES: ScoutGame[] = [];
@@ -410,18 +427,20 @@ export function TeamRankingsView({
      * never gets it.
      */
     let live = true;
-    void tidyInWorker(pool).then((outcome) => {
-      // Something else claimed the pool first, or the view moved on to a different one while this
-      // was working. Either way the stamp is untouched, so it comes round again.
-      if (!outcome || !live) return;
-      const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
-      saveTidyStamp(poolSignature(tidy.state));
-      if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
-      if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
-      if (tidy.state.games !== pool.games) persistAllGames(tidy.state.games);
-      const lines = describeTidy(tidy);
-      if (lines.length > 0) showToast(lines.join(" "));
-    });
+    void tidyInWorker(pool, { workerOnly: storedGameCount > AUTOMATIC_INLINE_GAME_LIMIT }).then(
+      (outcome) => {
+        // Something else claimed the pool first, or the view moved on to a different one while this
+        // was working. Either way the stamp is untouched, so it comes round again.
+        if (!outcome || !live) return;
+        const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
+        saveTidyStamp(poolSignature(tidy.state));
+        if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
+        if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
+        if (tidy.state.games !== pool.games) persistAllGames(tidy.state.games);
+        const lines = describeTidy(tidy);
+        if (lines.length > 0) showToast(lines.join(" "));
+      }
+    );
     return () => {
       live = false;
       tidyingRef.current = false;

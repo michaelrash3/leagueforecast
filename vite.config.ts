@@ -9,7 +9,17 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      /*
+       * A new version waits to be let in rather than taking over.
+       *
+       * Under `autoUpdate` the page reloads itself the moment a new service worker activates —
+       * no warning, mid-score-entry, and every open tab at once on every deploy. It also made
+       * the "A fresh app version is ready" toast in App unreachable: vite-plugin-pwa only wires
+       * `onNeedRefresh` on this branch, so the app had a prompt in its source that could never
+       * fire. Prompting makes that toast real and puts the moment of reloading in the hands of
+       * whoever is standing at the field with a phone.
+       */
+      registerType: "prompt",
       includeAssets: ["icon.svg", "icon-maskable.svg"],
       manifest: {
         name: "League Forecast",

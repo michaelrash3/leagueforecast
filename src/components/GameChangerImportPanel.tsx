@@ -430,8 +430,13 @@ export function GameChangerImportPanel({
    * that asks for it: a person who has just fixed a link, or who knows a tournament finished an
    * hour ago, is asking about something the day log cannot know, and "come back tomorrow" is the
    * wrong answer to that.
+   *
+   * Built when asked for rather than alongside `due`, because both walk every team's GameChanger
+   * links, and on the daily cadence that is the whole pool rather than a level or two of it.
+   * Computing it beside the other one paid that walk twice on every change for an answer that is
+   * read only when nothing is due.
    */
-  const everything = useMemo(
+  const everythingDue = useCallback(
     () =>
       dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
         ageless,
@@ -941,7 +946,17 @@ export function GameChangerImportPanel({
 
   const runDue = () => runRefresh(due);
   /** Everything the cadence covers, whether or not it has already been done today. */
-  const runEverything = () => runRefresh(everything);
+  const runEverything = () => runRefresh(everythingDue());
+
+  /*
+   * How many a re-run would cover, worked out only once nothing is due — which is the only time
+   * the button that shows it is on screen. While there is work outstanding this stays zero and
+   * the walk is not paid at all.
+   */
+  const forcedCount = useMemo(
+    () => (due.teamIds.length === 0 ? everythingDue().teamIds.length : 0),
+    [due.teamIds.length, everythingDue]
+  );
 
   /**
    * The end-of-run tidy on its own. It also runs by itself whenever the app opens on a pool it has
@@ -1237,10 +1252,10 @@ export function GameChangerImportPanel({
                 </p>
               </>
             )}
-            {due.teamIds.length === 0 && everything.teamIds.length > 0 && (
+            {due.teamIds.length === 0 && forcedCount > 0 && (
               <>
                 <button type="button" onClick={runEverything} className={`${button.ghost} mt-3`}>
-                  Refresh all {everything.teamIds.length.toLocaleString()} teams again
+                  Refresh all {forcedCount.toLocaleString()} teams again
                 </button>
                 <p className="mt-1 text-xs text-slate-500">
                   Today is already marked done. Run it again if something has changed since — a
