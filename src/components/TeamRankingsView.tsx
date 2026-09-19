@@ -276,12 +276,18 @@ export function TeamRankingsView({
     [storedYears]
   );
   /**
-   * The whole pool, every year, for as long as Setup is open and not a moment longer. The import
-   * panel and the pool health card work on all of it; nothing else on this view does.
+   * The whole pool, every year, while an area that works on all of it is open — and not a moment
+   * longer. Two areas do: Setup, for the health card, and Import, for the GameChanger panel.
+   *
+   * Import belongs on that list and was missing from it, which was silent data loss rather than a
+   * slow render. The panel seeds itself from this once and, when a pull saves, writes back what it
+   * holds through `saveScoutGames`, which replaces every year and drops any it was not given. With
+   * an empty array it therefore folded a pull into nothing and saved that over the lot, deleting
+   * every year the pull did not itself refetch. `poolWrite.test.tsx` is the guard.
    */
-  const setupGames = useMemo(() => {
+  const wholePoolGames = useMemo(() => {
     void poolRevision;
-    return section === "setup" ? loadScoutGames() : NO_STORED_GAMES;
+    return section === "setup" || section === "import" ? loadScoutGames() : NO_STORED_GAMES;
   }, [section, poolRevision]);
   /** When the pool was last backed up from this browser; re-read after a download from here. */
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
@@ -1456,7 +1462,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                * rebuilt from League Standings on every render and must never be written back here, or
                * a pull would persist a second copy of every league game it happened to see.
                */
-              pool={{ ageGroups, teams: scoutTeams, games: setupGames }}
+              pool={{ ageGroups, teams: scoutTeams, games: wholePoolGames }}
               savedProgress={pullProgress}
               onPersist={(next) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);
@@ -1524,13 +1530,13 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               Standings every render and must never be written back here.
             */
               poolHealth={{
-                pool: { ageGroups, teams: scoutTeams, games: setupGames },
+                pool: { ageGroups, teams: scoutTeams, games: wholePoolGames },
                 tidyStamp: loadTidyStamp() ?? "",
                 onTidied: ({ state: tidied }) => {
                   saveTidyStamp(poolSignature(tidied));
                   if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
                   if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
-                  if (tidied.games !== setupGames) persistAllGames(tidied.games);
+                  if (tidied.games !== wholePoolGames) persistAllGames(tidied.games);
                 },
               }}
               /*
