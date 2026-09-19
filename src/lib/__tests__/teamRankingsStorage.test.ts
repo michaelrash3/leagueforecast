@@ -79,7 +79,7 @@ describe("teamRankingsStorage", () => {
     ];
 
     expect(saveScoutTeams(teams)).toBe(true);
-    expect(saveScoutGames(games)).toBe(true);
+    expect(saveScoutGames(games).written).toBe(true);
 
     expect(loadScoutTeams()).toEqual(teams);
     expect(loadScoutGames()).toEqual(games);
@@ -113,7 +113,7 @@ describe("teamRankingsStorage", () => {
     ];
 
     expect(saveScoutTeams(teams)).toBe(true);
-    expect(saveScoutGames(games)).toBe(true);
+    expect(saveScoutGames(games).written).toBe(true);
     expect(loadScoutTeams()).toEqual(teams);
     expect(loadScoutGames()).toEqual(games);
   });

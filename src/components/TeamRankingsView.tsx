@@ -182,6 +182,19 @@ const AUTOMATIC_INLINE_GAME_LIMIT = 20_000;
 /** Referentially stable, so nothing memoised on "no games" re-runs every render. */
 const NO_STORED_GAMES: ScoutGame[] = [];
 
+/**
+ * What to say when a whole-pool save turned out not to hold the whole pool.
+ *
+ * Storage left those years alone rather than emptying them, so nothing is lost — but the save did
+ * not do what it was asked, and the pool on screen is no longer what is stored. That is worth an
+ * error rather than a quiet note: it can only happen through a bug, and it is exactly the bug
+ * that once deleted a season without saying a word.
+ */
+const sparedYears = (years: (number | undefined)[]): string =>
+  `Saved, but ${years.map((year) => year ?? "the undated games").join(", ")} ${
+    years.length === 1 ? "was" : "were"
+  } left as stored — that save did not hold ${years.length === 1 ? "it" : "them"}. Reload before changing anything else.`;
+
 const sectionLabel = (section: RankingsSection): string =>
   ({
     rankings: "The rankings",
@@ -351,13 +364,15 @@ export function TeamRankingsView({
     [selectedYear, showToast, onDataChange, bumpPool]
   );
   /**
-   * Saves the whole pool, every year. Only for the operations that hold all of it: a list that
-   * is one year's games saved through here would delete every other year.
+   * Saves the whole pool, every year. Only for the operations that hold all of it — and storage
+   * no longer takes that on trust: a year it holds and `games` does not is left as it was unless
+   * `emptying` names it, and the save says so rather than passing for a clean one.
    */
   const persistAllGames = useCallback(
-    (games: ScoutGame[]) => {
-      if (!saveScoutGames(games))
-        showToast("Could not save games (storage full).", { tone: "error" });
+    (games: ScoutGame[], emptying: readonly (number | undefined)[] = []) => {
+      const write = saveScoutGames(games, emptying);
+      if (!write.written) showToast("Could not save games (storage full).", { tone: "error" });
+      else if (write.spared.length > 0) showToast(sparedYears(write.spared), { tone: "error" });
       bumpPool();
       onDataChange?.();
     },
@@ -1298,9 +1313,22 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
         return;
       }
       // Only now: the tables are on disk, so the games they replace can go.
-      persistAgeGroups(done.state.ageGroups);
       persistTeams(done.state.teams);
-      persistAllGames(done.state.games);
+      /*
+       * The games before the age groups, which is the order this always wanted.
+       *
+       * A game is filed under its age group's year, so saving the groups first means the games
+       * are filed by groups that no longer describe them: the archived year's pages are gone, so
+       * every game still stored under them is re-filed with the yearless — and the save that
+       * follows, which is about the archived year, has nothing to say about where they went.
+       * Saving the games while the pages that name them are still stored puts them where they
+       * belong and leaves the year empty, and the age-group save then has nothing to move.
+       *
+       * This is also the one save that means to leave a year with nothing in it, which is why it
+       * names the year rather than being taken at its word.
+       */
+      persistAllGames(done.state.games, [year]);
+      persistAgeGroups(done.state.ageGroups);
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
@@ -1486,12 +1514,26 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               onPersist={(next) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);
                 const savedTeams = saveScoutTeams(next.teams);
+                /*
+                 * A pull never empties a squad year, so it names none. If storage reports one
+                 * spared, the panel is holding a pool it was not given — which is the bug this
+                 * whole path once had, now a message instead of a deletion.
+                 */
                 const savedGames = saveScoutGames(next.games);
+                if (savedGames.spared.length > 0)
+                  showToast(sparedYears(savedGames.spared), { tone: "error" });
                 setAgeGroups(next.ageGroups);
                 setScoutTeams(next.teams);
                 bumpPool();
                 onDataChange?.();
-                return savedGroups && savedTeams && savedGames;
+                /*
+                 * A spared year counts as a refusal, not a partial success. The panel stops the
+                 * pull on a false, which is what should happen: it is holding a pool the store
+                 * will not take, so everything it fetches from here cannot be kept either.
+                 */
+                return (
+                  savedGroups && savedTeams && savedGames.written && savedGames.spared.length === 0
+                );
               }}
               onSaveProgress={(progress) => {
                 setPullProgress(progress);

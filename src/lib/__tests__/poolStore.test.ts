@@ -134,7 +134,7 @@ describe("the pool once the store is in use", () => {
     await initTeamRankingsStore(io);
 
     expect(saveScoutTeams(teams)).toBe(true);
-    expect(saveScoutGames(games)).toBe(true);
+    expect(saveScoutGames(games).written).toBe(true);
     expect(loadScoutTeams()).toEqual(teams);
     expect(loadScoutGames()).toEqual(games);
   });

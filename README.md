@@ -749,6 +749,25 @@ old way is moved across on startup, and the old key emptied only once every
 year's write has been confirmed. The League Standings side reads only the years
 its linked age groups sit in.
 
+**Saving the whole pool is not something a caller is taken at its word on.** The
+save that rewrites every squad year used to empty any year the array it was
+handed had no games for, which reads as obviously right — a caller holding the
+whole pool has nothing for a year only when that year is empty. It is ruinous for
+a caller that is not holding the whole pool, and "the whole pool" is a claim
+about the caller that the array itself cannot make. The Import section was given
+an empty array by a wiring mistake, so the GameChanger panel folded a pull into
+nothing and saved that over everything; a hundred thousand games went and the
+pull reported success. Now a stored year the save has no games for is left
+exactly as it was unless the save names that year, and the save comes back with
+the years it spared — which a caller that really does hold the whole pool never
+has any of. Emptying every year at once is its own function, `replaceScoutGames`,
+and restoring a backup is the only caller of it. The check costs nothing: a year
+with no games is dropped rather than written empty, so the stored keys already
+are the years that hold games. It is not a whole guarantee, and is not meant to
+read as one — a save holding a year's games can still overwrite that year with
+fewer of them, and nothing here can tell that from a deletion somebody asked for.
+What it closes is the whole-year case, which is the one that loses a season.
+
 ### Backups
 
 **Backup JSON is a whole-browser backup.** It carries every storage key this app

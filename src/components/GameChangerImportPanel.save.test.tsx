@@ -96,7 +96,14 @@ describe("a save the browser refuses", () => {
     await user.type(screen.getByLabelText("Teams"), ids.join("\n"));
     await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
 
-    await waitFor(() => expect(toasts.some((line) => /storage full/i.test(line))).toBe(true));
+    /*
+     * The message names no cause. The caller has already said which one on its way to returning
+     * false — a full store, or a store that will not take this snapshot as the whole pool — and
+     * this would be guessing over the top of it.
+     */
+    await waitFor(() =>
+      expect(toasts.some((line) => /could not save the pull/i.test(line))).toBe(true)
+    );
     expect(toasts.some((line) => /Stopping/i.test(line))).toBe(true);
   });
 
@@ -108,7 +115,7 @@ describe("a save the browser refuses", () => {
     await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
 
     await waitFor(() => expect(asked).toHaveLength(1));
-    expect(toasts.some((line) => /storage full/i.test(line))).toBe(false);
+    expect(toasts.some((line) => /could not save/i.test(line))).toBe(false);
   });
 });
 

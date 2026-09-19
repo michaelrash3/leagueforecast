@@ -9,6 +9,7 @@ import {
   loadScoutGamesForYear,
   notePoolChangedElsewhere,
   resetTeamRankingsStore,
+  replaceScoutGames,
   saveAgeGroups,
   saveScoutGames,
   saveScoutGamesForYear,
@@ -83,7 +84,7 @@ const ids = (games: ScoutGame[]) => games.map((entry) => entry.id);
 describe("games stored by squad year", () => {
   it("files a whole save by year and reads it back whole, years first and the yearless last", () => {
     saveAgeGroups(groups);
-    expect(saveScoutGames([loose, a27, orphan, a26, b26])).toBe(true);
+    expect(saveScoutGames([loose, a27, orphan, a26, b26]).written).toBe(true);
 
     expect(ids(loadScoutGames())).toEqual(["a26", "b26", "a27", "loose", "orphan"]);
     expect(ids(loadScoutGamesForYear(2026))).toEqual(["a26", "b26"]);
@@ -120,10 +121,66 @@ describe("games stored by squad year", () => {
     expect(loadScoutGamesForYear(2027)).toEqual([moved]);
   });
 
-  it("drops a year a whole save leaves nothing in", () => {
+  /*
+   * This used to drop the year, and that was the bug rather than the feature.
+   *
+   * "The whole pool" is a claim about the caller, not something the array can say for itself, and
+   * the save took it on trust: a caller handed an empty array by a wiring mistake deleted every
+   * squad year and was told it had succeeded. So a year the save has nothing for is now left as
+   * it was unless the save names it, and the save reports the ones it spared.
+   */
+  it("leaves a year a whole save has nothing for, and says which", () => {
     saveAgeGroups(groups);
     saveScoutGames([a26, a27]);
-    saveScoutGames([a26]);
+
+    const write = saveScoutGames([a26]);
+
+    expect(write.spared).toEqual([2027]);
+    expect(ids(loadScoutGames())).toEqual(["a26", "a27"]);
+    expect(JSON.parse(backing.get(INDEX_KEY)!)).toEqual(["2026", "2027"]);
+  });
+
+  it("empties a year the save names, and only that one", () => {
+    saveAgeGroups(groups);
+    saveScoutGames([a26, a27, loose]);
+
+    const write = saveScoutGames([a26], [2027]);
+
+    expect(write).toEqual({ written: true, spared: [undefined] });
+    expect(backing.has(shardKey("2027"))).toBe(false);
+    // The yearless shard was not named and so is still there, untouched.
+    expect(ids(loadScoutGames())).toEqual(["a26", "loose"]);
+  });
+
+  it("keeps nothing back from a save that holds every year", () => {
+    saveAgeGroups(groups);
+    saveScoutGames([a26, a27, loose]);
+
+    // What a tidy, a merge or a pull does: the whole pool in, the whole pool out.
+    const write = saveScoutGames([{ ...a26, teamAScore: 9 }, a27, loose]);
+
+    expect(write).toEqual({ written: true, spared: [] });
+    expect(loadScoutGamesForYear(2026)).toEqual([{ ...a26, teamAScore: 9 }]);
+  });
+
+  it("saves nothing at all over a pool and leaves every year standing", () => {
+    saveAgeGroups(groups);
+    saveScoutGames([a26, a27, loose]);
+
+    // The shape of the bug: a caller seeded from a pool it was never given, saving its nothing.
+    const write = saveScoutGames([]);
+
+    expect(write.spared).toEqual([2026, 2027, undefined]);
+    expect(ids(loadScoutGames())).toEqual(["a26", "a27", "loose"]);
+  });
+
+  it("lets a restore replace the pool outright, emptying what the file has nothing for", () => {
+    saveAgeGroups(groups);
+    saveScoutGames([a26, a27, loose]);
+
+    // A backup is the pool now, so a year it has no games for is meant to go.
+    expect(replaceScoutGames([a26])).toBe(true);
+
     expect(backing.has(shardKey("2027"))).toBe(false);
     expect(JSON.parse(backing.get(INDEX_KEY)!)).toEqual(["2026"]);
     expect(ids(loadScoutGames())).toEqual(["a26"]);
