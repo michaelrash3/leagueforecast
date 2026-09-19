@@ -692,6 +692,17 @@ export const RATING_PRIOR_MIDPOINT = 4;
 export const RATING_EDGE_PER_RUN = 0.25;
 
 /**
+ * The same conversion, unshrunk: the value that actually fitted best in that sweep.
+ *
+ * `RATING_EDGE_PER_RUN` is deliberately below it because blending a forecast toward the rating is
+ * a bet, and the loss either side of the constant is lopsided. That reasoning applies to a
+ * forecast and to nothing else. Somewhere that only wants to state how a record translates into
+ * runs — a display figure, with no bet riding on it — shrinking toward a coin flip makes the
+ * answer wrong rather than safe, so it reads this one. `scheduleDifficulty.ts` is the only caller.
+ */
+export const EDGE_PER_RUN_BEST_FIT = 0.43;
+
+/**
  * How many games the model has on a team, counting the ones Team Rankings brought in.
  *
  * Every place that asks "how much do we know here" used the league count alone, which is the one
