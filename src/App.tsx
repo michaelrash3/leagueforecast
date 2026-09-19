@@ -16,6 +16,7 @@ import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
+import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
@@ -804,82 +805,14 @@ export default function App() {
 
   // ---------- Scenario helpers ----------
 
-  const scenarioSeedCacheRef = useRef<Map<string, Map<string, number>>>(new Map());
-  const teamScenarioSeedCacheRef = useRef<Map<string, number>>(new Map());
-  const seedRangeCacheRef = useRef<Map<string, { best: number; worst: number; baseline: number }>>(
-    new Map()
-  );
-
-  useEffect(() => {
-    scenarioSeedCacheRef.current.clear();
-    teamScenarioSeedCacheRef.current.clear();
-    seedRangeCacheRef.current.clear();
-  }, [liveTeams, remainingGames, settings]);
-
-  const getScenarioRankMap = useCallback(
-    (game: Matchup, winnerId: string) => {
-      const scenarioKey = `${game.id}|${winnerId}`;
-      if (!exactScenarioAnalysisEnabled) return new Map<string, number>();
-      const cached = scenarioSeedCacheRef.current.get(scenarioKey);
-      if (cached) return cached;
-      const scenario = applyResult(liveTeams, game, winnerId, liveTeams, settings);
-      const scenarioGames = remainingGames.filter((item) => item.id !== game.id);
-      const finalProjected = projectStandings(scenario, scenarioGames, settings);
-      const rankMap = new Map<string, number>();
-      finalProjected.forEach((team) => rankMap.set(team.id, team.rank ?? 99));
-      scenarioSeedCacheRef.current.set(scenarioKey, rankMap);
-      return rankMap;
-    },
-    [exactScenarioAnalysisEnabled, liveTeams, remainingGames, settings]
-  );
-
-  const seedForScenario = useCallback(
-    (teamId: string, game: Matchup, winnerId: string) => {
-      const cacheKey = `${teamId}|${game.id}|${winnerId}`;
-      const cached = teamScenarioSeedCacheRef.current.get(cacheKey);
-      if (cached != null) return cached;
-      const seed = getScenarioRankMap(game, winnerId).get(teamId) ?? 99;
-      teamScenarioSeedCacheRef.current.set(cacheKey, seed);
-      return seed;
-    },
-    [getScenarioRankMap]
-  );
-
-  const computeSeedRangeForTeam = useCallback(
-    (teamId: string) => {
-      const cached = seedRangeCacheRef.current.get(teamId);
-      if (cached) return cached;
-      const baseline =
-        projectedById.get(teamId)?.rank ?? ranked.find((item) => item.id === teamId)?.rank ?? 99;
-      if (!exactScenarioAnalysisEnabled) {
-        const result = { best: baseline, worst: baseline, baseline };
-        seedRangeCacheRef.current.set(teamId, result);
-        return result;
-      }
-      let best = baseline;
-      let worst = baseline;
-      remainingGames
-        .filter((game) => game.away === teamId || game.home === teamId)
-        .forEach((game) => {
-          const opponentId = game.away === teamId ? game.home : game.away;
-          const winSeed = seedForScenario(teamId, game, teamId);
-          const lossSeed = seedForScenario(teamId, game, opponentId);
-          if (winSeed < best) best = winSeed;
-          if (winSeed > worst) worst = winSeed;
-          if (lossSeed < best) best = lossSeed;
-          if (lossSeed > worst) worst = lossSeed;
-        });
-      const result = { best, worst, baseline };
-      seedRangeCacheRef.current.set(teamId, result);
-      return result;
-    },
-    [projectedById, ranked, exactScenarioAnalysisEnabled, remainingGames, seedForScenario]
-  );
-
-  const seedRangeForTeam = useCallback(
-    (teamId: string) => computeSeedRangeForTeam(teamId) ?? { best: 99, worst: 99, baseline: 99 },
-    [computeSeedRangeForTeam]
-  );
+  const { seedForScenario, seedRangeForTeam } = useSeedRanges({
+    exact: exactScenarioAnalysisEnabled,
+    liveTeams,
+    remainingGames,
+    settings,
+    projectedById,
+    ranked,
+  });
 
   const nextTwoSwingGames = useCallback(
     (teamId: string): SwingGame[] => {
