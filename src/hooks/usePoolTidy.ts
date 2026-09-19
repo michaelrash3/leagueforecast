@@ -20,6 +20,22 @@ import { createWorker } from "./createWorker";
  * worker cannot be had, so nothing depends on having one.
  */
 
+/**
+ * Work nobody asked for does not get to run on the main thread.
+ *
+ * Both jobs here walk the whole pool, which on a nationwide one is twenty or thirty seconds. When
+ * a person presses a button for that, a wait is the answer they asked for and inline is a fine
+ * place to do it. When it starts by itself on page load it is not: the tab freezes, the browser
+ * reloads it, the reload cancels the run before it can record that it happened, and the next load
+ * starts it again. That is a loop with no way out of it from inside the page, and it is what
+ * happened when a refactor silently stopped the workers being built at all.
+ *
+ * So the automatic caller passes this, and gets null rather than a frozen tab when there is no
+ * worker to do it properly. The pool then stays untidied until someone presses the button in
+ * Setup, which is the right outcome: untidied is a cosmetic problem, an unusable app is not.
+ */
+export type TidyReach = { workerOnly?: boolean };
+
 export type PoolInspection = { health: PoolHealth; settleable: number };
 export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
 
@@ -49,13 +65,14 @@ export function usePoolTidy() {
     []
   );
 
-  /** One round trip, or the same work inline when there is no worker to send it to. */
+  /** One round trip, or the same work inline when there is no worker and inline is allowed. */
   const ask = useCallback(
     <T>(
       job: "inspect" | "tidy",
       request: (id: number) => WorkerRequest,
       matches: (response: WorkerResponse, id: number) => T | null,
-      inline: () => T
+      inline: () => T,
+      { workerOnly = false }: TidyReach = {}
     ): Promise<T | null> => {
       if (!workerRef.current)
         workerRef.current = createWorker(
@@ -64,6 +81,7 @@ export function usePoolTidy() {
           "Tidy"
         );
       const worker = workerRef.current;
+      if (!worker && workerOnly) return Promise.resolve(null);
       setBusy(job);
       if (!worker) {
         const answer = inline();
@@ -86,12 +104,13 @@ export function usePoolTidy() {
           done(answer);
         };
         const onError = (error: ErrorEvent) => {
-          console.warn("Tidy worker failed, falling back to inline.", error.message);
+          console.warn("Tidy worker failed.", error.message);
           worker.removeEventListener("message", onMessage);
           worker.removeEventListener("error", onError);
           worker.terminate();
           workerRef.current = null;
-          done(inline());
+          // A worker that died mid-job leaves the same choice as never having had one.
+          done(workerOnly ? null : inline());
         };
         /** The panel went away mid-job. No answer is coming, and saying so is what frees the slot. */
         const giveUp = () => done(null);
@@ -131,7 +150,7 @@ export function usePoolTidy() {
    * start; off the main thread, everything can.
    */
   const tidy = useCallback(
-    async (state: GcImportState): Promise<TidyOutcome | null> => {
+    async (state: GcImportState, reach: TidyReach = {}): Promise<TidyOutcome | null> => {
       const session = beginTidy(new Date().toISOString());
       if (!session) return null;
       try {
@@ -147,7 +166,8 @@ export function usePoolTidy() {
           () => {
             const { state: tidied, ...counts } = tidyPool(state);
             return { state: tidied, tidy: counts };
-          }
+          },
+          reach
         );
       } finally {
         // Released even when the worker throws on the way out, or the slot is held for good.

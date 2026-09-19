@@ -150,3 +150,35 @@ describe("taking the pool back", () => {
     expect(isPoolBusy()).toBe(false);
   });
 });
+
+/**
+ * The tidy that nobody asked for.
+ *
+ * In jsdom there is no `Worker`, so these render exactly the situation the guard is for: the work
+ * has nowhere to go but the main thread. A person pressing the button in Setup has asked for that
+ * wait and gets it. The pass that starts by itself on page load has not, and on a nationwide pool
+ * it is twenty or thirty seconds of frozen tab — long enough for the browser to reload the page,
+ * which cancels the run before it can record that it happened, so the next load starts it again.
+ * That loop is what took the app down when a refactor stopped the workers being built at all.
+ */
+describe("a tidy that started by itself", () => {
+  it("does nothing rather than freeze the page when there is no worker", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+
+    const outcome = await result.current.tidy(withStandIn(), { workerOnly: true });
+
+    expect(outcome).toBeNull();
+    // And it did not take the pool hostage on the way out.
+    expect(isPoolBusy()).toBe(false);
+  });
+
+  it("still does the work when a person asked for it", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+
+    const outcome = await result.current.tidy(withStandIn());
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.tidy.named).toBe(1);
+    expect(isPoolBusy()).toBe(false);
+  });
+});
