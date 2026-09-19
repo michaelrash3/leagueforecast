@@ -16,13 +16,40 @@ import {
 } from "../../lib/teamStats";
 import type { TeamTrendMetric, TeamTrendSummary } from "../../lib/teamTrend";
 import type { PitchMode, SwingGame, TeamWithProjection } from "../../lib/types";
-function DrawerMetric({ label, value }: { label: React.ReactNode; value: string | number }) {
+/**
+ * A value still being worked out.
+ *
+ * These slots used to be filled with the words "Loading details..." — a sentence handed in as
+ * though it were the answer, which a screen reader then read out as the bubble margin and which
+ * would have been copied, formatted and compared like any other value. A bar that is plainly not
+ * text says the same thing and cannot be mistaken for data; `aria-busy` on the region is what
+ * actually says it to a screen reader, once, rather than once per slot.
+ */
+function PendingValue({ wide = false }: { wide?: boolean }) {
+  return (
+    <span
+      className={`inline-block h-4 animate-pulse rounded-sm bg-slate-200 align-middle dark:bg-slate-700 ${wide ? "w-full" : "w-16"}`}
+    />
+  );
+}
+
+function DrawerMetric({
+  label,
+  value,
+  pending = false,
+}: {
+  label: React.ReactNode;
+  value: string | number;
+  pending?: boolean;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-700 dark:bg-slate-900">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
-      <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">{value}</div>
+      <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">
+        {pending ? <PendingValue /> : value}
+      </div>
     </div>
   );
 }
@@ -321,6 +348,7 @@ export function TeamDrawer({
   swings,
   clinchScenarios,
   titleRace,
+  detailsPending,
   goldPctLabel,
   cutoff,
   onClose,
@@ -345,6 +373,8 @@ export function TeamDrawer({
   swings: SwingGame[];
   clinchScenarios: string[];
   titleRace: string;
+  /** The worked-out detail has not arrived yet; the slots it fills are blank, not wrong. */
+  detailsPending: boolean;
   goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
@@ -387,6 +417,7 @@ export function TeamDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-busy={detailsPending}
         tabIndex={-1}
         className="h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-6 shadow-2xl outline-hidden dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
@@ -439,7 +470,7 @@ export function TeamDrawer({
           <DrawerMetric label="Record" value={recordText(team)} />
           {hasCutLine && <DrawerMetric label="Gold %" value={goldPctLabel} />}
           <DrawerMetric label="Range" value={`#${range.best}–#${range.worst}`} />
-          {hasCutLine && <DrawerMetric label="Bubble" value={bubble} />}
+          {hasCutLine && <DrawerMetric label="Bubble" value={bubble} pending={detailsPending} />}
           <DrawerMetric label="Runs/Game" value={team.rsg.toFixed(1)} />
           {/* Everything below runs is only ever entered under the full box score. */}
           {!runsOnly && (
@@ -488,7 +519,9 @@ export function TeamDrawer({
           )}
           <DrawerMetric label="Current SOS" value={currentSosRank ? `#${currentSosRank}` : "—"} />
           <DrawerMetric label="Remaining SOS" value={sos.label} />
-          {titleRace && <DrawerMetric label="Title Race" value={titleRace} />}
+          {(titleRace || detailsPending) && (
+            <DrawerMetric label="Title Race" value={titleRace} pending={detailsPending} />
+          )}
         </div>
 
         <TeamTrendPanel trend={trendSummary} />
@@ -534,14 +567,16 @@ export function TeamDrawer({
                 <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   M (Gold clinch)
                 </span>
-                <div className="text-sm font-bold leading-snug">{magicForGold.description}</div>
+                <div className="text-sm font-bold leading-snug">
+                  {detailsPending ? <PendingValue wide /> : magicForGold.description}
+                </div>
               </li>
               <li>
                 <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   E (Gold elimination)
                 </span>
                 <div className="text-sm font-bold leading-snug">
-                  {eliminationNumber.description}
+                  {detailsPending ? <PendingValue wide /> : eliminationNumber.description}
                 </div>
               </li>
             </ul>
@@ -553,7 +588,12 @@ export function TeamDrawer({
             <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
               Clinch Scenarios
             </h3>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-2" aria-busy={detailsPending}>
+              {detailsPending && (
+                <div className="rounded-lg bg-white p-3 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                  <PendingValue wide />
+                </div>
+              )}
               {clinchScenarios.map((scenario) => (
                 <div
                   key={scenario}

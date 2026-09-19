@@ -292,6 +292,12 @@ export default function App() {
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  /*
+   * The palette used to exist only on the league half, which left the half with a nationwide pool
+   * and the most places to be without one. Team Rankings owns its own navigation state, so rather
+   * than lift all of it up here it publishes the commands it can run and this holds them.
+   */
+  const [rankingsCommands, setRankingsCommands] = useState<Command[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [isOffline, setIsOffline] = useState(
@@ -3187,22 +3193,29 @@ League Standings — your seasons, schedules and scores — is not touched.`,
   ]);
 
   const shortcuts: Shortcut[] = useMemo(
-    () =>
-      appMode !== "league"
+    () => [
+      // The palette, the shortcut sheet and the theme are the app's, not one half's.
+      {
+        combo: "mod+k",
+        description: "Open command palette",
+        group: "General",
+        handler: () => setShowCommandPalette(true),
+      },
+      {
+        combo: "shift+/",
+        description: "Show shortcuts",
+        group: "General",
+        handler: () => setShowShortcuts(true),
+      },
+      {
+        combo: "d",
+        description: "Toggle dark mode",
+        group: "Action",
+        handler: toggleTheme,
+      },
+      ...(appMode !== "league"
         ? []
         : [
-            {
-              combo: "mod+k",
-              description: "Open command palette",
-              group: "General",
-              handler: () => setShowCommandPalette(true),
-            },
-            {
-              combo: "shift+/",
-              description: "Show shortcuts",
-              group: "General",
-              handler: () => setShowShortcuts(true),
-            },
             {
               combo: "g s",
               description: "Go to Standings",
@@ -3233,13 +3246,8 @@ League Standings — your seasons, schedules and scores — is not touched.`,
               group: "Navigate",
               handler: () => setActiveView("settings"),
             },
-            {
-              combo: "d",
-              description: "Toggle dark mode",
-              group: "Action",
-              handler: toggleTheme,
-            },
-          ],
+          ]),
+    ],
     [appMode, toggleTheme]
   );
   useShortcuts(shortcuts);
@@ -3432,6 +3440,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 showToast={showToast}
                 requestConfirmation={requestConfirmation}
                 onDataChange={noteScoutChange}
+                onCommands={setRankingsCommands}
               />
             </Suspense>
           </main>
@@ -3660,12 +3669,13 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 baseline: selectedTeam.rank ?? 99,
               }
             }
-            bubble={selectedTeamDetail?.bubble ?? "Loading details..."}
+            bubble={selectedTeamDetail?.bubble ?? ""}
+            detailsPending={!selectedTeamDetail}
             currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-            sos={selectedTeamDetail?.sos ?? { label: "Loading…", rating: 0, opponents: "" }}
+            sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
             swings={selectedTeamDetail?.swings ?? []}
-            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? ["Loading clinch scenarios…"]}
-            titleRace={selectedTeamDetail?.titleRace ?? "Loading…"}
+            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
+            titleRace={selectedTeamDetail?.titleRace ?? ""}
             goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
             cutoff={goldCutoff}
             magicForGold={
@@ -3673,7 +3683,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 type: "magic",
                 ownWinsNeeded: 0,
                 opponentLossesNeeded: 0,
-                description: "Loading magic number…",
+                description: "",
               }
             }
             eliminationNumber={
@@ -3681,7 +3691,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                 type: "elimination",
                 ownWinsNeeded: 0,
                 opponentLossesNeeded: 0,
-                description: "Loading elimination number…",
+                description: "",
               }
             }
             splitSummary={selectedTeamSplitSummary}
@@ -3717,7 +3727,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
           />
         )}
 
-        {appMode === "league" && (
+        {
           /*
             Guarded by the open flags as well as rendered lazily: each of these returns null when
             closed, so rendering them unconditionally would fetch all three on page load and show
@@ -3728,7 +3738,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             {showCommandPalette && (
               <CommandPalette
                 open={showCommandPalette}
-                commands={commands}
+                commands={appMode === "rankings" ? rankingsCommands : commands}
                 onClose={() => setShowCommandPalette(false)}
               />
             )}
@@ -3741,7 +3751,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             )}
             {showTour && <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />}
           </Suspense>
-        )}
+        }
         {confirmState && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"

@@ -59,8 +59,51 @@ export function PowerRatingsView({
         </span>
       </div>
       {engine.powerRatings.length ? (
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full text-sm">
+        <div className="mt-4">
+          {/*
+           * Seven columns is three too many for a phone. Sideways scrolling inside a card is the
+           * thing a person at a ballfield is least likely to find, so below `sm` the same rows are
+           * stacked instead: rank, team and rating on one line because that is the reading, and the
+           * four supporting numbers labelled underneath. One source, two shapes, so a column added
+           * to the table has to be added here too — which is the point, since a column nobody can
+           * see on a phone is a column nobody has decided about.
+           */}
+          <ul className="space-y-2 sm:hidden">
+            {engine.powerRatings.slice(0, compact ? 6 : undefined).map((r) => (
+              <li
+                key={r.teamId}
+                className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm font-black">
+                    #{r.rank} {r.teamName}
+                  </span>
+                  <span className="shrink-0 text-sm font-black">{signedRuns(r.rating)}</span>
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 dark:text-slate-400">Record</dt>
+                    <dd>{r.record}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 dark:text-slate-400">Run Diff/G</dt>
+                    <dd>{signedRuns(r.rawMargin)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 dark:text-slate-400">SOS</dt>
+                    <dd>{r.sosRank > 0 ? `#${r.sosRank}` : "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 dark:text-slate-400">Trend</dt>
+                    <dd>
+                      <TrendCell trend={r.trend} />
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
+          <table className="hidden min-w-full text-sm sm:table">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="py-2">Rank</th>

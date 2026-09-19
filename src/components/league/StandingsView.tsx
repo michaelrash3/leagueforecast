@@ -15,7 +15,12 @@ import { AiStoryPanel } from "../AiStoryPanel";
 import { HelpTip } from "../HelpTip";
 import { ProjectionExplanation } from "../ProjectionExplanation";
 import { Sparkline } from "../Sparkline";
-import { raceRowToneClasses, raceSeedBadgeClasses, raceToneForTeam } from "../../styles/raceTone";
+import {
+  raceRowToneClasses,
+  raceSeedBadgeClasses,
+  raceToneForTeam,
+  raceToneLabels,
+} from "../../styles/raceTone";
 import { focusRing, pill } from "../../styles/tokens";
 
 export function StandingsView({
@@ -282,8 +287,10 @@ export function StandingsView({
                           <td className="px-5 py-4 font-black">
                             <span
                               className={`rounded-full px-3 py-1 text-xs ${raceSeedBadgeClasses[raceTone]}`}
+                              title={raceToneLabels[raceTone]}
                             >
                               #{team.rank}
+                              <span className="sr-only"> · {raceToneLabels[raceTone]}</span>
                             </span>
                           </td>
                           <td className="px-5 py-4">
@@ -398,8 +405,10 @@ export function StandingsView({
                       >
                         <span
                           className={`rounded-full px-2 py-1 text-right text-xs font-black ${raceSeedBadgeClasses[raceTone]}`}
+                          title={raceToneLabels[raceTone]}
                         >
                           #{team.rank}
+                          <span className="sr-only"> · {raceToneLabels[raceTone]}</span>
                         </span>
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-black shadow-xs ${raceSeedBadgeClasses[raceTone]}`}
