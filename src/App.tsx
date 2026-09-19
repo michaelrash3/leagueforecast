@@ -44,19 +44,12 @@ import {
   type TeamRankingsBackup,
 } from "./lib/teamRankingsBackup";
 import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
-import {
-  applyFullBackup,
-  backupFilename,
-  coerceBackup,
-  readFullBackup,
-  summarizeFullBackup,
-  type FullBackup,
-  type LiveSeasonData,
-} from "./lib/backup";
+import { coerceBackup, type FullBackup, type LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
+import { useFullBackup } from "./hooks/useFullBackup";
 import { useLeagueCommands } from "./hooks/useLeagueCommands";
 import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { buildScheduleCsv, scheduleCsvFilename } from "./lib/scheduleCsvExport";
@@ -89,7 +82,6 @@ import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
 import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./lib/scheduleDifficulty";
 import { buildShareUrl } from "./lib/share";
-import { noteBackupTaken } from "./lib/lastBackup";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
   buildProjectionSnapshot,
@@ -1987,68 +1979,31 @@ This will replace the current season data and save an undo snapshot.`,
     [teams, matchups, logs, bracketLogs, settings]
   );
 
-  const downloadBackup = useCallback((backup: FullBackup) => {
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = backupFilename(backup.exportedAt);
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
-  const exportBackup = useCallback(() => {
-    downloadBackup(readFullBackup(liveSeasonData()));
-    noteBackupTaken("league");
-  }, [downloadBackup, liveSeasonData]);
-
   /**
-   * A whole-browser restore: every season, the Team Rankings pool, and the UI preferences. It
-   * replaces more than the undo snapshot can hold — a season the backup does not carry is gone —
-   * so instead of a misleading Undo the toast hands back a backup of what was just replaced.
+   * Put React back in step with storage, which is the source of truth once a restore has written
+   * to it. Also drops the team-data deep link, which could otherwise point at a team the restored
+   * season does not have.
    */
-  const restoreFullBackup = async (backup: FullBackup) => {
-    const previous = readFullBackup(liveSeasonData());
-    const confirmed = await requestConfirmation({
-      title: "Restore full backup?",
-      message: `${summarizeFullBackup(backup)}
+  const afterFullRestore = useCallback(
+    (backup: FullBackup) => {
+      reloadActiveSeason();
+      closeTeamData();
+      noteScoutChange();
+      if (backup.preferences.theme) setTheme(backup.preferences.theme);
+      if (backup.preferences.appMode) setAppMode(backup.preferences.appMode);
+      setLastImpact(null);
+      setActiveView("standings");
+    },
+    [reloadActiveSeason, closeTeamData, noteScoutChange, setTheme, setAppMode]
+  );
 
-This replaces everything currently in this browser: all ${seasons.length} season${seasons.length === 1 ? "" : "s"}, the Team Rankings pool, and your theme and mode. It cannot be undone — the toast afterwards offers a download of the data being replaced.`,
-      confirmLabel: "Restore everything",
-    });
-    if (!confirmed) return;
-
-    const result = applyFullBackup(backup);
-    // Storage is the source of truth after a restore, so pull React state back from it.
-    reloadActiveSeason();
-    // Also drops the team-data deep link, which could otherwise point at a team the restored
-    // season does not have.
-    closeTeamData();
-    noteScoutChange();
-    if (backup.preferences.theme) setTheme(backup.preferences.theme);
-    if (backup.preferences.appMode) setAppMode(backup.preferences.appMode);
-    setLastImpact(null);
-    setActiveView("standings");
-
-    // The download is the only way back from a restore, so it is offered on both outcomes — most
-    // of all on a partial one — and the toast is held open long enough to actually click.
-    const replacedDataAction = {
-      actionLabel: "Download replaced data",
-      onAction: () => downloadBackup(previous),
-      durationMs: 12000,
-    };
-    if (!result.ok) {
-      showToast(`Restore incomplete — could not write ${result.failed.join(", ")}.`, {
-        tone: "error",
-        ...replacedDataAction,
-      });
-      return;
-    }
-    showToast(
-      `Restored ${backup.seasons.length} season${backup.seasons.length === 1 ? "" : "s"} and Team Rankings.`,
-      { tone: "success", ...replacedDataAction }
-    );
-  };
+  const { exportBackup, restoreFullBackup } = useFullBackup({
+    liveSeason: liveSeasonData,
+    seasonCount: seasons.length,
+    requestConfirmation,
+    showToast,
+    onRestored: afterFullRestore,
+  });
 
   /** The older single-season backup shape: replaces the active season only, and stays undoable. */
   const restoreSeasonBackup = async (
