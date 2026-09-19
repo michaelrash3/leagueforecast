@@ -40,6 +40,10 @@ Tests are two Vitest projects: `*.test.ts` run in Node, `*.test.tsx` in jsdom.
 - No `any`, no `@ts-ignore`, no `TODO`; `noUncheckedIndexedAccess` is on.
 - Comments explain why, in prose, and say what was measured when a number is claimed.
 - Commit messages are prose paragraphs: what changed, why, and what proves it.
+- Branches are named after members of the US Congress, last name only, lowercase, under the usual
+  prefix: `rash/rayburn`, `rash/mikulski`, `rash/lewis`. Pick a name not already used by a branch
+  or a merged pull request. A session whose branch the web harness named keeps that generated name
+  rather than being renamed underneath an open pull request.
 
 ## On Claude Code on the web
 
