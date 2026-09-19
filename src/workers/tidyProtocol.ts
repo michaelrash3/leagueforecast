@@ -1,4 +1,9 @@
-import { tidyPool, type GcImportState, type PoolTidy } from "../lib/gameChangerImport";
+import {
+  tidyPool,
+  type GcImportState,
+  type PoolTidy,
+  type TidyStep,
+} from "../lib/gameChangerImport";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import type { AgeGroup } from "../lib/teamRankings";
 import {
@@ -45,13 +50,32 @@ export type TidyResponse = {
   changed: Partial<GcImportState>;
   tidy: Omit<PoolTidy, "state">;
 };
+/**
+ * One step of one pass, sent while the tidy is still running.
+ *
+ * The tidy is the longest thing this app does — the better part of half a minute on a nationwide
+ * pool, and several passes of nine steps each — and it reported nothing until it was over. These
+ * are cheap: nine small objects a pass, against a pool of two hundred thousand games crossing the
+ * port once at each end.
+ *
+ * `ms` is stamped here rather than in `tidyPool`, which stays a pure function of a pool and has no
+ * business reading a clock.
+ */
+export type TidyProgressResponse = {
+  kind: "tidy-progress";
+  id: number;
+  step: TidyStep;
+  /** Milliseconds since this tidy began, so the slow step is the one that can be seen to be slow. */
+  ms: number;
+};
+
 export type InspectResponse = {
   kind: "inspect";
   id: number;
   health: PoolHealth;
   settleable: number;
 };
-export type WorkerResponse = TidyResponse | InspectResponse;
+export type WorkerResponse = TidyResponse | InspectResponse | TidyProgressResponse;
 
 export const packPool = (state: GcImportState): PoolWire => ({
   ageGroups: state.ageGroups,
@@ -95,7 +119,10 @@ export const createTidyHandler =
       });
       return;
     }
-    const { state: tidied, ...counts } = tidyPool(state);
+    const from = performance.now();
+    const { state: tidied, ...counts } = tidyPool(state, (step) =>
+      post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from })
+    );
     // Identity against the pool as decoded here: a pass that changes nothing hands back the array
     // it was given, and that is the whole test.
     const changed: Partial<GcImportState> = {

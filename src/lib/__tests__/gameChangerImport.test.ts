@@ -21,6 +21,7 @@ import {
   importGcSchedules,
   comparePairing,
   isSettledPairing,
+  type TidyStep,
   pairSettledSquads,
   proposeSeasonPairings,
   summarizeGcImport,
@@ -3428,5 +3429,79 @@ describe("a bracket slot and the named game beside it on one schedule", () => {
     });
 
     expect(resolveSlotGames(importer.state).resolved).toBe(1);
+  });
+});
+
+describe("watching a tidy run", () => {
+  const watched = (): GcImportState => ({
+    ageGroups: [{ id: "ag_10u_2027", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] }],
+    teams: [
+      { id: "W-HOME", name: "Home Club", state: "KY" },
+      { id: "W-AWAY", name: "Away Club", state: "KY" },
+      { id: "W-TBD", name: "TBD- 3:00 PM", placeholder: true },
+    ],
+    games: [
+      {
+        id: "w-named",
+        ageGroupId: "ag_10u_2027",
+        teamAId: "W-HOME",
+        teamBId: "W-AWAY",
+        teamAScore: 6,
+        teamBScore: 2,
+        date: "2026-09-12",
+        source: { kind: "gamechanger", teamId: "gcW-HOME", gameId: "n1" },
+      },
+      {
+        id: "w-slot",
+        ageGroupId: "ag_10u_2027",
+        teamAId: "W-AWAY",
+        teamBId: "W-TBD",
+        teamAScore: 2,
+        teamBScore: 6,
+        date: "2026-09-12",
+        source: { kind: "gamechanger", teamId: "gcW-AWAY", gameId: "s1" },
+      },
+    ],
+  });
+
+  it("counts the same things the answer does", () => {
+    /*
+     * The watcher is what the progress view draws, and the summary underneath it is the answer.
+     * Two numbers for one run that disagree is worse than no numbers at all.
+     */
+    const steps: TidyStep[] = [];
+    const result = tidyPool(watched(), (step) => steps.push(step));
+
+    const summed = (name: TidyStep["step"]) =>
+      steps.filter((step) => step.step === name).reduce((total, step) => total + step.found, 0);
+    expect(summed("named")).toBe(result.named);
+    expect(summed("collapsed")).toBe(result.collapsed);
+    expect(summed("folded")).toBe(result.folded);
+    expect(steps.filter((step) => step.step === "named")).toHaveLength(result.passes);
+  });
+
+  it("carries on when the watcher throws", () => {
+    /*
+     * Half an hour of work is not worth a progress bar. A watcher is a drawing concern and must
+     * never be able to take the tidy down with it.
+     */
+    const good = tidyPool(watched());
+
+    const result = tidyPool(watched(), () => {
+      throw new Error("the view blew up");
+    });
+
+    expect(result.named).toBe(good.named);
+    expect(result.passes).toBe(good.passes);
+  });
+
+  it("tidies the same pool whether anyone is watching or not", () => {
+    const alone = tidyPool(watched());
+    const watchedRun = tidyPool(watched(), () => {});
+
+    expect(watchedRun.state.games.map((game) => game.id).sort()).toEqual(
+      alone.state.games.map((game) => game.id).sort()
+    );
+    expect(watchedRun.passes).toBe(alone.passes);
   });
 });

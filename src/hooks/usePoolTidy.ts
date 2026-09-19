@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
+import type { GcImportState, PoolTidy, TidyStep } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
@@ -39,10 +39,22 @@ export type TidyReach = { workerOnly?: boolean };
 export type PoolInspection = { health: PoolHealth; settleable: number };
 export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
 
+/** A step of a tidy, with how long into the run it finished. */
+export type TidyProgress = TidyStep & { ms: number };
+
 export function usePoolTidy() {
   const workerRef = useRef<Worker | null>(null);
   const nextId = useRef(0);
   const [busy, setBusy] = useState<null | "inspect" | "tidy">(null);
+  /**
+   * The steps of the tidy in flight, in the order they finished.
+   *
+   * Emptied when a tidy starts and kept when one ends, so the card goes on showing what the last
+   * one did rather than blanking the moment the answer arrives. Held as the whole list rather than
+   * a running summary because the shape is the point: nine steps a pass, each pass finding less
+   * than the one before, until a pass finds nothing and the tidy stops.
+   */
+  const [progress, setProgress] = useState<TidyProgress[]>([]);
   /**
    * Everything still waiting on the worker.
    *
@@ -72,7 +84,9 @@ export function usePoolTidy() {
       request: (id: number) => WorkerRequest,
       matches: (response: WorkerResponse, id: number) => T | null,
       inline: () => T,
-      { workerOnly = false }: TidyReach = {}
+      { workerOnly = false }: TidyReach = {},
+      /** Told about every message that is not the answer, which is how progress arrives. */
+      onNote?: (response: WorkerResponse) => void
     ): Promise<T | null> => {
       if (!workerRef.current)
         workerRef.current = createWorker(
@@ -100,7 +114,10 @@ export function usePoolTidy() {
         };
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           const answer = matches(event.data, id);
-          if (answer === null) return;
+          if (answer === null) {
+            onNote?.(event.data);
+            return;
+          }
           done(answer);
         };
         const onError = (error: ErrorEvent) => {
@@ -153,6 +170,7 @@ export function usePoolTidy() {
     async (state: GcImportState, reach: TidyReach = {}): Promise<TidyOutcome | null> => {
       const session = beginTidy(new Date().toISOString());
       if (!session) return null;
+      setProgress([]);
       try {
         return await ask<TidyOutcome>(
           "tidy",
@@ -164,10 +182,24 @@ export function usePoolTidy() {
               ? { state: applyTidied(state, response.changed), tidy: response.tidy }
               : null,
           () => {
-            const { state: tidied, ...counts } = tidyPool(state);
+            /*
+             * Inline there is no port to report over and no frame to paint between steps — this is
+             * running on the thread that would draw them — so they are collected and handed over
+             * once. The reader still learns what the tidy did, just not while it is doing it.
+             */
+            const steps: TidyProgress[] = [];
+            const from = performance.now();
+            const { state: tidied, ...counts } = tidyPool(state, (step) => {
+              steps.push({ ...step, ms: performance.now() - from });
+            });
+            setProgress(steps);
             return { state: tidied, tidy: counts };
           },
-          reach
+          reach,
+          (response) => {
+            if (response.kind !== "tidy-progress") return;
+            setProgress((seen) => [...seen, { ...response.step, ms: response.ms }]);
+          }
         );
       } finally {
         // Released even when the worker throws on the way out, or the slot is held for good.
@@ -177,5 +209,5 @@ export function usePoolTidy() {
     [ask]
   );
 
-  return { inspect, tidy, busy };
+  return { inspect, tidy, busy, progress };
 }
