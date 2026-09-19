@@ -15,6 +15,56 @@ import App from "./App";
  * So this drives the real reproduction: change the tab from the tab bar, not from the palette,
  * and then share.
  */
+/**
+ * A keyboard used to reach the content by tabbing the mode tablist and then seven view tabs, on
+ * every page. The link has to be first in the tab order, and has to point at something that can
+ * take focus, or it moves the page without moving the caret.
+ */
+describe("the skip link", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is the first thing a Tab reaches, and points at a main that can hold focus", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.tab();
+    const link = screen.getByRole("link", { name: "Skip to main content" });
+    expect(link).toHaveFocus();
+
+    const target = document.querySelector(String(link.getAttribute("href")));
+    expect(target?.tagName).toBe("MAIN");
+    expect(target).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("follows the open tab, since the league main is the tab panel", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    await user.tab();
+
+    const link = screen.getByRole("link", { name: "Skip to main content" });
+    expect(link).toHaveAttribute("href", "#panel-standings");
+    expect(document.querySelector("#panel-standings")?.tagName).toBe("MAIN");
+  });
+});
+
 describe("sharing the season after a tab change", () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
 

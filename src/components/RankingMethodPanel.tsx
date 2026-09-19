@@ -6,6 +6,7 @@ import {
 } from "../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR } from "../lib/powerRating";
 import { ACTIVE_RECENCY_SCHEME } from "../lib/ratingRecency";
+import { focusRing } from "../styles/tokens";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -41,7 +42,7 @@ export function RankingMethodButton({
       aria-expanded={open}
       aria-controls={panelId}
       aria-label="How the ranking is decided"
-      className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-500 shadow-xs transition hover:border-slate-400 hover:text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white"
+      className={`ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-500 shadow-xs transition hover:border-slate-400 hover:text-slate-800 ${focusRing} dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-white`}
     >
       ?
     </button>

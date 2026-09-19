@@ -16,7 +16,7 @@ import { HelpTip } from "../HelpTip";
 import { ProjectionExplanation } from "../ProjectionExplanation";
 import { Sparkline } from "../Sparkline";
 import { raceRowToneClasses, raceSeedBadgeClasses, raceToneForTeam } from "../../styles/raceTone";
-import { pill } from "../../styles/tokens";
+import { focusRing, pill } from "../../styles/tokens";
 
 export function StandingsView({
   goldCutoff,
@@ -293,7 +293,7 @@ export function StandingsView({
                                 event.preventDefault();
                                 onSelectTeam(team.id);
                               }}
-                              className="-m-1 flex items-center gap-3 rounded-lg p-1 text-left focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                              className={`-m-1 flex items-center gap-3 rounded-lg p-1 text-left ${focusRing}`}
                               aria-label={`View stats for ${displayName(team.name)}`}
                             >
                               <span
@@ -393,7 +393,7 @@ export function StandingsView({
                           event.preventDefault();
                           onSelectTeam(team.id);
                         }}
-                        className="flex min-w-0 items-center gap-3 rounded-lg text-left focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+                        className={`flex min-w-0 items-center gap-3 rounded-lg text-left ${focusRing}`}
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
                         <span

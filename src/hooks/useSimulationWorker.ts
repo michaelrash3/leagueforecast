@@ -58,6 +58,18 @@ type WorkerHandle = {
   nextId: number;
 };
 
+/**
+ * A worker that has failed once fails every run after it: the post goes nowhere, the inline
+ * fallback is paid again, and nothing ever makes a fresh one. Both ways it can fail — the error
+ * event, and a postMessage that throws because the request would not clone — mean the same thing,
+ * so both come through here and the next run starts a new worker. The rankings and tidy hooks
+ * have always done this; the simulation hooks did it on only one of the two paths.
+ */
+const dropWorker = (handle: WorkerHandle) => {
+  handle.worker?.terminate();
+  handle.worker = null;
+};
+
 const createWorker = (): Worker | null => {
   if (typeof Worker === "undefined") return null;
   try {
@@ -167,8 +179,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
           removeWorkerListeners = null;
           // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
           // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
+          dropWorker(handle);
           setWorkerError(event.type);
           runInline();
         };
@@ -193,6 +204,9 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         try {
           handle.worker.postMessage(req);
         } catch (err) {
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
+          dropWorker(handle);
           setWorkerError(err instanceof Error ? err.message : "postMessage failed");
           runInline();
         }
@@ -336,8 +350,7 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
           removeWorkerListeners = null;
           // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
           // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
+          dropWorker(handle);
           setWorkerError(event.type);
           runInline();
         };
@@ -361,6 +374,9 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
         try {
           handle.worker.postMessage(req);
         } catch (err) {
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
+          dropWorker(handle);
           setWorkerError(err instanceof Error ? err.message : "postMessage failed");
           runInline();
         }
@@ -485,8 +501,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
           removeWorkerListeners = null;
           // Let a failed worker go, as the rankings and tidy hooks do. Posting to a dead worker
           // fails every run and pays the inline fallback every time; the next run makes a new one.
-          handle.worker?.terminate();
-          handle.worker = null;
+          dropWorker(handle);
           setWorkerError(event.type);
           runInline();
         };
@@ -511,6 +526,9 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         try {
           handle.worker.postMessage(req);
         } catch (err) {
+          removeWorkerListeners?.();
+          removeWorkerListeners = null;
+          dropWorker(handle);
           setWorkerError(err instanceof Error ? err.message : "postMessage failed");
           runInline();
         }

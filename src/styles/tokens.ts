@@ -7,8 +7,16 @@
  * leave a ring behind it, and an offset ring so it reads against both the light and dark surfaces
  * these sit on.
  */
-const focusRing =
+export const focusRing =
   "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
+
+/**
+ * A text field is the one place `focus-visible` is wrong: clicking into a box and seeing no change
+ * reads as the click having missed. So a field rings on plain focus, and quietly, since the box
+ * already has a border to thicken.
+ */
+export const fieldFocusRing =
+  "outline-hidden focus:border-slate-950 focus:ring-2 focus:ring-slate-200 dark:focus:border-white dark:focus:ring-slate-700";
 
 export type PillTone = "neutral" | "emerald" | "blue" | "amber" | "red" | "dark";
 

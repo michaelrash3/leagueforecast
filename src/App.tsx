@@ -170,7 +170,7 @@ import { PowerRatingsView } from "./components/league/PowerRatingsView";
 import { SeasonManager } from "./components/league/SeasonManager";
 import { TeamStatsView } from "./components/league/TeamStatsView";
 import { SettingsView } from "./components/league/SettingsView";
-import { button as buttonClasses, tab } from "./styles/tokens";
+import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
   titleRaceBadgeForTeam as titleRaceBadgeForTeamValue,
@@ -3252,6 +3252,19 @@ League Standings — your seasons, schedules and scores — is not touched.`,
 
   return (
     <>
+      {/*
+       * Before this, a keyboard reached the content by tabbing the mode tablist and then seven
+       * view tabs, on every single page. The link is the first thing in the tab order and shows
+       * only once it has focus, and the two mains it points at take focus themselves so the next
+       * Tab continues from the content rather than from the top again. The league main is also the
+       * tabpanel, so its id moves with the open tab and the link follows it.
+       */}
+      <a
+        href={appMode === "rankings" ? "#main-content" : `#panel-${activeView}`}
+        className={`sr-only rounded-lg bg-slate-950 px-4 py-2 text-sm font-black text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 dark:bg-white dark:text-slate-950 ${focusRing}`}
+      >
+        Skip to main content
+      </a>
       {isOffline && (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">
           You are offline. Showing cached app shell and local data; score edits still save in this
@@ -3408,7 +3421,11 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         )}
 
         {appMode === "rankings" ? (
-          <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+          >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <TeamRankingsView
                 seasons={seasons}
@@ -3421,6 +3438,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         ) : (
           <main
             className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            tabIndex={-1}
             id={`panel-${activeView}`}
             role="tabpanel"
             aria-labelledby={`tab-${activeView}`}
