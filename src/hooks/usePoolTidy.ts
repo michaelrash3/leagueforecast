@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { GcImportState, PoolTidy, TidyStep } from "../lib/gameChangerImport";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
-import { beginTidy, endTidy } from "../lib/pullSession";
+import {
+  beginTidy,
+  endTidy,
+  noteTidyStep,
+  tidyWatchNow,
+  watchPull,
+  type TidyWatch,
+} from "../lib/pullSession";
 import {
   applyTidied,
   packPool,
@@ -39,22 +46,23 @@ export type TidyReach = { workerOnly?: boolean };
 export type PoolInspection = { health: PoolHealth; settleable: number };
 export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
 
-/** A step of a tidy, with how long into the run it finished. */
-export type TidyProgress = TidyStep & { ms: number };
+/** Nothing tidying. One object, so the store's server snapshot is stable. */
+const EMPTY_WATCH = (): TidyWatch => NOTHING_TIDYING;
+const NOTHING_TIDYING: TidyWatch = { steps: [], now: null };
 
 export function usePoolTidy() {
   const workerRef = useRef<Worker | null>(null);
   const nextId = useRef(0);
   const [busy, setBusy] = useState<null | "inspect" | "tidy">(null);
   /**
-   * The steps of the tidy in flight, in the order they finished.
+   * What the live tidy is doing, read from the slot that holds it rather than kept here.
    *
-   * Emptied when a tidy starts and kept when one ends, so the card goes on showing what the last
-   * one did rather than blanking the moment the answer arrives. Held as the whole list rather than
-   * a running summary because the shape is the point: nine steps a pass, each pass finding less
-   * than the one before, until a pass finds nothing and the tidy stops.
+   * The tidy and the panel watching it are often not the same component — the Import panel's
+   * "the pool is being tidied" banner is about a tidy some other part of the page started — and a
+   * hook's own state cannot reach across to that. The slot can, because it is what told the banner
+   * to appear in the first place.
    */
-  const [progress, setProgress] = useState<TidyProgress[]>([]);
+  const progress = useSyncExternalStore(watchPull, tidyWatchNow, EMPTY_WATCH);
   /**
    * Everything still waiting on the worker.
    *
@@ -170,7 +178,6 @@ export function usePoolTidy() {
     async (state: GcImportState, reach: TidyReach = {}): Promise<TidyOutcome | null> => {
       const session = beginTidy(new Date().toISOString());
       if (!session) return null;
-      setProgress([]);
       try {
         return await ask<TidyOutcome>(
           "tidy",
@@ -187,18 +194,13 @@ export function usePoolTidy() {
              * running on the thread that would draw them — so they are collected and handed over
              * once. The reader still learns what the tidy did, just not while it is doing it.
              */
-            const steps: TidyProgress[] = [];
-            const from = performance.now();
-            const { state: tidied, ...counts } = tidyPool(state, (step) => {
-              steps.push({ ...step, ms: performance.now() - from });
-            });
-            setProgress(steps);
+            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep);
             return { state: tidied, tidy: counts };
           },
           reach,
           (response) => {
             if (response.kind !== "tidy-progress") return;
-            setProgress((seen) => [...seen, { ...response.step, ms: response.ms }]);
+            noteTidyStep(response.step);
           }
         );
       } finally {

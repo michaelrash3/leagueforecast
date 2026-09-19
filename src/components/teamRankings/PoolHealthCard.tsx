@@ -208,7 +208,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
         </p>
       )}
 
-      {(busy === "tidy" || progress.length > 0) && (
+      {(busy === "tidy" || progress.steps.length > 0 || progress.now) && (
         <>
           {busy === "tidy" && (
             <p className="mt-2 text-xs text-slate-500">
@@ -216,7 +216,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
               page stays usable while it runs.
             </p>
           )}
-          <TidyProgressView steps={progress} running={busy === "tidy"} />
+          <TidyProgressView watch={progress} running={busy === "tidy"} />
         </>
       )}
 

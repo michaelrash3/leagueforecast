@@ -2570,16 +2570,25 @@ export const TIDY_STEPS = [
 
 export type TidyStepName = (typeof TIDY_STEPS)[number];
 
-/** What one step of one pass did, reported as it finishes rather than at the end of the run. */
+/**
+ * One step of one pass, reported twice: once as it starts and once as it finishes.
+ *
+ * Twice because a step is where the time goes. Reported only on the way out, a step that takes ten
+ * seconds shows nothing moving for ten seconds, which is the thing this was built to stop. The
+ * step that is *running* is what says the work is alive, and it is the honest signal too: it comes
+ * from the worker, so it stops arriving if the worker stops.
+ */
 export type TidyStep = {
   /** 1-based, as a person counts passes. */
   pass: number;
   step: TidyStepName;
-  /** How many rows or teams this step changed, this pass. */
+  /** How many rows or teams this step changed. Zero on the way in, since it has not run yet. */
   found: number;
-  /** The pool as the step leaves it, so the shrinking is visible while it happens. */
+  /** The pool as the step found it, and then as it leaves it. */
   teams: number;
   games: number;
+  /** False on the way in, true on the way out. */
+  done: boolean;
 };
 
 /** Told after every step, so a caller can show the work rather than a spinner. */
@@ -2595,37 +2604,51 @@ const tidyOnce = (
    * pool that knows nothing about being watched, and it should stay that way. A watcher that
    * throws must not take the tidy down with it — half an hour of work is not worth a progress bar.
    */
-  const say = (step: TidyStepName, found: number, next: GcImportState) => {
+  const say = (step: TidyStepName, found: number, at: GcImportState, done: boolean) => {
     if (!watch) return;
     try {
-      watch({ pass, step, found, teams: next.teams.length, games: next.games.length });
+      watch({ pass, step, found, teams: at.teams.length, games: at.games.length, done });
     } catch {
       /* never at the tidy's expense */
     }
   };
+  /** Going in: no count yet, and the pool as this step found it. */
+  const starting = (step: TidyStepName, at: GcImportState) => say(step, 0, at, false);
+  /** Coming out: what it changed, and the pool as it leaves it. */
+  const finished = (step: TidyStepName, found: number, at: GcImportState) =>
+    say(step, found, at, true);
   // Before everything, because a team that should not be here at all should not be settled,
   // folded, paired or levelled first.
+  starting("notBaseball", state);
   const kept = dropNotBaseball(state);
-  say("notBaseball", kept.dropped, kept.state);
+  finished("notBaseball", kept.dropped, kept.state);
   // Then levels, because every pass after it compares them: a side whose level is about to be
   // worked out should be worked out before anything decides whether two rows mean one game.
+  starting("releveled", kept.state);
   const levels = relevelFromNames(kept.state);
-  say("releveled", levels.releveled, levels.state);
+  finished("releveled", levels.releveled, levels.state);
+  starting("pruned", levels.state);
   const season = pruneOutOfSeason(levels.state);
-  say("pruned", season.pruned, season.state);
+  finished("pruned", season.pruned, season.state);
+  starting("named", season.state);
   const named = resolveSlotGames(season.state);
-  say("named", named.resolved, named.state);
+  finished("named", named.resolved, named.state);
+  starting("reclaimed", named.state);
   const moved = reclaimMisfiled(named.state);
-  say("reclaimed", moved.reclaimed, moved.state);
+  finished("reclaimed", moved.reclaimed, moved.state);
+  starting("refiled", moved.state);
   const placed = refileStandIns(moved.state);
-  say("refiled", placed.refiled, placed.state);
+  finished("refiled", placed.refiled, placed.state);
+  starting("folded", placed.state);
   const squads = mergeSameSquadIds(placed.state);
-  say("folded", squads.merged, squads.state);
+  finished("folded", squads.merged, squads.state);
+  starting("paired", squads.state);
   const seasons = pairSettledSquads(squads.state);
-  say("paired", seasons.paired, seasons.state);
+  finished("paired", seasons.paired, seasons.state);
+  starting("collapsed", seasons.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
   const after = same.collapsed > 0 ? { ...seasons.state, games: same.games } : seasons.state;
-  say("collapsed", same.collapsed, after);
+  finished("collapsed", same.collapsed, after);
   return {
     state: after,
     named: named.resolved,

@@ -22,6 +22,7 @@
  */
 
 import { createPullTracker, type PullRunLog, type PullTracker } from "./pullTracker";
+import type { TidyStep } from "./gameChangerImport";
 
 /** What is holding the pool: a pull fetching schedules, or a tidy folding what is already here. */
 export type PoolJobKind = "pull" | "tidy";
@@ -48,6 +49,23 @@ let live: PullSession | null = null;
  * releases the slot, and they belong in the same file as the fetching that preceded them.
  */
 let lastTracker: PullTracker | null = null;
+
+/**
+ * What the tidy holding the slot is doing, for anyone who wants to show it.
+ *
+ * It lives here rather than in `usePoolTidy` because the tidy and the panel watching it are not
+ * the same component. The Import panel's banner — "the pool is being tidied, so this pull waits" —
+ * is about a tidy that some other part of the page started, and a hook's own state cannot reach
+ * across to it. This is the same slot that told the banner to appear, so it is the thing that can
+ * tell it what is happening.
+ *
+ * `steps` is every step that has finished; `now` is the one in flight, which is what says the work
+ * is alive while a slow step runs. Null when nothing is tidying.
+ */
+export type TidyWatch = { steps: TidyStep[]; now: TidyStep | null };
+const NO_TIDY: TidyWatch = { steps: [], now: null };
+let tidyWatch: TidyWatch = NO_TIDY;
+
 const listeners = new Set<() => void>();
 
 const announce = (): void => {
@@ -64,6 +82,8 @@ const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
     ...(kind === "pull" ? { tracker: createPullTracker(startedAt) } : {}),
   };
   if (live.tracker) lastTracker = live.tracker;
+  // A new tidy starts from nothing; a pull leaves the last tidy's report where it was.
+  if (kind === "tidy") tidyWatch = NO_TIDY;
   announce();
   return live;
 };
@@ -145,6 +165,23 @@ export const forceReleasePool = (): void => {
 };
 
 /** For `useSyncExternalStore`: fires whenever a job starts or ends. */
+/** What the live tidy is doing. The same object until something changes, so a store can read it. */
+export const tidyWatchNow = (): TidyWatch => tidyWatch;
+
+/**
+ * Records a step of the tidy holding the slot.
+ *
+ * Ignored when nothing holds it: a straggler from a tidy that has already given the slot up would
+ * otherwise draw a run that is not happening, over the top of whatever holds it now.
+ */
+export const noteTidyStep = (step: TidyStep): void => {
+  if (live?.kind !== "tidy") return;
+  tidyWatch = step.done
+    ? { steps: [...tidyWatch.steps, step], now: null }
+    : { steps: tidyWatch.steps, now: step };
+  announce();
+};
+
 export const watchPull = (listener: () => void): (() => void) => {
   listeners.add(listener);
   return () => {
@@ -154,6 +191,7 @@ export const watchPull = (listener: () => void): (() => void) => {
 
 /** Test-only: drops any live job so one case cannot leak into the next. */
 export const resetPullSession = (): void => {
+  tidyWatch = NO_TIDY;
   live = null;
   lastTracker = null;
   listeners.clear();

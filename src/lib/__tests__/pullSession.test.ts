@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   beginPull,
   beginTidy,
@@ -7,10 +7,13 @@ import {
   isPoolBusy,
   isPullLive,
   livePull,
+  noteTidyStep,
   resetPullSession,
   stopLivePull,
+  tidyWatchNow,
   watchPull,
 } from "../pullSession";
+import type { TidyStep } from "../gameChangerImport";
 
 afterEach(() => resetPullSession());
 
@@ -128,5 +131,102 @@ describe("the tidy takes the same slot", () => {
     endTidy(session);
     expect(seen).toHaveBeenCalledTimes(2);
     unwatch();
+  });
+});
+
+describe("what the live tidy is doing", () => {
+  /*
+   * The Import panel's banner — "the pool is being tidied, so this pull waits" — is about a tidy
+   * that some other part of the page started. A hook's own state cannot reach across to it, so it
+   * said nothing at all about what was happening, for a minute or two, with a button offering to
+   * give up waiting. The slot is what told the banner to appear, so the slot is what can tell it
+   * what the tidy is doing.
+   */
+  const step = (pass: number, name: TidyStep["step"], found: number, done: boolean): TidyStep => ({
+    pass,
+    step: name,
+    found,
+    teams: 40_000,
+    games: 200_000,
+    done,
+  });
+
+  beforeEach(() => resetPullSession());
+  afterEach(() => resetPullSession());
+
+  it("reports nothing when nothing is tidying", () => {
+    expect(tidyWatchNow()).toEqual({ steps: [], now: null });
+  });
+
+  it("holds the step in flight, then moves it into what is done", () => {
+    const session = beginTidy("2026-09-19T00:00:00.000Z");
+    expect(session).not.toBeNull();
+
+    noteTidyStep(step(1, "named", 0, false));
+    expect(tidyWatchNow().now?.step).toBe("named");
+    expect(tidyWatchNow().steps).toHaveLength(0);
+
+    noteTidyStep(step(1, "named", 416, true));
+    expect(tidyWatchNow().now).toBeNull();
+    expect(tidyWatchNow().steps).toHaveLength(1);
+    expect(tidyWatchNow().steps[0]?.found).toBe(416);
+  });
+
+  it("tells whoever is watching the slot, which is how the banner hears", () => {
+    const session = beginTidy("2026-09-19T00:00:00.000Z");
+    expect(session).not.toBeNull();
+    let told = 0;
+    const stop = watchPull(() => (told += 1));
+
+    noteTidyStep(step(1, "named", 0, false));
+
+    expect(told).toBe(1);
+    stop();
+  });
+
+  it("ignores a step from a tidy that has already given the slot up", () => {
+    /*
+     * A straggler would otherwise draw a run that is not happening, over the top of whatever holds
+     * the slot now — and the pull that took it would look like it was tidying.
+     */
+    const session = beginTidy("2026-09-19T00:00:00.000Z");
+    if (!session) throw new Error("expected the slot");
+    noteTidyStep(step(1, "named", 416, true));
+    endTidy(session);
+
+    noteTidyStep(step(2, "collapsed", 99, true));
+
+    expect(tidyWatchNow().steps).toHaveLength(1);
+  });
+
+  it("does not report a tidy while a pull holds the slot", () => {
+    const pull = beginPull("2026-09-19T00:00:00.000Z");
+    expect(pull).not.toBeNull();
+
+    noteTidyStep(step(1, "named", 5, true));
+
+    expect(tidyWatchNow()).toEqual({ steps: [], now: null });
+  });
+
+  it("starts a new tidy from nothing, rather than on top of the last one", () => {
+    const first = beginTidy("2026-09-19T00:00:00.000Z");
+    if (!first) throw new Error("expected the slot");
+    noteTidyStep(step(1, "named", 416, true));
+    endTidy(first);
+
+    const second = beginTidy("2026-09-19T00:01:00.000Z");
+    expect(second).not.toBeNull();
+
+    expect(tidyWatchNow()).toEqual({ steps: [], now: null });
+  });
+
+  it("keeps the last tidy's report after it lets go, so the card can still show it", () => {
+    const session = beginTidy("2026-09-19T00:00:00.000Z");
+    if (!session) throw new Error("expected the slot");
+    noteTidyStep(step(1, "named", 416, true));
+
+    endTidy(session);
+
+    expect(tidyWatchNow().steps).toHaveLength(1);
   });
 });
