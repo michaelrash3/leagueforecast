@@ -58,7 +58,7 @@ import {
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
 import { useDarkMode } from "./hooks/useDarkMode";
-import { useFocusTrap } from "./hooks/useFocusTrap";
+import { useConfirmation } from "./hooks/useConfirmation";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
 import { useToast } from "./hooks/useToast";
@@ -177,12 +177,6 @@ import {
 } from "./lib/standingsView";
 
 type ActiveView = ActiveShareView;
-type ConfirmState = {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-};
 
 type RankSnapshotEntry = Team & {
   rank: number;
@@ -320,9 +314,12 @@ export default function App() {
     Map<string, ScoreboardPrediction>
   >(() => new Map());
   const [seasonBuilderText, setSeasonBuilderText] = useState("");
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
-  const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
-  const confirmDialogRef = useRef<HTMLElement>(null);
+  const {
+    state: confirmState,
+    dialogRef: confirmDialogRef,
+    request: requestConfirmation,
+    resolve: resolveConfirmation,
+  } = useConfirmation();
 
   const undoRef = useRef<UndoSnapshotWithRankings | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
@@ -388,19 +385,6 @@ export default function App() {
     uiState: sharedUiState,
     clear: clearSharedSnapshot,
   } = useUrlSnapshot();
-  const requestConfirmation = useCallback(
-    (options: ConfirmState) =>
-      new Promise<boolean>((resolve) => {
-        confirmResolverRef.current = resolve;
-        setConfirmState(options);
-      }),
-    []
-  );
-  const resolveConfirmation = useCallback((confirmed: boolean) => {
-    confirmResolverRef.current?.(confirmed);
-    confirmResolverRef.current = null;
-    setConfirmState(null);
-  }, []);
   const openTeamData = useCallback((teamId: string) => {
     setSelectedTeamId(teamId);
     replaceTeamDataUrl(teamId);
@@ -427,16 +411,6 @@ export default function App() {
     setCompareTeamId(null);
     replaceTeamDataUrl(null);
   }, []);
-
-  useFocusTrap(!!confirmState, confirmDialogRef as React.RefObject<HTMLElement>);
-  useEffect(() => {
-    if (!confirmState) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") resolveConfirmation(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [confirmState, resolveConfirmation]);
 
   /**
    * Whether this league writes down the final score and nothing else. Runs are
@@ -1745,34 +1719,37 @@ export default function App() {
    * need the pool in the snapshot, and it is large enough that carrying it on every undo-able
    * action would risk filling storage for nothing.
    */
-  const captureUndo = (label: string, options?: { withTeamRankings?: boolean }) => {
-    const snapshot: UndoSnapshotWithRankings = {
-      teams,
-      matchups,
-      logs,
-      bracketLogs,
-      label,
-      timestamp: Date.now(),
-      ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
-    };
-    undoRef.current = snapshot;
-    if (!saveUndoSnapshot(snapshot)) {
-      /*
-       * The undo itself is fine — it is in memory, which is where Undo reads from first. What
-       * failed is the copy that would survive a reload, and at a nationwide pool size that copy
-       * simply does not fit in localStorage. Saying "storage full" as an error made a working
-       * undo read as a broken one; say what is actually true instead, and only for the snapshots
-       * that carry the pool, since a plain one failing really is a storage problem.
-       */
-      if (options?.withTeamRankings) {
-        showToast("Undo is ready, but this pool is too big to keep it past a reload.");
-      } else {
-        showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+  const captureUndo = useCallback(
+    (label: string, options?: { withTeamRankings?: boolean }) => {
+      const snapshot: UndoSnapshotWithRankings = {
+        teams,
+        matchups,
+        logs,
+        bracketLogs,
+        label,
+        timestamp: Date.now(),
+        ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
+      };
+      undoRef.current = snapshot;
+      if (!saveUndoSnapshot(snapshot)) {
+        /*
+         * The undo itself is fine — it is in memory, which is where Undo reads from first. What
+         * failed is the copy that would survive a reload, and at a nationwide pool size that copy
+         * simply does not fit in localStorage. Saying "storage full" as an error made a working
+         * undo read as a broken one; say what is actually true instead, and only for the snapshots
+         * that carry the pool, since a plain one failing really is a storage problem.
+         */
+        if (options?.withTeamRankings) {
+          showToast("Undo is ready, but this pool is too big to keep it past a reload.");
+        } else {
+          showToast("Could not save undo snapshot (storage full).", { tone: "error" });
+        }
       }
-    }
-  };
+    },
+    [teams, matchups, logs, bracketLogs, showToast]
+  );
 
-  const restoreUndo = () => {
+  const restoreUndo = useCallback(() => {
     const snapshot = undoRef.current ?? (readUndoSnapshot() as UndoSnapshotWithRankings | null);
     if (!snapshot) return;
     setTeams(snapshot.teams);
@@ -1785,7 +1762,7 @@ export default function App() {
     closeTeamData();
     undoRef.current = null;
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
-  };
+  }, [closeTeamData, noteScoutChange, showToast]);
 
   // ---------- Seasons ----------
 
@@ -1998,7 +1975,7 @@ This will replace the current season data and save an undo snapshot.`,
     reader.readAsText(file);
   };
 
-  const exportCSV = () => {
+  const exportCSV = useCallback(() => {
     const headers =
       settings.pitchMode === "player"
         ? [
@@ -2089,18 +2066,21 @@ This will replace the current season data and save an undo snapshot.`,
     anchor.download = `${settings.seasonLabel.replace(/\s+/g, "_")}_Schedule_Data.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, [settings, matchups, logs, teamBaseById]);
 
   /** The active season's live React state — fresher than storage, whose score writes are debounced. */
-  const liveSeasonData = (): LiveSeasonData => ({
-    teams,
-    matchups,
-    logs,
-    bracketLogs,
-    settings,
-  });
+  const liveSeasonData = useCallback(
+    (): LiveSeasonData => ({
+      teams,
+      matchups,
+      logs,
+      bracketLogs,
+      settings,
+    }),
+    [teams, matchups, logs, bracketLogs, settings]
+  );
 
-  const downloadBackup = (backup: FullBackup) => {
+  const downloadBackup = useCallback((backup: FullBackup) => {
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -2108,12 +2088,12 @@ This will replace the current season data and save an undo snapshot.`,
     anchor.download = backupFilename(backup.exportedAt);
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, []);
 
-  const exportBackup = () => {
+  const exportBackup = useCallback(() => {
     downloadBackup(readFullBackup(liveSeasonData()));
     noteBackupTaken("league");
-  };
+  }, [downloadBackup, liveSeasonData]);
 
   /**
    * A whole-browser restore: every season, the Team Rankings pool, and the UI preferences. It
@@ -2613,7 +2593,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     });
   };
 
-  const loadDemoSeason = async () => {
+  const loadDemoSeason = useCallback(async () => {
     // Nothing to overwrite on an empty season, and the first thing a new user
     // is invited to do should not open with a warning about losing data.
     if (teams.length > 0 || matchups.length > 0) {
@@ -2639,7 +2619,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
-  };
+  }, [teams, matchups, requestConfirmation, captureUndo, closeTeamData, showToast, restoreUndo]);
 
   // ---------- Season builder ----------
 
@@ -3088,7 +3068,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharedSnapshot, sharedUiState]);
 
-  const shareSeason = async () => {
+  const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
       const url = buildShareUrl(window.location.href, snapshot, {
@@ -3117,14 +3097,17 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         }
       );
     }
-  };
+  }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
 
   // ---------- Command palette + shortcuts ----------
 
-  const runTrackedCommand = (id: string, run: () => void) => () => {
-    setCommandHistory((prev) => [id, ...prev.filter((item) => item !== id)].slice(0, 6));
-    run();
-  };
+  const runTrackedCommand = useCallback(
+    (id: string, run: () => void) => () => {
+      setCommandHistory((prev) => [id, ...prev.filter((item) => item !== id)].slice(0, 6));
+      run();
+    },
+    []
+  );
 
   const commands: Command[] = useMemo(() => {
     const teamCmds: Command[] = dashboardRows.map((team) => ({
@@ -3190,8 +3173,18 @@ League Standings — your seasons, schedules and scores — is not touched.`,
       .filter((cmd): cmd is Command => !!cmd)
       .map((cmd) => ({ ...cmd, group: "Recent" }));
     return [...historyCmds, ...viewCmds, ...teamCmds, ...actionCmds];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commandHistory, dashboardRows, theme]);
+  }, [
+    commandHistory,
+    dashboardRows,
+    theme,
+    runTrackedCommand,
+    openTeamData,
+    shareSeason,
+    exportCSV,
+    exportBackup,
+    loadDemoSeason,
+    toggleTheme,
+  ]);
 
   const shortcuts: Shortcut[] = useMemo(
     () =>
