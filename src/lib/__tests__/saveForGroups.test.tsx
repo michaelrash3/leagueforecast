@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AgeGroup, ScoutGame } from "../teamRankings";
 import {
+  addScoutGames,
   loadScoutGames,
+  loadScoutGamesForPages,
   loadScoutGamesForYear,
   resetTeamRankingsStore,
   saveAgeGroups,
@@ -112,6 +114,63 @@ describe("saving one section of the pool", () => {
 
   it("does nothing at all when it owns nothing", () => {
     expect(saveScoutGamesForGroups([], [game("f", "10u_2027")])).toBe(true);
+
+    expect(ids(loadScoutGames())).toEqual(["a", "b", "c", "d", "e"]);
+  });
+});
+
+describe("reading one section of the pool", () => {
+  beforeEach(() => {
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+    seed();
+  });
+
+  it("answers with the pages asked for and nothing else of their year", () => {
+    /*
+     * The point of the whole exercise. `loadScoutGamesForGroups` answers with whole years, and at
+     * six age pages to a year a whole year is most of what a section is trying not to hold.
+     */
+    expect(ids(loadScoutGamesForPages(["10u_2027"]))).toEqual(["a", "b"]);
+  });
+
+  it("reaches across years when the section spans them", () => {
+    expect(ids(loadScoutGamesForPages(["11u_2027", "10u_2028"]))).toEqual(["c", "e"]);
+  });
+
+  it("answers empty for a section that owns no page", () => {
+    // The ids nobody has pulled before. There is no page to read back, and that is the case.
+    expect(loadScoutGamesForPages([])).toEqual([]);
+  });
+
+  it("answers empty for a page that has never held anything", () => {
+    expect(loadScoutGamesForPages(["9u_2027"])).toEqual([]);
+  });
+});
+
+describe("adding to the pool without holding it", () => {
+  beforeEach(() => {
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+    seed();
+  });
+
+  it("lays its games over the pool and replaces nothing", () => {
+    // The section of ids nobody has pulled before: it never read a page, so it cannot empty one.
+    expect(addScoutGames([game("f", "10u_2027"), game("g", "10u_2028")])).toBe(true);
+
+    expect(ids(loadScoutGames())).toEqual(["a", "b", "c", "d", "e", "f", "g"]);
+  });
+
+  it("overwrites by id, so a second look at one game is not a second game", () => {
+    addScoutGames([{ ...game("a", "10u_2027"), teamAScore: 11 }]);
+
+    expect(ids(loadScoutGamesForYear(2027))).toEqual(["a", "b", "c", "d"]);
+    expect(loadScoutGamesForYear(2027).find((entry) => entry.id === "a")?.teamAScore).toBe(11);
+  });
+
+  it("writes nothing when it has nothing, rather than emptying a year", () => {
+    expect(addScoutGames([])).toBe(true);
 
     expect(ids(loadScoutGames())).toEqual(["a", "b", "c", "d", "e"]);
   });

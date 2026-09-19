@@ -884,6 +884,32 @@ export const loadScoutGamesForGroups = (groupIds: readonly string[]): ScoutGame[
   return wanted.flatMap((label) => decodeShard(shardKeyFor(label)));
 };
 
+/**
+ * The games filed under these pages, and nothing else of the years they sit in.
+ *
+ * The read that mirrors `saveScoutGamesForGroups`, for the caller holding part of the pool on
+ * purpose: a sectioned pull reads back the pages it is about to refresh, folds into those, and
+ * writes them to the same pages. `loadScoutGamesForGroups` is the wrong tool for that — it answers
+ * with whole years, and at six age pages to a year a whole year is most of what sectioning exists
+ * to avoid holding.
+ *
+ * Nothing is pinned. `decodeShard` reads the pinned year if it happens to be one of these and
+ * never sets it, so a run that walks every year in turn does not leave the pool decoded behind it.
+ */
+export const loadScoutGamesForPages = (groupIds: readonly string[]): ScoutGame[] => {
+  ensureGamesSharded();
+  const owned = new Set(groupIds);
+  if (owned.size === 0) return [];
+  const years = yearsByGroup(loadAgeGroups());
+  const stored = new Set(storedShardLabels());
+  const labels = orderedLabels(
+    [...owned].filter((id) => years.has(id)).map((id) => labelForYear(years.get(id)))
+  ).filter((label) => stored.has(label));
+  return labels.flatMap((label) =>
+    decodeShard(shardKeyFor(label)).filter((game) => owned.has(game.ageGroupId))
+  );
+};
+
 /** The games of the years whose age groups include this League Standings season. */
 export const loadScoutGamesForSeason = (seasonId: string): ScoutGame[] =>
   loadScoutGamesForGroups(
@@ -989,7 +1015,21 @@ export const saveScoutGamesForGroups = (
     toWrite.set(label, [...kept, ...mine]);
   });
 
-  // A game the caller holds that is filed somewhere it does not own: laid over, never dropped.
+  layOverUnowned(toWrite, split, owned);
+
+  return writeShards(toWrite);
+};
+
+/**
+ * Adds the games of `split` that no page in `owned` covers to `toWrite`, over whatever their year
+ * already holds, matching by id. Nothing is dropped: a year not already in `toWrite` is decoded
+ * and added to rather than replaced.
+ */
+const layOverUnowned = (
+  toWrite: Map<string, ScoutGame[]>,
+  split: Map<string, ScoutGame[]>,
+  owned: ReadonlySet<string>
+): void => {
   split.forEach((strays, label) => {
     const outside = strays.filter((game) => !owned.has(game.ageGroupId));
     if (outside.length === 0) return;
@@ -998,9 +1038,39 @@ export const saveScoutGamesForGroups = (
     outside.forEach((game) => byId.set(game.id, game));
     toWrite.set(label, [...byId.values()]);
   });
+};
 
+/**
+ * Lays these games over the pool by id and replaces nothing.
+ *
+ * For the caller holding no page in full: the section of a sectioned pull that fetches ids nobody
+ * has pulled before. It cannot say what any page ought to contain — it never read one — so the
+ * only honest write is the one that adds. `saveScoutGamesForGroups` with no pages is not this: it
+ * writes nothing at all, on purpose, so that an empty list can never be the thing that quietly
+ * skips a save.
+ *
+ * The cost is that this cannot delete. A game these schedules no longer list stays until the tidy
+ * prunes it, which is the same bargain every additive fold in the pull makes.
+ */
+export const addScoutGames = (games: ScoutGame[]): boolean => {
+  ensureGamesSharded();
+  if (games.length === 0) return true;
+  const toWrite = new Map<string, ScoutGame[]>();
+  layOverUnowned(toWrite, splitByYear(games, loadAgeGroups()), new Set());
   return writeShards(toWrite);
 };
+
+/**
+ * What a caller is holding, when it is not the whole pool — how its save must be applied.
+ *
+ * A sectioned pull holds one age page at a time, so the difference matters more than it reads:
+ * saving a section as the whole pool deletes every page it is not holding.
+ */
+export type PoolHolding =
+  /** These pages, in full. Replace them; leave every other page of their years untouched. */
+  | { kind: "pages"; ageGroupIds: readonly string[] }
+  /** No page in full. Lay what is here over the pool by id and replace nothing. */
+  | { kind: "additions" };
 
 /**
  * Replaces the pool outright, from something that is not the pool: a restored backup. Every
