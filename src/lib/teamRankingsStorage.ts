@@ -953,6 +953,56 @@ export const saveScoutGames = (
 };
 
 /**
+ * Replaces the games of some age groups, leaving every other page of their years alone.
+ *
+ * For a caller that holds part of the pool on purpose. A pull of a nationwide pool cannot hold all
+ * of it: measured at forty thousand teams and two hundred thousand games, the fold's index alone
+ * is 253 MB on top of 79 MB of pool, and that is what runs a tab out of memory. Scoped to one age
+ * group of six it is 83 MB on top of 16 MB, because the roster is only 25 MB of it and the games
+ * are the rest — so a section holds its own pages and nothing else.
+ *
+ * `groupIds` is what the caller is authoritative for: rows filed under those pages are replaced
+ * outright, and a page of the same year that is not named keeps everything it had. A game the
+ * caller holds that has moved to a page it does not own is laid over that year by id rather than
+ * dropped, the same way a single year's save treats a game that has left it — a fold can refile a
+ * game, and a refiled game has to arrive somewhere.
+ */
+export const saveScoutGamesForGroups = (
+  groupIds: readonly string[],
+  games: ScoutGame[]
+): boolean => {
+  ensureGamesSharded();
+  const owned = new Set(groupIds);
+  if (owned.size === 0) return true;
+  const ageGroups = loadAgeGroups();
+  const years = yearsByGroup(ageGroups);
+  const labelsOwned = new Set([...owned].map((id) => labelForYear(years.get(id))));
+
+  const split = splitByYear(games, ageGroups);
+  const toWrite = new Map<string, ScoutGame[]>();
+
+  labelsOwned.forEach((label) => {
+    const key = shardKeyFor(label);
+    // What that year holds for pages this caller does not own, which has to survive untouched.
+    const kept = decodeShard(key).filter((game) => !owned.has(game.ageGroupId));
+    const mine = (split.get(label) ?? []).filter((game) => owned.has(game.ageGroupId));
+    toWrite.set(label, [...kept, ...mine]);
+  });
+
+  // A game the caller holds that is filed somewhere it does not own: laid over, never dropped.
+  split.forEach((strays, label) => {
+    const outside = strays.filter((game) => !owned.has(game.ageGroupId));
+    if (outside.length === 0) return;
+    const base = toWrite.get(label) ?? decodeShard(shardKeyFor(label));
+    const byId = new Map(base.map((game) => [game.id, game]));
+    outside.forEach((game) => byId.set(game.id, game));
+    toWrite.set(label, [...byId.values()]);
+  });
+
+  return writeShards(toWrite);
+};
+
+/**
  * Replaces the pool outright, from something that is not the pool: a restored backup. Every
  * stored year the file has no games for goes, because the file is the pool now.
  *
