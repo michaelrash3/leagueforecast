@@ -6,11 +6,8 @@ import { winPct } from "../format";
 /**
  * The Clinched/Eliminated badge and the odds printed beside it have to be about the same race.
  *
- * They were not. `rankTeams` orders the table on PCT and the Monte Carlo cuts
- * `rankTeams(...).slice(0, cutoff)`, while `getMathGoldStatus` decided on total standings points —
- * so the two agreed only while every team had played the same number of games, which is true on
- * the first weekend and rarely again. Points only ever go up, so a club that had played twice as
- * many games read as twice as strong and no stronger at all in the table beside it.
+ * Every consumer uses the same league-points currency. Fewer losses separates teams on equal
+ * points before the configured score tiebreakers do.
  */
 const team = (id: string, w: number, l: number, t = 0): Team =>
   ({
@@ -29,14 +26,17 @@ const team = (id: string, w: number, l: number, t = 0): Team =>
   }) as unknown as Team;
 
 const settings: Settings = { ...DEFAULT_SETTINGS, goldCutoff: 1, winPoints: 2, tiePoints: 1 };
-const ranked = (teams: Team[]) => rankTeams(teams, { tiebreakerOrder: settings.tiebreakerOrder });
+const ranked = (teams: Team[]) =>
+  rankTeams(teams, {
+    tiebreakerOrder: settings.tiebreakerOrder,
+    winPoints: settings.winPoints,
+    tiePoints: settings.tiePoints,
+  });
 
 describe("the badge and the odds beside it", () => {
   /*
-   * Nothing left to play, so the table is final and there is nothing to argue about: 2-0 is first
-   * on PCT and takes the only Gold place, 8-8 is second and misses it. Points said 4 against 16,
-   * and points were the only thing on the screen that thought so — the badge read "Eliminated" on
-   * the team the odds gave 100% and "Clinched" on the team they gave 0%.
+   * Nothing left to play, so the club with the most league points takes the only Gold place and
+   * the table, odds, and status badge must agree.
    */
   const table = ranked([team("Aces", 2, 0), team("Bears", 8, 8), team("Cubs", 1, 9)]);
   const counts = { Aces: 0, Bears: 0, Cubs: 0 };
@@ -52,16 +52,15 @@ describe("the badge and the odds beside it", () => {
         settings
       ).goldStatus;
 
-    expect(odds).toEqual({ Aces: 100, Bears: 0, Cubs: 0 });
-    expect(status("Aces")).toBe("Clinched");
-    expect(status("Bears")).toBe("Eliminated");
+    expect(odds).toEqual({ Aces: 0, Bears: 100, Cubs: 0 });
+    expect(status("Aces")).toBe("Eliminated");
+    expect(status("Bears")).toBe("Clinched");
     expect(status("Cubs")).toBe("Eliminated");
   });
 
-  it("disagrees with what the points say, which is the point", () => {
-    // The fixture is only worth anything while the two currencies still rank it differently.
-    expect(table.map((row) => row.id)).toEqual(["Aces", "Bears", "Cubs"]);
-    expect(table.map((row) => standingsPoints(row, settings))).toEqual([4, 16, 2]);
+  it("orders the table by the same points used by the postseason race", () => {
+    expect(table.map((row) => row.id)).toEqual(["Bears", "Aces", "Cubs"]);
+    expect(table.map((row) => standingsPoints(row, settings))).toEqual([16, 4, 2]);
   });
 });
 
@@ -113,8 +112,8 @@ describe("the PCT a team can still finish on", () => {
 
 describe("mid-season, with the games played unequal", () => {
   /*
-   * The ordinary shape: one team has played ten and another six. On points the ten-game team is
-   * far ahead of a side it is plainly behind in the table.
+   * The ordinary shape: one team has played ten and another six. Earned league points determine
+   * their current order while remaining games determine what can still change.
    */
   const table = ranked([team("Aces", 6, 4), team("Bears", 5, 1), team("Cubs", 1, 7)]);
   const counts = { Aces: 0, Bears: 4, Cubs: 2 };
@@ -128,7 +127,7 @@ describe("mid-season, with the games played unequal", () => {
     );
 
   it("does not call a team eliminated that the table has inside the cut", () => {
-    expect(table.slice(0, 2).map((row) => row.id)).toEqual(["Bears", "Aces"]);
+    expect(table.slice(0, 2).map((row) => row.id)).toEqual(["Aces", "Bears"]);
     expect(status("Bears").goldStatus).not.toBe("Eliminated");
     expect(status("Aces").goldStatus).not.toBe("Eliminated");
   });

@@ -172,7 +172,7 @@ describe("standingsPoints + rankTeams", () => {
     expect(standingsPoints(team, { winPoints: 3, tiePoints: 1 })).toBe(14);
   });
 
-  it("ranks GameChanger-style winning percentage with ties as half a win", () => {
+  it("ranks league points earned before winning percentage", () => {
     const higherWinTotal = {
       ...emptyTeam({ id: "A", name: "10-4 Team" }),
       w: 10,
@@ -194,14 +194,14 @@ describe("standingsPoints + rankTeams", () => {
 
     const ranked = rankTeams([higherWinTotal, betterPct], { winPoints: 1, tiePoints: 0.5 });
 
-    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
+    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
     expect(betterPct.pct).toBeGreaterThan(higherWinTotal.pct);
     expect(standingsPoints(higherWinTotal, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
       standingsPoints(betterPct, { winPoints: 1, tiePoints: 0.5 })
     );
   });
 
-  it("uses tournament tiebreakers after equal winning percentage instead of standings points", () => {
+  it("ranks more league points ahead of tournament tiebreakers", () => {
     const shortUndefeated = {
       ...emptyTeam({ id: "A", name: "1-0 Team" }),
       w: 1,
@@ -225,10 +225,31 @@ describe("standingsPoints + rankTeams", () => {
       tiePoints: 0.5,
     });
 
-    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
+    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
     expect(standingsPoints(longerUndefeated, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
       standingsPoints(shortUndefeated, { winPoints: 1, tiePoints: 0.5 })
     );
+  });
+
+  it("ranks 0-1 ahead of 0-2 before applying score tiebreakers", () => {
+    const oneLoss = {
+      ...emptyTeam({ id: "A", name: "0-1 Team" }),
+      l: 1,
+      games: 1,
+      runDiff: -20,
+    };
+    const twoLosses = {
+      ...emptyTeam({ id: "B", name: "0-2 Team" }),
+      l: 2,
+      games: 2,
+      runDiff: -2,
+    };
+
+    expect(
+      rankTeams([twoLosses, oneLoss], { tiebreakerOrder: ["runDifferential"] }).map(
+        (team) => team.id
+      )
+    ).toEqual(["A", "B"]);
   });
 
   it("skips run-diff tier when disabled", () => {
