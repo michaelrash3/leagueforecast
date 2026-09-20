@@ -81,6 +81,7 @@ import {
   roundRobinFileName,
 } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
+import { squadYearForLeagueSeason } from "./lib/teamRankings";
 import { displayName, recordText } from "./lib/format";
 import { summarizeCsvImportIssues } from "./lib/importReport";
 import { buildSeasonImportPreview, formatSeasonImportPreview } from "./lib/importPreview";
@@ -1585,7 +1586,17 @@ export default function App() {
           matchups: importedMatchups,
           logs: importedLogs,
           issues: importIssues,
-        } = parseScheduleCsvImport(raw);
+          /*
+           * The season's own year, so a bare "M/D" in the file lands on a real day. Read from the
+           * age group that claims this season — "Fall 2026" is part of squad year 2027 — which is
+           * the link the user has already set up rather than a second thing to keep in step. With
+           * none, the reader declines to call a nil-nil a result.
+           */
+        } = parseScheduleCsvImport(
+          raw,
+          new Date(),
+          squadYearForLeagueSeason(activeSeasonId, loadAgeGroups())
+        );
         // A CSV exported as a backup carries the Team Rankings sections after the schedule; a
         // plain schedule CSV carries none, and parses to null so the pool is left alone.
         const importedRankings = parseTeamRankingsCsv(raw);

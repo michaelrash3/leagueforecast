@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   advancedAgeGroup,
   AGE_LEVELS,
@@ -89,6 +89,21 @@ const game = (
   ...(teamAScore !== undefined ? { teamAScore } : {}),
   ...(teamBScore !== undefined ? { teamBScore } : {}),
 });
+
+/**
+ * The clock this file reasons from.
+ *
+ * A game dated in a day that has not happened does not count towards a rating — you cannot score a
+ * game early — so which fixtures count depends on what day it is, and a suite that read the wall
+ * clock would start failing on its own as the year moved. Pinned to the end of squad year 2027,
+ * which is the year every fixture here is written in, so all of their games are genuinely behind
+ * us and the tests say what they mean.
+ */
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2027-07-31T12:00:00"));
+});
+afterAll(() => vi.useRealTimers());
 
 describe("cleanTeamName", () => {
   it("drops an age label wherever it appears", () => {
@@ -2456,6 +2471,67 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
  * year — last year's squad, still filed under this year's id — is out of the fit and was in the
  * panel's count.
  */
+/**
+ * You cannot score a game early. A pull brings back rows carrying a score on a day still to come —
+ * a schedule somebody filled in ahead, or a club that exists only on paper — and "played" used to
+ * mean nothing more than "both scores are numbers". One 20-0 dated eight months out took a club's
+ * rating from 0.29 to 2.61 and went on doing it until somebody found it in Pool Health.
+ *
+ * The clock is pinned for this file to the last day of squad year 2027, so "ahead" here means
+ * after 31 July 2027.
+ */
+describe("a game on a day that has not happened", () => {
+  const dated: AgeGroup[] = [
+    { id: "g10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+  ];
+  const clubs = [team("A", "Aces"), team("B", "Bears")];
+  const on = (id: string, aScore: number, bScore: number, date: string) => ({
+    ...game("A", "B", aScore, bScore, "g10"),
+    id,
+    date,
+  });
+  const real = on("real", 3, 2, "2027-04-11");
+
+  it("does not count towards the rating", () => {
+    const ahead = on("ahead", 20, 0, "2027-09-01");
+
+    expect(countsTowardRating(real)).toBe(true);
+    expect(countsTowardRating(ahead)).toBe(false);
+  });
+
+  it("leaves the rating exactly where the games that happened put it", () => {
+    const alone = buildTeamRankings("g10", clubs, [real], undefined, dated);
+    const withGhost = buildTeamRankings(
+      "g10",
+      clubs,
+      [real, on("ahead", 20, 0, "2027-09-01")],
+      undefined,
+      dated
+    );
+    const aces = (rows: ReturnType<typeof buildTeamRankings>) =>
+      rows.find((row) => row.teamId === "A");
+
+    expect(aces(withGhost)?.rating).toBe(aces(alone)?.rating);
+    expect(aces(withGhost)?.record).toBe("1-0");
+    expect(aces(withGhost)?.games).toBe(1);
+  });
+
+  it("counts a nil-nil that has been played, and not one that has not", () => {
+    // A scoreless game is still a game once its day is behind us; ahead of it, it is a fixture.
+    expect(countsTowardRating(on("nil-past", 0, 0, "2027-04-11"))).toBe(true);
+    expect(countsTowardRating(on("nil-ahead", 0, 0, "2027-09-01"))).toBe(false);
+  });
+
+  it("still counts a game the league itself wrote, which carries no year to judge", () => {
+    /*
+     * League Standings mirrors its own fixtures into the pool under its own "M/D". There is no
+     * year in that to compare, and reading it as text put every April-to-September fixture in the
+     * future because "4" sorts after "2".
+     */
+    expect(countsTowardRating(on("league", 7, 3, "4/12"))).toBe(true);
+  });
+});
+
 describe("the detail panel's record against the row's", () => {
   const dated: AgeGroup[] = [
     { id: "g10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },

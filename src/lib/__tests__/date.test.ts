@@ -38,3 +38,29 @@ describe("normalizeDateInput", () => {
     expect(parseDateValue("")).toBe(Number.POSITIVE_INFINITY);
   });
 });
+
+describe("a day the month does not have", () => {
+  /*
+   * The day used to be clamped to 31 whatever the month, so "2/31" came back as written and then
+   * rolled over wherever it was parsed: a mistyped February game quietly moved to March 3, and a
+   * "9/31" landed in October. Clamping to the month keeps a typo in the month it was typed in.
+   */
+  it("keeps the game in the month it was typed in", () => {
+    expect(normalizeDateInput("2/31")).toBe("2/29");
+    expect(normalizeDateInput("4/31")).toBe("4/30");
+    expect(normalizeDateInput("6/31")).toBe("6/30");
+    expect(normalizeDateInput("9/31")).toBe("9/30");
+    expect(normalizeDateInput("11/31")).toBe("11/30");
+  });
+
+  it("leaves a day the month does have alone", () => {
+    expect(normalizeDateInput("1/31")).toBe("1/31");
+    expect(normalizeDateInput("2/29")).toBe("2/29");
+    expect(normalizeDateInput("4/30")).toBe("4/30");
+  });
+
+  it("still clamps the month itself", () => {
+    expect(normalizeDateInput("13/1")).toBe("12/1");
+    expect(normalizeDateInput("0/5")).toBe("1/5");
+  });
+});

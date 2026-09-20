@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buildTeamRankings,
   inSegment,
@@ -13,6 +13,21 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../teamRankings";
+
+/**
+ * The clock this file reasons from.
+ *
+ * Its fixtures describe a whole squad year, August to July, and a game dated in a day that has not
+ * happened does not count towards a record — you cannot score a game early. Read against the wall
+ * clock, half of a squad year is always in the future and the suite would answer differently as
+ * the year moved. Pinned to the last day of squad year 2027 so every fixture is genuinely behind
+ * us and the tests say what they mean.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2027-07-31T12:00:00"));
+});
+afterAll(() => vi.useRealTimers());
 
 describe("the two halves of a baseball year", () => {
   it("covers exactly the year between them, with no overlap and no gap", () => {

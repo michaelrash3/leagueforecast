@@ -1,4 +1,5 @@
-import { normalizeDateInput, parseDateValue, toMMDD } from "./date";
+import { normalizeDateInput, todayIsoDay } from "./date";
+import { dateInSquadYear } from "./teamRankings/seasons";
 import { displayName } from "./format";
 import type { CsvImportIssue } from "./importReport";
 import { createTeamId } from "./sim";
@@ -22,21 +23,61 @@ export type ScheduleCsvImportResult = {
  * then it is a claim about a game that happened — a forfeit, say — rather than a placeholder. A
  * game with no date is not clearly in the past either, so it is read as still to come.
  */
+/** An ISO day: a date that already says which day it is, whatever the season around it. */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The day a schedule row is on, or undefined when nothing can say.
+ *
+ * A file that writes full dates has already answered it. A file that writes the app's own "M/D"
+ * has not, and takes the year the season sits in to place it — `dateInSquadYear` is the same
+ * placement Team Rankings uses, where a squad year runs August to July, so in 2027 a "9/12" is
+ * 2026 and a "3/15" is 2027. With neither there is no day, and a caller has to say so rather than
+ * pick one.
+ */
+const placeOnDay = (date: string, squadYear: number | undefined): string | undefined => {
+  const trimmed = date.trim();
+  if (ISO_DAY.test(trimmed)) return trimmed;
+  if (squadYear === undefined) return undefined;
+  const placed = dateInSquadYear(normalizeDateInput(trimmed), squadYear);
+  return placed === undefined || placed === "" ? undefined : placed;
+};
+
 const scoreMakesFinal = (
   awayRuns: string,
   homeRuns: string,
   date: string,
-  today: Date
+  today: Date,
+  squadYear: number | undefined
 ): boolean => {
   if (awayRuns === "" || homeRuns === "") return false;
   if (Number(awayRuns) > 0 || Number(homeRuns) > 0) return true;
-  return parseDateValue(date) < parseDateValue(toMMDD(today));
+  /*
+   * A 0-0 is only a result once the day has been and gone, and saying which day a bare "M/D" is
+   * takes the year the season sits in. `dateInSquadYear` is the same placement Team Rankings uses:
+   * a squad year runs August to July, so in 2027 a "9/12" is 2026 and a "3/15" is 2027.
+   *
+   * Without one there is nothing to place it against. That used to be papered over by comparing
+   * both sides inside one fixed year, which is really a month-and-day comparison — so setting up
+   * a spring season in December marked every one of its games final as a nil-nil draw, because
+   * March sorts before December. A game nobody has played is not a result, so with no year to
+   * judge by this now says no.
+   */
+  const placed = placeOnDay(date, squadYear);
+  return placed !== undefined && placed < todayIsoDay(today);
 };
 
 /** `today` is only ever passed by a test; the app reads the clock. */
 export const parseScheduleCsvImport = (
   raw: string,
-  today: Date = new Date()
+  today: Date = new Date(),
+  /**
+   * The squad year this schedule belongs to, as the age group claiming the season already records
+   * it — "Fall 2026" is part of squad year 2027. It is what turns the file's bare "M/D" into a day
+   * that can be compared to today. Absent when no age group claims the season yet, and then a
+   * nil-nil row is never read as a result.
+   */
+  squadYear?: number
 ): ScheduleCsvImportResult => {
   // A backup CSV appends the Team Rankings pool after the schedule, so read only the schedule
   // section. An unsectioned file — every CSV exported before sections existed, and every hand-made
@@ -124,7 +165,13 @@ export const parseScheduleCsvImport = (
 
     const awayRuns = awayRunsIndex >= 0 ? (row[awayRunsIndex]?.trim() ?? "") : "";
     const homeRuns = homeRunsIndex >= 0 ? (row[homeRunsIndex]?.trim() ?? "") : "";
-    const hasFinalScore = scoreMakesFinal(awayRuns, homeRuns, row[dateIndex]?.trim() ?? "", today);
+    const hasFinalScore = scoreMakesFinal(
+      awayRuns,
+      homeRuns,
+      row[dateIndex]?.trim() ?? "",
+      today,
+      squadYear
+    );
     const awayK = awayKIndex >= 0 ? (row[awayKIndex]?.trim() ?? "") : "";
     const homeK = homeKIndex >= 0 ? (row[homeKIndex]?.trim() ?? "") : "";
     const awayErrors = awayErrorsIndex >= 0 ? (row[awayErrorsIndex]?.trim() ?? "") : "";

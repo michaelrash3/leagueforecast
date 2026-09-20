@@ -10,6 +10,8 @@ import {
 } from "./teamRankings";
 import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog, isFinal } from "./util";
+import { isDatedAhead } from "./deletedGames";
+import { todayIsoDay } from "./date";
 
 /**
  * Filling a League Standings schedule from results already in the Team Rankings pool — in
@@ -131,6 +133,8 @@ export type LeagueScoreFillInput = {
   ageGroups: AgeGroup[];
   scoutTeams: ScoutTeam[];
   scoutGames: ScoutGame[];
+  /** Today as an ISO day, so one clock decides what is still to come and a test can say which. */
+  today?: string;
 };
 
 /** The two sides of a pool result, lined up with a league game's away and home teams. */
@@ -155,6 +159,7 @@ export const planLeagueScoreFill = ({
   ageGroups,
   scoutTeams,
   scoutGames,
+  today = todayIsoDay(),
 }: LeagueScoreFillInput): LeagueFillPlan => {
   // The link already exists: an age group names the League Standings seasons that belong to it.
   // Reusing it means the two halves cannot disagree about which games are the same season's.
@@ -179,6 +184,14 @@ export const planLeagueScoreFill = ({
     if (!linkedGroups.has(game.ageGroupId)) return;
     if (game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
     if (!isScoutGamePlayed(game)) return;
+    /*
+     * And not a score on a day that has not happened. You cannot score a game early, so a row like
+     * that is somebody's mistake or somebody's invention — and offering it here writes it into the
+     * league's own book marked final, which is the one place it does real damage. `excluded` is
+     * deliberately not checked: a cross-age tournament game is kept out of the ratings and is
+     * still a game the league played and wants the score of.
+     */
+    if (isDatedAhead(game, today)) return;
     const date = normalizeDateInput(game.date ?? "");
     if (!date) return;
     const teamA = scoutTeamById.get(game.teamAId);

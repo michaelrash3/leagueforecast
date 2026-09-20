@@ -247,6 +247,29 @@ export const segmentOfDate = (
   return date <= end ? "fall" : "spring";
 };
 
+/**
+ * The squad year a League Standings season sits in, from the age group that claims it.
+ *
+ * The link already exists and is the user's own: an age group names the league seasons that belong
+ * to it, and carries the year — "Fall 2026" is part of squad year 2027. So a league schedule's
+ * bare "M/D" can be placed on a real day without asking anybody anything, and the two halves of
+ * the app agree about which season a date is in because they are reading the same answer.
+ *
+ * Undefined when no age group claims the season, or when the one that does predates the year
+ * picker. A caller that cannot place a date has to say so rather than guess.
+ */
+export const squadYearForLeagueSeason = (
+  seasonId: string,
+  ageGroups: AgeGroup[]
+): number | undefined => {
+  for (const group of ageGroups) {
+    if (!group.seasonIds.includes(seasonId)) continue;
+    const year = ageGroupYear(group);
+    if (year !== undefined) return year;
+  }
+  return undefined;
+};
+
 /** Whether a game belongs in one half's table. A game with no date is in neither. */
 export const inSegment = (
   date: string | undefined,

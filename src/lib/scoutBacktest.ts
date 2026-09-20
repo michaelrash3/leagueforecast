@@ -5,6 +5,7 @@ import {
 } from "./powerRating";
 import {
   RATING_CAP,
+  EVERY_DAY,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -328,7 +329,9 @@ export const backtestScoutRatings = (
   const recency = options.recency;
   const gapDays = Math.max(0, options.gapDays ?? 0);
 
-  const ordered = inTimeOrder(scoutRatingGames(ageGroupId, teams, games, ageGroups));
+  const ordered = inTimeOrder(
+    scoutRatingGames(ageGroupId, teams, games, ageGroups, undefined, EVERY_DAY)
+  );
   const cut = Math.floor(ordered.length * trainShare);
   /*
    * The cut is a day, not a row. A row index picks the day; the day then takes all of its own
