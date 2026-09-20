@@ -43,6 +43,7 @@ export const emptyTeam = (base: TeamBase): Team => ({
   awayK6: null,
   homeK6: null,
   totalK6: null,
+  contactBonus: 0,
   machineDifficulty: 0,
   headToHead: {},
 });
@@ -496,6 +497,8 @@ export const calculateTeams = (
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
 
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 + contactBonus : 0;
+    // Kept on the team so `settleGame` can rebuild `baseTpi` around it: see `Team.contactBonus`.
+    team.contactBonus = team.games ? contactBonus : 0;
     team.awayK6 = team.awayInns ? (team.awayKs / team.awayInns) * 6 : null;
     team.homeK6 = team.homeInns ? (team.homeKs / team.homeInns) * 6 : null;
     team.totalK6 = k6;
@@ -1087,7 +1090,12 @@ const settleGame = (
     // results can update standings and run-differential tiebreakers, but they
     // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
-    team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
+    // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
+    // from strikeout rates, and a model game has none — so recomputing it here does not leave it
+    // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
+    // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
+    // tiebreakers for every game after it in the same iteration.
+    team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
   });
 };

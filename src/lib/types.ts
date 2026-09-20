@@ -52,6 +52,17 @@ export type Team = TeamBase & {
   awayK6: number | null;
   homeK6: number | null;
   totalK6: number | null;
+  /**
+   * The part of `baseTpi` that comes from how little this side strikes out, against the league's
+   * own rate — see `calculateTeams`. It is kept rather than recomputed because a simulated game
+   * carries no strikeouts: `settleGame` books a result onto a scratch season and then rebuilds
+   * `baseTpi`, and without this it rebuilt a *different* number than the one the real games gave,
+   * dropping a term worth up to 1.25 the moment the first model game was booked.
+   *
+   * Optional, so a team assembled by hand rather than by `calculateTeams` reads 0 and behaves
+   * exactly as it did before the field existed.
+   */
+  contactBonus?: number;
   machineDifficulty: number;
   headToHead?: Record<string, HeadToHeadRecord>;
   /**
