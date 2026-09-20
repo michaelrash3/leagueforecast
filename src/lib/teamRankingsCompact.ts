@@ -533,6 +533,17 @@ export const coerceGcTeamLink = (raw: unknown): GcTeamLink | null => {
     ...(isNumber(raw.ageLevel) ? { ageLevel: raw.ageLevel } : {}),
     ...(isString(raw.avatarKey) ? { avatarKey: raw.avatarKey } : {}),
     ...(record ? { record } : {}),
+    /*
+     * The coaches, the roster count and when it was taken. Dropped here until now, which the
+     * compact codec has never done — so a pool that went out to a backup and came back, or an
+     * undo, was the same pool minus every coach in it. That is not cosmetic: two coaches in
+     * common is the only thing in the data that says two GameChanger ids are one club inside a
+     * season, so a restore emptied the fold list of exactly the pairs worth folding, and
+     * `gcStaff.ts` had nothing left to measure.
+     */
+    ...(Array.isArray(raw.staff) && raw.staff.every(isString) ? { staff: raw.staff } : {}),
+    ...(isNumber(raw.playerCount) ? { playerCount: raw.playerCount } : {}),
+    ...(isString(raw.countedAt) ? { countedAt: raw.countedAt } : {}),
     ...(isString(raw.importedAt) ? { importedAt: raw.importedAt } : {}),
   };
 };
@@ -576,6 +587,15 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
         ...(isString(entry.state) ? { state: entry.state } : {}),
         ...(isString(entry.city) ? { city: entry.city } : {}),
         ...(entry.placeholder === true ? { placeholder: true as const } : {}),
+        /*
+         * A stand-in is a club somebody named and nobody pulled, and it is kept out of the
+         * rankings for it. Losing the mark on the way back in put every one of them into the
+         * tables, ranked on whatever fraction of a season happened to face a club that *was*
+         * pulled — and the picture is what lets the next schedule recognise the same club rather
+         * than making a second of it.
+         */
+        ...(entry.nameOnly === true ? { nameOnly: true as const } : {}),
+        ...(isString(entry.avatarKey) ? { avatarKey: entry.avatarKey } : {}),
         ...(gcTeams.length ? { gcTeams } : {}),
       };
     });

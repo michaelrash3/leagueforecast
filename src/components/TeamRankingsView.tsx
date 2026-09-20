@@ -577,7 +577,8 @@ export function TeamRankingsView({
         matchups: loadMatchupsForSeason(seasonId),
         logs: loadLogsForSeason(seasonId),
       }));
-      const derived = deriveLeagueScoutGames(group.id, seasons, teams);
+      // The page's squad year supplies the year a League Standings date does not carry.
+      const derived = deriveLeagueScoutGames(group.id, seasons, teams, ageGroupYear(group));
       teams = derived.teams;
       derivedGames.push(...derived.games);
     });

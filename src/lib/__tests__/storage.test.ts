@@ -255,3 +255,39 @@ describe("a league team's Team Rankings pick", () => {
     expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
   });
 });
+
+describe("the one-time migration into a season namespace", () => {
+  it("keeps the flat key when the copy is refused", () => {
+    /*
+     * The copy has to land before the original goes. A quota refusal is the ordinary way it does
+     * not, and this runs at startup on a browser whose localStorage is already as full as the
+     * season about to be copied into it — so removing regardless destroyed the league at the one
+     * moment the user had done nothing but open the app.
+     */
+    const teams = JSON.stringify([{ id: "t1", name: "Trash Pandas" }]);
+    backing.set("league_teams_v1", teams);
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => backing.get(k) ?? null,
+      // Full, as a browser at quota is: reads and removes still work, writes do not.
+      setItem: () => {
+        throw new DOMException("QuotaExceededError");
+      },
+      removeItem: (k: string) => {
+        backing.delete(k);
+      },
+    });
+
+    // Reading is what triggers the migration.
+    loadTeams();
+
+    expect(backing.get("league_teams_v1")).toBe(teams);
+  });
+
+  it("moves the flat key across and clears it once the copy has landed", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "t1", name: "Trash Pandas" }]));
+
+    expect(loadTeams()).toEqual([{ id: "t1", name: "Trash Pandas" }]);
+    expect(backing.get("league_teams_v1")).toBeUndefined();
+    expect(backing.get("league_season_default_teams_v1")).toBeDefined();
+  });
+});

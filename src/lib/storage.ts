@@ -150,10 +150,18 @@ const ensureInitialized = () => {
 
   const name = deriveSeasonName(parseJson(safeGet(FLAT_KEYS.settings)));
 
+  /*
+   * The copy has to land before the original goes. `safeSet` answers whether it did — the quota is
+   * the ordinary way it does not, and this runs at startup on a browser whose localStorage is
+   * already as full as the season that is about to be copied into it. Removing regardless meant a
+   * refused write destroyed the league it was migrating, at the one moment the user had done
+   * nothing but open the app. A copy that fails leaves both keys where they are, and the flat key
+   * is read by everything below until the next start tries again.
+   */
   DATA_KEYS.forEach((dataKey) => {
     const value = safeGet(FLAT_KEYS[dataKey]);
-    if (value !== null) {
-      safeSet(seasonKey(DEFAULT_SEASON_ID, dataKey), value);
+    if (value === null) return;
+    if (safeSet(seasonKey(DEFAULT_SEASON_ID, dataKey), value)) {
       safeRemove(FLAT_KEYS[dataKey]);
     }
   });
