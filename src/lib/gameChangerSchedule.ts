@@ -26,7 +26,7 @@ import {
   type AgeGroup,
   type ScoutTeam,
 } from "./teamRankings";
-import { ageUnknownDue, type AgeUnknownList } from "./ageUnknown";
+import { ageUnknownAsking, ageUnknownDue, type AgeUnknownList } from "./ageUnknown";
 
 /** Sunday is 0, as `Date.getDay` has it. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -162,11 +162,20 @@ export type DueRefresh = {
    * They belong on the catch-up day and nowhere else. A team with no level is on no page, so the
    * per-level rotation above walks straight past it, for ever — and it is not a failure either, so
    * nothing retries it. The catch-up day is where the week's leftovers go, and a team nobody could
-   * age is a leftover: it goes back through the same route it came in on, every week, until
-   * GameChanger fills its field in, a club renames it, or enough of its opponents are pulled that
-   * their names settle it between them.
+   * age is a leftover: it goes back through the same route it came in on, at most once a week,
+   * until GameChanger fills its field in, a club renames it, or it plays more games against
+   * opponents who do name an age. Pulling other teams cannot help — the opponent names are read
+   * off this team's own schedule.
    */
   agelessIds: string[];
+  /**
+   * How many are still being asked about at all, due today or not.
+   *
+   * Set on every day rather than only on a catch-up, because the card that names this number has
+   * to be able to say "none are due today" — and a card that vanishes on the days when there is
+   * nothing to press reads as though the teams had gone away.
+   */
+  agelessTotal: number;
 };
 
 /**
@@ -177,15 +186,24 @@ export type DueRefresh = {
  * The catch-up day brings nothing of its own; the panel points it at what failed instead.
  */
 /**
- * The most ageless teams asked about in one catch-up run.
+ * The most ageless teams one run may hold at once.
  *
- * A cap rather than the whole list, because it could be thousands and a catch-up also has the
- * failures to get through. `ageUnknownDue` hands over the stalest first, so a list longer than
- * this still comes round instead of the same head of it being asked every time. Per run, not per
- * week: on the rotation a catch-up is Friday, and on the daily cadence it is every day, so the
- * same cap simply comes round seven times as often.
+ * This used to be 2,000 and used to be justified as a per-run budget — "it could be thousands".
+ * That was the wrong reason for a number, and it was doing a job nobody had asked it to do: with
+ * nothing else pacing the asks, the cap was the only thing standing between the list and being
+ * abandoned in a week. It is now a ceiling on memory and nothing else; `ageUnknownDue`'s week gate
+ * does the pacing.
+ *
+ * As a ceiling it is generous, because the cost it bounds is small. A run of ageless teams that
+ * still have no age changes nothing in the pool — `importGcSchedule` hands the caller's state
+ * straight back when a schedule cannot be filed — so it writes nothing; what it does hold is the
+ * fetched schedules, in the client's `settled` map, for the life of the run. At ten thousand that
+ * is tens of megabytes, which is affordable; at a hundred thousand it would not be.
+ *
+ * A list longer than this is not stranded: the overflow is offered on the next run rather than the
+ * next week, because the gate is per team and those teams were not asked today.
  */
-export const AGELESS_PER_CATCH_UP = 2_000;
+export const AGELESS_PER_CATCH_UP = 10_000;
 
 export type DueRefreshOptions = {
   /** Keeps a run to the season being played rather than dragging every past year round with it. */
@@ -233,7 +251,8 @@ export const dueRefresh = (
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
     cadence,
-    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP) : [],
+    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP, now) : [],
+    agelessTotal: ageUnknownAsking(ageless, now),
   };
 };
 
@@ -241,9 +260,9 @@ export const dueRefresh = (
 export const describeDue = (due: DueRefresh): string => {
   if (due.cadence === "daily") {
     const ageless =
-      due.agelessIds.length > 0
-        ? ` Plus ${due.agelessIds.length.toLocaleString()} team${
-            due.agelessIds.length === 1 ? "" : "s"
+      due.agelessTotal > 0
+        ? ` Plus ${due.agelessTotal.toLocaleString()} team${
+            due.agelessTotal === 1 ? "" : "s"
           } still waiting on an age.`
         : "";
     if (due.ageLevels.length === 0) return `Every age group has been refreshed today.${ageless}`;
@@ -255,9 +274,9 @@ export const describeDue = (due: DueRefresh): string => {
   }
   if (due.catchUp) {
     const ageless =
-      due.agelessIds.length > 0
-        ? ` — and ${due.agelessIds.length.toLocaleString()} team${
-            due.agelessIds.length === 1 ? "" : "s"
+      due.agelessTotal > 0
+        ? ` — and ${due.agelessTotal.toLocaleString()} team${
+            due.agelessTotal === 1 ? "" : "s"
           } still waiting on an age`
         : "";
     return `${due.label} is the catch-up day — anything that failed this week${ageless}.`;

@@ -647,10 +647,10 @@ const resolveAgeGroup = (
  * Why a schedule was left where it was — a code as well as a sentence.
  *
  * The code matters because the four are not the same kind of problem. A team with no age might
- * have one next week: GameChanger's field gets filled in, a club renames a squad, or its opponents
- * pull enough schedules to settle it between them. A 6U team never will. So one of these is worth
- * asking about again every week and the others are not, and telling them apart by reading the
- * sentence would break the first time somebody reworded it.
+ * have one next week: GameChanger's field gets filled in, a club renames a squad, or the team
+ * plays more games against opponents who do name an age. A 6U team never will. So one of these is
+ * worth asking about again every week and the others are not, and telling them apart by reading
+ * the sentence would break the first time somebody reworded it.
  */
 export type GcSkipReason =
   /** A club the user threw out. Refused before a game is read, or the pull rebuilds it. */

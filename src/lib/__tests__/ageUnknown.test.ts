@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGE_UNKNOWN_GIVE_UP_DAYS,
   AGE_UNKNOWN_MAX_TRIES,
+  AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS,
+  ageUnknownAsking,
   ageUnknownDue,
   coerceAgeUnknown,
   describeAgeUnknown,
@@ -11,6 +14,9 @@ import type { GcImportOutcome } from "../gameChangerImport";
 
 const NOW = "2026-09-18T12:00:00.000Z";
 const LAST_WEEK = "2026-09-11T12:00:00.000Z";
+/** The instant every "is it due, has it been long enough" question here is asked at. */
+const TODAY = new Date(NOW);
+const daysBefore = (days: number) => new Date(TODAY.getTime() - days * 86_400_000).toISOString();
 
 const outcome = (gcTeamId: string, extra: Partial<GcImportOutcome> = {}): GcImportOutcome => ({
   gcTeamId,
@@ -81,24 +87,26 @@ describe("keeping the teams nobody could age", () => {
   });
 
   it("hands over the stalest first, so a long list still comes round", () => {
+    // Both past the week gate, so this is about the order and the cap and nothing else.
     const list: AgeUnknownList = [
-      { teamId: "new", firstSeen: NOW, lastTried: NOW, tries: 1 },
-      { teamId: "old", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: 4 },
+      { teamId: "new", firstSeen: daysBefore(9), lastTried: daysBefore(9), tries: 1 },
+      { teamId: "old", firstSeen: LAST_WEEK, lastTried: daysBefore(20), tries: 4 },
     ];
-    expect(ageUnknownDue(list, 1)).toEqual(["old"]);
-    expect(ageUnknownDue(list, 10)).toEqual(["old", "new"]);
-    expect(ageUnknownDue(list, 0)).toEqual([]);
+    expect(ageUnknownDue(list, 1, TODAY)).toEqual(["old"]);
+    expect(ageUnknownDue(list, 10, TODAY)).toEqual(["old", "new"]);
+    expect(ageUnknownDue(list, 0, TODAY)).toEqual([]);
   });
 
   it("says how many are still being asked, and how many were left alone", () => {
     const list: AgeUnknownList = [
-      { teamId: "A", firstSeen: LAST_WEEK, lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES },
+      // Spent both its asks and its weeks, so it is genuinely left alone.
+      { teamId: "A", firstSeen: daysBefore(60), lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES },
       { teamId: "B", firstSeen: LAST_WEEK, lastTried: NOW, tries: 1 },
     ];
-    expect(describeAgeUnknown(list)).toBe(
+    expect(describeAgeUnknown(list, TODAY)).toBe(
       "1 team still being asked about, and 1 left alone after 8 weeks of nobody naming an age."
     );
-    expect(describeAgeUnknown([])).toBe("");
+    expect(describeAgeUnknown([], TODAY)).toBe("");
   });
 
   /*
@@ -108,21 +116,113 @@ describe("keeping the teams nobody could age", () => {
    * season — and those are the bulk of this list. Asking for ever is a question that can never come
    * good.
    */
-  it("stops asking after eight weeks of nobody naming an age", () => {
+  it("stops asking only once both the eight asks and the eight weeks are spent", () => {
     const worn: AgeUnknownList = [
-      { teamId: "spent", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: AGE_UNKNOWN_MAX_TRIES },
-      { teamId: "fresh", firstSeen: NOW, lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES - 1 },
+      // Eight asks and sixty days: done.
+      {
+        teamId: "spent",
+        firstSeen: daysBefore(60),
+        lastTried: daysBefore(8),
+        tries: AGE_UNKNOWN_MAX_TRIES,
+      },
+      // Eight asks but found ten days ago, so its asks were spent far too quickly to mean
+      // anything. It stays on the list until the calendar agrees.
+      {
+        teamId: "hurried",
+        firstSeen: daysBefore(10),
+        lastTried: daysBefore(8),
+        tries: AGE_UNKNOWN_MAX_TRIES,
+      },
+      {
+        teamId: "fresh",
+        firstSeen: daysBefore(30),
+        lastTried: daysBefore(8),
+        tries: AGE_UNKNOWN_MAX_TRIES - 1,
+      },
     ];
-    expect(ageUnknownDue(worn, 10)).toEqual(["fresh"]);
+    expect(ageUnknownDue(worn, 10, TODAY)).toEqual(["hurried", "fresh"]);
   });
 
   it("keeps counting one it has stopped asking about, so the number still means something", () => {
     const spent: AgeUnknownList = [
-      { teamId: "spent", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: AGE_UNKNOWN_MAX_TRIES },
+      {
+        teamId: "spent",
+        firstSeen: daysBefore(60),
+        lastTried: LAST_WEEK,
+        tries: AGE_UNKNOWN_MAX_TRIES,
+      },
     ];
     // Left alone, not forgotten: a full re-pull of the team is still free to answer it.
     expect(spent).toHaveLength(1);
-    expect(describeAgeUnknown(spent)).toMatch(/1 left alone/);
+    expect(describeAgeUnknown(spent, TODAY)).toMatch(/1 left alone/);
+  });
+
+  /*
+   * The week gate. Before it, nothing here read a clock at all, so eight "passes" was whatever
+   * eight presses of a button happened to take — and on the shipped daily cadence every day is a
+   * catch-up day. Driving the real `dueRefresh` and `updateAgeUnknown` over a calendar, the first
+   * team was abandoned on day 8 with a short list, day 15 at 4,013 against the old 2,000 cap, day
+   * 8 with the cap raised, and day 2 if the button was pressed eight times in an afternoon —
+   * while the card said "left alone after 8 weeks".
+   */
+  it("will not ask about the same team twice inside a week", () => {
+    const list: AgeUnknownList = [
+      { teamId: "asked-today", firstSeen: daysBefore(30), lastTried: NOW, tries: 1 },
+      {
+        teamId: "asked-six-days-ago",
+        firstSeen: daysBefore(30),
+        lastTried: daysBefore(AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS - 1),
+        tries: 1,
+      },
+      {
+        teamId: "asked-a-week-ago",
+        firstSeen: daysBefore(30),
+        lastTried: daysBefore(AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS),
+        tries: 1,
+      },
+    ];
+    expect(ageUnknownDue(list, 10, TODAY)).toEqual(["asked-a-week-ago"]);
+  });
+
+  it("gives a team its eight asks over eight real weeks, however often it is asked", () => {
+    /*
+     * The pin on the horizon. It is the week gate that produces this number — eight asks a week
+     * apart is 56 days — so this passes with or without the calendar clause in `stillWorthAsking`,
+     * and is not the guard for that clause. The guard for it is the "hurried" team above.
+     *
+     * What the calendar clause is actually for is the rows already in somebody's browser, whose
+     * eight asks were spent in eight days under the old rule. Without it they would be abandoned
+     * the moment this ships; with it they are asked again until the calendar agrees. It can only
+     * revive a team, never abandon one sooner.
+     */
+    let list: AgeUnknownList = [{ teamId: "A", firstSeen: NOW, lastTried: NOW, tries: 0 }];
+    let day = 0;
+    // Press every single day, which is the worst case the old rule collapsed under.
+    while (day < 400 && ageUnknownAsking(list, new Date(TODAY.getTime() + day * 86_400_000)) > 0) {
+      day += 1;
+      const now = new Date(TODAY.getTime() + day * 86_400_000);
+      const due = ageUnknownDue(list, 10, now);
+      if (due.length > 0) {
+        list = updateAgeUnknown(
+          list,
+          due.map((id) => outcome(id, { skip: "no-age", issue: "no age" })),
+          now.toISOString()
+        );
+      }
+    }
+    expect(day).toBe(AGE_UNKNOWN_GIVE_UP_DAYS);
+  });
+
+  it("falls back to the try budget for a row whose dates cannot be read", () => {
+    // `coerceAgeUnknown` writes an empty string for a row that arrived without one, and an
+    // unreadable date is not evidence that eight weeks have passed.
+    const broken: AgeUnknownList = [
+      { teamId: "spent", firstSeen: "", lastTried: "", tries: AGE_UNKNOWN_MAX_TRIES },
+      { teamId: "young", firstSeen: "", lastTried: "", tries: 1 },
+    ];
+    expect(ageUnknownAsking(broken, TODAY)).toBe(1);
+    // Never recorded as asked, so it has not been asked within the week either.
+    expect(ageUnknownDue(broken, 10, TODAY)).toEqual(["young"]);
   });
 
   it("reads back what it stored, and shrugs off what it did not", () => {
