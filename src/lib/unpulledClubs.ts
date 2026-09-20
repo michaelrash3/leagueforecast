@@ -6,7 +6,7 @@ import {
   teamNameKey,
   type ScoutGame,
 } from "./teamRankings";
-import type { GcTeamListEntry } from "./gameChangerApi";
+import { isNotBaseball, isSchoolName, type GcTeamListEntry } from "./gameChangerApi";
 import { csvEscape } from "./csv";
 
 /**
@@ -56,9 +56,25 @@ export const unpulledClubs = (state: GcImportState): UnpulledClub[] => {
   );
   const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)] as const));
 
-  /** Only a club named by somebody: a placeholder names nobody and cannot be looked up. */
+  /**
+   * Only a club named by somebody: a placeholder names nobody and cannot be looked up.
+   *
+   * And only one the import would accept if it were fetched. This is a to-do list, so a name on
+   * it that the importer refuses on sight sends somebody off to find a GameChanger id for a team
+   * that can never be filed. High school squads are the ones it really happens to: a varsity side
+   * turns up as an opponent on a travel club's schedule and becomes a stand-in, where a wiffle
+   * team never could, because a wiffle game is dropped before an opponent is ever resolved.
+   */
   const wanted = new Set(
-    state.teams.filter((team) => team.nameOnly && !team.placeholder).map((team) => team.id)
+    state.teams
+      .filter(
+        (team) =>
+          team.nameOnly &&
+          !team.placeholder &&
+          !isNotBaseball(team.name) &&
+          !isSchoolName(team.name)
+      )
+      .map((team) => team.id)
   );
   if (wanted.size === 0) return [];
 

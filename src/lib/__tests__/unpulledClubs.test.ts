@@ -55,6 +55,31 @@ describe("the clubs worth pulling next", () => {
     expect(clubs.map((club) => club.name)).toEqual(["Heard Of Only", "Quiet Club"]);
   });
 
+  it("never asks for a club the importer would refuse on sight", () => {
+    /*
+     * This is a to-do list, so a name on it the importer refuses sends somebody off to find a
+     * GameChanger id for a team that can never be filed. High school squads are the ones it
+     * really happens to: a varsity side turns up as an opponent and becomes a stand-in, where a
+     * wiffle team never could, because a wiffle game is dropped before an opponent is resolved.
+     */
+    const clubs = unpulledClubs(
+      pool(
+        [
+          pulled("S-HOME", "Home Club", "KY"),
+          heard("S-HEARD", "Heard Of Only"),
+          heard("S-SCHOOL", "Lincoln HS Varsity"),
+          heard("S-PLASTIC", "Wiffle Ball 12U"),
+        ],
+        [
+          game("g1", "ag_11_2027", "S-HOME", "S-HEARD", { teamAScore: 6, teamBScore: 2 }),
+          game("g2", "ag_11_2027", "S-HOME", "S-SCHOOL", { teamAScore: 1, teamBScore: 4 }),
+          game("g3", "ag_11_2027", "S-HOME", "S-PLASTIC", { teamAScore: 9, teamBScore: 0 }),
+        ]
+      )
+    );
+    expect(clubs.map((club) => club.name)).toEqual(["Heard Of Only"]);
+  });
+
   it("puts the one holding the most results first", () => {
     // A stand-in holding two results costs two games; one holding one costs one.
     const [first] = unpulledClubs(state());

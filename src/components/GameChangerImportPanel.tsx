@@ -98,6 +98,7 @@ import {
   type PoolHolding,
   loadDeletedGames,
   loadDroppedClubs,
+  loadNamedAges,
   loadTooYoungClubs,
   saveTooYoungClubs,
   loadKeptApart,
@@ -767,6 +768,11 @@ export function GameChangerImportPanel({
         deleted: loadDeletedGames(),
         droppedClubs: loadDroppedClubs(),
         tooYoung: loadTooYoungClubs(),
+        // The ages somebody typed on the review card. This is the only call site there is, so
+        // leaving it out did not weaken the feature, it turned it off: the answer was stored, the
+        // row vanished from the card because the queue hides a team once it is named, and the
+        // next pull read an empty map and refused the team for having no age all over again.
+        namedAges: loadNamedAges(),
       });
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.

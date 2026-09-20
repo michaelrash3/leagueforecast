@@ -342,16 +342,26 @@ export const ageLevelFromName = (name: string): number | undefined => {
  *   squad playing an age bracket against travel ball, which is connected to the pool and belongs
  *   in it. The age label is the thing that says so.
  *
+ * And one thing outranks all of it: an age nobody in high school could be playing at. A freshman
+ * is fourteen at the youngest, so "Varsity Elite 12U" and "JV Sluggers 10U" are travel clubs that
+ * like the words, not school sides, and no squad word can make them otherwise. Without this the
+ * rule quietly deleted them, and a wrongly refused club leaves nothing behind to notice it by.
+ *
  * A lone "V" with no JV beside it is not enough on its own: see `maybeSchoolTeam`.
  */
 const SCHOOL_SQUAD = /\b(?:varsity|jv)\b/i;
 const HIGH_SCHOOL = /\b(?:hs|high\s+school)\b/i;
 
+/** The youngest a freshman is, and so the youngest a name can say and still mean high school. */
+export const MIN_HIGH_SCHOOL_AGE = 14;
+
 export const isSchoolName = (name: unknown): boolean => {
   if (typeof name !== "string") return false;
+  const stated = ageLevelFromName(name);
+  if (stated !== undefined && stated < MIN_HIGH_SCHOOL_AGE) return false;
   if (SCHOOL_SQUAD.test(name)) return true;
   if (!HIGH_SCHOOL.test(name)) return false;
-  return ageLevelFromName(name) === undefined;
+  return stated === undefined;
 };
 
 /**

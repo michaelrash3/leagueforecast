@@ -3182,6 +3182,21 @@ describe("high school squads", () => {
     expect(isSchoolName("Lincoln HS Varsity 16U")).toBe(true);
   });
 
+  it("will not call a young travel club a school side, whatever word it likes", () => {
+    /*
+     * A freshman is fourteen at the youngest, so a name stating an age below that cannot mean
+     * high school however it is branded — and "Varsity" and "JV" are both used as travel-club
+     * branding. Without this the rule deleted them, and a wrongly refused club leaves nothing
+     * behind to notice it by: no row, no count against its name, nothing.
+     */
+    expect(isSchoolName("Varsity Elite 12U")).toBe(false);
+    expect(isSchoolName("JV Sluggers 10U")).toBe(false);
+    expect(isSchoolName("Varsity Baseball Academy 9u")).toBe(false);
+    // At fourteen and up the word is taken at its word again.
+    expect(isSchoolName("Varsity Elite 15U")).toBe(true);
+    expect(isSchoolName("Lincoln HS Varsity 16U")).toBe(true);
+  });
+
   it("reads it in GameChanger's own age field, whole and not loose", () => {
     expect(isSchoolAgeLabel("Varsity")).toBe(true);
     expect(isSchoolAgeLabel("JV")).toBe(true);

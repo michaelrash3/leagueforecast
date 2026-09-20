@@ -66,10 +66,16 @@ const NO_EVIDENCE: AgelessEvidence = {
  * The last clause is a rule having changed underneath a list written before it. A high school
  * squad is refused outright now, but every one that was pulled earlier went onto this list as a
  * team nobody could age, and there is nothing for a person to investigate about it — the name
- * settles it. It comes off the queue, not off the list: the entry stays so the rota still asks,
- * and the ask now returns "high school" rather than "no age", which retires it on its own. What
- * changes is that it stops costing one of the ten slots in front of a person, which is the whole
- * reason the queue is ten.
+ * settles it. What changes is that it stops costing one of the ten slots in front of a person,
+ * which is the whole reason the queue is ten.
+ *
+ * It comes off the queue, not off the list, and it is worth being exact about what that means.
+ * An entry still inside its budget is asked again by the rota, the ask now comes back "high
+ * school" rather than "no age", and `updateAgeUnknown` retires it. An entry that has already
+ * spent its eight tries or its fifty-six days is never returned by `ageUnknownDue` at all, so
+ * nothing ever asks about it again and its row sits in storage for good. That is true of every
+ * abandoned entry and not something this rule introduced — but the row is hidden from here
+ * rather than deleted, and saying otherwise would be a claim this file cannot keep.
  *
  * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
  * gets a hint instead — see `LONE_V_HINT`.

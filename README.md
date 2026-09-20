@@ -151,17 +151,23 @@ with the reason `high-school`, and a tidy pass deletes any that reached the pool
 before the rule existed. Nothing has to remember an id — the name refuses it again
 every export, including ids never seen before.
 
-| In the name or the age field              | Read as                                                             |
-| ----------------------------------------- | ------------------------------------------------------------------- |
-| `Varsity`, `JV`, `Junior Varsity`         | high school, always                                                 |
-| `JV/V`                                    | high school — the JV says the lone `V` beside it is varsity         |
-| `HS`, `High School`, with no age label    | high school                                                         |
-| `HS` with an age label — "Lincoln HS 16U" | **kept**: a summer squad playing an age bracket against travel ball |
-| A lone `V` on its own — "Madison V"       | neither; it goes to the review card, below                          |
+| In the name or the age field                     | Read as                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------- |
+| `Varsity`, `JV`, `Junior Varsity`                | high school, always                                                 |
+| `JV/V`                                           | high school — the JV says the lone `V` beside it is varsity         |
+| `HS`, `High School`, with no age label           | high school                                                         |
+| `HS` with an age label — "Lincoln HS 16U"        | **kept**: a summer squad playing an age bracket against travel ball |
+| A lone `V` on its own — "Madison V"              | neither; it goes to the review card, below                          |
+| Any of the above under 14U — "Varsity Elite 12U" | **kept**: a travel club that likes the word                         |
 
-Two edges are deliberate. A squad word wins over an age label, because a side
-calling itself varsity is playing the school season whatever else it writes; and
-the letters have to be their own word, so "CHS Cardinals" is a club, not a school.
+Three edges are deliberate. A squad word wins over an age label, because a side
+calling itself varsity is playing the school season whatever else it writes; the
+letters have to be their own word, so "CHS Cardinals" is a club, not a school; and
+one thing outranks both, which is an age nobody in high school could be playing at.
+A freshman is fourteen at the youngest, so "Varsity Elite 12U" and "JV Sluggers 10U"
+are travel clubs that like the words. That floor matters more than it looks: a
+wrongly refused club leaves nothing behind to notice it by — no row, no count against
+its name, nothing — so the rule errs towards keeping whenever the age contradicts it.
 
 Their games go with them, and one of those losses is real: a travel side that
 played the local varsity loses that result. It goes because the other half of it is
