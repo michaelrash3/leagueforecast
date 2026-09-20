@@ -370,6 +370,22 @@ export function GameChangerImportPanel({
   // The pull mutates these as results land. Holding the working pool in state instead would queue
   // a render per team and copy a growing pool each time; what the panel draws is kept separately.
   const poolRef = useRef<GcImportState>(pool);
+  /**
+   * The pool as the page has it right now, so a run can start from that rather than from whatever
+   * was there when this panel opened.
+   *
+   * `poolRef` is the run's working copy and the run owns it, which is right once a run is under
+   * way — the slot it claims is what keeps a tidy or a second pull from writing underneath it. It
+   * was also seeded at mount and never again, and the panel can sit open across a tidy, a club
+   * deletion or a restored backup. A run started afterwards folded onto the pool as it was at
+   * mount and saved that, undoing whatever had happened in between. `runSectioned` showed the
+   * seam plainly: it worked out its sections from this prop and then folded them over the stale
+   * ref.
+   */
+  const livePoolRef = useRef<GcImportState>(pool);
+  useEffect(() => {
+    livePoolRef.current = pool;
+  }, [pool]);
   const progressRef = useRef<GcPullProgress | null>(savedProgress);
   const outcomesRef = useRef<GcImportOutcome[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -586,6 +602,14 @@ export function GameChangerImportPanel({
      * leave half a pool refreshed.
      */
     const session = part?.session ?? beginPull(nowIso());
+    if (session && part === undefined) {
+      /*
+       * Seeded here rather than at mount: the slot is claimed, so nothing else can write the pool
+       * from now until it is released, and this is the last moment the page's own copy is the
+       * newest there is. A section does not seed — the sequence did, before the first of them.
+       */
+      poolRef.current = livePoolRef.current;
+    }
     if (!session) {
       // What is actually holding it, rather than a guess. A tidy refuses a pull exactly as another
       // pull does, and saying "a pull is already running" when one is not sends somebody looking
@@ -1051,6 +1075,10 @@ export function GameChangerImportPanel({
       );
       return;
     }
+
+    // As in `run`: the slot is held from here, so this is the last moment the page's copy is the
+    // newest there is, and every section below carries forward from it.
+    poolRef.current = livePoolRef.current;
 
     try {
       for (const [index, section] of sections.entries()) {
