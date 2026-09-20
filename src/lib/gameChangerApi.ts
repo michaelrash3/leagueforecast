@@ -237,18 +237,65 @@ const inAgeRange = (level: number): boolean =>
 /** One age label on its own: "9U", "9u", "U9", "12UA", or a bare number. */
 const AGE_TOKEN = /^(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2})|(\d{1,2}))$/;
 
+/**
+ * High school, which says an age in the vocabulary schools use rather than the one travel ball
+ * does.
+ *
+ * Above about 14U a great many teams stop naming an age at all and name the squad instead.
+ * GameChanger's own `age_group` comes back "Varsity" and "JV" — this file has cited "Varsity" as
+ * an unreadable value for as long as the parser has existed — and names read "Lincoln HS
+ * Varsity", "Oak Grove JV". Every one of them was filed nowhere and put on the ageless list,
+ * where there is nothing for a person to investigate: the name says the age plainly, in the other
+ * dialect, and no amount of asking again was ever going to turn it into a number.
+ *
+ * Varsity is juniors and seniors, so 18U — the same level the graduating-class reader files a
+ * senior class at. JV is freshmen and sophomores, so 16U. A high school team that names neither
+ * squad is a varsity team, because that is what "Lincoln HS" means on a schedule, so it reads 18U
+ * as well.
+ */
+export const VARSITY_AGE_LEVEL = 18;
+export const JV_AGE_LEVEL = 16;
+
+/*
+ * JV is looked for before varsity, and its long form is spelled out, because "Junior Varsity"
+ * contains "Varsity": searching for the senior squad first would age every JV team by two years.
+ */
+const SCHOOL_LEVELS: readonly [source: string, level: number][] = [
+  ["jv|junior\\s+varsity", JV_AGE_LEVEL],
+  ["varsity", VARSITY_AGE_LEVEL],
+  ["hs|high\\s+school", VARSITY_AGE_LEVEL],
+];
+
+/** Whole value, for the age column: "Varsity", "JV", "Junior Varsity", "HS", "High School". */
+const SCHOOL_LABEL = SCHOOL_LEVELS.map(([source, level]): [RegExp, number] => [
+  new RegExp(`^(?:${source})$`, "i"),
+  level,
+]);
+
+/** The same words found as whole words wherever they sit inside a longer team name. */
+const SCHOOL_IN_NAME = SCHOOL_LEVELS.map(([source, level]): [RegExp, number] => [
+  new RegExp(`\\b(?:${source})\\b`, "i"),
+  level,
+]);
+
+const schoolLevel = (patterns: readonly [RegExp, number][], value: string): number | undefined =>
+  patterns.find(([pattern]) => pattern.test(value))?.[1];
+
 const ageToken = (part: string): number | undefined => {
-  const match = AGE_TOKEN.exec(part.trim());
-  if (!match) return undefined;
+  const value = part.trim();
+  const match = AGE_TOKEN.exec(value);
+  // A squad named where an age would be is still a whole label, so it reads as one here — which
+  // is also what lets "Varsity/JV" take the older end the way "11U/12U" does.
+  if (!match) return schoolLevel(SCHOOL_LABEL, value);
   const level = Number(match[1] ?? match[2] ?? match[3]);
   return inAgeRange(level) ? level : undefined;
 };
 
 /**
- * Strict reading of an age-group value: the whole value must be the label ("9U", "9u", "U9",
- * "11U", "12UA", or a bare number). Anything else — blank, "Varsity", a sentence — is unknown, so
- * a CSV column or GameChanger's `age_group` never invents a level. Use `ageLevelFromName` to find
- * a label inside a longer name.
+ * Strict reading of an age-group value: the whole value must be the label — an age ("9U", "9u",
+ * "U9", "11U", "12UA", or a bare number) or a school squad ("Varsity", "JV", "HS"). Anything else
+ * — blank, a sentence — is unknown, so a CSV column or GameChanger's `age_group` never invents a
+ * level. Use `ageLevelFromName` to find a label inside a longer name.
  *
  * The tier letters travel ball hangs off the level — "12UA", "11UAA" — are part of the label here
  * for the same reason they are in a name: they say which bracket within the age, not a different
@@ -258,8 +305,9 @@ const ageToken = (part: string): number | undefined => {
  * A bracket spanning two ages — "11U/12U", and sometimes written the other way round as
  * "12U/11U" — reads as the OLDER of them, because that is the level the team is competing at: a
  * bracket that admits twelve-year-olds is a 12U bracket, and rating such a team as 11U would make
- * every game it plays against a 12U side look like playing up. Every part still has to be an age
- * label, so "2026-2027" and "Varsity/JV" stay unknown rather than becoming a guess.
+ * every game it plays against a 12U side look like playing up. "Varsity/JV" goes the same way and
+ * for the same reason, now that a school squad reads as a level. Every part still has to be a
+ * label of one kind or the other, so "2026-2027" stays unknown rather than becoming a guess.
  */
 export const parseGcAgeLevel = (label: unknown): number | undefined => {
   if (typeof label === "number") return inAgeRange(label) ? label : undefined;
@@ -304,9 +352,11 @@ export const ageLevelFromName = (name: string): number | undefined => {
     if (inAgeRange(low) && inAgeRange(high)) return Math.max(low, high);
   }
   const match = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/.exec(name);
-  if (!match) return undefined;
+  // A school squad is the last thing looked for, so "Lincoln HS 16U" is a 16U team: a stated age
+  // is what the club meant, and the squad word is only what it means when there is no age at all.
+  if (!match) return schoolLevel(SCHOOL_IN_NAME, name);
   const level = Number(match[1] ?? match[2]);
-  return inAgeRange(level) ? level : undefined;
+  return inAgeRange(level) ? level : schoolLevel(SCHOOL_IN_NAME, name);
 };
 
 /**

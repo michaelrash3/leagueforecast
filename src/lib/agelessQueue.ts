@@ -17,6 +17,7 @@
  */
 
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
+import { ageLevelFromName } from "./gameChangerApi";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { DeletedClubs } from "./deletedGames";
@@ -45,14 +46,29 @@ const NO_EVIDENCE: AgelessEvidence = {
   tally: [],
 };
 
-/** Whether this team is still somebody's to answer. */
+/**
+ * Whether this team is still somebody's to answer.
+ *
+ * The last clause is the rules having changed underneath a list that was written before them.
+ * Reading a school squad — "Varsity", "JV", "Lincoln HS" — as a level is new, and every team
+ * whose name says its age that way went onto this list under the old reading and is sitting
+ * there now. There is nothing to investigate about them: the name answers the question, so the
+ * next time the rota asks about one it will be filed and the entry will come off on its own.
+ *
+ * They are only taken off the *queue*, not off the list. The entry stays where it is so that
+ * pull still happens; what changes is that it stops costing one of the ten slots in front of a
+ * person, which is the whole reason the queue is ten.
+ */
 export const awaitingAnswer = (
   entry: AgeUnknownTeam,
   named: NamedAges,
   dropped: DeletedClubs,
   now: Date
 ): boolean =>
-  stillWorthAsking(entry, now) && !named.has(entry.teamId) && !dropped.has(entry.teamId);
+  stillWorthAsking(entry, now) &&
+  !named.has(entry.teamId) &&
+  !dropped.has(entry.teamId) &&
+  ageLevelFromName(entry.name ?? "") === undefined;
 
 /** Everyone still waiting on a person, worst-looking first. */
 export const agelessWaiting = (

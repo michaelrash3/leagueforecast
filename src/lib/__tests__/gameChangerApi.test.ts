@@ -281,12 +281,50 @@ describe("age levels", () => {
     expect(parseGcAgeLevel("")).toBeUndefined();
     expect(parseGcAgeLevel(undefined)).toBeUndefined();
     expect(parseGcAgeLevel(null)).toBeUndefined();
-    expect(parseGcAgeLevel("Varsity")).toBeUndefined();
+    expect(parseGcAgeLevel("fall ball")).toBeUndefined();
     expect(parseGcAgeLevel("9u Astros")).toBeUndefined();
     expect(parseGcAgeLevel("20U")).toBeUndefined();
     expect(parseGcAgeLevel("5U")).toBeUndefined();
     expect(parseGcAgeLevel(4)).toBeUndefined();
     expect(parseGcAgeLevel(9.5)).toBeUndefined();
+  });
+
+  it("reads a school squad as the age that squad is", () => {
+    // Above about 14U a great many teams name the squad rather than an age, and GameChanger's own
+    // age field carries it verbatim. Varsity is juniors and seniors, so 18U; JV is freshmen and
+    // sophomores, so 16U; a high school team naming neither squad is its varsity side.
+    expect(parseGcAgeLevel("Varsity")).toBe(18);
+    expect(parseGcAgeLevel("varsity")).toBe(18);
+    expect(parseGcAgeLevel("JV")).toBe(16);
+    expect(parseGcAgeLevel("jv")).toBe(16);
+    expect(parseGcAgeLevel("Junior Varsity")).toBe(16);
+    expect(parseGcAgeLevel("HS")).toBe(18);
+    expect(parseGcAgeLevel("High School")).toBe(18);
+    // The older end of a bracket, the same rule the two-age brackets follow, whichever way round
+    // it is written.
+    expect(parseGcAgeLevel("Varsity/JV")).toBe(18);
+    expect(parseGcAgeLevel("JV/Varsity")).toBe(18);
+    // "Junior Varsity" contains "Varsity". Reading the senior squad first would age every JV team
+    // by two years, which is the whole reason JV is looked for first.
+    expect(parseGcAgeLevel("Junior Varsity")).not.toBe(18);
+    // Still a whole label and nothing looser: a sentence with the word in it is not a level.
+    expect(parseGcAgeLevel("varsity tryouts start monday")).toBeUndefined();
+  });
+
+  it("reads a school squad written into a team name", () => {
+    expect(ageLevelFromName("Lincoln HS Varsity")).toBe(18);
+    expect(ageLevelFromName("Oak Grove JV")).toBe(16);
+    expect(ageLevelFromName("Eastview Junior Varsity Baseball")).toBe(16);
+    expect(ageLevelFromName("Lincoln High School")).toBe(18);
+    expect(ageLevelFromName("Northside HS")).toBe(18);
+    // A stated age is what the club meant. The squad word only speaks when there is no age at all.
+    expect(ageLevelFromName("Lincoln HS 16U")).toBe(16);
+    expect(ageLevelFromName("Varsity 15U Prospects")).toBe(15);
+    // The word has to stand alone. An abbreviation that merely ends in the letters is not a
+    // school, and neither is a name that happens to contain them.
+    expect(ageLevelFromName("CHS Cardinals")).toBeUndefined();
+    expect(ageLevelFromName("Jvillle Bandits")).toBeUndefined();
+    expect(ageLevelFromName("Mears 1 - 2026")).toBeUndefined();
   });
 
   it("reads a two-age bracket as the older of the two", () => {
@@ -326,10 +364,12 @@ describe("age levels", () => {
     // Half a label is not a level: one unreadable part makes the whole value unknown, so a season
     // span or a division pair stays undefined rather than becoming a guess.
     expect(parseGcAgeLevel("2026-2027")).toBeUndefined();
-    expect(parseGcAgeLevel("Varsity/JV")).toBeUndefined();
-    expect(parseGcAgeLevel("9U/Varsity")).toBeUndefined();
     expect(parseGcAgeLevel("9U/20U")).toBeUndefined();
     expect(parseGcAgeLevel("9U/5U")).toBeUndefined();
+    // A school squad is a label of its own now, so a bracket of one with an age takes the older
+    // end like any other bracket. The part that still has to hold is that every part be readable.
+    expect(parseGcAgeLevel("9U/Varsity")).toBe(18);
+    expect(parseGcAgeLevel("9U/seniors")).toBeUndefined();
   });
 
   it("reads a bracket written into the name the same way", () => {

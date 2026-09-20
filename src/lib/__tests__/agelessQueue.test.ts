@@ -51,6 +51,19 @@ describe("the queue of teams waiting on an answer", () => {
     expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))[0]).toBe("invented");
   });
 
+  it("stops asking a person about a team whose name says a school squad", () => {
+    // These went on the list before a squad word read as a level. Nothing about them is a
+    // question for a person — the name answers it — so they cost none of the ten slots. They stay
+    // on the list, which is what gets them pulled again and filed.
+    const list: AgeUnknownList = [
+      team("varsity", { name: "Lincoln HS Varsity", evidence: evidence() }),
+      team("jv", { name: "Oak Grove JV", evidence: evidence() }),
+      team("hs", { name: "Northside High School", evidence: evidence() }),
+      team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
+    ];
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["real"]);
+  });
+
   it("breaks a tie on the stalest, so the same rows do not park at the top", () => {
     const list: AgeUnknownList = [
       team("fresh", { lastTried: daysBefore(1), evidence: evidence() }),

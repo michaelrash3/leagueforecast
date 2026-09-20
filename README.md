@@ -135,6 +135,31 @@ season, and answering makes the page if the pull has not already. A season moves
 off whatever page held it before, since one league season is played at one age
 and leaving it on two would count its games twice.
 
+#### Where an age comes from
+
+Four readings, best evidence first, and each one is a step further from somebody
+saying outright what age a team is: GameChanger's own age field; a graduating class
+in that field; an age label in the team's name; a class in the name. The first
+reading that lands wins, and a team no reading reaches is filed nowhere.
+
+Two of those need saying. **A graduating class** is how travel ball names a squad
+above about 13U — "Elite 2029", "Midwest Nationals 2030" — and the class of 2027 are
+seniors, so 18U, with every year further out a year younger. The danger is that a
+four-digit number is just as often a season, so the rule is two years out and
+further: measured over a 48,035-team export, a year equal to the season year is a
+graduating class 0.2% of the time, one year out 44.8%, two years out 85.6%. Anything
+nearer is left with no level rather than a wrong one — an unrated team costs its own
+ranking, a misrated one corrupts everybody it played.
+
+**A school squad** is how the schools name one. GameChanger's age field comes back
+"Varsity" and "JV" verbatim, and names read "Lincoln HS Varsity", "Oak Grove JV".
+Varsity is juniors and seniors, so 18U; JV is freshmen and sophomores, so 16U; a
+high school team naming neither squad is its varsity side, so 18U as well. These
+used to read as no age at all and went onto the waiting-on-an-age card in their
+thousands, where there was nothing to investigate — the name answers the question,
+in the other dialect. A stated age still wins over the squad word, so "Lincoln HS
+16U" is a 16U team, and "Varsity/JV" takes the older end the way "11U/12U" does.
+
 A team below the youngest level ranked here, or one GameChanger gives no age
 for, is skipped rather than filed: a nationwide list carries thousands of 6U and
 7U squads whose results say more about which league plays coach pitch than about
@@ -570,6 +595,11 @@ whatever was kept when it was refused. The reason is the useful part:
 for all of them, so the counts are kept and say which. "None of its four opponents
 writes an age" is a rec league and will never come good; "two of its three say 9U" is
 settled in a second; no games at all is a blank schedule.
+
+A team whose name reads as a school squad is not on this card at all, even if it went
+onto the list before that reading existed: the name answers the question, so it costs
+none of the ten and the next pull files it. It stays on the list until that happens,
+which is what gets it pulled.
 
 Worst-looking first, by `looksInvented` — games carrying scores on days that have not
 happened, shutout blowouts, a record claiming far more games than the schedule lists,
