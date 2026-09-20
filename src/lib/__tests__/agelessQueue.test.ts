@@ -51,6 +51,44 @@ describe("the queue of teams waiting on an answer", () => {
     expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))[0]).toBe("invented");
   });
 
+  it("stops asking a person about a team whose name says a high school squad", () => {
+    // These went on the list before a school squad was refused outright. There is nothing to
+    // investigate — the name settles it — so they cost none of the ten. They stay on the list, so
+    // the next ask comes back "high school" and retires the entry on its own.
+    const list: AgeUnknownList = [
+      team("varsity", { name: "Lincoln HS Varsity", evidence: evidence() }),
+      team("jv", { name: "Oak Grove JV", evidence: evidence() }),
+      team("hs", { name: "Northside High School", evidence: evidence() }),
+      team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
+    ];
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["real"]);
+  });
+
+  it("keeps a lone V in front of a person, first, and says what to look for", () => {
+    /*
+     * The opposite case, and the reason it is not folded into the one above. A lone "V" really is
+     * a question a person has to settle: on a school schedule it is the varsity side, and it is
+     * equally a squad number, a colour or an initial. So it stays on the queue, it comes first
+     * because it is answerable by opening one page, and it carries the reason.
+     */
+    const list: AgeUnknownList = [
+      // Ranked above it on looksInvented alone: every game scored on a day that has not happened.
+      team("junk", {
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+      }),
+      team("loneV", { name: "Madison V", evidence: evidence() }),
+    ];
+    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
+    expect(batchIds(waiting)).toEqual(["loneV", "junk"]);
+    expect(waiting[0]?.hint).toContain("varsity");
+    expect(waiting[1]?.hint).toBeUndefined();
+  });
+
+  it("does not call a JV/V a question, because the JV says what the V is", () => {
+    const list: AgeUnknownList = [team("pair", { name: "Madison JV/V", evidence: evidence() })];
+    expect(agelessWaiting(list, new Map(), new Set(), NOW)).toEqual([]);
+  });
+
   it("breaks a tie on the stalest, so the same rows do not park at the top", () => {
     const list: AgeUnknownList = [
       team("fresh", { lastTried: daysBefore(1), evidence: evidence() }),

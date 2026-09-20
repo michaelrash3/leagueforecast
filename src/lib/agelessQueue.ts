@@ -17,6 +17,7 @@
  */
 
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
+import { isSchoolName, maybeSchoolTeam } from "./gameChangerApi";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { DeletedClubs } from "./deletedGames";
@@ -32,8 +33,22 @@ export type AgelessRow = {
   invented: number;
   /** Why the age could not be read, in a sentence. */
   why: string;
+  /** A lead the name carries, when it carries one. Present only when there is one. */
+  hint?: string;
   evidence?: AgelessEvidence;
 };
+
+/**
+ * What a lone "V" is worth saying.
+ *
+ * Every other row on this card is a question the name cannot answer. This one is a question the
+ * name half answers, and the half it gives is the half a person can finish in a second by opening
+ * the page — which is why it comes to the top and why it says what to look for.
+ */
+const LONE_V_HINT =
+  'The name carries a lone "V" with no letter against it. On a school schedule that is the ' +
+  "varsity side, and high school squads are left out of the rankings — but a single letter is " +
+  "also a squad number, a colour or an initial, so this is worth opening rather than guessing.";
 
 const NO_EVIDENCE: AgelessEvidence = {
   games: 0,
@@ -45,14 +60,36 @@ const NO_EVIDENCE: AgelessEvidence = {
   tally: [],
 };
 
-/** Whether this team is still somebody's to answer. */
+/**
+ * Whether this team is still somebody's to answer.
+ *
+ * The last clause is a rule having changed underneath a list written before it. A high school
+ * squad is refused outright now, but every one that was pulled earlier went onto this list as a
+ * team nobody could age, and there is nothing for a person to investigate about it — the name
+ * settles it. What changes is that it stops costing one of the ten slots in front of a person,
+ * which is the whole reason the queue is ten.
+ *
+ * It comes off the queue, not off the list, and it is worth being exact about what that means.
+ * An entry still inside its budget is asked again by the rota, the ask now comes back "high
+ * school" rather than "no age", and `updateAgeUnknown` retires it. An entry that has already
+ * spent its eight tries or its fifty-six days is never returned by `ageUnknownDue` at all, so
+ * nothing ever asks about it again and its row sits in storage for good. That is true of every
+ * abandoned entry and not something this rule introduced — but the row is hidden from here
+ * rather than deleted, and saying otherwise would be a claim this file cannot keep.
+ *
+ * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
+ * gets a hint instead — see `LONE_V_HINT`.
+ */
 export const awaitingAnswer = (
   entry: AgeUnknownTeam,
   named: NamedAges,
   dropped: DeletedClubs,
   now: Date
 ): boolean =>
-  stillWorthAsking(entry, now) && !named.has(entry.teamId) && !dropped.has(entry.teamId);
+  stillWorthAsking(entry, now) &&
+  !named.has(entry.teamId) &&
+  !dropped.has(entry.teamId) &&
+  !isSchoolName(entry.name ?? "");
 
 /** Everyone still waiting on a person, worst-looking first. */
 export const agelessWaiting = (
@@ -71,11 +108,15 @@ export const agelessWaiting = (
         why: evidence
           ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
           : "Nothing was kept about this one — the next refresh will say why.",
+        ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
         ...(evidence ? { evidence } : {}),
       };
     })
     .sort(
       (a, b) =>
+        // A row carrying a lead comes first, on the same reasoning that puts the junk first: it
+        // is answerable at a glance, and every one cleared never costs anybody a real decision.
+        Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||
         b.invented - a.invented ||
         // Then the stalest, so a tie does not park the same rows at the top for ever.
         (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)

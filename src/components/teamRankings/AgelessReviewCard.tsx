@@ -124,6 +124,11 @@ export function AgelessReviewCard({
               </a>
             </p>
             <p className="mt-1 text-xs text-slate-500">{row.why}</p>
+            {row.hint && (
+              <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {row.hint}
+              </p>
+            )}
             <Evidence row={row} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -158,6 +163,16 @@ export function AgelessReviewCard({
               >
                 Not a real team
               </button>
+              <button
+                type="button"
+                className={`${button.ghost} text-sm`}
+                onClick={() => {
+                  setPinned(batchIds(batch));
+                  void onThrowOut(row.entry.teamId, row.entry.name);
+                }}
+              >
+                High school
+              </button>
               {row.invented > 0 && (
                 <span className={pill("neutral")}>
                   {row.invented >= 0.5 ? "Looks invented" : "Something looks off"}
@@ -172,7 +187,8 @@ export function AgelessReviewCard({
         {rest > 0 ? `; ${rest.toLocaleString()} behind these` : ""}. Naming an age files the club on
         the next refresh — there is nothing stored to file it from now, because a team nobody could
         age is never kept. Throwing one out takes effect at once and is remembered, so no later pull
-        brings it back.
+        brings it back — which is what both buttons do, one for a club that is not real and one for
+        a high school squad, which is real and plays a season this app does not rank.
       </p>
     </div>
   );

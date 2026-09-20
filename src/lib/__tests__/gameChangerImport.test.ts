@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import {
+  ageLevelFromName,
   isNotBaseball,
+  isSchoolAgeLabel,
+  isSchoolName,
   normalizeGcGames,
+  parseGcAgeLevel,
   normalizeGcTeamProfile,
   parseGcTeamList,
   type GcTeamSchedule,
@@ -2172,10 +2176,13 @@ describe("poolSignature", () => {
      * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
      * ever, because the stamp would still match and the tidy would never run.
      */
-    expect(before).toBe(`r4|1|2|1|2026-09-15T12:00:00.000Z`);
+    // r5 since the tidy learned to delete high school squads. This digit is meant to move on
+    // exactly that kind of change: it is what makes a pool nobody has touched read as unseen,
+    // once, so the new rule reaches what is already filed.
+    expect(before).toBe(`r5|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r4|0|0|0|");
+    expect(poolSignature(empty)).toBe("r5|0|0|0|");
   });
 });
 
@@ -3130,6 +3137,175 @@ describe("teams that are not playing baseball", () => {
     expect(
       list.entries.find((entry) => entry.teamId === "gcAAAAAAAAAA")?.notBaseball
     ).toBeUndefined();
+  });
+});
+
+describe("high school squads", () => {
+  /*
+   * A school squad plays other school squads, so its results join nothing this pool ranks: the
+   * fit would see a cluster tied to the rest by almost nothing, and a rating across it is
+   * relative to itself and to nothing else. So the whole category is refused rather than filed
+   * at 18U, on the same three terms wiffle ball is — out of a pasted list before a request is
+   * spent, out of an import, and out of a pool it reached before the rule existed.
+   */
+  const varsity = (name: string, over: Record<string, unknown> = {}) =>
+    schedule({ id: "gcSCHOOL0000", name, ...over }, [game({ id: "h1" })]);
+
+  it("reads the three ways a name says it", () => {
+    expect(isSchoolName("Lincoln HS Varsity")).toBe(true);
+    expect(isSchoolName("Oak Grove JV")).toBe(true);
+    expect(isSchoolName("Eastview Junior Varsity Baseball")).toBe(true);
+    expect(isSchoolName("Northside High School")).toBe(true);
+    expect(isSchoolName("Centerville HS")).toBe(true);
+    // "JV/V" is a programme listing both squads; the JV is what says the lone V is varsity.
+    expect(isSchoolName("Madison JV/V")).toBe(true);
+  });
+
+  it("leaves a club name alone", () => {
+    expect(isSchoolName("Lexington Legends 9U")).toBe(false);
+    expect(isSchoolName("")).toBe(false);
+    expect(isSchoolName(undefined)).toBe(false);
+    // The letters have to be their own word. An abbreviation ending in them is not a school.
+    expect(isSchoolName("CHS Cardinals 12U")).toBe(false);
+    expect(isSchoolName("Jvillle Bandits 11U")).toBe(false);
+  });
+
+  it("leaves a school's summer squad alone, because the age label says it plays travel ball", () => {
+    /*
+     * This is the one deliberate hole in the rule. "Lincoln HS 16U" is a summer side playing an
+     * age bracket against travel clubs, which is connected to the pool and belongs in it. A
+     * stated age is the thing that says so — and a squad word overrides it, because a side
+     * calling itself varsity is playing the school season whatever else it writes.
+     */
+    expect(isSchoolName("Lincoln HS 16U")).toBe(false);
+    expect(isSchoolName("Lincoln High School 14u Gold")).toBe(false);
+    expect(isSchoolName("Lincoln HS Varsity 16U")).toBe(true);
+  });
+
+  it("will not call a young travel club a school side, whatever word it likes", () => {
+    /*
+     * A freshman is fourteen at the youngest, so a name stating an age below that cannot mean
+     * high school however it is branded — and "Varsity" and "JV" are both used as travel-club
+     * branding. Without this the rule deleted them, and a wrongly refused club leaves nothing
+     * behind to notice it by: no row, no count against its name, nothing.
+     */
+    expect(isSchoolName("Varsity Elite 12U")).toBe(false);
+    expect(isSchoolName("JV Sluggers 10U")).toBe(false);
+    expect(isSchoolName("Varsity Baseball Academy 9u")).toBe(false);
+    // At fourteen and up the word is taken at its word again.
+    expect(isSchoolName("Varsity Elite 15U")).toBe(true);
+    expect(isSchoolName("Lincoln HS Varsity 16U")).toBe(true);
+  });
+
+  it("reads it in GameChanger's own age field, whole and not loose", () => {
+    expect(isSchoolAgeLabel("Varsity")).toBe(true);
+    expect(isSchoolAgeLabel("JV")).toBe(true);
+    expect(isSchoolAgeLabel(" Junior Varsity ")).toBe(true);
+    expect(isSchoolAgeLabel("JV/V")).toBe(true);
+    expect(isSchoolAgeLabel("High School")).toBe(true);
+    expect(isSchoolAgeLabel("12U")).toBe(false);
+    expect(isSchoolAgeLabel("varsity tryouts monday")).toBe(false);
+    expect(isSchoolAgeLabel(undefined)).toBe(false);
+  });
+
+  it("never turns a school squad into an age", () => {
+    /*
+     * The guard against the obvious wrong fix. Reading "Varsity" as 18U would file the cluster
+     * into the 18U table, which is the outcome this whole rule exists to prevent.
+     */
+    expect(parseGcAgeLevel("Varsity")).toBeUndefined();
+    expect(parseGcAgeLevel("JV")).toBeUndefined();
+    expect(ageLevelFromName("Lincoln HS Varsity")).toBeUndefined();
+  });
+
+  it("refuses the schedule, and says why in a word", () => {
+    const { state, outcome } = importGcSchedule(varsity("Lincoln HS Varsity"), empty);
+    expect(outcome.skip).toBe("high-school");
+    expect(state).toBe(empty);
+  });
+
+  it("refuses one whose age group is perfectly good", () => {
+    // Which is the whole problem: filed under 18U it looks like any other 18U club.
+    const { outcome } = importGcSchedule(varsity("Lincoln Varsity", { ageLevel: 18 }), empty);
+    expect(outcome.skip).toBe("high-school");
+  });
+
+  it("refuses one only GameChanger's age field gives away", () => {
+    // A club that writes "Varsity" in the age column very often leaves the name plain.
+    const { outcome } = importGcSchedule(
+      varsity("Lincoln Eagles", { ageLevel: undefined, ageLabel: "Varsity" }),
+      empty
+    );
+    expect(outcome.skip).toBe("high-school");
+  });
+
+  it("does not put one on the list of teams nobody could age", () => {
+    /*
+     * The reason this matters: "high-school" is a terminal answer and "no-age" is a weekly
+     * question. Getting it wrong would park thousands of school squads on a list that asks about
+     * them for eight weeks and can never come good.
+     */
+    const { outcome } = importGcSchedule(
+      varsity("Lincoln HS Varsity", { ageLevel: undefined }),
+      empty
+    );
+    expect(outcome.skip).not.toBe("no-age");
+  });
+
+  it("drops a game against one, rather than minting a team for it", () => {
+    /*
+     * The one route by which a refused team could arrive without ever being pulled — and it would
+     * arrive un-refusable, because nothing downstream re-reads an opponent's name. The result is
+     * a real baseball result, unlike the wiffle case; it goes because the other half of it is a
+     * club this pool refuses, and a game with one side missing is a dangling row, not a result.
+     */
+    const { state, outcome } = importGcSchedule(
+      schedule({}, [
+        game({ id: "real", opponentName: "NKY Sluggers 9U" }),
+        game({ id: "school", opponentName: "Lincoln HS Varsity" }),
+      ]),
+      empty
+    );
+    expect(outcome.gamesAdded).toBe(1);
+    expect(state.games).toHaveLength(1);
+    expect(state.teams.some((team) => isSchoolName(team.name))).toBe(false);
+  });
+
+  it("deletes one already in the pool, and its results with it", () => {
+    const page: AgeGroup = { id: "ag", name: "18U 2027", ageLevel: 18, year: 2027, seasonIds: [] };
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [
+        { id: "real", name: "Lexington Legends 18U" },
+        { id: "school", name: "Lincoln HS Varsity" },
+        { id: "other", name: "NKY Sluggers 18U" },
+      ],
+      games: [
+        { id: "g1", ageGroupId: page.id, teamAId: "real", teamBId: "school", date: "2026-09-12" },
+        { id: "g2", ageGroupId: page.id, teamAId: "real", teamBId: "other", date: "2026-09-13" },
+      ],
+    });
+    expect(tidy.highSchool).toBe(1);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["other", "real"]);
+    expect(tidy.state.games.map((g) => g.id)).toEqual(["g2"]);
+    expect(describeTidy(tidy)).toContain(
+      "1 high school squad deleted, and their results with them."
+    );
+  });
+
+  it("keeps them out of a pasted list, so no request is spent on one", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        "Lexington Legends 12U,gcAAAAAAAAAA,12U",
+        "Lincoln HS Varsity,gcBBBBBBBBBB,",
+        "Lincoln Eagles,gcCCCCCCCCCC,Varsity",
+      ].join("\n")
+    );
+    expect(list.entries.find((e) => e.teamId === "gcBBBBBBBBBB")?.highSchool).toBe(true);
+    // Caught by the age column alone, with nothing in the name to give it away.
+    expect(list.entries.find((e) => e.teamId === "gcCCCCCCCCCC")?.highSchool).toBe(true);
+    expect(list.entries.find((e) => e.teamId === "gcAAAAAAAAAA")?.highSchool).toBeUndefined();
   });
 });
 
