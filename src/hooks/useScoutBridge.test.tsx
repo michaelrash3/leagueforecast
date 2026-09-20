@@ -81,8 +81,10 @@ describe("what Team Rankings has for a league season", () => {
     saveScoutTeams([
       club("linked"),
       // A stand-in names nobody, and a club with no GameChanger team behind it cannot be
-      // searched for — offering either is a search that could not have succeeded.
-      club("stand-in", { placeholder: true }),
+      // searched for — offering either is a search that could not have succeeded. A stand-in has
+      // no GameChanger id of its own, which is what makes it one: a club that has been pulled is
+      // a club whatever it is called, and `markPlaceholders` takes the mark back off it.
+      { id: "stand-in", name: "stand-in", placeholder: true },
       { id: "by-name-only", name: "Heard Of" },
     ]);
     const { result } = setup();

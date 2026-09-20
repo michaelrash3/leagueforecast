@@ -632,9 +632,24 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
  * The games they hold are untouched: the result happened, whoever it turned out to be against.
  */
 export const markPlaceholders = (teams: ScoutTeam[]): ScoutTeam[] =>
-  teams.map((team) =>
-    team.placeholder || !isPlaceholderName(team.name) ? team : { ...team, placeholder: true }
-  );
+  teams.map((team) => {
+    /*
+     * A club pulled by its own GameChanger id is a club, whatever it is called. Both directions
+     * matter. Names really do read as slots — "TBC" is Tampa Bay Cobras and "Tourney Contenders
+     * Coral Springs" is a travel squad — and a pool here held 39 of them marked as slots from
+     * before their own schedule was pulled, which left 39 real clubs out of the rankings with
+     * nothing on screen to say why. So the id clears the mark as well as preventing it: the mark
+     * is a reading of a name, and an id is not a reading of anything.
+     */
+    if (team.gcTeams?.length) {
+      if (!team.placeholder) return team;
+      const { placeholder: _slot, ...rest } = team;
+      return rest;
+    }
+    return team.placeholder || !isPlaceholderName(team.name)
+      ? team
+      : { ...team, placeholder: true };
+  });
 
 /**
  * Whatever was stored for the teams, as teams.

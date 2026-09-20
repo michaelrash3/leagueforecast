@@ -24,6 +24,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   named: { short: "Name", full: "Stand-ins the other side's schedule could name" },
   reclaimed: { short: "Reclaim", full: "Games moved to the namesake whose schedule holds them" },
+  resettled: {
+    short: "Off age",
+    full: "Games taken off a club that plays nowhere near the age they were played at",
+  },
   refiled: { short: "Refile", full: "Stand-in rows filed onto the club that turned out to be it" },
   folded: { short: "Fold", full: "Clubs holding several GameChanger ids, folded into one" },
   paired: { short: "Pair", full: "A squad and the same squad's next season, joined" },

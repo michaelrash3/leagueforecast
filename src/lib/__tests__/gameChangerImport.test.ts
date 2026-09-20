@@ -2164,10 +2164,10 @@ describe("poolSignature", () => {
      * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
      * ever, because the stamp would still match and the tidy would never run.
      */
-    expect(before).toBe(`r3|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r4|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r3|0|0|0|");
+    expect(poolSignature(empty)).toBe("r4|0|0|0|");
   });
 });
 

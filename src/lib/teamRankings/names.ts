@@ -219,6 +219,22 @@ const PLACEHOLDER_NAMES = new Set([
 const ROUND_WORDS =
   /^(?:tournament|tourney|playoffs?|championships?|bracket(?: play)?|pool play|scrimmage|practice|double ?header|dh|semis?|semi-?finals?|finals?|consolation|elimination)\b/;
 
+/**
+ * The same thing with the event's own name in front of it: "USSSA Cactus Classic", "Arkansas Fall
+ * Shootout Championship", "Snead Tournament 10/17 - 10/18". `ROUND_WORDS` is anchored, so it only
+ * ever caught the bare word, and a schedule almost never writes the bare word — it writes what the
+ * organiser called the weekend. Over this app's own nationwide pool that left 2,034 of these
+ * standing as clubs, holding 3,145 games between them: 1,302 named "tournament", 422 "classic",
+ * 310 "championship". Each is a different weekend written a different way, so each became its own
+ * "club", and the rating graph gained two thousand opponents that nobody ever played.
+ *
+ * A club pulled by its own GameChanger id is exempt wherever this is asked, because a club really
+ * can call its travel squad "Miami Bulldogs Tournament" and 74 of them do. That exemption is the
+ * whole safety of matching a word in the middle of a name: it is the difference between a name
+ * somebody wrote on a schedule and a team somebody pulled.
+ */
+const EVENT_WORDS = /\b(?:tournament|tourney|championships?|classic)\b/;
+
 export const isPlaceholderName = (name: string): boolean => {
   const raw = name.trim();
   if (!raw) return true;
@@ -235,6 +251,7 @@ export const isPlaceholderName = (name: string): boolean => {
   if (!value) return true;
   if (PLACEHOLDER_NAMES.has(value)) return true;
   if (ROUND_WORDS.test(value)) return true;
+  if (EVENT_WORDS.test(value)) return true;
   /**
    * A placeholder rarely arrives on its own. GameChanger writes an undecided bracket slot as
    * "TBD- 08/04/26, 5:00 PM", so the date and the start time are part of the name, and every one
