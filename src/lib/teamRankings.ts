@@ -778,29 +778,65 @@ export const teamsInRankingPool = (
 };
 
 /**
- * One team's record over every counted game in the pool, cross-age games included — the number
- * the detail panel shows, and the one the ranking row shows, so the two agree.
+ * One team's record over every counted game in the pool, cross-age games included — the number the
+ * detail panel shows, and the one the ranking row shows, so the two agree.
+ *
+ * Agreeing is the whole job, and it takes the same window the fit takes. `scoutRatingGames` keeps
+ * out a game dated outside the squad year — last year's squad's results, still filed under this
+ * year's id — and, with a half named, the other half's as well. This counted both, so the panel
+ * read one record beside a row reading another: on a four-game fixture the board said 2-0 for the
+ * autumn while the panel under it said 3-1, and even with no half selected the stray year made it
+ * 2-1 against 3-1.
+ *
+ * `outsideWindow` is what the window left out, so the panel can say where the missing games went
+ * rather than quietly showing a smaller number than the list beneath it.
  */
 export const teamRecordInPool = (
   teamId: string,
   ageGroupId: string,
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
-): { wins: number; losses: number; ties: number; games: number; crossAgeGames: number } => {
+  ageGroups: AgeGroup[],
+  /** One half of the year, or the whole of it when left out — as `buildTeamRankings` takes it. */
+  segment?: SeasonSegment
+): {
+  wins: number;
+  losses: number;
+  ties: number;
+  games: number;
+  crossAgeGames: number;
+  outsideWindow: number;
+} => {
   const index = indexGroups(ageGroups);
   const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
-  const counted = games.filter(
+  const mine = games.filter(
     (game) =>
       pool.has(game.ageGroupId) &&
       countsTowardRating(game) &&
       (game.teamAId === teamId || game.teamBId === teamId)
   );
+  const counted = mine.filter((game) => inSegment(game.date, index.year(game.ageGroupId), segment));
   const { wins, losses, ties } = recordsFor(counted).get(teamId) ?? NO_RECORD;
   const crossAgeGames = counted.filter(
     (game) => ageGapOf(sideLevelsWith(game, index)) !== 0
   ).length;
-  return { wins, losses, ties, games: counted.length, crossAgeGames };
+  return {
+    wins,
+    losses,
+    ties,
+    games: counted.length,
+    crossAgeGames,
+    outsideWindow: mine.length - counted.length,
+  };
 };
+
+/** Whether a game is inside the window `teamRecordInPool` counts, for a list that shows both. */
+export const countedInWindow = (
+  game: ScoutGame,
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment
+): boolean =>
+  countsTowardRating(game) &&
+  inSegment(game.date, indexGroups(ageGroups).year(game.ageGroupId), segment);
 
 /**
  * Whether a club has a GameChanger team behind it — a schedule that was pulled, or can be.

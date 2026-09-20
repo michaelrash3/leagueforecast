@@ -57,6 +57,7 @@ import {
   rankingPoolGroupIds,
   squadYearForGcSeason,
   teamHomeAgeLevel,
+  countedInWindow,
   teamRecordInPool,
   teamsInRankingPool,
   unlinkGcTeam,
@@ -2298,6 +2299,7 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
       ties: 0,
       games: 2,
       crossAgeGames: 1,
+      outsideWindow: 0,
     });
     expect(teamRecordInPool("C", "u10", games, pool)).toEqual({
       wins: 1,
@@ -2305,8 +2307,62 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
       ties: 0,
       games: 1,
       crossAgeGames: 1,
+      outsideWindow: 0,
     });
     expect(teamRecordInPool("A", "u9next", games, pool).games).toBe(1);
+  });
+});
+
+/**
+ * The record in the detail panel and the record in the ranking row are the same claim about the
+ * same club, and they were counted over different sets of games: the row over what the fit read,
+ * the panel over everything in the pool. So a board showing the autumn sat above a panel showing
+ * the whole year, and even the whole-year board disagreed, because a game dated outside the squad
+ * year — last year's squad, still filed under this year's id — is out of the fit and was in the
+ * panel's count.
+ */
+describe("the detail panel's record against the row's", () => {
+  const dated: AgeGroup[] = [
+    { id: "g10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+  ];
+  const clubs = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+  const on = (id: string, a: string, b: string, aScore: number, bScore: number, date: string) => ({
+    ...game(a, b, aScore, bScore, "g10"),
+    id,
+    date,
+  });
+  // Two in the autumn of squad year 2027, one in its spring, and one from the year before.
+  const season = [
+    on("f1", "A", "B", 6, 2, "2026-09-12"),
+    on("f2", "A", "C", 5, 4, "2026-10-03"),
+    on("s1", "A", "B", 1, 9, "2027-04-11"),
+    on("old", "A", "C", 9, 0, "2025-05-02"),
+  ];
+
+  const rowFor = (segment?: "fall" | "spring") =>
+    buildTeamRankings("g10", clubs, season, undefined, dated, segment).find(
+      (r) => r.teamId === "A"
+    );
+
+  it.each([
+    ["the whole year", undefined, "2-1", 3, 1],
+    ["the autumn", "fall" as const, "2-0", 2, 2],
+    ["the spring", "spring" as const, "0-1", 1, 3],
+  ])("reads the same as the row over %s", (_label, segment, record, games, left) => {
+    const panel = teamRecordInPool("A", "g10", season, dated, segment);
+
+    expect(rowFor(segment)?.record).toBe(record);
+    expect(`${panel.wins}-${panel.losses}${panel.ties ? `-${panel.ties}` : ""}`).toBe(record);
+    expect(panel.games).toBe(games);
+    expect(rowFor(segment)?.games).toBe(games);
+    // And it says how many it left out, so a list longer than the record is accounted for.
+    expect(panel.outsideWindow).toBe(left);
+  });
+
+  it("calls a game in the window counted and one outside it not", () => {
+    const fall = season.map((g) => countedInWindow(g, dated, "fall"));
+    expect(fall).toEqual([true, true, false, false]);
+    expect(season.map((g) => countedInWindow(g, dated))).toEqual([true, true, true, false]);
   });
 });
 
