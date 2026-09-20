@@ -1155,7 +1155,7 @@ describe("a real schedule", () => {
     expect(outcome.issue).toBeUndefined();
     expect(outcome.gamesAdded).toBe(12);
     expect(state.games).toHaveLength(12);
-    expect(state.games.every(countsTowardRating)).toBe(true);
+    expect(state.games.every((game) => countsTowardRating(game, "2099-01-01"))).toBe(true);
     expect(outcome.ageGroupName).toBe("9U 2027");
   });
 

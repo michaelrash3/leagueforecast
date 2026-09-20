@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 
@@ -42,22 +42,46 @@ const board = () =>
       .parentElement as HTMLElement
   );
 
+/**
+ * The clock this file reasons from.
+ *
+ * Its fixtures describe a whole squad year, August to July, and a game dated in a day that has not
+ * happened does not count towards a record — you cannot score a game early. Read against the wall
+ * clock, half of a squad year is always in the future and the suite would answer differently as
+ * the year moved. Pinned to the last day of squad year 2027 so every fixture is genuinely behind
+ * us and the tests say what they mean.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2027-07-31T12:00:00"));
+});
+afterAll(() => vi.useRealTimers());
+
 describe("the two halves of a baseball year", () => {
   it("opens on the half we are in, and says so on the board", () => {
     renderTeamRankings({ ageGroups: pages, teams, games: bothHalves() });
 
-    // Today is September 2026 — the autumn of baseball year 2027.
-    expect(screen.getByRole("button", { name: /Fall 2026/ })).toHaveAttribute(
+    /*
+     * The clock this file pins is 31 July 2027 — the last day of the spring half of baseball year
+     * 2027, and the last day on which every fixture here is a game that has been played. It has to
+     * be the end of the year rather than the autumn of it, because a game dated in a day that has
+     * not happened does not count towards a record, so the spring fixtures only mean anything once
+     * the spring has been.
+     */
+    expect(screen.getByRole("button", { name: /Spring 2027/ })).toHaveAttribute(
       "aria-current",
       "page"
     );
     expect(
-      screen.getByRole("heading", { name: /National top 25 · Fall 2026/ })
+      screen.getByRole("heading", { name: /National top 25 · Spring 2027/ })
     ).toBeInTheDocument();
   });
 
-  it("ranks only that half's games", () => {
+  it("ranks only that half's games", async () => {
+    const user = userEvent.setup();
     renderTeamRankings({ ageGroups: pages, teams, games: bothHalves() });
+    // Opened rather than assumed: the board opens on the half the clock is in, which is the spring.
+    await user.click(screen.getByRole("button", { name: /Fall 2026/ }));
 
     // The autumn: Autumn Aces beat Both Badgers three times and Spring Cougars was not there.
     expect(board().getByText("Autumn Aces")).toBeInTheDocument();
@@ -67,6 +91,8 @@ describe("the two halves of a baseball year", () => {
   it("swaps the whole board when the other half is opened", async () => {
     const user = userEvent.setup();
     renderTeamRankings({ ageGroups: pages, teams, games: bothHalves() });
+    // From the autumn to the spring, so the swap is a swap rather than where it already was.
+    await user.click(screen.getByRole("button", { name: /Fall 2026/ }));
     await user.click(screen.getByRole("button", { name: /Spring 2027/ }));
 
     expect(
@@ -81,6 +107,7 @@ describe("the two halves of a baseball year", () => {
     renderTeamRankings({ ageGroups: pages, teams, games: bothHalves() });
 
     // Both Badgers lost three in the autumn and three in the spring. Neither board says 0-6.
+    await user.click(screen.getByRole("button", { name: /Fall 2026/ }));
     expect(board().getByText(/0-3/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Spring 2027/ }));
     expect(board().getByText(/0-3/)).toBeInTheDocument();

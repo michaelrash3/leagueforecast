@@ -1,6 +1,9 @@
 import { clamp } from "./util";
 import { DEFAULT_SEASON_YEAR } from "./types";
 
+/** The longest each month gets. February takes 29: the year is unknown here and a leap day is real. */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
 export const toMMDD = (date: Date) => `${date.getMonth() + 1}/${date.getDate()}`;
 
 const MONTH_TOKEN_RE =
@@ -14,7 +17,14 @@ export const normalizeDateInput = (value: string) => {
   const mmdd = trimmed.match(/^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?$/);
   if (mmdd) {
     const month = clamp(Number(mmdd[1]), 1, 12);
-    const day = clamp(Number(mmdd[2]), 1, 31);
+    /*
+     * Clamped to the month rather than to 31, because a day this month does not have is a typo
+     * and the alternative is worse than refusing it: "2/31" used to come back as written and then
+     * roll over to March 3 wherever it was parsed, so a mistyped February game quietly moved to a
+     * different month. February takes 29 here whatever the year, since the year is not known at
+     * this point and a leap day is a real date.
+     */
+    const day = clamp(Number(mmdd[2]), 1, DAYS_IN_MONTH[month - 1] ?? 31);
     return `${month}/${day}`;
   }
 

@@ -46,12 +46,23 @@ export const restoreGames = (deleted: DeletedGames, ids: readonly string[]): Set
   return next;
 };
 
+/** An ISO day, which is the only shape this file can compare. */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * A scored game on a day that has not happened.
  *
  * `today` is passed rather than read, so one clock decides it and a test can say which day it is
- * — the same reason `poolHealth` takes it. The comparison is a plain string one: both sides are
- * ISO days, and a game dated exactly today is not ahead of anything.
+ * — the same reason `poolHealth` takes it. The comparison is a plain string one, which is exact
+ * for two ISO days and nonsense for anything else, so a date that is not one is not compared at
+ * all.
+ *
+ * That last part is the whole of it. A pulled row carries an ISO day; a row mirrored in from
+ * League Standings carries the league's own "M/D", and `"4/12" > "2026-09-20"` is true for no
+ * better reason than that "4" sorts after "2". Every league fixture dated April to September was
+ * being offered up as a game played on a day still to come, while December and January slipped
+ * past — and a date with no year in it cannot answer this question in either direction, so the
+ * honest answer is no.
  */
 export const isDatedAhead = (
   game: { date?: string; teamAScore?: number; teamBScore?: number },
@@ -60,6 +71,8 @@ export const isDatedAhead = (
   game.teamAScore !== undefined &&
   game.teamBScore !== undefined &&
   game.date !== undefined &&
+  ISO_DAY.test(game.date) &&
+  ISO_DAY.test(today) &&
   game.date > today;
 
 /**

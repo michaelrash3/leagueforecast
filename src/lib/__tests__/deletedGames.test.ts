@@ -122,3 +122,38 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
     expect(importer.state.games.map((game) => game.date)).toEqual(["2026-08-30"]);
   });
 });
+
+/**
+ * A date with no year in it cannot answer "has this day been and gone" in either direction, and
+ * the comparison here is a plain string one — exact for two ISO days and nonsense for anything
+ * else. A pulled row carries an ISO day; a row mirrored in from League Standings carries the
+ * league's own "M/D", and `"4/12" > "2026-09-20"` is true for no better reason than that "4"
+ * sorts after "2".
+ */
+describe("a date this cannot read", () => {
+  const scored = (date: string) => ({ date, teamAScore: 7, teamBScore: 3 });
+  const TODAY = "2026-09-20";
+
+  it("reads two ISO days exactly", () => {
+    expect(isDatedAhead(scored("2027-06-01"), TODAY)).toBe(true);
+    expect(isDatedAhead(scored("2026-09-12"), TODAY)).toBe(false);
+    // A game dated exactly today is not ahead of anything.
+    expect(isDatedAhead(scored(TODAY), TODAY)).toBe(false);
+  });
+
+  it("says no to a league fixture's M/D rather than sorting it as text", () => {
+    /*
+     * Every one of these was answered by where its first digit sorted against "2": April through
+     * September were offered up in Pool Health as games played on a day still to come, and the
+     * Delete button next to them would have taken real league fixtures out of the pool, while
+     * December and January slipped past. None of them can be placed without a year.
+     */
+    ["4/12", "5/1", "9/30", "12/20", "1/3"].forEach((date) => {
+      expect(isDatedAhead(scored(date), TODAY)).toBe(false);
+    });
+  });
+
+  it("says no when today is not an ISO day either", () => {
+    expect(isDatedAhead(scored("2027-06-01"), "9/20")).toBe(false);
+  });
+});

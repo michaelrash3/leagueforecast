@@ -11,7 +11,8 @@
  * nothing else in the pool: no ratings, no age arithmetic, no roster. `teamRankings.ts`
  * re-exports it, so no caller changed.
  */
-import { normalizeDateInput } from "../date";
+import { normalizeDateInput, todayIsoDay } from "../date";
+import { isDatedAhead } from "../deletedGames";
 import { isScoutGamePlayed, type ScoutGame } from "./types";
 
 /**
@@ -24,12 +25,24 @@ import { isScoutGamePlayed, type ScoutGame } from "./types";
 export const LEAGUE_GAME_PREFIX = "league_";
 
 /**
- * Whether a game feeds the ratings and records: it has to have been played, and not be one of the
- * cross-age tournament games kept only for the record. Every ranking calculation goes through this,
- * so there is one answer to the question rather than four filters that can drift apart.
+ * Whether a game feeds the ratings and records: it has to have been played, not be one of the
+ * cross-age tournament games kept only for the record, and not be dated in a day that has not
+ * happened yet. Every ranking calculation goes through this, so there is one answer to the
+ * question rather than four filters that can drift apart.
+ *
+ * The date is here because "played" used to mean nothing more than "both scores are numbers", and
+ * a pull brings back rows that carry a score on a date still to come — a schedule somebody filled
+ * in ahead, or a club that exists only on paper. You cannot score a game early; this is sports. A
+ * single 20-0 dated eight months out was enough to take a club's rating from 0.29 to 2.61, and it
+ * went on doing that until somebody noticed it in Pool Health and deleted it. Now it never counts,
+ * and Pool Health still lists it so it can be cleared out for good.
+ *
+ * `today` defaults to the clock, which is what makes the rule hold at every call site rather than
+ * at the few that remember to ask. It is an ISO day, the shape a pool game's date is stored in, so
+ * the two compare as strings; tests pass their own.
  */
-export const countsTowardRating = (game: ScoutGame): boolean =>
-  isScoutGamePlayed(game) && game.excluded !== true;
+export const countsTowardRating = (game: ScoutGame, today: string = todayIsoDay()): boolean =>
+  isScoutGamePlayed(game) && game.excluded !== true && !isDatedAhead(game, today);
 
 export const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;

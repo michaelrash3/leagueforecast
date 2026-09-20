@@ -5,7 +5,7 @@ import {
   type OpponentAdjustedRatings,
 } from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
-import { normalizeDateInput } from "./date";
+import { normalizeDateInput, todayIsoDay } from "./date";
 import { weightsForGames } from "./ratingRecency";
 import { ageLevelFromName } from "./gameChangerApi";
 
@@ -1163,6 +1163,15 @@ export const buildTeamRankings = (
  * of one age-gap prior against another — reads exactly the games the rankings read. A measurement
  * over a different set of games than the thing it is measuring is not a measurement of it.
  */
+/**
+ * A day nothing is ahead of, for a caller that is reading history rather than a live table.
+ *
+ * `scoutRatingGames` leaves out a game dated after today, because you cannot score a game early.
+ * A backtest has no "today" — it is handed a set of games and cuts them in time itself — so it
+ * says so with this rather than inheriting the afternoon it happens to run on.
+ */
+export const EVERY_DAY = "9999-12-31";
+
 export const scoutRatingGames = (
   ageGroupId: string,
   teams: ScoutTeam[],
@@ -1174,7 +1183,16 @@ export const scoutRatingGames = (
    * A half is fitted on its own games alone — not on the year's, filtered afterwards — because a
    * rating fitted over both halves has read the spring before saying who was best in the autumn.
    */
-  segment?: SeasonSegment
+  segment?: SeasonSegment,
+  /**
+   * The day to judge "has this been played yet" against, as an ISO day.
+   *
+   * The live tables want the real one: a row carrying a score on a day still to come is somebody's
+   * mistake and must not rate anybody. A backtest wants `EVERY_DAY` instead, because it is a
+   * historical exercise over a fixed set of games that it splits in time itself — filtered by the
+   * wall clock it would score differently depending on the afternoon it was run on.
+   */
+  today: string = todayIsoDay()
 ): Array<{ game: ScoutGame; ageGap: number }> => {
   const index = indexGroups(ageGroups);
   const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
@@ -1184,7 +1202,7 @@ export const scoutRatingGames = (
     .filter(
       (game) =>
         pool.has(game.ageGroupId) &&
-        countsTowardRating(game) &&
+        countsTowardRating(game, today) &&
         /*
          * Last year's squad's games, listed under this year's id, are not this squad's results —
          * and with a half named, this is also what keeps the other half out. A game with no date

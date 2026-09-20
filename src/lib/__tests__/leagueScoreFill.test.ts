@@ -455,3 +455,42 @@ describe("summarizeLeagueFill", () => {
     );
   });
 });
+
+/**
+ * The pool carries rows with a score on a day still to come — a schedule opened ahead, or a club
+ * that exists only on paper. Offering one here is the worst place it lands: it goes into the
+ * league's own book, selected by default, marked final, and the standings and the forecast take
+ * it from there. A 17-0 dated eight months out did exactly that.
+ */
+describe("a pool result on a day that has not happened", () => {
+  const AHEAD = "2027-06-01";
+  const TODAY = "2026-09-20";
+
+  it("is not offered to fill anything", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        matchups: [matchup("m1", "6/1", "ACES", "BEAR")],
+        logs: { m1: blankLog("6") },
+        scoutGames: [scoutGame("ahead", "S-ACES", "S-BEAR", 17, 0, AHEAD)],
+        today: TODAY,
+      })
+    );
+
+    expect(plan.rows.filter((row) => row.action === "fill")).toHaveLength(0);
+    expect(defaultFillSelection(plan)).toEqual([]);
+  });
+
+  it("is offered once its day has been and gone", () => {
+    // The same row, read a year later: now it is a game that happened.
+    const plan = planLeagueScoreFill(
+      input({
+        matchups: [matchup("m1", "6/1", "ACES", "BEAR")],
+        logs: { m1: blankLog("6") },
+        scoutGames: [scoutGame("ahead", "S-ACES", "S-BEAR", 17, 0, AHEAD)],
+        today: "2027-09-20",
+      })
+    );
+
+    expect(plan.rows.filter((row) => row.action === "fill")).toHaveLength(1);
+  });
+});
