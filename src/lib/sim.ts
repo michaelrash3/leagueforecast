@@ -120,21 +120,9 @@ const pctBounds = (team: Team, remaining: number): { min: number; max: number } 
 };
 
 /**
- * Whether the maths alone settles a team's Gold Bracket place, in the currency the place is
- * actually decided in.
- *
- * This used to reason in standings points while `rankTeams` orders the table on PCT and the Monte
- * Carlo cuts `rankTeams(...).slice(0, cutoff)` — so the two agreed only while every team had
- * played the same number of games, which is true on the first weekend and rarely again. Three
- * teams with nothing left to play were enough to show it: 2-0, 8-8 and 1-9 with one Gold place
- * between them put the 2-0 side first in the table and on 100% of the odds, and the badge beside
- * those odds read "Eliminated" — while the 8-8 side, ranked second on 0%, read "Clinched". Points
- * said 4, 16 and 2, and points were the only thing on the screen that thought so.
- *
- * So the question is asked of the finishing PCT each team can still reach. A team is out when at
- * least `cutoff` others cannot finish below it however the rest of the season goes, and in when
- * fewer than `cutoff` others can reach it. `maxPoints` stays for the callers that report it, but
- * nothing decides on it any more.
+ * Whether the maths alone settles a team's Gold Bracket place. The table and simulations rank on
+ * league points, so the clinch calculation must use that same currency. PCT bounds remain in the
+ * result because callers display them as useful best/worst-record context.
  */
 export const getMathGoldStatus = (
   team: Team,
@@ -145,18 +133,21 @@ export const getMathGoldStatus = (
 ): MathGoldStatus => {
   const maxPoints =
     standingsPoints(team, settings) + (remainingCounts[team.id] ?? 0) * settings.winPoints;
+  const currentPoints = standingsPoints(team, settings);
   const mine = pctBounds(team, remainingCounts[team.id] ?? 0);
 
   // Teams that finish above this one however the season goes: their floor clears its ceiling.
   const blockersAhead = teams.filter((other) => {
     if (other.id === team.id) return false;
-    return pctBounds(other, remainingCounts[other.id] ?? 0).min > mine.max;
+    return standingsPoints(other, settings) > maxPoints;
   }).length;
 
   // Teams that can still reach it: their ceiling reaches its floor.
   const possibleCatchers = teams.filter((other) => {
     if (other.id === team.id) return false;
-    return pctBounds(other, remainingCounts[other.id] ?? 0).max >= mine.min;
+    const otherMax =
+      standingsPoints(other, settings) + (remainingCounts[other.id] ?? 0) * settings.winPoints;
+    return otherMax >= currentPoints;
   }).length;
 
   const eliminated = blockersAhead >= cutoff;
@@ -254,23 +245,34 @@ const compareTiedTeams = (tiebreakerOrder: TiebreakerFactor[], tiedGroupSize: nu
 
 export const rankTeams = (teams: Team[], options: RankOptions) => {
   const tiebreakerOrder = resolvedTiebreakerOrder(options);
-  const sortedByPct = [...teams].sort((a, b) => {
-    // GameChanger's PCT column treats ties as half a win and sorts standings
-    // by that percentage before applying secondary tiebreakers.
-    if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
+  const pointsFor = (team: Team) =>
+    team.w * (options.winPoints ?? 1) + team.t * (options.tiePoints ?? 0.5);
+  const sortedByRecord = [...teams].sort((a, b) => {
+    // These are league standings, not a power ranking. Credit wins already earned first, then
+    // penalize losses already spent: with the same points, 0-1 must stay ahead of 0-2 because the
+    // latter has one fewer remaining opportunity in an equal-length season.
+    const pointsDiff = pointsFor(b) - pointsFor(a);
+    if (Math.abs(pointsDiff) > 0.0001) return pointsDiff;
+    if (a.l !== b.l) return a.l - b.l;
     return a.id.localeCompare(b.id);
   });
 
   const sorted: Team[] = [];
-  for (let index = 0; index < sortedByPct.length;) {
-    const first = sortedByPct[index];
+  for (let index = 0; index < sortedByRecord.length;) {
+    const first = sortedByRecord[index];
     if (!first) break;
 
     const tiedGroup = [first];
     let nextIndex = index + 1;
-    while (nextIndex < sortedByPct.length) {
-      const candidate = sortedByPct[nextIndex];
-      if (!candidate || Math.abs(candidate.pct - first.pct) > 0.0001) break;
+    while (nextIndex < sortedByRecord.length) {
+      const candidate = sortedByRecord[nextIndex];
+      if (
+        !candidate ||
+        Math.abs(pointsFor(candidate) - pointsFor(first)) > 0.0001 ||
+        candidate.l !== first.l
+      ) {
+        break;
+      }
       tiedGroup.push(candidate);
       nextIndex += 1;
     }

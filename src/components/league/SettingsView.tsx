@@ -399,8 +399,8 @@ export function SettingsView({
               League Tiebreaker Order
             </legend>
             <p className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
-              Winning percentage is always applied first. Head-to-head is only applied to two-team
-              ties.
+              League points are applied first, then fewer losses. Head-to-head is only applied to
+              two-team ties after those record checks.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
               {[0, 1, 2, 3].map((index) => (
@@ -428,8 +428,8 @@ export function SettingsView({
             </div>
             <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                Match USSSA pool-play seeding: Win % → Head-to-head → Avg Runs Allowed → Avg Run
-                Differential (capped at 8).
+                Score tiebreak preset: Head-to-head → Avg Runs Allowed → Avg Run Differential
+                (capped at 8). League points and fewer losses still come first.
               </p>
               <button
                 type="button"

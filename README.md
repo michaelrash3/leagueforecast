@@ -728,8 +728,8 @@ explicitly that no cut line exists and to cover the race for the top instead.
 | Gold cutoff           | Number of teams in the Gold Bracket. Only applies when the postseason is set to `Cut line`.                                                                               |
 | Score detail          | `Runs only` (the default) or `Full box score`. Runs alone drive the standings, the records and every projection; the fuller box score only adds the per-game stat pages.  |
 | Score errors          | Full box score and Kid Pitch only. Off drops the E box from score entry and E/G from the stat pages.                                                                      |
-| Win / Tie points      | Math calculations and Gold status.                                                                                                                                        |
-| Tiebreaker order      | Tournament seeding after winning percentage: two-team head-to-head, run differential, runs allowed, runs scored.                                                          |
+| Win / Tie points      | League standings, simulations, and Gold status.                                                                                                                           |
+| Tiebreaker order      | Score tiebreakers after league points and fewer losses: two-team head-to-head, run differential, runs allowed, runs scored.                                               |
 | Team Rankings results | Whether tournament games logged in Team Rankings sharpen this league's game forecasts (`useScoutResults`). Forecasts only — records and standings are always league-only. |
 | Recap grouping        | Builds stories per game, date, or week.                                                                                                                                   |
 | Model aggression      | Prediction weighting profile.                                                                                                                                             |
