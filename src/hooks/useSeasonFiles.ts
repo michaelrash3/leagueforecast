@@ -238,6 +238,9 @@ This will replace the current season data and save an undo snapshot.`,
           bracketLogs: {},
         });
         closeTeamData();
+        // The recap describes one score in the season being replaced, so it goes with it. This
+        // line is the one thing the other two paths did and this one did not.
+        clearLastImpact();
         setActiveView(importedScoreCount ? "games" : "standings");
         showToast(
           `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}${importedScoreCount ? `; ${importedScoreCount} scored game${importedScoreCount === 1 ? "" : "s"} pending verification` : ""}.`,
