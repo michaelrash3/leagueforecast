@@ -1172,13 +1172,21 @@ describe("a real schedule", () => {
 });
 
 describe("proposeSeasonPairings", () => {
+  /*
+   * The state is part of the helper because it is part of a pairing now: two GameChanger accounts
+   * with one name in two states are two clubs, and asking for the state up front is what took the
+   * list down from a page of near-certain rows to the handful worth reading. A test about two
+   * clubs that are *not* one overrides it.
+   */
   const withLinks = (
     id: string,
     name: string,
-    link: Partial<NonNullable<ScoutTeam["gcTeams"]>[number]>
+    link: Partial<NonNullable<ScoutTeam["gcTeams"]>[number]>,
+    place: Partial<ScoutTeam> = { state: "KY" }
   ): ScoutTeam => ({
     id,
     name,
+    ...place,
     gcTeams: [
       {
         teamId: `gc-${id}`,
@@ -1208,7 +1216,7 @@ describe("proposeSeasonPairings", () => {
     expect(pairings[0]).toMatchObject({
       fromTeamId: "t1",
       toTeamId: "t2",
-      evidence: ["avatar"],
+      evidence: ["avatar", "state"],
       sameName: true,
       confidence: "strong",
       fromSeason: "Fall 2026",
@@ -1266,8 +1274,8 @@ describe("proposeSeasonPairings", () => {
     // near-certain rows and the wrong one gets approved along with the rest.
     expect(
       proposeSeasonPairings([
-        withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }),
-        withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }),
+        withLinks("a1", "Yankees", { season: "fall", seasonYear: 2026 }, { state: "KY" }),
+        withLinks("a2", "Yankees", { season: "spring", seasonYear: 2027 }, { state: "OH" }),
       ])
     ).toEqual([]);
   });
@@ -1284,7 +1292,7 @@ describe("proposeSeasonPairings", () => {
     ];
     const pairings = proposeSeasonPairings(teams, games);
     expect(pairings).toHaveLength(1);
-    expect(pairings[0]!.evidence).toEqual(["shared-opponent"]);
+    expect(pairings[0]!.evidence).toEqual(["state", "shared-opponent"]);
   });
 
   it("does not count a stand-in as a club in common", () => {
@@ -3158,6 +3166,13 @@ describe("one squad listed twice in one season", () => {
         ageLevel: 9,
         season: "fall",
         seasonYear: 2026,
+        /*
+         * Two of the three coaches in common, as the real pair had. An empty id on its own is no
+         * longer an offer: an A squad and a B squad at one age differ in their coaches and in
+         * nothing else a schedule records, so the coaches are what has to say these are one
+         * roster listed twice.
+         */
+        staff: ["Ali Castle", "Crystal Akers"],
         ...link,
       },
     ],
@@ -3205,10 +3220,17 @@ describe("one squad listed twice in one season", () => {
   });
 
   it("offers nothing when both sides have a schedule of their own", () => {
-    // Two real squads at one age in one town: an A team and a B team, and merging them is a
-    // club losing half its history.
+    /*
+     * Two real squads at one age in one town: an A team and a B team, and merging them is a club
+     * losing half its history. Different coaches, which is the one thing that is true of an A and
+     * a B squad and not of one roster listed twice — the next test is the same fixture with the
+     * coaches shared, and it *is* offered.
+     */
     const pairings = proposeSeasonPairings(
-      [staffed("a", "Ambush 9U"), staffed("b", "Ambush 9U")],
+      [
+        staffed("a", "Ambush 9U", { staff: ["Dana Hall", "Rory Estes"] }),
+        staffed("b", "Ambush 9U", { staff: ["Marie Ochoa", "Glenn Tapp"] }),
+      ],
       [listed("gc-a", "g1"), listed("gc-b", "g2")]
     );
 

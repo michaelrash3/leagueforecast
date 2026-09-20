@@ -9,6 +9,7 @@ import {
 } from "./gameChangerSchedule";
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
+import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
 import {
   archiveEntryOf,
   coerceArchivedSeason,
@@ -119,6 +120,17 @@ const GC_AGELESS_KEY = "league_forecast_gc_ageless_v1";
  * reset that left the index behind would list archives whose rows it had just deleted.
  */
 const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
+/**
+ * The pairs of GameChanger ids the user has said are two different clubs.
+ *
+ * In `POOL_KEYS` because it is about the pool and is nothing like big enough to be anywhere else:
+ * a few dozen pairs of twelve-character ids, which is what makes the read path that walks those
+ * keys the right one for it. The one key the reset below steps over, and the reason is that the
+ * answers outlive the data they were given about: a GameChanger id is minted once and comes back
+ * unchanged on the next pull, so clearing these would ask the user every one of the same
+ * questions again about exactly the same two teams.
+ */
+const GC_APART_KEY = "league_forecast_gc_apart_v1";
 /**
  * One archived season's rows, a key each.
  *
@@ -346,6 +358,7 @@ const POOL_KEYS = [
   GC_TIDY_KEY,
   GC_AGELESS_KEY,
   GC_ARCHIVE_KEY,
+  GC_APART_KEY,
 ];
 /**
  * Keys that live beside the pool in the store but are read on demand rather than into the cache.
@@ -549,7 +562,7 @@ export const clearTeamRankings = (): boolean => {
   const archived = loadArchiveIndex();
   // Each year's games has a key of its own, named by the index; read them before the index goes.
   const shards = gamesShardKeys();
-  POOL_KEYS.forEach((key) => forgetValue(key));
+  POOL_KEYS.filter((key) => key !== GC_APART_KEY).forEach((key) => forgetValue(key));
   shards.forEach((key) => forgetValue(key));
   decodedYear = null;
   archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
@@ -1209,6 +1222,12 @@ export const clearPullLog = (): Promise<void> => dropBlob(GC_TRACK_KEY);
 export const loadAgeUnknown = (): AgeUnknownList => coerceAgeUnknown(readValue(GC_AGELESS_KEY));
 
 export const saveAgeUnknown = (list: AgeUnknownList): boolean => writeValue(GC_AGELESS_KEY, list);
+
+/** The pairs of GameChanger ids the user has said are two clubs, never to be offered again. */
+export const loadKeptApart = (): Set<string> => coerceKeptApart(readValue(GC_APART_KEY));
+
+export const saveKeptApart = (apart: KeptApart): boolean =>
+  writeValue(GC_APART_KEY, keptApartList(apart));
 
 /**
  * A value that is too big to keep in memory, read and written straight past the cache.

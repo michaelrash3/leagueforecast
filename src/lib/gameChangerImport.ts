@@ -51,6 +51,7 @@ import {
   type ScoutTeam,
 } from "./teamRankings";
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
+import { isKeptApart, type KeptApart } from "./keptApart";
 
 /**
  * The lookups an import does, precomputed.
@@ -401,6 +402,17 @@ export type GcSeasonPairing = {
   toTeamName: string;
   toSeason: string;
   /**
+   * The two GameChanger ids this pairing is really about.
+   *
+   * The team ids above are this app's own and do not survive the answer: folding deletes one of
+   * them, and a reset mints new ones for everybody. A GameChanger id is minted once by
+   * GameChanger and never again, so it is what a decision about this pair — "yes, fold" or "no,
+   * these are two clubs" — has to be recorded against if it is to mean anything after the next
+   * pull. See `keptApart.ts`.
+   */
+  fromGcId: string;
+  toGcId: string;
+  /**
    * What says these are one club, beyond the name. Never empty: a shared name alone is not
    * evidence, because the country is full of clubs that share one.
    */
@@ -420,6 +432,16 @@ export type GcSeasonPairing = {
    */
   kind: "next-season" | "same-season";
 };
+
+/**
+ * The age a GameChanger listing plays at: the level it gives, or the one written in its name.
+ *
+ * GameChanger's own field is often blank while the name says "11U" plainly, and the two are the
+ * same fact. Undefined means nobody wrote it down anywhere, which is not an age — and is never
+ * an age two listings have in common.
+ */
+const linkAgeLevel = (link: GcTeamLink): number | undefined =>
+  link.ageLevel ?? ageLevelFromName(link.name);
 
 /** The things that are not coincidences when two GameChanger teams are the same club. */
 export type GcPairingEvidence =
@@ -463,18 +485,28 @@ export const GC_PAIRING_EVIDENCE_LABEL: Record<GcPairingEvidence, string> = {
 const SEASON_ORDER = ["fall", "winter", "spring", "summer"] as const;
 
 /**
- * A squad year runs Fall through the following Summer, so these two labels are consecutive within
- * one squad year. Anything else — Summer to the next Fall — is a new squad at a new age level, and
- * that is an age-up rather than a pairing.
+ * Whether `to` is a season `from` could have carried on into, and what the ages must do if it is.
+ *
+ * A squad year runs Fall through the following Summer. Inside one, the squad is the same squad at
+ * the same age: Fall 2026, Winter 2026, Spring 2027 and Summer 2027 are one roster playing 11U all
+ * the way through, so an age that changes means two different squads and there is nothing to pair.
+ * Crossing into the next squad year — Spring or Summer, then the following Fall — is the same
+ * roster too, but a year older, which is the whole reason the boundary is where it is. Refusing
+ * that crossing outright, which is what this did, broke the carry-over at every birthday: a club's
+ * 10U in Spring and its 11U in Fall were two teams with no game between them, and a rating had
+ * nothing to follow from one to the other.
+ *
+ * So the answer is not yes or no but which of the two, and the caller checks the ages against it.
  */
-const isNextSeason = (from: GcTeamLink, to: GcTeamLink): boolean => {
+const seasonStep = (from: GcTeamLink, to: GcTeamLink): "same-year" | "ages-up" | null => {
   const fromIndex = SEASON_ORDER.indexOf((from.season ?? "") as (typeof SEASON_ORDER)[number]);
   const toIndex = SEASON_ORDER.indexOf((to.season ?? "") as (typeof SEASON_ORDER)[number]);
-  if (fromIndex < 0 || toIndex < 0 || toIndex <= fromIndex) return false;
-  return (
-    squadYearForGcSeason(from.season, from.seasonYear ?? 0) ===
-    squadYearForGcSeason(to.season, to.seasonYear ?? 0)
-  );
+  if (fromIndex < 0 || toIndex < 0) return null;
+  const fromYear = squadYearForGcSeason(from.season, from.seasonYear ?? 0);
+  const toYear = squadYearForGcSeason(to.season, to.seasonYear ?? 0);
+  if (fromYear === toYear) return toIndex > fromIndex ? "same-year" : null;
+  // One squad year on, and forward in time. Two years on is a squad somebody stopped following.
+  return toYear === fromYear + 1 ? "ages-up" : null;
 };
 
 /**
@@ -1708,7 +1740,8 @@ export const resolveSlotGames = (
  */
 export const proposeSeasonPairings = (
   teams: ScoutTeam[],
-  games: readonly ScoutGame[] = []
+  games: readonly ScoutGame[] = [],
+  apart: KeptApart = new Set<string>()
 ): GcSeasonPairing[] => {
   const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
   if (linked.length === 0) return [];
@@ -1794,14 +1827,38 @@ export const proposeSeasonPairings = (
   });
   const ownGames = (link: GcTeamLink): number => ownSchedule.get(link.teamId) ?? 0;
 
-  const candidates: GcSeasonPairing[] = [];
+  /**
+   * The offers, each with the two things the filters below need and the caller does not: whether
+   * it crosses into the next squad year, and how far into that year the target season sits.
+   */
+  const candidates: { pairing: GcSeasonPairing; crossing: boolean; at: number }[] = [];
   for (const from of linked) {
     for (const to of candidatesFor(from)) {
       if (from.team.id === to.team.id) continue;
+      if (isKeptApart(apart, from.link.teamId, to.link.teamId)) continue;
       const sameSeason = isSameSeason(from.link, to.link);
-      if (!sameSeason && !isNextSeason(from.link, to.link)) continue;
-      // A level apart is an age-up, not the same squad — carrying on, or listed twice.
-      if (from.link.ageLevel !== to.link.ageLevel) continue;
+      const carriesOn = sameSeason ? null : seasonStep(from.link, to.link);
+      if (!sameSeason && carriesOn === null) continue;
+      /*
+       * The ages, which mean different things either side of a season boundary.
+       *
+       * Inside one season a squad is one age, so two ids at two ages are two squads and there is
+       * nothing to discuss. Across seasons the age is exactly what changes: a club's 10U in Spring
+       * 2026 is its 11U in Fall 2026 and still its 11U in Spring 2027, and refusing the pairing
+       * whenever the levels differed — which is what this did — broke the carry-over at every
+       * birthday and left the rating with nothing to follow across the winter. One year, forward
+       * only: a squad ages up or stays, it never gets younger, and a two-year jump is somebody
+       * else's team.
+       *
+       * Both ages have to be known. An age nobody wrote down is not an age two ids have in
+       * common, and treating two blanks as a match is how "same name, different age" pairs were
+       * being offered at all. Where GameChanger gave no level the name usually did, and
+       * `relevelFromNames` has already read it by the time anything gets here.
+       */
+      const fromLevel = linkAgeLevel(from.link);
+      const toLevel = linkAgeLevel(to.link);
+      if (fromLevel === undefined || toLevel === undefined) continue;
+      if (toLevel - fromLevel !== (carriesOn === "ages-up" ? 1 : 0)) continue;
       /*
        * One direction only, for a pair in one season. There is no earlier and later to order them
        * by, so both directions qualify and the pair would be offered twice, pointing opposite
@@ -1816,7 +1873,14 @@ export const proposeSeasonPairings = (
         if (mine === theirs && from.link.teamId >= to.link.teamId) continue;
       }
 
-      const sameName = teamNameKey(from.link.name) === teamNameKey(to.link.name);
+      /*
+       * The listings' own key, not the club key. `teamNameKey` drops a parenthetical, because
+       * "Heat 9U (Ealey)" and "Heat 9U" are one club for an opponent to have played — but they
+       * are two squads, and this is the question of whether two ids are one roster. Matching on
+       * the club key was offering "(Ealey)" against "(Brown)" as the same team under a chip that
+       * said "same name", which is exactly the kind of wrong that gets approved in bulk.
+       */
+      const sameName = squadNameKey(from.link.name) === squadNameKey(to.link.name);
       const evidence: GcPairingEvidence[] = [];
       if (from.link.avatarKey && from.link.avatarKey === to.link.avatarKey) evidence.push("avatar");
       if (sharedStaff(from.team.id, to.team.id, staffIndex).length >= 2) evidence.push("staff");
@@ -1837,23 +1901,33 @@ export const proposeSeasonPairings = (
        * name-only rule offered a page of pairings that were mostly wrong, which is worse than
        * offering none: read enough of them and they all start looking approvable.
        */
-      if (evidence.length === 0) continue;
-      if (!sameName && !evidence.includes("avatar")) continue;
       /*
-       * Same name and same state alone is no offer. Two GameChanger accounts a season apart with
-       * one name in one state are, as often as not, two rec-league teams in two towns; a town in
-       * common, a pulled club in common, or the same picture is what makes one squad.
+       * The name and the state are asked of every pairing now, not weighed against the rest.
+       *
+       * A picture used to stand in for the name, on the reasoning that GameChanger keeps a club's
+       * badge across seasons. It does not: over a nationwide pull 7,948 teams carried 7,948
+       * distinct pictures and not one was shared by two of them. So a pairing made on a picture
+       * against a name that did not match was a pairing made on nothing, and the state is the
+       * cheapest thing that is true of a club and not of its namesake three states away.
+       */
+      if (!sameName) continue;
+      if (!evidence.includes("state")) continue;
+      /*
+       * Two GameChanger accounts a season apart with one name in one state are, as often as not,
+       * two rec-league teams in two towns. A town in common, a pulled club in common, the same
+       * picture, or two coaches is what makes one squad out of them.
        */
       if (evidence.every((item) => item === "state")) continue;
 
       /*
-       * A single season asks more than that, because inside one season the innocent explanation is
+       * A single season asks for all of it, because inside one season the innocent explanation is
        * a real one: a club running an A and a B squad at 9U names them the same thing, in the same
-       * town, in the same state, and merging those two destroys both. Only two things tell that
-       * apart from one roster listed twice. The coaches — two in common is the same town 89% of
-       * the time, against 43% for one, and `likelySameSquad` is that rule written down with the
-       * age level and the season it needs. Or a side with no schedule of its own, which an A and a
-       * B squad both have and an id nobody ever used cannot.
+       * town, in the same state, and merging those two destroys both. So a same-season offer needs
+       * the listings to agree on everything there is to agree on — the name exactly, the age, the
+       * town and the state — and then the coaches on top, which is the only field in the data that
+       * says anything about an organisation. Two in common is the same town 89% of the time
+       * against 43% for one; `likelySameSquad` is that rule written down with the age level and
+       * the season it needs.
        */
       if (sameSeason) {
         const squadOf = (teamId: string) => {
@@ -1865,27 +1939,37 @@ export const proposeSeasonPairings = (
               : { season: { season: link.season, year: link.seasonYear } }),
           };
         };
-        const byStaff = likelySameSquad(from.team.id, to.team.id, staffIndex, squadOf);
-        const byShell = sameName && evidence.includes("city") && evidence.includes("no-schedule");
-        if (!byStaff && !byShell) continue;
+        if (!evidence.includes("city")) continue;
+        if (!likelySameSquad(from.team.id, to.team.id, staffIndex, squadOf)) continue;
       }
 
       candidates.push({
-        fromTeamId: from.team.id,
-        fromTeamName: from.team.name,
-        fromSeason: gcSeasonLabel(from.link) || "an unlabelled season",
-        toTeamId: to.team.id,
-        toTeamName: to.team.name,
-        toSeason: gcSeasonLabel(to.link) || "an unlabelled season",
-        evidence,
-        sameName,
-        confidence:
-          evidence.includes("avatar") ||
-          evidence.includes("staff") ||
-          (sameName && evidence.length > 1)
-            ? "strong"
-            : "likely",
-        kind: sameSeason ? "same-season" : "next-season",
+        crossing: carriesOn === "ages-up",
+        at: SEASON_ORDER.indexOf((to.link.season ?? "") as (typeof SEASON_ORDER)[number]),
+        pairing: {
+          fromTeamId: from.team.id,
+          fromTeamName: from.team.name,
+          fromSeason: gcSeasonLabel(from.link) || "an unlabelled season",
+          toTeamId: to.team.id,
+          toTeamName: to.team.name,
+          toSeason: gcSeasonLabel(to.link) || "an unlabelled season",
+          fromGcId: from.link.teamId,
+          toGcId: to.link.teamId,
+          evidence,
+          sameName,
+          /*
+           * The name and the state are asked of everything here now, so neither can grade
+           * anything: counting them made every offer "strong", which is a grading that says
+           * nothing. What is left is what a pairing actually rests on beyond them — the same
+           * picture, two coaches in common, or the same town — against a club in common or an
+           * empty id, which get this far and are worth reading but not worth approving in bulk.
+           */
+          confidence:
+            evidence.includes("avatar") || evidence.includes("staff") || evidence.includes("city")
+              ? "strong"
+              : "likely",
+          kind: sameSeason ? "same-season" : "next-season",
+        },
       });
     }
   }
@@ -1896,14 +1980,36 @@ export const proposeSeasonPairings = (
    * and a list that offers both invites picking whichever was read first.
    */
   const outgoing = new Map<string, number>();
-  candidates.forEach((pairing) => {
+  candidates.forEach(({ pairing }) => {
     const key = `${pairing.fromTeamId}\u0000${pairing.toSeason}`;
     outgoing.set(key, (outgoing.get(key) ?? 0) + 1);
   });
 
+  /**
+   * And into exactly one next squad *year*, at the first season of it that is here.
+   *
+   * A club that ran Spring 2026, Fall 2026 and Spring 2027 qualifies twice over on the crossing:
+   * the Spring 2026 squad became the Fall 2026 one, and by the same arithmetic it became the
+   * Spring 2027 one. Both are true and only the first is worth offering — the second is the same
+   * fold arrived at the long way round, and folding along the chain reaches it anyway. Offering
+   * both is two rows for one decision, which is precisely the noise that makes a list stop being
+   * read.
+   */
+  const earliest = new Map<string, number>();
+  candidates.forEach(({ pairing, crossing, at }) => {
+    if (!crossing) return;
+    const seen = earliest.get(pairing.fromTeamId);
+    if (seen === undefined || at < seen) earliest.set(pairing.fromTeamId, at);
+  });
+
   return (
     candidates
-      .filter((pairing) => outgoing.get(`${pairing.fromTeamId}\u0000${pairing.toSeason}`) === 1)
+      .filter(
+        ({ pairing, crossing, at }) =>
+          outgoing.get(`${pairing.fromTeamId}\u0000${pairing.toSeason}`) === 1 &&
+          (!crossing || at === earliest.get(pairing.fromTeamId))
+      )
+      .map(({ pairing }) => pairing)
       // Strongest first, so the ones worth approving in bulk are together at the top.
       .sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === "strong" ? -1 : 1))
   );
@@ -1937,9 +2043,10 @@ export const isSettledPairing = (pairing: GcSeasonPairing): boolean =>
  */
 export const pairSettledSquads = (
   state: GcImportState,
-  progress?: (processed: number, total: number, paired: number) => void
+  progress?: (processed: number, total: number, paired: number) => void,
+  apart: KeptApart = new Set<string>()
 ): { state: GcImportState; paired: number } => {
-  const settled = proposeSeasonPairings(state.teams, state.games).filter(isSettledPairing);
+  const settled = proposeSeasonPairings(state.teams, state.games, apart).filter(isSettledPairing);
   if (settled.length === 0) return { state, paired: 0 };
 
   /*
@@ -2822,7 +2929,8 @@ export type TidyWatcher = (step: TidyStep) => void;
 const tidyOnce = (
   state: GcImportState,
   pass: number,
-  watch?: TidyWatcher
+  watch?: TidyWatcher,
+  apart?: KeptApart
 ): Omit<PoolTidy, "passes"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
@@ -2873,23 +2981,27 @@ const tidyOnce = (
   const squads = mergeSameSquadIds(placed.state);
   finished("folded", squads.merged, squads.state);
   starting("paired", squads.state);
-  const seasons = pairSettledSquads(squads.state, (processed, total, found) => {
-    if (!watch) return;
-    try {
-      watch({
-        pass,
-        step: "paired",
-        found,
-        teams: squads.state.teams.length,
-        games: squads.state.games.length,
-        done: false,
-        processed,
-        total,
-      });
-    } catch {
-      /* never at the tidy's expense */
-    }
-  });
+  const seasons = pairSettledSquads(
+    squads.state,
+    (processed, total, found) => {
+      if (!watch) return;
+      try {
+        watch({
+          pass,
+          step: "paired",
+          found,
+          teams: squads.state.teams.length,
+          games: squads.state.games.length,
+          done: false,
+          processed,
+          total,
+        });
+      } catch {
+        /* never at the tidy's expense */
+      }
+    },
+    apart
+  );
   finished("paired", seasons.paired, seasons.state);
   starting("collapsed", seasons.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
@@ -2915,7 +3027,12 @@ const tidyOnce = (
  * settled in pass one is the row that lets a second slot settle in pass two — so a single pass
  * left 416 stand-ins that the next pass found, then 54, then 5.
  */
-export const tidyPool = (state: GcImportState, watch?: TidyWatcher): PoolTidy => {
+export const tidyPool = (
+  state: GcImportState,
+  watch?: TidyWatcher,
+  /** Pairs the user has already said are two clubs, so the tidy does not join them behind them. */
+  apart?: KeptApart
+): PoolTidy => {
   const total: PoolTidy = {
     state,
     named: 0,
@@ -2931,7 +3048,7 @@ export const tidyPool = (state: GcImportState, watch?: TidyWatcher): PoolTidy =>
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state, pass + 1, watch);
+    const step = tidyOnce(total.state, pass + 1, watch, apart);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;

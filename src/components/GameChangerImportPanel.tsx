@@ -75,7 +75,10 @@ import {
   savePullLog,
   saveTidyStamp,
   type PoolHolding,
+  loadKeptApart,
+  saveKeptApart,
 } from "../lib/teamRankingsStorage";
+import { keepApart as apartAfter } from "../lib/keptApart";
 import {
   liveSummary,
   pullSummaryCsv,
@@ -987,7 +990,9 @@ export function GameChangerImportPanel({
         ),
         canRetry: finished ? retryableIds(finished).length > 0 : false,
       });
-      setPairings(proposeSeasonPairings(poolRef.current.teams, poolRef.current.games));
+      setPairings(
+        proposeSeasonPairings(poolRef.current.teams, poolRef.current.games, loadKeptApart())
+      );
       setApproved(new Set());
       setOpenPair(null);
       setStage("review");
@@ -1287,6 +1292,24 @@ export function GameChangerImportPanel({
    * rest, and the search narrows by name, state or season for when the answer is only wanted for
    * some of them.
    */
+  /**
+   * Says the two are two clubs, for good. Recorded against the GameChanger ids, which is what the
+   * next pull brings back unchanged; the same pair is never offered here or on the pool health
+   * card again. See `keptApart.ts`.
+   */
+  const keepApart = (pairing: GcSeasonPairing) => {
+    saveKeptApart(apartAfter(loadKeptApart(), pairing.fromGcId, pairing.toGcId));
+    const key = pairKey(pairing);
+    setPairings((current) => current.filter((entry) => pairKey(entry) !== key));
+    setApproved((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+    setOpenPair((current) => (current?.key === key ? null : current));
+  };
+
   const matching = pairings.filter((pairing) => pairingMatches(pairing, pairSearch));
   const shown = matching.slice(0, pairLimit);
 
@@ -1865,7 +1888,9 @@ export function GameChangerImportPanel({
                 GameChanger gives a club a new id every season, so these arrived as separate teams.
                 Pairs with the same name, town and state have been combined already. These share
                 less than that, so they are yours to call — tap a name to see the two side by side.
-                Pairing makes one team with both seasons behind it.
+                Pairing makes one team with both seasons behind it. <strong>Not the same</strong>
+                is remembered against the two GameChanger ids, so a pair you turn down is never
+                offered again.
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <input
@@ -1965,7 +1990,14 @@ export function GameChangerImportPanel({
                                 ...pairing.evidence.map((item) => GC_PAIRING_EVIDENCE_LABEL[item]),
                               ].join(" · ")}
                             </span>
-                          </label>
+                          </label>{" "}
+                          <button
+                            type="button"
+                            onClick={() => keepApart(pairing)}
+                            className={`${button.ghost} text-xs`}
+                          >
+                            Not the same
+                          </button>
                         </div>
                       </div>
                       {comparison && <PairingComparison comparison={comparison} />}

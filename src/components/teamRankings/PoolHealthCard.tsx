@@ -9,7 +9,8 @@ import {
 } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
-import { storedGamesByYear } from "../../lib/teamRankingsStorage";
+import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
+import { keepApart as apartAfter } from "../../lib/keptApart";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { TidyProgressView } from "./TidyProgressView";
@@ -91,7 +92,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
   const [merging, setMerging] = useState<string | null>(null);
 
   const sameSeasonPairs = (state: GcImportState) =>
-    proposeSeasonPairings(state.teams, state.games).filter(
+    proposeSeasonPairings(state.teams, state.games, loadKeptApart()).filter(
       (pairing) => pairing.kind === "same-season"
     );
 
@@ -119,6 +120,23 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
     setSettleable(found.settleable);
     setToPull(unpulledClubs(outcome.state));
     setDuplicates(sameSeasonPairs(outcome.state));
+  };
+
+  /**
+   * Says the two are two clubs, and means it for good.
+   *
+   * Recorded against the GameChanger ids rather than this pool's, because those are what the next
+   * pull brings back unchanged — see `keptApart.ts`. Without it the same handful of namesakes come
+   * back on this list after every pull, and a list that re-asks a question already answered is a
+   * list that stops being read.
+   */
+  const keepApart = (pairing: GcSeasonPairing) => {
+    saveKeptApart(apartAfter(loadKeptApart(), pairing.fromGcId, pairing.toGcId));
+    setDuplicates((current) =>
+      (current ?? []).filter(
+        (entry) => entry.fromGcId !== pairing.fromGcId || entry.toGcId !== pairing.toGcId
+      )
+    );
   };
 
   /** Folds one of the pairs in, and takes it off the list only if it actually happened. */
@@ -345,6 +363,14 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
                     className={`${button.ghost} text-xs`}
                   >
                     {merging === key ? "Folding…" : "Fold in"}
+                  </button>{" "}
+                  <button
+                    type="button"
+                    onClick={() => keepApart(pairing)}
+                    disabled={merging !== null || pullLive}
+                    className={`${button.ghost} text-xs`}
+                  >
+                    Not the same
                   </button>
                 </li>
               );
@@ -359,8 +385,10 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
           <p className="mt-2 text-xs text-slate-500">
             Never done for you, however certain it looks. A club running an A and a B squad at one
             age names them the same thing in the same town, and folding those two together costs the
-            club half its history — so the side with no schedule of its own, or two coaches in
-            common, is what puts a pair on this list, and you say whether it is right.
+            club half its history — so the same name exactly, the same age, the same town, the same
+            state and two coaches in common is what puts a pair on this list, and you say whether it
+            is right. <strong>Not the same</strong> is remembered against the two GameChanger ids,
+            so the pair is never offered again — not after the next pull, and not after a reset.
           </p>
         </div>
       )}
