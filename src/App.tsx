@@ -68,13 +68,18 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import { csvEscape } from "./lib/csv";
 import {
   formatGameDate,
   normalizeDateInput,
   parseDateValue,
   sundayEndingWeekKey,
 } from "./lib/date";
+import {
+  builderTeamNames,
+  buildRoundRobin,
+  roundRobinCsv,
+  roundRobinFileName,
+} from "./lib/roundRobin";
 import { displayName, recordText } from "./lib/format";
 import { summarizeCsvImportIssues } from "./lib/importReport";
 import { buildSeasonImportPreview, formatSeasonImportPreview } from "./lib/importPreview";
@@ -99,7 +104,6 @@ import {
   applyResult,
   attachAdjustedRatings,
   calculateTeams,
-  createTeamId,
   getMathGoldStatus,
   getRemainingCounts,
   isSeedingLocked,
@@ -2200,60 +2204,38 @@ League Standings — your seasons, schedules and scores — is not touched.`,
 
   // ---------- Season builder ----------
 
-  const readBuilderTeamNames = (): string[] => {
-    const cleaned = seasonBuilderText
-      .split(/\r?\n|,/)
-      .map((name) => name.trim())
-      .filter(Boolean);
-    return Array.from(new Set(cleaned));
-  };
-
-  const buildRoundRobinSeason = () => {
-    const names = readBuilderTeamNames();
-    if (names.length < 2) {
-      showToast("Enter at least two teams to build a schedule.", { tone: "error" });
-      return null;
-    }
-    const existingIds = new Set<string>();
-    const builtTeams = names.map((name) => ({
-      id: createTeamId(displayName(name), existingIds),
-      name,
-    }));
-    const builtMatchups: Matchup[] = [];
-    const builtLogs: Record<string, GameLog> = {};
-    for (let awayIndex = 0; awayIndex < builtTeams.length; awayIndex += 1) {
-      for (let homeIndex = awayIndex + 1; homeIndex < builtTeams.length; homeIndex += 1) {
-        const away = builtTeams[awayIndex];
-        const home = builtTeams[homeIndex];
-        if (!away || !home) continue;
-        const gameNumber = builtMatchups.length + 1;
-        const id = `game_${String(gameNumber).padStart(3, "0")}_${away.id}_${home.id}`;
-        builtMatchups.push({ id, date: "", away: away.id, home: home.id });
-        builtLogs[id] = blankLog(String(settings.defaultGameInnings));
-      }
-    }
-    return { builtTeams, builtMatchups, builtLogs };
+  /*
+   * The schedule itself, the score sheet and the file name are all in `roundRobin.ts`: none of
+   * them needs a browser, and a round robin's own correctness — every pair exactly once, in a
+   * stable order — is the sort of thing to check by reading it rather than by clicking through it.
+   * What is left here is what only a component can do: ask, adopt, and hand the browser a file.
+   */
+  const builtFromList = () => {
+    const built = buildRoundRobin(builderTeamNames(seasonBuilderText), settings.defaultGameInnings);
+    // The message belongs here rather than in the builder, which has no way to say anything.
+    if (!built) showToast("Enter at least two teams to build a schedule.", { tone: "error" });
+    return built;
   };
 
   const createSeasonFromTeamList = async () => {
-    const built = buildRoundRobinSeason();
+    const built = builtFromList();
     if (!built) return;
     const confirmed = await requestConfirmation({
       title: "Create blank season?",
-      message: `${built.builtTeams.length} teams · ${built.builtMatchups.length} games.\n\nEach team plays every other team once. This replaces current season data and saves an undo snapshot.`,
+      message: `${built.teams.length} teams · ${built.matchups.length} games.\n\nEach team plays every other team once. This replaces current season data and saves an undo snapshot.`,
       confirmLabel: "Create season",
     });
     if (!confirmed) return;
     captureUndo("Create blank season");
-    setTeams(built.builtTeams);
-    setMatchups(built.builtMatchups);
-    setLogs(built.builtLogs);
+    setTeams(built.teams);
+    setMatchups(built.matchups);
+    setLogs(built.logs);
     setBracketLogs({});
     setLastImpact(null);
     closeTeamData();
     setScoreboardTeamFilter("ALL");
     setActiveView("games");
-    showToast(`Created ${built.builtMatchups.length}-game schedule.`, {
+    showToast(`Created ${built.matchups.length}-game schedule.`, {
       tone: "undo",
       actionLabel: "Undo",
       onAction: restoreUndo,
@@ -2261,84 +2243,15 @@ League Standings — your seasons, schedules and scores — is not touched.`,
   };
 
   const downloadRoundRobinCSV = () => {
-    const built = buildRoundRobinSeason();
+    const built = builtFromList();
     if (!built) return;
-    const headers =
-      settings.pitchMode === "player"
-        ? [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away E",
-            "Away BB",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home E",
-            "Home BB",
-          ]
-        : [
-            "Game ID",
-            "Date",
-            "Away Team",
-            "Innings",
-            "Away Runs",
-            "Away Hits",
-            "Away K",
-            "Away BIP",
-            "Home Team",
-            "Home Runs",
-            "Home Hits",
-            "Home K",
-            "Home BIP",
-          ];
-    const rows = built.builtMatchups.map((game) => {
-      const away = built.builtTeams.find((team) => team.id === game.away)?.name || game.away;
-      const home = built.builtTeams.find((team) => team.id === game.home)?.name || game.home;
-      const values =
-        settings.pitchMode === "player"
-          ? [
-              game.id,
-              "",
-              away,
-              String(settings.defaultGameInnings),
-              "",
-              "",
-              "",
-              "",
-              home,
-              "",
-              "",
-              "",
-              "",
-            ]
-          : [
-              game.id,
-              "",
-              away,
-              String(settings.defaultGameInnings),
-              "",
-              "",
-              "",
-              "N/A",
-              home,
-              "",
-              "",
-              "",
-              "N/A",
-            ];
-      return values.map(csvEscape).join(",");
-    });
-    const blob = new Blob([[headers.join(","), ...rows].join("\n")], {
+    const blob = new Blob([roundRobinCsv(built, settings)], {
       type: "text/csv;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${settings.seasonLabel.replace(/\s+/g, "_")}_Blank_Round_Robin.csv`;
+    link.download = roundRobinFileName(settings.seasonLabel);
     link.click();
     URL.revokeObjectURL(url);
   };
