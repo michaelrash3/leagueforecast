@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import {
+  heldSnapshot,
+  holdingNow,
+  holdingPages,
+  holdingWholePool,
+  sectionOf,
+  type HeldPool,
+  type RunPhase,
+  type SectionMark,
+} from "../lib/pullRun";
+import {
   beginPull,
   endPull,
   forceReleasePool,
@@ -117,8 +127,6 @@ type GameChangerImportPanelProps = {
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
 };
-
-type Stage = "picking" | "pulling" | "review";
 
 /**
  * Teams between saves. Each save writes the whole pool, so on a run of several thousand the cost
@@ -313,7 +321,7 @@ export function GameChangerImportPanel({
    */
   const [loaded, setLoaded] = useState<{ name: string; size: number; text: string } | null>(null);
   const text = loaded ? loaded.text : typed;
-  const [stage, setStage] = useState<Stage>("picking");
+  const [phase, setPhase] = useState<RunPhase>({ kind: "picking" });
   /*
    * Whether a pull is running anywhere, which is not the same as whether this panel is running
    * one: closing the panel hides the run and keeps it going, so a panel opened afterwards is
@@ -353,12 +361,6 @@ export function GameChangerImportPanel({
    * Once every five hundred teams is about once a minute, which is the rate a person reads at.
    */
   const [live, setLive] = useState<PullLiveSummary | null>(null);
-  /** Which section of a sectioned run is going, for the bar to say so. Null when it is one run. */
-  const [sectioning, setSectioning] = useState<{
-    index: number;
-    of: number;
-    label: string;
-  } | null>(null);
   /** What the run came to, worked out once when it finishes rather than on every render. */
   const [result, setResult] = useState<{
     summary: string[];
@@ -367,14 +369,19 @@ export function GameChangerImportPanel({
     canRetry: boolean;
   } | null>(null);
 
-  // The pull mutates these as results land. Holding the working pool in state instead would queue
-  // a render per team and copy a growing pool each time; what the panel draws is kept separately.
-  const poolRef = useRef<GcImportState>(pool);
+  /**
+   * What the run is working on, and what that pool *is* — see `HeldPool`.
+   *
+   * The pull mutates this as results land. Holding the working pool in React state instead would
+   * queue a render per team and copy a growing pool each time; what the panel draws is kept
+   * separately.
+   */
+  const heldRef = useRef<HeldPool>(holdingWholePool(pool));
   /**
    * The pool as the page has it right now, so a run can start from that rather than from whatever
    * was there when this panel opened.
    *
-   * `poolRef` is the run's working copy and the run owns it, which is right once a run is under
+   * `heldRef` is the run's working copy and the run owns it, which is right once a run is under
    * way — the slot it claims is what keeps a tidy or a second pull from writing underneath it. It
    * was also seeded at mount and never again, and the panel can sit open across a tidy, a club
    * deletion or a restored backup. A run started afterwards folded onto the pool as it was at
@@ -388,18 +395,8 @@ export function GameChangerImportPanel({
   }, [pool]);
   const progressRef = useRef<GcPullProgress | null>(savedProgress);
   const outcomesRef = useRef<GcImportOutcome[]>([]);
-  const abortRef = useRef<AbortController | null>(null);
   /** The levels a scheduled run is for, so they can be marked done when it finishes. */
   const dueLevelsRef = useRef<number[]>([]);
-  /**
-   * What the pool in `poolRef` is, for whatever saves it next — undefined for the whole of it.
-   *
-   * A ref rather than an argument because `persist` is called from several places inside a run —
-   * every flush, the write after the tidy, the pairing approval — and all of them have to agree
-   * about what is being held. Getting it wrong in one direction deletes five age pages; in the
-   * other it writes a whole pool that the run is not holding.
-   */
-  const holdingRef = useRef<PoolHolding | undefined>(undefined);
 
   /**
    * The list as pasted, less the levels this app does not rank.
@@ -530,6 +527,9 @@ export function GameChangerImportPanel({
     return found.standIns === 0 ? null : found;
   }, [parsed.entries, pool]);
 
+  /** Which section of a sectioned run is going, for the bar to say so. Null when it is one run. */
+  const section = sectionOf(phase);
+
   /** Copies the counts out of the live cursor so React has something it can see change. */
   const syncStats = () => {
     if (progressRef.current) setStats(pullView(progressRef.current));
@@ -537,16 +537,12 @@ export function GameChangerImportPanel({
 
   const persist = (note?: string): boolean => {
     /*
-     * A copy, because the fold goes on mutating its own arrays after this returns and what the
-     * caller stores has to stop changing underneath it. Three shallow copies per save, not per
-     * team, which is why the save interval is what it is.
+     * The copy and the label come out of one value, so a save cannot be handed one run's pool
+     * under another run's name — which in one direction deletes every page the run is not holding
+     * and in the other writes a pool it was never given. The copy is shallow and per save rather
+     * than per team, which is why the save interval is what it is; see `heldSnapshot`.
      */
-    const snapshot: GcImportState = {
-      ageGroups: poolRef.current.ageGroups.slice(),
-      teams: poolRef.current.teams.slice(),
-      games: poolRef.current.games.slice(),
-    };
-    const ok = onPersist(snapshot, holdingRef.current);
+    const ok = onPersist(heldSnapshot(heldRef.current), heldRef.current.holding);
     if (!ok) {
       /*
        * No cause named here. A save refuses for more than one reason now — the store being full,
@@ -562,7 +558,7 @@ export function GameChangerImportPanel({
   /**
    * One section of a sectioned run, and where it sits in the sequence.
    *
-   * What the fold holds is not in here: `poolRef` is seeded before the section starts, and a
+   * What the fold holds is not in here: `heldRef` is seeded before the section starts, and a
    * section that reached in to seed it would be a second place that decides what a section holds.
    */
   type RunPart = {
@@ -574,6 +570,15 @@ export function GameChangerImportPanel({
     last: boolean;
     /** What the whole sequence was asked for, which is not what this section was asked for. */
     asked: number;
+    /**
+     * Which section of how many this is, for the bar.
+     *
+     * Passed in rather than set beside the run, because the phase carries it and only the thing
+     * entering that phase can set both at once. Set separately, the sequence marked the section
+     * while the panel was still on "picking" — where a section mark does not exist — and the run
+     * then entered "pulling" with no section at all.
+     */
+    section: SectionMark;
   };
 
   /**
@@ -584,7 +589,7 @@ export function GameChangerImportPanel({
    * `part` is what makes a section a section. Absent, this claims the slot, folds over the whole
    * pool and finishes the run at the bottom — which is what it always did, and is still what a
    * run of one section does. Given, the session is the one the sequence holds, the fold is over
-   * whatever `poolRef` was seeded with, and the opening and closing work is done once for the
+   * whatever `heldRef` was seeded with, and the opening and closing work is done once for the
    * sequence rather than once per section.
    */
   const run = async (
@@ -608,7 +613,7 @@ export function GameChangerImportPanel({
        * from now until it is released, and this is the last moment the page's own copy is the
        * newest there is. A section does not seed — the sequence did, before the first of them.
        */
-      poolRef.current = livePoolRef.current;
+      heldRef.current = holdingNow(heldRef.current, livePoolRef.current);
     }
     if (!session) {
       // What is actually holding it, rather than a guess. A tidy refuses a pull exactly as another
@@ -625,7 +630,6 @@ export function GameChangerImportPanel({
     }
     const last = part?.last ?? true;
     const controller = session.controller;
-    abortRef.current = controller;
     /*
      * Released whatever happens from here on. The slot this run holds is what stops a second one
      * starting, so anything that throws between the claim and the release leaves it held for the
@@ -681,7 +685,7 @@ export function GameChangerImportPanel({
           concurrency: CONCURRENCY,
           maxConcurrency: MAX_CONCURRENCY,
           batchSize: BATCH_SIZE,
-          saveEvery: saveEvery(poolRef.current.games.length),
+          saveEvery: saveEvery(heldRef.current.state.games.length),
         });
         if (part === undefined || part.first) {
           tracker?.eta(estimatedMinutes(askedInRun));
@@ -721,7 +725,11 @@ export function GameChangerImportPanel({
        * teams by far the longest part of a pull.
        */
       // Rows thrown out for being dated ahead of today stay thrown out; see `deletedGames.ts`.
-      const importer = createGcImporter(poolRef.current, loadDeletedGames(), loadDroppedClubs());
+      const importer = createGcImporter(
+        heldRef.current.state,
+        loadDeletedGames(),
+        loadDroppedClubs()
+      );
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.
       if (part === undefined || part.first) outcomesRef.current = [];
@@ -741,7 +749,7 @@ export function GameChangerImportPanel({
        * as they are known to be agreements.
        */
       const pulledRef = new Map<string, { entry: GcTeamListEntry; profile: GcTeamProfile }>();
-      setStage("pulling");
+      setPhase({ kind: "pulling", session, section: part?.section ?? null });
       setResult(null);
       setLive(null);
       syncStats();
@@ -792,9 +800,9 @@ export function GameChangerImportPanel({
                   second: Math.round((msNow() - runFrom) / 1000),
                   teams: batch.length,
                   settled: progressRef.current?.settled.length ?? 0,
-                  poolTeams: poolRef.current.teams.length,
-                  poolGames: poolRef.current.games.length,
-                  poolPages: poolRef.current.ageGroups.length,
+                  poolTeams: heldRef.current.state.teams.length,
+                  poolGames: heldRef.current.state.games.length,
+                  poolPages: heldRef.current.state.ageGroups.length,
                   ms: msNow() - from,
                   ok,
                 },
@@ -814,14 +822,14 @@ export function GameChangerImportPanel({
           if (!persist("Stopping, so nothing is fetched that cannot be kept.")) {
             sample(false);
             endReason = "save-refused";
-            abortRef.current?.abort();
+            controller.abort();
             return;
           }
           if (!(await flushPoolWrites())) {
             showToast("Could not save the pull — stopping so nothing is lost.", { tone: "error" });
             sample(false);
             endReason = "save-refused";
-            abortRef.current?.abort();
+            controller.abort();
             return;
           }
           const at = nowIso();
@@ -888,7 +896,7 @@ export function GameChangerImportPanel({
             const outcome = importer.add(schedule);
             outcomesRef.current.push(outcome);
             track(() => tracker?.imported(outcome));
-            poolRef.current = importer.state;
+            heldRef.current = holdingNow(heldRef.current, importer.state);
             if (entry && checkPulledTeam(entry, result.schedule.profile)) {
               pulledRef.set(teamId, { entry, profile: result.schedule.profile });
             }
@@ -896,7 +904,7 @@ export function GameChangerImportPanel({
             pendingFailures.set(teamId, { reason: result.reason, message: result.message });
           }
           unsaved.push(teamId);
-          if (unsaved.length >= saveEvery(poolRef.current.games.length)) void flush();
+          if (unsaved.length >= saveEvery(heldRef.current.state.games.length)) void flush();
           // The cursor only advances on a flush, so the bar counts what is settled plus what is
           // fetched and waiting to be written — otherwise it would sit still between saves.
           const settled = progressRef.current?.settled.length ?? 0;
@@ -928,7 +936,6 @@ export function GameChangerImportPanel({
       // ending, and a run of six sections has one.
       if (!ending && endReason === "finished") return endReason;
       ending = true;
-      abortRef.current = null;
       // Given up here rather than at the end: what follows is the tidy and the summary, neither of
       // which is a reason to refuse a run somebody starts in the meantime.
       giveUpSlot();
@@ -949,7 +956,7 @@ export function GameChangerImportPanel({
        */
       /*
        * Back to the whole pool for the ending. A sectioned run has been holding one age page at a
-       * time, so `poolRef` is whatever the last section held — and the tidy names stand-ins from
+       * time, so `heldRef` is whatever the last section held — and the tidy names stand-ins from
        * the other side's schedule, folds clubs holding several ids and collapses the rows those
        * folds make, none of which it can do without seeing every side. Read back from the store
        * rather than accumulated across the sections, because accumulating it is the thing the
@@ -957,10 +964,12 @@ export function GameChangerImportPanel({
        * of memory, and the fold's index — 253 MB of that — is out of scope by the time this runs.
        */
       if (part !== undefined) {
-        holdingRef.current = undefined;
-        poolRef.current = { ...poolRef.current, games: loadScoutGames() };
+        heldRef.current = holdingWholePool({
+          ...heldRef.current.state,
+          games: loadScoutGames(),
+        });
       }
-      const outcome = await tidyInWorker(poolRef.current);
+      const outcome = await tidyInWorker(heldRef.current.state);
       /*
        * Refused only if something else claimed the pool in the moment between this run giving it up
        * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
@@ -981,7 +990,7 @@ export function GameChangerImportPanel({
             tidy.releveled >
           0
         ) {
-          poolRef.current = tidy.state;
+          heldRef.current = holdingNow(heldRef.current, tidy.state);
           if (persist()) await flushPoolWrites();
         }
       }
@@ -1018,11 +1027,15 @@ export function GameChangerImportPanel({
         canRetry: finished ? retryableIds(finished).length > 0 : false,
       });
       setPairings(
-        proposeSeasonPairings(poolRef.current.teams, poolRef.current.games, loadKeptApart())
+        proposeSeasonPairings(
+          heldRef.current.state.teams,
+          heldRef.current.state.games,
+          loadKeptApart()
+        )
       );
       setApproved(new Set());
       setOpenPair(null);
-      setStage("review");
+      setPhase({ kind: "review", endReason });
       syncStats();
       return endReason;
     } finally {
@@ -1078,7 +1091,7 @@ export function GameChangerImportPanel({
 
     // As in `run`: the slot is held from here, so this is the last moment the page's copy is the
     // newest there is, and every section below carries forward from it.
-    poolRef.current = livePoolRef.current;
+    heldRef.current = holdingNow(heldRef.current, livePoolRef.current);
 
     try {
       for (const [index, section] of sections.entries()) {
@@ -1088,22 +1101,20 @@ export function GameChangerImportPanel({
          * not see the rest of the country would invent one for half its schedule — and they are
          * nearly free. The games are the cost, so they are this page's and nothing else's.
          */
-        poolRef.current = {
-          ageGroups: poolRef.current.ageGroups,
-          teams: poolRef.current.teams,
-          games: loadScoutGamesForPages(section.ageGroupIds),
-        };
         /*
-         * A section that owns pages is authoritative for them and replaces them. The section of
-         * ids nobody has pulled before owns none — it never read a page, so it cannot say what one
-         * ought to contain — and it can only add.
+         * The pool and its label in one move, because they are one fact: a section that owns pages
+         * is authoritative for them and replaces them, and the section of ids nobody has pulled
+         * before owns none — it never read a page, so it cannot say what one ought to contain, and
+         * can only add. `holdingPages` is where that choice lives now.
          */
-        holdingRef.current =
-          section.ageGroupIds.length > 0
-            ? { kind: "pages", ageGroupIds: section.ageGroupIds }
-            : { kind: "additions" };
-        setSectioning({ index: index + 1, of: sections.length, label: section.label });
-
+        heldRef.current = holdingPages(
+          {
+            ageGroups: heldRef.current.state.ageGroups,
+            teams: heldRef.current.state.teams,
+            games: loadScoutGamesForPages(section.ageGroupIds),
+          },
+          section.ageGroupIds
+        );
         // The cursor the sections before it advanced, not the one the run started from: passing
         // the original back would throw away what they settled and have a resume fetch it again.
         const reason = await run(section.teamIds, progressRef.current ?? progress, {
@@ -1111,13 +1122,14 @@ export function GameChangerImportPanel({
           first: index === 0,
           last: index === sections.length - 1,
           asked: ids.length,
+          section: { index: index + 1, of: sections.length, label: section.label },
         });
         // Stopped, refused or given up. That section did the run's ending on the way out.
         if (reason !== "finished") break;
       }
     } finally {
-      holdingRef.current = undefined;
-      setSectioning(null);
+      heldRef.current = holdingWholePool(heldRef.current.state);
+      setPhase((current) => (current.kind === "pulling" ? { ...current, section: null } : current));
       // `endPull` ignores a session that is no longer the live one, so the section that ended the
       // run having already released it costs nothing; a section that threw is why this is here.
       endPull(session);
@@ -1203,7 +1215,7 @@ export function GameChangerImportPanel({
       showToast("Nothing doubled up, nothing to fold.");
       return;
     }
-    poolRef.current = tidy.state;
+    heldRef.current = holdingNow(heldRef.current, tidy.state);
     if (persist()) {
       await flushPoolWrites();
       showToast(lines.join(" "), { tone: "success" });
@@ -1303,9 +1315,9 @@ export function GameChangerImportPanel({
   };
 
   const stop = () => {
-    // Through the session, so a panel that has just opened onto somebody else's run can stop it.
+    // Through the session, and only through it: the panel used to keep a second copy of the same
+    // controller, which said nothing the session did not and went stale the moment a run ended.
     stopLivePull();
-    abortRef.current?.abort();
     showToast("Stopping after the requests already in flight.", { tone: "info" });
   };
 
@@ -1350,7 +1362,7 @@ export function GameChangerImportPanel({
       onClose();
       return;
     }
-    let next = poolRef.current;
+    let next = heldRef.current.state;
     let merged = 0;
     pairings.forEach((pairing) => {
       if (!approved.has(pairKey(pairing))) return;
@@ -1368,7 +1380,7 @@ export function GameChangerImportPanel({
       next = { ...next, teams: result.teams, games: result.games };
       merged += 1;
     });
-    poolRef.current = next;
+    heldRef.current = holdingNow(heldRef.current, next);
     if (persist()) {
       showToast(`${merged} squad${merged === 1 ? "" : "s"} paired.`, { tone: "success" });
     }
@@ -1399,7 +1411,7 @@ export function GameChangerImportPanel({
         </button>
       </div>
 
-      {stage === "picking" && poolBusy && (
+      {phase.kind === "picking" && poolBusy && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
           <p className="text-sm font-bold text-slate-950 dark:text-white">
             {pullLive ? "A pull is already running." : "The pool is being tidied."}
@@ -1437,7 +1449,7 @@ export function GameChangerImportPanel({
           )}
         </div>
       )}
-      {stage === "picking" && (
+      {phase.kind === "picking" && (
         <div className="mt-4">
           <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1725,7 +1737,7 @@ export function GameChangerImportPanel({
         </div>
       )}
 
-      {stage === "pulling" && stats && (
+      {phase.kind === "pulling" && stats && (
         <div className="mt-4">
           <div className="h-2 w-full overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-900">
             <div
@@ -1737,11 +1749,11 @@ export function GameChangerImportPanel({
             {stats.done} of {stats.total} pulled
             {stats.failed ? `, ${stats.failed} failed` : ""}.
           </p>
-          {sectioning && (
+          {section && (
             <p className="mt-1 text-xs text-slate-500">
-              Age group {sectioning.index} of {sectioning.of}: <strong>{sectioning.label}</strong>.
-              A run this size is done a page at a time so the tab is never holding the whole pool —
-              the count above is the whole run, and it carries on across them.
+              Age group {section.index} of {section.of}: <strong>{section.label}</strong>. A run
+              this size is done a page at a time so the tab is never holding the whole pool — the
+              count above is the whole run, and it carries on across them.
             </p>
           )}
           <p className="mt-1 text-xs text-slate-500">
@@ -1802,7 +1814,7 @@ export function GameChangerImportPanel({
         </div>
       )}
 
-      {stage === "review" && result && (
+      {phase.kind === "review" && result && (
         <div className="mt-4">
           <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-200">
             {result.summary.map((line) => (
@@ -1992,8 +2004,8 @@ export function GameChangerImportPanel({
                                       key,
                                       comparison: comparePairing(
                                         pairing,
-                                        poolRef.current.teams,
-                                        poolRef.current.games
+                                        heldRef.current.state.teams,
+                                        heldRef.current.state.games
                                       ),
                                     }
                               )
