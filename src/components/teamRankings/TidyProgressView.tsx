@@ -20,6 +20,10 @@ import type { TidyWatch } from "../../lib/pullSession";
 /** Short enough for a column head, with the full name on hover and for a screen reader. */
 const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   notBaseball: { short: "Not ball", full: "Teams that are not playing baseball, removed" },
+  highSchool: {
+    short: "High school",
+    full: "High school squads, which play their own season, removed",
+  },
   releveled: { short: "Level", full: "Age level worked out from the team's name" },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   named: { short: "Name", full: "Stand-ins the other side's schedule could name" },

@@ -135,30 +135,39 @@ season, and answering makes the page if the pull has not already. A season moves
 off whatever page held it before, since one league season is played at one age
 and leaving it on two would count its games twice.
 
-#### Where an age comes from
+#### High school squads are left out
 
-Four readings, best evidence first, and each one is a step further from somebody
-saying outright what age a team is: GameChanger's own age field; a graduating class
-in that field; an age label in the team's name; a class in the name. The first
-reading that lands wins, and a team no reading reaches is filed nowhere.
+A varsity or JV side plays other varsity and JV sides. Its whole schedule is the
+school season, so its results join almost nothing else in the pool — and a
+least-squares rating across a cluster that barely touches the rest is not so much
+wrong as meaningless: the numbers inside it are relative to each other and to
+nothing else. Filing one at 18U would put that cluster in the 18U table next to
+travel clubs and invite exactly the comparison the data cannot carry. So the whole
+category is refused.
 
-Two of those need saying. **A graduating class** is how travel ball names a squad
-above about 13U — "Elite 2029", "Midwest Nationals 2030" — and the class of 2027 are
-seniors, so 18U, with every year further out a year younger. The danger is that a
-four-digit number is just as often a season, so the rule is two years out and
-further: measured over a 48,035-team export, a year equal to the season year is a
-graduating class 0.2% of the time, one year out 44.8%, two years out 85.6%. Anything
-nearer is left with no level rather than a wrong one — an unrated team costs its own
-ranking, a misrated one corrupts everybody it played.
+Refused on the name, the way wiffle ball is, which means the same three things: the
+rows never cost a request out of a pasted list, the import turns the schedule away
+with the reason `high-school`, and a tidy pass deletes any that reached the pool
+before the rule existed. Nothing has to remember an id — the name refuses it again
+every export, including ids never seen before.
 
-**A school squad** is how the schools name one. GameChanger's age field comes back
-"Varsity" and "JV" verbatim, and names read "Lincoln HS Varsity", "Oak Grove JV".
-Varsity is juniors and seniors, so 18U; JV is freshmen and sophomores, so 16U; a
-high school team naming neither squad is its varsity side, so 18U as well. These
-used to read as no age at all and went onto the waiting-on-an-age card in their
-thousands, where there was nothing to investigate — the name answers the question,
-in the other dialect. A stated age still wins over the squad word, so "Lincoln HS
-16U" is a 16U team, and "Varsity/JV" takes the older end the way "11U/12U" does.
+| In the name or the age field              | Read as                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `Varsity`, `JV`, `Junior Varsity`         | high school, always                                                 |
+| `JV/V`                                    | high school — the JV says the lone `V` beside it is varsity         |
+| `HS`, `High School`, with no age label    | high school                                                         |
+| `HS` with an age label — "Lincoln HS 16U" | **kept**: a summer squad playing an age bracket against travel ball |
+| A lone `V` on its own — "Madison V"       | neither; it goes to the review card, below                          |
+
+Two edges are deliberate. A squad word wins over an age label, because a side
+calling itself varsity is playing the school season whatever else it writes; and
+the letters have to be their own word, so "CHS Cardinals" is a club, not a school.
+
+Their games go with them, and one of those losses is real: a travel side that
+played the local varsity loses that result. It goes because the other half of it is
+a club the pool refuses, and a game with one side missing is a dangling row rather
+than a result. Carrying the handful that cross the line would mean carrying the
+cluster they lead into, which is the thing this rule exists to avoid.
 
 A team below the youngest level ranked here, or one GameChanger gives no age
 for, is skipped rather than filed: a nationwide list carries thousands of 6U and
@@ -596,10 +605,18 @@ for all of them, so the counts are kept and say which. "None of its four opponen
 writes an age" is a rec league and will never come good; "two of its three say 9U" is
 settled in a second; no games at all is a blank schedule.
 
-A team whose name reads as a school squad is not on this card at all, even if it went
-onto the list before that reading existed: the name answers the question, so it costs
-none of the ten and the next pull files it. It stays on the list until that happens,
-which is what gets it pulled.
+A team whose name says a high school squad is not on this card at all, even one that
+went onto the list before that rule existed: the name settles it, so it costs none of
+the ten, and the next time the rota asks, the answer comes back `high-school` and the
+entry retires itself.
+
+A lone `V` is the opposite case and stays. "Madison V" is the varsity side on a school
+schedule and is equally a squad number, a colour or a coach's initial, and one letter
+is too thin to refuse a real club on. So it comes to the **top** of the queue, with
+the reason written out — it is the one row here anybody can settle by opening a single
+page — and the card carries a **High school** button beside **Not a real team**, since
+a varsity side is a real team that simply plays a season this app does not rank. Both
+buttons do the same thing to storage: thrown out at once, and never brought back.
 
 Worst-looking first, by `looksInvented` — games carrying scores on days that have not
 happened, shutout blowouts, a record claiming far more games than the schedule lists,

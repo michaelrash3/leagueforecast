@@ -17,7 +17,7 @@
  */
 
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
-import { ageLevelFromName } from "./gameChangerApi";
+import { isSchoolName, maybeSchoolTeam } from "./gameChangerApi";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { DeletedClubs } from "./deletedGames";
@@ -33,8 +33,22 @@ export type AgelessRow = {
   invented: number;
   /** Why the age could not be read, in a sentence. */
   why: string;
+  /** A lead the name carries, when it carries one. Present only when there is one. */
+  hint?: string;
   evidence?: AgelessEvidence;
 };
+
+/**
+ * What a lone "V" is worth saying.
+ *
+ * Every other row on this card is a question the name cannot answer. This one is a question the
+ * name half answers, and the half it gives is the half a person can finish in a second by opening
+ * the page — which is why it comes to the top and why it says what to look for.
+ */
+const LONE_V_HINT =
+  'The name carries a lone "V" with no letter against it. On a school schedule that is the ' +
+  "varsity side, and high school squads are left out of the rankings — but a single letter is " +
+  "also a squad number, a colour or an initial, so this is worth opening rather than guessing.";
 
 const NO_EVIDENCE: AgelessEvidence = {
   games: 0,
@@ -49,15 +63,16 @@ const NO_EVIDENCE: AgelessEvidence = {
 /**
  * Whether this team is still somebody's to answer.
  *
- * The last clause is the rules having changed underneath a list that was written before them.
- * Reading a school squad — "Varsity", "JV", "Lincoln HS" — as a level is new, and every team
- * whose name says its age that way went onto this list under the old reading and is sitting
- * there now. There is nothing to investigate about them: the name answers the question, so the
- * next time the rota asks about one it will be filed and the entry will come off on its own.
+ * The last clause is a rule having changed underneath a list written before it. A high school
+ * squad is refused outright now, but every one that was pulled earlier went onto this list as a
+ * team nobody could age, and there is nothing for a person to investigate about it — the name
+ * settles it. It comes off the queue, not off the list: the entry stays so the rota still asks,
+ * and the ask now returns "high school" rather than "no age", which retires it on its own. What
+ * changes is that it stops costing one of the ten slots in front of a person, which is the whole
+ * reason the queue is ten.
  *
- * They are only taken off the *queue*, not off the list. The entry stays where it is so that
- * pull still happens; what changes is that it stops costing one of the ten slots in front of a
- * person, which is the whole reason the queue is ten.
+ * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
+ * gets a hint instead — see `LONE_V_HINT`.
  */
 export const awaitingAnswer = (
   entry: AgeUnknownTeam,
@@ -68,7 +83,7 @@ export const awaitingAnswer = (
   stillWorthAsking(entry, now) &&
   !named.has(entry.teamId) &&
   !dropped.has(entry.teamId) &&
-  ageLevelFromName(entry.name ?? "") === undefined;
+  !isSchoolName(entry.name ?? "");
 
 /** Everyone still waiting on a person, worst-looking first. */
 export const agelessWaiting = (
@@ -87,11 +102,15 @@ export const agelessWaiting = (
         why: evidence
           ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
           : "Nothing was kept about this one — the next refresh will say why.",
+        ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
         ...(evidence ? { evidence } : {}),
       };
     })
     .sort(
       (a, b) =>
+        // A row carrying a lead comes first, on the same reasoning that puts the junk first: it
+        // is answerable at a glance, and every one cleared never costs anybody a real decision.
+        Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||
         b.invented - a.invented ||
         // Then the stalest, so a tie does not park the same rows at the top for ever.
         (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)

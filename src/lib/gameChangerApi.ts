@@ -110,6 +110,8 @@ export type GcTeamListEntry = {
   name?: string;
   /** A wiffle ball team, which is a different game. Never fetched and never filed. */
   notBaseball?: true;
+  /** A high school squad, which plays its own season. Never fetched and never filed. */
+  highSchool?: true;
   ageLevel?: number;
   season?: GcSeason;
   city?: string;
@@ -237,65 +239,18 @@ const inAgeRange = (level: number): boolean =>
 /** One age label on its own: "9U", "9u", "U9", "12UA", or a bare number. */
 const AGE_TOKEN = /^(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2})|(\d{1,2}))$/;
 
-/**
- * High school, which says an age in the vocabulary schools use rather than the one travel ball
- * does.
- *
- * Above about 14U a great many teams stop naming an age at all and name the squad instead.
- * GameChanger's own `age_group` comes back "Varsity" and "JV" — this file has cited "Varsity" as
- * an unreadable value for as long as the parser has existed — and names read "Lincoln HS
- * Varsity", "Oak Grove JV". Every one of them was filed nowhere and put on the ageless list,
- * where there is nothing for a person to investigate: the name says the age plainly, in the other
- * dialect, and no amount of asking again was ever going to turn it into a number.
- *
- * Varsity is juniors and seniors, so 18U — the same level the graduating-class reader files a
- * senior class at. JV is freshmen and sophomores, so 16U. A high school team that names neither
- * squad is a varsity team, because that is what "Lincoln HS" means on a schedule, so it reads 18U
- * as well.
- */
-export const VARSITY_AGE_LEVEL = 18;
-export const JV_AGE_LEVEL = 16;
-
-/*
- * JV is looked for before varsity, and its long form is spelled out, because "Junior Varsity"
- * contains "Varsity": searching for the senior squad first would age every JV team by two years.
- */
-const SCHOOL_LEVELS: readonly [source: string, level: number][] = [
-  ["jv|junior\\s+varsity", JV_AGE_LEVEL],
-  ["varsity", VARSITY_AGE_LEVEL],
-  ["hs|high\\s+school", VARSITY_AGE_LEVEL],
-];
-
-/** Whole value, for the age column: "Varsity", "JV", "Junior Varsity", "HS", "High School". */
-const SCHOOL_LABEL = SCHOOL_LEVELS.map(([source, level]): [RegExp, number] => [
-  new RegExp(`^(?:${source})$`, "i"),
-  level,
-]);
-
-/** The same words found as whole words wherever they sit inside a longer team name. */
-const SCHOOL_IN_NAME = SCHOOL_LEVELS.map(([source, level]): [RegExp, number] => [
-  new RegExp(`\\b(?:${source})\\b`, "i"),
-  level,
-]);
-
-const schoolLevel = (patterns: readonly [RegExp, number][], value: string): number | undefined =>
-  patterns.find(([pattern]) => pattern.test(value))?.[1];
-
 const ageToken = (part: string): number | undefined => {
-  const value = part.trim();
-  const match = AGE_TOKEN.exec(value);
-  // A squad named where an age would be is still a whole label, so it reads as one here — which
-  // is also what lets "Varsity/JV" take the older end the way "11U/12U" does.
-  if (!match) return schoolLevel(SCHOOL_LABEL, value);
+  const match = AGE_TOKEN.exec(part.trim());
+  if (!match) return undefined;
   const level = Number(match[1] ?? match[2] ?? match[3]);
   return inAgeRange(level) ? level : undefined;
 };
 
 /**
- * Strict reading of an age-group value: the whole value must be the label — an age ("9U", "9u",
- * "U9", "11U", "12UA", or a bare number) or a school squad ("Varsity", "JV", "HS"). Anything else
- * — blank, a sentence — is unknown, so a CSV column or GameChanger's `age_group` never invents a
- * level. Use `ageLevelFromName` to find a label inside a longer name.
+ * Strict reading of an age-group value: the whole value must be the label ("9U", "9u", "U9",
+ * "11U", "12UA", or a bare number). Anything else — blank, "Varsity", a sentence — is unknown, so
+ * a CSV column or GameChanger's `age_group` never invents a level. Use `ageLevelFromName` to find
+ * a label inside a longer name.
  *
  * The tier letters travel ball hangs off the level — "12UA", "11UAA" — are part of the label here
  * for the same reason they are in a name: they say which bracket within the age, not a different
@@ -305,9 +260,8 @@ const ageToken = (part: string): number | undefined => {
  * A bracket spanning two ages — "11U/12U", and sometimes written the other way round as
  * "12U/11U" — reads as the OLDER of them, because that is the level the team is competing at: a
  * bracket that admits twelve-year-olds is a 12U bracket, and rating such a team as 11U would make
- * every game it plays against a 12U side look like playing up. "Varsity/JV" goes the same way and
- * for the same reason, now that a school squad reads as a level. Every part still has to be a
- * label of one kind or the other, so "2026-2027" stays unknown rather than becoming a guess.
+ * every game it plays against a 12U side look like playing up. Every part still has to be an age
+ * label, so "2026-2027" and "Varsity/JV" stay unknown rather than becoming a guess.
  */
 export const parseGcAgeLevel = (label: unknown): number | undefined => {
   if (typeof label === "number") return inAgeRange(label) ? label : undefined;
@@ -352,12 +306,86 @@ export const ageLevelFromName = (name: string): number | undefined => {
     if (inAgeRange(low) && inAgeRange(high)) return Math.max(low, high);
   }
   const match = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/.exec(name);
-  // A school squad is the last thing looked for, so "Lincoln HS 16U" is a 16U team: a stated age
-  // is what the club meant, and the squad word is only what it means when there is no age at all.
-  if (!match) return schoolLevel(SCHOOL_IN_NAME, name);
+  if (!match) return undefined;
   const level = Number(match[1] ?? match[2]);
-  return inAgeRange(level) ? level : schoolLevel(SCHOOL_IN_NAME, name);
+  return inAgeRange(level) ? level : undefined;
 };
+
+/**
+ * A name that says the team plays a high school season.
+ *
+ * These are refused outright rather than filed at 18U, and the reason is the rating, not the age.
+ * A school squad plays other school squads — a varsity side's whole schedule is other varsity
+ * sides — so the fit sees a cluster joined to the rest of the pool by almost nothing. A
+ * least-squares rating across a component that barely touches the others is not so much wrong as
+ * meaningless: the numbers inside it are relative to each other and to nothing else, and putting
+ * them in the 18U table beside travel ball invites exactly the comparison the data cannot carry.
+ *
+ * So the whole category is out. It costs nothing that was ever going to be ranked honestly, and
+ * it takes off the "waiting on an age" list thousands of teams no amount of asking could settle.
+ *
+ * Read from the name, like `isNotBaseball` and for the same reason: the name is on the pasted row,
+ * so these are dropped before a request is spent on one, and every later export drops them again
+ * without anything having to remember an id.
+ *
+ * Three ways a name says it, and one that only half says it:
+ *
+ * - **"Varsity", "JV", "Junior Varsity"** name a school-season squad and nothing else does. The
+ *   long form needs no separate pattern: it contains "Varsity". Refused whatever else the name
+ *   carries, because a side calling itself varsity is playing the school season even if it also
+ *   writes an age.
+ * - **"JV/V"** is a programme listing both its squads, and falls out of the same rule — the JV is
+ *   what says the lone "V" beside it is varsity.
+ * - **"HS" or "High School" with no age label** is the school's own team. "Lincoln HS" on a
+ *   schedule means Lincoln's side, not a club named after a building.
+ * - **"HS" with an age label** — "Lincoln HS 16U" — is deliberately left alone. That is a summer
+ *   squad playing an age bracket against travel ball, which is connected to the pool and belongs
+ *   in it. The age label is the thing that says so.
+ *
+ * A lone "V" with no JV beside it is not enough on its own: see `maybeSchoolTeam`.
+ */
+const SCHOOL_SQUAD = /\b(?:varsity|jv)\b/i;
+const HIGH_SCHOOL = /\b(?:hs|high\s+school)\b/i;
+
+export const isSchoolName = (name: unknown): boolean => {
+  if (typeof name !== "string") return false;
+  if (SCHOOL_SQUAD.test(name)) return true;
+  if (!HIGH_SCHOOL.test(name)) return false;
+  return ageLevelFromName(name) === undefined;
+};
+
+/**
+ * The same, in GameChanger's own age field, which carries "Varsity" and "JV" verbatim — this file
+ * has cited "Varsity" as an unreadable value for as long as the parser has existed.
+ *
+ * Whole value only, the same strictness `parseGcAgeLevel` holds the column to: a team whose age
+ * field is a sentence containing the word is not thereby a high school team.
+ */
+const SCHOOL_LABEL =
+  /^(?:varsity|jv|junior\s+varsity|hs|high\s+school|jv\s*[/\-\u2013]\s*v|v\s*[/\-\u2013]\s*jv)$/i;
+
+export const isSchoolAgeLabel = (label: unknown): boolean =>
+  typeof label === "string" && SCHOOL_LABEL.test(label.trim());
+
+/**
+ * A lone "V", with no letter against it on either side, and nothing else saying what it means.
+ *
+ * On a school schedule that is the varsity side. It is also how a club writes a second squad, a
+ * colour, a coach's initial or a division, and the name gives no way to tell which. One letter is
+ * too thin to refuse a team on — a wrong refusal loses a real club silently, with nothing left
+ * behind to notice it by — so this never refuses anything. It only marks the row as worth a look,
+ * so the question in front of a person is "is this the varsity side?" rather than "who is this?".
+ *
+ * Uppercase only, because a lone lowercase "v" between two names is "versus". Written without a
+ * lookbehind so it runs wherever the app does.
+ */
+const LONE_V = /(?:^|[^A-Za-z])V(?:[^A-Za-z]|$)/;
+
+export const maybeSchoolTeam = (name: unknown): boolean =>
+  typeof name === "string" &&
+  !isSchoolName(name) &&
+  ageLevelFromName(name) === undefined &&
+  LONE_V.test(name);
 
 /**
  * Reading a graduation year as an age.
@@ -932,6 +960,10 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   // The same ladder `normalizeGcTeamProfile` climbs, so a row and the team it names cannot read as
   // two different ages: a stated age beats a graduating class, and either column beats the name.
   const ageCell = cellAt(cells, columns.age);
+  // Marked, not filtered, like the wiffle mark above — the panel says how many were left out and
+  // why. Read from the age column as well as the name, because a club that writes "Varsity" in
+  // one of them often leaves the other as the school's plain name.
+  if (isSchoolName(name) || isSchoolAgeLabel(ageCell)) entry.highSchool = true;
   const ageLevel =
     parseGcAgeLevel(ageCell) ??
     (squadYear === undefined ? undefined : ageFromGradYearLabel(ageCell, squadYear)) ??

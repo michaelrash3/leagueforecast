@@ -23,6 +23,8 @@ import {
   ageLevelFromName,
   formatGcSeason,
   isNotBaseball,
+  isSchoolAgeLabel,
+  isSchoolName,
   type GcGame,
   type GcTeamProfile,
   type GcTeamSchedule,
@@ -631,6 +633,9 @@ const resolveAgeGroup = (
   // A different game entirely. Checked before the age, because a wiffle team filed under 12U has
   // a perfectly good age level and that is exactly what makes it invisible.
   if (isNotBaseball(profile.name)) return null;
+  // A different season entirely, and the same trap: a varsity side whose age field reads 18U has
+  // a perfectly good level, and filing it would put a closed cluster in the 18U table.
+  if (isSchoolTeam(profile)) return null;
   const ageLevel = profileAgeLevel(profile);
   // Below the youngest level the app ranks there is nothing worth filing. A nationwide team list
   // is full of 6U and 7U squads whose results say more about which league plays coach pitch than
@@ -673,13 +678,32 @@ export type GcSkipReason =
   | "above-max-age"
   | "no-season"
   /** A wiffle ball team. A different game, so its results belong to no baseball ranking. */
-  | "not-baseball";
+  | "not-baseball"
+  /** A high school squad. A different season, played against a pool this app does not hold. */
+  | "high-school";
+
+/**
+ * Whether GameChanger's answer describes a high school squad, by either of the two things it says.
+ *
+ * The name and the age field are both read because a club that writes "Varsity" in one of them
+ * very often leaves the other as the school's plain name.
+ */
+const isSchoolTeam = (profile: GcTeamProfile): boolean =>
+  isSchoolName(profile.name) || isSchoolAgeLabel(profile.ageLabel);
 
 const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: string } => {
   if (isNotBaseball(profile.name)) {
     return {
       code: "not-baseball",
       message: "This is a wiffle ball team, which is a different game, so it was left out.",
+    };
+  }
+  if (isSchoolTeam(profile)) {
+    return {
+      code: "high-school",
+      message:
+        "This is a high school squad. Those play their own season against other high school " +
+        "squads, so their results join nothing this app ranks and they are left out.",
     };
   }
   const ageLevel = profileAgeLevel(profile);
@@ -1501,6 +1525,19 @@ const importOne = (
      * ever having been pulled.
      */
     if (isNotBaseball(game.opponentName)) {
+      outcome.gamesIgnored += 1;
+      continue;
+    }
+
+    /*
+     * A high school opponent takes the game with it, for the second of those two reasons rather
+     * than the first. The result is a real baseball result — a travel side really did play the
+     * local varsity — but the opponent is a club this app refuses, and keeping the row would mint
+     * it into the pool off the back of somebody else's schedule. That is the one route by which a
+     * refused team could arrive without ever having been pulled, and it would arrive un-refusable,
+     * because nothing downstream re-reads an opponent's name.
+     */
+    if (isSchoolName(game.opponentName)) {
       outcome.gamesIgnored += 1;
       continue;
     }
@@ -2890,6 +2927,8 @@ export type PoolTidy = {
   releveled: number;
   /** Teams deleted for playing a different game — wiffle ball — along with their results. */
   notBaseball: number;
+  /** Teams deleted for playing a high school season, along with their results. */
+  highSchool: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -2924,6 +2963,14 @@ const dropNotBaseball = (state: GcImportState): { state: GcImportState; dropped:
   const going = new Set(
     state.teams.filter((team) => isNotBaseball(team.name)).map((team) => team.id)
   );
+  return without(state, going);
+};
+
+/** Teams and the games either side of them, gone. */
+const without = (
+  state: GcImportState,
+  going: ReadonlySet<string>
+): { state: GcImportState; dropped: number } => {
   if (going.size === 0) return { state, dropped: 0 };
   return {
     state: {
@@ -2934,6 +2981,26 @@ const dropNotBaseball = (state: GcImportState): { state: GcImportState; dropped:
     dropped: going.size,
   };
 };
+
+/**
+ * Deletes the high school squads, and everything they played.
+ *
+ * The same shape as the pass above and for the same reason — "left out from now on" and "not in
+ * the pool" are different things, and a varsity side pulled before the rule existed is filed
+ * under 18U looking like any other club. But the reason the games go is not the reason wiffle
+ * games go, and it is worth being straight about: a travel side really did play the local varsity
+ * and that really was a baseball game. It goes because the other half of it is a club this app
+ * refuses, and a game with one side missing is not a result, it is a dangling row. Losing the
+ * handful of real results that cross the line is the price of not carrying the cluster they lead
+ * into, which is a trade this pool makes knowingly.
+ *
+ * The name only, not the age field: what is in the pool is a `ScoutTeam`, and GameChanger's own
+ * age label is not kept on one — the level is. A squad whose name said nothing and whose age
+ * field said "Varsity" was never filed in the first place, because the import refuses it on the
+ * way in, so there is nothing here for this pass to find.
+ */
+const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } =>
+  without(state, new Set(state.teams.filter((team) => isSchoolName(team.name)).map((t) => t.id)));
 
 /**
  * Levels worked out for what is already in the pool, under the rules as they now stand.
@@ -3020,6 +3087,7 @@ const relevelFromNames = (state: GcImportState): { state: GcImportState; relevel
  */
 export const TIDY_STEPS = [
   "notBaseball",
+  "highSchool",
   "releveled",
   "pruned",
   "named",
@@ -3089,10 +3157,15 @@ const tidyOnce = (
   starting("notBaseball", state);
   const kept = dropNotBaseball(state);
   finished("notBaseball", kept.dropped, kept.state);
+  // Beside it, and for the same reason: a club that does not belong in the pool should not be
+  // settled, folded, paired or levelled first.
+  starting("highSchool", kept.state);
+  const school = dropSchoolTeams(kept.state);
+  finished("highSchool", school.dropped, school.state);
   // Then levels, because every pass after it compares them: a side whose level is about to be
   // worked out should be worked out before anything decides whether two rows mean one game.
-  starting("releveled", kept.state);
-  const levels = relevelFromNames(kept.state);
+  starting("releveled", school.state);
+  const levels = relevelFromNames(school.state);
   finished("releveled", levels.releveled, levels.state);
   starting("pruned", levels.state);
   const season = pruneOutOfSeason(levels.state);
@@ -3153,6 +3226,7 @@ const tidyOnce = (
     refiled: placed.refiled,
     releveled: levels.releveled,
     notBaseball: kept.dropped,
+    highSchool: school.dropped,
   };
 };
 
@@ -3179,6 +3253,7 @@ export const tidyPool = (
     refiled: 0,
     releveled: 0,
     notBaseball: 0,
+    highSchool: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -3195,6 +3270,7 @@ export const tidyPool = (
     total.refiled += step.refiled;
     total.releveled += step.releveled;
     total.notBaseball += step.notBaseball;
+    total.highSchool += step.highSchool;
     const changed =
       step.named +
       step.folded +
@@ -3205,7 +3281,8 @@ export const tidyPool = (
       step.resettled +
       step.refiled +
       step.releveled +
-      step.notBaseball;
+      step.notBaseball +
+      step.highSchool;
     if (changed === 0) break;
   }
   return total;
@@ -3222,8 +3299,9 @@ export const tidyPool = (
  *   2 — reading a graduating class out of a name
  *   3 — deleting the teams that are not playing baseball
  *   4 — taking a game off a club that plays nowhere near the age it was played at
+ *   5 — deleting the high school squads
  */
-const TIDY_RULES_VERSION = 4;
+const TIDY_RULES_VERSION = 5;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -3300,6 +3378,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.notBaseball > 0
       ? [
           `${plural(tidy.notBaseball, "wiffle ball team", "wiffle ball teams")} deleted, and their results with them.`,
+        ]
+      : []),
+    ...(tidy.highSchool > 0
+      ? [
+          `${plural(tidy.highSchool, "high school squad", "high school squads")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.folded > 0

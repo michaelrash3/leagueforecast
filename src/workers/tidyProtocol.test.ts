@@ -122,12 +122,15 @@ describe("what the tidy says while it runs", () => {
     expect(steps.slice(0, 4).map((r) => [r.step.step, r.step.done])).toEqual([
       ["notBaseball", false],
       ["notBaseball", true],
-      ["releveled", false],
-      ["releveled", true],
+      ["highSchool", false],
+      ["highSchool", true],
     ]);
     const firstPass = steps.filter((r) => r.step.pass === 1 && r.step.done);
     expect(firstPass.map((r) => r.step.step)).toEqual([
       "notBaseball",
+      // Beside it: the two passes that delete a club that does not belong in the pool at all run
+      // before anything levels, settles, folds or pairs it.
+      "highSchool",
       "releveled",
       "pruned",
       "named",

@@ -432,7 +432,12 @@ export function GameChangerImportPanel({
     // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
     // the too-young ones because they are a different kind of "not for us" and the panel says so.
     const baseball = read.entries.filter((entry) => !entry.notBaseball);
-    const entries = baseball.filter(
+    // A high school squad plays its own season against other high school squads, so its results
+    // join nothing ranked here. Dropped on the same terms and for the same reason as the wiffle
+    // rows — before a request is spent — and counted apart, because a reader who pasted a list
+    // full of them deserves to be told which kind of "not for us" ate it.
+    const club = baseball.filter((entry) => !entry.highSchool);
+    const entries = club.filter(
       (entry) =>
         !isTooYoungClub(tooYoung, entry.teamId) &&
         (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
@@ -440,8 +445,9 @@ export function GameChangerImportPanel({
     return {
       ...read,
       entries,
-      tooYoung: baseball.length - entries.length,
+      tooYoung: club.length - entries.length,
       notBaseball: read.entries.length - baseball.length,
+      highSchool: baseball.length - club.length,
       // Counted here rather than again at run time: on a nationwide export this is a forty
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
@@ -726,7 +732,7 @@ export function GameChangerImportPanel({
             parsed: parsed.entries.length,
             skipped: parsed.skipped.length,
             skippedSamples: parsed.skipped,
-            tooYoung: parsed.tooYoung + parsed.notBaseball,
+            tooYoung: parsed.tooYoung + parsed.notBaseball + parsed.highSchool,
             alreadyHere: split.seen,
             asked: askedInRun,
           });
@@ -1750,6 +1756,9 @@ export function GameChangerImportPanel({
                 )}
                 {parsed.notBaseball > 0 && (
                   <span className={pill("neutral")}>{parsed.notBaseball} wiffle ball, skipped</span>
+                )}
+                {parsed.highSchool > 0 && (
+                  <span className={pill("neutral")}>{parsed.highSchool} high school, skipped</span>
                 )}
                 {split.fresh.length > 200 && (
                   <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>
