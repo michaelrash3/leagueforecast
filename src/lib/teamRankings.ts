@@ -1215,20 +1215,36 @@ export const scoutRatingGames = (
     .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
 };
 
-const buildPooledTeamRankings = (
+/** One page's games as the fit reads them: the row, and the age gap between the two sides. */
+export type RatedScoutGame = { game: ScoutGame; ageGap: number };
+
+/**
+ * The table, from a set of games already chosen.
+ *
+ * Split from the selection above it so that a caller can rank a pool the selection would never
+ * hand it. A what-if is exactly that caller: the game it asks about is dated in a day that has not
+ * happened and carries a score, which is the one shape `countsTowardRating` exists to reject, so
+ * splicing it into the pool and re-selecting drops it and answers the question that was not asked.
+ * Measured: appending a future-dated 20-0 win to a four-club pool moved the winner not at all —
+ * same rank, same record, same rating to three decimals — while the same game dated yesterday
+ * moved it from #4 to #3 and from -2.656 to -0.443.
+ *
+ * `games` is still the whole pool rather than the rated slice, because a club's home age level is
+ * a fact about its season and is read off every game it played, not off the ones this page counts.
+ */
+export const rankScoutPool = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
+  rated: readonly RatedScoutGame[],
   myTeamId: string | undefined,
-  ageGroups: AgeGroup[],
-  segment?: SeasonSegment
+  ageGroups: AgeGroup[]
 ): ScoutRankingRow[] => {
   const index = indexGroups(ageGroups);
   const level = index.level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
   const year = index.year(ageGroupId);
 
-  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups, segment);
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();
@@ -1336,6 +1352,23 @@ const buildPooledTeamRankings = (
 
   return rankRows(rows);
 };
+
+const buildPooledTeamRankings = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  myTeamId: string | undefined,
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment
+): ScoutRankingRow[] =>
+  rankScoutPool(
+    ageGroupId,
+    teams,
+    games,
+    scoutRatingGames(ageGroupId, teams, games, ageGroups, segment),
+    myTeamId,
+    ageGroups
+  );
 
 /** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
  * matchup predictions — kept identical so the two features read consistently. Deliberately ignores
