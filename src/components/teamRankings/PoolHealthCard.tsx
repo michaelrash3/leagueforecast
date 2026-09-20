@@ -11,6 +11,8 @@ import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
 import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
 import { keepApart as apartAfter } from "../../lib/keptApart";
+import { isDatedAhead } from "../../lib/deletedGames";
+import { todayIsoDay } from "../../lib/date";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { TidyProgressView } from "./TidyProgressView";
@@ -26,6 +28,11 @@ type PoolHealthCardProps = {
    * can drop the one that did and keep the ones the user said no to.
    */
   onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
+  /**
+   * Throws these rows out and remembers them, so the next pull of the same schedule does not file
+   * them again. See `deletedGames.ts` for why a deletion has to be remembered rather than done.
+   */
+  onDropGames: (ids: readonly string[]) => Promise<boolean>;
 };
 
 const count = (value: number) => value.toLocaleString();
@@ -53,7 +60,13 @@ const Row = ({ label, value, note }: { label: string; value: string; note?: stri
  * never finished running, and a pool in that state looks exactly like a pool in good order. These
  * are the numbers that say which.
  */
-export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: PoolHealthCardProps) {
+export function PoolHealthCard({
+  pool,
+  tidyStamp,
+  onTidied,
+  onMergeTeams,
+  onDropGames,
+}: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
    * costs nothing to show. It is the one place a year that has lost its games can be seen at all:
@@ -90,6 +103,23 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
    */
   const [duplicates, setDuplicates] = useState<GcSeasonPairing[] | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
+  const [dropping, setDropping] = useState(false);
+
+  /**
+   * The rows with a score on a day that has not happened.
+   *
+   * You cannot score a game early. A schedule can be opened ahead of time by accident, but it
+   * comes back without a score — so a scored row dated in the future is a wrong date or an
+   * invention, and a nationwide pool carries both: one club here held a 106-13 record built
+   * entirely on games nobody had played, and another was called "Test team".
+   *
+   * Worked out from the pool in hand rather than from the inspection, because the inspection
+   * counts them and this needs the rows themselves to delete.
+   */
+  const datedAhead = useMemo(() => {
+    const today = todayIsoDay();
+    return pool.games.filter((game) => isDatedAhead(game, today));
+  }, [pool.games]);
 
   const sameSeasonPairs = (state: GcImportState) =>
     proposeSeasonPairings(state.teams, state.games, loadKeptApart()).filter(
@@ -137,6 +167,20 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
         (entry) => entry.fromGcId !== pairing.fromGcId || entry.toGcId !== pairing.toGcId
       )
     );
+  };
+
+  const teamName = (teamId: string) =>
+    pool.teams.find((team) => team.id === teamId)?.name ?? teamId;
+
+  /** Throws out every row scored on a day that has not happened. The caller asks first. */
+  const dropDatedAhead = async () => {
+    if (datedAhead.length === 0) return;
+    setDropping(true);
+    try {
+      await onDropGames(datedAhead.map((game) => game.id));
+    } finally {
+      setDropping(false);
+    }
   };
 
   /** Folds one of the pairs in, and takes it off the list only if it actually happened. */
@@ -280,7 +324,7 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
               <Row
                 label="Results dated ahead"
                 value={count(health.futureDated)}
-                note="scored, but dated after today — a wrong date on GameChanger"
+                note="scored, on a day that has not happened"
               />
             )}
           </dl>
@@ -326,6 +370,47 @@ export function PoolHealthCard({ pool, tidyStamp, onTidied, onMergeTeams }: Pool
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {datedAhead.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Scored on a day that has not happened
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(datedAhead.length)}</strong>{" "}
+            {datedAhead.length === 1 ? "game carries" : "games carry"} a score on a date still to
+            come. A game cannot be scored early — a schedule opened ahead of time comes back without
+            one — so each of these is a wrong date or an invention, and every one of them is
+            counting in a record and a rating right now.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+            {datedAhead.slice(0, 6).map((game) => (
+              <li key={game.id}>
+                <span className="font-bold text-slate-700 dark:text-slate-200">{game.date}</span>
+                {" — "}
+                {teamName(game.teamAId)} {game.teamAScore}–{game.teamBScore}{" "}
+                {teamName(game.teamBId)}
+              </li>
+            ))}
+          </ul>
+          {datedAhead.length > 6 && (
+            <p className="mt-2 text-xs text-slate-500">Drawing 6 of {count(datedAhead.length)}.</p>
+          )}
+          <button
+            type="button"
+            onClick={() => void dropDatedAhead()}
+            disabled={dropping || pullLive}
+            className={`${button.ghost} mt-3 text-sm`}
+          >
+            {dropping ? "Deleting…" : `Delete ${plural(datedAhead.length, "game")}`}
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Deleted for good: each one is remembered by its GameChanger id, so the next pull of that
+            schedule does not file it again. A date corrected on GameChanger does not bring it back
+            either — if one of these turns out to be a real game, add it by hand.
+          </p>
         </div>
       )}
 

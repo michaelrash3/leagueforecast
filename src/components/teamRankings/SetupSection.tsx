@@ -33,6 +33,8 @@ type SetupSectionProps = {
     tidyStamp: string;
     onTidied: (outcome: TidyOutcome) => void;
     onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
+    /** Throws these rows out and remembers them, so a re-pull does not file them again. */
+    onDropGames: (ids: readonly string[]) => Promise<boolean>;
   };
   /** The years that could be frozen, and the one the app is showing as current. */
   archive: {
@@ -167,6 +169,7 @@ export function SetupSection({
         tidyStamp={poolHealth.tidyStamp}
         onTidied={poolHealth.onTidied}
         onMergeTeams={poolHealth.onMergeTeams}
+        onDropGames={poolHealth.onDropGames}
       />
 
       <ModelCheckCard
