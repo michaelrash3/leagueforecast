@@ -56,6 +56,7 @@ import { isDeletedClub, isDeletedGame, type DeletedClubs, type DeletedGames } fr
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
 import { todayIsoDay } from "./date";
+import { namedAgeFor, type NamedAges } from "./namedAges";
 
 /**
  * The lookups an import does, precomputed.
@@ -389,6 +390,8 @@ export type GcImportOutcome = {
    * none. Absent whenever the team said its own age, which is nearly always.
    */
   ageFromOpponents?: number;
+  /** The level a person named by hand, which was used in place of whatever GameChanger said. */
+  ageNamedByUser?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -1305,6 +1308,8 @@ export type GcImportOptions = {
   droppedClubs?: DeletedClubs;
   /** Ids already known to be below the youngest level ranked here. */
   tooYoung?: TooYoungClubs;
+  /** The levels somebody named by hand, which beat GameChanger's own field. */
+  namedAges?: NamedAges;
   /**
    * The day "you cannot score a game early" is judged against, as an ISO day.
    *
@@ -1317,6 +1322,7 @@ export type GcImportOptions = {
 
 const NOTHING_DELETED: DeletedGames = new Set<string>();
 const NO_CLUBS: DeletedClubs = new Set<string>();
+const NOTHING_NAMED: NamedAges = new Map();
 
 export const importGcSchedule = (
   schedule: GcTeamSchedule,
@@ -1348,7 +1354,18 @@ const importOne = (
    * agree on one level. A team GameChanger did not file under an age is filed under the one its
    * opponents keep naming, or under none at all.
    */
-  const { schedule, inferred } = withOpponentAge(original);
+  const named = namedAgeFor(options.namedAges ?? NOTHING_NAMED, original.profile.id);
+  /*
+   * A level somebody named by hand, applied before anything else looks at the profile — ahead of
+   * GameChanger's own field rather than only in its absence. Everything downstream then agrees on
+   * one level with no other change: the page it is filed under, the link written against the
+   * team, and the age carried on each of its games.
+   */
+  const withNamed: GcTeamSchedule =
+    named === undefined
+      ? original
+      : { ...original, profile: { ...original.profile, ageLevel: named } };
+  const { schedule, inferred } = withOpponentAge(withNamed);
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1367,6 +1384,7 @@ const importOne = (
     opponentsMatchedByAvatar: 0,
     opponentsMatchedByName: 0,
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
+    ...(named === undefined ? {} : { ageNamedByUser: named }),
   };
 
   /*
