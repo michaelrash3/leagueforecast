@@ -114,6 +114,14 @@ export type TeamWithProjection = Team & {
   goldStatus: GoldStatus;
   maxPoints: number;
   blockersAhead: number;
+  /**
+   * The best and worst PCT this team can still finish on — the currency the cut is decided in,
+   * by `rankTeams` and by the Monte Carlo both. Standings points are reported beside them and
+   * decide nothing: they only ever go up, so reading a cut line off them made a club that had
+   * played twice as many games look twice as close to it.
+   */
+  maxPct: number;
+  minPct: number;
 };
 
 export type SwingGame = {

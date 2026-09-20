@@ -30,6 +30,13 @@ export const teamAbbr = (name: string) => {
   return short.slice(0, 3).toUpperCase() || "TM";
 };
 
+/**
+ * A winning percentage the way a standings table writes one: three decimals, no leading zero.
+ * ".833", not "0.833" and not "83%" — the number the table sorts on, printed as it is read.
+ */
+export const winPct = (value: number): string =>
+  value >= 1 ? "1.000" : value.toFixed(3).replace(/^0/, "");
+
 export const recordText = (team: Pick<Team, "w" | "l" | "t">) =>
   `${team.w}-${team.l}${team.t ? `-${team.t}` : ""}`;
 

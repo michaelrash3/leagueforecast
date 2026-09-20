@@ -96,8 +96,45 @@ export type MathGoldStatus = {
   goldStatus: "Clinched" | "Eliminated" | "In" | "Alive";
   maxPoints: number;
   blockersAhead: number;
+  /** The best and worst PCT this team can still finish on, which is what the cut is decided by. */
+  maxPct: number;
+  minPct: number;
 };
 
+/**
+ * The best and worst PCT a team can still finish on.
+ *
+ * PCT counts a tie as half a win over games *played*, so both ends move as the season runs: the
+ * best case wins everything left, the worst loses everything left, and either way the denominator
+ * grows. That growth is the whole reason points and PCT disagree — points only ever go up, so a
+ * team that has played twice as many games looks twice as strong on points and no stronger at all
+ * on PCT.
+ */
+const pctBounds = (team: Team, remaining: number): { min: number; max: number } => {
+  const played = team.w + team.l + team.t;
+  const total = played + remaining;
+  if (total <= 0) return { min: 0, max: 0 };
+  const credited = team.w + team.t * 0.5;
+  return { min: credited / total, max: (credited + remaining) / total };
+};
+
+/**
+ * Whether the maths alone settles a team's Gold Bracket place, in the currency the place is
+ * actually decided in.
+ *
+ * This used to reason in standings points while `rankTeams` orders the table on PCT and the Monte
+ * Carlo cuts `rankTeams(...).slice(0, cutoff)` — so the two agreed only while every team had
+ * played the same number of games, which is true on the first weekend and rarely again. Three
+ * teams with nothing left to play were enough to show it: 2-0, 8-8 and 1-9 with one Gold place
+ * between them put the 2-0 side first in the table and on 100% of the odds, and the badge beside
+ * those odds read "Eliminated" — while the 8-8 side, ranked second on 0%, read "Clinched". Points
+ * said 4, 16 and 2, and points were the only thing on the screen that thought so.
+ *
+ * So the question is asked of the finishing PCT each team can still reach. A team is out when at
+ * least `cutoff` others cannot finish below it however the rest of the season goes, and in when
+ * fewer than `cutoff` others can reach it. `maxPoints` stays for the callers that report it, but
+ * nothing decides on it any more.
+ */
 export const getMathGoldStatus = (
   team: Team,
   teams: Team[],
@@ -105,20 +142,20 @@ export const getMathGoldStatus = (
   cutoff: number,
   settings: Pick<Settings, "winPoints" | "tiePoints">
 ): MathGoldStatus => {
-  const currentPoints = standingsPoints(team, settings);
-  const winPoints = settings.winPoints;
-  const maxPoints = currentPoints + (remainingCounts[team.id] ?? 0) * winPoints;
+  const maxPoints =
+    standingsPoints(team, settings) + (remainingCounts[team.id] ?? 0) * settings.winPoints;
+  const mine = pctBounds(team, remainingCounts[team.id] ?? 0);
 
+  // Teams that finish above this one however the season goes: their floor clears its ceiling.
   const blockersAhead = teams.filter((other) => {
     if (other.id === team.id) return false;
-    return standingsPoints(other, settings) > maxPoints;
+    return pctBounds(other, remainingCounts[other.id] ?? 0).min > mine.max;
   }).length;
 
+  // Teams that can still reach it: their ceiling reaches its floor.
   const possibleCatchers = teams.filter((other) => {
     if (other.id === team.id) return false;
-    const otherMaxPoints =
-      standingsPoints(other, settings) + (remainingCounts[other.id] ?? 0) * winPoints;
-    return otherMaxPoints >= currentPoints;
+    return pctBounds(other, remainingCounts[other.id] ?? 0).max >= mine.min;
   }).length;
 
   const eliminated = blockersAhead >= cutoff;
@@ -134,6 +171,8 @@ export const getMathGoldStatus = (
           : "Alive",
     maxPoints,
     blockersAhead,
+    maxPct: mine.max,
+    minPct: mine.min,
   };
 };
 

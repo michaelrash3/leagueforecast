@@ -90,6 +90,8 @@ const dashboard = () => {
       goldStatus: math.goldStatus,
       maxPoints: math.maxPoints,
       blockersAhead: math.blockersAhead,
+      maxPct: math.maxPct,
+      minPct: math.minPct,
     } as TeamWithProjection;
   });
   return { ranked, rows, byId: new Map(rows.map((row) => [row.id, row])) };
@@ -145,6 +147,8 @@ const earlySetup = (over: { hasCutLine?: boolean; impact?: Map<string, ScenarioI
           goldStatus: math.goldStatus,
           maxPoints: math.maxPoints,
           blockersAhead: math.blockersAhead,
+          maxPct: math.maxPct,
+          minPct: math.minPct,
         } as TeamWithProjection,
       ];
     })
