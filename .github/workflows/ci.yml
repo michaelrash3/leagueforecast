@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# One run per branch. Pushing three times in a minute used to start three full gates and let all
+# of them finish, so the queue filled with answers about commits nobody was waiting on any more —
+# and the answer that mattered, the newest one, came last. `main` is exempt: a push there is a
+# merge, and cancelling the gate on a merge would leave the branch with no result at all.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,8 +28,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       # Coverage rather than a bare run: same tests, same time, and the summary is printed in the
-      # log so what the suite misses is visible on every pull request. Nothing fails on it yet -
-      # see the note in vite.config.ts.
+      # log so what the suite misses is visible on every pull request. The thresholds in
+      # vite.config.ts are a floor under where the suite already is, so this fails on a real drop.
       - run: npm run test:coverage
       - run: npm run build
       # One browser, one smoke spec, against the build above: a season loads, a score moves the

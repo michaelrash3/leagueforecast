@@ -94,10 +94,13 @@ export default defineConfig({
   },
   test: {
     /*
-     * Reported, not enforced. There are sixteen hundred tests and no measurement of what they
-     * miss, which is the gap this closes — but a threshold picked before anybody has seen the real
-     * numbers is a number invented to be met, and it would start failing pull requests on its
-     * first day for reasons nobody chose. Add one once the report has been read.
+     * Reported and, now that the report has been read, enforced — as a floor under where the suite
+     * already is rather than a target for it. The numbers below sit about a point under the run
+     * that set them (80.89% statements, 68.45% branches, 77.32% functions, 82.50% lines), which is
+     * the whole intent: a point is more than an ordinary change moves and less than deleting a
+     * test file. It answers a question nothing else does — a pull request that adds a hundred
+     * lines and no test reads as green everywhere else, and the summary in the log is a number
+     * nobody compares against last week's.
      *
      * `include` is what makes this honest. Every file it matches is reported whether a test
      * touched it or not, so a file with no test counts as zero rather than vanishing from the
@@ -118,6 +121,7 @@ export default defineConfig({
         "src/vite-env.d.ts",
       ],
       reporter: ["text-summary", "lcov"],
+      thresholds: { statements: 80, branches: 67, functions: 76, lines: 81 },
     },
     // Two projects rather than one environment, because they want different ones. The lib tests are
     // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
