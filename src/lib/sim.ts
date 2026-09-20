@@ -1225,9 +1225,18 @@ export const simulationSeed = (
   const finals = [...matchups]
     .map((game) => {
       const log = logs[game.id];
+      /*
+       * A game still to play carries the two sides, because the model gives the home one an
+       * advantage and simulating it is the whole of what this seed is a key for. Without them,
+       * swapping a fixture's home and away left the key byte for byte identical while the odds
+       * moved — measured on a two-team league with one game left, 48.85% against 51.15% — so the
+       * page went on showing the old forecast, and `resultKey === key` reported it as current.
+       * A finished game needs no such thing: its score is here, and the sides are which way round
+       * that score is written.
+       */
       return isFinal(log)
         ? `${game.id}|F${log?.awayRuns ?? ""}-${log?.homeRuns ?? ""}`
-        : `${game.id}|O`;
+        : `${game.id}|O${game.away}>${game.home}`;
     })
     .sort()
     .join(",");
@@ -1395,14 +1404,22 @@ const simulateBracketRun = (
       const top = slots[game] ?? null;
       const bottom = slots[game + 1] ?? null;
       if (top && bottom) {
+        /*
+         * The higher seed hosts, which is what a bracket is seeded for. `bracketSeedOrder` puts it
+         * in the top slot, and this put the top slot in the *away* seat — so the model's
+         * home-field term, the one thing a bracket game has to say about who is at home, was
+         * handed to the lower seed in every game of every round. On a four-team bracket seeded
+         * 6-0, 4-2, 2-4, 0-6 it cost the top seed three and a third points of title odds: 34.25%
+         * against 37.57% with the seats the right way round.
+         */
         const matchup: Matchup = {
           id: `sim-r${round}-g${game}`,
           date: "",
-          away: top,
-          home: bottom,
+          away: bottom,
+          home: top,
         };
         const prediction = predictGame(matchup, allTeams, settings, byId, tally);
-        next.push(random() < prediction.awayWinPct ? top : bottom);
+        next.push(random() < prediction.awayWinPct ? bottom : top);
       } else {
         next.push(top ?? bottom);
       }
