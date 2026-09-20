@@ -105,7 +105,7 @@ export type LeagueSummaryModelAccuracy = {
   gamesEvaluated: number;
   brierScore?: number;
   hitRate?: number;
-  upsetCaptureRate?: number;
+  confidentMissRate?: number;
 };
 
 export type LeagueSummarySeasonContext = {
@@ -325,7 +325,7 @@ export const sanitizeLeagueSummaryRequest = (body: unknown): LeagueSummaryReques
           gamesEvaluated: clampNumber(rawAccuracy.gamesEvaluated, 0, 100_000, 0),
           brierScore: optionalNumber(rawAccuracy.brierScore, 0, 1),
           hitRate: optionalNumber(rawAccuracy.hitRate, 0, 100),
-          upsetCaptureRate: optionalNumber(rawAccuracy.upsetCaptureRate, 0, 100),
+          confidentMissRate: optionalNumber(rawAccuracy.confidentMissRate, 0, 100),
         }
       : undefined;
 
@@ -603,14 +603,14 @@ export const buildLeagueSummaryPrompt = (request: LeagueSummaryRequest): string 
   }
 
   if (request.modelAccuracy) {
-    const { gamesEvaluated, brierScore, hitRate, upsetCaptureRate } = request.modelAccuracy;
+    const { gamesEvaluated, brierScore, hitRate, confidentMissRate } = request.modelAccuracy;
     const parts = [`measured over ${gamesEvaluated} finished games`];
     if (hitRate !== undefined) parts.push(`${Math.round(hitRate)}% of picks correct`);
     if (brierScore !== undefined) {
       parts.push(`Brier score ${brierScore.toFixed(3)} (0 is perfect, 0.25 is a coin flip)`);
     }
-    if (upsetCaptureRate !== undefined) {
-      parts.push(`${Math.round(upsetCaptureRate)}% of upsets called`);
+    if (confidentMissRate !== undefined) {
+      parts.push(`${Math.round(confidentMissRate)}% of its misses were confident calls`);
     }
     lines.push("", `Model accuracy so far: ${parts.join("; ")}.`);
   }

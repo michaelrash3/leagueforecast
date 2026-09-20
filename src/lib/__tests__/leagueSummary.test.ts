@@ -305,7 +305,7 @@ const forecastBody = () => ({
   keyGames: [
     { label: "Wolves at Bandits", reason: "Winner takes the final Gold slot.", date: "9/21" },
   ],
-  modelAccuracy: { gamesEvaluated: 40, brierScore: 0.183, hitRate: 71.5, upsetCaptureRate: 33.3 },
+  modelAccuracy: { gamesEvaluated: 40, brierScore: 0.183, hitRate: 71.5, confidentMissRate: 33.3 },
 });
 
 describe("forecast write-up", () => {
@@ -360,7 +360,12 @@ describe("forecast write-up", () => {
     expect(prompt).toContain("measured over 40 finished games");
     expect(prompt).toContain("72% of picks correct");
     expect(prompt).toContain("Brier score 0.183 (0 is perfect, 0.25 is a coin flip)");
-    expect(prompt).toContain("33% of upsets called");
+    /*
+     * Not "33% of upsets called", which is what this said and what the number never meant: it is
+     * the share of the model's *misses* that were confident calls, so the old wording credited
+     * the model for its worst games. Lower is better.
+     */
+    expect(prompt).toContain("33% of its misses were confident calls");
   });
 
   it("closes with the forecast instruction instead of the recap one", () => {
