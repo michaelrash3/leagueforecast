@@ -555,6 +555,47 @@ the team playing more games against opponents who do name an age.
 Nothing fires by itself — there is no server here, and a browser cannot run while
 it is closed — so the panel answers "what is due?" when the app is next opened.
 
+**Teams waiting on an age.** Setup carries a card for the ones nothing could settle,
+ten at a time. Ten because four thousand rows is not a queue, it is a wall; and the
+ten do not reshuffle while they are worked — they stay the ten, shrinking as they are
+answered, and the next ten arrive once the last is done. Nothing extra is stored to
+track that: a team is answered when somebody named its age or threw it out, and both
+of those are already stored, so the queue is derived from them and cannot drift out of
+step. Closing the tab loses which ten were in front of you and no work.
+
+Each row carries the GameChanger id and the complete name — the two things needed to
+go and look a team up — a link to its page, the reason the age could not be read, and
+whatever was kept when it was refused. The reason is the useful part:
+`ageFromOpponentNames` gives up for four different reasons and returns one `undefined`
+for all of them, so the counts are kept and say which. "None of its four opponents
+writes an age" is a rec league and will never come good; "two of its three say 9U" is
+settled in a second; no games at all is a blank schedule.
+
+Worst-looking first, by `looksInvented` — games carrying scores on days that have not
+happened, shutout blowouts, a record claiming far more games than the schedule lists,
+a roster under nine. It is **only an ordering**. Every part of it has an innocent
+reading, so nothing is ever thrown out on that number and no row is coloured by it;
+an empty schedule is a club somebody made this morning as often as it is a fiction.
+
+**Naming an age** is the fourth way a team gets one, and it stands in until the club
+answers for itself. The named level is used ahead of GameChanger's own field, which is
+what lets somebody correct a team filed at the wrong age rather than only one filed at
+none — but the moment GameChanger's answer *changes* from what it was when the name
+was given, GameChanger wins and the named level is dropped. `insteadOf` records what
+GameChanger was saying at the time, so that is a comparison rather than a guess. A
+level outside the ranked range is refused rather than clamped: a stored 6U would be an
+answer that files nowhere, taking the team off the waiting list and putting it on no
+page, so it would vanish from both.
+
+**A backup carries the answers, not just the pool.** The named ages, the thrown-out
+clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
+all ride in an `answers` block. None of it can be recomputed — a pool can be pulled
+again, a judgement about whether a club is real cannot — and without this, restoring
+into a fresh browser threw an evening's work away and then set about rediscovering the
+problems it had answered. The block is optional and absent means leave what is there
+alone, because "this file predates it" and "this file has nothing to say" are the same
+bytes.
+
 ### States
 
 A team can carry a two-letter state, and the rankings can be narrowed to one — or
