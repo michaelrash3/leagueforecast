@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IMPACT_RECAP_REMAINING_GAME_LIMIT,
   buildRankSnapshot,
+  finalToggled,
   impactOfFinal,
   nameFrom,
   summarizeChanges,
@@ -155,5 +156,35 @@ describe("the name a team is known by", () => {
      */
     const blank = nameFrom(new Map([["ghost", { id: "ghost", name: "" }]]));
     expect(blank("ghost")).toBe("ghost");
+  });
+});
+
+/**
+ * The whole of what pressing "final" decides.
+ *
+ * One call rather than two because it is one decision, and because the caller must not make it
+ * inside a state updater — which is where it used to live, and where React ran it twice under
+ * `StrictMode`, costing two rank snapshots and two projections per final in development.
+ */
+describe("marking a game final", () => {
+  it("flips the flag and hands back the recap together", () => {
+    const { nextLogs, impact } = finalToggled("g1", {}, 6, pool(), nameOf);
+    expect(nextLogs.g1?.isFinal).toBe(true);
+    expect(impact).not.toBeNull();
+  });
+
+  it("clears the recap when a final is taken back", () => {
+    // Un-marking says nothing about the standings, so the panel is emptied rather than left
+    // explaining a game that is open again.
+    const logs: Record<string, GameLog> = { g1: scored("7", "4", true) };
+    const { nextLogs, impact } = finalToggled("g1", logs, 6, pool(), nameOf);
+    expect(nextLogs.g1?.isFinal).toBe(false);
+    expect(impact).toBeNull();
+  });
+
+  it("leaves every other game's log alone", () => {
+    const logs: Record<string, GameLog> = { g2: scored("2", "9", true) };
+    const { nextLogs } = finalToggled("g1", logs, 6, pool(), nameOf);
+    expect(nextLogs.g2).toBe(logs.g2);
   });
 });
