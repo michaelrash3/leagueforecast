@@ -86,6 +86,64 @@ describe("keeping the teams nobody could age", () => {
     expect(updateAgeUnknown(first, [], NOW).map((entry) => entry.teamId)).toEqual(["A"]);
   });
 
+  /*
+   * The frozen entry, which starved the queue it sat in.
+   *
+   * This list is for teams nobody could say the age of. An entry whose answer becomes something
+   * else — thrown out, 6U after all, no season, a wiffle team — is no longer that question, and
+   * used to be left untouched rather than taken off. Untouched meant frozen: `tries` never
+   * advanced and `lastTried` never moved, so stalest-first put it at the head of every run for
+   * ever. Measured before the fix, on three teams with a cap of two where one had been thrown
+   * out: the thrown-out club was fetched on all twelve runs, still reading tries=1 and
+   * lastTried=day one, while it held half of every run's capacity.
+   */
+  it("takes a team off when the answer stops being 'nobody could say'", () => {
+    const list: AgeUnknownList = [
+      { teamId: "thrown-out", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: 1 },
+      { teamId: "too-young", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: 1 },
+      { teamId: "still-asking", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: 1 },
+    ];
+    const after = updateAgeUnknown(
+      list,
+      [
+        outcome("thrown-out", { skip: "deleted", issue: "thrown out" }),
+        outcome("too-young", { skip: "below-min-age", issue: "too young" }),
+        outcome("still-asking", { skip: "no-age", issue: "no age" }),
+      ],
+      NOW
+    );
+    expect(after.map((entry) => entry.teamId)).toEqual(["still-asking"]);
+  });
+
+  it("does not let a team it cannot answer for hold the head of the queue", () => {
+    // The consequence, rather than the mechanism: with a cap, a frozen entry is asked every run
+    // and the live teams behind it are not.
+    let list: AgeUnknownList = [
+      { teamId: "thrown-out", firstSeen: LAST_WEEK, lastTried: daysBefore(40), tries: 1 },
+      { teamId: "live-a", firstSeen: LAST_WEEK, lastTried: daysBefore(30), tries: 1 },
+      { teamId: "live-b", firstSeen: LAST_WEEK, lastTried: daysBefore(20), tries: 1 },
+    ];
+    const asked: string[][] = [];
+    for (let run = 0; run < 4; run += 1) {
+      const now = new Date(TODAY.getTime() + run * 8 * 86_400_000);
+      const due = ageUnknownDue(list, 1, now);
+      asked.push(due);
+      list = updateAgeUnknown(
+        list,
+        due.map((id) =>
+          id === "thrown-out"
+            ? outcome(id, { skip: "deleted", issue: "thrown out" })
+            : outcome(id, { skip: "no-age", issue: "no age" })
+        ),
+        now.toISOString()
+      );
+    }
+    // Asked once, answered, gone — and never at the head again.
+    expect(asked[0]).toEqual(["thrown-out"]);
+    expect(asked.slice(1).flat()).not.toContain("thrown-out");
+    expect(list.map((entry) => entry.teamId).sort()).toEqual(["live-a", "live-b"]);
+  });
+
   it("hands over the stalest first, so a long list still comes round", () => {
     // Both past the week gate, so this is about the order and the cap and nothing else.
     const list: AgeUnknownList = [
@@ -155,6 +213,18 @@ describe("keeping the teams nobody could age", () => {
     // Left alone, not forgotten: a full re-pull of the team is still free to answer it.
     expect(spent).toHaveLength(1);
     expect(describeAgeUnknown(spent, TODAY)).toMatch(/1 left alone/);
+  });
+
+  it("does not open a sentence with a count of nothing", () => {
+    // Every team on the list has used up both its asks and its weeks, so "0 teams still being
+    // asked about, and 2 left alone" would lead with something that is not there.
+    const spent: AgeUnknownList = [
+      { teamId: "A", firstSeen: daysBefore(60), lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES },
+      { teamId: "B", firstSeen: daysBefore(60), lastTried: NOW, tries: AGE_UNKNOWN_MAX_TRIES },
+    ];
+    expect(describeAgeUnknown(spent, TODAY)).toBe(
+      "2 left alone after 8 weeks of nobody naming an age."
+    );
   });
 
   /*

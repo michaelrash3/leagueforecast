@@ -38,12 +38,26 @@ export type AgeUnknownTeam = {
 export type AgeUnknownList = AgeUnknownTeam[];
 
 /**
- * The list after a run: teams that could not be filed for want of an age go on, and teams that
- * were filed come off.
+ * The list after a run: teams nobody could age go on, and teams that are no longer that question
+ * come off.
  *
- * Both halves matter. Adding is how a team gets asked about again; removing is how the list stops
- * growing for ever, and it has to key on being *filed* rather than on the absence of a skip —
- * a team that failed to fetch this week has not been answered and must stay.
+ * Three cases, and the third is the one that was wrong.
+ *
+ * A run that came back "no age" is the reason this list exists: the team goes on, or its count
+ * goes up. A run that filed the team has answered the question: it comes off. And a run that came
+ * back with any OTHER answer — the club was thrown out, it turned out to be 6U, it lost its
+ * season, it is a wiffle team — has also stopped being a team nobody could age, so it comes off
+ * too. It may well be a problem, but it is not this list's problem.
+ *
+ * That last case used to leave the entry sitting there untouched, and untouched meant frozen:
+ * `tries` never advanced and `lastTried` never moved, so a stalest-first queue put it at the head
+ * for ever. Measured on a three-team list with a cap of two, where one had been thrown out — the
+ * thrown-out club was fetched on all twelve runs, still reading tries=1 and lastTried=day one,
+ * while it held half the capacity of every run. At a real list's size that is how the teams behind
+ * it stop being asked at all.
+ *
+ * A run that never reached a team is not an answer and leaves it exactly as it was, which is why
+ * this keys on the outcomes it was given rather than on the absence of one.
  */
 export const updateAgeUnknown = (
   list: AgeUnknownList,
@@ -63,8 +77,12 @@ export const updateAgeUnknown = (
       });
       return;
     }
-    // Filed, at any level, by any route — including one its opponents settled. Question answered.
-    if (!outcome.skip && !outcome.issue) byId.delete(outcome.gcTeamId);
+    /*
+     * Anything else the run actually came back with. Filed at any level by any route, or refused
+     * for a reason that is not "nobody could say the age" — either way this list is done with it.
+     * A failure to fetch is not an outcome at all and never reaches here.
+     */
+    byId.delete(outcome.gcTeamId);
   });
   return [...byId.values()];
 };
@@ -146,16 +164,24 @@ export const ageUnknownDue = (list: AgeUnknownList, limit: number, now: Date): s
 export const ageUnknownAsking = (list: AgeUnknownList, now: Date): number =>
   list.filter((entry) => stillWorthAsking(entry, now)).length;
 
-/** A line for the panel. */
+/**
+ * A line for the panel.
+ *
+ * When nobody is left to ask about, the sentence leads with the part that is true rather than
+ * with a zero: "0 teams still being asked about, and 412 left alone" opens by telling the reader
+ * about something that is not there.
+ */
 export const describeAgeUnknown = (list: AgeUnknownList, now: Date): string => {
   if (list.length === 0) return "";
   const asking = ageUnknownAsking(list, now);
   const done = list.length - asking;
+  const leftAlone = `${done.toLocaleString()} left alone after ${AGE_UNKNOWN_MAX_TRIES} weeks of nobody naming an age`;
+  if (asking === 0) {
+    return `${leftAlone.charAt(0).toUpperCase()}${leftAlone.slice(1)}.`;
+  }
   return (
     `${asking.toLocaleString()} team${asking === 1 ? "" : "s"} still being asked about` +
-    (done > 0
-      ? `, and ${done.toLocaleString()} left alone after ${AGE_UNKNOWN_MAX_TRIES} weeks of nobody naming an age`
-      : "") +
+    (done > 0 ? `, and ${leftAlone}` : "") +
     "."
   );
 };
