@@ -1,7 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  hasGcLinks,
+  clubIsPickable,
+  gcAgeLevels,
   leagueScoutBridge,
+  levelsForSeason,
+  yearsForSeason,
   scoutLinkCandidates,
   type LeagueScoutBridge,
   type LeagueTeamLink,
@@ -35,8 +38,8 @@ export type ScoutBridge = {
   externalResults: LeagueScoutBridge["results"];
   /** The clubs that could be a given league team, best evidence first. */
   candidatesFor: (leagueTeamName: string) => ReturnType<typeof scoutLinkCandidates>;
-  /** Every club that could be picked by hand. */
-  allClubs: () => ScoutTeam[];
+  /** Every club that could be picked by hand, with the age GameChanger has it at when it says. */
+  allClubs: () => Array<ScoutTeam & { ageLevel?: number }>;
   setLink: (leagueTeamId: string, scoutTeamId: string | undefined) => void;
   /** Called when Team Rankings saves, so everything here is read again. */
   noteChange: () => void;
@@ -112,10 +115,24 @@ export function useScoutBridge({
 
   const allClubs = useCallback(() => {
     void revision;
-    // Linked clubs only. Searching forty thousand names to land on one that has no GameChanger
-    // team behind it is a search that could not have succeeded.
-    return loadScoutTeams().filter((team) => !team.placeholder && hasGcLinks(team));
-  }, [revision]);
+    /*
+     * The same two conditions the narrow list applies, over the whole pool rather than over this
+     * season's pages: a club GameChanger knows, at this board's level or one below it.
+     *
+     * Without the second, typing a name into the wide search returned every club in the country
+     * called that, at every age from 8U to 18U — which is how three "Cincy Stix Navy" came back
+     * with nothing on the rows to choose between them.
+     */
+    const ageGroups = loadAgeGroups();
+    const levels = levelsForSeason(activeSeasonId, ageGroups);
+    const years = yearsForSeason(activeSeasonId, ageGroups);
+    return loadScoutTeams()
+      .filter((team) => clubIsPickable(team, levels, years, ageGroups))
+      .map((team) => {
+        const ageLevel = gcAgeLevels(team, years[0], ageGroups)[0];
+        return ageLevel === undefined ? team : { ...team, ageLevel };
+      });
+  }, [revision, activeSeasonId]);
 
   return { bridge, externalResults, candidatesFor, allClubs, setLink: onLink, noteChange };
 }

@@ -14,8 +14,8 @@ type ScoutLinkPanelProps = {
   bridge: LeagueScoutBridge;
   /** The clubs that could be this team, best evidence first. */
   candidatesFor: (leagueTeamName: string) => ScoutLinkCandidate[];
-  /** Every club in the pool, built only when the wide search is asked for. */
-  allClubs: () => ScoutTeam[];
+  /** Every club that could be picked, built only when the wide search is asked for. */
+  allClubs: () => Array<ScoutTeam & { ageLevel?: number }>;
   seasonLabel: string;
   /** Whether the setting below this one is letting any of it count right now. */
   countingOn: boolean;
@@ -29,11 +29,18 @@ const where = (club: { city?: string; state?: string }) =>
   [club.city, club.state].filter(Boolean).join(", ");
 
 /**
+ * The age on the row. Two clubs of one name in one town are told apart by nothing else a picker
+ * shows, and a list reading "Cincy Stix Navy · Harrison, OH" twice over cannot be chosen from.
+ */
+const atLevel = (club: { ageLevel?: number }) =>
+  club.ageLevel === undefined ? "" : `${club.ageLevel}U`;
+
+/**
  * What each option says about itself. The town tells two clubs of a name apart; the opponents in
  * common say which one is *this* team, which is the thing a person cannot work out from a name.
  */
 const optionFor = (candidate: ScoutLinkCandidate): TeamSearchOption => {
-  const parts = [where(candidate)].filter(Boolean);
+  const parts = [where(candidate), atLevel(candidate)].filter(Boolean);
   if (candidate.sharedOpponents.length > 0) {
     parts.push(
       `${plural(candidate.sharedOpponents.length, "opponent")} in common: ${candidate.sharedOpponents
@@ -133,7 +140,7 @@ function ScoutLinkPanelInner({
     () =>
       wide
         ? allClubs().map((club): TeamSearchOption => {
-            const detail = where(club);
+            const detail = [where(club), atLevel(club)].filter(Boolean).join(" · ");
             return { id: club.id, label: club.name, ...(detail ? { detail } : {}) };
           })
         : [],
@@ -167,7 +174,9 @@ function ScoutLinkPanelInner({
           <p className="mt-1 text-xs text-slate-500">
             The two halves keep separate ids for the same club and rarely agree on how long a name
             is. Clubs are offered with the opponents you both play, because that is what tells one
-            Trash Pandas from another. A row marked <strong>Guess</strong> has not been confirmed.
+            Trash Pandas from another. Only clubs GameChanger knows are offered, and only at this
+            season&apos;s age level or the one below it — a 10U season is played by 10U clubs and
+            the 9U clubs that play up. A row marked <strong>Guess</strong> has not been confirmed.
           </p>
 
           <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500">
@@ -176,7 +185,7 @@ function ScoutLinkPanelInner({
               checked={wide}
               onChange={(event) => setWide(event.target.checked)}
             />
-            Search every GameChanger-linked club in Team Rankings, not just the ones this
+            Search every GameChanger club at this age level in Team Rankings, not just the ones this
             season&apos;s pages hold
           </label>
 
