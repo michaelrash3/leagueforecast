@@ -75,7 +75,7 @@ import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./l
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
-  impactOfFinal,
+  finalToggled,
   nameFrom,
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
@@ -1543,15 +1543,15 @@ export default function App() {
   });
 
   const toggleFinal = (gameId: string) => {
-    setLogs((prev) => {
-      const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
-      const isMarkingFinal = !current.isFinal;
-      const nextLogs = { ...prev, [gameId]: { ...current, isFinal: !current.isFinal } };
-      setLastImpact(
-        isMarkingFinal ? impactOfFinal(gameId, current, nextLogs, recapPool, nameOf) : null
-      );
-      return nextLogs;
-    });
+    const { nextLogs, impact } = finalToggled(
+      gameId,
+      logs,
+      settings.defaultGameInnings,
+      recapPool,
+      nameOf
+    );
+    setLogs(nextLogs);
+    setLastImpact(impact);
   };
 
   const updateLog = useCallback(

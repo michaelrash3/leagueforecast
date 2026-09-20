@@ -292,3 +292,34 @@ export const impactOfFinal = (
     projectionExplanations,
   };
 };
+
+/**
+ * Marking a game final, or un-marking it: the logs as they become, and the recap that goes with.
+ *
+ * Both answers come from one call because they are one decision, and because the caller is a
+ * React event handler that must not make this decision inside a state updater. It used to: the
+ * recap was computed and `setLastImpact` called from inside `setLogs`'s updater, which React is
+ * entitled to run more than once and does run twice under `StrictMode`. That is a side effect in
+ * a function that is required to be pure, and it meant two full rank snapshots and two
+ * projections per final in development. Production was unaffected — `StrictMode` is inert in a
+ * production build — so this is correctness and dev cost rather than a bug anybody saw.
+ *
+ * `logs` is the whole set as the handler sees it, not a `prev` from an updater. That is safe
+ * because one press toggles one game and nothing calls this in a loop; if that ever changes, the
+ * updater form has to come back and the recap has to move to an effect.
+ */
+export const finalToggled = (
+  gameId: string,
+  logs: Record<string, GameLog>,
+  defaultGameInnings: number,
+  pool: RecapPool,
+  nameOf: NameOf
+): { nextLogs: Record<string, GameLog>; impact: LastImpact | null } => {
+  const current = logs[gameId] || blankLog(String(defaultGameInnings));
+  const isMarkingFinal = !current.isFinal;
+  const nextLogs = { ...logs, [gameId]: { ...current, isFinal: !current.isFinal } };
+  return {
+    nextLogs,
+    impact: isMarkingFinal ? impactOfFinal(gameId, current, nextLogs, pool, nameOf) : null,
+  };
+};
