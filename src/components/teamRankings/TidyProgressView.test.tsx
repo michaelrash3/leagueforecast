@@ -121,7 +121,9 @@ describe("the step that is running right now", () => {
   it("says how many steps are behind it, which is the thing that advances", () => {
     render(<TidyProgressView watch={midway(pass(1, 416), step(2, "named", 0, false))} running />);
 
-    expect(screen.getByText(/9 of 18 steps/)).toBeInTheDocument();
+    // One whole pass behind it, of the two the table is showing.
+    const done = TIDY_STEPS.length;
+    expect(screen.getByText(new RegExp(`${done} of ${done * 2} steps`))).toBeInTheDocument();
   });
 
   it("marks nothing as running once the run is over", () => {

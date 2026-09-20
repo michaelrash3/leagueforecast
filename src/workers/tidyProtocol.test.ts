@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyTidied, createTidyHandler, type WorkerResponse } from "./tidyProtocol";
 import { packPool } from "./tidyProtocol";
-import type { GcImportState } from "../lib/gameChangerImport";
+import { TIDY_STEPS, type GcImportState } from "../lib/gameChangerImport";
 
 /**
  * One club's schedule names the opponent; the other posted the same game against a stand-in with
@@ -118,7 +118,7 @@ describe("what the tidy says while it runs", () => {
      * Each step reports twice — once going in, once coming out — because a step is where the time
      * goes, and a run reported only on the way out shows nothing moving while a slow one runs.
      */
-    expect(steps.length % 18).toBe(0);
+    expect(steps.length % (TIDY_STEPS.length * 2)).toBe(0);
     expect(steps.slice(0, 4).map((r) => [r.step.step, r.step.done])).toEqual([
       ["notBaseball", false],
       ["notBaseball", true],
@@ -132,6 +132,7 @@ describe("what the tidy says while it runs", () => {
       "pruned",
       "named",
       "reclaimed",
+      "resettled",
       "refiled",
       "folded",
       "paired",
@@ -172,7 +173,7 @@ describe("what the tidy says while it runs", () => {
     const steps = posted.flatMap((r) => (r.kind === "tidy-progress" ? [r] : []));
     const lastPass = Math.max(...steps.map((r) => r.step.pass));
     const lastPassSteps = steps.filter((r) => r.step.pass === lastPass && r.step.done);
-    expect(lastPassSteps).toHaveLength(9);
+    expect(lastPassSteps).toHaveLength(TIDY_STEPS.length);
     expect(lastPassSteps.reduce((sum, r) => sum + r.step.found, 0)).toBe(0);
   });
 
