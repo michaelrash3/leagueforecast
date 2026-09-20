@@ -8,6 +8,7 @@ import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { PoolHealthCard } from "./PoolHealthCard";
+import type { UnrealClub } from "../../lib/unrealClubs";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import { ResetRankingsCard } from "./ResetRankingsCard";
@@ -35,6 +36,8 @@ type SetupSectionProps = {
     onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
     /** Throws these rows out and remembers them, so a re-pull does not file them again. */
     onDropGames: (ids: readonly string[]) => Promise<boolean>;
+    /** Throws a club out: the team, its rows, and its GameChanger ids. */
+    onDropClub: (club: UnrealClub) => Promise<boolean>;
   };
   /** The years that could be frozen, and the one the app is showing as current. */
   archive: {
@@ -170,6 +173,7 @@ export function SetupSection({
         onTidied={poolHealth.onTidied}
         onMergeTeams={poolHealth.onMergeTeams}
         onDropGames={poolHealth.onDropGames}
+        onDropClub={poolHealth.onDropClub}
       />
 
       <ModelCheckCard

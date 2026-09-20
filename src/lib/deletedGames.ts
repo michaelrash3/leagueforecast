@@ -61,3 +61,38 @@ export const isDatedAhead = (
   game.teamBScore !== undefined &&
   game.date !== undefined &&
   game.date > today;
+
+/**
+ * The clubs the user has thrown out, by GameChanger team id.
+ *
+ * A row deleted is a row; a club deleted is every row it will ever file. Some of what a
+ * nationwide pull brings back is not a club at all — one in this pool is called "Test team" and
+ * holds 68 of 68 games on days that have not happened, another carries a 106-13 record built
+ * entirely on them, with 20-0 and 17-0 against opponents that appear nowhere else. Deleting their
+ * games one at a time is endless, because the schedule that invented them is still in the pull
+ * list and files a fresh set on the next run.
+ *
+ * So the club goes, and its GameChanger ids are remembered. `importOne` refuses a schedule whose
+ * id is here before it reads a game off it, which is the only place that can stop the whole thing
+ * coming back. A club is remembered by the ids it was pulled under, because that is what a pull
+ * asks for — a name is not an identity and the next pull would not match on one anyway.
+ */
+export type DeletedClubs = ReadonlySet<string>;
+
+export const coerceDeletedClubs = (raw: unknown): Set<string> => coerceDeletedGames(raw);
+
+export const deletedClubsList = (clubs: DeletedClubs): string[] => [...clubs].sort();
+
+export const isDeletedClub = (clubs: DeletedClubs, gcTeamId: string): boolean =>
+  clubs.has(gcTeamId);
+
+/** The list with these GameChanger ids marked as thrown out. */
+export const forgetClubs = (clubs: DeletedClubs, gcTeamIds: readonly string[]): Set<string> =>
+  new Set([...clubs, ...gcTeamIds]);
+
+/** The list with these ids allowed back, so a pull may file them again. */
+export const restoreClubs = (clubs: DeletedClubs, gcTeamIds: readonly string[]): Set<string> => {
+  const next = new Set(clubs);
+  gcTeamIds.forEach((id) => next.delete(id));
+  return next;
+};
