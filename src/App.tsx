@@ -108,6 +108,7 @@ import {
   rankTeams,
   simulationSeed,
 } from "./lib/sim";
+import { buildTrendStates } from "./lib/trend";
 import {
   createSeason,
   deleteSeason,
@@ -650,29 +651,11 @@ export default function App() {
         settings,
       };
     }
-    const states = completedGames.slice(-TREND_STATES);
-    // Build states from index=1 (drops the misleading empty-logs leading zero).
-    const buildLogsUntil = (limitIndex: number) => {
-      const allowed = new Set(states.slice(0, limitIndex).map((g) => g.id));
-      const stateLogs: Record<string, GameLog> = {};
-      matchups.forEach((game) => {
-        const log = deferredLogs[game.id];
-        if (allowed.has(game.id) && log) stateLogs[game.id] = log;
-      });
-      return stateLogs;
-    };
-    const built: { teams: Team[]; remaining: Matchup[]; seedText: string }[] = [];
-    for (let index = 1; index <= states.length; index += 1) {
-      const stateLogs = buildLogsUntil(index);
-      const stateTeams = calculateTeams(teams, matchups, stateLogs, settings);
-      const stateRemaining = matchups.filter((g) => !isFinal(stateLogs[g.id]));
-      const seedText = simulationSeed(
-        matchups,
-        stateLogs,
-        `trend-${index}-${goldCutoff}-${settings.modelAggression}`
-      );
-      built.push({ teams: stateTeams, remaining: stateRemaining, seedText });
-    }
+    const built = buildTrendStates(teams, matchups, deferredLogs, completedGames, {
+      states: TREND_STATES,
+      goldCutoff,
+      settings,
+    });
     return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
   }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings]);
   const trendMap = useSimulationTrend(trendInput);
