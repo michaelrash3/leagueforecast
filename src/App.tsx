@@ -17,6 +17,7 @@ import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/ranki
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
+import { useSeasons } from "./hooks/useSeasons";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
@@ -110,24 +111,16 @@ import {
 } from "./lib/sim";
 import { buildTrendStates } from "./lib/trend";
 import {
-  createSeason,
-  deleteSeason,
-  duplicateSeason,
-  getActiveSeasonId,
-  listSeasons,
   loadBracketLogs,
   loadLogs,
   loadMatchups,
   loadSettings,
   loadTeams,
-  renameSeason,
   saveBracketLogs,
   saveLogs,
   saveMatchups,
   saveSettings,
   saveTeams,
-  setActiveSeason,
-  type SeasonMeta,
 } from "./lib/storage";
 import {
   DEFAULT_GOLD_CUTOFF,
@@ -289,8 +282,6 @@ export default function App() {
   const deferredLogs = useDeferredValue(logs);
   const [bracketLogs, setBracketLogs] = useState<Record<string, GameLog>>(() => loadBracketLogs());
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
-  const [seasons, setSeasons] = useState<SeasonMeta[]>(() => listSeasons());
-  const [activeSeasonId, setActiveSeasonIdState] = useState<string>(() => getActiveSeasonId());
 
   const [newDate, setNewDate] = useState("");
   const [newAway, setNewAway] = useState("");
@@ -541,6 +532,27 @@ export default function App() {
     },
     [setTeams]
   );
+
+  // ---------- Seasons ----------
+
+  /**
+   * Re-reads everything the active season holds. Its body is written further down, where the undo
+   * snapshot it clears exists; this is the stable handle `useSeasons` is given.
+   */
+  const loadActiveSeasonRef = useRef<() => void>(() => {});
+  const loadActiveSeason = useCallback(() => loadActiveSeasonRef.current(), []);
+
+  /**
+   * Which seasons exist and which one is being looked at. Above the bridge because the bridge is
+   * scoped to the active season; what a season *holds* is re-read by `loadActiveSeason` below.
+   */
+  const seasons = useSeasons({
+    seasonLabel: settings.seasonLabel,
+    loadActiveSeason,
+    showToast,
+    requestConfirmation,
+  });
+  const activeSeasonId = seasons.activeId;
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
@@ -1508,91 +1520,25 @@ export default function App() {
     showToast,
   });
 
-  // ---------- Seasons ----------
-
-  // Pull the active season's stored data into React state and clear transient/undo UI.
-  const reloadActiveSeason = useCallback(() => {
-    setTeams(loadTeams());
-    setMatchups(loadMatchups());
-    setLogs(loadLogs());
-    setBracketLogs(loadBracketLogs());
-    setSettings(loadSettings());
-    setSeasons(listSeasons());
-    setActiveSeasonIdState(getActiveSeasonId());
-    setSelectedTeamId(null);
-    setCompareTeamId(null);
-    setLastImpact(null);
-    forgetUndo();
-  }, [forgetUndo]);
-
-  const switchSeason = useCallback(
-    (id: string) => {
-      if (id === getActiveSeasonId()) return;
-      if (!setActiveSeason(id)) return;
-      reloadActiveSeason();
-      const name = listSeasons().find((season) => season.id === id)?.name ?? "season";
-      showToast(`Switched to ${name}.`, { tone: "info" });
-    },
-    [reloadActiveSeason, showToast]
-  );
-
-  const handleCreateSeason = useCallback(
-    (name: string) => {
-      const meta = createSeason(name);
-      setSeasons(listSeasons());
-      showToast(`Created ${meta.name}. Switch to it when ready.`, { tone: "success" });
-    },
-    [showToast]
-  );
-
-  const handleDuplicateSeason = useCallback(
-    (id: string, name: string) => {
-      const meta = duplicateSeason(id, name);
-      if (!meta) return;
-      setSeasons(listSeasons());
-      showToast(`Duplicated into ${meta.name}.`, { tone: "success" });
-    },
-    [showToast]
-  );
-
-  // Keep the active season's index name in sync with its editable season label, so the header
-  // switcher and season manager always show the same name the user typed under "Season label".
+  /*
+   * Bound here and filled below, because these three run in a circle: the season index is needed
+   * by the Team Rankings bridge, the bridge is needed by the undo snapshot, and the undo snapshot
+   * is needed by the reload the index drives. Something has to be late, and this is the smallest
+   * of the three — one function, called only from a handler, never during a render.
+   */
   useEffect(() => {
-    const label = settings.seasonLabel.trim();
-    if (!label) return;
-    const current = seasons.find((season) => season.id === activeSeasonId);
-    if (current && current.name !== label && renameSeason(activeSeasonId, label)) {
-      // Reflecting localStorage back into React after writing to it. The season index is the
-      // source of truth and is not React state, so re-reading it here is the sync, not a cascade.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSeasons(listSeasons());
-    }
-  }, [settings.seasonLabel, activeSeasonId, seasons]);
-
-  const handleDeleteSeason = useCallback(
-    async (id: string) => {
-      const target = listSeasons().find((season) => season.id === id);
-      if (!target) return;
-      const confirmed = await requestConfirmation({
-        title: `Delete ${target.name}?`,
-        message:
-          "This permanently removes that season's teams, games, scores, and settings from this browser. It cannot be undone.",
-        confirmLabel: "Delete season",
-      });
-      if (!confirmed) return;
-      const wasActive = getActiveSeasonId() === id;
-      if (!deleteSeason(id)) {
-        showToast("Cannot delete the only season.", { tone: "error" });
-        return;
-      }
-      if (wasActive) reloadActiveSeason();
-      else setSeasons(listSeasons());
-      showToast(`Deleted ${target.name}.`, { tone: "success" });
-    },
-    [reloadActiveSeason, requestConfirmation, showToast]
-  );
-
-  // ---------- Mutations ----------
+    loadActiveSeasonRef.current = () => {
+      setTeams(loadTeams());
+      setMatchups(loadMatchups());
+      setLogs(loadLogs());
+      setBracketLogs(loadBracketLogs());
+      setSettings(loadSettings());
+      setSelectedTeamId(null);
+      setCompareTeamId(null);
+      setLastImpact(null);
+      forgetUndo();
+    };
+  });
 
   /**
    * What an import is about to do to the Team Rankings pool, for the confirmation dialog. Worth
@@ -1755,7 +1701,7 @@ This will replace the current season data and save an undo snapshot.`,
    */
   const afterFullRestore = useCallback(
     (backup: FullBackup) => {
-      reloadActiveSeason();
+      seasons.reload();
       closeTeamData();
       noteScoutChange();
       if (backup.preferences.theme) setTheme(backup.preferences.theme);
@@ -1763,12 +1709,12 @@ This will replace the current season data and save an undo snapshot.`,
       setLastImpact(null);
       setActiveView("standings");
     },
-    [reloadActiveSeason, closeTeamData, noteScoutChange, setTheme, setAppMode]
+    [seasons, closeTeamData, noteScoutChange, setTheme, setAppMode]
   );
 
   const { exportBackup, restoreFullBackup } = useFullBackup({
     liveSeason: liveSeasonData,
-    seasonCount: seasons.length,
+    seasonCount: seasons.all.length,
     requestConfirmation,
     showToast,
     onRestored: afterFullRestore,
@@ -2935,12 +2881,12 @@ League Standings — your seasons, schedules and scores — is not touched.`,
                     <select
                       id="season-switcher"
                       value={activeSeasonId}
-                      onChange={(event) => switchSeason(event.target.value)}
+                      onChange={(event) => seasons.switchTo(event.target.value)}
                       className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
                       aria-label="Active season"
                       title="Switch season"
                     >
-                      {seasons.map((season) => (
+                      {seasons.all.map((season) => (
                         <option key={season.id} value={season.id}>
                           {season.name}
                         </option>
@@ -3047,7 +2993,7 @@ League Standings — your seasons, schedules and scores — is not touched.`,
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <TeamRankingsView
-                seasons={seasons}
+                seasons={seasons.all}
                 showToast={showToast}
                 requestConfirmation={requestConfirmation}
                 onDataChange={noteScoutChange}
@@ -3198,12 +3144,12 @@ League Standings — your seasons, schedules and scores — is not touched.`,
             ) : activeView === "settings" ? (
               <div className="space-y-6">
                 <SeasonManager
-                  seasons={seasons}
+                  seasons={seasons.all}
                   activeSeasonId={activeSeasonId}
-                  onSwitch={switchSeason}
-                  onCreate={handleCreateSeason}
-                  onDuplicate={handleDuplicateSeason}
-                  onDelete={handleDeleteSeason}
+                  onSwitch={seasons.switchTo}
+                  onCreate={seasons.create}
+                  onDuplicate={seasons.duplicate}
+                  onDelete={(id) => void seasons.remove(id)}
                 />
                 {/* Above Settings because it answers the question the "Team Rankings results"
                     setting down there raises: which club is which. */}

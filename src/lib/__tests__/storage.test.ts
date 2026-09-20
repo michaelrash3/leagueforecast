@@ -181,6 +181,10 @@ describe("multi-season storage", () => {
 
     expect(renameSeason(first.id, "Renamed")).toBe(true);
     expect(listSeasons()[0]!.name).toBe("Renamed");
+    // A cleared box is a box being edited, not a request to call the season "". The label in
+    // Settings is typed into, and every keystroke reaches here.
+    expect(renameSeason(first.id, "   ")).toBe(false);
+    expect(listSeasons()[0]!.name).toBe("Renamed");
     expect(deleteSeason(first.id)).toBe(false);
 
     const second = createSeason("Second");
