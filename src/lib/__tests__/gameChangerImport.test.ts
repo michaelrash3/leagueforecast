@@ -1978,6 +1978,41 @@ describe("settled pairings", () => {
     ]);
   });
 
+  it("rewrites a large settled batch once, including every endpoint and chained survivor", () => {
+    const where = { city: "Batchville", state: "TX" };
+    const teams = Array.from({ length: 240 }, (_, n) => [
+      squad(`f${n}`, `Club ${n}`, "fall", 2026, where),
+      squad(`s${n}`, `Club ${n}`, "spring", 2027, where),
+    ]).flat();
+    teams.push(
+      squad("chain-f", "Chain Club", "fall", 2026, where),
+      squad("chain-w", "Chain Club", "winter", 2026, where),
+      squad("chain-s", "Chain Club", "spring", 2027, where)
+    );
+    const games = Array.from({ length: 240 }, (_, n) =>
+      played(`g${n}`, `f${n}`, `f${(n + 1) % 240}`, "2026-09-05", 5, 4, `gc-f${n}`)
+    );
+    games.push(played("chain-game", "chain-f", "f0", "2026-09-06", 3, 2, "gc-chain-f"));
+
+    const beats: Array<[number, number, number]> = [];
+    const out = pairSettledSquads({ ...state(teams), games }, (...beat) => beats.push(beat));
+
+    expect(out.paired).toBe(242);
+    expect(beats.length).toBeGreaterThan(1);
+    // The chain has one redundant direct candidate after its two edges have already converged.
+    expect(beats[beats.length - 1]?.[0]).toBe(243);
+    expect(
+      out.state.games.every(
+        (game) => !game.teamAId.startsWith("f") && !game.teamBId.startsWith("f")
+      )
+    ).toBe(true);
+    expect(out.state.games.find((game) => game.id === "chain-game")).toMatchObject({
+      teamAId: "chain-s",
+      teamBId: "s0",
+    });
+    expect(out.state.teams.find((team) => team.id === "chain-s")?.gcTeams).toHaveLength(3);
+  });
+
   it("does not pair two clubs of one name in different towns", () => {
     const teams = [
       squad("f", "Yankees", "fall", 2026, { city: "Dayton", state: "OH" }),

@@ -187,6 +187,26 @@ describe("what the tidy says while it runs", () => {
     expect(posted[posted.length - 1]).toBe(answers[0]);
   });
 
+  it("finishes Pair, begins Collapse, and then delivers the tidy response", () => {
+    const { posted, handle } = harness();
+    handle({ kind: "tidy", id: 9, state: packPool(withStandIn()) });
+
+    const pairDone = posted.findIndex(
+      (response) =>
+        response.kind === "tidy-progress" && response.step.step === "paired" && response.step.done
+    );
+    const collapseStart = posted.findIndex(
+      (response) =>
+        response.kind === "tidy-progress" &&
+        response.step.step === "collapsed" &&
+        !response.step.done
+    );
+    const answer = posted.findIndex((response) => response.kind === "tidy" && response.id === 9);
+    expect(pairDone).toBeGreaterThanOrEqual(0);
+    expect(collapseStart).toBeGreaterThan(pairDone);
+    expect(answer).toBeGreaterThan(collapseStart);
+  });
+
   it("says nothing at all while inspecting", () => {
     // Inspect does not tidy; a progress message from it would draw a run that is not happening.
     const { posted, handle } = harness();

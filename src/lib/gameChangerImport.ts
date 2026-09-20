@@ -41,7 +41,6 @@ import {
   inSquadYear,
   matchExistingGame,
   MAX_AGE_LEVEL,
-  mergeScoutTeams,
   squadNameKey,
   normalizeState,
   squadYearForGcSeason,
@@ -1880,30 +1879,85 @@ export const isSettledPairing = (pairing: GcSeasonPairing): boolean =>
  * the pairs come in.
  */
 export const pairSettledSquads = (
-  state: GcImportState
+  state: GcImportState,
+  progress?: (processed: number, total: number, paired: number) => void
 ): { state: GcImportState; paired: number } => {
   const settled = proposeSeasonPairings(state.teams, state.games).filter(isSettledPairing);
   if (settled.length === 0) return { state, paired: 0 };
 
-  let teams = state.teams;
-  let games = state.games;
-  let paired = 0;
+  /*
+   * Resolve the graph before touching the pool. Calling `mergeScoutTeams` here used to walk every
+   * team and every game once per edge (and collapse games along the way). A nationwide batch has
+   * thousands of edges. The map below makes the decision once, then each array is walked once.
+   */
+  const outgoing = new Map<string, string[]>();
+  settled.forEach((pairing, index) => {
+    push(outgoing, pairing.fromTeamId, pairing.toTeamId);
+    // Frequent enough to prove a large pass is alive without flooding the worker port.
+    if (progress && ((index + 1) % 100 === 0 || index + 1 === settled.length))
+      progress(index + 1, settled.length, outgoing.size);
+  });
+
+  /*
+   * A season can have both a direct Fall -> Spring edge and Fall -> Winter -> Spring edges. Follow
+   * any branch to its sink; settled branches converge on the same latest squad. Resolving after
+   * collecting them makes the answer independent of proposal order.
+   */
   const movedTo = new Map<string, string>();
-  const survivorOf = (teamId: string): string => {
-    let current = teamId;
-    while (movedTo.has(current)) current = movedTo.get(current)!;
-    return current;
+  const survivorOf = (teamId: string, seen = new Set<string>()): string => {
+    const known = movedTo.get(teamId);
+    if (known) return known;
+    if (seen.has(teamId)) return teamId;
+    const next = outgoing.get(teamId)?.[0];
+    if (!next) return teamId;
+    seen.add(teamId);
+    const survivor = survivorOf(next, seen);
+    movedTo.set(teamId, survivor);
+    return survivor;
   };
-  settled.forEach((pairing) => {
-    const from = survivorOf(pairing.fromTeamId);
-    const into = survivorOf(pairing.toTeamId);
-    if (from === into) return;
-    const result = mergeScoutTeams(from, into, teams, games, state.ageGroups);
-    if (result.teams === teams) return;
-    teams = result.teams;
-    games = result.games;
-    movedTo.set(from, into);
-    paired += 1;
+  outgoing.forEach((_into, from) => survivorOf(from));
+  const paired = movedTo.size;
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const removed = new Set(movedTo.keys());
+  const members = new Map<string, ScoutTeam[]>();
+  movedTo.forEach((into, from) => {
+    const team = byId.get(from);
+    if (team) push(members, into, team);
+  });
+  const teams = state.teams.flatMap((team) => {
+    if (removed.has(team.id)) return [];
+    const folded = members.get(team.id);
+    if (!folded?.length) return [team];
+    const links = [...(team.gcTeams ?? [])];
+    const linked = new Set(links.map((link) => link.teamId));
+    folded.forEach((old) =>
+      (old.gcTeams ?? []).forEach((link) => {
+        if (!linked.has(link.teamId)) {
+          linked.add(link.teamId);
+          links.push(link);
+        }
+      })
+    );
+    const fallback = (field: "name" | "state" | "city") =>
+      folded.map((old) => old[field]).find(Boolean);
+    return [
+      {
+        ...team,
+        ...(!team.name.trim() && fallback("name") ? { name: fallback("name") } : {}),
+        ...(!team.state && fallback("state") ? { state: fallback("state") } : {}),
+        ...(!team.city && fallback("city") ? { city: fallback("city") } : {}),
+        ...(team.isMine || folded.some((old) => old.isMine) ? { isMine: true } : {}),
+        ...(links.length ? { gcTeams: links } : {}),
+      },
+    ];
+  });
+  const games = state.games.flatMap((game) => {
+    const teamAId = movedTo.get(game.teamAId) ?? game.teamAId;
+    const teamBId = movedTo.get(game.teamBId) ?? game.teamBId;
+    if (teamAId === teamBId) return [];
+    return teamAId === game.teamAId && teamBId === game.teamBId
+      ? [game]
+      : [{ ...game, teamAId, teamBId }];
   });
   return { state: { ...state, teams, games }, paired };
 };
@@ -2589,6 +2643,9 @@ export type TidyStep = {
   games: number;
   /** False on the way in, true on the way out. */
   done: boolean;
+  /** Candidate progress for a long-running step; absent for ordinary start/finish notices. */
+  processed?: number;
+  total?: number;
 };
 
 /** Told after every step, so a caller can show the work rather than a spinner. */
@@ -2643,7 +2700,23 @@ const tidyOnce = (
   const squads = mergeSameSquadIds(placed.state);
   finished("folded", squads.merged, squads.state);
   starting("paired", squads.state);
-  const seasons = pairSettledSquads(squads.state);
+  const seasons = pairSettledSquads(squads.state, (processed, total, found) => {
+    if (!watch) return;
+    try {
+      watch({
+        pass,
+        step: "paired",
+        found,
+        teams: squads.state.teams.length,
+        games: squads.state.games.length,
+        done: false,
+        processed,
+        total,
+      });
+    } catch {
+      /* never at the tidy's expense */
+    }
+  });
   finished("paired", seasons.paired, seasons.state);
   starting("collapsed", seasons.state);
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);

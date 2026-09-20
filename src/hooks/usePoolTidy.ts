@@ -94,7 +94,7 @@ export function usePoolTidy() {
       inline: () => T,
       { workerOnly = false }: TidyReach = {},
       /** Told about every message that is not the answer, which is how progress arrives. */
-      onNote?: (response: WorkerResponse) => void
+      onNote?: (response: WorkerResponse, id: number) => void
     ): Promise<T | null> => {
       if (!workerRef.current)
         workerRef.current = createWorker(
@@ -123,7 +123,7 @@ export function usePoolTidy() {
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
           const answer = matches(event.data, id);
           if (answer === null) {
-            onNote?.(event.data);
+            onNote?.(event.data, id);
             return;
           }
           done(answer);
@@ -198,8 +198,10 @@ export function usePoolTidy() {
             return { state: tidied, tidy: counts };
           },
           reach,
-          (response) => {
-            if (response.kind !== "tidy-progress") return;
+          (response, id) => {
+            // A remount can briefly leave an older worker reply in flight. Only this request may
+            // drive the shared progress display.
+            if (response.kind !== "tidy-progress" || response.id !== id) return;
             noteTidyStep(response.step);
           }
         );
