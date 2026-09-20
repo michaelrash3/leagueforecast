@@ -174,6 +174,60 @@ export const whatIfDecline = (
   return already.has(opponentId) ? null : "unrated-opponent";
 };
 
+/**
+ * The same answer for a whole schedule at once, in one pass over the pool.
+ *
+ * The table asks this of every fixture it lists, and the selection is the expensive part —
+ * measured at 11ms over 16,000 clubs and 96,000 games. Asking per fixture would pay that once a
+ * row; asking once with every hypothetical appended pays it once a board. The copies cannot
+ * affect one another, because the selection judges each game on its own.
+ */
+export const whatIfDeclines = (
+  fixtures: readonly ScoutGame[],
+  forTeamId: string,
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  segment: SeasonSegment | undefined,
+  today: string
+): Map<string, WhatIfDeclined | null> => {
+  const out = new Map<string, WhatIfDeclined | null>();
+  const asking: ScoutGame[] = [];
+  fixtures.forEach((fixture) => {
+    const onSight = refuseOnSight(fixture, ageGroups, segment);
+    out.set(fixture.id, onSight);
+    if (!onSight) asking.push(scored(fixture, forTeamId, RATING_CAP, today));
+  });
+  if (asking.length === 0) return out;
+
+  const rated = scoutRatingGames(
+    ageGroupId,
+    teams,
+    [...games, ...asking],
+    ageGroups,
+    segment,
+    today
+  );
+  const hypothetical = new Set(asking.map((game) => game.id));
+  const admitted = new Set(
+    rated.filter(({ game }) => hypothetical.has(game.id)).map(({ game }) => game.id)
+  );
+  // The pool as it stands, so no hypothetical can vouch for an opponent — including another row's.
+  const already = ratedClubIds(rated.filter(({ game }) => !hypothetical.has(game.id)));
+
+  fixtures.forEach((fixture) => {
+    if (out.get(fixture.id) !== null) return;
+    if (!admitted.has(fixture.id)) {
+      out.set(fixture.id, "not-counted");
+      return;
+    }
+    const opponentId = fixture.teamAId === forTeamId ? fixture.teamBId : fixture.teamAId;
+    out.set(fixture.id, already.has(opponentId) ? null : "unrated-opponent");
+  });
+  return out;
+};
+
 /** The rated list with the hypothetical's scores swapped for another margin. */
 const atMargin = (
   rated: readonly RatedScoutGame[],
