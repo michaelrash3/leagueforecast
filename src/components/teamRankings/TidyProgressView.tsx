@@ -76,7 +76,13 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">
           {running
-            ? `Pass ${last.pass} · ${STEP_LABEL[last.step].short.toLowerCase()}${now ? "…" : ""}`
+            ? `Pass ${last.pass} · ${STEP_LABEL[last.step].short.toLowerCase()}${
+                now?.total === undefined
+                  ? now
+                    ? "…"
+                    : ""
+                  : ` ${count(now.processed ?? 0)}/${count(now.total)}…`
+              }`
             : "What the tidy did"}
         </p>
         <p className="text-xs text-slate-500 tabular-nums">

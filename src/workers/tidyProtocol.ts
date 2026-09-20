@@ -58,8 +58,8 @@ export type TidyResponse = {
  * are cheap: nine small objects a pass, against a pool of two hundred thousand games crossing the
  * port once at each end.
  *
- * `ms` is stamped here rather than in `tidyPool`, which stays a pure function of a pool and has no
- * business reading a clock.
+ * A long step may send more than its start and finish: candidate progress in `step` is a cheap
+ * heartbeat. `ms` is stamped here rather than in `tidyPool`, which stays pure.
  */
 export type TidyProgressResponse = {
   kind: "tidy-progress";

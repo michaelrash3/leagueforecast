@@ -129,4 +129,11 @@ describe("the step that is running right now", () => {
 
     expect(screen.queryByLabelText(/running now/i)).not.toBeInTheDocument();
   });
+
+  it("shows candidate progress when a long pairing step sends a heartbeat", () => {
+    const heartbeat = { ...step(1, "paired", 100, false), processed: 100, total: 450 };
+    render(<TidyProgressView watch={midway([], heartbeat)} running />);
+
+    expect(screen.getByText(/Pass 1 · pair 100\/450…/i)).toBeInTheDocument();
+  });
 });
