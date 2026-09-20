@@ -522,6 +522,24 @@ stopping half way leaves it due. When today is already done there is a button to
 run it again anyway, for when something has changed that a day log cannot know
 about.
 
+The teams with no age are paced by that same principle, and used not to be. Each
+is asked at most once a week, and left alone only once it has had both its eight
+asks and eight real weeks since it was first found. The count on its own used to
+be the whole rule, and nothing in `ageUnknown.ts` read a calendar — so eight
+"passes" was however long eight presses of a button took. Driving the real
+`dueRefresh` and `updateAgeUnknown` over a calendar, a short list was abandoned on
+day 8, a list of 4,013 on day 15, and eight presses in one afternoon finished it on
+day 2, while the card said "left alone after 8 weeks". `AGELESS_PER_CATCH_UP` is now
+a ceiling on how much one run may hold in memory rather than a pacer, so the whole
+list is offered at once and a list longer than the ceiling has its overflow asked
+the next day rather than the next week.
+
+Only that team's own schedule can answer the question about it. `ageFromOpponentNames`
+reads the opponent names off the schedule just fetched, and neither the pool nor the
+index is on that path — so pulling other clubs never settles an age, however many of
+them name one. What changes the answer is the club editing its GameChanger page, or
+the team playing more games against opponents who do name an age.
+
 Nothing fires by itself — there is no server here, and a browser cannot run while
 it is closed — so the panel answers "what is due?" when the app is next opened.
 

@@ -69,7 +69,12 @@ import {
   type GcImportProblem,
 } from "../lib/gameChangerReport";
 import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
-import { describeAgeUnknown, updateAgeUnknown, type AgeUnknownList } from "../lib/ageUnknown";
+import {
+  AGE_UNKNOWN_MAX_TRIES,
+  describeAgeUnknown,
+  updateAgeUnknown,
+  type AgeUnknownList,
+} from "../lib/ageUnknown";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
@@ -463,10 +468,19 @@ export function GameChangerImportPanel({
     saveRefreshCadence(next);
   }, []);
 
-  const due = useMemo(
-    () => dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, { ageless, cadence }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]
-  );
+  /*
+   * One instant for all of it. The gate that decides what is due, the count in the button and the
+   * sentence under it all read a clock now, and three clocks a millisecond apart could disagree
+   * about whether a team was asked seven days ago — which is exactly the kind of thing nobody
+   * would ever reproduce.
+   */
+  const { due, agelessLine } = useMemo(() => {
+    const now = new Date();
+    return {
+      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, { ageless, cadence }),
+      agelessLine: describeAgeUnknown(ageless, now),
+    };
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -997,9 +1011,9 @@ export function GameChangerImportPanel({
 
       /*
        * Teams nobody could age go on the list; teams that were filed come off it. Done for every
-       * run, not just the catch-up one, because any run can answer the question: a team pulled for
-       * the first time today may have no age, and a 9U opponent pulled next week may be the third
-       * one whose name settles it.
+       * run, not just the catch-up one, because any run can answer the question for a team it
+       * fetched: the opponent names that settle an age are read off that team's own schedule, so
+       * whichever run happens to pull it is the run that can answer it.
        */
       const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
       setAgeless(nextAgeless);
@@ -1161,9 +1175,10 @@ export function GameChangerImportPanel({
    * The catch-up day's other job: ask again about the teams nobody could age.
    *
    * The same route they came in on, because that is the only thing that can answer the question —
-   * GameChanger may have filled its field in, the club may have renamed the squad, or enough of
-   * the team's opponents may have been pulled since that their names now settle it. Not a rota
-   * run, so nothing is marked refreshed when it finishes.
+   * GameChanger may have filled its field in, the club may have renamed the squad, or the team may
+   * have played more games against opponents who do name an age. Pulling other clubs cannot help:
+   * the names are read off this team's own schedule. Not a rota run, so nothing is marked
+   * refreshed when it finishes.
    */
   const runAgeless = () => {
     if (due.agelessIds.length === 0) return;
@@ -1524,19 +1539,39 @@ export function GameChangerImportPanel({
                 </p>
               </>
             )}
-            {due.agelessIds.length > 0 && (
+            {due.agelessTotal > 0 && (
               <>
-                <button type="button" onClick={runAgeless} className={`${button.primary} mt-3`}>
-                  Ask again about {due.agelessIds.length.toLocaleString()} team
-                  {due.agelessIds.length === 1 ? "" : "s"} with no age
-                </button>
-                <p className="mt-1 text-xs text-slate-500">
-                  {describeAgeUnknown(ageless)} They are on no page, so a refresh by age level never
-                  reaches them, and the fetch worked, so nothing retries them either. Asking again
-                  is the only thing that can answer it — GameChanger may have filled the field in
-                  since, the club may have renamed the squad, or enough of the team&apos;s opponents
-                  may have been pulled that their names now settle it. One that comes back with an
-                  age drops off this list and is refreshed with its level from then on.
+                {/*
+                  The button is omitted rather than disabled when nothing is due: `runAgeless`
+                  returns early on an empty list, so a button here would be one that does nothing
+                  when pressed.
+                */}
+                {due.agelessIds.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={runAgeless}
+                    aria-describedby="gc-ageless-why"
+                    className={`${button.primary} mt-3`}
+                  >
+                    Ask again about {due.agelessIds.length.toLocaleString()} team
+                    {due.agelessIds.length === 1 ? "" : "s"} with no age
+                  </button>
+                ) : (
+                  <p className="mt-3 text-sm font-bold text-slate-950 dark:text-white">
+                    All asked within the past week. They come round again as each one&apos;s week is
+                    up.
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-slate-500" id="gc-ageless-why">
+                  {agelessLine} They are on no page, so a refresh by age level never reaches them,
+                  and the fetch worked, so nothing retries them either. Asking again is the only
+                  thing that can answer it — GameChanger may have filled the field in since, the
+                  club may have renamed the squad, or the team may have played more games against
+                  opponents who do name an age. Pulling other clubs cannot help: the opponent names
+                  are read off this team&apos;s own schedule. One that comes back with an age drops
+                  off this list and is refreshed with its level from then on. Each is asked at most
+                  once a week, and left alone once it has had {AGE_UNKNOWN_MAX_TRIES} asks and{" "}
+                  {AGE_UNKNOWN_MAX_TRIES} weeks.
                 </p>
               </>
             )}

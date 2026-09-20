@@ -240,6 +240,35 @@ describe("the teams nobody could age", () => {
     expect(due.agelessIds).toEqual([]);
   });
 
+  /*
+   * The count on the card and the count in the button are two different questions, and conflating
+   * them is what made a reader ask why they could only search 2,000 of 4,013. The button offers
+   * what is due; the sentence names everyone still being asked about, on any day.
+   */
+  it("counts everyone still being asked about, not only today's due list", () => {
+    const due = dueRefresh(friday, {}, [], [], {
+      cadence: "rotation",
+      ageless: [
+        ageless("due", "2026-09-01T00:00:00.000Z"),
+        // Asked yesterday, so inside its week and not offered today — but still on the list.
+        ageless("asked-yesterday", "2026-09-17T00:00:00.000Z"),
+      ],
+    });
+    expect(due.agelessIds).toEqual(["due"]);
+    expect(due.agelessTotal).toBe(2);
+    expect(describeDue(due)).toMatch(/2 teams still waiting on an age/);
+  });
+
+  it("still counts them on a day when none are due", () => {
+    // The card has to be able to say "none today"; one that vanishes reads as though the teams had.
+    const due = dueRefresh(sunday, {}, [], [], {
+      cadence: "rotation",
+      ageless: [ageless("A", "2026-09-11T00:00:00.000Z")],
+    });
+    expect(due.agelessIds).toEqual([]);
+    expect(due.agelessTotal).toBe(1);
+  });
+
   it("says how many are waiting", () => {
     const due = dueRefresh(friday, {}, [], [], {
       cadence: "rotation",

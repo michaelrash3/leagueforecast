@@ -1,3 +1,4 @@
+import { daysSince } from "./date";
 import type { GcImportOutcome } from "./gameChangerImport";
 
 /**
@@ -12,9 +13,12 @@ import type { GcImportOutcome } from "./gameChangerImport";
  * So their ids are kept here instead, and they go back through the same route they came in on,
  * once a week, until somebody can say what age they are. That happens more often than it sounds:
  * GameChanger's own field gets filled in, a club renames a squad from "Warriors Spring 2027" to
- * "Warriors 10U", or enough of the team's opponents get pulled that their names settle it between
- * them. The moment one is filed it drops off this list and joins the ordinary weekly rotation for
- * its level.
+ * "Warriors 10U", or the team plays more games against opponents who do name an age. The moment
+ * one is filed it drops off this list and joins the ordinary weekly rotation for its level.
+ *
+ * Pulling other teams is not on that list, and used to be. It cannot help: `ageFromOpponentNames`
+ * reads the opponent names off the schedule just fetched for *this* team, and neither the pool nor
+ * the index is on that path. Only this team's own schedule can answer the question about it.
  *
  * Only "no age" is kept. A 6U team is below the youngest level this app ranks and always will be,
  * and asking about it every week for ever is a request that can never come good.
@@ -66,42 +70,86 @@ export const updateAgeUnknown = (
 };
 
 /**
- * Weekly passes a team gets before it is left alone.
+ * Passes a team gets before it is left alone.
  *
- * Only two things can change the answer between one week and the next. The team plays more games,
- * against opponents who do name an age — the opponents' names come off the team's own schedule, so
- * pulling other teams never helps. Or the club fills in GameChanger's age field, or renames the
- * squad.
+ * Only two things can change the answer. The team plays more games, against opponents who do name
+ * an age — the opponents' names come off the team's own schedule, so pulling other teams never
+ * helps. Or the club fills in GameChanger's age field, or renames the squad.
  *
- * Eight weeks covers a full fall season, and a team that has played two months without once facing
- * an opponent who names an age is in a league where nobody does. Those exist and they are the bulk
- * of this list: rec leagues whose teams are "Mears 1 - 2026", "Mirror Lake 2 2026", playing each
- * other all season. No number of passes settles them, so the honest thing is to stop, count them,
- * and say so — rather than ask a question for ever that can never come good.
+ * Eight covers a full fall season, and a team that has played two months without once facing an
+ * opponent who names an age is in a league where nobody does. Those exist and they are the bulk of
+ * this list: rec leagues whose teams are "Mears 1 - 2026", "Mirror Lake 2 2026", playing each other
+ * all season. No number of passes settles them, so the honest thing is to stop, count them, and say
+ * so — rather than ask a question for ever that can never come good.
  */
 export const AGE_UNKNOWN_MAX_TRIES = 8;
 
-/** Whether a team is still worth asking about. */
-export const stillWorthAsking = (entry: AgeUnknownTeam): boolean =>
-  entry.tries < AGE_UNKNOWN_MAX_TRIES;
+/**
+ * And the calendar that has to have passed as well.
+ *
+ * This number exists because the count above was, on its own, a lie. Nothing here used to read a
+ * clock, so eight *passes* was whatever eight presses of a button happened to take — and on the
+ * shipped daily cadence every day is a catch-up day. Driving the real `dueRefresh` and
+ * `updateAgeUnknown` over a calendar: a list shorter than the cap was abandoned on day 8, a list
+ * of 4,013 against the 2,000 cap on day 15, the same list against a 10,000 cap on day 8, and eight
+ * presses in one afternoon finished it on day 2. On the weekly rotation it went the other way and
+ * took 101 days, because the cap stranded the tail. The card meanwhile told the reader they had
+ * been "left alone after 8 weeks of nobody naming an age".
+ *
+ * The reasoning behind the eight was always about a season passing, not about how often somebody
+ * pressed a button, so the rule now says both: a team is left alone once it has had its eight asks
+ * AND eight real weeks have gone by since it was first found.
+ */
+export const AGE_UNKNOWN_GIVE_UP_DAYS = 56;
+
+/**
+ * The least time between two asks about the same team.
+ *
+ * A team is asked again because it might have played since, or because somebody might have edited
+ * its GameChanger page. Neither happens twice in an afternoon, so asking twice in one is a request
+ * that cannot come good — and, before this, one that cost the team two of its eight lives.
+ */
+export const AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS = 7;
+
+/**
+ * Whether a team is still worth asking about.
+ *
+ * A date that cannot be read is not evidence of age, so it falls back to the try budget alone —
+ * `coerceAgeUnknown` writes an empty string for a row that arrived without one.
+ */
+export const stillWorthAsking = (entry: AgeUnknownTeam, now: Date): boolean => {
+  if (entry.tries < AGE_UNKNOWN_MAX_TRIES) return true;
+  const age = daysSince(entry.firstSeen, now);
+  return age !== null && age < AGE_UNKNOWN_GIVE_UP_DAYS;
+};
 
 /**
  * The ids to ask about, stalest first, capped.
  *
  * Stalest first so a list longer than the cap still comes round rather than the same head of it
- * being asked every week while the tail is never touched again.
+ * being asked every run while the tail is never touched again. The week gate is what paces this
+ * now; the cap is only a ceiling on how much one run may hold at once.
  */
-export const ageUnknownDue = (list: AgeUnknownList, limit: number): string[] =>
+export const ageUnknownDue = (list: AgeUnknownList, limit: number, now: Date): string[] =>
   list
-    .filter(stillWorthAsking)
+    .filter((entry) => {
+      if (!stillWorthAsking(entry, now)) return false;
+      const since = daysSince(entry.lastTried, now);
+      // Never properly recorded, so it has not been asked within the week either.
+      return since === null || since >= AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS;
+    })
     .sort((a, b) => (a.lastTried < b.lastTried ? -1 : a.lastTried > b.lastTried ? 1 : 0))
     .slice(0, Math.max(0, limit))
     .map((entry) => entry.teamId);
 
+/** How many are still being asked about at all, whether or not any are due today. */
+export const ageUnknownAsking = (list: AgeUnknownList, now: Date): number =>
+  list.filter((entry) => stillWorthAsking(entry, now)).length;
+
 /** A line for the panel. */
-export const describeAgeUnknown = (list: AgeUnknownList): string => {
+export const describeAgeUnknown = (list: AgeUnknownList, now: Date): string => {
   if (list.length === 0) return "";
-  const asking = list.filter(stillWorthAsking).length;
+  const asking = ageUnknownAsking(list, now);
   const done = list.length - asking;
   return (
     `${asking.toLocaleString()} team${asking === 1 ? "" : "s"} still being asked about` +
