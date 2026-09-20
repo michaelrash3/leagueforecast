@@ -7,7 +7,7 @@
  * moved somewhere both can reach.
  */
 import React from "react";
-import { displayName, recordText, teamAbbr } from "../../lib/format";
+import { displayName, recordText, teamAbbr, winPct } from "../../lib/format";
 import type { LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { buildTeamDataHref } from "../../lib/teamLink";
 import type { LastImpact, TeamWithProjection } from "../../lib/types";
@@ -361,7 +361,7 @@ export function StandingsView({
                                 <span
                                   title={
                                     team.goldStatus === "Eliminated"
-                                      ? `${displayName(team.name)} can max out at ${team.maxPoints} standings points, but ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} already sit above that number.`
+                                      ? `${displayName(team.name)} can finish no higher than ${winPct(team.maxPct)}, and ${team.blockersAhead} team${team.blockersAhead === 1 ? "" : "s"} cannot finish below that however the rest of the season goes.`
                                       : team.goldStatus === "Clinched"
                                         ? `${displayName(team.name)} have mathematically secured a Top ${goldCutoff} spot even if they lose out.`
                                         : `${displayName(team.name)} are still mathematically live for the Top ${goldCutoff}.`

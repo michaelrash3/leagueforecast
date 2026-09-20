@@ -107,7 +107,6 @@ import {
   rankOptionsFromSettings,
   rankTeams,
   simulationSeed,
-  standingsPoints,
 } from "./lib/sim";
 import {
   createSeason,
@@ -179,6 +178,8 @@ type RankSnapshotEntry = Team & {
   goldStatus: "Clinched" | "In" | "Alive" | "Eliminated";
   maxPoints: number;
   blockersAhead: number;
+  maxPct: number;
+  minPct: number;
 };
 
 type ScoreboardPrediction = {
@@ -975,16 +976,12 @@ export default function App() {
       }
       if (currentSeed <= goldCutoff || projectedSeed <= goldCutoff) return "Bubble In";
       const cutoffRow = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)] ?? team;
-      if (
-        team.goldPct >= 20 ||
-        projectedSeed <= goldCutoff + 2 ||
-        team.maxPoints >= standingsPoints(cutoffRow, settings)
-      ) {
+      if (team.goldPct >= 20 || projectedSeed <= goldCutoff + 2 || team.maxPct >= cutoffRow.pct) {
         return "Bubble Out";
       }
       return "Long Shot";
     },
-    [goldCutoff, dashboardRows, settings]
+    [goldCutoff, dashboardRows]
   );
 
   const scheduleDifficultyForTeam = useCallback(
@@ -1230,16 +1227,14 @@ export default function App() {
       const currentSeed = team.rank ?? 99;
       const projectedSeed = team.projectedRank ?? 99;
       const cutoffRow = dashboardRows[Math.min(goldCutoff - 1, dashboardRows.length - 1)];
-      const cutoffPoints = cutoffRow ? standingsPoints(cutoffRow, settings) : 0;
-      const canStillReachCutLine = team.maxPoints >= cutoffPoints;
+      // The cut is decided on PCT, in the table and in the Monte Carlo both; points only ever go
+      // up, so reading the cut line off them said a club with twice the games was twice as close.
+      const canStillReachCutLine = team.maxPct >= (cutoffRow?.pct ?? 0);
 
       if (currentSeed <= goldCutoff) {
-        const currentPoints = standingsPoints(team, settings);
         const outsideThreats = dashboardRows.filter(
           (other) =>
-            other.id !== team.id &&
-            (other.rank ?? 99) > goldCutoff &&
-            other.maxPoints >= currentPoints
+            other.id !== team.id && (other.rank ?? 99) > goldCutoff && other.maxPct >= team.minPct
         ).length;
         const cushionSlots = Math.max(0, goldCutoff - currentSeed);
         const exposedToChasers = outsideThreats > cushionSlots;
@@ -1264,7 +1259,7 @@ export default function App() {
       if (canStillReachCutLine) return "Longshot";
       return "Longshot";
     },
-    [dashboardRows, goldCutoff, settings]
+    [dashboardRows, goldCutoff]
   );
 
   const statusClass = (team: TeamWithProjection) => {
