@@ -54,6 +54,8 @@ import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
 import { isDeletedClub, isDeletedGame, type DeletedClubs, type DeletedGames } from "./deletedGames";
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
+import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
+import { todayIsoDay } from "./date";
 
 /**
  * The lookups an import does, precomputed.
@@ -391,6 +393,13 @@ export type GcImportOutcome = {
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
   issue?: string;
+  /**
+   * What GameChanger said about a team nobody could age.
+   *
+   * Present only with `skip: "no-age"`. The team is filed nowhere, so this outcome is the only
+   * route out for anything a person would need to judge it by later.
+   */
+  noAgeEvidence?: AgelessEvidence;
 };
 
 /** A club that looks like the same club a season later, offered for the user to confirm. */
@@ -1296,6 +1305,14 @@ export type GcImportOptions = {
   droppedClubs?: DeletedClubs;
   /** Ids already known to be below the youngest level ranked here. */
   tooYoung?: TooYoungClubs;
+  /**
+   * The day "you cannot score a game early" is judged against, as an ISO day.
+   *
+   * Only read to describe a team nobody could age, which is why it is here rather than threaded
+   * through the fold: passing it means a test can say which day it is instead of depending on the
+   * afternoon it runs on.
+   */
+  today?: string;
 };
 
 const NOTHING_DELETED: DeletedGames = new Set<string>();
@@ -1387,9 +1404,26 @@ const importOne = (
   const resolved = resolveAgeGroup(profile, state);
   if (!resolved) {
     const why = skipReason(profile);
+    /*
+     * A team nobody could age is filed nowhere and leaves no trace in the pool, so this outcome is
+     * the only thing that ever escapes with what GameChanger said about it. Somebody has to look
+     * at these by hand eventually, and the schedule that is in hand right here — the opponent
+     * names, the dates, the scores, the roster count — is what they will need to tell a rec-league
+     * team from an invention. Computed only for "no age", because it is the only refusal anyone
+     * is ever asked to reconsider.
+     */
+    const evidence =
+      why.code === "no-age"
+        ? agelessEvidence(profile, schedule.games, options.today ?? todayIsoDay())
+        : undefined;
     return {
       state,
-      outcome: { ...base, skip: why.code, issue: why.message },
+      outcome: {
+        ...base,
+        skip: why.code,
+        issue: why.message,
+        ...(evidence ? { noAgeEvidence: evidence } : {}),
+      },
     };
   }
 
