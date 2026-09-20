@@ -424,6 +424,15 @@ const writeValue = (key: string, value: unknown): boolean => {
   // to send: the value is already shared and the notification comes free.
   if (!usingIdb) return safeSet(key, JSON.stringify(value));
   cache.set(key, value);
+  /*
+   * Deleted before it is set, so the queue is a log of writes in the order they were made rather
+   * than in the order each key was first seen. A Map keeps a key where it was first inserted, and
+   * the queue is drained one key at a time, each awaited on its own — so an index rewritten while
+   * an earlier copy of itself was still queued travelled at the earlier one's place, ahead of the
+   * shard the rewrite existed to name. A tab closed mid-drain then left an index naming a year
+   * with no key behind it, and that year reads empty on the next load.
+   */
+  pendingWrites.delete(key);
   pendingWrites.set(key, value);
   void flushWrites();
   // Announced on acceptance rather than after the flush. A tab told a moment early re-reads and
@@ -438,6 +447,8 @@ const forgetValue = (key: string): void => {
     return;
   }
   cache.set(key, null);
+  // Queued in write order, for the reason in `writeValue`.
+  pendingWrites.delete(key);
   pendingWrites.set(key, null);
   void flushWrites();
   broadcast.post(key);

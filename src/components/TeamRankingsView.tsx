@@ -1749,6 +1749,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
           allGames={allKnownGames}
           ageGroupId={selectedAgeGroupId}
           ageGroups={ageGroups}
+          // The half the board behind it is showing, so its record is the row's record.
+          {...(selectedSegment === undefined ? {} : { segment: selectedSegment })}
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}
           fromLeague={leagueGameTeamIds.has(openTeam.id)}

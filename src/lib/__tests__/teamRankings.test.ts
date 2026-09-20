@@ -57,6 +57,8 @@ import {
   rankingPoolGroupIds,
   squadYearForGcSeason,
   teamHomeAgeLevel,
+  countedInWindow,
+  gcAgeLevels,
   teamRecordInPool,
   teamsInRankingPool,
   unlinkGcTeam,
@@ -979,6 +981,140 @@ describe("telling two clubs of one name apart by who they played", () => {
     expect(scoutLinkCandidates("Trash Pandas", "nobody", groups, pool, games, fixtures)).toEqual(
       []
     );
+  });
+});
+
+/**
+ * Naming which club a league team is, from a list of thousands. Two rules decide what is even
+ * worth offering, and they are the two a person applies by hand: GameChanger has to know the club,
+ * and it has to be at this season's age or the one below it — a 10U season is played by 10U clubs
+ * and the 9U clubs that play up into it, and nothing else.
+ *
+ * What it looked like without the second: typing a name returned every club in the country called
+ * that, at every age from 8U to 18U, and three of them read "Cincy Stix Navy · Harrison, OH" with
+ * nothing on the row to choose between them.
+ */
+describe("which clubs are worth offering for a league team", () => {
+  const groups: AgeGroup[] = [
+    { id: "ag_10u_2027", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: ["spring2027"] },
+  ];
+  /** A club GameChanger knows, at a stated age. */
+  const at = (id: string, name: string, ageLevel: number): ScoutTeam => ({
+    ...team(id, name),
+    city: "Harrison",
+    state: "OH",
+    // Filed under its own level's page rather than this one's, as a pull leaves it, so the year
+    // comes from the GameChanger season the way it does on the real pool.
+    gcTeams: [
+      {
+        teamId: `gc-${id}`,
+        name: `${name} ${ageLevel}u`,
+        ageGroupId: `ag_${ageLevel}u_2027`,
+        ageLevel,
+        seasonYear: 2027,
+        season: "spring",
+      },
+    ],
+  });
+  const pool = [
+    at("S-9", "Stix Navy", 9),
+    at("S-10", "Stix Navy", 10),
+    at("S-11", "Stix Navy", 11),
+    at("S-18", "Stix Navy", 18),
+    team("S-OPP", "Reds"),
+  ];
+  const games = pool
+    .filter((club) => club.id !== "S-OPP")
+    .map((club, index) => game(club.id, "S-OPP", 5, index, "ag_10u_2027"));
+  const fixtures = [{ away: "Stix Navy", home: "Reds", date: "5/1" }];
+
+  const offered = (clubs: ScoutTeam[] = pool, rows = games) =>
+    scoutLinkCandidates("Stix Navy", "spring2027", groups, clubs, rows, fixtures)
+      .map((candidate) => candidate.scoutTeamId)
+      .sort();
+
+  it("offers this age and the one below it, and no other", () => {
+    // Every one of the four is on this page, because a page holds cross-age games. Being on it is
+    // not evidence of being the right age: the 11U played down here and the 18U is not this team.
+    expect(offered()).toEqual(["S-10", "S-9"]);
+  });
+
+  it("says the age on the row, so two clubs of one name in one town can be told apart", () => {
+    const found = scoutLinkCandidates("Stix Navy", "spring2027", groups, pool, games, fixtures);
+    expect(found.map((candidate) => candidate.ageLevel).sort((a, b) => a! - b!)).toEqual([9, 10]);
+  });
+
+  it("still offers a club whose age nobody has stated", () => {
+    // A fresh pull whose link carries no age and whose name does not spell one out. Dropping it
+    // would hide the very entry somebody opened the picker to choose.
+    const unknown: ScoutTeam = {
+      ...team("S-QUIET", "Stix Navy"),
+      gcTeams: [{ teamId: "gc-quiet", name: "Stix Navy", ageGroupId: "ag_unknown" }],
+    };
+    expect(
+      offered([...pool, unknown], [...games, game("S-QUIET", "S-OPP", 3, 2, "ag_10u_2027")])
+    ).toContain("S-QUIET");
+  });
+
+  it("never offers a club GameChanger does not know, whatever its age", () => {
+    const standIn: ScoutTeam = { ...team("S-GHOST", "Stix Navy"), nameOnly: true as const };
+    const slot: ScoutTeam = { ...team("S-TBD", "Stix Navy"), placeholder: true as const };
+    const wider = [...pool, standIn, slot];
+    const rows = [
+      ...games,
+      game("S-GHOST", "S-OPP", 4, 1, "ag_10u_2027"),
+      game("S-TBD", "S-OPP", 2, 1, "ag_10u_2027"),
+    ];
+    expect(offered(wider, rows)).toEqual(["S-10", "S-9"]);
+  });
+
+  it("reads a club's age in the year being asked about, not in every year it has played", () => {
+    // Three seasons of the same 9U squad growing up. On the 10U 2027 board it is a 10U club.
+    const grew: ScoutTeam = {
+      ...team("S-GREW", "Raptors"),
+      gcTeams: [
+        {
+          teamId: "gc-a",
+          name: "Raptors 9u",
+          ageGroupId: "ag_9u_2026",
+          ageLevel: 9,
+          seasonYear: 2026,
+          season: "spring",
+        },
+        {
+          teamId: "gc-b",
+          name: "Raptors 10u",
+          ageGroupId: "ag_10u_2027",
+          ageLevel: 10,
+          seasonYear: 2026,
+          season: "fall",
+        },
+        {
+          teamId: "gc-c",
+          name: "Raptors 11u",
+          ageGroupId: "ag_11u_2028",
+          ageLevel: 11,
+          seasonYear: 2027,
+          season: "fall",
+        },
+      ],
+    };
+    expect(gcAgeLevels(grew, 2027, groups)).toEqual([10]);
+    expect(gcAgeLevels(grew, 2026, groups)).toEqual([9]);
+    // Every year at once only when nothing says which year to read.
+    expect(gcAgeLevels(grew, undefined, groups)).toEqual([9, 10, 11]);
+  });
+
+  it("offers everyone when the season sits on a page with no age at all", () => {
+    // A legacy group: there is no level to be at or below, so narrowing by one would offer nothing.
+    const legacy: AgeGroup[] = [{ id: "ag_10u_2027", name: "2027", seasonIds: ["spring2027"] }];
+    const found = scoutLinkCandidates("Stix Navy", "spring2027", legacy, pool, games, fixtures);
+    expect(found.map((candidate) => candidate.scoutTeamId).sort()).toEqual([
+      "S-10",
+      "S-11",
+      "S-18",
+      "S-9",
+    ]);
   });
 });
 
@@ -2298,6 +2434,7 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
       ties: 0,
       games: 2,
       crossAgeGames: 1,
+      outsideWindow: 0,
     });
     expect(teamRecordInPool("C", "u10", games, pool)).toEqual({
       wins: 1,
@@ -2305,8 +2442,62 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
       ties: 0,
       games: 1,
       crossAgeGames: 1,
+      outsideWindow: 0,
     });
     expect(teamRecordInPool("A", "u9next", games, pool).games).toBe(1);
+  });
+});
+
+/**
+ * The record in the detail panel and the record in the ranking row are the same claim about the
+ * same club, and they were counted over different sets of games: the row over what the fit read,
+ * the panel over everything in the pool. So a board showing the autumn sat above a panel showing
+ * the whole year, and even the whole-year board disagreed, because a game dated outside the squad
+ * year — last year's squad, still filed under this year's id — is out of the fit and was in the
+ * panel's count.
+ */
+describe("the detail panel's record against the row's", () => {
+  const dated: AgeGroup[] = [
+    { id: "g10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+  ];
+  const clubs = [team("A", "Aces"), team("B", "Bears"), team("C", "Cubs")];
+  const on = (id: string, a: string, b: string, aScore: number, bScore: number, date: string) => ({
+    ...game(a, b, aScore, bScore, "g10"),
+    id,
+    date,
+  });
+  // Two in the autumn of squad year 2027, one in its spring, and one from the year before.
+  const season = [
+    on("f1", "A", "B", 6, 2, "2026-09-12"),
+    on("f2", "A", "C", 5, 4, "2026-10-03"),
+    on("s1", "A", "B", 1, 9, "2027-04-11"),
+    on("old", "A", "C", 9, 0, "2025-05-02"),
+  ];
+
+  const rowFor = (segment?: "fall" | "spring") =>
+    buildTeamRankings("g10", clubs, season, undefined, dated, segment).find(
+      (r) => r.teamId === "A"
+    );
+
+  it.each([
+    ["the whole year", undefined, "2-1", 3, 1],
+    ["the autumn", "fall" as const, "2-0", 2, 2],
+    ["the spring", "spring" as const, "0-1", 1, 3],
+  ])("reads the same as the row over %s", (_label, segment, record, games, left) => {
+    const panel = teamRecordInPool("A", "g10", season, dated, segment);
+
+    expect(rowFor(segment)?.record).toBe(record);
+    expect(`${panel.wins}-${panel.losses}${panel.ties ? `-${panel.ties}` : ""}`).toBe(record);
+    expect(panel.games).toBe(games);
+    expect(rowFor(segment)?.games).toBe(games);
+    // And it says how many it left out, so a list longer than the record is accounted for.
+    expect(panel.outsideWindow).toBe(left);
+  });
+
+  it("calls a game in the window counted and one outside it not", () => {
+    const fall = season.map((g) => countedInWindow(g, dated, "fall"));
+    expect(fall).toEqual([true, true, false, false]);
+    expect(season.map((g) => countedInWindow(g, dated))).toEqual([true, true, true, false]);
   });
 });
 

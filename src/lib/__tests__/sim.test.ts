@@ -961,3 +961,67 @@ describe("the opponent-adjusted rating in a forecast", () => {
     });
   });
 });
+
+describe("the contact term across a simulated game", () => {
+  /*
+   * `baseTpi` is three things added together: run differential per game, twice winning
+   * percentage, and a bonus for a side that puts the ball in play more than the league does.
+   * `calculateTeams` builds all three from finalized games. `settleGame` then books a model
+   * result onto the scratch season and rebuilds `baseTpi` — deliberately, so that standings and
+   * run-differential tiebreakers move — and it used to rebuild only the first two terms.
+   *
+   * That is not the same as declining to dilute a rate with model games: the contact bonus is
+   * computed from finalized games and nothing else, and dropping it from the rebuild deletes it.
+   * `tpi` is what `predictGame` reads, so every later game of the same iteration was predicted
+   * from a rating that had silently lost up to 1.25 runs of team strength.
+   *
+   * The fixture makes the term as large as it can be. One six-inning game, so the league rate
+   * falls back to 4.5 K/6; the Aces strike out nobody and the Bears strike out nine times, so
+   * (4.5 - 0) * 0.35 and (4.5 - 9) * 0.35 both clamp, to +1.25 and -1.25.
+   */
+  const pair: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+  ];
+  const onlyGame: Matchup = { id: "played", date: "5/1", away: "A", home: "B" };
+  const modelGame: Matchup = { id: "model", date: "5/8", away: "A", home: "B" };
+
+  const live = calculateTeams(pair, [onlyGame, modelGame], {
+    played: finalLog({ awayRuns: "6", homeRuns: "2", awayK: "0", homeK: "9" }),
+  });
+
+  const CONTACT = { A: 1.25, B: -1.25 };
+
+  it("reads the bonus the fixture was built to produce", () => {
+    expect(live.find((t) => t.id === "A")!.contactBonus).toBe(CONTACT.A);
+    expect(live.find((t) => t.id === "B")!.contactBonus).toBe(CONTACT.B);
+    // And it is in the rating: 4 run differential a game, plus twice a 1.000 record, plus 1.25.
+    expect(live.find((t) => t.id === "A")!.baseTpi).toBe(7.25);
+    expect(live.find((t) => t.id === "B")!.baseTpi).toBe(-5.25);
+  });
+
+  it("moves baseTpi by exactly what the booked result explains, and no further", () => {
+    const after = applyResult(live, modelGame, "A", live, settings);
+
+    (["A", "B"] as const).forEach((id) => {
+      const was = live.find((t) => t.id === id)!;
+      const now = after.find((t) => t.id === id)!;
+      const perGame = (team: Team) => (team.games ? team.runDiff / team.games : 0);
+      // The two terms a model game is allowed to move, measured from the booked totals.
+      const explained = perGame(now) - perGame(was) + (now.pct - was.pct) * 2;
+
+      expect(now.baseTpi - was.baseTpi).toBeCloseTo(explained, 10);
+    });
+  });
+
+  it("keeps the contact term in the rebuilt rating", () => {
+    const after = applyResult(live, modelGame, "A", live, settings);
+
+    (["A", "B"] as const).forEach((id) => {
+      const now = after.find((t) => t.id === id)!;
+      const rebuilt = now.runDiff / now.games + now.pct * 2 + CONTACT[id];
+
+      expect(now.baseTpi).toBeCloseTo(rebuilt, 10);
+    });
+  });
+});

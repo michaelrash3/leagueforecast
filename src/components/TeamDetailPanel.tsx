@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import {
+  countedInWindow,
   countsTowardRating,
   gamesForTeam,
   gcSeasonLabel,
@@ -10,6 +11,7 @@ import {
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { TeamSearchSelect } from "./TeamSearchSelect";
@@ -23,6 +25,13 @@ type TeamDetailPanelProps = {
   ageGroupName: string;
   /** Every age group, so the pool this page rates can be worked out. */
   ageGroups: AgeGroup[];
+  /**
+   * The half of the year the board behind this panel is showing, or nothing for the whole year.
+   *
+   * It is here because the record in this panel has to be the record in that row, and the row's is
+   * over the half the board was fitted on.
+   */
+  segment?: SeasonSegment;
   teamNameById: Map<string, string>;
   /** League-derived teams are named by League Standings, so their name is not ours to change. */
   fromLeague: boolean;
@@ -65,6 +74,7 @@ export function TeamDetailPanel({
   ageGroupId,
   ageGroupName,
   ageGroups,
+  segment,
   teamNameById,
   fromLeague,
   onRename,
@@ -117,13 +127,18 @@ export function TeamDetailPanel({
   const here = everyGame.filter((game) => poolIds.has(game.ageGroupId));
   const elsewhere = everyGame.length - here.length;
 
-  // The same record the ranking row shows, counted by the same function, so the two agree.
+  // The same record the ranking row shows, over the same half, counted by the same function, so
+  // the two agree.
   const record = useMemo(
-    () => teamRecordInPool(team.id, ageGroupId, allGames, ageGroups),
-    [team.id, ageGroupId, allGames, ageGroups]
+    () => teamRecordInPool(team.id, ageGroupId, allGames, ageGroups, segment),
+    [team.id, ageGroupId, allGames, ageGroups, segment]
   );
   const { wins, losses, ties } = record;
-  const played = here.filter(countsTowardRating);
+  const inWindow = useMemo(
+    () =>
+      new Set(here.filter((game) => countedInWindow(game, ageGroups, segment)).map((g) => g.id)),
+    [here, ageGroups, segment]
+  );
   const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
 
   const trimmed = draftName.trim();
@@ -151,11 +166,14 @@ export function TeamDetailPanel({
             </p>
           )}
           <p className="mt-1 text-xs text-slate-500">
-            {played.length === 0
-              ? `No completed games in ${ageGroupName || "this age group"} yet.`
-              : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${played.length} game${played.length === 1 ? "" : "s"}.`}
+            {record.games === 0
+              ? `No completed games in ${ageGroupName || "this age group"}${segment ? " this half" : ""} yet.`
+              : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${record.games} game${record.games === 1 ? "" : "s"}.`}
             {record.crossAgeGames > 0
               ? ` ${record.crossAgeGames} of ${record.crossAgeGames === 1 ? "them was" : "them were"} against another age level.`
+              : ""}
+            {record.outsideWindow > 0
+              ? ` ${record.outsideWindow} more played here ${record.outsideWindow === 1 ? "is" : "are"} outside ${segment ? "this half of the season" : "this season year"}, so ${record.outsideWindow === 1 ? "it is" : "they are"} not in that record.`
               : ""}
             {notCounted.length > 0
               ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
@@ -346,6 +364,17 @@ export function TeamDetailPanel({
                   {game.excluded ? (
                     <span className={pill("amber")} title="Kept, but not counted">
                       —
+                    </span>
+                  ) : line.result && !inWindow.has(game.id) ? (
+                    // Played, and kept, but outside the window the record above is counted over —
+                    // shown rather than dropped, so a list longer than the record is explained.
+                    <span
+                      className={pill("neutral")}
+                      title={
+                        segment ? "Outside this half of the season" : "Outside this season year"
+                      }
+                    >
+                      {line.result}
                     </span>
                   ) : line.result ? (
                     <span

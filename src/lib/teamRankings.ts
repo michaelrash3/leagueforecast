@@ -7,6 +7,7 @@ import {
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput } from "./date";
 import { weightsForGames } from "./ratingRecency";
+import { ageLevelFromName } from "./gameChangerApi";
 
 /**
  * What has been split out so far, re-exported so nothing that imports from here had to change.
@@ -778,28 +779,162 @@ export const teamsInRankingPool = (
 };
 
 /**
- * One team's record over every counted game in the pool, cross-age games included — the number
- * the detail panel shows, and the one the ranking row shows, so the two agree.
+ * One team's record over every counted game in the pool, cross-age games included — the number the
+ * detail panel shows, and the one the ranking row shows, so the two agree.
+ *
+ * Agreeing is the whole job, and it takes the same window the fit takes. `scoutRatingGames` keeps
+ * out a game dated outside the squad year — last year's squad's results, still filed under this
+ * year's id — and, with a half named, the other half's as well. This counted both, so the panel
+ * read one record beside a row reading another: on a four-game fixture the board said 2-0 for the
+ * autumn while the panel under it said 3-1, and even with no half selected the stray year made it
+ * 2-1 against 3-1.
+ *
+ * `outsideWindow` is what the window left out, so the panel can say where the missing games went
+ * rather than quietly showing a smaller number than the list beneath it.
  */
 export const teamRecordInPool = (
   teamId: string,
   ageGroupId: string,
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
-): { wins: number; losses: number; ties: number; games: number; crossAgeGames: number } => {
+  ageGroups: AgeGroup[],
+  /** One half of the year, or the whole of it when left out — as `buildTeamRankings` takes it. */
+  segment?: SeasonSegment
+): {
+  wins: number;
+  losses: number;
+  ties: number;
+  games: number;
+  crossAgeGames: number;
+  outsideWindow: number;
+} => {
   const index = indexGroups(ageGroups);
   const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
-  const counted = games.filter(
+  const mine = games.filter(
     (game) =>
       pool.has(game.ageGroupId) &&
       countsTowardRating(game) &&
       (game.teamAId === teamId || game.teamBId === teamId)
   );
+  const counted = mine.filter((game) => inSegment(game.date, index.year(game.ageGroupId), segment));
   const { wins, losses, ties } = recordsFor(counted).get(teamId) ?? NO_RECORD;
   const crossAgeGames = counted.filter(
     (game) => ageGapOf(sideLevelsWith(game, index)) !== 0
   ).length;
-  return { wins, losses, ties, games: counted.length, crossAgeGames };
+  return {
+    wins,
+    losses,
+    ties,
+    games: counted.length,
+    crossAgeGames,
+    outsideWindow: mine.length - counted.length,
+  };
+};
+
+/** Whether a game is inside the window `teamRecordInPool` counts, for a list that shows both. */
+export const countedInWindow = (
+  game: ScoutGame,
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment
+): boolean =>
+  countsTowardRating(game) &&
+  inSegment(game.date, indexGroups(ageGroups).year(game.ageGroupId), segment);
+
+/**
+ * How far below a board's own level a club may still belong on it.
+ *
+ * A 10U board holds 10U clubs and the 9U clubs that play up into it, and nothing else. Younger
+ * than that is a different game, and older is a club that has simply been listed on the wrong
+ * page. One, not two: `PLAYS_UP_TO` in the importer is about where a *game* may land, which is a
+ * looser question than which clubs a person should be offered when they say who a team is.
+ */
+export const PLAYS_UP_ONE = 1;
+
+/**
+ * The age levels GameChanger itself has a club at, for one squad year.
+ *
+ * Read off the links rather than off the games: a link is what somebody pulled, so its level is
+ * the club's own, while a game's level is only where that game was filed and a club that entered
+ * one tournament up is not that level. Three places a pull can leave it, in order of how directly
+ * it was stated — the link's own `ageLevel`, the level of the group it is filed under, and the
+ * level written into its name ("Cincy Stix Navy 10u").
+ *
+ * A year of `undefined` takes every link, which is what a season on a legacy page with no year
+ * needs; otherwise only the links sitting in that squad year are read, so a club pulled for three
+ * seasons is 10U on a 10U board rather than 9U, 10U and 11U at once.
+ */
+export const gcAgeLevels = (
+  team: ScoutTeam,
+  year: number | undefined,
+  ageGroups: AgeGroup[]
+): number[] => {
+  const index = indexGroups(ageGroups);
+  const levels = new Set<number>();
+  (team.gcTeams ?? []).forEach((link) => {
+    if (year !== undefined && gcLinkYear(link, index) !== year) return;
+    const level = link.ageLevel ?? index.level(link.ageGroupId) ?? ageLevelFromName(link.name);
+    if (level !== undefined) levels.add(level);
+  });
+  return [...levels].sort((a, b) => a - b);
+};
+
+/**
+ * Whether a club could be the team on a board at `level` — its own level, or one below it.
+ *
+ * A club whose level cannot be read at all passes. That is deliberate: a freshly pulled club whose
+ * links carry no age and whose name does not spell one out is a club nobody has told us about, not
+ * a club at the wrong level, and dropping it out of the picker would hide the very entry somebody
+ * had come to choose.
+ */
+export const clubFitsLevel = (levels: readonly number[], level: number | undefined): boolean =>
+  level === undefined ||
+  levels.length === 0 ||
+  levels.some((at) => at <= level && at >= level - PLAYS_UP_ONE);
+
+/** The board levels a League Standings season sits on: every age group that claims it. */
+export const levelsForSeason = (seasonId: string, ageGroups: AgeGroup[]): number[] => {
+  const levels = new Set<number>();
+  ageGroups.forEach((group) => {
+    if (!group.seasonIds.includes(seasonId)) return;
+    const level = ageGroupLevel(group);
+    if (level !== undefined) levels.add(level);
+  });
+  return [...levels].sort((a, b) => a - b);
+};
+
+/** The squad years a League Standings season sits in, for reading a club's level in that year. */
+export const yearsForSeason = (
+  seasonId: string,
+  ageGroups: AgeGroup[]
+): Array<number | undefined> => {
+  const years = new Set<number | undefined>();
+  ageGroups.forEach((group) => {
+    if (group.seasonIds.includes(seasonId)) years.add(ageGroupYear(group));
+  });
+  return [...years];
+};
+
+/**
+ * Whether a club is worth offering when somebody says which club a league team is.
+ *
+ * Two conditions, and they are the two a person would apply by hand. It has to be a club
+ * GameChanger knows — a slot names nobody and a name-only stand-in has no schedule of its own to
+ * bridge, so linking to either gives the league nothing it did not already have. And it has to be
+ * at the board's level or one below, because an 18U club is not the 10U team you are naming
+ * however well the name matches.
+ */
+export const clubIsPickable = (
+  team: ScoutTeam,
+  levels: readonly number[],
+  years: ReadonlyArray<number | undefined>,
+  ageGroups: AgeGroup[]
+): boolean => {
+  if (team.placeholder || team.nameOnly || !hasGcLinks(team)) return false;
+  if (levels.length === 0) return true;
+  const seen = years.length > 0 ? years : [undefined];
+  return seen.some((year) => {
+    const at = gcAgeLevels(team, year, ageGroups);
+    return levels.some((level) => clubFitsLevel(at, level));
+  });
 };
 
 /**
@@ -1761,6 +1896,12 @@ export type ScoutLinkCandidate = {
   sharedOpponents: string[];
   /** Games it has on this season's pages at all, as a tiebreak when nobody shares an opponent. */
   games: number;
+  /**
+   * The age GameChanger has it at in this season's year, when it says. Shown in the picker: two
+   * clubs of one name in one town are told apart by nothing else on the row, and a person looking
+   * at "Cincy Stix Navy · Harrison, OH" twice over cannot pick between them.
+   */
+  ageLevel?: number;
 };
 
 /**
@@ -1814,23 +1955,32 @@ export const scoutLinkCandidates = (
     note(game.teamBId, game.teamAId);
   });
 
+  /*
+   * The board this season is on, and the squad year it sits in. A page holds cross-age games, so
+   * being on it is not on its own evidence of being the right age: an 11U club that played down
+   * here is on this page and is not the 10U team anybody is naming.
+   */
+  const levels = levelsForSeason(seasonId, ageGroups);
+  const years = yearsForSeason(seasonId, ageGroups);
+
   const candidates: ScoutLinkCandidate[] = [];
   gameCount.forEach((count, scoutTeamId) => {
     const team = scoutById.get(scoutTeamId);
-    // Only a club with a GameChanger team behind it is worth offering: a name-only stand-in has no
-    // schedule of its own to bridge, so linking to one gives the league nothing it did not have.
-    if (!team || team.placeholder || !hasGcLinks(team)) return;
+    // GameChanger-known, and at this board's level or one below it — see `clubIsPickable`.
+    if (!team || !clubIsPickable(team, levels, years, ageGroups)) return;
     const opponents = played.get(scoutTeamId);
     const shared: string[] = [];
     opponents?.forEach((name, key) => {
       if (leagueOpponents.has(key)) shared.push(name);
     });
     shared.sort((a, b) => a.localeCompare(b));
+    const ageLevel = gcAgeLevels(team, years[0], ageGroups)[0];
     candidates.push({
       scoutTeamId,
       name: team.name,
       ...(team.city ? { city: team.city } : {}),
       ...(team.state ? { state: team.state } : {}),
+      ...(ageLevel === undefined ? {} : { ageLevel }),
       sharedOpponents: shared,
       games: count,
     });

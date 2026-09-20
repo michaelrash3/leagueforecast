@@ -269,6 +269,18 @@ const TeamRankingsView = lazy(() =>
   import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
 );
 
+/**
+ * One add-game select, settled against the team list it names: the id it holds when that is still
+ * a team here, the team at `fallback` otherwise, and nothing at all when there is no such team.
+ *
+ * Pulled out of the component because the rule is the whole of the bug — a select that keeps an id
+ * from a season that has been switched away from — and a rule is testable where a render is not.
+ */
+export const settleSide = (teams: readonly TeamBase[], held: string, fallback: number): string => {
+  if (teams.some((team) => team.id === held)) return held;
+  return teams[fallback]?.id ?? "";
+};
+
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
@@ -474,10 +486,23 @@ export default function App() {
     recordSaveResult(saveSettings(settings), "settings", "Could not save settings (storage full).");
   }, [settings, recordSaveResult]);
 
-  // Default the add-game selects once teams exist. Guarded on the value being unset, so this
-  // settles in one extra render and never fights a choice the user has made.
-  if (!newAway && teams[0]) setNewAway(teams[0].id);
-  if (!newHome && teams[1]) setNewHome(teams[1].id);
+  /*
+   * Settle the add-game selects against the team list they name.
+   *
+   * It used to fill only an empty value, which meant that once set they held whatever they held —
+   * and `teams` is replaced wholesale by a season switch, a restored backup, an undo, the season
+   * builder and Reset Season, none of which touched them. What that leaves is a form that looks
+   * blank and is not: a select whose value names no option shows nothing selected, while the state
+   * behind it still holds the old id, and Add Game is enabled on exactly that state — two
+   * non-empty ids that differ. Pressing it booked a game between two teams not in this season.
+   *
+   * Checking membership rather than emptiness settles in the same one extra render and still never
+   * fights a choice somebody has made, because a chosen id is a team that is there.
+   */
+  const settledAway = settleSide(teams, newAway, 0);
+  const settledHome = settleSide(teams, newHome, 1);
+  if (settledAway !== newAway) setNewAway(settledAway);
+  if (settledHome !== newHome) setNewHome(settledHome);
 
   // ---------- Derived state ----------
 
