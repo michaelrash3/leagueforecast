@@ -56,12 +56,7 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import {
-  formatGameDate,
-  normalizeDateInput,
-  parseDateValue,
-  sundayEndingWeekKey,
-} from "./lib/date";
+import { formatGameDate, normalizeDateInput, parseDateValue } from "./lib/date";
 import {
   builderTeamNames,
   buildRoundRobin,
@@ -70,7 +65,7 @@ import {
 } from "./lib/roundRobin";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
-import { pathSummary, recapToMarkdown, recapToStoryBrief, weeklyRecap } from "./lib/insights";
+import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
@@ -80,11 +75,11 @@ import { scheduleDifficultyForTeam as buildScheduleDifficultyForTeam } from "./l
 import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
-  buildProjectionSnapshot,
-  diffProjectionSnapshots,
-  type ProjectionRelevantSettings,
-} from "./lib/projectionDelta";
-import { buildProjectionExplanations } from "./lib/projectionExplanation";
+  impactOfFinal,
+  nameFrom,
+  PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
+  type RecapPool,
+} from "./lib/impactRecap";
 import { buildSeasonTimeline } from "./lib/seasonTimeline";
 import {
   applyResult,
@@ -125,7 +120,6 @@ import {
   type SwingGame,
   type Team,
   type LastImpact,
-  type ProjectionExplanationEntry,
   type TeamBase,
   type TeamWithProjection,
 } from "./lib/types";
@@ -137,7 +131,7 @@ import {
 } from "./lib/teamStats";
 import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, clamp, isFinal, parseNumber } from "./lib/util";
+import { blankLog, clamp, isFinal } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { DashboardView } from "./components/league/DashboardView";
@@ -154,17 +148,6 @@ import {
 } from "./lib/standingsView";
 
 type ActiveView = ActiveShareView;
-
-type RankSnapshotEntry = Team & {
-  rank: number;
-  projectedRank: number;
-  goldPct: number;
-  goldStatus: "Clinched" | "In" | "Alive" | "Eliminated";
-  maxPoints: number;
-  blockersAhead: number;
-  maxPct: number;
-  minPct: number;
-};
 
 type ScoreboardPrediction = {
   spread: string;
@@ -189,8 +172,6 @@ const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 // the browser immediately after import or while saving a final. Keep the UI
 // responsive by falling back to current standings until the schedule is small
 // enough for synchronous projection work.
-const PROJECT_STANDINGS_REMAINING_GAME_LIMIT = 250;
-const IMPACT_RECAP_REMAINING_GAME_LIMIT = 120;
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 
 const replaceTeamDataUrl = (teamId: string | null) => {
@@ -1439,27 +1420,15 @@ export default function App() {
 
   // ---------- Snapshots / undo ----------
 
-  const buildRankSnapshot = (nextLogs: Record<string, GameLog>): RankSnapshotEntry[] => {
-    const nextLive = calculateTeams(teams, matchups, nextLogs, settings);
-    const nextRanked = rankTeams(nextLive, rankOptionsFromSettings(settings));
-    const nextRemaining = matchups.filter((game) => !isFinal(nextLogs[game.id]));
-    const nextRemainingCounts = getRemainingCounts(nextLive, nextRemaining);
-    const nextProjected =
-      nextRemaining.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT
-        ? projectStandings(nextLive, nextRemaining, settings)
-        : rankTeams(nextLive, rankOptionsFromSettings(settings));
-
-    return nextRanked.map((team) => {
-      const projectedTeam = nextProjected.find((item) => item.id === team.id);
-      const status = getMathGoldStatus(team, nextRanked, nextRemainingCounts, goldCutoff, settings);
-      return {
-        ...team,
-        projectedRank: projectedTeam?.rank ?? team.rank ?? 99,
-        goldPct: 0, // snapshot-only, odds shown live from worker
-        ...status,
-      };
-    });
-  };
+  /**
+   * The season a recap reads against, and the names it puts in one. Both are values the recap
+   * needs, and neither is something it should go and look up for itself.
+   */
+  const recapPool = useMemo(
+    (): RecapPool => ({ teams, matchups, settings, goldCutoff, hasCutLine }),
+    [teams, matchups, settings, goldCutoff, hasCutLine]
+  );
+  const nameOf = useMemo(() => nameFrom(teamBaseById), [teamBaseById]);
 
   /**
    * `withTeamRankings` is for the imports that replace the shared Team Rankings pool: only those
@@ -1573,177 +1542,14 @@ export default function App() {
     clearLastImpact,
   });
 
-  const summarizeChanges = (before: RankSnapshotEntry[], after: RankSnapshotEntry[]) => {
-    const messages: string[] = [];
-    after.forEach((team) => {
-      const old = before.find((item) => item.id === team.id);
-      if (!old) return;
-      const oldRank = old.rank ?? 99;
-      const newRank = team.rank ?? 99;
-      const teamName = displayName(team.name);
-      if (oldRank !== newRank) {
-        const direction = newRank < oldRank ? "moved up" : "dropped";
-        messages.push(`${teamName} ${direction} from #${oldRank} to #${newRank}`);
-      }
-      if (oldRank <= goldCutoff && newRank > goldCutoff) {
-        messages.push(`${teamName} dropped below the Gold cut line`);
-      }
-      if (oldRank > goldCutoff && newRank <= goldCutoff) {
-        messages.push(`${teamName} moved above the Gold cut line into Gold position`);
-      }
-      if (old.goldStatus !== team.goldStatus) {
-        if (team.goldStatus === "Eliminated")
-          messages.push(`${teamName} is now eliminated from Gold Bracket contention`);
-        else if (team.goldStatus === "Clinched")
-          messages.push(`${teamName} clinched the Gold Bracket`);
-      }
-    });
-    return Array.from(new Set(messages)).slice(0, 10);
-  };
-
-  const projectionSettingsForDelta = (): ProjectionRelevantSettings => ({
-    goldCutoff: settings.goldCutoff,
-    regularSeasonGamesPerTeam: settings.regularSeasonGamesPerTeam,
-    winPoints: settings.winPoints,
-    tiePoints: settings.tiePoints,
-    runDiffTiebreaker: settings.runDiffTiebreaker,
-    tiebreakerOrder: settings.tiebreakerOrder,
-    maxScoreCap: settings.maxScoreCap,
-    modelAggression: settings.modelAggression,
-  });
-
-  // Plain-English "why the projection moved" bullets per team, derived from the same
-  // before/after rank snapshots the recap already builds (lib/projectionExplanation.ts).
-  const buildProjectionExplanationsForUpdate = (
-    before: RankSnapshotEntry[],
-    after: RankSnapshotEntry[]
-  ): ProjectionExplanationEntry[] => {
-    const toSnapshotTeam = (entry: RankSnapshotEntry) => ({
-      id: entry.id,
-      w: entry.w,
-      t: entry.t,
-      rs: entry.rs,
-      ra: entry.ra,
-      runDiff: entry.runDiff,
-      rank: entry.rank,
-      projectedRank: entry.projectedRank,
-    });
-    const projectionSettings = projectionSettingsForDelta();
-    const delta = diffProjectionSnapshots(
-      buildProjectionSnapshot({ teams: before.map(toSnapshotTeam), settings: projectionSettings }),
-      buildProjectionSnapshot({ teams: after.map(toSnapshotTeam), settings: projectionSettings })
-    );
-    return delta.teams
-      .map((teamDelta) => ({
-        teamId: teamDelta.teamId,
-        teamName: displayName(teamBaseById.get(teamDelta.teamId)?.name ?? teamDelta.teamId),
-        items: buildProjectionExplanations(teamDelta, { maxItems: 2 }),
-      }))
-      .filter((entry) => entry.items.length > 0);
-  };
-
   const toggleFinal = (gameId: string) => {
     setLogs((prev) => {
       const current = prev[gameId] || blankLog(String(settings.defaultGameInnings));
       const isMarkingFinal = !current.isFinal;
-      const game = matchups.find((item) => item.id === gameId);
       const nextLogs = { ...prev, [gameId]: { ...current, isFinal: !current.isFinal } };
-
-      if (isMarkingFinal && game) {
-        const dateLabel = normalizeDateInput(game.date);
-        const weekLabel = sundayEndingWeekKey(game.date);
-        const nextRemainingCount = matchups.reduce(
-          (count, matchup) => count + (isFinal(nextLogs[matchup.id]) ? 0 : 1),
-          0
-        );
-        if (nextRemainingCount > IMPACT_RECAP_REMAINING_GAME_LIMIT) {
-          const away = teamBaseById.get(game.away);
-          const home = teamBaseById.get(game.home);
-          setLastImpact({
-            title: `Latest Update — ${displayName(away?.name || game.away)} vs ${displayName(
-              home?.name || game.home
-            )}`,
-            scores: [
-              `${displayName(away?.name || game.away)} ${parseNumber(current.awayRuns)}, ${displayName(
-                home?.name || game.home
-              )} ${parseNumber(current.homeRuns)}`,
-            ],
-            messages: [
-              `Final saved. Detailed standings-impact recap is paused until ${IMPACT_RECAP_REMAINING_GAME_LIMIT} or fewer games remain to keep scoring responsive.`,
-            ],
-            recapItems: [],
-          });
-          return nextLogs;
-        }
-        const sameRecapWindow = (m: Matchup) => {
-          if (settings.recapGrouping === "game") return m.id === gameId;
-          if (settings.recapGrouping === "week") {
-            return sundayEndingWeekKey(m.date) === weekLabel;
-          }
-          return normalizeDateInput(m.date) === dateLabel;
-        };
-        const groupedFinals = matchups.filter((m) => {
-          if (!sameRecapWindow(m)) return false;
-          const log = nextLogs[m.id];
-          return !!log?.isFinal;
-        });
-
-        const beforeLogs = { ...nextLogs };
-        groupedFinals.forEach((m) => {
-          const log = beforeLogs[m.id] || blankLog();
-          beforeLogs[m.id] = { ...log, isFinal: false };
-        });
-
-        const before = buildRankSnapshot(beforeLogs);
-        const after = buildRankSnapshot(nextLogs);
-        const messages = summarizeChanges(before, after);
-        const finalsSinceLast = groupedFinals.map((m) => {
-          const log = nextLogs[m.id] || blankLog();
-          const away = teamBaseById.get(m.away);
-          const home = teamBaseById.get(m.home);
-          return {
-            game: m,
-            awayScore: parseNumber(log.awayRuns),
-            homeScore: parseNumber(log.homeRuns),
-            awayName: displayName(away?.name || m.away),
-            homeName: displayName(home?.name || m.home),
-          };
-        });
-        const recapItems = weeklyRecap({
-          before,
-          after: after.map((entry) => ({
-            id: entry.id,
-            rank: entry.rank,
-            goldPct: entry.goldPct,
-            goldStatus: entry.goldStatus,
-            name: entry.name,
-          })),
-          finalsSinceLast,
-          cutoff: goldCutoff,
-          hasCutLine,
-        });
-        const projectionExplanations = buildProjectionExplanationsForUpdate(before, after);
-        setLastImpact({
-          title:
-            settings.recapGrouping === "game"
-              ? `Latest Update — ${finalsSinceLast[0]?.awayName ?? "Away"} vs ${finalsSinceLast[0]?.homeName ?? "Home"}`
-              : settings.recapGrouping === "week"
-                ? `Latest Update — Week Ending ${weekLabel || "No Date"}`
-                : dateLabel
-                  ? `Latest Update — ${dateLabel}`
-                  : "Latest Update — No Date",
-          scores: finalsSinceLast.map(
-            (item) => `${item.awayName} ${item.awayScore}, ${item.homeName} ${item.homeScore}`
-          ),
-          messages: messages.length
-            ? messages
-            : ["This update was recorded; no standings-impact detail to summarize."],
-          recapItems,
-          projectionExplanations,
-        });
-      } else {
-        setLastImpact(null);
-      }
+      setLastImpact(
+        isMarkingFinal ? impactOfFinal(gameId, current, nextLogs, recapPool, nameOf) : null
+      );
       return nextLogs;
     });
   };
