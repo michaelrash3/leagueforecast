@@ -80,6 +80,7 @@ import {
   roundRobinCsv,
   roundRobinFileName,
 } from "./lib/roundRobin";
+import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
 import { summarizeCsvImportIssues } from "./lib/importReport";
 import { buildSeasonImportPreview, formatSeasonImportPreview } from "./lib/importPreview";
@@ -770,16 +771,8 @@ export default function App() {
     [ranked]
   );
   const headToHeadCell = useCallback(
-    (rowId: string, colId: string): H2HCell => {
-      if (rowId === colId) return "self";
-      const record = liveById.get(rowId)?.headToHead?.[colId];
-      if (!record) return "none";
-      const { wins, losses } = record;
-      if (wins === 0 && losses === 0 && record.ties === 0) return "none";
-      if (wins > losses) return "win";
-      if (losses > wins) return "loss";
-      return "tie";
-    },
+    (rowId: string, colId: string): H2HCell =>
+      cellFor(liveById.get(rowId)?.headToHead?.[colId], rowId, colId),
     [liveById]
   );
 
@@ -812,21 +805,12 @@ export default function App() {
     [ranked, remainingGames, settings]
   );
 
-  const currentSosRanks = useMemo(() => {
-    const ordered = [...dashboardRows].sort((a, b) => b.sos - a.sos);
-    const map: Record<string, number> = {};
-    ordered.forEach((team, index) => {
-      map[team.id] = index + 1;
-    });
-    return map;
-  }, [dashboardRows]);
+  const currentSosRanks = useMemo(() => sosRanks(dashboardRows), [dashboardRows]);
 
-  const projectedCutLineTeams = useMemo(() => {
-    return modelRows.filter((team) => {
-      const seed = team.projectedRank ?? 99;
-      return seed >= goldCutoff - 2 && seed <= goldCutoff + 3;
-    });
-  }, [modelRows, goldCutoff]);
+  const projectedCutLineTeams = useMemo(
+    () => teamsOnBubble(modelRows, goldCutoff),
+    [modelRows, goldCutoff]
+  );
 
   // ---------- Scenario helpers ----------
 
