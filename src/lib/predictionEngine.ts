@@ -244,11 +244,24 @@ export const buildPredictionEngine = (
       // out was how a team could go 0-4 in June and still read "Stable" here.
       const played = gamesFor(team.id);
       const recentGames = played.slice(-5);
+      /*
+       * A weighted mean divides by the weights, not by how many there are.
+       *
+       * The weights ramp from 1/n to 1 and sum to (n+1)/2, so dividing by n shrank the answer —
+       * to 60% of itself over five games, 67% over three. `trend` then compared that shrunken
+       * number against `avgMargin`, which is a plain mean at full scale, and the two are not on
+       * the same scale at all: a team winning every game by exactly six read 3.6 against an
+       * average of 6 and came out "Down", while a team losing every game by six read -3.6 against
+       * -6 and came out "Up". The column said good teams were sliding and bad ones were climbing,
+       * about teams that had not changed at all.
+       */
+      const weight = (index: number) => (index + 1) / recentGames.length;
       const weightedRecent = recentGames.reduce(
-        (sum, game, index) => sum + game.margin * ((index + 1) / recentGames.length),
+        (sum, game, index) => sum + game.margin * weight(index),
         0
       );
-      const recentForm = recentGames.length ? weightedRecent / recentGames.length : 0;
+      const weightTotal = recentGames.reduce((sum, _game, index) => sum + weight(index), 0);
+      const recentForm = weightTotal > 0 ? weightedRecent / weightTotal : 0;
       const margins = played.map((game) => game.margin);
       const avgMargin = margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : 0;
       const volatility = margins.length

@@ -2612,10 +2612,10 @@ League Standings — your seasons, schedules and scores — is not touched.`,
         brierScore: backtestResult.brierScore ?? undefined,
         hitRate:
           backtestResult.winnerAccuracy === null ? undefined : backtestResult.winnerAccuracy * 100,
-        upsetCaptureRate:
-          backtestResult.upsetCaptureRate === null
+        confidentMissRate:
+          backtestResult.confidentMissRate === null
             ? undefined
-            : backtestResult.upsetCaptureRate * 100,
+            : backtestResult.confidentMissRate * 100,
       },
       season: {
         finalGames: completedGames.length,

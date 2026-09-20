@@ -13,7 +13,18 @@ export type CalibrationBucket = {
 };
 export type BacktestResult = {
   brierScore: number;
-  upsetCaptureRate: number;
+  /**
+   * Of the games the model got wrong, the share it had called confidently. **Lower is better.**
+   *
+   * It was named `upsetCaptureRate` and drawn as "Upsets", with the league summary writing "N% of
+   * upsets called" — every one of which says the model saw them coming. It measures the reverse,
+   * and always did: `upset` is a game the model's favourite lost, and `captured` is a call away
+   * from the coin flip, so the number is the rate at which the model was confidently wrong.
+   *
+   * A model cannot call an upset by this definition. To have called it, the model would have had
+   * to favour the underdog — and then the underdog winning is not an upset at all.
+   */
+  confidentMissRate: number;
   sampleSize: number;
   calibration: CalibrationBucket[];
   /** Share of decisive games whose favored side actually won (null with no samples). */
@@ -88,7 +99,7 @@ export const backtestPredictions = (
   if (!rows.length)
     return {
       brierScore: 0,
-      upsetCaptureRate: 0,
+      confidentMissRate: 0,
       sampleSize: 0,
       calibration: [],
       winnerAccuracy: null,
@@ -98,7 +109,7 @@ export const backtestPredictions = (
     };
   const brierScore = rows.reduce((sum, r) => sum + (r.p - r.y) ** 2, 0) / rows.length;
   const upsetRows = rows.filter((r) => r.upset);
-  const upsetCaptureRate = upsetRows.length
+  const confidentMissRate = upsetRows.length
     ? upsetRows.filter((r) => r.captured).length / upsetRows.length
     : 0;
   const winnerAccuracy = rows.filter((r) => r.correct).length / rows.length;
@@ -130,7 +141,7 @@ export const backtestPredictions = (
 
   return {
     brierScore,
-    upsetCaptureRate,
+    confidentMissRate,
     sampleSize: rows.length,
     calibration,
     winnerAccuracy,
