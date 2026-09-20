@@ -74,11 +74,19 @@ import {
   saveTidyStamp,
   storedGamesByYear,
   loadDeletedGames,
+  loadAgeUnknown,
   loadDroppedClubs,
+  loadNamedAges,
+  saveNamedAges,
   saveDeletedGames,
   saveDroppedClubs,
 } from "../lib/teamRankingsStorage";
-import { forgetClubs, forgetGames } from "../lib/deletedGames";
+import { forgetClubs, forgetGames, type DeletedClubs } from "../lib/deletedGames";
+import { nameAge, type NamedAges } from "../lib/namedAges";
+import type { AgeUnknownList } from "../lib/ageUnknown";
+
+/** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
+const NO_AGELESS: AgeUnknownList = [];
 import type { UnrealClub } from "../lib/unrealClubs";
 import {
   estimateBackupBytes,
@@ -1071,6 +1079,60 @@ export function TeamRankingsView({
    * the team from its profile and files a fresh set of the very rows that were deleted — so the
    * club has to be refused at the schedule, which is what `isDeletedClub` does in `importOne`.
    */
+  /**
+   * The teams nobody could age, and the two ways to answer for one.
+   *
+   * Held in state as well as storage because both answers change what the review card shows on
+   * the spot — naming an age or throwing a club out takes that row out of the queue immediately,
+   * without waiting for a refresh to notice.
+   */
+  /*
+   * Re-read when Setup is opened rather than held in state: the import panel is what writes this
+   * list, and a copy taken at mount would be the pool as it was before the pull that filled it.
+   */
+  const agelessList: AgeUnknownList = useMemo(
+    () => (section === "setup" ? loadAgeUnknown() : NO_AGELESS),
+    [section]
+  );
+  const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
+  const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
+
+  const nameAgeFor = useCallback(
+    (teamId: string, name: string | undefined, level: number) => {
+      // What GameChanger was saying when it was named, so a later change to its own page can be
+      // told apart from the silence this is filling in — see `namedAgeStands`.
+      const next = nameAge(loadNamedAges(), {
+        teamId,
+        level,
+        ...(name ? { name } : {}),
+        namedAt: new Date().toISOString(),
+      });
+      setNamedAges(next);
+      saveNamedAges(next);
+      showToast(`${name ?? teamId} is ${level}U. It will be filed on the next refresh.`);
+    },
+    [showToast]
+  );
+
+  const throwOutAgeless = useCallback(
+    async (teamId: string, name: string | undefined): Promise<boolean> => {
+      const confirmed = await requestConfirmation({
+        title: `Throw out ${name ?? teamId}?`,
+        message:
+          "Nothing of it is in the pool to delete — it was never filed. Its GameChanger id is " +
+          "remembered instead, so no later pull reads its schedule again.",
+        confirmLabel: "Throw it out",
+      });
+      if (!confirmed) return false;
+      const next = forgetClubs(loadDroppedClubs(), [teamId]);
+      setDroppedClubs(next);
+      saveDroppedClubs(next);
+      showToast(`${name ?? teamId} thrown out.`);
+      return true;
+    },
+    [requestConfirmation, showToast]
+  );
+
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
     const where = [club.city, club.state].filter(Boolean).join(", ");
     const confirmed = await requestConfirmation({
@@ -1781,6 +1843,14 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               The stored pool, not the merged roster: league-derived games are rebuilt from League
               Standings every render and must never be written back here.
             */
+              ageless={{
+                list: agelessList,
+                named: namedAges,
+                dropped: droppedClubs,
+                onNameAge: nameAgeFor,
+                onThrowOut: throwOutAgeless,
+                now: new Date(today),
+              }}
               poolHealth={{
                 pool: { ageGroups, teams: scoutTeams, games: wholePoolGames },
                 tidyStamp: loadTidyStamp() ?? "",

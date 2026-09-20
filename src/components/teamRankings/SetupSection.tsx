@@ -8,6 +8,10 @@ import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { PoolHealthCard } from "./PoolHealthCard";
+import { AgelessReviewCard } from "./AgelessReviewCard";
+import type { AgeUnknownList } from "../../lib/ageUnknown";
+import type { NamedAges } from "../../lib/namedAges";
+import type { DeletedClubs } from "../../lib/deletedGames";
 import type { UnrealClub } from "../../lib/unrealClubs";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
@@ -28,6 +32,20 @@ type SetupSectionProps = {
   /** When the pool was last backed up from this browser; null for never. */
   lastBackupAt: string | null;
   onReset: () => void;
+  /**
+   * The teams nobody could age, and the two ways to answer for one.
+   *
+   * Beside Pool Health rather than in the import panel: this is a sitting somebody does with
+   * GameChanger open in another tab, not something glanced at while a pull runs.
+   */
+  ageless: {
+    list: AgeUnknownList;
+    named: NamedAges;
+    dropped: DeletedClubs;
+    onNameAge: (teamId: string, name: string | undefined, level: number) => void;
+    onThrowOut: (teamId: string, name: string | undefined) => Promise<boolean> | boolean;
+    now: Date;
+  };
   /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
   poolHealth: {
     pool: GcImportState;
@@ -65,6 +83,7 @@ type SetupSectionProps = {
  * really answered (which league season plays at which age) is asked once, above.
  */
 export function SetupSection({
+  ageless,
   seasons,
   ageGroups,
   onAssignSeason,
@@ -166,6 +185,15 @@ export function SetupSection({
           </p>
         )}
       </div>
+
+      <AgelessReviewCard
+        ageless={ageless.list}
+        named={ageless.named}
+        dropped={ageless.dropped}
+        onNameAge={ageless.onNameAge}
+        onThrowOut={ageless.onThrowOut}
+        now={ageless.now}
+      />
 
       <PoolHealthCard
         pool={poolHealth.pool}

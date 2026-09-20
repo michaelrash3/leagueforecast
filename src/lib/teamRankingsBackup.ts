@@ -13,12 +13,29 @@ import {
   coerceScoutGames,
   coerceScoutTeams,
   loadAgeGroups,
+  loadAgeUnknown,
+  loadDeletedGames,
+  loadDroppedClubs,
+  loadKeptApart,
+  loadNamedAges,
   loadScoutGames,
   loadScoutTeams,
+  loadTooYoungClubs,
   replaceScoutGames,
   saveAgeGroups,
+  saveAgeUnknown,
+  saveDeletedGames,
+  saveDroppedClubs,
+  saveKeptApart,
+  saveNamedAges,
   saveScoutTeams,
+  saveTooYoungClubs,
 } from "./teamRankingsStorage";
+import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
+import { coerceDeletedClubs, coerceDeletedGames } from "./deletedGames";
+import { coerceKeptApart } from "./keptApart";
+import { coerceNamedAges, namedAgesList, type NamedAge } from "./namedAges";
+import { coerceTooYoungClubs } from "./tooYoungClubs";
 import type { UndoSnapshot } from "./types";
 import { isRecord } from "./validate";
 import { coerceArchivedSeason, type ArchivedSeason } from "./teamRankingsArchive";
@@ -54,6 +71,29 @@ export type TeamRankingsBackup = {
    * offers this file as the way back from wiping it, and without this the way back was a lie.
    */
   archives?: ArchivedSeason[];
+  /**
+   * The decisions somebody made about this pool, as opposed to the pool itself.
+   *
+   * Every one of these is work that cannot be recomputed. The ages named by hand are an evening
+   * spent with GameChanger open in another tab; the thrown-out clubs are a judgement about each
+   * one; the deleted rows and the kept-apart pairs are the same. None of it rode in a backup, so
+   * restoring one into a fresh browser silently threw all of it away and then set about
+   * rediscovering the problems it had answered.
+   *
+   * Optional, and absent means leave what is there alone — "this file predates the block" and
+   * "this file has nothing to say about it" are the same bytes, exactly as `archives` is handled.
+   */
+  answers?: BackupAnswers;
+};
+
+/** The answers, in the shape they are stored in. */
+export type BackupAnswers = {
+  namedAges: NamedAge[];
+  droppedClubs: string[];
+  tooYoungClubs: string[];
+  deletedGames: string[];
+  keptApart: string[];
+  ageUnknown: AgeUnknownList;
 };
 
 /** `AgeGroup.seasonIds` is a list inside one cell; a semicolon keeps it out of CSV quoting. */
@@ -131,6 +171,14 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
   ageGroups: loadAgeGroups(),
   teams: loadScoutTeams(),
   games: loadScoutGames(),
+  answers: {
+    namedAges: namedAgesList(loadNamedAges()),
+    droppedClubs: [...loadDroppedClubs()].sort(),
+    tooYoungClubs: [...loadTooYoungClubs()].sort(),
+    deletedGames: [...loadDeletedGames()].sort(),
+    keptApart: [...loadKeptApart()].sort(),
+    ageUnknown: loadAgeUnknown(),
+  },
 });
 
 /** Replace the live pool with a restored one. `false` if any key could not be written. */
@@ -140,7 +188,40 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
   // A restore is the pool now, so a stored year the file has nothing for is meant to go; see
   // `replaceScoutGames`, which is the only caller entitled to that.
   const wroteGames = replaceScoutGames(backup.games);
-  return wroteAgeGroups && wroteTeams && wroteGames;
+  /*
+   * The answers only when the file carries them. A backup written before this block existed says
+   * nothing about them, and reading that silence as "throw them all away" would make restoring an
+   * old file destroy work the file was never asked about.
+   *
+   * Coerced on the way in as well, though each loader coerces on the way out and that is what
+   * actually enforces the rules — a named level the app does not rank cannot survive
+   * `loadNamedAges` however it got into storage. This pass only keeps the stored value itself
+   * clean, so a hand-edited file does not leave rubbish sitting in a key for ever.
+   */
+  const wroteAnswers = backup.answers
+    ? [
+        saveNamedAges(coerceNamedAges(backup.answers.namedAges)),
+        saveDroppedClubs(coerceDeletedClubs(backup.answers.droppedClubs)),
+        saveTooYoungClubs(coerceTooYoungClubs(backup.answers.tooYoungClubs)),
+        saveDeletedGames(coerceDeletedGames(backup.answers.deletedGames)),
+        saveKeptApart(coerceKeptApart(backup.answers.keptApart)),
+        saveAgeUnknown(coerceAgeUnknown(backup.answers.ageUnknown)),
+      ].every(Boolean)
+    : true;
+  return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers;
+};
+
+/** A parsed `answers` block, or undefined when the file has none. */
+export const coerceBackupAnswers = (raw: unknown): BackupAnswers | undefined => {
+  if (!isRecord(raw)) return undefined;
+  return {
+    namedAges: namedAgesList(coerceNamedAges(raw.namedAges)),
+    droppedClubs: [...coerceDeletedClubs(raw.droppedClubs)].sort(),
+    tooYoungClubs: [...coerceTooYoungClubs(raw.tooYoungClubs)].sort(),
+    deletedGames: [...coerceDeletedGames(raw.deletedGames)].sort(),
+    keptApart: [...coerceKeptApart(raw.keptApart)].sort(),
+    ageUnknown: coerceAgeUnknown(raw.ageUnknown),
+  };
 };
 
 /**
@@ -151,10 +232,12 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
 export const coerceTeamRankingsBackup = (raw: unknown): TeamRankingsBackup | null => {
   if (!isRecord(raw)) return null;
   if (!("ageGroups" in raw) && !("teams" in raw) && !("games" in raw)) return null;
+  const answers = coerceBackupAnswers(raw.answers);
   return {
     ageGroups: coerceAgeGroups(raw.ageGroups),
     teams: coerceScoutTeams(raw.teams),
     games: coerceScoutGames(raw.games),
+    ...(answers ? { answers } : {}),
   };
 };
 

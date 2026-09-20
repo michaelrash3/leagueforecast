@@ -1,4 +1,5 @@
 import { daysSince } from "./date";
+import { coerceAgelessEvidence, type AgelessEvidence } from "./agelessEvidence";
 import type { GcImportOutcome } from "./gameChangerImport";
 
 /**
@@ -33,6 +34,16 @@ export type AgeUnknownTeam = {
   lastTried: string;
   /** How many times it has been asked and still had no age. */
   tries: number;
+  /**
+   * What GameChanger said about it, from the last time anybody asked.
+   *
+   * The team is filed nowhere, so nothing else in the app holds a single fact about it — not a
+   * town, not a roster size, not an opponent. Without this a list of these teams can only show an
+   * id and a name, and the question somebody is trying to answer about each one ("is this a real
+   * club, and what age is it?") has nothing to go on. Replaced rather than accumulated on each
+   * ask, because it describes the schedule as it is now.
+   */
+  evidence?: AgelessEvidence;
 };
 
 export type AgeUnknownList = AgeUnknownTeam[];
@@ -74,6 +85,10 @@ export const updateAgeUnknown = (
         firstSeen: known?.firstSeen ?? now,
         lastTried: now,
         tries: (known?.tries ?? 0) + 1,
+        // What this run saw, or what the last one saw if this run could not say.
+        ...((outcome.noAgeEvidence ?? known?.evidence)
+          ? { evidence: outcome.noAgeEvidence ?? known?.evidence }
+          : {}),
       });
       return;
     }
@@ -199,6 +214,9 @@ export const coerceAgeUnknown = (raw: unknown): AgeUnknownList => {
         firstSeen: typeof row.firstSeen === "string" ? row.firstSeen : "",
         lastTried: typeof row.lastTried === "string" ? row.lastTried : "",
         tries: typeof row.tries === "number" && Number.isFinite(row.tries) ? row.tries : 0,
+        ...(row.evidence && typeof row.evidence === "object"
+          ? { evidence: coerceAgelessEvidence(row.evidence) }
+          : {}),
       },
     ];
   });
