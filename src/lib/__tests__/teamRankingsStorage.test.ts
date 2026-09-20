@@ -13,6 +13,7 @@ import {
   loadPullProgress,
   loadRefreshLog,
   loadTidyStamp,
+  flushPoolWrites,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -524,5 +525,68 @@ describe("the pull log, read on demand", () => {
     expect(await loadPullLog()).toEqual(log);
     clearTeamRankings();
     expect(await loadPullLog()).toBeNull();
+  });
+});
+
+/**
+ * The shard index names the years the pool is stored in, so it must never reach the store ahead of
+ * a shard it names. A load that finds it there first reads that year as empty — the games are not
+ * gone, but nothing can find them, and the pool health card reports a squad year that has lost its
+ * games.
+ *
+ * The queue is what decides it. Writes are held in a Map and drained one key at a time, each
+ * awaited on its own rather than in a single transaction, so a tab closed mid-drain lands a prefix
+ * of it. A Map keeps a key at the position it was *first* inserted, so an index rewritten while an
+ * earlier copy of itself was still queued travelled at the earlier one's place — ahead of the very
+ * shard the rewrite existed to name.
+ */
+describe("the order the shard index reaches the store in", () => {
+  const GROUPS = [
+    { id: "ag_2027", name: "2027", ageLevel: 10, year: 2027, seasonIds: [] },
+    { id: "ag_2028", name: "2028", ageLevel: 10, year: 2028, seasonIds: [] },
+  ];
+  const gameIn = (id: string, ageGroupId: string): ScoutGame => ({
+    id,
+    ageGroupId,
+    teamAId: "A",
+    teamBId: "B",
+    teamAScore: 4,
+    teamBScore: 1,
+    date: "2026-09-12",
+  });
+  /** The index is whichever stored value is a list of year labels; its key is not this test's. */
+  const looksLikeIndex = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+  it("lands every shard before the index that names it", async () => {
+    const written: string[] = [];
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        written.push(key);
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    saveAgeGroups(GROUPS);
+
+    // One year, then a second added while the first save is still on the queue. The second rewrites
+    // the index, and that rewrite is what used to travel at the first one's place.
+    saveScoutGames([gameIn("g1", "ag_2027")]);
+    saveScoutGames([gameIn("g1", "ag_2027"), gameIn("g2", "ag_2028")]);
+    await flushPoolWrites();
+
+    const indexKey = [...store.entries()].find(
+      ([, value]) => looksLikeIndex(value) && value.includes("2028")
+    )?.[0];
+    expect(indexKey).toBeDefined();
+    const shardKey = [...store.keys()].find((key) => key.endsWith("2028") && key !== indexKey);
+    expect(shardKey).toBeDefined();
+    // Every write of the index, including the last, comes after the shard it names.
+    expect(written.lastIndexOf(shardKey!)).toBeLessThan(written.lastIndexOf(indexKey!));
   });
 });
