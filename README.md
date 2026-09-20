@@ -580,7 +580,7 @@ an empty schedule is a club somebody made this morning as often as it is a ficti
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at
-none — but the moment GameChanger's answer *changes* from what it was when the name
+none — but the moment GameChanger's answer _changes_ from what it was when the name
 was given, GameChanger wins and the named level is dropped. `insteadOf` records what
 GameChanger was saying at the time, so that is a comparison rather than a guess. A
 level outside the ranked range is refused rather than clamped: a stored 6U would be an
