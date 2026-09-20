@@ -10,6 +10,7 @@ import {
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
+import { coerceDeletedGames, deletedGamesList, type DeletedGames } from "./deletedGames";
 import {
   archiveEntryOf,
   coerceArchivedSeason,
@@ -131,6 +132,15 @@ const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
  * questions again about exactly the same two teams.
  */
 const GC_APART_KEY = "league_forecast_gc_apart_v1";
+/**
+ * The rows the user has thrown out, by id, so a re-pull does not file them again.
+ *
+ * Beside the apart list and for the same reason: small, about the pool, and stepped over by the
+ * reset below because the answer outlives the data. A reset and a fresh pull would otherwise hand
+ * back every game that was deleted for being dated ahead of today — several hundred of them on a
+ * nationwide pool — for the user to throw out a second time. See `deletedGames.ts`.
+ */
+const GC_DELETED_KEY = "league_forecast_gc_deleted_v1";
 /**
  * One archived season's rows, a key each.
  *
@@ -359,6 +369,7 @@ const POOL_KEYS = [
   GC_AGELESS_KEY,
   GC_ARCHIVE_KEY,
   GC_APART_KEY,
+  GC_DELETED_KEY,
 ];
 /**
  * Keys that live beside the pool in the store but are read on demand rather than into the cache.
@@ -562,7 +573,8 @@ export const clearTeamRankings = (): boolean => {
   const archived = loadArchiveIndex();
   // Each year's games has a key of its own, named by the index; read them before the index goes.
   const shards = gamesShardKeys();
-  POOL_KEYS.filter((key) => key !== GC_APART_KEY).forEach((key) => forgetValue(key));
+  const kept = new Set<string>([GC_APART_KEY, GC_DELETED_KEY]);
+  POOL_KEYS.filter((key) => !kept.has(key)).forEach((key) => forgetValue(key));
   shards.forEach((key) => forgetValue(key));
   decodedYear = null;
   archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
@@ -1228,6 +1240,12 @@ export const loadKeptApart = (): Set<string> => coerceKeptApart(readValue(GC_APA
 
 export const saveKeptApart = (apart: KeptApart): boolean =>
   writeValue(GC_APART_KEY, keptApartList(apart));
+
+/** The rows the user has thrown out, by id, so a re-pull does not file them again. */
+export const loadDeletedGames = (): Set<string> => coerceDeletedGames(readValue(GC_DELETED_KEY));
+
+export const saveDeletedGames = (deleted: DeletedGames): boolean =>
+  writeValue(GC_DELETED_KEY, deletedGamesList(deleted));
 
 /**
  * A value that is too big to keep in memory, read and written straight past the cache.

@@ -52,6 +52,7 @@ import {
 } from "./teamRankings";
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
+import { isDeletedGame, type DeletedGames } from "./deletedGames";
 
 /**
  * The lookups an import does, precomputed.
@@ -1278,7 +1279,8 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
  */
 export const importGcSchedule = (
   schedule: GcTeamSchedule,
-  state: GcImportState
+  state: GcImportState,
+  deleted: DeletedGames = new Set<string>()
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   // The fold works in place, so it is handed copies: a caller's pool is never altered under it.
   const working: GcImportState = {
@@ -1286,7 +1288,7 @@ export const importGcSchedule = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const result = importOne(schedule, working, buildIndex(working));
+  const result = importOne(schedule, working, buildIndex(working), deleted);
   // Nothing could be filed, so hand back exactly what came in rather than a copy of it.
   return result.outcome.issue ? { state, outcome: result.outcome } : result;
 };
@@ -1294,7 +1296,8 @@ export const importGcSchedule = (
 const importOne = (
   original: GcTeamSchedule,
   state: GcImportState,
-  index: ImportIndex
+  index: ImportIndex,
+  deleted: DeletedGames
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   /*
    * Filled in before anything else looks at the profile, so the page, the link and the games all
@@ -1408,6 +1411,16 @@ const importOne = (
     const theirLevel =
       ageLevelFromName(game.opponentName) ??
       (theirYear === undefined ? undefined : ageFromGradYearInName(game.opponentName, theirYear));
+    /*
+     * A row the user has thrown out stays thrown out. Deleting one without this is deleting it
+     * until the next pull of the same schedule, which finds it and files it again — and the rows
+     * worth deleting are the ones a schedule keeps on offering: a score on a day that has not
+     * happened, which cannot be a result and which GameChanger will go on reporting.
+     */
+    if (isDeletedGame(deleted, gcGameId(profile.id, game.id))) {
+      outcome.gamesUnchanged += 1;
+      continue;
+    }
     const candidate: ScoutGame = {
       id: gcGameId(profile.id, game.id),
       teamAId: own.teamId,
@@ -1492,7 +1505,11 @@ export type GcImporter = {
   readonly state: GcImportState;
 };
 
-export const createGcImporter = (state: GcImportState): GcImporter => {
+export const createGcImporter = (
+  state: GcImportState,
+  /** Rows the user has thrown out, so a re-pull does not file them again. */
+  deleted: DeletedGames = new Set<string>()
+): GcImporter => {
   let next: GcImportState = {
     ageGroups: state.ageGroups.slice(),
     teams: state.teams.slice(),
@@ -1501,7 +1518,7 @@ export const createGcImporter = (state: GcImportState): GcImporter => {
   const index = buildIndex(next);
   return {
     add: (schedule) => {
-      const result = importOne(schedule, next, index);
+      const result = importOne(schedule, next, index, deleted);
       next = result.state;
       return result.outcome;
     },
@@ -1513,7 +1530,8 @@ export const createGcImporter = (state: GcImportState): GcImporter => {
 
 export const importGcSchedules = (
   schedules: GcTeamSchedule[],
-  state: GcImportState
+  state: GcImportState,
+  deleted: DeletedGames = new Set<string>()
 ): { state: GcImportState; outcomes: GcImportOutcome[] } => {
   // One index and one set of working arrays for the whole fold. Rebuilding either per schedule is
   // what made a large import quadratic: the index turned every lookup into a scan, and copying the
@@ -1526,7 +1544,7 @@ export const importGcSchedules = (
   const index = buildIndex(next);
   const outcomes: GcImportOutcome[] = [];
   for (const schedule of schedules) {
-    const result = importOne(schedule, next, index);
+    const result = importOne(schedule, next, index, deleted);
     next = result.state;
     outcomes.push(result.outcome);
   }

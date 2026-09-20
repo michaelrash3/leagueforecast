@@ -73,7 +73,10 @@ import {
   saveScoutTeams,
   saveTidyStamp,
   storedGamesByYear,
+  loadDeletedGames,
+  saveDeletedGames,
 } from "../lib/teamRankingsStorage";
+import { forgetGames } from "../lib/deletedGames";
 import {
   estimateBackupBytes,
   formatBytes,
@@ -963,6 +966,33 @@ export function TeamRankingsView({
    * every game and removes an entry, and a wrong one is tedious to undo by hand.
    */
   /** Answers whether the fold happened, so a list offering several can drop just the one. */
+  /**
+   * Throws out rows that carry a score on a day that has not happened, and remembers them.
+   *
+   * The tombstones go down before the games do: a pull that starts between the two writes would
+   * otherwise file them straight back, and the list is much the cheaper of the two to write. What
+   * it costs is that a refused pool write leaves the rows tombstoned but present — the next tidy
+   * or pull settles that, and it is the safer way round.
+   */
+  const dropGames = async (ids: readonly string[]): Promise<boolean> => {
+    if (ids.length === 0) return false;
+    const confirmed = await requestConfirmation({
+      title: `Delete ${ids.length} game${ids.length === 1 ? "" : "s"}?`,
+      message:
+        "Each one carries a score on a date still to come, so it cannot be a result. They are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
+      confirmLabel: "Delete them",
+    });
+    if (!confirmed) return false;
+    saveDeletedGames(forgetGames(loadDeletedGames(), ids));
+    const drop = new Set(ids);
+    const kept = wholePoolGames.filter((game) => !drop.has(game.id));
+    if (kept.length !== wholePoolGames.length) persistAllGames(kept);
+    showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {
+      tone: "success",
+    });
+    return true;
+  };
+
   const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
@@ -1652,6 +1682,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                   if (tidied.games !== wholePoolGames) persistAllGames(tidied.games);
                 },
                 onMergeTeams: mergeInto,
+                onDropGames: dropGames,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
