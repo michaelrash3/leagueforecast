@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
+import { keptApartList } from "../lib/keptApart";
+import { loadKeptApart } from "../lib/teamRankingsStorage";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import {
@@ -178,10 +180,16 @@ export function usePoolTidy() {
     async (state: GcImportState, reach: TidyReach = {}): Promise<TidyOutcome | null> => {
       const session = beginTidy(new Date().toISOString());
       if (!session) return null;
+      /*
+       * Read once, here, rather than inside the tidy: the worker has no storage and the inline
+       * path must be handed the same answers, or which thread the tidy happened to run on would
+       * decide whether the user's "these are two clubs" was honoured.
+       */
+      const apart = loadKeptApart();
       try {
         return await ask<TidyOutcome>(
           "tidy",
-          (id) => ({ kind: "tidy", id, state: packPool(state) }),
+          (id) => ({ kind: "tidy", id, state: packPool(state), apart: keptApartList(apart) }),
           // What came back is only what changed; the rest is the caller's own arrays, so the
           // identity checks that decide what to save see exactly what the tidy did.
           (response, id) =>
@@ -194,7 +202,7 @@ export function usePoolTidy() {
              * running on the thread that would draw them — so they are collected and handed over
              * once. The reader still learns what the tidy did, just not while it is doing it.
              */
-            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep);
+            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep, apart);
             return { state: tidied, tidy: counts };
           },
           reach,

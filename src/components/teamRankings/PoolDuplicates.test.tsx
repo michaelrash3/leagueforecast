@@ -9,6 +9,8 @@ import {
   team,
 } from "../../test/teamRankingsHarness";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
+import { apartKey } from "../../lib/keptApart";
+import { loadKeptApart } from "../../lib/teamRankingsStorage";
 
 /**
  * One club sitting in the pool as two entries of the same season.
@@ -25,7 +27,12 @@ import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
  */
 const group = ageGroup(9, 2027);
 
-const entry = (id: string, gcId: string, extra: Partial<ScoutTeam> = {}): ScoutTeam =>
+const entry = (
+  id: string,
+  gcId: string,
+  extra: Partial<ScoutTeam> = {},
+  staff = ["Ali Castle", "Crystal Akers"]
+): ScoutTeam =>
   team(id, "Ambush 9U", {
     city: "Prestonsburg",
     state: "KY",
@@ -37,6 +44,12 @@ const entry = (id: string, gcId: string, extra: Partial<ScoutTeam> = {}): ScoutT
         ageLevel: 9,
         season: "fall",
         seasonYear: 2026,
+        /*
+         * Two coaches in common, which is now part of what puts a same-season pair on the list.
+         * An empty GameChanger id and a club's B squad look identical in everything a schedule
+         * records except this, so the coaches are what says these two are one roster.
+         */
+        staff,
       },
     ],
     ...extra,
@@ -114,6 +127,29 @@ describe("a club in the pool twice over", () => {
     expect(screen.getByText(/one club, listed twice/i)).toBeInTheDocument();
   });
 
+  it("stops offering a pair the user says is two clubs, and keeps it stopped", async () => {
+    /*
+     * A no has to stick. A nationwide pool holds enough namesakes — one name, one age, one state,
+     * twice — that the same handful come back on this list after every pull, and a list that
+     * re-asks a question already answered is a list that stops being read. The answer is written
+     * against the two GameChanger ids, which survive the fold that would delete one of this pool's
+     * own ids and the reset that would mint new ones for everybody.
+     */
+    const user = userEvent.setup();
+    renderTeamRankings(pool);
+    await openSetup(user);
+
+    await user.click(await screen.findByRole("button", { name: /^not the same$/i }));
+
+    expect(screen.queryByRole("button", { name: /^not the same$/i })).toBeNull();
+    expect(loadKeptApart().has(apartKey("gcShell00000", "gcReal000000"))).toBe(true);
+
+    // And still gone when the card is asked again, which is where a pull would put it back.
+    await user.click(screen.getByRole("button", { name: /look again/i }));
+    await screen.findByText(/clubs/i);
+    expect(screen.queryByText(/one club, listed twice/i)).toBeNull();
+  });
+
   it("says nothing of two squads that each have a schedule of their own", async () => {
     /*
      * A club running an A and a B squad at 9U names them the same thing, in the same town, in the
@@ -123,6 +159,12 @@ describe("a club in the pool twice over", () => {
     const user = userEvent.setup();
     renderTeamRankings({
       ...pool,
+      // Different coaches, which is the one thing an A and a B squad do not share.
+      teams: [
+        entry("shell", "gcShell00000", {}, ["Dana Hall", "Rory Estes"]),
+        entry("real", "gcReal000000", {}, ["Marie Ochoa", "Glenn Tapp"]),
+        entry("other", "gcOther00000", { name: "NV Stars 9U", city: "Ashland" }),
+      ],
       games: [
         listed("gcReal000000", "g1", "real", "other"),
         listed("gcShell00000", "g2", "shell", "other"),

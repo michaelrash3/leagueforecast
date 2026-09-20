@@ -16,6 +16,8 @@ const pairing = (over: Partial<GcSeasonPairing> = {}): GcSeasonPairing => ({
   toTeamId: "gc-to",
   toTeamName: "Complete Game - Spears",
   toSeason: "Spring 2026",
+  fromGcId: "gcFromFromAA",
+  toGcId: "gcToToToToBB",
   evidence: ["state", "shared-opponent"],
   sameName: true,
   confidence: "likely",

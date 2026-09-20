@@ -4,6 +4,7 @@ import {
   type PoolTidy,
   type TidyStep,
 } from "../lib/gameChangerImport";
+import { coerceKeptApart } from "../lib/keptApart";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import type { AgeGroup } from "../lib/teamRankings";
 import {
@@ -31,7 +32,18 @@ import {
 /** The pool as it crosses: teams and games compact, age groups as they are (they are few). */
 export type PoolWire = { ageGroups: AgeGroup[]; teams: unknown; games: unknown };
 
-export type TidyRequest = { kind: "tidy"; id: number; state: PoolWire };
+export type TidyRequest = {
+  kind: "tidy";
+  id: number;
+  state: PoolWire;
+  /**
+   * Pairs of GameChanger ids the user has said are two clubs, as stored. The worker has no
+   * storage of its own, so a decision it is not told about is a decision it will quietly overrule
+   * — the pairing step applies the settled pairs without asking, which is exactly where a "no"
+   * has to be honoured.
+   */
+  apart?: string[];
+};
 /** What a tidy would do, without doing it — the numbers behind the pool health card. */
 export type InspectRequest = {
   kind: "inspect";
@@ -120,8 +132,10 @@ export const createTidyHandler =
       return;
     }
     const from = performance.now();
-    const { state: tidied, ...counts } = tidyPool(state, (step) =>
-      post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from })
+    const { state: tidied, ...counts } = tidyPool(
+      state,
+      (step) => post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from }),
+      coerceKeptApart(request.apart)
     );
     // Identity against the pool as decoded here: a pass that changes nothing hands back the array
     // it was given, and that is the whole test.
