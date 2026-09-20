@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bracketHost,
   calculateTeams,
   predictGame,
   rankOptionsFromSettings,
@@ -143,5 +144,45 @@ describe("a bracket game", () => {
     expect(odds.championOdds.A).toBeGreaterThan(37);
     // And the worst is the least likely.
     expect(odds.championOdds.D).toBeLessThan(odds.championOdds.C!);
+  });
+});
+
+describe("which side of a bracket game hosts", () => {
+  it("is the better seed, whichever slot it is standing in", () => {
+    /*
+     * `bracketSeedOrder` puts the better seed in the top slot only in the first round. After that
+     * a slot holds whoever won that branch: a four-team bracket starts [1, 4, 2, 3], and if 4
+     * upsets 1 while 2 beats 3, the final is top = 4 against bottom = 2. Reading the host off the
+     * slot hands the seat to the upset winner, so the rule meant one thing in round one and
+     * nothing at all after it.
+     */
+    const one = { id: "A", seed: 1 };
+    const two = { id: "B", seed: 2 };
+    const four = { id: "D", seed: 4 };
+
+    expect(bracketHost(one, four)).toBe(one);
+    expect(bracketHost(four, two)).toBe(two);
+    expect(bracketHost(two, four)).toBe(two);
+  });
+
+  it("gives a tie to the top slot, so the choice is never undefined", () => {
+    const top = { id: "A", seed: 3 };
+    const bottom = { id: "B", seed: 3 };
+
+    expect(bracketHost(top, bottom)).toBe(top);
+  });
+
+  it("takes the home seat away from a seed that upset its way into a later round", () => {
+    // The worst seed in a four-team bracket reaches the final only by an upset, and used to carry
+    // home field there for standing in the top slot. It does not now, and its title odds say so.
+    const { games, logs } = season();
+    const teams = rankTeams(
+      calculateTeams(bases, games, logs, settings),
+      rankOptionsFromSettings(settings)
+    );
+    const odds = simulateBracketOdds(teams, [], 4000, "pin", 4, settings);
+
+    expect(odds.championOdds.D).toBeLessThan(16);
+    expect(odds.championOdds.A).toBeGreaterThan(37);
   });
 });

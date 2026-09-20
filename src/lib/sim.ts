@@ -1373,6 +1373,14 @@ export type BracketOddsResult = {
 
 // Play out a single seeded bracket among `entrants` (already in seed order), drawing each game
 // from the model's win probability with the shared PRNG. Returns the champion and both finalists.
+/**
+ * Of the two sides of a bracket game, the one that hosts: the better seed, which is the lower
+ * number. Named and exported because it is the rule, and because reading it off the slot a team
+ * happens to be standing in is wrong from the second round onward — see `simulateBracketRun`.
+ */
+export const bracketHost = <T extends { seed: number }>(top: T, bottom: T): T =>
+  top.seed <= bottom.seed ? top : bottom;
+
 const simulateBracketRun = (
   entrants: Team[],
   byId: Map<string, Team>,
@@ -1390,36 +1398,42 @@ const simulateBracketRun = (
   const allTeams = [...byId.values()];
   // A bracket game is drawn, not booked, so the league behind it is the same for every round.
   const tally = leagueTallyOf(allTeams, settings);
-  let slots: (string | null)[] = bracketSeedOrder(size).map(
-    (seed) => entrants[seed - 1]?.id ?? null
-  );
+  /**
+   * Each slot carries the seed that is standing in it, not just the team.
+   *
+   * The higher seed hosts, which is what a bracket is seeded for — and `bracketSeedOrder` only
+   * puts it in the top slot in the *first* round. After that a slot holds whoever won that branch,
+   * so reading the host off the slot gives it to the upset winner: a four-team bracket starts
+   * [1, 4, 2, 3], and if 4 beats 1 while 2 beats 3 the final is top = 4 against bottom = 2, with
+   * the seat handed to the worse of the two. Carrying the seed makes the rule mean in every round
+   * what it means in the first.
+   */
+  type Slot = { id: string; seed: number };
+  let slots: (Slot | null)[] = bracketSeedOrder(size).map((seed) => {
+    const entrant = entrants[seed - 1];
+    return entrant ? { id: entrant.id, seed } : null;
+  });
   let finalistIds: string[] = [];
 
   for (let round = 0; round < totalRounds; round += 1) {
     if (round === totalRounds - 1) {
-      finalistIds = slots.filter((slot): slot is string => Boolean(slot));
+      finalistIds = slots.flatMap((slot) => (slot ? [slot.id] : []));
     }
-    const next: (string | null)[] = [];
+    const next: (Slot | null)[] = [];
     for (let game = 0; game < slots.length; game += 2) {
       const top = slots[game] ?? null;
       const bottom = slots[game + 1] ?? null;
       if (top && bottom) {
-        /*
-         * The higher seed hosts, which is what a bracket is seeded for. `bracketSeedOrder` puts it
-         * in the top slot, and this put the top slot in the *away* seat — so the model's
-         * home-field term, the one thing a bracket game has to say about who is at home, was
-         * handed to the lower seed in every game of every round. On a four-team bracket seeded
-         * 6-0, 4-2, 2-4, 0-6 it cost the top seed three and a third points of title odds: 34.25%
-         * against 37.57% with the seats the right way round.
-         */
+        const host = bracketHost(top, bottom);
+        const visitor = host === top ? bottom : top;
         const matchup: Matchup = {
           id: `sim-r${round}-g${game}`,
           date: "",
-          away: bottom,
-          home: top,
+          away: visitor.id,
+          home: host.id,
         };
         const prediction = predictGame(matchup, allTeams, settings, byId, tally);
-        next.push(random() < prediction.awayWinPct ? bottom : top);
+        next.push(random() < prediction.awayWinPct ? visitor : host);
       } else {
         next.push(top ?? bottom);
       }
@@ -1427,7 +1441,7 @@ const simulateBracketRun = (
     slots = next;
   }
 
-  return { championId: slots[0] ?? null, finalistIds };
+  return { championId: slots[0]?.id ?? null, finalistIds };
 };
 
 export const simulateBracketOdds = (
