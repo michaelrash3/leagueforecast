@@ -52,7 +52,7 @@ import {
 } from "./teamRankings";
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
-import { isDeletedGame, type DeletedGames } from "./deletedGames";
+import { isDeletedClub, isDeletedGame, type DeletedClubs, type DeletedGames } from "./deletedGames";
 
 /**
  * The lookups an import does, precomputed.
@@ -653,6 +653,8 @@ const resolveAgeGroup = (
  * sentence would break the first time somebody reworded it.
  */
 export type GcSkipReason =
+  /** A club the user threw out. Refused before a game is read, or the pull rebuilds it. */
+  | "deleted"
   | "no-age"
   | "below-min-age"
   | "above-max-age"
@@ -1280,7 +1282,8 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
 export const importGcSchedule = (
   schedule: GcTeamSchedule,
   state: GcImportState,
-  deleted: DeletedGames = new Set<string>()
+  deleted: DeletedGames = new Set<string>(),
+  droppedClubs: DeletedClubs = new Set<string>()
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   // The fold works in place, so it is handed copies: a caller's pool is never altered under it.
   const working: GcImportState = {
@@ -1288,7 +1291,7 @@ export const importGcSchedule = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const result = importOne(schedule, working, buildIndex(working), deleted);
+  const result = importOne(schedule, working, buildIndex(working), deleted, droppedClubs);
   // Nothing could be filed, so hand back exactly what came in rather than a copy of it.
   return result.outcome.issue ? { state, outcome: result.outcome } : result;
 };
@@ -1297,7 +1300,8 @@ const importOne = (
   original: GcTeamSchedule,
   state: GcImportState,
   index: ImportIndex,
-  deleted: DeletedGames
+  deleted: DeletedGames,
+  droppedClubs: DeletedClubs
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   /*
    * Filled in before anything else looks at the profile, so the page, the link and the games all
@@ -1324,6 +1328,22 @@ const importOne = (
     opponentsMatchedByName: 0,
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
   };
+
+  /*
+   * A club the user threw out, refused before a single game is read off it. Nothing later can do
+   * this: the games would be filed, the team rebuilt from the profile, and the deletion undone by
+   * the very pull that was meant to keep the pool clean.
+   */
+  if (isDeletedClub(droppedClubs, profile.id)) {
+    return {
+      state,
+      outcome: {
+        ...base,
+        skip: "deleted",
+        issue: "You deleted this club, so its schedule was not read.",
+      },
+    };
+  }
 
   const resolved = resolveAgeGroup(profile, state);
   if (!resolved) {
@@ -1508,7 +1528,9 @@ export type GcImporter = {
 export const createGcImporter = (
   state: GcImportState,
   /** Rows the user has thrown out, so a re-pull does not file them again. */
-  deleted: DeletedGames = new Set<string>()
+  deleted: DeletedGames = new Set<string>(),
+  /** Clubs the user has thrown out, whose schedules are refused outright. */
+  droppedClubs: DeletedClubs = new Set<string>()
 ): GcImporter => {
   let next: GcImportState = {
     ageGroups: state.ageGroups.slice(),
@@ -1518,7 +1540,7 @@ export const createGcImporter = (
   const index = buildIndex(next);
   return {
     add: (schedule) => {
-      const result = importOne(schedule, next, index, deleted);
+      const result = importOne(schedule, next, index, deleted, droppedClubs);
       next = result.state;
       return result.outcome;
     },
@@ -1531,7 +1553,8 @@ export const createGcImporter = (
 export const importGcSchedules = (
   schedules: GcTeamSchedule[],
   state: GcImportState,
-  deleted: DeletedGames = new Set<string>()
+  deleted: DeletedGames = new Set<string>(),
+  droppedClubs: DeletedClubs = new Set<string>()
 ): { state: GcImportState; outcomes: GcImportOutcome[] } => {
   // One index and one set of working arrays for the whole fold. Rebuilding either per schedule is
   // what made a large import quadratic: the index turned every lookup into a scan, and copying the
@@ -1544,7 +1567,7 @@ export const importGcSchedules = (
   const index = buildIndex(next);
   const outcomes: GcImportOutcome[] = [];
   for (const schedule of schedules) {
-    const result = importOne(schedule, next, index, deleted);
+    const result = importOne(schedule, next, index, deleted, droppedClubs);
     next = result.state;
     outcomes.push(result.outcome);
   }

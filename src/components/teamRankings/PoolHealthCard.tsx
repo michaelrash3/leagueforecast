@@ -12,6 +12,7 @@ import { squadYearHoldings } from "../../lib/poolHealth";
 import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
 import { keepApart as apartAfter } from "../../lib/keptApart";
 import { isDatedAhead } from "../../lib/deletedGames";
+import { unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { todayIsoDay } from "../../lib/date";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
@@ -33,6 +34,11 @@ type PoolHealthCardProps = {
    * them again. See `deletedGames.ts` for why a deletion has to be remembered rather than done.
    */
   onDropGames: (ids: readonly string[]) => Promise<boolean>;
+  /**
+   * Throws a club out: the team, every row it is in, and its GameChanger ids, so a pull refuses
+   * its schedule rather than rebuilding it. See `deletedGames.ts`.
+   */
+  onDropClub: (club: UnrealClub) => Promise<boolean>;
 };
 
 const count = (value: number) => value.toLocaleString();
@@ -66,6 +72,7 @@ export function PoolHealthCard({
   onTidied,
   onMergeTeams,
   onDropGames,
+  onDropClub,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -103,7 +110,7 @@ export function PoolHealthCard({
    */
   const [duplicates, setDuplicates] = useState<GcSeasonPairing[] | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
-  const [dropping, setDropping] = useState(false);
+  const [dropping, setDropping] = useState<string | null>(null);
 
   /**
    * The rows with a score on a day that has not happened.
@@ -120,6 +127,16 @@ export function PoolHealthCard({
     const today = todayIsoDay();
     return pool.games.filter((game) => isDatedAhead(game, today));
   }, [pool.games]);
+
+  /**
+   * The clubs those rows belong to, worst first.
+   *
+   * Deleting the rows one at a time is endless while the club that invented them is still in the
+   * pull list: the next run files a fresh set. The club is the thing to delete, and the share of
+   * its record that is impossible is what says whether it is a club at all — "Test team" with 68
+   * of 68 is not one; a side with 3 of 40 has some wrong dates on it.
+   */
+  const unreal = useMemo(() => unrealClubs(pool, todayIsoDay()), [pool]);
 
   const sameSeasonPairs = (state: GcImportState) =>
     proposeSeasonPairings(state.teams, state.games, loadKeptApart()).filter(
@@ -175,11 +192,21 @@ export function PoolHealthCard({
   /** Throws out every row scored on a day that has not happened. The caller asks first. */
   const dropDatedAhead = async () => {
     if (datedAhead.length === 0) return;
-    setDropping(true);
+    setDropping("games");
     try {
       await onDropGames(datedAhead.map((game) => game.id));
     } finally {
-      setDropping(false);
+      setDropping(null);
+    }
+  };
+
+  /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
+  const dropClub = async (club: UnrealClub) => {
+    setDropping(club.teamId);
+    try {
+      await onDropClub(club);
+    } finally {
+      setDropping(null);
     }
   };
 
@@ -401,11 +428,53 @@ export function PoolHealthCard({
           <button
             type="button"
             onClick={() => void dropDatedAhead()}
-            disabled={dropping || pullLive}
+            disabled={dropping !== null || pullLive}
             className={`${button.ghost} mt-3 text-sm`}
           >
-            {dropping ? "Deleting…" : `Delete ${plural(datedAhead.length, "game")}`}
+            {dropping === "games" ? "Deleting…" : `Delete ${plural(datedAhead.length, "game")}`}
           </button>
+
+          {unreal.length > 0 && (
+            <>
+              <h4 className="mt-4 text-xs font-black uppercase tracking-wide text-slate-500">
+                The clubs they belong to
+              </h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Deleting the rows while the club that files them is still in the pull list only
+                lasts until the next run. A club that is all impossible games is not a club:
+                deleting one takes its whole schedule with it and refuses its GameChanger id from
+                then on.
+              </p>
+              <ul className="mt-2 space-y-1">
+                {unreal.slice(0, 12).map((club) => (
+                  <li key={club.teamId} className="text-xs">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {club.name}
+                    </span>{" "}
+                    <span className="text-slate-500">
+                      {[club.city, club.state].filter(Boolean).join(", ")}
+                    </span>{" "}
+                    <span className={pill(club.ahead === club.played ? "amber" : "emerald")}>
+                      {count(club.ahead)} of {plural(club.played, "played game")} impossible
+                    </span>{" "}
+                    <button
+                      type="button"
+                      onClick={() => void dropClub(club)}
+                      disabled={dropping !== null || pullLive}
+                      className={`${button.ghost} text-xs`}
+                    >
+                      {dropping === club.teamId ? "Deleting…" : "Delete club"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {unreal.length > 12 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Drawing 12 of {count(unreal.length)}, worst first.
+                </p>
+              )}
+            </>
+          )}
           <p className="mt-2 text-xs text-slate-500">
             Deleted for good: each one is remembered by its GameChanger id, so the next pull of that
             schedule does not file it again. A date corrected on GameChanger does not bring it back

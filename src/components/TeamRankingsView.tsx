@@ -74,9 +74,12 @@ import {
   saveTidyStamp,
   storedGamesByYear,
   loadDeletedGames,
+  loadDroppedClubs,
   saveDeletedGames,
+  saveDroppedClubs,
 } from "../lib/teamRankingsStorage";
-import { forgetGames } from "../lib/deletedGames";
+import { forgetClubs, forgetGames } from "../lib/deletedGames";
+import type { UnrealClub } from "../lib/unrealClubs";
 import {
   estimateBackupBytes,
   formatBytes,
@@ -993,6 +996,34 @@ export function TeamRankingsView({
     return true;
   };
 
+  /**
+   * Throws a club out: the team, every row it is in, and its GameChanger ids.
+   *
+   * The ids are what makes it stick. Without them the next pull reads the same schedule, rebuilds
+   * the team from its profile and files a fresh set of the very rows that were deleted — so the
+   * club has to be refused at the schedule, which is what `isDeletedClub` does in `importOne`.
+   */
+  const dropClub = async (club: UnrealClub): Promise<boolean> => {
+    const where = [club.city, club.state].filter(Boolean).join(", ");
+    const confirmed = await requestConfirmation({
+      title: `Delete ${club.name}?`,
+      message: `${club.ahead} of its ${club.played} played games are on days that have not happened${
+        where ? `, and it is listed in ${where}` : ""
+      }. The club, all ${club.gameIds.length} of its rows and its GameChanger id go, and pulling that id again will be refused.`,
+      confirmLabel: "Delete the club",
+    });
+    if (!confirmed) return false;
+    if (club.gcTeamIds.length > 0) {
+      saveDroppedClubs(forgetClubs(loadDroppedClubs(), club.gcTeamIds));
+    }
+    saveDeletedGames(forgetGames(loadDeletedGames(), club.gameIds));
+    const drop = new Set(club.gameIds);
+    persistAllGames(wholePoolGames.filter((game) => !drop.has(game.id)));
+    persistTeams(scoutTeams.filter((team) => team.id !== club.teamId));
+    showToast(`Deleted ${club.name}.`, { tone: "success" });
+    return true;
+  };
+
   const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
@@ -1683,6 +1714,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 },
                 onMergeTeams: mergeInto,
                 onDropGames: dropGames,
+                onDropClub: dropClub,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so

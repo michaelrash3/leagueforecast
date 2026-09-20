@@ -10,7 +10,14 @@ import {
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
-import { coerceDeletedGames, deletedGamesList, type DeletedGames } from "./deletedGames";
+import {
+  coerceDeletedClubs,
+  coerceDeletedGames,
+  deletedClubsList,
+  deletedGamesList,
+  type DeletedClubs,
+  type DeletedGames,
+} from "./deletedGames";
 import {
   archiveEntryOf,
   coerceArchivedSeason,
@@ -141,6 +148,12 @@ const GC_APART_KEY = "league_forecast_gc_apart_v1";
  * nationwide pool — for the user to throw out a second time. See `deletedGames.ts`.
  */
 const GC_DELETED_KEY = "league_forecast_gc_deleted_v1";
+/**
+ * The clubs the user has thrown out, by GameChanger team id, so a pull refuses their schedules
+ * outright. Beside the other two answer lists and stepped over by the reset for the same reason:
+ * a club that was not a club on Friday is not one on Monday. See `deletedGames.ts`.
+ */
+const GC_DROPPED_CLUBS_KEY = "league_forecast_gc_dropped_clubs_v1";
 /**
  * One archived season's rows, a key each.
  *
@@ -370,6 +383,7 @@ const POOL_KEYS = [
   GC_ARCHIVE_KEY,
   GC_APART_KEY,
   GC_DELETED_KEY,
+  GC_DROPPED_CLUBS_KEY,
 ];
 /**
  * Keys that live beside the pool in the store but are read on demand rather than into the cache.
@@ -573,7 +587,7 @@ export const clearTeamRankings = (): boolean => {
   const archived = loadArchiveIndex();
   // Each year's games has a key of its own, named by the index; read them before the index goes.
   const shards = gamesShardKeys();
-  const kept = new Set<string>([GC_APART_KEY, GC_DELETED_KEY]);
+  const kept = new Set<string>([GC_APART_KEY, GC_DELETED_KEY, GC_DROPPED_CLUBS_KEY]);
   POOL_KEYS.filter((key) => !kept.has(key)).forEach((key) => forgetValue(key));
   shards.forEach((key) => forgetValue(key));
   decodedYear = null;
@@ -1246,6 +1260,13 @@ export const loadDeletedGames = (): Set<string> => coerceDeletedGames(readValue(
 
 export const saveDeletedGames = (deleted: DeletedGames): boolean =>
   writeValue(GC_DELETED_KEY, deletedGamesList(deleted));
+
+/** The clubs the user has thrown out, by GameChanger id, so a pull refuses their schedules. */
+export const loadDroppedClubs = (): Set<string> =>
+  coerceDeletedClubs(readValue(GC_DROPPED_CLUBS_KEY));
+
+export const saveDroppedClubs = (clubs: DeletedClubs): boolean =>
+  writeValue(GC_DROPPED_CLUBS_KEY, deletedClubsList(clubs));
 
 /**
  * A value that is too big to keep in memory, read and written straight past the cache.

@@ -76,6 +76,7 @@ import {
   saveTidyStamp,
   type PoolHolding,
   loadDeletedGames,
+  loadDroppedClubs,
   loadKeptApart,
   saveKeptApart,
 } from "../lib/teamRankingsStorage";
@@ -696,7 +697,7 @@ export function GameChangerImportPanel({
        * teams by far the longest part of a pull.
        */
       // Rows thrown out for being dated ahead of today stay thrown out; see `deletedGames.ts`.
-      const importer = createGcImporter(poolRef.current, loadDeletedGames());
+      const importer = createGcImporter(poolRef.current, loadDeletedGames(), loadDroppedClubs());
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.
       if (part === undefined || part.first) outcomesRef.current = [];
