@@ -158,6 +158,40 @@ export const squadYearWindow = (year: number): { start: string; end: string } =>
   end: `${year}-07-31`,
 });
 
+/**
+ * A League Standings date, placed in the squad year it must belong to.
+ *
+ * League Standings stores a date as bare "M/D" — `normalizeDateInput` makes every shape into one,
+ * including an ISO date typed into a browser date picker — because a league season is one year and
+ * the year is on the page. Team Rankings is not one year, and every one of its date tests is a
+ * string comparison against `squadYearWindow`. "9/13" is not less than "2027-07-31", so every
+ * League Standings game carried across failed `inSquadYear`, was in neither half of the season by
+ * `segmentOfDate`, and was silently left out of the fit, the record and the table it was carried
+ * across for. Worse where the club had also been pulled from GameChanger: the league row displaces
+ * the stored row as the better account of that fixture, and then removes itself.
+ *
+ * The squad year is what resolves the missing year, which is the whole point of its August
+ * boundary: a month from August belongs to the calendar year before the squad year's number, and
+ * a month before August to the number itself. A date already in ISO is returned as it is, and a
+ * date with no squad year to place it in is left alone — an unplaceable date passes every test
+ * here, which counts the game, where a date that parses wrongly does not.
+ */
+export const dateInSquadYear = (
+  date: string | undefined,
+  year: number | undefined
+): string | undefined => {
+  if (!date) return date;
+  // Only a bare "M/D" is ours to place. Anything else — an ISO date, a shape nothing recognises —
+  // fails this and is handed back as it came, which is what the callers below already expect.
+  const parts = /^(\d{1,2})\/(\d{1,2})$/.exec(date);
+  if (!parts || year === undefined) return date;
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return date;
+  const calendar = month >= 8 ? year - 1 : year;
+  return `${calendar}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
 /** Whether a game's date falls in its squad year. A game with no date, or a page with no year, passes. */
 export const inSquadYear = (date: string | undefined, year: number | undefined): boolean => {
   if (year === undefined || !date) return true;

@@ -37,6 +37,7 @@ import {
   ageGroupChain,
   ageGroupLevel,
   ageGroupYear,
+  dateInSquadYear,
   inSegment,
   isRankedAgeLevel,
   rankingPoolGroupIds,
@@ -191,7 +192,13 @@ export type LeagueSeasonSnapshot = {
 export const deriveLeagueScoutGames = (
   ageGroupId: string,
   seasons: LeagueSeasonSnapshot[],
-  scoutTeams: ScoutTeam[]
+  scoutTeams: ScoutTeam[],
+  /**
+   * The squad year of the page these are being carried onto, which is what supplies the year a
+   * League Standings date does not carry. Without it every row here reads as dated outside its
+   * own season — see `dateInSquadYear`.
+   */
+  squadYear?: number
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
   let teams = scoutTeams;
   const games: ScoutGame[] = [];
@@ -227,7 +234,7 @@ export const deriveLeagueScoutGames = (
           teamBId,
           ageGroupId,
           ...(played ? { teamAScore: awayScore, teamBScore: homeScore } : {}),
-          date: matchup.date,
+          date: dateInSquadYear(matchup.date, squadYear),
         });
       });
     }
