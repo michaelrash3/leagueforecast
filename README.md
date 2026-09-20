@@ -534,6 +534,18 @@ a ceiling on how much one run may hold in memory rather than a pacer, so the who
 list is offered at once and a list longer than the ceiling has its overflow asked
 the next day rather than the next week.
 
+A team GameChanger says is below the youngest level ranked here is remembered rather
+than rediscovered. The paste already drops rows that name a too-young age themselves,
+but a row naming no age is kept — most do not name one — so it is fetched, GameChanger
+says 7U, and the schedule is refused. Nothing used to remember that, so the next
+export spent the same two requests on the same answer, for thousands of teams. The id
+now goes in a list of its own, the paste skips it, and `importOne` refuses it before
+reading a game. It is a cache of a fact rather than a record of a decision, which is
+why it is kept apart from the clubs the user threw out: burying a dozen deliberate
+deletions under four thousand toddlers would make that list unreadable. A GameChanger
+id is minted per team per season, so this can never hold a club down as it ages up —
+next year is a different id.
+
 Only that team's own schedule can answer the question about it. `ageFromOpponentNames`
 reads the opponent names off the schedule just fetched, and neither the pool nor the
 index is on that path — so pulling other clubs never settles an age, however many of

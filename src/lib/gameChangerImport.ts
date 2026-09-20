@@ -53,6 +53,7 @@ import {
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
 import { isDeletedClub, isDeletedGame, type DeletedClubs, type DeletedGames } from "./deletedGames";
+import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 
 /**
  * The lookups an import does, precomputed.
@@ -1279,11 +1280,31 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
  * with the reason in `issue`, because filing a nationwide pull's worth of games under a guess is
  * worse than saying so.
  */
+/**
+ * The answers a pull carries with it: what the user has already decided, and what the app has
+ * already learned.
+ *
+ * An object rather than a run of positional arguments because there are now three of them and
+ * there will be more. Measured across the repo, 142 of the 147 calls to the three entry points
+ * below pass only the schedule and the pool, so this costs five call sites and stops the next
+ * answer being a fifth positional parameter nobody can read at a glance.
+ */
+export type GcImportOptions = {
+  /** Rows the user has thrown out, so a re-pull does not file them again. */
+  deleted?: DeletedGames;
+  /** Clubs the user has thrown out, whose schedules are refused outright. */
+  droppedClubs?: DeletedClubs;
+  /** Ids already known to be below the youngest level ranked here. */
+  tooYoung?: TooYoungClubs;
+};
+
+const NOTHING_DELETED: DeletedGames = new Set<string>();
+const NO_CLUBS: DeletedClubs = new Set<string>();
+
 export const importGcSchedule = (
   schedule: GcTeamSchedule,
   state: GcImportState,
-  deleted: DeletedGames = new Set<string>(),
-  droppedClubs: DeletedClubs = new Set<string>()
+  options: GcImportOptions = {}
 ): { state: GcImportState; outcome: GcImportOutcome } => {
   // The fold works in place, so it is handed copies: a caller's pool is never altered under it.
   const working: GcImportState = {
@@ -1291,7 +1312,7 @@ export const importGcSchedule = (
     teams: state.teams.slice(),
     games: state.games.slice(),
   };
-  const result = importOne(schedule, working, buildIndex(working), deleted, droppedClubs);
+  const result = importOne(schedule, working, buildIndex(working), options);
   // Nothing could be filed, so hand back exactly what came in rather than a copy of it.
   return result.outcome.issue ? { state, outcome: result.outcome } : result;
 };
@@ -1300,9 +1321,11 @@ const importOne = (
   original: GcTeamSchedule,
   state: GcImportState,
   index: ImportIndex,
-  deleted: DeletedGames,
-  droppedClubs: DeletedClubs
+  options: GcImportOptions
 ): { state: GcImportState; outcome: GcImportOutcome } => {
+  const deleted = options.deleted ?? NOTHING_DELETED;
+  const droppedClubs = options.droppedClubs ?? NO_CLUBS;
+  const tooYoung = options.tooYoung ?? NO_CLUBS;
   /*
    * Filled in before anything else looks at the profile, so the page, the link and the games all
    * agree on one level. A team GameChanger did not file under an age is filed under the one its
@@ -1341,6 +1364,22 @@ const importOne = (
         ...base,
         skip: "deleted",
         issue: "You deleted this club, so its schedule was not read.",
+      },
+    };
+  }
+
+  /*
+   * A club GameChanger has already told us is too young, refused without reading its schedule.
+   * The age is a fact about the squad and a GameChanger id is minted per team per season, so it
+   * cannot come good as the club ages up — next year is a different id.
+   */
+  if (isTooYoungClub(tooYoung, profile.id)) {
+    return {
+      state,
+      outcome: {
+        ...base,
+        skip: "below-min-age",
+        issue: `This club is below ${MIN_AGE_LEVEL}U, so its schedule was not read again.`,
       },
     };
   }
@@ -1527,10 +1566,7 @@ export type GcImporter = {
 
 export const createGcImporter = (
   state: GcImportState,
-  /** Rows the user has thrown out, so a re-pull does not file them again. */
-  deleted: DeletedGames = new Set<string>(),
-  /** Clubs the user has thrown out, whose schedules are refused outright. */
-  droppedClubs: DeletedClubs = new Set<string>()
+  options: GcImportOptions = {}
 ): GcImporter => {
   let next: GcImportState = {
     ageGroups: state.ageGroups.slice(),
@@ -1540,7 +1576,7 @@ export const createGcImporter = (
   const index = buildIndex(next);
   return {
     add: (schedule) => {
-      const result = importOne(schedule, next, index, deleted, droppedClubs);
+      const result = importOne(schedule, next, index, options);
       next = result.state;
       return result.outcome;
     },
@@ -1553,8 +1589,7 @@ export const createGcImporter = (
 export const importGcSchedules = (
   schedules: GcTeamSchedule[],
   state: GcImportState,
-  deleted: DeletedGames = new Set<string>(),
-  droppedClubs: DeletedClubs = new Set<string>()
+  options: GcImportOptions = {}
 ): { state: GcImportState; outcomes: GcImportOutcome[] } => {
   // One index and one set of working arrays for the whole fold. Rebuilding either per schedule is
   // what made a large import quadratic: the index turned every lookup into a scan, and copying the
@@ -1567,7 +1602,7 @@ export const importGcSchedules = (
   const index = buildIndex(next);
   const outcomes: GcImportOutcome[] = [];
   for (const schedule of schedules) {
-    const result = importOne(schedule, next, index, deleted, droppedClubs);
+    const result = importOne(schedule, next, index, options);
     next = result.state;
     outcomes.push(result.outcome);
   }

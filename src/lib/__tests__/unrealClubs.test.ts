@@ -115,7 +115,7 @@ describe("a club that has been thrown out", () => {
      * pool clean.
      */
     const dropped = forgetClubs(new Set<string>(), ["WpYo8bR3Smwp"]);
-    const importer = createGcImporter(empty, new Set<string>(), dropped);
+    const importer = createGcImporter(empty, { droppedClubs: dropped });
     const outcome = importer.add(schedule);
 
     expect(outcome.skip).toBe("deleted");

@@ -100,14 +100,14 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
      */
     const deleted = forgetGames(new Set<string>(), ["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
 
-    const { state } = importGcSchedules([schedule([ahead, behind])], empty, deleted);
+    const { state } = importGcSchedules([schedule([ahead, behind])], empty, { deleted });
 
     expect(state.games.map((game) => game.date)).toEqual(["2026-08-30"]);
   });
 
   it("leaves the rest of the schedule alone", () => {
     const deleted = forgetGames(new Set<string>(), ["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
-    const { state, outcomes } = importGcSchedules([schedule([ahead, behind])], empty, deleted);
+    const { state, outcomes } = importGcSchedules([schedule([ahead, behind])], empty, { deleted });
 
     expect(state.games).toHaveLength(1);
     expect(outcomes[0]?.gamesAdded).toBe(1);
@@ -116,7 +116,7 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
   it("holds the same line when the pull comes through the importer", () => {
     // The batch path a real pull uses, which threads its own state from schedule to schedule.
     const deleted = forgetGames(new Set<string>(), ["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
-    const importer = createGcImporter(empty, deleted);
+    const importer = createGcImporter(empty, { deleted });
     importer.add(schedule([ahead, behind]));
 
     expect(importer.state.games.map((game) => game.date)).toEqual(["2026-08-30"]);

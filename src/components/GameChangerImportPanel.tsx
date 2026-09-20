@@ -75,6 +75,12 @@ import {
   updateAgeUnknown,
   type AgeUnknownList,
 } from "../lib/ageUnknown";
+import {
+  isTooYoungClub,
+  rememberTooYoung,
+  tooYoungFromOutcomes,
+  type TooYoungClubs,
+} from "../lib/tooYoungClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
@@ -92,6 +98,8 @@ import {
   type PoolHolding,
   loadDeletedGames,
   loadDroppedClubs,
+  loadTooYoungClubs,
+  saveTooYoungClubs,
   loadKeptApart,
   saveKeptApart,
 } from "../lib/teamRankingsStorage";
@@ -411,13 +419,23 @@ export function GameChangerImportPanel({
    * `MIN_AGE_LEVEL` when it arrives. A row that simply does not say its age is kept, because a
    * pasted id never says one either and GameChanger's own answer settles it.
    */
+  /**
+   * The ids already known to be below the youngest level ranked here.
+   *
+   * State as well as storage because the paste is filtered against it during render — a run that
+   * learns fifty more of them should shorten the next paste without a reload.
+   */
+  const [tooYoung, setTooYoung] = useState<TooYoungClubs>(() => loadTooYoungClubs());
+
   const parsed = useMemo(() => {
     const read = parseGcTeamList(text);
     // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
     // the too-young ones because they are a different kind of "not for us" and the panel says so.
     const baseball = read.entries.filter((entry) => !entry.notBaseball);
     const entries = baseball.filter(
-      (entry) => entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL
+      (entry) =>
+        !isTooYoungClub(tooYoung, entry.teamId) &&
+        (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
     );
     return {
       ...read,
@@ -428,7 +446,7 @@ export function GameChangerImportPanel({
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
     };
-  }, [text]);
+  }, [text, tooYoung]);
 
   /**
    * The list less the teams already here.
@@ -739,11 +757,11 @@ export function GameChangerImportPanel({
        * teams by far the longest part of a pull.
        */
       // Rows thrown out for being dated ahead of today stay thrown out; see `deletedGames.ts`.
-      const importer = createGcImporter(
-        heldRef.current.state,
-        loadDeletedGames(),
-        loadDroppedClubs()
-      );
+      const importer = createGcImporter(heldRef.current.state, {
+        deleted: loadDeletedGames(),
+        droppedClubs: loadDroppedClubs(),
+        tooYoung: loadTooYoungClubs(),
+      });
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.
       if (part === undefined || part.first) outcomesRef.current = [];
@@ -1018,6 +1036,20 @@ export function GameChangerImportPanel({
       const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
       setAgeless(nextAgeless);
       saveAgeUnknown(nextAgeless);
+
+      /*
+       * And the ones GameChanger says are too young to rank. Remembered so the next export does
+       * not spend two requests each rediscovering it: a nationwide list carries thousands of them,
+       * the paste can only skip the rows that name an age themselves, and every other one is a
+       * fetch whose answer never changes. Safe to keep for good — a GameChanger id is minted per
+       * team per season, so this cannot hold a club down as it ages up.
+       */
+      const learnedTooYoung = tooYoungFromOutcomes(outcomesRef.current);
+      if (learnedTooYoung.length > 0) {
+        const nextTooYoung = rememberTooYoung(loadTooYoungClubs(), learnedTooYoung);
+        setTooYoung(nextTooYoung);
+        saveTooYoungClubs(nextTooYoung);
+      }
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
