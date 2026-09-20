@@ -1354,7 +1354,13 @@ const importOne = (
    * agree on one level. A team GameChanger did not file under an age is filed under the one its
    * opponents keep naming, or under none at all.
    */
-  const named = namedAgeFor(options.namedAges ?? NOTHING_NAMED, original.profile.id);
+  /*
+   * What GameChanger says right now, read before anything rewrites it. A level somebody named by
+   * hand stands in only while this is what it was when they named it: the moment the club's own
+   * page says something different, the club wins and the hand-named level is ignored.
+   */
+  const gcSaysNow = profileAgeLevel(original.profile);
+  const named = namedAgeFor(options.namedAges ?? NOTHING_NAMED, original.profile.id, gcSaysNow);
   /*
    * A level somebody named by hand, applied before anything else looks at the profile — ahead of
    * GameChanger's own field rather than only in its absence. Everything downstream then agrees on

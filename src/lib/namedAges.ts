@@ -6,20 +6,23 @@
  * team leaves no trace — and until this existed there was no fourth way. A person could open the
  * GameChanger page, read "9U" off it with their own eyes, and still have nowhere to put that.
  *
- * So this is the fourth way, and it goes first: a level named here beats GameChanger's own field,
- * not just its absence. That is deliberate. It is the only placement that also fixes the next bug
- * along — a team GameChanger has filed at the *wrong* age — and a person who opened the page is
- * better evidence than a field the rest of this codebase already treats as unreliable;
- * `profileAgeLevel` exists precisely because it is so often blank.
+ * So this is the fourth way, and it stands in until the club answers for itself.
  *
- * It is keyed on the GameChanger id, which is minted per team per season. So an override cannot go
+ * A named level is used ahead of GameChanger's own field, which is what lets somebody correct a
+ * team filed at the wrong age as well as one filed at none. But the moment GameChanger's answer
+ * *changes* from whatever it was when the name was given, GameChanger wins and the named level is
+ * dropped. The club knows its own age, and a note somebody made weeks ago is not evidence against
+ * a page its own people have since edited.
+ *
+ * `insteadOf` is what makes that decidable: it records what GameChanger was saying at the moment
+ * somebody overrode it — including that it was saying nothing — so "has GameChanger changed its
+ * mind?" is a comparison rather than a guess. Named over silence and GameChanger later says 10U:
+ * GameChanger wins. Named over a wrong 12U and GameChanger still says 12U: the correction stands,
+ * because nothing has changed and dropping it would just restore the error.
+ *
+ * Keyed on the GameChanger id, which is minted per team per season, so a named level cannot go
  * stale as a squad ages up: Fall and Spring of one squad year are one id at one level, and next
- * autumn is a different id that nobody has named yet.
- *
- * `insteadOf` records what GameChanger was saying at the moment somebody overrode it, so the panel
- * can notice later that GameChanger has changed its mind and say so. That is a notice rather than
- * a silent revert in either direction — the app neither ignores the club's own correction nor
- * throws away a person's answer behind their back.
+ * autumn is a different id nobody has named.
  */
 
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings/seasons";
@@ -76,9 +79,31 @@ export const coerceNamedAges = (raw: unknown): Map<string, NamedAge> => {
 export const namedAgesList = (named: NamedAges): NamedAge[] =>
   [...named.values()].sort((a, b) => (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0));
 
-/** The level somebody named for this team, if anybody did. */
-export const namedAgeFor = (named: NamedAges, gcTeamId: string): number | undefined =>
-  named.get(gcTeamId)?.level;
+/**
+ * Whether a named level still stands, given what GameChanger says now.
+ *
+ * It does not the moment GameChanger's answer differs from what it was when the level was named.
+ * `undefined` on either side is an answer in itself: named over silence and GameChanger has since
+ * spoken is a change, and so is a field that has gone blank since.
+ */
+export const namedAgeStands = (entry: NamedAge, gcSaysNow: number | undefined): boolean =>
+  gcSaysNow === entry.insteadOf;
+
+/**
+ * The level to file this team under, or undefined to let the app work it out.
+ *
+ * `gcSaysNow` is whatever GameChanger's own field says on the schedule in hand. When it has
+ * changed since the level was named, this answers undefined and the club's own answer is used.
+ */
+export const namedAgeFor = (
+  named: NamedAges,
+  gcTeamId: string,
+  gcSaysNow: number | undefined
+): number | undefined => {
+  const entry = named.get(gcTeamId);
+  if (!entry) return undefined;
+  return namedAgeStands(entry, gcSaysNow) ? entry.level : undefined;
+};
 
 /** The map with this team's age named. Refuses a level the app does not rank. */
 export const nameAge = (named: NamedAges, entry: NamedAge): Map<string, NamedAge> => {
@@ -95,17 +120,16 @@ export const forgetNamedAge = (named: NamedAges, gcTeamId: string): Map<string, 
 };
 
 /**
- * The names whose GameChanger age has since changed to something else.
+ * The named levels GameChanger has since overruled, so they can be cleared out.
  *
- * Not acted on — only listed, so the panel can say "you said 9U; GameChanger now says 10U" and let
- * the reader decide. Silently preferring either one would be the app making a judgement it has no
- * standing to make.
+ * Already ignored by the time this is called — `namedAgeFor` stops honouring one as soon as
+ * GameChanger's answer moves — so this only tidies away the rows that are no longer doing
+ * anything. Kept as a separate step rather than deleted inside the fold, because the fold is
+ * given a read-only view of these and a list somebody spent an evening on should not be rewritten
+ * as a side effect of a refresh.
  */
-export const namedAgesNowDisputed = (
+export const namedAgesOverruled = (
   named: NamedAges,
   gcSays: (gcTeamId: string) => number | undefined
 ): NamedAge[] =>
-  namedAgesList(named).filter((entry) => {
-    const now = gcSays(entry.teamId);
-    return now !== undefined && now !== entry.level;
-  });
+  namedAgesList(named).filter((entry) => !namedAgeStands(entry, gcSays(entry.teamId)));

@@ -5,8 +5,9 @@ import {
   isNameableLevel,
   nameAge,
   namedAgeFor,
+  namedAgeStands,
   namedAgesList,
-  namedAgesNowDisputed,
+  namedAgesOverruled,
 } from "../namedAges";
 import { createGcImporter, type GcImportState } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
@@ -50,20 +51,72 @@ describe("an age somebody named by hand", () => {
   });
 
   /*
-   * First in the chain, not a last resort. It is the only placement that also answers the next
-   * problem along — a team GameChanger has filed at the wrong age — and a person who opened the
-   * page is better evidence than a field this codebase already treats as unreliable.
+   * Correcting a team GameChanger has filed at the wrong age: the named level is used ahead of
+   * GameChanger's own field, not merely in its absence. `insteadOf` says the 12U was what was
+   * being corrected, so GameChanger has not changed its mind and the correction stands.
    */
-  it("beats GameChanger's own field, not merely its absence", () => {
+  it("corrects a team GameChanger has filed at the wrong age", () => {
     const mislabelled: GcTeamSchedule = {
       ...unageable(),
       profile: { ...unageable().profile, ageLevel: 12, ageLabel: "12U" },
     };
-    const importer = createGcImporter(empty, { today: NOW, namedAges: named(9) });
+    const correction = nameAge(new Map(), {
+      teamId: "bKpjvY5AVqOV",
+      level: 9,
+      namedAt: NOW,
+      insteadOf: 12,
+    });
+    const importer = createGcImporter(empty, { today: NOW, namedAges: correction });
     const outcome = importer.add(mislabelled);
 
     expect(outcome.ageGroupName).toMatch(/9U/);
     expect(outcome.ageNamedByUser).toBe(9);
+  });
+
+  /*
+   * And the rule that overrides all of that. A club editing its own GameChanger page is better
+   * evidence than a note somebody made weeks ago, so the moment GameChanger's answer changes from
+   * what it was when the level was named, GameChanger wins and the named level is ignored.
+   */
+  it("gives way once GameChanger changes its mind", () => {
+    // Named 9U while GameChanger said nothing at all; GameChanger now says 10U.
+    const overSilence = named(9);
+    const nowSays10U: GcTeamSchedule = {
+      ...unageable(),
+      profile: { ...unageable().profile, ageLevel: 10, ageLabel: "10U" },
+    };
+    const importer = createGcImporter(empty, { today: NOW, namedAges: overSilence });
+    const outcome = importer.add(nowSays10U);
+
+    expect(outcome.ageGroupName).toMatch(/10U/);
+    expect(outcome.ageNamedByUser).toBeUndefined();
+
+    // Same the other way: a correction of 12U gives way when GameChanger moves to 11U.
+    const correction = nameAge(new Map(), {
+      teamId: "bKpjvY5AVqOV",
+      level: 9,
+      namedAt: NOW,
+      insteadOf: 12,
+    });
+    const moved: GcTeamSchedule = {
+      ...unageable(),
+      profile: { ...unageable().profile, ageLevel: 11, ageLabel: "11U" },
+    };
+    expect(
+      createGcImporter(empty, { today: NOW, namedAges: correction }).add(moved).ageGroupName
+    ).toMatch(/11U/);
+  });
+
+  it("knows when a named level still stands", () => {
+    const overSilence = { teamId: "A", level: 9, namedAt: NOW };
+    expect(namedAgeStands(overSilence, undefined)).toBe(true);
+    expect(namedAgeStands(overSilence, 10)).toBe(false);
+
+    const correction = { teamId: "A", level: 9, namedAt: NOW, insteadOf: 12 };
+    expect(namedAgeStands(correction, 12)).toBe(true);
+    expect(namedAgeStands(correction, 11)).toBe(false);
+    // A field that has gone blank since is a change too.
+    expect(namedAgeStands(correction, undefined)).toBe(false);
   });
 
   /*
@@ -98,24 +151,24 @@ describe("an age somebody named by hand", () => {
       "nope",
     ]);
     expect(namedAgesList(stored).map((one) => one.teamId)).toEqual(["A", "B"]);
-    expect(namedAgeFor(stored, "B")).toBe(10);
-    expect(namedAgeFor(stored, "missing")).toBeUndefined();
+    // B was named over a GameChanger field of 12U, which still says 12U, so it stands.
+    expect(namedAgeFor(stored, "B", 12)).toBe(10);
+    expect(namedAgeFor(stored, "missing", undefined)).toBeUndefined();
     expect(coerceNamedAges(null).size).toBe(0);
   });
 
   it("gives the answer back when it is taken away", () => {
     const one = named(9);
-    expect(namedAgeFor(forgetNamedAge(one, "bKpjvY5AVqOV"), "bKpjvY5AVqOV")).toBeUndefined();
+    expect(namedAgeFor(one, "bKpjvY5AVqOV", undefined)).toBe(9);
+    expect(
+      namedAgeFor(forgetNamedAge(one, "bKpjvY5AVqOV"), "bKpjvY5AVqOV", undefined)
+    ).toBeUndefined();
   });
 
-  /*
-   * Listed, never acted on. Silently preferring either answer would be the app making a judgement
-   * it has no standing to make: the club may have corrected its own page, or mis-typed it.
-   */
-  it("notices when GameChanger has since said something else, without deciding", () => {
-    const one = nameAge(new Map(), { teamId: "A", level: 9, namedAt: NOW, insteadOf: undefined });
-    expect(namedAgesNowDisputed(one, () => 10).map((e) => e.teamId)).toEqual(["A"]);
-    expect(namedAgesNowDisputed(one, () => 9)).toEqual([]);
-    expect(namedAgesNowDisputed(one, () => undefined)).toEqual([]);
+  it("lists the ones GameChanger has overruled, so they can be cleared out", () => {
+    const one = nameAge(new Map(), { teamId: "A", level: 9, namedAt: NOW });
+    expect(namedAgesOverruled(one, () => 10).map((entry) => entry.teamId)).toEqual(["A"]);
+    // Still silent, so nothing has changed and the named level is still doing its job.
+    expect(namedAgesOverruled(one, () => undefined)).toEqual([]);
   });
 });
