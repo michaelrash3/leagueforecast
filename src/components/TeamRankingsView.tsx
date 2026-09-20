@@ -108,6 +108,8 @@ import {
   STATE_TOP,
 } from "./teamRankings/RankingsSection";
 import { ScoutingSection } from "./teamRankings/ScoutingSection";
+import { todayIsoDay } from "../lib/date";
+import { whatIfDeclines } from "../lib/scoutWhatIf";
 import { RankingsHeader } from "./teamRankings/RankingsHeader";
 import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
@@ -224,8 +226,15 @@ export function TeamRankingsView({
    * ahead. Read here rather than in each place that wants it so both answers come from the same
    * instant — a render where the schedule and the board disagreed about what day it is would be a
    * genuinely confusing thing to debug.
+   *
+   * The reader's own day, not the UTC one. `toISOString().slice(0, 10)` is tomorrow's date for the
+   * last hours of every evening in the Americas — 4 of 24 hours in New York, 5 in Chicago, 6 in
+   * Denver, 7 in Los Angeles — and it is always the later of the two, so a game being played this
+   * evening dropped off "Next up" while it was being played. It also disagreed with
+   * `scoutRatingGames`, which has always defaulted to the local day, so the board and the schedule
+   * were reading different calendars for those hours.
    */
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIsoDay();
   const {
     section,
     selectedAgeGroupId,
@@ -670,7 +679,12 @@ export function TeamRankingsView({
    * `MIN_RANKED_AGE_LEVEL` has no table and comes back empty — its games still count as evidence
    * about the older teams that played down against it.
    */
-  const { rows: rankings, stale: rankingsStale } = useRankingsWorker({
+  const {
+    rows: rankings,
+    stale: rankingsStale,
+    whatIf,
+    askWhatIf,
+  } = useRankingsWorker({
     ageGroupId: selectedAgeGroupId,
     teams: allKnown.teams,
     games: poolGames,
@@ -794,6 +808,60 @@ export function TeamRankingsView({
     return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
   }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
+
+  /**
+   * The fixture whose what-if is open, if any. One at a time: two would be two tables.
+   *
+   * Remembered against the board it was opened on, and read back as closed whenever that is not
+   * the board on screen. A place in a table means nothing in a different one, so a panel opened
+   * for one club, page or half of the year must not survive into another — and deriving that is
+   * safer than clearing it, because there is no moment where the two disagree.
+   */
+  const [opened, setOpened] = useState<{ gameId: string; board: string } | null>(null);
+  const whatIfBoard = `${reportForId}|${selectedAgeGroupId}|${routeSegment ?? ""}`;
+  const whatIfGameId = opened && opened.board === whatIfBoard ? opened.gameId : null;
+
+  /*
+   * Which of these fixtures can be asked about at all, worked out once for the whole schedule.
+   * The expensive part is choosing the games the fit would read, and that is the same choice for
+   * every row, so asking per row would pay for it once a row instead of once a board.
+   */
+  const whatIfDeclineMap = useMemo(() => {
+    if (!reportForId || upcomingRows.length === 0) return new Map<string, null>();
+    const byId = new Map(poolGames.map((game) => [game.id, game]));
+    const fixtures = upcomingRows
+      .map((row) => byId.get(row.gameId))
+      .filter((game): game is (typeof poolGames)[number] => game !== undefined);
+    return whatIfDeclines(
+      fixtures,
+      reportForId,
+      selectedAgeGroupId,
+      allKnown.teams,
+      poolGames,
+      ageGroups,
+      routeSegment,
+      today
+    );
+  }, [
+    reportForId,
+    upcomingRows,
+    poolGames,
+    selectedAgeGroupId,
+    allKnown.teams,
+    ageGroups,
+    routeSegment,
+    today,
+  ]);
+  const whatIfDeclineFor = useCallback(
+    (gameId: string) => whatIfDeclineMap.get(gameId) ?? null,
+    [whatIfDeclineMap]
+  );
+
+  useEffect(() => {
+    askWhatIf(
+      whatIfGameId && reportForId ? { forTeamId: reportForId, gameId: whatIfGameId, today } : null
+    );
+  }, [askWhatIf, whatIfGameId, reportForId, today]);
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
 
@@ -1684,6 +1752,16 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               upcomingRows={upcomingRows}
               explanation={explanation}
               placeOf={placeOf}
+              whatIfGameId={whatIfGameId}
+              whatIf={whatIf}
+              onToggleWhatIf={(gameId) =>
+                setOpened((open) =>
+                  open && open.board === whatIfBoard && open.gameId === gameId
+                    ? null
+                    : { gameId, board: whatIfBoard }
+                )
+              }
+              whatIfDeclineFor={whatIfDeclineFor}
             />
           )}
 

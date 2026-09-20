@@ -196,6 +196,40 @@ The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
 a coin flip.
 
+**What if?** Under each fixture is the question the projection cannot answer: not
+who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
+property of a club — it is the solution of one least-squares fit over every counted
+game in the pool — so the answer is the whole table fitted again with the result in
+it. The panel shows a rung per whole run, from a defeat by eight to a win by eight,
+each with the place it would leave you and how far that moved you.
+
+It is a margin table rather than two buttons because the margin is the larger half of
+the answer: winning by one against winning by eight moves a club further than winning
+against losing at the projected margin. Eight is the top rung because `RATING_CAP` is
+eight, so a 9-1 and a 20-0 are the same evidence.
+
+Two fits are enough for all sixteen rungs. The fit is least squares and the cap is
+applied before it, so within ±8 runs every fitted rating is affine in the margin
+assumed; the shown rating is that less an evidence discount whose only
+margin-sensitive term is the pool's residual scale, which one game out of thousands
+moves by a rounding error. Swept against a real re-fit at every margin over pools of
+12 to 6,000 clubs, the rank was right in every case and the worst rating error was
+7.4e-3 runs, on the smallest pool.
+
+Nothing in the panel is coloured by outcome. Winning is not always good news and
+losing is not always bad: a narrow loss to a much stronger club can lift a thinly
+played side, because the table rates who you played and one more game is one more
+thing the rating stands on. Measured on a 40-club pool, a side with three games that
+loses by two to the best club in it goes from #31 to #27.
+
+The hypothetical is fitted as if the game were played today. That is deliberate and
+the alternative is worse: older games count for less, so a result dated weeks ahead
+arrives as the newest thing in the pool and outweighs the season that has actually
+happened. A fixture in the other half of the year, one with no date on a half board,
+and one against a club nobody has rated are all refused rather than answered — the
+first two would move a table they do not belong to, and the third would add a row to
+the table instead of moving one within it.
+
 ### How the two modes connect
 
 **League → Team Rankings, always.** A season assigned to an age group brings its

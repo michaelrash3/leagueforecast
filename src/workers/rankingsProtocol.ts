@@ -6,6 +6,7 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
+import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
 
 /**
@@ -46,9 +47,36 @@ export type RankingsRequest = {
   pool: PoolShipment;
 };
 
+/**
+ * One fixture's what-if, against the pool the worker already holds.
+ *
+ * It rides the same protocol as the board for one reason: the worker holds exactly one decoded
+ * pool, and the whole point of that arrangement is not to copy a nationwide pool twice. So a
+ * what-if names the revision like everything else and gets the same `pool-needed` recovery.
+ *
+ * `today` is on the request rather than read from the worker's own clock. The day decides which
+ * games are behind us and how much the recency weights lean on each, so a board fitted against the
+ * page's idea of today and a what-if fitted against the worker's could disagree — and the reader
+ * would have no way of telling which of the two numbers in front of them was which.
+ */
+export type WhatIfRequest = {
+  kind: "what-if";
+  id: number;
+  ageGroupId: string;
+  myTeamId?: string;
+  ageGroups: AgeGroup[];
+  segment?: SeasonSegment;
+  /** The club the answer is about. */
+  forTeamId: string;
+  /** Which fixture off its schedule, by the id the held pool knows it under. */
+  gameId: string;
+  today: string;
+  pool: PoolShipment;
+};
+
 export type CancelRequest = { kind: "cancel"; id: number };
 
-export type WorkerRequest = RankingsRequest | CancelRequest;
+export type WorkerRequest = RankingsRequest | WhatIfRequest | CancelRequest;
 
 export type RankingsResponse = {
   kind: "rankings";
@@ -57,10 +85,24 @@ export type RankingsResponse = {
   elapsedMs: number;
 };
 
+/**
+ * The answer, or null when there is not one.
+ *
+ * Null covers both a fixture the held pool no longer carries — a pull or a tidy can take one away
+ * between the press and the answer — and a fixture the selection will not take. The page says so
+ * rather than showing places nobody should act on.
+ */
+export type WhatIfResponse = {
+  kind: "what-if";
+  id: number;
+  curve: WhatIfCurve | null;
+  elapsedMs: number;
+};
+
 /** The worker does not hold the revision the request named; ship it and ask again. */
 export type PoolNeededResponse = { kind: "pool-needed"; id: number; revision: number };
 
-export type WorkerResponse = RankingsResponse | PoolNeededResponse;
+export type WorkerResponse = RankingsResponse | WhatIfResponse | PoolNeededResponse;
 
 type HeldPool = { revision: number; teams: ScoutTeam[]; games: ScoutGame[] };
 
@@ -105,6 +147,34 @@ export const createRankingsHandler = (
     }
 
     const start = now();
+
+    if (request.kind === "what-if") {
+      /*
+       * The held pool is read and never written. `whatIfCurve` builds its own array with the
+       * hypothetical on the end, so nothing this answers can leave a game nobody played in the
+       * pool every later fit at this revision reads.
+       */
+      const fixture = held.games.find((game) => game.id === request.gameId);
+      const curve = fixture
+        ? whatIfCurve(
+            fixture,
+            request.forTeamId,
+            request.ageGroupId,
+            held.teams,
+            held.games,
+            request.myTeamId,
+            request.ageGroups,
+            request.segment,
+            request.today
+          )
+        : null;
+      if (!canceled.has(request.id)) {
+        post({ kind: "what-if", id: request.id, curve, elapsedMs: now() - start });
+      }
+      canceled.delete(request.id);
+      return;
+    }
+
     const rows = buildTeamRankings(
       request.ageGroupId,
       held.teams,

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import {
+  RATING_CAP,
   SCOUT_REPORT_NATIONAL_TOP,
   SCOUT_REPORT_STATE_TOP,
   type MatchupPreview,
@@ -8,6 +9,8 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
+import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
+import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { TeamSearchSelect } from "../TeamSearchSelect";
@@ -71,6 +74,46 @@ type ScoutingSectionProps = {
   explanation: LeagueSummaryState;
   /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
   placeOf: (teamId: string) => string | undefined;
+  /** The fixture whose what-if is open, if any. */
+  whatIfGameId: string | null;
+  whatIf: WhatIfState;
+  onToggleWhatIf: (gameId: string) => void;
+  /** Why this fixture cannot be asked about, or null when it can. */
+  whatIfDeclineFor: (gameId: string) => WhatIfDeclined | null;
+};
+
+/** "52 places better", "1 place worse", "no change". Direction in words, never in colour. */
+const placesMoved = (from: number, to: number): string => {
+  if (from === to) return "no change";
+  const places = Math.abs(from - to);
+  return `${places} ${places === 1 ? "place" : "places"} ${to < from ? "better" : "worse"}`;
+};
+
+/** "1 run", "2 runs", and the top rung which stands for every bigger win. */
+const runsLabel = (margin: number): string => {
+  const runs = Math.abs(margin);
+  if (runs === RATING_CAP) return `${runs} runs or more`;
+  return `${runs} ${runs === 1 ? "run" : "runs"}`;
+};
+
+/**
+ * The one sentence worth leading with: what it would take to come out of this no worse off.
+ *
+ * Phrased off the curve rather than off the projection, because they are not the same question.
+ * The projection says who is expected to win; this says what winning has to look like for the
+ * table not to move against you, and the extra game's own evidence shifts that by a couple of
+ * tenths of a run.
+ */
+const breakEven = (curve: WhatIfCurve, standing: number): string => {
+  const hold = holdsFrom(curve, standing);
+  const best = curve.points[curve.points.length - 1];
+  if (hold === null) {
+    return best
+      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank}, so this game can only cost places.`
+      : "There is nothing to say about this one.";
+  }
+  if (hold === 1) return `Any win holds #${standing} or better, and any loss costs you places.`;
+  return `Win by ${hold} or more and you hold #${standing} or better. Win by less and you still slip — the table already expects you to beat them.`;
 };
 
 /**
@@ -92,6 +135,10 @@ export function ScoutingSection({
   upcomingRows,
   explanation,
   placeOf,
+  whatIfGameId,
+  whatIf,
+  onToggleWhatIf,
+  whatIfDeclineFor,
 }: ScoutingSectionProps) {
   /**
    * The place rides along as the detail line: a nationwide pool holds several clubs of the same
@@ -165,7 +212,7 @@ export function ScoutingSection({
         </p>
       ) : (
         <div className="mt-2 overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-sm" aria-label="Next up">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="py-2">Date</th>
@@ -178,41 +225,71 @@ export function ScoutingSection({
             </thead>
             <tbody>
               {upcomingRows.map((row) => (
-                <tr key={row.gameId} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
-                    {formatDay(row.date)}
-                    {row.event && (
-                      <span className="block text-xs font-normal text-slate-500">{row.event}</span>
-                    )}
-                  </td>
-                  <td className="font-bold text-slate-950 dark:text-white">
-                    {row.opponentName}
-                    {placeOf(row.opponentId) && (
-                      <span className="block text-xs font-normal text-slate-500">
-                        {placeOf(row.opponentId)}
-                      </span>
-                    )}
-                  </td>
-                  {/* An opponent nobody has pulled has no rating, and a made-up one would be
-                      worse than none: the row says so and stops there. */}
-                  {row.tier === undefined ? (
-                    <td className="text-slate-500" colSpan={4}>
-                      Not rated here yet
+                <Fragment key={row.gameId}>
+                  <tr className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
+                      {formatDay(row.date)}
+                      {row.event && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          {row.event}
+                        </span>
+                      )}
                     </td>
-                  ) : (
-                    <>
-                      <td>#{row.opponentRank}</td>
-                      <td>
-                        {formatMargin(row.projectedMargin ?? 0)}
-                        {row.unconnected && <NoSharedOpponents />}
+                    <td className="font-bold text-slate-950 dark:text-white">
+                      {row.opponentName}
+                      {placeOf(row.opponentId) && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          {placeOf(row.opponentId)}
+                        </span>
+                      )}
+                      {/*
+                      Under the opponent rather than in a column of its own. This table already has
+                      six, and a seventh would push it into the sideways scroll inside a card that
+                      the rankings table went to some trouble to get rid of.
+                    */}
+                      <WhatIfTrigger
+                        gameId={row.gameId}
+                        opponentName={row.opponentName}
+                        decline={whatIfDeclineFor(row.gameId)}
+                        open={whatIfGameId === row.gameId}
+                        onToggle={onToggleWhatIf}
+                      />
+                    </td>
+                    {/* An opponent nobody has pulled has no rating, and a made-up one would be
+                      worse than none: the row says so and stops there. */}
+                    {row.tier === undefined ? (
+                      <td className="text-slate-500" colSpan={4}>
+                        Not rated here yet
                       </td>
-                      <td>{formatPct(row.winProb ?? 0)}</td>
-                      <td>
-                        <span className={pill(tierTone(row.tier))}>{row.tier}</span>
+                    ) : (
+                      <>
+                        <td>#{row.opponentRank}</td>
+                        <td>
+                          {formatMargin(row.projectedMargin ?? 0)}
+                          {row.unconnected && <NoSharedOpponents />}
+                        </td>
+                        <td>{formatPct(row.winProb ?? 0)}</td>
+                        <td>
+                          <span className={pill(tierTone(row.tier))}>{row.tier}</span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {whatIfGameId === row.gameId && reportRow && (
+                    <tr className="bg-slate-50 dark:bg-slate-900/40">
+                      <td colSpan={6} className="px-1 py-3" id={`what-if-${row.gameId}`}>
+                        <WhatIfPanel
+                          state={whatIf}
+                          gameId={row.gameId}
+                          standing={reportRow}
+                          opponentName={row.opponentName}
+                          projectedMargin={row.projectedMargin}
+                          unconnected={row.unconnected === true}
+                        />
                       </td>
-                    </>
+                    </tr>
                   )}
-                </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -371,5 +448,196 @@ function MatchupTable({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Why a fixture cannot be asked about, in a sentence — or nothing at all.
+ *
+ * Only the two a reader can do something about get words. The rest cannot be reached from a row
+ * this table would list as upcoming, or are already said plainly in the row itself: a club nobody
+ * has rated yet reads "Not rated here yet" across the four columns, and repeating it underneath
+ * the name would be the same news twice.
+ */
+const declineNote = (decline: WhatIfDeclined): string | null => {
+  if (decline === "other-half")
+    return "In the other half of the season, so it cannot change this table.";
+  if (decline === "no-date")
+    return "No date, so it belongs to the year but to neither half of it. Ask on the whole-year board.";
+  return null;
+};
+
+/** The way into the answer, under the opponent's name. */
+function WhatIfTrigger({
+  gameId,
+  opponentName,
+  decline,
+  open,
+  onToggle,
+}: {
+  gameId: string;
+  opponentName: string;
+  decline: WhatIfDeclined | null;
+  open: boolean;
+  onToggle: (gameId: string) => void;
+}) {
+  if (decline !== null) {
+    const note = declineNote(decline);
+    return note ? (
+      <span className="mt-1 block text-xs font-normal text-slate-500">{note}</span>
+    ) : null;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(gameId)}
+      aria-expanded={open}
+      aria-controls={`what-if-${gameId}`}
+      className="mt-1 block text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:hover:text-white"
+    >
+      {open ? "Hide" : "What if?"}
+      <span className="sr-only">
+        {" "}
+        what a win or a loss against {opponentName} would do to the ranking
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Where every margin would leave the club, once the whole table has been fitted again with the
+ * result in it.
+ *
+ * A margin table rather than two buttons, because the margin is the larger half of the answer: the
+ * gap between winning by one and winning by eight moves a club further than the gap between
+ * winning and losing at the margin the projection expects. Two buttons would hide that.
+ *
+ * Nothing here is coloured by outcome. Winning is not always good news and losing is not always
+ * bad — a narrow loss to a much stronger club can lift a thinly played side, because the table
+ * rates who you played and one more game is one more thing the rating stands on. A green "win"
+ * column above a rank that fell would teach the reader the feature is broken.
+ */
+function WhatIfPanel({
+  state,
+  gameId,
+  standing,
+  opponentName,
+  projectedMargin,
+  unconnected,
+}: {
+  state: WhatIfState;
+  gameId: string;
+  standing: ScoutRankingRow;
+  opponentName: string;
+  projectedMargin: number | undefined;
+  unconnected: boolean;
+}) {
+  const mine = state.status !== "idle" && state.ask.gameId === gameId;
+  if (!mine || state.status === "working") {
+    return (
+      <p className="text-sm text-slate-500" role="status" aria-live="polite">
+        Working it out — the whole table is fitted again, twice.
+      </p>
+    );
+  }
+  if (state.status === "failed") {
+    return (
+      <p className="text-sm text-slate-500" role="status" aria-live="polite">
+        That could not be worked out. Nothing here changed — the table above is still what the pool
+        says today.
+      </p>
+    );
+  }
+
+  const { curve } = state;
+  const wins = curve.points.filter((point) => point.margin > 0);
+  const losses = curve.points.filter((point) => point.margin < 0);
+  const headline = breakEven(curve, standing.rank);
+  // The rung the projection points at, so the reader can see which line is the expected one.
+  const expected =
+    projectedMargin === undefined
+      ? null
+      : Math.min(RATING_CAP, Math.max(1, Math.round(Math.abs(projectedMargin))));
+
+  return (
+    <div className="space-y-2">
+      <p
+        className="text-sm font-bold text-slate-950 dark:text-white"
+        role="status"
+        aria-live="polite"
+      >
+        {headline}
+      </p>
+      <p className="text-xs text-slate-500">
+        Now #{standing.rank} of {curve.rankedCount.toLocaleString()}, at{" "}
+        {standing.rating.toFixed(1)}.
+      </p>
+      <div className="overflow-x-auto">
+        <table
+          className="min-w-full text-sm"
+          aria-label={`What a win or a loss against ${opponentName} would do`}
+        >
+          <thead>
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <th className="py-1">By</th>
+              <th>If we win ({curve.winRecord})</th>
+              <th>If we lose ({curve.lossRecord})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {wins.map((win, index) => {
+              const loss = losses[losses.length - 1 - index];
+              const runs = win.margin;
+              return (
+                <tr key={runs} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="whitespace-nowrap py-2 font-semibold text-slate-700 dark:text-slate-200">
+                    {runsLabel(runs)}
+                    {expected === runs && (
+                      <span className="ml-1 text-xs font-normal text-slate-500">projected</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap">
+                    #{win.rank}{" "}
+                    <span className="text-xs text-slate-500">
+                      {placesMoved(standing.rank, win.rank)}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap">
+                    {loss ? (
+                      <>
+                        #{loss.rank}{" "}
+                        <span className="text-xs text-slate-500">
+                          {placesMoved(standing.rank, loss.rank)}
+                        </span>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-500">
+        {RATING_CAP} runs is as much as one game can carry, so the last row is every bigger win at
+        once: a {RATING_CAP + 1}-1 and a 20-0 move the table by exactly the same amount. A narrow
+        loss to a stronger club can still lift you — the table rates who you played, not only who
+        you beat, and one more game is one more thing your rating stands on.
+      </p>
+      <p className="text-xs text-slate-500">
+        Every rating is worked out again from scratch with this one result added, so a few other
+        clubs shift places too. Nobody else&apos;s next game is played here. It is fitted as if the
+        game were played today, because recent games count for more and a result dated weeks ahead
+        would outweigh the season you have actually had.
+      </p>
+      {unconnected && (
+        <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+          Nothing in the games pulled so far links these two clubs, so where this would leave you
+          rests on a comparison the pool has not actually made.
+        </p>
+      )}
+    </div>
   );
 }
