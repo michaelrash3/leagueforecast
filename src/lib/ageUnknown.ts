@@ -81,7 +81,13 @@ export const updateAgeUnknown = (
       const known = byId.get(outcome.gcTeamId);
       byId.set(outcome.gcTeamId, {
         teamId: outcome.gcTeamId,
-        ...(outcome.teamName ? { name: outcome.teamName } : {}),
+        // What this run was told it was called, or what the last one was told. The fallback is
+        // the point: a run that comes back without a name used to erase the one already stored,
+        // and a row reading "Name not recorded" cannot be found by somebody searching for the
+        // club by name — which is the one way anybody looks for a particular team in here.
+        // `||`, not `??`: a run that comes back with an EMPTY name has to fall back too, and an
+        // empty string is exactly the shape that caused this.
+        ...(outcome.teamName || known?.name ? { name: outcome.teamName || known?.name } : {}),
         firstSeen: known?.firstSeen ?? now,
         lastTried: now,
         tries: (known?.tries ?? 0) + 1,
@@ -132,6 +138,9 @@ export const AGE_UNKNOWN_MAX_TRIES = 8;
  * The reasoning behind the eight was always about a season passing, not about how often somebody
  * pressed a button, so the rule now says both: a team is left alone once it has had its eight asks
  * AND eight real weeks have gone by since it was first found.
+ *
+ * Being left alone is not final. Somebody who finds the team by name on the review card and says
+ * what age it is puts it back in the queue — see `ageUnknownDue`'s `named`.
  */
 export const AGE_UNKNOWN_GIVE_UP_DAYS = 56;
 
@@ -163,10 +172,29 @@ export const stillWorthAsking = (entry: AgeUnknownTeam, now: Date): boolean => {
  * being asked every run while the tail is never touched again. The week gate is what paces this
  * now; the cap is only a ceiling on how much one run may hold at once.
  */
-export const ageUnknownDue = (list: AgeUnknownList, limit: number, now: Date): string[] =>
+export const ageUnknownDue = (
+  list: AgeUnknownList,
+  limit: number,
+  now: Date,
+  /**
+   * The ids somebody has named an age for by hand.
+   *
+   * These are asked again whatever their budget says, because a person answering is the third
+   * thing that can change the answer and the only one `stillWorthAsking` does not know about. It
+   * matters most for a team that was left alone: nothing would ever ask about it again, so the
+   * age typed on the review card would sit in storage for ever and never reach a schedule.
+   *
+   * Structural rather than a `NamedAges`, so a `Set` of ids does as well as the map and this file
+   * keeps knowing nothing about what a named age is.
+   */
+  named: { has: (teamId: string) => boolean } = { has: () => false }
+): string[] =>
   list
     .filter((entry) => {
-      if (!stillWorthAsking(entry, now)) return false;
+      // The week gate still applies: a named age that cannot be applied — GameChanger has since
+      // said something different, so `namedAgeStands` refuses it — would otherwise be fetched on
+      // every run for ever rather than once a week.
+      if (!stillWorthAsking(entry, now) && !named.has(entry.teamId)) return false;
       const since = daysSince(entry.lastTried, now);
       // Never properly recorded, so it has not been asked within the week either.
       return since === null || since >= AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS;
@@ -175,9 +203,18 @@ export const ageUnknownDue = (list: AgeUnknownList, limit: number, now: Date): s
     .slice(0, Math.max(0, limit))
     .map((entry) => entry.teamId);
 
-/** How many are still being asked about at all, whether or not any are due today. */
-export const ageUnknownAsking = (list: AgeUnknownList, now: Date): number =>
-  list.filter((entry) => stillWorthAsking(entry, now)).length;
+/**
+ * How many are still being asked about at all, whether or not any are due today.
+ *
+ * Takes `named` for the same reason `ageUnknownDue` does, and it has to: the panel hides the
+ * whole ask-again block on this number, so a team revived by somebody naming its age would be
+ * queued for a pull that nothing offers to run.
+ */
+export const ageUnknownAsking = (
+  list: AgeUnknownList,
+  now: Date,
+  named: { has: (teamId: string) => boolean } = { has: () => false }
+): number => list.filter((entry) => stillWorthAsking(entry, now) || named.has(entry.teamId)).length;
 
 /**
  * A line for the panel.

@@ -502,7 +502,11 @@ export function GameChangerImportPanel({
   const { due, agelessLine } = useMemo(() => {
     const now = new Date();
     return {
-      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, { ageless, cadence }),
+      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
+        ageless,
+        cadence,
+        namedAges: loadNamedAges(),
+      }),
       agelessLine: describeAgeUnknown(ageless, now),
     };
   }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]);
@@ -523,6 +527,7 @@ export function GameChangerImportPanel({
       dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
         ageless,
         cadence,
+        namedAges: loadNamedAges(),
         force: true,
       }),
     [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]

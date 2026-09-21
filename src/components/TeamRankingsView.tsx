@@ -81,8 +81,8 @@ import {
   saveDeletedGames,
   saveDroppedClubs,
 } from "../lib/teamRankingsStorage";
-import { forgetClubs, forgetGames, type DeletedClubs } from "../lib/deletedGames";
-import { nameAge, type NamedAges } from "../lib/namedAges";
+import { forgetClubs, forgetGames, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
+import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
 import type { AgeUnknownList } from "../lib/ageUnknown";
 
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
@@ -243,6 +243,12 @@ export function TeamRankingsView({
    * were reading different calendars for those hours.
    */
   const today = todayIsoDay();
+  /*
+   * One `Date` per day rather than one per render. The review card memoises the whole ageless
+   * list on this, and a fresh object every render threw that away — so a list of thirty thousand
+   * was mapped and sorted again on every keystroke anywhere in this view.
+   */
+  const agelessNow = useMemo(() => new Date(today), [today]);
   const {
     section,
     selectedAgeGroupId,
@@ -1133,6 +1139,29 @@ export function TeamRankingsView({
     [requestConfirmation, showToast]
   );
 
+  /**
+   * Taking back an answer about a team nobody could age.
+   *
+   * Both stores are cleared rather than the one the reader happened to be looking at, because a
+   * team can be in both — named in March and thrown out in May — and an undo that left it in the
+   * other would look like it had done nothing. Deleting an id that is not there costs nothing.
+   *
+   * There was no way to do this at all until the search made these teams visible: both answers
+   * were one-way from the UI, and a reader could see the mistake and not fix it.
+   */
+  const undoAgelessAnswer = useCallback(
+    (teamId: string, name: string | undefined) => {
+      const clubs = restoreClubs(loadDroppedClubs(), [teamId]);
+      setDroppedClubs(clubs);
+      saveDroppedClubs(clubs);
+      const ages = forgetNamedAge(loadNamedAges(), teamId);
+      setNamedAges(ages);
+      saveNamedAges(ages);
+      showToast(`${name ?? teamId} is back on the queue.`);
+    },
+    [showToast]
+  );
+
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
     const where = [club.city, club.state].filter(Boolean).join(", ");
     const confirmed = await requestConfirmation({
@@ -1849,7 +1878,8 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 dropped: droppedClubs,
                 onNameAge: nameAgeFor,
                 onThrowOut: throwOutAgeless,
-                now: new Date(today),
+                onUndo: undoAgelessAnswer,
+                now: agelessNow,
               }}
               poolHealth={{
                 pool: { ageGroups, teams: scoutTeams, games: wholePoolGames },

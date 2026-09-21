@@ -209,6 +209,11 @@ export type DueRefreshOptions = {
   /** Keeps a run to the season being played rather than dragging every past year round with it. */
   seasonYear?: number;
   ageless?: AgeUnknownList;
+  /**
+   * The ids somebody has named an age for, so a team that was left alone is asked once more.
+   * Structural, so the caller can pass the `NamedAges` map straight in.
+   */
+  namedAges?: { has: (teamId: string) => boolean };
   cadence?: RefreshCadence;
   /**
    * Ignore what has already been done today and offer the lot.
@@ -228,6 +233,7 @@ export const dueRefresh = (
   {
     seasonYear,
     ageless = [],
+    namedAges,
     cadence = DEFAULT_REFRESH_CADENCE,
     force = false,
   }: DueRefreshOptions = {}
@@ -251,8 +257,8 @@ export const dueRefresh = (
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
     cadence,
-    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP, now) : [],
-    agelessTotal: ageUnknownAsking(ageless, now),
+    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP, now, namedAges) : [],
+    agelessTotal: ageUnknownAsking(ageless, now, namedAges),
   };
 };
 

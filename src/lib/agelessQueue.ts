@@ -91,6 +91,25 @@ export const awaitingAnswer = (
   !dropped.has(entry.teamId) &&
   !isSchoolName(entry.name ?? "");
 
+/**
+ * One entry as a row.
+ *
+ * Shared by the queue and the search on purpose: a team a person finds by name has to read the
+ * same as the one the queue would have handed them, or the two disagree about the same team.
+ */
+const rowFor = (entry: AgeUnknownTeam): AgelessRow => {
+  const evidence = entry.evidence;
+  return {
+    entry,
+    invented: looksInvented(evidence ?? NO_EVIDENCE),
+    why: evidence
+      ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
+      : "Nothing was kept about this one — the next refresh will say why.",
+    ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
+    ...(evidence ? { evidence } : {}),
+  };
+};
+
 /** Everyone still waiting on a person, worst-looking first. */
 export const agelessWaiting = (
   list: AgeUnknownList,
@@ -100,18 +119,7 @@ export const agelessWaiting = (
 ): AgelessRow[] =>
   list
     .filter((entry) => awaitingAnswer(entry, named, dropped, now))
-    .map((entry): AgelessRow => {
-      const evidence = entry.evidence;
-      return {
-        entry,
-        invented: looksInvented(evidence ?? NO_EVIDENCE),
-        why: evidence
-          ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
-          : "Nothing was kept about this one — the next refresh will say why.",
-        ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
-        ...(evidence ? { evidence } : {}),
-      };
-    })
+    .map(rowFor)
     .sort(
       (a, b) =>
         // A row carrying a lead comes first, on the same reasoning that puts the junk first: it
@@ -146,3 +154,86 @@ export const agelessBatch = (
 /** The ids of a batch, for pinning it. */
 export const batchIds = (rows: readonly AgelessRow[]): string[] =>
   rows.map((row) => row.entry.teamId);
+
+/**
+ * Why a team somebody found by name is not on the queue.
+ *
+ * The queue shows what is still somebody's to answer, and that is a much smaller set than the
+ * list. Searching only the queue would answer "no such team" for every one of these, which is
+ * the worst possible answer to "I know this club is in here" — so the search reads the whole
+ * list and says which of them it is.
+ */
+export type AgelessAside = "dropped" | "named" | "high-school" | "left-alone";
+
+/** A team the search found, and whether anything is standing between it and the queue. */
+export type AgelessHit = {
+  row: AgelessRow;
+  /** Absent when the team is on the queue as normal. */
+  aside?: AgelessAside;
+};
+
+/**
+ * How many hits are shown at once.
+ *
+ * Larger than a sitting because this is scanning rather than deciding — somebody typing three
+ * letters of a club name is looking for one row, not working through them — and still bounded,
+ * because rendering every match of "a" across thirty thousand teams is the wall again.
+ */
+export const AGELESS_HITS = 25;
+
+/**
+ * What stands between this team and the queue, if anything.
+ *
+ * The user's own decisions come first because they are the ones worth being told about: "you
+ * threw this out in March" ends the search, where "left alone" invites them to answer it now.
+ */
+const asideFor = (
+  entry: AgeUnknownTeam,
+  named: NamedAges,
+  dropped: DeletedClubs,
+  now: Date
+): AgelessAside | undefined => {
+  if (dropped.has(entry.teamId)) return "dropped";
+  if (named.has(entry.teamId)) return "named";
+  if (isSchoolName(entry.name ?? "")) return "high-school";
+  if (!stillWorthAsking(entry, now)) return "left-alone";
+  return undefined;
+};
+
+/** Whether this team answers to what somebody typed. Name or GameChanger id, either way round. */
+const answersTo = (entry: AgeUnknownTeam, needle: string): boolean =>
+  entry.teamId.toLowerCase().includes(needle) || (entry.name ?? "").toLowerCase().includes(needle);
+
+/**
+ * The teams matching what somebody typed, over the whole list rather than the queue.
+ *
+ * `total` is every match and `hits` is the first `limit` of them, so the card can say how much it
+ * is not showing rather than quietly cutting the answer off. Queue rows come first — those are
+ * the ones a person can act on without being told why they cannot — and within each group the
+ * queue's own ordering is kept, so a search and the queue never disagree about which of two teams
+ * matters more.
+ */
+export const agelessSearch = (
+  list: AgeUnknownList,
+  named: NamedAges,
+  dropped: DeletedClubs,
+  now: Date,
+  query: string,
+  limit: number = AGELESS_HITS
+): { hits: AgelessHit[]; total: number } => {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return { hits: [], total: 0 };
+  const found: AgelessHit[] = [];
+  list.forEach((entry) => {
+    if (!answersTo(entry, needle)) return;
+    const aside = asideFor(entry, named, dropped, now);
+    found.push({ row: rowFor(entry), ...(aside ? { aside } : {}) });
+  });
+  found.sort(
+    (a, b) =>
+      Number(Boolean(a.aside)) - Number(Boolean(b.aside)) ||
+      Number(Boolean(b.row.hint)) - Number(Boolean(a.row.hint)) ||
+      b.row.invented - a.row.invented
+  );
+  return { hits: found.slice(0, Math.max(0, limit)), total: found.length };
+};

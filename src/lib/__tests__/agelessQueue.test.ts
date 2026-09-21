@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AGELESS_BATCH, agelessBatch, agelessWaiting, batchIds } from "../agelessQueue";
+import {
+  AGELESS_BATCH,
+  agelessBatch,
+  agelessSearch,
+  agelessWaiting,
+  batchIds,
+} from "../agelessQueue";
 import type { AgeUnknownList } from "../ageUnknown";
 import { nameAge } from "../namedAges";
 import { forgetClubs } from "../deletedGames";
@@ -157,5 +163,80 @@ describe("the queue of teams waiting on an answer", () => {
     const [row] = agelessWaiting([team("bare")], new Map(), new Set(), NOW);
     expect(row?.why).toMatch(/Nothing was kept about this one/);
     expect(row?.invented).toBe(0);
+  });
+});
+
+/**
+ * Hunting one club among thirty thousand.
+ *
+ * The queue is the small end of the list, and "I know this club is in here" is very often a team
+ * the queue is deliberately not showing: answered months ago, refused, or left alone. A search
+ * that read only the queue would answer "no such team" to the one question it exists for, so
+ * these guard the whole-list reading rather than the filtering.
+ */
+describe("finding one team by name or id", () => {
+  const list = (): AgeUnknownList => [
+    team("ID-AAA", { name: "Mears 1 - 2026", evidence: evidence() }),
+    team("ID-BBB", { name: "Northside Nationals", evidence: evidence() }),
+    team("ID-CCC", { name: "Mirror Lake 2 2026", evidence: evidence() }),
+  ];
+
+  it("matches on the name, however it is cased", () => {
+    expect(agelessSearch(list(), new Map(), new Set(), NOW, "mears").total).toBe(1);
+    expect(agelessSearch(list(), new Map(), new Set(), NOW, "MEARS").total).toBe(1);
+    // Part of a word is enough: nobody types a club's whole name to find it.
+    expect(agelessSearch(list(), new Map(), new Set(), NOW, "2026").total).toBe(2);
+  });
+
+  it("matches on the GameChanger id, which is what somebody pastes", () => {
+    const { hits } = agelessSearch(list(), new Map(), new Set(), NOW, "id-bbb");
+    expect(hits.map((hit) => hit.row.entry.teamId)).toEqual(["ID-BBB"]);
+  });
+
+  it("finds nothing for an empty search rather than everything", () => {
+    expect(agelessSearch(list(), new Map(), new Set(), NOW, "   ").total).toBe(0);
+  });
+
+  it("finds a team the queue is hiding, and says what is holding it", () => {
+    /*
+     * The whole reason the search reads the raw list. Each of these is invisible on the queue and
+     * every one of them is a team somebody might go looking for.
+     */
+    const named = nameAge(new Map(), {
+      teamId: "ID-BBB",
+      level: 12,
+      namedAt: daysBefore(3),
+    });
+    const spent = team("ID-DDD", {
+      name: "Mears 9 - 2026",
+      tries: 99,
+      firstSeen: daysBefore(400),
+      evidence: evidence(),
+    });
+    const all: AgeUnknownList = [...list(), spent];
+    const dropped = forgetClubs(new Set(), ["ID-CCC"]);
+
+    expect(agelessSearch(all, named, dropped, NOW, "northside").hits[0]?.aside).toBe("named");
+    expect(agelessSearch(all, named, dropped, NOW, "mirror").hits[0]?.aside).toBe("dropped");
+    expect(agelessSearch(all, named, dropped, NOW, "ID-DDD").hits[0]?.aside).toBe("left-alone");
+    // And one that is simply on the queue carries no aside at all.
+    expect(agelessSearch(all, named, dropped, NOW, "ID-AAA").hits[0]?.aside).toBeUndefined();
+  });
+
+  it("puts the ones somebody can act on first", () => {
+    // A queue row is answerable now; the rest need an explanation before anything can be done.
+    const dropped = forgetClubs(new Set(), ["ID-AAA"]);
+    const found = agelessSearch(list(), new Map(), dropped, NOW, "2026");
+    expect(found.hits.map((hit) => hit.row.entry.teamId)).toEqual(["ID-CCC", "ID-AAA"]);
+  });
+
+  it("caps what it hands back and still says how many there are", () => {
+    // Otherwise a search for "a" is the wall the ten-at-a-time queue exists to avoid.
+    const many: AgeUnknownList = Array.from({ length: 40 }, (_, i) =>
+      team(`ID${i}`, { name: `Mears ${i}`, evidence: evidence() })
+    );
+    const found = agelessSearch(many, new Map(), new Set(), NOW, "mears", 25);
+    expect(found.total).toBe(40);
+    expect(found.hits).toHaveLength(25);
   });
 });
