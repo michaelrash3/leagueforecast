@@ -740,6 +740,31 @@ locks.
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
 
+**Where the eight came from, and how to check it.** The case for _having_ a cap
+is plain — without one a 20-0 against a weak club outweighs a season of close
+wins against strong ones — but the case for _eight_ was never made here. It is
+inherited from League Standings, where the cap is a rule of the league (coach
+and machine pitch carry a per-inning run limit), and then applied flat from 8U
+to 18U even though the same settings put player pitch at twelve. Setup's **Check
+the model** card now sweeps it: `compareRunCaps` refits the pool at four, six,
+eight, ten and twelve runs and reports what each one predicted.
+
+The sweep moves the fit's cap and holds the scoring target still, and that
+separation is the whole reason the answer can be believed. One constant used to
+do both jobs, so a smaller cap was a smaller error for nothing — the target
+shrank under the model. Measured on four thousand realistic margins against a
+model that cannot improve (it predicts zero every game), letting the target
+follow the cap gives 2.25 runs at a cap of four rising to 2.95 uncapped, a clean
+ordering that is pure artefact; pinned, that same model scores 2.605 at every
+cap, as it must. Read the called-right column beside the error: pinning the
+target is itself a choice about how far out a margin is worth predicting, while
+the direction of a game is not clamped at all.
+
+Nothing changes on the strength of the sweep by itself — `RATING_CAP` is still
+eight and the League Standings cap, which is a rule rather than a guess, is
+untouched. The card is there so the number stops being inherited and starts
+being a measurement.
+
 #### Recent form
 
 Newer games pull harder: **half weight every 90 days**. A side that lost through

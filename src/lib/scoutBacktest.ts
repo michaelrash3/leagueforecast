@@ -56,6 +56,8 @@ export type ScoutBacktestResult = {
   ageGapPrior: number;
   /** Which weighting scheme produced it, so a sweep's winner has a name. */
   recencyKey: string;
+  /** The per-game run-differential cap the fit ran under, for the same reason. */
+  cap: number;
   /**
    * The same numbers, split by how long after the cut each game was played.
    *
@@ -214,13 +216,45 @@ export type ScoutBacktestOptions = {
    * a scheme that wins at either.
    */
   cutOn?: string;
+  /**
+   * The most run-differential one game may contribute to the fit. Defaults to `RATING_CAP`.
+   *
+   * The reason this is a knob at all is that `RATING_CAP` is the least justified number in the
+   * model: the case for having a cap is sound — without one a 20-0 against a weak club outweighs
+   * a season of close wins against strong ones — but the case for *eight* was never made. It is
+   * inherited from the League Standings machine-pitch default, where it comes from a real rule
+   * (coach and machine pitch carry a per-inning run limit), and then applied flat across 8U to
+   * 18U even though the same settings put player pitch at twelve.
+   */
+  cap?: number;
+  /**
+   * What the held-out margin is clamped to before the error is taken. Defaults to `RATING_CAP`.
+   *
+   * Separate from `cap` on purpose, and the separation is the whole reason a cap sweep can be
+   * believed. `RATING_CAP` used to do both jobs, so moving it moved the target as well as the
+   * model — and a smaller target is a smaller error for nothing. Measured on four thousand
+   * realistic margins against a model that does not change at all (it predicts zero every time),
+   * letting the target follow the cap gives 2.25 runs at a cap of four rising to 2.95 uncapped,
+   * a clean monotone ordering that is entirely an artefact. Pinned, the same model scores 2.605
+   * at every cap, as it must.
+   *
+   * So a sweep varies `cap` and holds `scoreCap` still. Which value it is pinned at is itself a
+   * choice — it decides how far out a margin still counts as worth predicting — which is why the
+   * sweep reports the called-right rate beside the error: that one compares directions, so no
+   * clamp on the target can touch it.
+   */
+  scoreCap?: number;
 };
 
 const DEFAULT_TRAIN_SHARE = 0.7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Nothing to say, in the shape of a result. */
-const emptyResult = (ageGapPrior: number, recencyKey: string): ScoutBacktestResult => ({
+const emptyResult = (
+  ageGapPrior: number,
+  recencyKey: string,
+  cap: number
+): ScoutBacktestResult => ({
   sampleSize: 0,
   meanAbsoluteError: null,
   baselineError: null,
@@ -229,6 +263,7 @@ const emptyResult = (ageGapPrior: number, recencyKey: string): ScoutBacktestResu
   crossAgeError: null,
   fittedAgeGapRuns: ageGapPrior,
   ageGapPrior,
+  cap,
   recencyKey,
   buckets: [],
   span: null,
@@ -325,6 +360,8 @@ export const backtestScoutRatings = (
   options: ScoutBacktestOptions = {}
 ): ScoutBacktestResult => {
   const ageGapPrior = options.ageGapPrior ?? AGE_GAP_RUNS_PER_YEAR;
+  const cap = options.cap ?? RATING_CAP;
+  const scoreCap = options.scoreCap ?? RATING_CAP;
   const trainShare = clamp(options.trainShare ?? DEFAULT_TRAIN_SHARE, 0.1, 0.95);
   const recency = options.recency;
   const gapDays = Math.max(0, options.gapDays ?? 0);
@@ -355,7 +392,7 @@ export const backtestScoutRatings = (
   const test = ordered.filter((entry) => entry.at > cutAt && entry.at >= scoreFrom);
   // A fit on nothing rates nobody, and a cut leaving nothing to score answers nothing.
   if (train.length === 0 || test.length === 0) {
-    return emptyResult(ageGapPrior, recency?.key ?? "none");
+    return emptyResult(ageGapPrior, recency?.key ?? "none", cap);
   }
 
   /*
@@ -385,7 +422,7 @@ export const backtestScoutRatings = (
       const rating = asRatingGame(entry);
       return weights ? { ...rating, weight: weights[at] ?? 1 } : rating;
     }),
-    { cap: RATING_CAP, ageGapPrior }
+    { cap, ageGapPrior }
   );
 
   let errorSum = 0;
@@ -415,7 +452,7 @@ export const backtestScoutRatings = (
 
   test.forEach((entry) => {
     const { game, ageGap } = entry;
-    const actual = clamp(game.teamAScore! - game.teamBScore!, -RATING_CAP, RATING_CAP);
+    const actual = clamp(game.teamAScore! - game.teamBScore!, -scoreCap, scoreCap);
     const predicted =
       (fit.ratings.get(game.teamAId) ?? 0) -
       (fit.ratings.get(game.teamBId) ?? 0) +
@@ -478,6 +515,7 @@ export const backtestScoutRatings = (
     fittedAgeGapRuns: fit.ageGapRuns,
     ageGapPrior,
     recencyKey: recency?.key ?? "none",
+    cap,
     trainSize: train.length,
     unratedSides,
     splitSamples,
@@ -526,6 +564,55 @@ export const compareAgeGapPriors = (
   priors
     .map((ageGapPrior) =>
       backtestScoutRatings(ageGroupId, teams, games, ageGroups, { ...options, ageGapPrior })
+    )
+    .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
+
+/**
+ * The caps worth trying.
+ *
+ * Four to twelve, which brackets both numbers this app already uses: eight is what the rating
+ * clamps at and what League Standings puts machine and coach pitch at, twelve is what the same
+ * settings put player pitch at. If the answer is outside that range the shape of the curve will
+ * say so.
+ */
+export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12];
+
+/**
+ * The same backtest under several run-differential caps, best first.
+ *
+ * `RATING_CAP` is the least justified number in the model. The case for having a cap is sound —
+ * without one a 20-0 against a weak club outweighs a season of close wins against strong ones —
+ * but the case for *eight* was never made: it is inherited from the League Standings machine-pitch
+ * default, where it comes from a real rule, and then applied flat from 8U to 18U even though the
+ * same settings put player pitch at twelve. This is the measurement that was missing.
+ *
+ * The scoring target is pinned while the fit's cap moves, and that is not a detail. Sharing one
+ * constant between the two made a smaller cap a smaller error for nothing: a model that predicts
+ * zero every time, which cannot improve, scores 2.25 runs at a cap of four and 2.95 uncapped on
+ * four thousand realistic margins — a clean ordering that is pure artefact. Pinned, that same
+ * model scores 2.605 at every cap.
+ *
+ * Read the called-right column beside the error. Pinning the target is itself a choice about how
+ * far out a margin is worth predicting; the direction of a game is not clamped at all, so a cap
+ * that calls more games right has earned it whatever the error column says.
+ */
+export const compareRunCaps = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  caps: number[] = RUN_CAPS_TO_TRY,
+  options: Omit<ScoutBacktestOptions, "cap" | "scoreCap"> = {}
+): ScoutBacktestResult[] =>
+  caps
+    .map((cap) =>
+      backtestScoutRatings(ageGroupId, teams, games, ageGroups, {
+        ...options,
+        cap,
+        // The one value every candidate is graded against. Which value matters less than that it
+        // is the same for all of them; `RATING_CAP` keeps it continuous with the card above.
+        scoreCap: RATING_CAP,
+      })
     )
     .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
 

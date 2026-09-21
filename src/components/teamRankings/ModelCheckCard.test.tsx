@@ -1,7 +1,9 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
+import { RUN_CAPS_TO_TRY } from "../../lib/scoutBacktest";
+import { RATING_CAP } from "../../lib/teamRankings";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Setup" }));
@@ -76,6 +78,40 @@ describe("checking the model on the real pool", () => {
     await user.click(screen.getByRole("button", { name: "Check the model" }));
 
     expect(screen.getByText(/nothing in this pool crosses an age level/i)).toBeInTheDocument();
+  });
+
+  /**
+   * The run cap is the least justified number in the model — eight, inherited from a League
+   * Standings rule that does not apply here — so the card has to show its work: a row per
+   * candidate, every one fitted at its own cap and scored against the same target.
+   */
+  it("shows what each run cap would have cost", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(ladder(8));
+    await openSetup(user);
+
+    await user.click(screen.getByRole("button", { name: "Check the model" }));
+
+    const sweep = screen.getByRole("table", { name: "Run cap sweep" });
+    expect(within(sweep).getAllByRole("row")).toHaveLength(RUN_CAPS_TO_TRY.length + 1);
+    RUN_CAPS_TO_TRY.forEach((cap) => {
+      expect(within(sweep).getByText(new RegExp(`^${cap} runs`))).toBeInTheDocument();
+    });
+    // Exactly one row is the number the app is actually using, and it says so.
+    expect(within(sweep).getAllByText("in use")).toHaveLength(1);
+    expect(
+      within(sweep).getByRole("row", { name: new RegExp(`^${RATING_CAP} runs in use`) })
+    ).toBeInTheDocument();
+  });
+
+  it("names the cap that predicted these games best", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(ladder(8));
+    await openSetup(user);
+
+    await user.click(screen.getByRole("button", { name: "Check the model" }));
+
+    expect(screen.getByText(/predicted these games best/i)).toBeInTheDocument();
   });
 
   it("can be run again", async () => {
