@@ -322,21 +322,60 @@ describe("a team somebody named an age for", () => {
     tries: 99,
   };
 
+  /** What the review card writes: an answer, stamped with the moment it was given. */
+  const namedAt = (when: string, teamId = "GONE") => new Map([[teamId, { namedAt: when }]]);
+
   it("is asked about again however spent its budget is", () => {
     expect(ageUnknownDue([abandoned], 10, TODAY)).toEqual([]);
-    expect(ageUnknownDue([abandoned], 10, TODAY, new Set(["GONE"]))).toEqual(["GONE"]);
+    expect(ageUnknownDue([abandoned], 10, TODAY, namedAt(NOW))).toEqual(["GONE"]);
   });
 
   it("is counted as still being asked about, or the panel hides the run that would fetch it", () => {
     // The ask-again block is gated on this number, so a revived team with nothing offering to
     // pull it is the same as not reviving it at all.
     expect(ageUnknownAsking([abandoned], TODAY)).toBe(0);
-    expect(ageUnknownAsking([abandoned], TODAY, new Set(["GONE"]))).toBe(1);
+    expect(ageUnknownAsking([abandoned], TODAY, namedAt(NOW))).toBe(1);
   });
 
-  it("still waits a week between asks, so one that can never be filed is not fetched for ever", () => {
-    const asked = { ...abandoned, lastTried: daysBefore(1) };
-    expect(ageUnknownDue([asked], 10, TODAY, new Set(["GONE"]))).toEqual([]);
+  /**
+   * The case the card actually produces, and the one that was broken.
+   *
+   * A team is on the review card because a pull has just failed to age it, so its `lastTried` is
+   * a day or two old at most. The week gate refused it on that basis, which made the card's own
+   * "it will be filed on the next refresh" false for up to a week with nothing saying so.
+   */
+  it("is fetched at the next opportunity when the answer is newer than the last ask", () => {
+    const askedYesterday = { ...abandoned, tries: 1, lastTried: daysBefore(1) };
+    expect(ageUnknownDue([askedYesterday], 10, TODAY, namedAt(NOW))).toEqual(["GONE"]);
+  });
+
+  /**
+   * And the exemption is spent by the ask it buys: the pull moves `lastTried` past `namedAt`, so
+   * a named age that can never be filed — GameChanger has since said something else, so
+   * `namedAgeStands` refuses it — gets one more ask and then goes back to once a week rather than
+   * being fetched on every run for ever.
+   */
+  it("goes back to waiting a week once that ask has happened", () => {
+    const askedSince = { ...abandoned, lastTried: daysBefore(1) };
+    expect(ageUnknownDue([askedSince], 10, TODAY, namedAt(daysBefore(2)))).toEqual([]);
+  });
+
+  /**
+   * A cap cuts the tail off the list, and stalest-first puts a team answered for a minute ago at
+   * the very end of it — so the one team somebody is waiting on is the first thing dropped.
+   */
+  it("goes to the front of the queue, not the back, however long the list is", () => {
+    const stale = Array.from({ length: 10 }, (_, at) => ({
+      teamId: `OLD-${at}`,
+      name: `Old ${at}`,
+      firstSeen: daysBefore(400),
+      lastTried: daysBefore(300 - at),
+      tries: 1,
+    }));
+    const justAnswered = { ...abandoned, teamId: "WANTED", tries: 1, lastTried: daysBefore(1) };
+
+    const due = ageUnknownDue([...stale, justAnswered], 3, TODAY, namedAt(NOW, "WANTED"));
+    expect(due[0]).toBe("WANTED");
   });
 });
 

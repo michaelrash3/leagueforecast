@@ -166,40 +166,83 @@ export const stillWorthAsking = (entry: AgeUnknownTeam, now: Date): boolean => {
 };
 
 /**
- * The ids to ask about, stalest first, capped.
+ * What the asking rules need to know about a hand-named age: whether there is one, and when it
+ * was given.
+ *
+ * Structural rather than a `NamedAges`, so this file keeps knowing nothing about what a named age
+ * is beyond the two facts that bear on when to ask again. A `NamedAges` map satisfies it as it
+ * stands, and so does a plain `Map` in a test.
+ */
+export type NamedAgeAsk = {
+  has: (teamId: string) => boolean;
+  get: (teamId: string) => { namedAt?: string } | undefined;
+};
+
+const NOBODY_NAMED: NamedAgeAsk = { has: () => false, get: () => undefined };
+
+/**
+ * Whether somebody answered for this team after the last time it was asked about.
+ *
+ * Both are ISO instants, so comparing them as strings is comparing them as times. A `lastTried`
+ * that was never properly recorded — `coerceAgeUnknown` writes an empty string — counts as
+ * answered since, because an ask nobody can date cannot be shown to have known about the answer.
+ * A `namedAt` that is empty does not, because it cannot be shown to be newer than anything; such
+ * a row falls back to the week gate, which is where it was before.
+ */
+const answeredSinceLastAsk = (entry: AgeUnknownTeam, named: NamedAgeAsk): boolean => {
+  const namedAt = named.get(entry.teamId)?.namedAt;
+  if (!namedAt) return false;
+  return !entry.lastTried || namedAt > entry.lastTried;
+};
+
+/**
+ * The ids to ask about, answered-for first and then stalest, capped.
  *
  * Stalest first so a list longer than the cap still comes round rather than the same head of it
  * being asked every run while the tail is never touched again. The week gate is what paces this
  * now; the cap is only a ceiling on how much one run may hold at once.
+ *
+ * Ahead of both sits the team somebody has just answered for, and it has to. The review card's
+ * whole promise is "it will be filed on the next refresh", and a team is on that card because a
+ * pull has recently failed to age it — so its `lastTried` is days old at most, the week gate
+ * refused it, and the promise was false for up to a week with nothing on screen saying so. Being
+ * answered for is exactly the thing the last ask could not have known, which is why it is worth
+ * one more ask straight away rather than on the usual pace.
+ *
+ * It costs one fetch per answer and no more: the ask moves `lastTried` past `namedAt`, so the
+ * exemption closes behind itself. A named age that can never be applied — GameChanger has since
+ * said something different, so `namedAgeStands` refuses it — therefore gets that one ask and then
+ * goes back to once a week rather than being fetched on every run for ever.
  */
 export const ageUnknownDue = (
   list: AgeUnknownList,
   limit: number,
   now: Date,
   /**
-   * The ids somebody has named an age for by hand.
+   * What somebody named an age for by hand.
    *
-   * These are asked again whatever their budget says, because a person answering is the third
+   * These are asked again whatever their try budget says, because a person answering is the third
    * thing that can change the answer and the only one `stillWorthAsking` does not know about. It
    * matters most for a team that was left alone: nothing would ever ask about it again, so the
    * age typed on the review card would sit in storage for ever and never reach a schedule.
-   *
-   * Structural rather than a `NamedAges`, so a `Set` of ids does as well as the map and this file
-   * keeps knowing nothing about what a named age is.
    */
-  named: { has: (teamId: string) => boolean } = { has: () => false }
+  named: NamedAgeAsk = NOBODY_NAMED
 ): string[] =>
   list
     .filter((entry) => {
-      // The week gate still applies: a named age that cannot be applied — GameChanger has since
-      // said something different, so `namedAgeStands` refuses it — would otherwise be fetched on
-      // every run for ever rather than once a week.
       if (!stillWorthAsking(entry, now) && !named.has(entry.teamId)) return false;
+      if (answeredSinceLastAsk(entry, named)) return true;
       const since = daysSince(entry.lastTried, now);
       // Never properly recorded, so it has not been asked within the week either.
       return since === null || since >= AGE_UNKNOWN_MIN_DAYS_BETWEEN_ASKS;
     })
-    .sort((a, b) => (a.lastTried < b.lastTried ? -1 : a.lastTried > b.lastTried ? 1 : 0))
+    .sort(
+      (a, b) =>
+        // A fresh answer is the most recently tried thing on the list, so stalest-first would put
+        // it last and a cap would then cut off the one team somebody is actually waiting on.
+        Number(answeredSinceLastAsk(b, named)) - Number(answeredSinceLastAsk(a, named)) ||
+        (a.lastTried < b.lastTried ? -1 : a.lastTried > b.lastTried ? 1 : 0)
+    )
     .slice(0, Math.max(0, limit))
     .map((entry) => entry.teamId);
 
@@ -213,7 +256,7 @@ export const ageUnknownDue = (
 export const ageUnknownAsking = (
   list: AgeUnknownList,
   now: Date,
-  named: { has: (teamId: string) => boolean } = { has: () => false }
+  named: NamedAgeAsk = NOBODY_NAMED
 ): number => list.filter((entry) => stillWorthAsking(entry, now) || named.has(entry.teamId)).length;
 
 /**
@@ -227,7 +270,7 @@ export const describeAgeUnknown = (
   list: AgeUnknownList,
   now: Date,
   /** The same argument the two counts above take, so this sentence agrees with them. */
-  named: { has: (teamId: string) => boolean } = { has: () => false }
+  named: NamedAgeAsk = NOBODY_NAMED
 ): string => {
   if (list.length === 0) return "";
   const asking = ageUnknownAsking(list, now, named);
