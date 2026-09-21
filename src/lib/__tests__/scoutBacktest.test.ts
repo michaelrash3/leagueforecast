@@ -665,6 +665,61 @@ describe("what the run cap is costing", () => {
     expect(tight.meanAbsoluteError!).toBeGreaterThan(loose.meanAbsoluteError!);
   });
 
+  /**
+   * Every fourth game becomes a rout, which is what a cap exists for and what the plain synthetic
+   * pool has none of: its margins are the difference between two strengths spanning four runs, so
+   * they never reach eight and no cap from eight up ever bites.
+   */
+  const withRouts = (
+    pool: { teams: ScoutTeam[]; games: ScoutGame[] },
+    runs: number
+  ): { teams: ScoutTeam[]; games: ScoutGame[] } => ({
+    teams: pool.teams,
+    games: pool.games.map((game, at) =>
+      at % 4 === 0 ? { ...game, teamAScore: runs, teamBScore: 0 } : game
+    ),
+  });
+
+  it("offers no cap at all, and lets that fit see the whole margin", () => {
+    const { teams, games } = withRouts(syntheticPool({ teamCount: 12, gamesPerPair: 2 }), 20);
+    const rows = compareRunCaps("ag_9", teams, games, groups);
+
+    const open = rows.find((row) => row.cap === Infinity);
+    const eight = rows.find((row) => row.cap === RATING_CAP);
+    expect(open).toBeDefined();
+    // Not NaN, which is what an Infinity mishandled anywhere in the fit would produce.
+    expect(Number.isFinite(open!.meanAbsoluteError!)).toBe(true);
+    // Handed 20-run margins whole, it believes in bigger gaps than the row clamped at eight does.
+    expect(open!.meanAbsolutePrediction!).toBeGreaterThan(eight!.meanAbsolutePrediction!);
+  });
+
+  /**
+   * Where the shared target sits, not just that it is shared. Clipping it at `RATING_CAP` marks a
+   * wider candidate down for swinging where the target is flat, and on a pool whose margins really
+   * do run past eight that inverts the answer — so the sweep grades on the margin as played.
+   */
+  it("grades on the margin as played rather than on a clipped one", () => {
+    const { teams, games } = withRouts(syntheticPool({ teamCount: 12, gamesPerPair: 2 }), 20);
+    const rows = compareRunCaps("ag_9", teams, games, groups);
+    const clipped = backtestScoutRatings("ag_9", teams, games, groups, { scoreCap: RATING_CAP });
+
+    expect(new Set(rows.map((row) => row.baselineError)).size).toBe(1);
+    // The even-game baseline is the mean absolute target, so a looser target is a larger one.
+    expect(rows[0]!.baselineError!).toBeGreaterThan(clipped.baselineError!);
+  });
+
+  /** A clamp that never reaches is not a clamp, so these three have to agree to the digit. */
+  it("says nothing new about a pool whose margins all fit inside the cap", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const errors = [RATING_CAP, 12, Infinity].map(
+      (cap) => backtestScoutRatings("ag_9", teams, games, groups, { cap }).meanAbsoluteError
+    );
+
+    expect(errors[0]).not.toBeNull();
+    expect(errors[1]).toBe(errors[0]);
+    expect(errors[2]).toBe(errors[0]);
+  });
+
   it("fits at the cap the app ships with when nobody says otherwise", () => {
     const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
     const asShipped = backtestScoutRatings("ag_9", teams, games, groups);

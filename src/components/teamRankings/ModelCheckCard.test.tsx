@@ -94,11 +94,14 @@ describe("checking the model on the real pool", () => {
 
     const sweep = screen.getByRole("table", { name: "Run cap sweep" });
     expect(within(sweep).getAllByRole("row")).toHaveLength(RUN_CAPS_TO_TRY.length + 1);
-    RUN_CAPS_TO_TRY.forEach((cap) => {
+    RUN_CAPS_TO_TRY.filter(Number.isFinite).forEach((cap) => {
       expect(within(sweep).getByText(new RegExp(`^${cap} runs`))).toBeInTheDocument();
     });
     // Exactly one row is the number the app is actually using, and it says so.
     expect(within(sweep).getAllByText("in use")).toHaveLength(1);
+    // The open end is a sentence, not Infinity printed at somebody.
+    expect(within(sweep).getByText("No cap")).toBeInTheDocument();
+    expect(within(sweep).queryByText(/Infinity/)).toBeNull();
     expect(
       within(sweep).getByRole("row", { name: new RegExp(`^${RATING_CAP} runs in use`) })
     ).toBeInTheDocument();

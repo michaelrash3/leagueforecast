@@ -756,7 +756,11 @@ inherited from League Standings, where the cap is a rule of the league (coach
 and machine pitch carry a per-inning run limit), and then applied flat from 8U
 to 18U even though the same settings put player pitch at twelve. Setup's **Check
 the model** card now sweeps it: `compareRunCaps` refits the pool at four, six,
-eight, ten and twelve runs and reports what each one predicted.
+eight, ten and twelve runs — and at no cap at all — and reports what each one
+predicted. The last row is the one that asks whether _having_ a cap earns
+anything, rather than which cap is best. On a pool whose margins all fit inside
+eight it ties every cap from eight up, exactly as it must: a clamp that never
+reaches is not a clamp.
 
 The sweep moves the fit's cap and holds the scoring target still, and that
 separation is the whole reason the answer can be believed. One constant used to
@@ -765,9 +769,31 @@ shrank under the model. Measured on four thousand realistic margins against a
 model that cannot improve (it predicts zero every game), letting the target
 follow the cap gives 2.25 runs at a cap of four rising to 2.95 uncapped, a clean
 ordering that is pure artefact; pinned, that same model scores 2.605 at every
-cap, as it must. Read the called-right column beside the error: pinning the
-target is itself a choice about how far out a margin is worth predicting, while
-the direction of a game is not clamped at all.
+cap, as it must.
+
+_Where_ it is pinned is a second choice, and a sweep with an open end cannot
+make it freely: a target clipped at eight marks a wider candidate down for
+swinging where the target has been flattened. Three sixteen-team pools, two
+rounds each, the same hold-out, comparing a target pinned at eight against the
+margin as played:
+
+| truth                           | cap 8 → pinned / played | no cap → pinned / played |
+| ------------------------------- | ----------------------- | ------------------------ |
+| inside eight, no blowouts       | 0.894 / 0.894           | 0.892 / 0.892            |
+| inside eight, 10% junk blowouts | 1.930 / 2.527           | 2.245 / 2.843            |
+| genuinely spans past eight      | 2.517 / 5.231           | 2.760 / **1.091**        |
+
+The pin changes no ordering on the first two — the same cap wins either way —
+and inverts the third, where pinned at eight reads "no cap is worse than twelve"
+and the margin as played has it beating everything by a factor of two. So the
+sweep grades on the margin as played: still one target for every candidate,
+which is the property that matters, and the least arbitrary one going, since the
+margin is a fact and eight is a choice. It reads higher in absolute terms than
+the **Off by, on average** figure above it, which does clip at eight, so the
+rows are to be compared with each other rather than with that one. The
+called-right column is the check on all of it — direction is clamped by
+nothing — though it is the quieter signal, since direction is easy wherever two
+sides are far apart.
 
 Nothing changes on the strength of the sweep by itself — `RATING_CAP` is still
 eight and the League Standings cap, which is a rule rather than a guess, is
