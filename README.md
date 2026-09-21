@@ -637,6 +637,13 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+Throwing one out does not ask first. This is a queue worked ten at a time and mostly full of junk
+that takes a second to recognise, so a dialog in front of every one puts a second click on the
+common case to guard against the rare one. The guard sits after the action instead, as an **Undo**
+on the toast, where it costs nothing unless it is needed — and it can, because nothing is
+destroyed: the club was never filed, so throwing it out writes an id to a list and the undo takes
+it straight back off. A team that gets past the toast is still findable by name here.
+
 Saying what age a team is now puts it back in the queue even if it had been left alone, because a
 person answering is a third thing that can change the answer and the only one the give-up rule
 does not know about. Without that, an age typed against an abandoned team sat in storage and never

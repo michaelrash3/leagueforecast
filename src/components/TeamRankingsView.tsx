@@ -1120,23 +1120,40 @@ export function TeamRankingsView({
     [showToast]
   );
 
+  /** Puts a thrown-out club back, which is the whole of what the toast's undo has to do. */
+  const restoreDroppedClub = useCallback((teamId: string) => {
+    const next = restoreClubs(loadDroppedClubs(), [teamId]);
+    setDroppedClubs(next);
+    saveDroppedClubs(next);
+  }, []);
+
+  /**
+   * Throwing out a team nobody could age. No confirmation; an undo on the toast instead.
+   *
+   * This is a queue worked ten at a time, and most of what is on it is junk that takes a second
+   * to recognise — a page with three 20-0 wins on days that have not happened is thrown out on
+   * sight. A dialog in front of every one of those is a second click on the common case to guard
+   * against the rare one, which is the wrong way round: the guard belongs after the action, where
+   * it costs nothing unless it is needed.
+   *
+   * Safe to do without asking because nothing is destroyed. The club was never filed — there is
+   * nothing of it in the pool to delete — so this writes an id to a list, and the undo takes it
+   * straight back off. A team that gets past the toast is still findable by name on this card,
+   * which is the second way back.
+   */
   const throwOutAgeless = useCallback(
-    async (teamId: string, name: string | undefined): Promise<boolean> => {
-      const confirmed = await requestConfirmation({
-        title: `Throw out ${name ?? teamId}?`,
-        message:
-          "Nothing of it is in the pool to delete — it was never filed. Its GameChanger id is " +
-          "remembered instead, so no later pull reads its schedule again.",
-        confirmLabel: "Throw it out",
-      });
-      if (!confirmed) return false;
+    (teamId: string, name: string | undefined): boolean => {
       const next = forgetClubs(loadDroppedClubs(), [teamId]);
       setDroppedClubs(next);
       saveDroppedClubs(next);
-      showToast(`${name ?? teamId} thrown out.`);
+      showToast(`${name ?? teamId} thrown out.`, {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: () => restoreDroppedClub(teamId),
+      });
       return true;
     },
-    [requestConfirmation, showToast]
+    [showToast, restoreDroppedClub]
   );
 
   /**
@@ -1151,15 +1168,13 @@ export function TeamRankingsView({
    */
   const undoAgelessAnswer = useCallback(
     (teamId: string, name: string | undefined) => {
-      const clubs = restoreClubs(loadDroppedClubs(), [teamId]);
-      setDroppedClubs(clubs);
-      saveDroppedClubs(clubs);
+      restoreDroppedClub(teamId);
       const ages = forgetNamedAge(loadNamedAges(), teamId);
       setNamedAges(ages);
       saveNamedAges(ages);
       showToast(`${name ?? teamId} is back on the queue.`);
     },
-    [showToast]
+    [showToast, restoreDroppedClub]
   );
 
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
