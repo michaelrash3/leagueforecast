@@ -5,12 +5,14 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "../lib/teamRankings";
 import {
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeUnknown,
   saveScoutGames,
   saveScoutTeams,
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import { poolSignature } from "../lib/gameChangerImport";
 import type { SeasonMeta } from "../lib/storage";
+import type { AgeUnknownList } from "../lib/ageUnknown";
 
 /**
  * Renders Team Rankings over a pool you describe, the way a browser would find it.
@@ -33,6 +35,8 @@ export type Pool = {
    * unasked — which is what a restored backup or a pull closed mid-tidy looks like.
    */
   untidied?: boolean;
+  /** Teams nobody could age, for the review card on Setup. */
+  ageless?: AgeUnknownList;
 };
 
 export type Harness = RenderResult & {
@@ -107,6 +111,7 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   saveAgeGroups(pool.ageGroups);
   saveScoutTeams(pool.teams);
   saveScoutGames(pool.games);
+  if (pool.ageless) saveAgeUnknown(pool.ageless);
   if (!pool.untidied) {
     saveTidyStamp(
       poolSignature({ ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games })
