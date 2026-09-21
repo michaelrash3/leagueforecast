@@ -26,7 +26,12 @@ import {
   type AgeGroup,
   type ScoutTeam,
 } from "./teamRankings";
-import { ageUnknownAsking, ageUnknownDue, type AgeUnknownList } from "./ageUnknown";
+import {
+  ageUnknownAsking,
+  ageUnknownDue,
+  type AgeUnknownList,
+  type NamedAgeAsk,
+} from "./ageUnknown";
 
 /** Sunday is 0, as `Date.getDay` has it. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -210,10 +215,11 @@ export type DueRefreshOptions = {
   seasonYear?: number;
   ageless?: AgeUnknownList;
   /**
-   * The ids somebody has named an age for, so a team that was left alone is asked once more.
-   * Structural, so the caller can pass the `NamedAges` map straight in.
+   * What somebody has named an age for, so a team that was left alone is asked once more and a
+   * team answered for since its last ask is asked straight away. Structural, so the caller can
+   * pass the `NamedAges` map straight in.
    */
-  namedAges?: { has: (teamId: string) => boolean };
+  namedAges?: NamedAgeAsk;
   cadence?: RefreshCadence;
   /**
    * Ignore what has already been done today and offer the lot.

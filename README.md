@@ -563,8 +563,9 @@ run it again anyway, for when something has changed that a day log cannot know
 about.
 
 The teams with no age are paced by that same principle, and used not to be. Each
-is asked at most once a week, and left alone only once it has had both its eight
-asks and eight real weeks since it was first found. The count on its own used to
+is asked at most once a week — unless somebody has answered for it since its last
+ask, which jumps the queue; see **Naming an age** — and left alone only once it has
+had both its eight asks and eight real weeks since it was first found. The count on its own used to
 be the whole rule, and nothing in `ageUnknown.ts` read a calendar — so eight
 "passes" was however long eight presses of a button took. Driving the real
 `dueRefresh` and `updateAgeUnknown` over a calendar, a short list was abandoned on
@@ -673,6 +674,19 @@ GameChanger was saying at the time, so that is a comparison rather than a guess.
 level outside the ranked range is refused rather than clamped: a stored 6U would be an
 answer that files nowhere, taking the team off the waiting list and putting it on no
 page, so it would vanish from both.
+
+Naming is only an instruction to the next pull: it is applied when that team's schedule
+is next fetched, because the page it is filed under, the link written against it and the
+age carried on each of its games all have to agree, and only a fetch produces those. So
+a named team goes to the **front** of the next refresh's queue and is exempt from the
+week between asks. It has to be: a team is on the review card precisely because a pull
+has just failed to age it, so its last ask is a day or two old, and the week gate used to
+refuse it — leaving "it will be filed on the next refresh" false for up to a week with
+nothing on screen saying so, and the team on no page and therefore invisible to the
+League Standings scout picker, which only offers clubs that are on one. The exemption is
+spent by the ask it buys, since the fetch moves the last-asked stamp past the answer's
+own: an answer GameChanger overrules gets that one ask and then goes back to once a week
+rather than being fetched for ever.
 
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
