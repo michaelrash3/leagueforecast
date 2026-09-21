@@ -101,16 +101,19 @@ describe("the review card for teams waiting on an age", () => {
     expect(onThrowOut).toHaveBeenCalledWith("ID0", "Club 0");
   });
 
-  it("puts the ones that look invented at the top", () => {
+  /* The sitting opens on the decisions worth making; the pages that look made up sink to the end. */
+  it("puts the likeliest real teams at the top and the made-up-looking ones at the bottom", () => {
     show([
-      team("honest", "An Honest Club"),
       team("fake", "Test team", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
       }),
+      team("honest", "An Honest Club"),
     ]);
-    expect(within(rows()[0]!).getByText("Test team")).toBeInTheDocument();
+    expect(within(rows()[0]!).getByText("An Honest Club")).toBeInTheDocument();
+    expect(within(rows()[1]!).getByText("Test team")).toBeInTheDocument();
+    // Still told why, wherever it sits.
     expect(
-      within(rows()[0]!).getByText(/4 scored on a day that has not happened/)
+      within(rows()[1]!).getByText(/4 scored on a day that has not happened/)
     ).toBeInTheDocument();
   });
 
@@ -131,7 +134,8 @@ describe("the review card for teams waiting on an age", () => {
     /*
      * The wall the batch exists to avoid is also a wall for somebody hunting one club: with the
      * queue ten at a time and sorted by how invented a page looks, row fourteen thousand cannot
-     * be reached at all. So the card searches instead of paging.
+     * be reached at all, whichever end the ordering starts from. So the card searches instead of
+     * paging.
      */
     const user = userEvent.setup();
     show(twelve());

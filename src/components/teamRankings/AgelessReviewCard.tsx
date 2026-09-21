@@ -259,7 +259,7 @@ export function AgelessReviewCard({
         GameChanger gave no age group, the name does not say one, and too few of their opponents
         write one in theirs. Nothing automatic will settle these — the club has to fix its own page,
         or the team has to play somebody who names an age — so they are here, {AGELESS_BATCH} at a
-        time. The next {AGELESS_BATCH} come up once these are done.
+        time, likeliest real first. The next {AGELESS_BATCH} come up once these are done.
       </p>
       <label className="mt-3 block">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">

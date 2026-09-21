@@ -45,16 +45,26 @@ describe("the queue of teams waiting on an answer", () => {
     expect(agelessBatch(waiting, [])).toHaveLength(AGELESS_BATCH);
   });
 
-  it("puts the ones that look invented first", () => {
+  /**
+   * Ten rows is a sitting whether they are junk or not, so the ones that decide something come
+   * first and the pages that look made up sink. A fiction is quick to throw out from anywhere in
+   * the list; a real club can only be aged from the front of it.
+   */
+  it("puts the likeliest real teams first and the made-up-looking ones last", () => {
     const list: AgeUnknownList = [
-      team("honest", { evidence: evidence() }),
       // Every game scored on a day that has not happened, all of them shutout blowouts.
       team("invented", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
       }),
-      team("also-honest", { evidence: evidence() }),
+      team("honest", { evidence: evidence(), lastTried: daysBefore(11) }),
+      // Half its games on days that have not happened: worse than honest, better than invented.
+      team("iffy", { evidence: evidence({ aheadOfToday: 2 }) }),
     ];
-    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))[0]).toBe("invented");
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual([
+      "honest",
+      "iffy",
+      "invented",
+    ]);
   });
 
   it("stops asking a person about a team whose name says a high school squad", () => {
@@ -70,22 +80,22 @@ describe("the queue of teams waiting on an answer", () => {
     expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["real"]);
   });
 
-  it("keeps a lone V in front of a person, first, and says what to look for", () => {
+  it("puts a lone V ahead of a row nothing else separates it from, and says what to look for", () => {
     /*
-     * The opposite case, and the reason it is not folded into the one above. A lone "V" really is
-     * a question a person has to settle: on a school schedule it is the varsity side, and it is
-     * equally a squad number, a colour or an initial. So it stays on the queue, it comes first
-     * because it is answerable by opening one page, and it carries the reason.
+     * The opposite case to the one above, and the reason it is not folded into it. A lone "V"
+     * really is a question a person has to settle: on a school schedule it is the varsity side,
+     * and it is equally a squad number, a colour or an initial. So it stays on the queue and
+     * carries the reason — and among rows that look equally real it goes first, because opening
+     * one page settles it.
+     *
+     * The plain row here is the staler of the two, so only the lead can put the V in front.
      */
     const list: AgeUnknownList = [
-      // Ranked above it on looksInvented alone: every game scored on a day that has not happened.
-      team("junk", {
-        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
-      }),
-      team("loneV", { name: "Madison V", evidence: evidence() }),
+      team("plain", { name: "Madison Reds", lastTried: daysBefore(40), evidence: evidence() }),
+      team("loneV", { name: "Madison V", lastTried: daysBefore(1), evidence: evidence() }),
     ];
     const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-    expect(batchIds(waiting)).toEqual(["loneV", "junk"]);
+    expect(batchIds(waiting)).toEqual(["loneV", "plain"]);
     expect(waiting[0]?.hint).toContain("varsity");
     expect(waiting[1]?.hint).toBeUndefined();
   });
