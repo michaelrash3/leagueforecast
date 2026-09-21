@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
+import type { NamedAges } from "../lib/namedAges";
 import {
   heldSnapshot,
   holdingNow,
@@ -98,7 +99,6 @@ import {
   type PoolHolding,
   loadDeletedGames,
   loadDroppedClubs,
-  loadNamedAges,
   loadTooYoungClubs,
   saveTooYoungClubs,
   loadKeptApart,
@@ -137,6 +137,15 @@ type GameChangerImportPanelProps = {
   onClearProgress: () => void;
   onClose: () => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
+  /**
+   * The ages somebody typed on the review card.
+   *
+   * A prop rather than a `loadNamedAges()` inside the memos that need it: a storage read in a
+   * memo body is a dependency React cannot see, so the memo would keep a stale answer after the
+   * card recorded a new one. It is only safe today because this panel and that card are mutually
+   * exclusive mounts, which is a thing no future layout has to respect.
+   */
+  namedAges: NamedAges;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -315,6 +324,7 @@ export function GameChangerImportPanel({
   pool,
   onPersist,
   savedProgress,
+  namedAges,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -502,10 +512,14 @@ export function GameChangerImportPanel({
   const { due, agelessLine } = useMemo(() => {
     const now = new Date();
     return {
-      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, { ageless, cadence }),
-      agelessLine: describeAgeUnknown(ageless, now),
+      due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
+        ageless,
+        cadence,
+        namedAges,
+      }),
+      agelessLine: describeAgeUnknown(ageless, now, namedAges),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -523,9 +537,10 @@ export function GameChangerImportPanel({
       dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
         ageless,
         cadence,
+        namedAges,
         force: true,
       }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence]
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -772,7 +787,7 @@ export function GameChangerImportPanel({
         // leaving it out did not weaken the feature, it turned it off: the answer was stored, the
         // row vanished from the card because the queue hides a team once it is named, and the
         // next pull read an empty map and refused the team for having no age all over again.
-        namedAges: loadNamedAges(),
+        namedAges,
       });
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.

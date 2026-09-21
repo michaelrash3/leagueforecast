@@ -624,6 +624,24 @@ page — and the card carries a **High school** button beside **Not a real team*
 a varsity side is a real team that simply plays a season this app does not rank. Both
 buttons do the same thing to storage: thrown out at once, and never brought back.
 
+**Finding one team.** The card carries a search box, and it reads the **whole list** rather than
+the queue. It matches the name, the GameChanger id, the town and state, and the opponents the card
+already shows — a club is remembered by where it is from as readily as by its exact squad name.
+Every word has to appear and they need not be adjacent or in order, because the real names on this
+list read "Mears 1 - 2026" and a plain substring test turned "mears 2026" into no matches at all.
+Best match first — the whole name, then the start of it, then anywhere — because ordering matches
+by how invented a page looks puts the wanted team past the cut. That is the point of it: the queue is the small end, ten at a time out of tens of
+thousands, so "I know this club is in here" is very often a team the queue is deliberately not
+showing. A match that is off the queue is shown with the reason — you threw it out, you already
+named its age, the name reads as a high school squad, or it was left alone after its asks ran out
+— and for the two of those that are your own answers, an **Undo that** button takes it back.
+Before this there was no way to undo either one anywhere in the app.
+
+Saying what age a team is now puts it back in the queue even if it had been left alone, because a
+person answering is a third thing that can change the answer and the only one the give-up rule
+does not know about. Without that, an age typed against an abandoned team sat in storage and never
+reached a schedule.
+
 Worst-looking first, by `looksInvented` — games carrying scores on days that have not
 happened, shutout blowouts, a record claiming far more games than the schedule lists,
 a roster under nine. It is **only an ordering**. Every part of it has an innocent

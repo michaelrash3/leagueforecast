@@ -303,3 +303,74 @@ describe("keeping the teams nobody could age", () => {
     ]);
   });
 });
+
+/**
+ * Somebody answering is the third thing that can change the answer.
+ *
+ * `stillWorthAsking` knows about two — the team plays somebody who names an age, or the club
+ * fixes its own page — and neither involves a person. Once the review card could be searched, a
+ * reader could find a team that had been left alone months ago and say what age it was; without
+ * this, that answer was stored and nothing ever asked about the team again, so it never reached
+ * a schedule and never got filed.
+ */
+describe("a team somebody named an age for", () => {
+  const abandoned = {
+    teamId: "GONE",
+    name: "Mears 1 - 2026",
+    firstSeen: daysBefore(400),
+    lastTried: daysBefore(300),
+    tries: 99,
+  };
+
+  it("is asked about again however spent its budget is", () => {
+    expect(ageUnknownDue([abandoned], 10, TODAY)).toEqual([]);
+    expect(ageUnknownDue([abandoned], 10, TODAY, new Set(["GONE"]))).toEqual(["GONE"]);
+  });
+
+  it("is counted as still being asked about, or the panel hides the run that would fetch it", () => {
+    // The ask-again block is gated on this number, so a revived team with nothing offering to
+    // pull it is the same as not reviving it at all.
+    expect(ageUnknownAsking([abandoned], TODAY)).toBe(0);
+    expect(ageUnknownAsking([abandoned], TODAY, new Set(["GONE"]))).toBe(1);
+  });
+
+  it("still waits a week between asks, so one that can never be filed is not fetched for ever", () => {
+    const asked = { ...abandoned, lastTried: daysBefore(1) };
+    expect(ageUnknownDue([asked], 10, TODAY, new Set(["GONE"]))).toEqual([]);
+  });
+});
+
+/**
+ * The name is the only way anybody finds a particular team in a list of thirty thousand.
+ */
+describe("the name on an entry", () => {
+  it("survives an ask that comes back without one", () => {
+    /*
+     * A run that could not say what the team was called used to erase the name already stored,
+     * leaving a row reading "Name not recorded" that no search could ever match. `evidence`
+     * three lines below it always had this fallback; the name did not.
+     */
+    const first = updateAgeUnknown(
+      [],
+      [outcome("T1", { skip: "no-age", teamName: "Mears 1 - 2026" })],
+      NOW
+    );
+    expect(first[0]?.name).toBe("Mears 1 - 2026");
+    const second = updateAgeUnknown(first, [outcome("T1", { skip: "no-age", teamName: "" })], NOW);
+    expect(second[0]?.name).toBe("Mears 1 - 2026");
+  });
+
+  it("is replaced when a later ask does say one", () => {
+    const first = updateAgeUnknown(
+      [],
+      [outcome("T1", { skip: "no-age", teamName: "Old Name" })],
+      NOW
+    );
+    const second = updateAgeUnknown(
+      first,
+      [outcome("T1", { skip: "no-age", teamName: "New Name" })],
+      NOW
+    );
+    expect(second[0]?.name).toBe("New Name");
+  });
+});

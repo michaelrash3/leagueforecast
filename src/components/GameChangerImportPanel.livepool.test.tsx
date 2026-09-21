@@ -98,6 +98,7 @@ describe("a pool that changed while the panel was open", () => {
           return true;
         }}
         savedProgress={null}
+        namedAges={new Map()}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}
         onClose={() => {}}
@@ -187,6 +188,7 @@ describe("a sectioned run over a pool that changed while the panel was open", ()
           return saveScoutGames(next.games).written;
         }}
         savedProgress={null}
+        namedAges={new Map()}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}
         onClose={() => {}}

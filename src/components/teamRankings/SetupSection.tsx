@@ -44,6 +44,8 @@ type SetupSectionProps = {
     dropped: DeletedClubs;
     onNameAge: (teamId: string, name: string | undefined, level: number) => void;
     onThrowOut: (teamId: string, name: string | undefined) => Promise<boolean> | boolean;
+    /** Takes back a named age or a throw-out, for a team found by searching. */
+    onUndo: (teamId: string, name: string | undefined) => void;
     now: Date;
   };
   /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
@@ -192,6 +194,7 @@ export function SetupSection({
         dropped={ageless.dropped}
         onNameAge={ageless.onNameAge}
         onThrowOut={ageless.onThrowOut}
+        onUndo={ageless.onUndo}
         now={ageless.now}
       />
 
