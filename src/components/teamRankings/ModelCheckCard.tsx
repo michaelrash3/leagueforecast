@@ -24,6 +24,9 @@ const runs = (value: number | null): string => (value === null ? "—" : `${valu
 const percent = (value: number | null): string =>
   value === null ? "—" : `${Math.round(value * 100)}%`;
 
+/** The sweep's open end is `Infinity`, which has to read as a sentence rather than as a number. */
+const capName = (cap: number): string => (Number.isFinite(cap) ? `${cap} runs` : "No cap");
+
 /**
  * Whether the ratings on this page predict anything.
  *
@@ -138,9 +141,15 @@ export function ModelCheckCard({
               <p className="mt-1 text-slate-500">
                 The most one game may swing a rating. {RATING_CAP} is what it is set to, and unlike
                 the League Standings cap — which is a rule of your league — nothing measured put it
-                there. Every row below is fitted at its own cap and then scored against the same
-                target, so the columns are comparable; the called-right column is not clamped at
-                all, so it is the one to trust if the two disagree.
+                there. The last row caps nothing at all, which is the row that asks whether having a
+                cap is earning anything rather than which cap is best.
+              </p>
+              <p className="mt-1 text-slate-500">
+                Every row is fitted at its own cap and then scored against the same target: the
+                margin as played, uncapped, so a row allowed to predict past {RATING_CAP} is not
+                marked down for doing it. That makes these figures read higher than the{" "}
+                <strong>Off by, on average</strong> above, which clips the target at {RATING_CAP} —
+                compare the rows with each other, not with that one.
               </p>
               {capRows && capRows.length > 0 && capRows[0]!.sampleSize > 0 ? (
                 <div className="mt-2 overflow-x-auto">
@@ -159,7 +168,7 @@ export function ModelCheckCard({
                           className="border-t border-slate-100 dark:border-slate-800"
                         >
                           <td className="py-1 font-semibold">
-                            {row.cap} runs{" "}
+                            {capName(row.cap)}{" "}
                             {row.cap === RATING_CAP && (
                               <span className="ml-2 text-xs font-normal text-slate-500">
                                 in use
@@ -178,7 +187,7 @@ export function ModelCheckCard({
                     <p className="mt-2 text-slate-700 dark:text-slate-200">
                       {bestCap.cap === RATING_CAP
                         ? `${RATING_CAP} predicted these games best, so the number in use is the one this pool wants.`
-                        : `${bestCap.cap} runs predicted these games best — ${runs(bestCap.meanAbsoluteError)} against ${runs(capRows.find((row) => row.cap === RATING_CAP)?.meanAbsoluteError ?? null)} at the ${RATING_CAP} in use.`}
+                        : `${capName(bestCap.cap)} predicted these games best — ${runs(bestCap.meanAbsoluteError)} against ${runs(capRows.find((row) => row.cap === RATING_CAP)?.meanAbsoluteError ?? null)} at the ${RATING_CAP} in use.`}
                     </p>
                   )}
                 </div>

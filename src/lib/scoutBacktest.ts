@@ -225,6 +225,10 @@ export type ScoutBacktestOptions = {
    * inherited from the League Standings machine-pitch default, where it comes from a real rule
    * (coach and machine pitch carry a per-inning run limit), and then applied flat across 8U to
    * 18U even though the same settings put player pitch at twelve.
+   *
+   * `Infinity` is a legal value and means no cap at all: the fit is handed the margin as played.
+   * `clamp` takes it without special-casing, and it is the only honest way to ask whether having
+   * a cap is earning anything, as against which cap is best.
    */
   cap?: number;
   /**
@@ -238,10 +242,24 @@ export type ScoutBacktestOptions = {
    * a clean monotone ordering that is entirely an artefact. Pinned, the same model scores 2.605
    * at every cap, as it must.
    *
-   * So a sweep varies `cap` and holds `scoreCap` still. Which value it is pinned at is itself a
-   * choice — it decides how far out a margin still counts as worth predicting — which is why the
-   * sweep reports the called-right rate beside the error: that one compares directions, so no
-   * clamp on the target can touch it.
+   * So a sweep varies `cap` and holds `scoreCap` still. *Where* it is pinned is a second choice,
+   * and a sweep that reaches past `RATING_CAP` cannot make it freely: pinning the target tighter
+   * than the widest candidate penalises that candidate for swinging where the target has been
+   * clipped flat. Measured on three sixteen-team pools, two rounds each, held out the same way —
+   * error at a target pinned to eight against the same fit scored on the margin as played:
+   *
+   * | truth                         | cap 8 → pinned / played | no cap → pinned / played |
+   * | ----------------------------- | ----------------------- | ------------------------ |
+   * | inside eight, no blowouts     | 0.894 / 0.894           | 0.892 / 0.892            |
+   * | inside eight, 10% junk blowouts | 1.930 / 2.527         | 2.245 / 2.843            |
+   * | genuinely spans past eight    | 2.517 / 5.231           | 2.760 / **1.091**        |
+   *
+   * The pin changes no ordering on the first two — the same cap wins either way — and inverts the
+   * third: pinned, no cap reads worse than twelve; on the margin as played it beats everything by
+   * a factor of two. So `compareRunCaps` grades on the margin as played. That is still one target
+   * for every candidate, which is the property that matters, and it is the least arbitrary one
+   * available: the margin is a fact and eight is a choice. It does read higher in absolute terms,
+   * because a 21-run game now contributes every run of its unpredictability to every row.
    */
   scoreCap?: number;
 };
@@ -568,14 +586,16 @@ export const compareAgeGapPriors = (
     .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
 
 /**
- * The caps worth trying.
+ * The caps worth trying, and no cap at all.
  *
- * Four to twelve, which brackets both numbers this app already uses: eight is what the rating
- * clamps at and what League Standings puts machine and coach pitch at, twelve is what the same
- * settings put player pitch at. If the answer is outside that range the shape of the curve will
- * say so.
+ * Four to twelve brackets both numbers this app already uses: eight is what the rating clamps at
+ * and what League Standings puts machine and coach pitch at, twelve is what the same settings put
+ * player pitch at. `Infinity` closes the open end, and it is not decoration — it is the only row
+ * that asks whether having a cap is earning anything, as against which cap is best. Measured on a
+ * pool whose margins all fit inside eight it ties every cap from eight up, exactly as it must,
+ * since a clamp that never bites does nothing.
  */
-export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12];
+export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12, Infinity];
 
 /**
  * The same backtest under several run-differential caps, best first.
@@ -592,9 +612,16 @@ export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12];
  * four thousand realistic margins — a clean ordering that is pure artefact. Pinned, that same
  * model scores 2.605 at every cap.
  *
- * Read the called-right column beside the error. Pinning the target is itself a choice about how
- * far out a margin is worth predicting; the direction of a game is not clamped at all, so a cap
- * that calls more games right has earned it whatever the error column says.
+ * It is pinned at the margin as played rather than at `RATING_CAP`, which matters once the sweep
+ * reaches past eight: a target clipped at eight penalises a wider candidate for swinging where
+ * the target is flat, and on a pool whose margins genuinely run past eight that inverts the
+ * answer — no cap reads worse than twelve pinned at eight (2.760 against 1.939) and beats
+ * everything on the margin as played (1.091). See `scoreCap` for the three pools. The absolute
+ * numbers read higher this way, because a 21-run game hands every row all of its unpredictability.
+ *
+ * Read the called-right column beside the error. It compares directions, which nothing clamps, so
+ * a cap that calls more games right has earned it whatever the error column says — though it is
+ * the quieter signal of the two, since direction is easy wherever the sides are far apart.
  */
 export const compareRunCaps = (
   ageGroupId: string,
@@ -609,9 +636,10 @@ export const compareRunCaps = (
       backtestScoutRatings(ageGroupId, teams, games, ageGroups, {
         ...options,
         cap,
-        // The one value every candidate is graded against. Which value matters less than that it
-        // is the same for all of them; `RATING_CAP` keeps it continuous with the card above.
-        scoreCap: RATING_CAP,
+        // The one target every candidate is graded against: the margin as played. That it is the
+        // same for all of them is what makes the column comparable; that it is the real margin is
+        // what keeps an uncapped candidate from being marked down for predicting past a clip.
+        scoreCap: Infinity,
       })
     )
     .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
