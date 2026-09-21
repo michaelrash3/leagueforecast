@@ -5,9 +5,12 @@ import {
   beatsTheBaseline,
   compareAgeGapPriors,
   compareRecencySchemes,
+  compareRunCaps,
   describeDecayCurve,
+  RUN_CAPS_TO_TRY,
 } from "../scoutBacktest";
 import { byGamesSince, noDecay, RECENCY_SCHEMES } from "../ratingRecency";
+import { RATING_CAP } from "../teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 const groups: AgeGroup[] = [
@@ -615,5 +618,63 @@ describe("keeping the held-out games one by one", () => {
         .join(",")
     );
     expect(new Set(ids).size).toBe(1);
+  });
+});
+
+describe("what the run cap is costing", () => {
+  /**
+   * The guard that makes the whole sweep believable.
+   *
+   * `RATING_CAP` used to clamp both the fit and the held-out margin the fit is scored against, so
+   * a smaller cap was a smaller error for nothing at all — the target moved under the model. The
+   * even-game baseline is the clean probe for it: that model predicts zero whatever the fit does,
+   * so its error is the mean of the clamped actual margins and nothing else. One baseline across
+   * the sweep means one target across the sweep.
+   */
+  it("grades every cap against the same target", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const rows = compareRunCaps("ag_9", teams, games, groups);
+
+    expect(rows).toHaveLength(RUN_CAPS_TO_TRY.length);
+    expect(new Set(rows.map((row) => row.baselineError)).size).toBe(1);
+  });
+
+  it("puts the cap that predicted best first", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const errors = compareRunCaps("ag_9", teams, games, groups, [2, 4, 8]).map(
+      (row) => row.meanAbsoluteError ?? Infinity
+    );
+
+    expect(errors).toEqual([...errors].sort((a, b) => a - b));
+  });
+
+  /**
+   * A cap tighter than the margins in the pool is the model being told it may not believe how big
+   * a win was, and the ratings come in accordingly: at two runs the fit predicts margins averaging
+   * 0.95 runs where at twelve it predicts 2.31, against a truth that spans eight. That is the cap
+   * doing what a cap does, and it is what a sweep is varying.
+   */
+  it("holds the ratings in when the cap is tighter than the games", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const tight = backtestScoutRatings("ag_9", teams, games, groups, { cap: 2 });
+    const loose = backtestScoutRatings("ag_9", teams, games, groups, { cap: 12 });
+
+    expect(tight.meanAbsolutePrediction!).toBeLessThan(loose.meanAbsolutePrediction!);
+    // Both were scored against the same margins, so the error is comparable and the squeeze costs.
+    expect(tight.baselineError).toBe(loose.baselineError);
+    expect(tight.meanAbsoluteError!).toBeGreaterThan(loose.meanAbsoluteError!);
+  });
+
+  it("fits at the cap the app ships with when nobody says otherwise", () => {
+    const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
+    const asShipped = backtestScoutRatings("ag_9", teams, games, groups);
+    const spelledOut = backtestScoutRatings("ag_9", teams, games, groups, {
+      cap: RATING_CAP,
+      scoreCap: RATING_CAP,
+    });
+
+    expect(asShipped.cap).toBe(RATING_CAP);
+    expect(asShipped.meanAbsoluteError).toBe(spelledOut.meanAbsoluteError);
+    expect(asShipped.meanAbsolutePrediction).toBe(spelledOut.meanAbsolutePrediction);
   });
 });

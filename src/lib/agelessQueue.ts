@@ -10,10 +10,17 @@
  * cannot disagree with them. Closing the tab half way through a batch loses the batch's identity
  * and nothing else: the next sitting starts a fresh ten off the top of whatever is still waiting.
  *
- * Worst first, because the junk is quick. A page with three 20-0 wins on days that have not
- * happened and a roster of two is thrown out in a second, and every one of those cleared is a row
- * that never costs anybody a real decision. That ordering is `looksInvented` and it is only an
- * ordering — see its note; nothing is ever thrown out on that number by the app itself.
+ * The likeliest real teams first, and the pages that look made up last. `looksInvented` is what
+ * sorts them, read the other way round from how it started: it went worst-first on the argument
+ * that junk is quick to clear, and that is the wrong thing to optimise. Ten rows is a sitting
+ * whether they are junk or not, and a sitting that opens on three fictions is one where the real
+ * decisions — the ones that actually put a team on a page — are the part nobody reaches. A page
+ * with three 20-0 wins on days that have not happened and a roster of two is quick to throw out
+ * from anywhere in the list; a genuine club is only ever aged from the front of it.
+ *
+ * It is still only an ordering — see `looksInvented`'s own note. Every part of that score has an
+ * innocent reading, nothing is ever thrown out on it by the app, and being sorted last is not the
+ * app calling a team fake.
  */
 
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
@@ -110,7 +117,7 @@ const rowFor = (entry: AgeUnknownTeam): AgelessRow => {
   };
 };
 
-/** Everyone still waiting on a person, worst-looking first. */
+/** Everyone still waiting on a person, likeliest real first. */
 export const agelessWaiting = (
   list: AgeUnknownList,
   named: NamedAges,
@@ -122,10 +129,12 @@ export const agelessWaiting = (
     .map(rowFor)
     .sort(
       (a, b) =>
-        // A row carrying a lead comes first, on the same reasoning that puts the junk first: it
-        // is answerable at a glance, and every one cleared never costs anybody a real decision.
+        // Least invented-looking first: the rows most worth a person's attention, at the end of
+        // which the junk is sitting together at the bottom rather than in front of everything.
+        a.invented - b.invented ||
+        // Among rows nothing separates, one carrying a lead goes ahead — it is answerable at a
+        // glance, so it costs the sitting least.
         Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||
-        b.invented - a.invented ||
         // Then the stalest, so a tie does not park the same rows at the top for ever.
         (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)
     );
@@ -274,9 +283,10 @@ const words = (text: string): string[] =>
  * How well a team answers to what was typed, as an ordering rather than a score anybody sees.
  *
  * Match quality has to beat everything else here. The queue sorts by how invented a page looks,
- * which is right for working through it and wrong for finding one club: measured on a
- * thirty-thousand-row list, "riverdogs" matches 3,750 teams, and ordering those by `looksInvented`
- * before cutting to the first 25 puts the wanted team outside the answer almost every time.
+ * which is right for working through it and wrong for finding one club whatever direction it runs
+ * in: measured on a thirty-thousand-row list, "riverdogs" matches 3,750 teams, and ordering those
+ * by `looksInvented` before cutting to the first 25 puts the wanted team outside the answer almost
+ * every time.
  *
  * 3 the whole name, 2 the start of it, 1 somewhere in what the team can be recognised by.
  */

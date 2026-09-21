@@ -3,8 +3,10 @@ import {
   backtestScoutRatings,
   beatsTheBaseline,
   compareAgeGapPriors,
+  compareRunCaps,
   type ScoutBacktestResult,
 } from "../../lib/scoutBacktest";
+import { RATING_CAP } from "../../lib/teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR } from "../../lib/powerRating";
 import { button, card, pill } from "../../styles/tokens";
@@ -42,16 +44,21 @@ export function ModelCheckCard({
 }: ModelCheckCardProps) {
   const [result, setResult] = useState<ScoutBacktestResult | null>(null);
   const [priors, setPriors] = useState<ScoutBacktestResult[] | null>(null);
+  const [caps, setCaps] = useState<ScoutBacktestResult[] | null>(null);
   const [ran, setRan] = useState(false);
 
   const run = () => {
     setResult(backtestScoutRatings(ageGroupId, teams, games, ageGroups));
     setPriors(compareAgeGapPriors(ageGroupId, teams, games, ageGroups));
+    setCaps(compareRunCaps(ageGroupId, teams, games, ageGroups));
     setRan(true);
   };
 
   const beat = result ? beatsTheBaseline(result) : null;
   const bestPrior = priors?.[0];
+  /** In the order they were tried, not best first, so the curve can be read down the column. */
+  const capRows = caps ? [...caps].sort((a, b) => a.cap - b.cap) : null;
+  const bestCap = caps?.[0];
 
   return (
     <div className={`${card} p-5`}>
@@ -123,6 +130,61 @@ export function ModelCheckCard({
                   {bestPrior && bestPrior.ageGapPrior !== result.ageGapPrior
                     ? ` Starting from ${bestPrior.ageGapPrior} instead predicted these games best.`
                     : " No other starting point predicted them better."}
+                </p>
+              )}
+              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500">
+                What the run cap is costing
+              </h3>
+              <p className="mt-1 text-slate-500">
+                The most one game may swing a rating. {RATING_CAP} is what it is set to, and unlike
+                the League Standings cap — which is a rule of your league — nothing measured put it
+                there. Every row below is fitted at its own cap and then scored against the same
+                target, so the columns are comparable; the called-right column is not clamped at
+                all, so it is the one to trust if the two disagree.
+              </p>
+              {capRows && capRows.length > 0 && capRows[0]!.sampleSize > 0 ? (
+                <div className="mt-2 overflow-x-auto">
+                  <table className="min-w-full text-sm" aria-label="Run cap sweep">
+                    <thead>
+                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="py-1">Cap</th>
+                        <th>Off by</th>
+                        <th>Called right</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {capRows.map((row) => (
+                        <tr
+                          key={row.cap}
+                          className="border-t border-slate-100 dark:border-slate-800"
+                        >
+                          <td className="py-1 font-semibold">
+                            {row.cap} runs{" "}
+                            {row.cap === RATING_CAP && (
+                              <span className="ml-2 text-xs font-normal text-slate-500">
+                                in use
+                              </span>
+                            )}
+                          </td>
+                          <td className={row.cap === bestCap?.cap ? "font-bold" : ""}>
+                            {runs(row.meanAbsoluteError)}
+                          </td>
+                          <td>{percent(row.winnerAccuracy)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {bestCap && (
+                    <p className="mt-2 text-slate-700 dark:text-slate-200">
+                      {bestCap.cap === RATING_CAP
+                        ? `${RATING_CAP} predicted these games best, so the number in use is the one this pool wants.`
+                        : `${bestCap.cap} runs predicted these games best — ${runs(bestCap.meanAbsoluteError)} against ${runs(capRows.find((row) => row.cap === RATING_CAP)?.meanAbsoluteError ?? null)} at the ${RATING_CAP} in use.`}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1 text-slate-500">
+                  Not enough held-back games here to tell the caps apart.
                 </p>
               )}
             </>

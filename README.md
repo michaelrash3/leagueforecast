@@ -649,11 +649,20 @@ person answering is a third thing that can change the answer and the only one th
 does not know about. Without that, an age typed against an abandoned team sat in storage and never
 reached a schedule.
 
-Worst-looking first, by `looksInvented` — games carrying scores on days that have not
-happened, shutout blowouts, a record claiming far more games than the schedule lists,
-a roster under nine. It is **only an ordering**. Every part of it has an innocent
-reading, so nothing is ever thrown out on that number and no row is coloured by it;
-an empty schedule is a club somebody made this morning as often as it is a fiction.
+Likeliest real first, by `looksInvented` read low to high — the score counts games
+carrying scores on days that have not happened, shutout blowouts, a record claiming far
+more games than the schedule lists, a roster under nine. It ran the other way to begin
+with, on the argument that junk is quick to clear. That is the wrong thing to optimise:
+ten rows is a sitting whether they are junk or not, and a sitting that opens on three
+fictions is one where the real decisions — the ones that actually put a team on a page —
+are the part nobody reaches. A fiction is quick to throw out from anywhere in the list;
+a genuine club is only ever aged from the front of it. Among rows nothing else separates,
+one carrying a lead goes ahead, then the stalest.
+
+It is **only an ordering** either way round. Every part of the score has an innocent
+reading, so nothing is ever thrown out on that number, no row is coloured by it, and
+sorting last is not the app calling a team fake; an empty schedule is a club somebody
+made this morning as often as it is a fiction.
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
@@ -739,6 +748,31 @@ locks.
 
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
+
+**Where the eight came from, and how to check it.** The case for _having_ a cap
+is plain — without one a 20-0 against a weak club outweighs a season of close
+wins against strong ones — but the case for _eight_ was never made here. It is
+inherited from League Standings, where the cap is a rule of the league (coach
+and machine pitch carry a per-inning run limit), and then applied flat from 8U
+to 18U even though the same settings put player pitch at twelve. Setup's **Check
+the model** card now sweeps it: `compareRunCaps` refits the pool at four, six,
+eight, ten and twelve runs and reports what each one predicted.
+
+The sweep moves the fit's cap and holds the scoring target still, and that
+separation is the whole reason the answer can be believed. One constant used to
+do both jobs, so a smaller cap was a smaller error for nothing — the target
+shrank under the model. Measured on four thousand realistic margins against a
+model that cannot improve (it predicts zero every game), letting the target
+follow the cap gives 2.25 runs at a cap of four rising to 2.95 uncapped, a clean
+ordering that is pure artefact; pinned, that same model scores 2.605 at every
+cap, as it must. Read the called-right column beside the error: pinning the
+target is itself a choice about how far out a margin is worth predicting, while
+the direction of a game is not clamped at all.
+
+Nothing changes on the strength of the sweep by itself — `RATING_CAP` is still
+eight and the League Standings cap, which is a rule rather than a guess, is
+untouched. The card is there so the number stops being inherited and starts
+being a measurement.
 
 #### Recent form
 
