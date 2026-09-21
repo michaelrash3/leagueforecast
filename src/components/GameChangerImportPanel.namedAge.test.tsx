@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetPullSession } from "../lib/pullSession";
 import { resetTeamRankingsStore, saveNamedAges } from "../lib/teamRankingsStorage";
-import { nameAge } from "../lib/namedAges";
+import { nameAge, type NamedAges } from "../lib/namedAges";
 import type { GcTeamResponse } from "../lib/gameChangerApi";
 import type { GcImportState } from "../lib/gameChangerImport";
 
@@ -78,7 +78,7 @@ describe("an age somebody typed on the review card", () => {
     window.localStorage.clear();
   });
 
-  const run = async (saved: GcImportState[]) => {
+  const run = async (saved: GcImportState[], named: NamedAges = new Map()) => {
     const user = userEvent.setup();
     render(
       <GameChangerImportPanel
@@ -88,6 +88,7 @@ describe("an age somebody typed on the review card", () => {
           return true;
         }}
         savedProgress={null}
+        namedAges={named}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}
         onClose={() => {}}
@@ -103,15 +104,16 @@ describe("an age somebody typed on the review card", () => {
   };
 
   it("files the team at the level that was named", async () => {
-    saveNamedAges(
-      nameAge(new Map(), {
-        teamId: ID,
-        level: 16,
-        name: NAMELESS,
-        namedAt: "2026-09-18T00:00:00.000Z",
-      })
-    );
-    const state = await run([]);
+    const named = nameAge(new Map(), {
+      teamId: ID,
+      level: 16,
+      name: NAMELESS,
+      namedAt: "2026-09-18T00:00:00.000Z",
+    });
+    // Stored as well as handed over, because both are real: the card writes it to storage and
+    // `TeamRankingsView` holds the same map as state and passes it down.
+    saveNamedAges(named);
+    const state = await run([], named);
     expect(state.ageGroups.map((group) => group.ageLevel)).toEqual([16]);
     expect(state.teams.map((team) => team.name)).toContain(NAMELESS);
   });

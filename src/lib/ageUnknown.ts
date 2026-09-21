@@ -223,9 +223,14 @@ export const ageUnknownAsking = (
  * with a zero: "0 teams still being asked about, and 412 left alone" opens by telling the reader
  * about something that is not there.
  */
-export const describeAgeUnknown = (list: AgeUnknownList, now: Date): string => {
+export const describeAgeUnknown = (
+  list: AgeUnknownList,
+  now: Date,
+  /** The same argument the two counts above take, so this sentence agrees with them. */
+  named: { has: (teamId: string) => boolean } = { has: () => false }
+): string => {
   if (list.length === 0) return "";
-  const asking = ageUnknownAsking(list, now);
+  const asking = ageUnknownAsking(list, now, named);
   const done = list.length - asking;
   const leftAlone = `${done.toLocaleString()} left alone after ${AGE_UNKNOWN_MAX_TRIES} weeks of nobody naming an age`;
   if (asking === 0) {

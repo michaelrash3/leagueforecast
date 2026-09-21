@@ -240,3 +240,63 @@ describe("finding one team by name or id", () => {
     expect(found.hits).toHaveLength(25);
   });
 });
+
+/**
+ * What somebody types, against the names this list is actually full of.
+ */
+describe("matching the way a person types", () => {
+  const real = (): AgeUnknownList => [
+    team("ID-1", { name: "Mears 1 - 2026", evidence: evidence({ city: "Tacoma", state: "WA" }) }),
+    team("ID-2", {
+      name: "Mears 9 - 2026",
+      evidence: evidence({ city: "Covington", state: "KY" }),
+    }),
+    team("ID-3", {
+      name: "Riverdogs",
+      evidence: evidence({ sampleOpponents: ["Northside 12U", "Eastview 11U"] }),
+    }),
+  ];
+
+  it("takes the words in any order, with anything between them", () => {
+    /*
+     * The whole reason this is not a substring test. A real name carries a squad number and a
+     * year between the words anybody remembers, so "mears 2026" — the obvious way to narrow a
+     * long list — found nothing at all, which made the card's own "type more to narrow it" the
+     * way to turn a long answer into no answer.
+     */
+    expect(agelessSearch(real(), new Map(), new Set(), NOW, "mears 2026").total).toBe(2);
+    expect(agelessSearch(real(), new Map(), new Set(), NOW, "2026 mears").total).toBe(2);
+    expect(agelessSearch(real(), new Map(), new Set(), NOW, "mears 9").total).toBe(1);
+  });
+
+  it("finds a team by where it is from, or by who it played", () => {
+    // The card already shows both, so a search that could not match them would be hiding what it
+    // had just displayed — and a town is how somebody remembers a club whose name they cannot.
+    expect(
+      agelessSearch(real(), new Map(), new Set(), NOW, "tacoma").hits[0]?.row.entry.teamId
+    ).toBe("ID-1");
+    expect(
+      agelessSearch(real(), new Map(), new Set(), NOW, "northside").hits[0]?.row.entry.teamId
+    ).toBe("ID-3");
+  });
+
+  it("puts the best match first, ahead of the order it would otherwise fall in", () => {
+    /*
+     * The tie-break below this is alphabetical, so the two have to disagree for the ranking to be
+     * doing anything: "Avalanche" sorts first and "Zephyrs" is the team somebody typed. On a real
+     * list the loose matches are the many and the exact one is the needle, so without this the
+     * wanted team is pushed past the cut and out of the answer entirely.
+     *
+     * The first version of this test used "Mears" against "Mears Valley Thunder", which sorts the
+     * right way round on its own and passed with the ranking deleted.
+     */
+    const list: AgeUnknownList = [
+      team("ID-LOOSE", { name: "Avalanche Zephyrs Club", evidence: evidence() }),
+      team("ID-EXACT", { name: "Zephyrs", evidence: evidence() }),
+    ];
+    const order = agelessSearch(list, new Map(), new Set(), NOW, "zephyrs").hits.map(
+      (hit) => hit.row.entry.teamId
+    );
+    expect(order).toEqual(["ID-EXACT", "ID-LOOSE"]);
+  });
+});

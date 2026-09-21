@@ -1771,6 +1771,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                * a pull would persist a second copy of every league game it happened to see.
                */
               pool={{ ageGroups, teams: scoutTeams, games: wholePoolGames }}
+              namedAges={namedAges}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);

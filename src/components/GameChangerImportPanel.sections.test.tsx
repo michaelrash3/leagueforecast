@@ -187,6 +187,7 @@ const renderPanel = () => {
         return whole.written && whole.spared.length === 0;
       }}
       savedProgress={null}
+      namedAges={new Map()}
       onSaveProgress={(progress) => cursors.push(progress)}
       onClearProgress={() => {}}
       onClose={() => {}}

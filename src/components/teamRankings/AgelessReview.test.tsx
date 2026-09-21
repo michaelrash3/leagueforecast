@@ -200,6 +200,36 @@ describe("the review card for teams waiting on an age", () => {
     expect(rows()).toHaveLength(1);
   });
 
+  it("will not offer an age for a team the import would refuse anyway", async () => {
+    /*
+     * The trap this closes. A thrown-out club is refused before its age is read, so naming one
+     * revives the row, the pull comes back "deleted", and `updateAgeUnknown` drops the row for
+     * any outcome that is not "no age" — the team and its undo leave the card for good. The way
+     * back from a thrown-out club is the undo, and only the undo.
+     */
+    const user = userEvent.setup();
+    show(twelve(), { dropped: forgetClubs(new Set(), ["ID4"]) });
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Club 4");
+    expect(screen.queryByRole("combobox", { name: /Age for/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Not a real team" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo that" })).toBeInTheDocument();
+  });
+
+  it("still offers an age for a team that was only left alone", async () => {
+    // Nothing refuses that one — it simply stopped being asked about, and an age puts it back.
+    const user = userEvent.setup();
+    show([
+      team("SPENT", "Club Spent", {
+        tries: 99,
+        firstSeen: daysBefore(400),
+        lastTried: daysBefore(300),
+      }),
+    ]);
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Spent");
+    expect(screen.getByRole("combobox", { name: /Age for/ })).toBeInTheDocument();
+    expect(screen.getByText(/Left alone/)).toBeInTheDocument();
+  });
+
   it("says nothing at all when nobody is waiting", () => {
     const { container } = render(
       <AgelessReviewCard

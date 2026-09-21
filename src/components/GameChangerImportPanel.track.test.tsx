@@ -91,6 +91,7 @@ const renderPanel = (onPersist: () => boolean = () => true) => {
       pool={{ ageGroups: [], teams: [], games: [] }}
       onPersist={onPersist}
       savedProgress={null}
+      namedAges={new Map()}
       onSaveProgress={() => {}}
       onClearProgress={() => {}}
       onClose={() => {}}

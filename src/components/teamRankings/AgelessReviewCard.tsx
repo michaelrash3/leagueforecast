@@ -108,6 +108,14 @@ function Row({
   beforeAnswer: () => void;
 }) {
   const label = row.entry.name ?? row.entry.teamId;
+  /*
+   * An answer is offered only where it can land. A thrown-out club and a high school squad are
+   * both refused by the import before an age is ever read, so naming one would be worse than
+   * useless: the row is revived, the pull refuses it, and `updateAgeUnknown` drops the row for
+   * any outcome that is not "no age" — taking the team, and the undo, off this card for good.
+   * The way back from those two is the undo, not an age.
+   */
+  const answerable = aside !== "dropped" && aside !== "high-school";
   return (
     <li className="border-t border-slate-100 pt-3 dark:border-slate-800">
       <p className="font-bold text-slate-950 dark:text-white">
@@ -136,48 +144,52 @@ function Row({
       )}
       <Evidence row={row} />
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <span className="sr-only">Age for {label}</span>
-          It is
-        </label>
-        <select
-          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
-          aria-label={`Age for ${label}`}
-          defaultValue=""
-          onChange={(event) => {
-            const level = Number(event.target.value);
-            if (!Number.isFinite(level) || level === 0) return;
-            beforeAnswer();
-            onNameAge(row.entry.teamId, row.entry.name, level);
-          }}
-        >
-          <option value="">Choose…</option>
-          {levels.map((level) => (
-            <option key={level} value={level}>
-              {level}U
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={`${button.ghost} text-sm`}
-          onClick={() => {
-            beforeAnswer();
-            void onThrowOut(row.entry.teamId, row.entry.name);
-          }}
-        >
-          Not a real team
-        </button>
-        <button
-          type="button"
-          className={`${button.ghost} text-sm`}
-          onClick={() => {
-            beforeAnswer();
-            void onThrowOut(row.entry.teamId, row.entry.name);
-          }}
-        >
-          High school
-        </button>
+        {answerable && (
+          <>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span className="sr-only">Age for {label}</span>
+              It is
+            </label>
+            <select
+              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+              aria-label={`Age for ${label}`}
+              defaultValue=""
+              onChange={(event) => {
+                const level = Number(event.target.value);
+                if (!Number.isFinite(level) || level === 0) return;
+                beforeAnswer();
+                onNameAge(row.entry.teamId, row.entry.name, level);
+              }}
+            >
+              <option value="">Choose…</option>
+              {levels.map((level) => (
+                <option key={level} value={level}>
+                  {level}U
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={`${button.ghost} text-sm`}
+              onClick={() => {
+                beforeAnswer();
+                void onThrowOut(row.entry.teamId, row.entry.name);
+              }}
+            >
+              Not a real team
+            </button>
+            <button
+              type="button"
+              className={`${button.ghost} text-sm`}
+              onClick={() => {
+                beforeAnswer();
+                void onThrowOut(row.entry.teamId, row.entry.name);
+              }}
+            >
+              High school
+            </button>
+          </>
+        )}
         {onUndo && (
           <button type="button" className={`${button.ghost} text-sm`} onClick={onUndo}>
             Undo that
