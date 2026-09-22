@@ -143,12 +143,24 @@ const PONY_DIVISIONS: [RegExp, number][] = [
  * listed here rather than among the auto rules because neither is as unique as it looks: this
  * pool's five "O-Zone" hits are all "Ozone Howard Royals", which is a place in Queens.
  *
+ * **Intermediate files at 12U, not 13U, and the tripwire is why.** The division is ages 11 to 13,
+ * so 13U looked like the right ceiling to file it at. Run against the 60,040 teams this pool
+ * already ranks, the rule fires on nine of them and six carry an age to check it against — and it
+ * disagrees with four: "Brick Surge 50/70", "Corvallis Fall Ball 50/70", "BABL 50/70 Royals" and
+ * "MSM Victory Lakes Intermediate 6th Grade - Maroon" are all filed 12U in a pool that got their
+ * ages from GameChanger's own field. Only two agree. The last of those names says it plainly:
+ * sixth grade is eleven and twelve, and it is the 50/70 field that makes the division, not the
+ * age of the boys on it. Filing them 13U would have moved four working teams up a year and put
+ * every future one in the wrong table.
+ *
+ * Two of six is not a measurement to ship on either, which is why this stays `review`.
+ *
  * https://cdn4.sportngin.com/attachments/document/8b3e-3334205/2025-DYB-Rule-Book-Website-Version-1-1-2025.pdf
  * https://www.littleleague.org/play-little-league/baseball/divisions/
  */
 const UNIQUE_DIVISIONS: [RegExp, number][] = [
   [/\bo[-\s]zone\b/i, 12],
-  [/\b(?:50\s*[/-]\s*70|intermediate)\b/i, 13],
+  [/\b(?:50\s*[/-]\s*70|intermediate)\b/i, 12],
 ];
 
 /** The young end, which files below the youngest level ranked here rather than at an age. */
@@ -356,6 +368,39 @@ export const CLOSED_CLUSTER_SIZE = 6;
 const SCHOOL_HINTS = /\b(?:fresh(?:man|men)?|frosh|soph(?:omore)?|academy|prep(?:aratory)?)\b/i;
 
 /** Every rule that fires on a row, in the order they are declared. */
+/**
+ * The rules that read GameChanger's own answer rather than inferring one.
+ *
+ * These two are the only ones safe to apply in bulk without a person looking at each row, and the
+ * reason is that neither of them reads anything: `adult-label` and `school-label` repeat what
+ * GameChanger put in its own age field. Every other rule in this file infers something from a
+ * name or a schedule, and inference is what the sweep exists to measure before it ships.
+ *
+ * Deliberately a list of ids rather than a tier. `tee-ball`, `school-name` and `name-resolves`
+ * are `auto` too, and they are name rules — `tee-ball` alone fires on five teams this pool
+ * already ranks. Selecting by tier would sweep them along with these, which is exactly the
+ * accident this list exists to prevent.
+ */
+export const GC_ANSWERED_RULES: readonly string[] = ["adult-label", "school-label"];
+
+export type AgelessAnswered = {
+  row: AgeUnknownTeam;
+  rule: AgelessRule;
+  verdict: AgelessVerdict;
+};
+
+/**
+ * The rows GameChanger has already answered for, out of a waiting list.
+ *
+ * One rule per row: a team cannot be both adult and a school squad, and if a later rule pair ever
+ * could be, the first is taken rather than the row being counted twice.
+ */
+export const agelessAlreadyAnswered = (rows: readonly AgeUnknownTeam[]): AgelessAnswered[] =>
+  rows.flatMap((row) => {
+    const hit = agelessVerdicts(row).find(({ rule }) => GC_ANSWERED_RULES.includes(rule.id));
+    return hit ? [{ row, rule: hit.rule, verdict: hit.verdict }] : [];
+  });
+
 /**
  * Every rule, with the ones GameChanger's own band contradicts thrown away.
  *

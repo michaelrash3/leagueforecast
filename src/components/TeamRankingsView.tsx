@@ -81,10 +81,21 @@ import {
   saveDeletedGames,
   saveDroppedClubs,
   saveAgeUnknown,
+  loadAgelessCleared,
+  saveAgelessCleared,
+  clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
 import { forgetClubs, forgetGames, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
+import {
+  agelessClearedPass,
+  clearedIds,
+  describeCleared,
+  restoreCleared,
+  type AgelessClearedReason,
+} from "../lib/agelessCleared";
+import type { AgelessAnswered } from "../lib/agelessTriage";
 
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
@@ -1187,6 +1198,88 @@ export function TeamRankingsView({
     [showToast, restoreDroppedClub]
   );
 
+  /**
+   * Taking back a whole pass, after the toast that offered it has gone.
+   *
+   * The rows come back from the stored pass rather than from a pull, which is the only reason a
+   * bulk clear is safe to offer at all: a team refused at the door was never filed, so the row on
+   * the waiting list is the only record that it was ever asked about. Undoing by re-fetching
+   * would cost two requests a team to learn what was already known.
+   */
+  const undoClearedPass = useCallback(async () => {
+    const pass = await loadAgelessCleared();
+    if (!pass) {
+      showToast("That pass is no longer stored, so there is nothing to put back.", {
+        tone: "error",
+      });
+      return;
+    }
+    const ids = clearedIds(pass);
+    const back = restoreClubs(loadDroppedClubs(), ids);
+    setDroppedClubs(back);
+    saveDroppedClubs(back);
+    saveAgeUnknown(restoreCleared(loadAgeUnknown(), pass));
+    await clearAgelessCleared();
+    showToast(`${describeCleared(pass)} back on the list.`);
+  }, [showToast]);
+
+  /**
+   * Clearing every row GameChanger has already answered for, in one pass.
+   *
+   * Asks first, where the single throw-out deliberately does not. The argument there is that a
+   * dialog in front of the common case costs a click to guard against the rare one; here the
+   * action *is* the rare one, thousands of rows at once, and nobody can check it by eye
+   * afterwards.
+   *
+   * One write per store rather than one per row: `forgetClubs` and `forgetAgeless` both take
+   * arrays, so four and a half thousand teams is two writes and one render, not nine thousand.
+   * The rows are stored whole before they go, which is what makes the undo real rather than a
+   * toast somebody had to catch.
+   */
+  const clearAnsweredAgeless = useCallback(
+    async (answered: readonly AgelessAnswered[]): Promise<boolean> => {
+      if (answered.length === 0) return false;
+      const adult = answered.filter(({ verdict }) => verdict.kind === "not-youth").length;
+      const school = answered.length - adult;
+      const confirmed = await requestConfirmation({
+        title: `Clear ${answered.length.toLocaleString()} teams?`,
+        message:
+          `GameChanger's own age field files ${adult.toLocaleString()} of them as adult or ` +
+          `college and ${school.toLocaleString()} as a school squad. None has a youth age to ` +
+          "find, so they leave the list and no later pull asks about them again. Nothing in the " +
+          "pool is touched, and the pass can be undone afterwards.",
+        confirmLabel: "Clear them",
+      });
+      if (!confirmed) return false;
+
+      const ids = answered.map(({ row }) => row.teamId);
+      // Stored before anything is removed: a pass that cannot be undone must not have happened.
+      const pass = agelessClearedPass(
+        answered.map(({ row, verdict }) => ({
+          entry: row,
+          why: verdict.kind as AgelessClearedReason,
+        })),
+        new Date().toISOString()
+      );
+      const kept = await saveAgelessCleared(pass);
+
+      const next = forgetClubs(loadDroppedClubs(), ids);
+      setDroppedClubs(next);
+      saveDroppedClubs(next);
+      saveAgeUnknown(forgetAgeless(loadAgeUnknown(), ids));
+
+      showToast(
+        `${answered.length.toLocaleString()} teams cleared.` +
+          (kept ? "" : " The undo could not be stored, so this one cannot be taken back."),
+        kept
+          ? { tone: "undo", actionLabel: "Undo", onAction: () => void undoClearedPass() }
+          : { tone: "error" }
+      );
+      return true;
+    },
+    [showToast, requestConfirmation, undoClearedPass]
+  );
+
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
     const where = [club.city, club.state].filter(Boolean).join(", ");
     const confirmed = await requestConfirmation({
@@ -1905,6 +1998,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                 dropped: droppedClubs,
                 onNameAge: nameAgeFor,
                 onThrowOut: throwOutAgeless,
+                onClearAnswered: clearAnsweredAgeless,
                 onUndo: undoAgelessAnswer,
                 now: agelessNow,
               }}

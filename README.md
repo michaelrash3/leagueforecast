@@ -768,6 +768,26 @@ otherwise ask the only question that matters about a candidate rule — what it 
 the teams that already work. Because the file carries the filed age, a hit splits into
 "agrees with the pool" and "disagrees", and it is the second column that should be zero.
 
+**Clearing the ones GameChanger already answered.** The waiting card carries a button
+that clears, in one pass, every row whose age field says adult, college or a school
+squad — around thirteen per cent of a nationwide backlog. It asks first, where the single
+throw-out deliberately does not: the argument there is that a dialog in front of the
+common case costs a click to guard against the rare one, and here the action *is* the rare
+one, thousands of rows at once that nobody can check by eye afterwards.
+
+Only two rules feed it, and they are named by id rather than picked by tier. Both repeat
+GameChanger's own field rather than inferring anything; every other rule in
+`agelessTriage.ts` reads a name or a schedule, and inference is what the sweep exists to
+measure before it ships. Selecting by tier would have swept `tee-ball` along with them —
+it is `auto` too, and it fires on five teams this pool already ranks.
+
+The pass is stored whole before the rows go, at a lazy key beside the pull log, so **undo
+outlives the toast**. That matters more here than anywhere else: a team refused at the
+door was never filed, so the row on the waiting list is the only record it was ever asked
+about, and undoing by re-fetching would cost two requests a team to learn what was already
+known. One pass is kept, not a history — what somebody wants is to take back the thing
+they just did — and a new pass replaces it, which is also what bounds the size.
+
 **Taking the list away with you.** Thirty-six thousand rows is not a queue anybody works
 ten at a time, and the card cannot become a spreadsheet. So a **Download the list** button
 writes one: every team still waiting, each with the evidence behind it — the age field
