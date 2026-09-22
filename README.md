@@ -717,6 +717,28 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**An age from the organization a team sits under.** The very bottom of the ladder. An
+organization named "TPABL 12U" or "GLL 8u Fall 2026" is saying what age plays under it, and
+for a team with no age of its own that beats nothing, which is what such a team has.
+GameChanger's public API has no route from a team to its organization, so this only arrives
+from a crawl that found the team through one.
+
+Refused for events and for spans, and both refusals are measured. Over 17,003 teams
+carrying an organization, 2,240 had both an org naming an age and an age of their own to
+check against. The org's age agreed **90.1%** of the time; excluding event-sounding names
+took it to 94.1%, excluding spans to 93.9%, and excluding both to **95.1%**. The errors are
+overwhelmingly one-directional — of 221 disagreements, 197 had the organization *older* —
+which is the play-up signature: "(09/25/2026) 17/18u Super Fall Invitational" holds 16U
+teams, "Suburban Travel 13/14u" holds 13U ones.
+
+The span filter allows an optional `U` after the first number as well as the second,
+because clubs write it both ways and without that "13U-16U" reads as a plain 16U and files
+thirteen-year-olds three years old.
+
+95% is not good enough to outrank anything a team says about itself, so it sits under the
+league rung and under the company a team keeps, and only ever answers a team that has no
+other answer at all. On a real backlog it reaches **273** rows — small, and honestly so.
+
 **An age from the company the pool already knows.** The last rung of the ladder, and the
 one that reaches the backlog's most hopeless population. `ageFromOpponentNames` reads an
 age out of an opponent's *name*, so it can never settle a team in a closed league where

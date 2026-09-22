@@ -427,6 +427,52 @@ export const parseGcAssociations = (cell: string): GcTeamAssociation[] => {
  * the same club — so it refuses rather than picking, which is the rule `ageFromOpponentNames`
  * already holds a tie to.
  */
+/**
+ * An organization's name that is an event rather than a standing body.
+ *
+ * "(09/25/2026) 17/18u Super Fall Invitational", "FS 4th Annual Mid-Atlantic Labor Day Classic".
+ * A tournament's age is a ceiling teams reached rather than the age they are, which is the same
+ * distinction `ageFromLeagueNames` draws between a league and a tournament — except that a crawl
+ * types every organization the same way, so the name is all there is to go on.
+ */
+const EVENT_NAME =
+  /\(\d{1,2}\/\d{1,2}\/\d{2,4}\)|\b(?:classic|invitational|tournament|showdown|championship|cup|slam|bash|shootout|opener|qualifier|series|festival|jamboree|clash|brawl|showcase|annual)\b/i;
+
+/**
+ * "13U-16U COBRA Fall 2026", "Suburban Travel 13/14u", "17-19u" — several ages share the
+ * organization, so its top end is nobody's age in particular.
+ *
+ * The optional `U` after the *first* number is load-bearing: clubs write the span both ways, and
+ * without it "13U-16U" reads as a plain 16U and files thirteen-year-olds three years old.
+ */
+const MULTI_AGE = /\b\d{1,2}\s*[uU]?\s*[-\u2013/]\s*\d{1,2}\s*[uU]\b/;
+
+/**
+ * The age an organization's own name states, where that is a statement about its teams.
+ *
+ * An organization named "TPABL 12U" or "GLL 8u Fall 2026" is saying what age plays under it, and
+ * for a team that has no age of its own that is worth more than nothing — which is what such a
+ * team has. GameChanger's public API has no route from a team to its organization, so this only
+ * ever arrives from a crawl that found the team through one.
+ *
+ * Refused for events and for spans, and both refusals are measured. Over 17,003 teams carrying an
+ * organization, 2,240 had both an org naming an age and an age of their own to check it against.
+ * The org's age agreed 90.1% of the time. Excluding event-sounding names took that to 94.1%,
+ * excluding spans to 93.9%, and excluding both to **95.1%** — and the errors are overwhelmingly
+ * one-directional: of 221 disagreements, 197 had the organization *older* than the team. That is
+ * the play-up signature. "(09/25/2026) 17/18u Super Fall Invitational" holds 16U teams;
+ * "Suburban Travel 13/14u" holds 13U ones.
+ *
+ * 95% is not good enough to outrank anything a team says about itself, so this sits at the very
+ * bottom of the ladder, under the league rung and under the company a team keeps. It only ever
+ * answers a team that has no other answer at all.
+ */
+export const ageFromOrgName = (name: unknown): number | undefined => {
+  if (typeof name !== "string" || !name.trim()) return undefined;
+  if (EVENT_NAME.test(name) || MULTI_AGE.test(name)) return undefined;
+  return ageLevelFromName(name);
+};
+
 export const ageFromLeagueNames = (
   leagues: readonly GcTeamAssociation[] | undefined
 ): number | undefined => {
