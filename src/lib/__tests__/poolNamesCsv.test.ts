@@ -88,6 +88,25 @@ describe("the pool's own names, as a file", () => {
     expect(at(first, "Played")).toBe("Elite Prospects; Just A Club");
   });
 
+  /*
+   * The pool stores cleaned names — "Elite 12U" is filed as "Elite" — and that is right for the
+   * pool and wrong for this file. "How many of its opponents write an age" is the question
+   * `closed-cluster` turns on, and against cleaned names the answer is no for essentially every
+   * team by construction: the first export carrying evidence had 50,810 of 50,822 ranked teams
+   * reading zero, which made the rule look like it fired on 36.5% of the working pool when the
+   * file simply could not tell.
+   */
+  it("reads an opponent's age off the name GameChanger gave, not the cleaned one", () => {
+    const cleaned = team("t7", "Dayton Dynamo", {
+      gcTeams: [{ teamId: "gcRAW0000001", name: "Dayton Dynamo 10U", ageGroupId: "g10" }],
+    });
+    const [, first] = rows(
+      poolNamesCsv([...teams, cleaned], ageGroups, [...games, game("x7", "g10", "t1", "t7")])
+    );
+    expect(at(first, "Opponents Naming An Age")).toBe("1");
+    expect(at(first, "Opponent Ages")).toBe("1×10U");
+  });
+
   it("counts a shutout blowout and a game scored ahead of today", () => {
     const odd: ScoutGame[] = [
       { id: "b1", teamAId: "t1", teamBId: "t2", ageGroupId: "g10", teamAScore: 12, teamBScore: 0 },

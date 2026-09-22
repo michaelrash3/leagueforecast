@@ -190,13 +190,26 @@ const statesItsAge = (row: AgeUnknownTeam): boolean => ageLevelFromName(nameOf(r
  * whose opponents are "Broncos" and "Pintos" is PONY; "Mustangs" whose opponents are "Elite 12U"
  * and "Team Georgia" is a travel club with a horse on its cap.
  */
-const opponentsAgree = (evidence: AgelessEvidence): boolean =>
+/**
+ * Whether the teams this one played say its PONY word is a division rather than a mascot.
+ *
+ * A **different** sibling word, never its own, and that distinction is the whole rule. A league
+ * that calls one division Mustang calls the next one Bronco, so a Mustang playing Broncos and
+ * Pintos is in a PONY league. But a *club* called the Colts runs several squads and calls them
+ * all Colts, so "Wellington Colts Blue" playing "Wellington Colts Orange" satisfies a same-word
+ * test trivially and means nothing at all.
+ *
+ * Measured, once the pool-names export carried evidence for the tripwire to read: accepting the
+ * team's own word, this fired on 102 teams the pool already ranks and got 46 of them wrong —
+ * "Irvine Colts" filed at 8U read as 16U, "OKC Broncos Gray" at 8U read as 12U, every one of them
+ * a club whose other squads share its mascot. There was no way to see that before the export
+ * carried opponents, because with no `sampleOpponents` the corroborator could never fire at all.
+ */
+const opponentsAgree = (evidence: AgelessEvidence, own: RegExp): boolean =>
   (evidence.sampleOpponents ?? []).some(
     (opponent) =>
-      // Any of the sibling words, not only this team's own: a league that calls one division
-      // Mustang calls the next one Bronco, so a Mustang playing Broncos and Pintos is in a PONY
-      // league, while a Mustang playing "Elite 12U" has a horse on its cap.
-      PONY_DIVISIONS.some(([sibling]) => sibling.test(opponent)) || REC_MARKERS.test(opponent)
+      PONY_DIVISIONS.some(([sibling]) => sibling !== own && sibling.test(opponent)) ||
+      REC_MARKERS.test(opponent)
   );
 
 const ponyDivision = (name: string): [RegExp, number] | undefined =>
@@ -258,16 +271,36 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
   {
     id: "pony-division",
     label: "A PONY division, agreed to by its opponents",
-    tier: "review",
-    because: "the word is a division here rather than a mascot, and the teams it played say so",
+    /*
+     * Measured only, and it earned that the hard way.
+     *
+     * The premise was that a PONY division word plus a *sibling* word in the opponents means a
+     * PONY league rather than a mascot. The tripwire, once the pool-names export carried the
+     * opponents it needed, says otherwise. Accepting the team's own word it fired on 102 teams
+     * the pool already ranks and got 46 wrong — every one a club whose other squads share its
+     * mascot, "Wellington Colts Blue" playing "Wellington Colts Orange". Requiring a *different*
+     * sibling word, which is the correct reading and is what the code now does, cuts that to 7
+     * fires — and 6 of those 7 are still wrong.
+     *
+     * Because horse-mascot clubs play each other. "Broncos Red" played "Mundelein Mustangs Red":
+     * two different words, two unrelated travel clubs, filed 9U and 12U. And "Colts Neck Cougars
+     * White" carries a place in New Jersey. One right out of seven is not a rule, it is a
+     * coincidence detector, and offering it to a person to confirm would waste their time at the
+     * same rate.
+     *
+     * Kept and counted rather than deleted: the sweep still reports what it would catch, and the
+     * 914 backlog rows it reaches are a real population that something else may yet settle.
+     */
+    tier: "measure",
+    because: "measured only — one of seven hits on teams that already work had the right age",
     read: (row) => {
       if (statesItsAge(row)) return undefined;
       const found = ponyDivision(nameOf(row));
       if (!found) return undefined;
-      const [, level] = found;
+      const [own, level] = found;
       const evidence = evidenceOf(row);
       if (evidence.namedAnAge >= MIN_OPPONENT_AGE_EVIDENCE) return undefined;
-      if (!opponentsAgree(evidence) && !saysAges(evidence)) return undefined;
+      if (!opponentsAgree(evidence, own) && !saysAges(evidence)) return undefined;
       return { kind: "rec", level };
     },
   },
