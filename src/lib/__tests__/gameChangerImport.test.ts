@@ -3969,3 +3969,85 @@ describe("whether a tidy changed anything", () => {
     });
   });
 });
+
+/**
+ * The age the pool already files a team's opponents at.
+ *
+ * This is the rung that reaches the backlog's worst population. `ageFromOpponentNames` reads an
+ * age out of an opponent's *name*, so it can never settle a team in a closed league where nobody
+ * writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Measured over a real 36,194
+ * row backlog, 10,709 rows are exactly that shape. This settles one the moment any of those
+ * opponents has been filed by some other route.
+ */
+describe("an age from the company the pool already knows", () => {
+  /** A closed league: four teams whose names say nothing, three of them already filed at 10U. */
+  const filed = (): GcImportState => {
+    let state = empty;
+    ["Team 2", "Team 3", "Team 5"].forEach((name, i) => {
+      const built = importGcSchedule(
+        schedule({ id: `gcFILED0000${i}`, name, ageLevel: 10, avatarKey: `av-${i}` }, [
+          game({ id: `f${i}`, opponentName: "Somebody 10U" }),
+        ]),
+        state
+      );
+      state = built.state;
+    });
+    return state;
+  };
+
+  const closedLeague = (avatars: string[]) =>
+    schedule({ id: "gcTEAM400001", name: "Team 4", ageLevel: undefined }, [
+      ...avatars.map((key, i) =>
+        game({ id: `c${i}`, opponentName: `Team ${i + 2}`, opponentAvatarKey: key })
+      ),
+    ]);
+
+  it("ages a team whose opponents the pool has all filed at one age", () => {
+    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1", "av-2"]), filed());
+    expect(outcome.skip).toBeUndefined();
+    expect(outcome.ageGroupName).toContain("10U");
+  });
+
+  /*
+   * The same bar the name rule is held to. This is circumstantial evidence about the company a
+   * club keeps, and a squad that plays up all season is wrong in exactly the way three agreeing
+   * opponents is meant to guard against.
+   */
+  it("will not act on fewer opponents than the name rule needs", () => {
+    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1"]), filed());
+    expect(outcome.skip).toBe("no-age");
+  });
+
+  /*
+   * By identity, never by name. A pool holding tens of thousands of teams has a great many
+   * "Team 4"s, and matching one by name would collect a stranger from the other side of the
+   * country and file this club at their age.
+   */
+  it("says nothing about an opponent it cannot identify by picture", () => {
+    const { outcome } = importGcSchedule(closedLeague([]), filed());
+    expect(outcome.skip).toBe("no-age");
+  });
+
+  it("skips an opponent two clubs share a picture with", () => {
+    let state = filed();
+    // A second club on the same avatar: that picture now identifies nobody.
+    state = importGcSchedule(
+      schedule({ id: "gcTWIN000001", name: "Twin", ageLevel: 14, avatarKey: "av-0" }, [
+        game({ id: "t1", opponentName: "Somebody 14U" }),
+      ]),
+      state
+    ).state;
+    const { outcome } = importGcSchedule(closedLeague(["av-0", "av-1", "av-2"]), state);
+    // Two of the three still agree, but the bar is three, so nothing is claimed.
+    expect(outcome.skip).toBe("no-age");
+  });
+
+  it("leaves a team that already has an age exactly where it was", () => {
+    const own = schedule({ id: "gcOWN0000001", name: "Team 4", ageLevel: 12 }, [
+      game({ id: "o1", opponentName: "Team 2", opponentAvatarKey: "av-0" }),
+      game({ id: "o2", opponentName: "Team 3", opponentAvatarKey: "av-1" }),
+      game({ id: "o3", opponentName: "Team 5", opponentAvatarKey: "av-2" }),
+    ]);
+    expect(importGcSchedule(own, filed()).outcome.ageGroupName).toContain("12U");
+  });
+});

@@ -717,6 +717,29 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**An age from the company the pool already knows.** The last rung of the ladder, and the
+one that reaches the backlog's most hopeless population. `ageFromOpponentNames` reads an
+age out of an opponent's *name*, so it can never settle a team in a closed league where
+nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Over a real
+36,194-row backlog, 10,709 rows are exactly that shape.
+
+But the pool has usually met those opponents. A team refused for having no age has just had
+its whole schedule fetched, and most of the clubs on it are already filed, at an age
+something else settled. That answer was one lookup away and nothing asked for it.
+
+**By identity, never by name.** The opponent is matched on its avatar key — stable per club
+across schedules, and what `resolveOpponent` already trusts. That is what makes this safe: a
+name match on "Team 4" would collect a stranger from the other side of the country, and a
+pool holding tens of thousands of teams has a great many "Team 4"s. Where two clubs share a
+picture the picture identifies nobody, and the opponent is skipped; where the pool has a
+club filed at two ages it is running two squads, and it says nothing about this one.
+
+Held to the same bar as the name rule — `MIN_OPPONENT_AGE_EVIDENCE` distinct opponents
+agreeing, a tie refused — because it is the same kind of claim: circumstantial, about the
+company a club keeps, and wrong in the same way if a squad plays up all season. It sits
+below the name reading for the same reason: a club writing "12U" in its own name is telling
+you about itself, while this tells you who it plays.
+
 **A name outranks an age column, on a pasted list.** The age ladder reads two kinds of
 age field and does not trust them equally. GameChanger's own `age_group`, first-hand from
 its API, outranks a plain age in the team's name. The age column of a pasted list does
