@@ -1891,6 +1891,12 @@ This cannot be undone. Cancel and download the backup first if there is any chan
               pool={{ ageGroups, teams: scoutTeams, games: wholePoolGames }}
               namedAges={namedAges}
               droppedClubs={droppedClubs}
+              onInvented={(ids) => {
+                // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
+                const next = forgetClubs(loadDroppedClubs(), ids);
+                setDroppedClubs(next);
+                saveDroppedClubs(next);
+              }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);
