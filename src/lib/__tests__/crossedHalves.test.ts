@@ -424,14 +424,21 @@ describe("joinCrossedHalves", () => {
     );
   });
 
-  it("does not join two results more than an hour apart", () => {
+  it("joins two mirrored results whatever the two clocks say that day", () => {
+    /*
+     * On the stand-in fixtures export of 22 September 2026, 104 of the 1,211 games this joins had
+     * start times more than an hour apart and 19 were twelve hours apart, AM for PM; the same
+     * searches a week off, where the game is not, joined no more with the clock ignored than with
+     * it held to the hour.
+     */
     const at = (startTs: string) =>
       joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, startTs })).joined;
     // Half an hour, as the two coaches typed it, and a full hour, as a clock a zone out would be.
     expect(at("2026-09-20T17:00:00.000Z")).toBe(1);
     expect(at("2026-09-20T18:30:00.000Z")).toBe(1);
-    // Three hours is a club's other squad in the next slot, not this game.
-    expect(at("2026-09-20T20:30:00.000Z")).toBe(0);
+    // Three hours, and twelve.
+    expect(at("2026-09-20T20:30:00.000Z")).toBe(1);
+    expect(at("2026-09-20T05:30:00.000Z")).toBe(1);
   });
 
   it("leaves idle stand-ins it did not empty where they are", () => {

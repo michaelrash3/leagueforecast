@@ -610,7 +610,9 @@ settles it even when the two coaches typed different start times, and two
 results that contradict are never folded into one); a game each club filed against
 a stand-in for the other is joined into one game between them (the same day; both results in and
 mirrored, or one result and the other half unplayed at the same start time — two unplayed halves
-wait until they are scored; the two start times within an hour; each stand-in's name a shorthand
+wait until they are scored; two mirrored results joined whatever start times the coaches typed,
+since 104 of the 1,211 games this joined on a real pool were more than an hour apart and the same
+search a week off matched no more for ignoring the clock; each stand-in's name a shorthand
 for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach typed pointing at
 another squad and no two different squad numbers; the two clubs in one state or two that share a
 border; and no other pair that fits as well); a game sitting by name on

@@ -2090,9 +2090,6 @@ export const resolveSlotGames = (
   return { state: { ...state, teams, games }, resolved: merges.size };
 };
 
-/** How far apart two coaches' start times for one game may be; see `closeInTime`. */
-const JOIN_CLOCK_SLACK_MS = 60 * 60 * 1000;
-
 /**
  * Joins one game that each club filed against a stand-in for the other.
  *
@@ -2118,12 +2115,18 @@ const JOIN_CLOCK_SLACK_MS = 60 * 60 * 1000;
  * from both ends: where either row could be the partner of two, nothing is joined, because a wrong
  * join moves a result onto a club that never played it and leaves nothing behind to notice.
  *
- * A result on both rows has to mirror, and when it does the start times may differ by up to an
- * hour — two coaches type the time independently, and `resolveSlotGames` measured how often they
- * disagree — but no more, because three hours on is a club's other squad in the next slot. A row
- * with no result yet has only the clock to go on: it joins a scored row that starts at the same
- * instant, and two unplayed rows are left to wait until they are scored, because joining them
- * throws away one row's id and a game put back a day came back as a second game.
+ * A result on both rows has to mirror, and when it does the two start times are not compared at
+ * all. Coaches type them independently, and on the stand-in fixtures export of 22 September 2026
+ * — 89,876 rows filed against a stand-in — this rule joined 1,211 games, of which 487 had the
+ * same start time on both schedules and 104 were more than an hour apart: an hour or two is a
+ * clock set a time zone out, and 19 were exactly twelve hours apart, AM for PM. Held to within
+ * the hour it joined 1,108. The same searches run a week either side, where the game is not,
+ * joined 9.5 pairs at every window from none to a whole day, and each was the same two clubs
+ * meeting in another week. A club's other squad in another slot is told apart by its squad
+ * number and its typed age, not by the clock. A row with no result yet has only the clock to go
+ * on: it joins a scored row that starts at the same instant, and two unplayed rows are left to
+ * wait until they are scored, because joining them throws away one row's id and a game put back
+ * a day came back as a second game.
  *
  * An age a coach typed into a stand-in's name has to be the other club's own: "Mustangs 11U" is a
  * statement about which squad was played, and the age label comes off every name before names are
@@ -2163,7 +2166,6 @@ export const joinCrossedHalves = (
      * however close the two levels are; `PLAYS_UP_TO` is the slack for a level nobody stated.
      */
     standInNamedLevel: number | undefined;
-    at: number | undefined;
   };
   const halfOf = (game: ScoutGame): Half | undefined => {
     if (!game.date || !game.source) return undefined;
@@ -2188,7 +2190,6 @@ export const joinCrossedHalves = (
       clubLevel: (clubIsA ? game.ageLevelA : game.ageLevelB) ?? pageLevel,
       standInLevel: (clubIsA ? game.ageLevelB : game.ageLevelA) ?? pageLevel,
       standInNamedLevel: clubIsA ? game.ageLevelB : game.ageLevelA,
-      at: game.startTs === undefined ? undefined : Date.parse(game.startTs),
     };
   };
   const scored = (half: Half) => half.clubScore !== undefined && half.standInScore !== undefined;
@@ -2216,20 +2217,6 @@ export const joinCrossedHalves = (
 
   const sameTime = (x: Half, y: Half) =>
     x.game.startTs !== undefined && x.game.startTs === y.game.startTs;
-  /*
-   * Two timed rows more than an hour apart are two games, mirrored result or not. Coaches type one
-   * start time independently — the Stix wrote 5:00 and the Hurricanes 5:30 — and a team whose
-   * GameChanger clock is set a time zone out is an hour off on every row, so an hour is the slack.
-   * Three hours is a club's other squad in the next slot: "Ohio Hawks 1" 10-0 at two and
-   * "Xposure Warriors 1" 0-10 at five were joined into a game neither played. The hour is a
-   * starting point, to be moved by the start times the stand-in fixtures export carries.
-   */
-  const closeInTime = (x: Half, y: Half) =>
-    x.at === undefined ||
-    y.at === undefined ||
-    !Number.isFinite(x.at) ||
-    !Number.isFinite(y.at) ||
-    Math.abs(x.at - y.at) <= JOIN_CLOCK_SLACK_MS;
   const levelsAgree = (named: number | undefined, own: number | undefined) =>
     named === undefined || own === undefined || Math.abs(named - own) <= PLAYS_UP_TO;
   /** Whether `y` is, on everything but uniqueness, the other end of `x`'s game. */
@@ -2241,7 +2228,6 @@ export const joinCrossedHalves = (
     levelsAgree(y.standInLevel, x.clubLevel) &&
     (x.standInNamedLevel === undefined || x.standInNamedLevel === y.clubLevel) &&
     (y.standInNamedLevel === undefined || y.standInNamedLevel === x.clubLevel) &&
-    closeInTime(x, y) &&
     fits(x.standIn.name, y.club.name) &&
     fits(y.standIn.name, x.club.name);
 

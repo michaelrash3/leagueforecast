@@ -217,8 +217,8 @@ describe("squads told apart by a number", () => {
     /*
      * Ohio Hawks 1 beat somebody written "Xposure Warriors 3" 10-0 at two; Xposure Warriors 1
      * lost 0-10 to somebody written "Hawks 2" at five. The words fit, the states border and the
-     * results mirror, and there is one candidate each way — the numbers and the three hours are
-     * all that say these are two games.
+     * results mirror, and there is one candidate each way — the squad numbers are all that say
+     * these are two games, since the join does not read the clock of two results that mirror.
      */
     const pool = tidyPool(
       fold([
