@@ -590,6 +590,25 @@ export const teamHomeAgeLevel = (
  * same game — a doubleheader is two games on one date against one opponent, and a schedule lists
  * each game once — so those are passed over rather than matched to each other.
  */
+/**
+ * Whether two rows for the same pair and day report results that cannot both be true.
+ *
+ * Only a pair of *scored* rows can contradict: GameChanger posts a result on one schedule before
+ * the other, so an unscored copy of a played game is ordinary rather than a disagreement.
+ */
+const contradicts = (game: ScoutGame, candidate: ScoutGame): boolean => {
+  const bothScored =
+    candidate.teamAScore !== undefined &&
+    candidate.teamBScore !== undefined &&
+    game.teamAScore !== undefined &&
+    game.teamBScore !== undefined;
+  if (!bothScored) return false;
+  return (
+    scoreOf(game, candidate.teamAId) !== candidate.teamAScore ||
+    scoreOf(game, candidate.teamBId) !== candidate.teamBScore
+  );
+};
+
 export const matchExistingGame = (
   candidate: ScoutGame,
   games: ScoutGame[],
@@ -606,9 +625,31 @@ export const matchExistingGame = (
     if (pairKeyOf(game) !== pairKey || (game.date ?? "") !== date) continue;
 
     let rank = 0;
-    if (source && game.source && game.source.teamId === source.teamId) {
-      if (game.source.gameId !== source.gameId) continue;
-      rank = 2;
+    const sameSchedule = Boolean(source && game.source && game.source.teamId === source.teamId);
+    if (sameSchedule) {
+      if (game.source?.gameId === source?.gameId) {
+        rank = 2;
+      } else if (
+        /*
+         * Two ids off one schedule are normally two games, and that is the rule: a real pull found
+         * four games against one club on a single day, and folding those together would delete
+         * three results. The one exception is a fixture GameChanger listed twice — same start
+         * time, same result, the opponent spelled two ways ("Cincinnati Angels Red" and
+         * "Cincinnati Angels- Red", 13-21 both times) — where a club's record counted the loss
+         * twice.
+         *
+         * Both rows must carry a start time and it must be the same one. Nobody plays two games at
+         * once, so a differing time is a doubleheader and an absent time is not evidence of
+         * anything. Every game in the captured schedule fixture carries one, all twelve, so this
+         * has the evidence it needs where it matters and stands down where it does not.
+         */
+        candidate.startTs !== undefined &&
+        game.startTs !== undefined &&
+        candidate.startTs === game.startTs &&
+        !contradicts(game, candidate)
+      ) {
+        rank = 1;
+      } else continue;
     } else if (
       scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
       scoreOf(game, candidate.teamBId) === candidate.teamBScore
