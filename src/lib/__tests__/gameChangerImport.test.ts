@@ -214,6 +214,21 @@ describe("importGcSchedule", () => {
     expect(state.ageGroups[0]).toMatchObject({ ageLevel: 11 });
   });
 
+  it("does not take an age from the list that GameChanger's own band rules out", () => {
+    // GameChanger filed the team "Under 13" and an organization's name said 16U: the band is
+    // GameChanger's word about the team, and a list that contradicts it is wrong about the team.
+    const under13 = schedule(
+      { name: "Example Multi-Event Team", ageLevel: undefined, ageLabel: "Under 13" },
+      [game()]
+    );
+    expect(importGcSchedule({ ...under13, listed: { ageLevel: 16 } }, empty).outcome.skip).toBe(
+      "no-age"
+    );
+    expect(
+      importGcSchedule({ ...under13, listed: { ageLevel: 12 } }, empty).outcome.ageFromLeague
+    ).toBe(12);
+  });
+
   it("leaves a team that stated its own age exactly where it was", () => {
     // The team's own word always wins; an association only ever answers a silence.
     const { outcome } = importGcSchedule(
