@@ -52,8 +52,13 @@ const club = (
   fetchedAt: "2026-09-22T12:00:00.000Z",
 });
 
-const fold = (schedules: GcTeamSchedule[]): GcImportState => {
-  const importer = createGcImporter(empty);
+/**
+ * The schedules, pulled in order. `today` is the day of the pull, for fixtures whose games are
+ * scored on dates still ahead of the real clock: a schedule that is nothing but results from the
+ * future is refused as invented (`isInventedSchedule`), which is not what these tests are about.
+ */
+const fold = (schedules: GcTeamSchedule[], today?: string): GcImportState => {
+  const importer = createGcImporter(empty, today === undefined ? {} : { today });
   schedules.forEach((schedule) => importer.add(schedule));
   return importer.state;
 };
@@ -366,19 +371,23 @@ describe("joinCrossedHalves", () => {
     // the only thing telling the two fixtures apart. The Toledo namesake keeps the import from
     // settling either game by the name "Hurricanes", which leaves them both to the join.
     const pool = tidyPool(
-      fold([
-        toledo,
-        club(HURRICANES, "Hurricanes", "OH", [
-          played("h-1002", "Headlines1", "2026-10-02", 4, 6, "2026-10-02T21:30:00.000Z"),
-          played("h-1009", "Headlines2", "2026-10-09", 4, 6, "2026-10-09T23:15:00.000Z"),
-        ]),
-        club("gcHEADNAGEL1", "Headlines 9U Nagel", "OH", [
-          played("n-1009", "Hurricanes", "2026-10-09", 6, 4, "2026-10-09T23:00:00.000Z"),
-        ]),
-        club("gcHEADRED001", "Headlines 9U Red", "OH", [
-          played("r-1002", "Hurricanes", "2026-10-02", 6, 4, "2026-10-02T21:00:00.000Z"),
-        ]),
-      ])
+      fold(
+        [
+          toledo,
+          club(HURRICANES, "Hurricanes", "OH", [
+            played("h-1002", "Headlines1", "2026-10-02", 4, 6, "2026-10-02T21:30:00.000Z"),
+            played("h-1009", "Headlines2", "2026-10-09", 4, 6, "2026-10-09T23:15:00.000Z"),
+          ]),
+          club("gcHEADNAGEL1", "Headlines 9U Nagel", "OH", [
+            played("n-1009", "Hurricanes", "2026-10-09", 6, 4, "2026-10-09T23:00:00.000Z"),
+          ]),
+          club("gcHEADRED001", "Headlines 9U Red", "OH", [
+            played("r-1002", "Hurricanes", "2026-10-02", 6, 4, "2026-10-02T21:00:00.000Z"),
+          ]),
+        ],
+        // Pulled once both games had been played.
+        "2026-10-31"
+      )
     ).state;
     const b = pulled(pool, HURRICANES);
     const opponentOn = (date: string) => {
