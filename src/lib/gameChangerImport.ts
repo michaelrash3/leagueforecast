@@ -395,6 +395,12 @@ export type GcImportOutcome = {
   ageFromOpponents?: number;
   /** The level a person named by hand, which was used in place of whatever GameChanger said. */
   ageNamedByUser?: number;
+  /**
+   * The level a league the user's list names filed this team under, GameChanger having named
+   * none. Recorded for the same reason as the two above: a level the club did not state itself
+   * is worth being able to trace back to whoever did.
+   */
+  ageFromLeague?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -1414,7 +1420,25 @@ const importOne = (
     named === undefined
       ? original
       : { ...original, profile: { ...original.profile, ageLevel: named } };
-  const { schedule, inferred } = withOpponentAge(withNamed);
+  /*
+   * Then the league the user's list says this team plays in, when GameChanger itself said nothing.
+   *
+   * Below the club's own word and above its opponents': a league naming an age — "NKB 11u" — is a
+   * statement about every team in it, which is stronger than reading the company a team keeps and
+   * weaker than the club filling in its own page. It reaches here from `listed` rather than from
+   * `profile` because GameChanger never said it: its public API has no route from a team to its
+   * leagues, and only a crawl that found the team through one knows.
+   *
+   * Leagues only. A tournament is where a team plays up, so an age in one is a ceiling it reached
+   * rather than the age it is — see `ageFromLeagueNames`.
+   */
+  const fromLeague =
+    profileAgeLevel(withNamed.profile) === undefined ? withNamed.listed?.ageLevel : undefined;
+  const withLeague: GcTeamSchedule =
+    fromLeague === undefined
+      ? withNamed
+      : { ...withNamed, profile: { ...withNamed.profile, ageLevel: fromLeague } };
+  const { schedule, inferred } = withOpponentAge(withLeague);
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1434,6 +1458,7 @@ const importOne = (
     opponentsMatchedByName: 0,
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
     ...(named === undefined ? {} : { ageNamedByUser: named }),
+    ...(fromLeague === undefined ? {} : { ageFromLeague: fromLeague }),
   };
 
   /*

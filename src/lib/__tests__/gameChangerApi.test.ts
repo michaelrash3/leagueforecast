@@ -14,6 +14,7 @@ import {
   ageFromGradYearInName,
   ageFromGradYearLabel,
   ageLevelFromName,
+  ageFromLeagueNames,
   ageLevelOf,
   ageSpanFromName,
   avatarKeyFromUrl,
@@ -1162,5 +1163,34 @@ describe("organization ids, kinds and associations", () => {
     expect(parseGcAssociations("A|Pqy5Av4tHncy;A|Pqy5Av4tHncy")).toHaveLength(1);
     expect(parseGcAssociations("")).toEqual([]);
     expect(parseGcAssociations("  ;  ")).toEqual([]);
+  });
+});
+
+/**
+ * A league ages a team; a tournament does not.
+ *
+ * You play your own age in your league and you enter tournaments up, so an age in a tournament's
+ * name is a ceiling a team reached rather than the age it is.
+ */
+describe("ageFromLeagueNames", () => {
+  it("reads the age a league names", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 11u", orgId: "Pqy5Av4tHncy" }])).toBe(11);
+    expect(ageFromLeagueNames([{ name: "Rec League 9U/10U" }])).toBe(10);
+  });
+
+  it("says nothing when no league names one", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 10 Majors" }])).toBeUndefined();
+    expect(ageFromLeagueNames([])).toBeUndefined();
+    expect(ageFromLeagueNames(undefined)).toBeUndefined();
+  });
+
+  /*
+   * Two leagues naming different ages is not an answer — one of them is about a different squad
+   * of the same club — so it refuses rather than picking, which is the rule a tie is already held
+   * to in `ageFromOpponentNames`.
+   */
+  it("refuses two leagues that disagree, and takes two that agree", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 11u" }, { name: "Fall Ball 12U" }])).toBeUndefined();
+    expect(ageFromLeagueNames([{ name: "NKB 11u" }, { name: "Winter 11U" }])).toBe(11);
   });
 });

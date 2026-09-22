@@ -528,6 +528,14 @@ age in your league and you enter tournaments *up*. An 11U team whose league is
 things, and reading the second as an age would file it a year old and make every game
 in its own league read as playing down.
 
+So a league's age is a rung of its own: **below the club's own word and above its
+opponents'**. A league naming an age is a statement about every team in it, which beats
+reading the company a team keeps and loses to the club filling in its own page — and a
+person naming an age by hand still outranks all of it. Two leagues naming different
+ages is not an answer, because one of them is about a different squad of the same club,
+so it refuses rather than picking. The whole rung only ever fires on a team GameChanger
+left with no age at all.
+
 Organizations are a **second file**, not rows mixed into the first, and the reason is
 that nothing inside one file could tell them apart: an organization id and a team id
 are the same shape. Two files make every row unambiguous by where it is, leave the team

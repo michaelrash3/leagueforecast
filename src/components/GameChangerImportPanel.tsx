@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
+import {
+  ageFromLeagueNames,
+  parseGcTeamList,
+  type GcTeamListEntry,
+  type GcTeamProfile,
+} from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
 import type { DeletedClubs } from "../lib/deletedGames";
@@ -951,15 +956,20 @@ export function GameChangerImportPanel({
           if (result.ok) {
             const entry = claimed.get(teamId);
             /*
-             * The staff and the roster size come from the user's own list, not from GameChanger —
-             * its public API returns neither. Attached here, where both halves are in hand, so the
-             * link the import records carries them.
+             * What the user's own list knows and GameChanger's payload does not: the roster size
+             * as their export recorded it, and the leagues the team plays in — the API has no
+             * route from a team to its leagues at all. Attached here, where both halves are in
+             * hand, so the link the import records carries them and the age a league names can
+             * file a team GameChanger left ageless.
              */
+            const leagueAge = ageFromLeagueNames(entry?.leagues);
             const listed =
-              entry && (entry.staff?.length || entry.playerCount !== undefined)
+              entry &&
+              (entry.staff?.length || entry.playerCount !== undefined || leagueAge !== undefined)
                 ? {
                     ...(entry.staff?.length ? { staff: entry.staff } : {}),
                     ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+                    ...(leagueAge === undefined ? {} : { ageLevel: leagueAge }),
                   }
                 : undefined;
             const schedule = listed ? { ...result.schedule, listed } : result.schedule;

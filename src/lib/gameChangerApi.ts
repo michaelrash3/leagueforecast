@@ -94,7 +94,17 @@ export type GcTeamSchedule = {
    * anyway, `staff` was not, and the strongest club-matching signal in the data was arriving free
    * on every fetch and being dropped on the floor.
    */
-  listed?: { staff?: string[]; playerCount?: number };
+  listed?: {
+    staff?: string[];
+    playerCount?: number;
+    /**
+     * The age the list implies, from a league association naming one — see `ageFromLeagueNames`.
+     *
+     * Here rather than on `profile` because GameChanger did not say it: the API has no route from
+     * a team to its leagues, so this is the user's crawl answering a question the API cannot.
+     */
+    ageLevel?: number;
+  };
 };
 
 export type GcFetchErrorReason =
@@ -396,6 +406,30 @@ export const parseGcAssociations = (cell: string): GcTeamAssociation[] => {
     out.push({ name, ...(orgId ? { orgId } : {}) });
   }
   return out;
+};
+
+/**
+ * The age a team's leagues say it plays at, when they say one and agree.
+ *
+ * A league is where a team plays its own age. A tournament is where it plays **up**, so this
+ * deliberately takes only the leagues: the row that settles it is an 11U team whose league is
+ * "NKB 11u" and whose tournaments include "NB Summer Slam 12U", and reading the tournament would
+ * file it a year old and make every game in its own league read as playing down.
+ *
+ * Two leagues naming different ages is not an answer — one of them is about a different squad of
+ * the same club — so it refuses rather than picking, which is the rule `ageFromOpponentNames`
+ * already holds a tie to.
+ */
+export const ageFromLeagueNames = (
+  leagues: readonly GcTeamAssociation[] | undefined
+): number | undefined => {
+  if (!leagues?.length) return undefined;
+  const levels = new Set<number>();
+  for (const league of leagues) {
+    const level = ageLevelFromName(league.name);
+    if (level !== undefined) levels.add(level);
+  }
+  return levels.size === 1 ? [...levels][0] : undefined;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

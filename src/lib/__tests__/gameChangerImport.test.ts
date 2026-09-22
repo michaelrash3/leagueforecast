@@ -198,6 +198,52 @@ describe("importGcSchedule", () => {
     expect(listed?.gcTeams?.[0]?.staff).toEqual(["Correct Name"]);
   });
 
+  /**
+   * The league the user's list names, for a team GameChanger left ageless.
+   *
+   * Below the club's own word and above its opponents': a league naming an age is a statement
+   * about every team in it, which beats reading the company a team keeps and loses to the club
+   * filling in its own page.
+   */
+  it("files an ageless team under the age its league names", () => {
+    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const { state, outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty);
+    expect(outcome.issue).toBeUndefined();
+    expect(outcome.ageGroupName).toBe("11U 2027");
+    expect(outcome.ageFromLeague).toBe(11);
+    expect(state.ageGroups[0]).toMatchObject({ ageLevel: 11 });
+  });
+
+  it("leaves a team that stated its own age exactly where it was", () => {
+    // The team's own word always wins; an association only ever answers a silence.
+    const { outcome } = importGcSchedule(
+      { ...schedule({ ageLevel: 9 }, [game()]), listed: { ageLevel: 11 } },
+      empty
+    );
+    expect(outcome.ageGroupName).toBe("9U 2027");
+    expect(outcome.ageFromLeague).toBeUndefined();
+  });
+
+  /*
+   * And a person still outranks it. A named age is applied before anything else reads the profile,
+   * so the league never gets a look at a team somebody has answered for.
+   */
+  it("is beaten by an age somebody named by hand", () => {
+    // The name has to say nothing either, or GameChanger has spoken and the named age is dropped.
+    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const { outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty, {
+      namedAges: new Map([
+        [
+          "gcAAAAAAAAAA",
+          { teamId: "gcAAAAAAAAAA", level: 10, namedAt: "2026-09-01T00:00:00.000Z" },
+        ],
+      ]),
+    });
+    expect(outcome.ageGroupName).toBe("10U 2027");
+    expect(outcome.ageNamedByUser).toBe(10);
+    expect(outcome.ageFromLeague).toBeUndefined();
+  });
+
   it("records the GameChanger id on the team it was pulled as", () => {
     const { state } = importGcSchedule(
       schedule({ avatarKey: "av-legends", state: "ky", city: "Lexington" }, [game()]),
