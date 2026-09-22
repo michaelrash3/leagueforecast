@@ -92,11 +92,11 @@ describe("one fixture listed twice on a club's own schedule", () => {
   });
 
   /*
-   * Same moment, two different results: not two games — nobody plays two at once — but not
-   * something to resolve by picking one either. Both are kept, because a row left in view can be
-   * looked at and a row deleted cannot.
+   * Same moment, two different results, and still one game: nobody plays two at once, so that is
+   * a disagreement about one fixture rather than two fixtures. Keeping both would have counted a
+   * loss and a win for a game played once.
    */
-  it("keeps both when two rows share a start time and disagree about the score", () => {
+  it("is one game when two rows share a start time and disagree about the score", () => {
     expect(
       gamesAfter([
         game("a", "Cincinnati Angels Red", { startTs: "2026-09-18T18:00:00.000Z" }),
@@ -106,7 +106,23 @@ describe("one fixture listed twice on a club's own schedule", () => {
           opponentScore: 4,
         }),
       ])
-    ).toBe(2);
+    ).toBe(1);
+  });
+
+  it("keeps the displaced result visible rather than losing it", () => {
+    const { state } = importGcSchedule(
+      schedule([
+        game("a", "Cincinnati Angels Red", { startTs: "2026-09-18T18:00:00.000Z" }),
+        game("b", "Cincinnati Angels- Red", {
+          startTs: "2026-09-18T18:00:00.000Z",
+          teamScore: 5,
+          opponentScore: 4,
+        }),
+      ]),
+      empty
+    );
+    expect(state.games).toHaveLength(1);
+    expect(state.games[0]?.note).toContain("13-21");
   });
 
   /*

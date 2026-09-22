@@ -1762,10 +1762,26 @@ const importOne = (
      * routinely arrives with nothing in it, and writing that over a real result would erase it.
      */
     const scores = scoresAsExisting(existing, candidate);
+    /*
+     * A result written over a different result is not a correction, it is a disagreement, and it
+     * has to stay visible. Two rows for one fixture can report different scores — GameChanger
+     * lists a game twice and the two copies do not always agree — and silently keeping the later
+     * one would leave a club's record resting on whichever row happened to arrive second.
+     *
+     * Noted the way `collapseMirroredGames` notes the same thing when the two sides of a fixture
+     * disagree, so there is one convention for it rather than two.
+     */
+    const displaced =
+      isScored(candidate) &&
+      isScored(existing) &&
+      (existing.teamAScore !== scores.a || existing.teamBScore !== scores.b)
+        ? `Also reported ${existing.teamAScore}-${existing.teamBScore}.`
+        : undefined;
     const merged: ScoutGame = {
       ...existing,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
+      ...(displaced ? { note: [existing.note, displaced].filter(Boolean).join(" ") } : {}),
     };
     // Same id, same pool, same pair, same date, so nothing it is filed under moves.
     const position = index.gamePos.get(existing.id);
