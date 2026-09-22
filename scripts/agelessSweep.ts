@@ -53,7 +53,7 @@ import {
   type AgelessVerdict,
 } from "../src/lib/agelessTriage.ts";
 import { ageLevelFromName } from "../src/lib/gameChangerApi.ts";
-import { whyNoAge } from "../src/lib/agelessEvidence.ts";
+import { whyNoAge, type AgelessEvidence } from "../src/lib/agelessEvidence.ts";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "../src/lib/gameChangerImport.ts";
 import { AGELESS_CSV_HEADERS, parseAgelessCsv } from "../src/lib/agelessCsv.ts";
 import { POOL_NAMES_CSV_HEADERS } from "../src/lib/poolNamesCsv.ts";
@@ -183,7 +183,10 @@ const looksLikeAgelessCsv = (raw: string): boolean => {
  * opponent is dropped — neither is a club anybody ranks, and a rule firing on ten thousand "TBD"
  * rows would swamp the number that matters.
  */
-const readPoolNames = (file: string, raw: string): { team: PoolTeam; level?: number }[] | null => {
+const readPoolNames = (
+  file: string,
+  raw: string
+): { team: PoolTeam; level?: number; evidence?: AgelessEvidence }[] | null => {
   const lines = stripBom(raw).split(/\r?\n/);
   const header = lines.find((line) => line.trim().length > 0);
   if (!header) return null;
@@ -201,7 +204,19 @@ const readPoolNames = (file: string, raw: string): { team: PoolTeam; level?: num
     );
     return null;
   }
-  const out: { team: PoolTeam; level?: number }[] = [];
+  // The evidence half, where the file carries it. Absent in a file written before it did, and the
+  // sweep says "not measured" for the rules that need it rather than reporting their zero.
+  const gamesAt = at("Games");
+  const scoredAt = at("Scored");
+  const aheadAt = at("Ahead Of Today");
+  const blowoutsAt = at("Shutout Blowouts");
+  const opponentsAt = at("Opponents");
+  const namingAt = at("Opponents Naming An Age");
+  const tallyAt = at("Opponent Ages");
+  const playedAt = at("Played");
+  const hasEvidence = gamesAt >= 0 && opponentsAt >= 0 && namingAt >= 0;
+
+  const out: { team: PoolTeam; level?: number; evidence?: AgelessEvidence }[] = [];
   let first = true;
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -215,9 +230,35 @@ const readPoolNames = (file: string, raw: string): { team: PoolTeam; level?: num
     if (!id || !name) continue;
     if (rankedAt >= 0 && (cells[rankedAt] ?? "").trim().toLowerCase() === "no") continue;
     const level = levelAt >= 0 ? Number((cells[levelAt] ?? "").trim()) : Number.NaN;
+    const count = (col: number): number => {
+      const value = Number((cells[col] ?? "").trim());
+      return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+    };
+    const played = (cells[playedAt] ?? "")
+      .split(";")
+      .map((one) => one.trim())
+      .filter(Boolean);
+    const tally = (cells[tallyAt] ?? "").split(/\s+/).flatMap((part) => {
+      const m = /^(\d+)[x\u00d7](\d{1,2})U$/i.exec(part.trim());
+      return m ? [[Number(m[2]), Number(m[1])] as [number, number]] : [];
+    });
     out.push({
       team: { id, name },
       ...(Number.isFinite(level) && level > 0 ? { level } : {}),
+      ...(hasEvidence
+        ? {
+            evidence: {
+              games: count(gamesAt),
+              scored: scoredAt >= 0 ? count(scoredAt) : 0,
+              aheadOfToday: aheadAt >= 0 ? count(aheadAt) : 0,
+              shutoutBlowouts: blowoutsAt >= 0 ? count(blowoutsAt) : 0,
+              opponents: count(opponentsAt),
+              namedAnAge: count(namingAt),
+              tally,
+              ...(played.length > 0 ? { sampleOpponents: played } : {}),
+            },
+          }
+        : {}),
     });
   }
   return out;
@@ -295,9 +336,12 @@ const main = (): void => {
     return;
   }
   const filed = new Map<string, number>();
+  const evidenceOf = new Map<string, AgelessEvidence>();
   named?.forEach((row) => {
     if (row.level !== undefined) filed.set(row.team.id, row.level);
+    if (row.evidence) evidenceOf.set(row.team.id, row.evidence);
   });
+  const hasPoolEvidence = evidenceOf.size > 0;
   const pool = named ? named.map((row) => row.team) : source.pool;
   const { waiting } = source;
 
@@ -416,8 +460,29 @@ const main = (): void => {
       name: team.name,
       firstSeen: "",
       lastTried: "",
-      tries: 0,
+      /*
+       * Two asks, which is what `no-games` needs before it will speak. A pool team has been
+       * fetched and filed, so it has been asked about at least as often as a backlog row has.
+       */
+      tries: 2,
+      ...(evidenceOf.get(team.id) ? { evidence: evidenceOf.get(team.id)! } : {}),
     }));
+    /*
+     * Which rules this file can actually speak to. A pool team has no GameChanger profile kept
+     * beside it, so it has no age label, and the two rules that read one cannot fire here however
+     * the file is written — their zero is "not measured", and saying so is the whole point of
+     * this section.
+     */
+    const noLabel = new Set(["adult-label", "school-label"]);
+    const measurable = (id: string) => !noLabel.has(id) && (hasPoolEvidence || !needsEvidence.has(id));
+    const needsEvidence = new Set([
+      "closed-cluster",
+      "school-by-evidence",
+      "near-miss-tally",
+      "no-games",
+      "scored-ahead",
+      "pony-division",
+    ]);
     /*
      * Where the pool file carried the age each team is already filed under, a hit splits in two,
      * and only one half is bad news. A rule reading 10U off a team the pool has at 10U is
@@ -447,10 +512,11 @@ const main = (): void => {
       const shown = sampleOf(wrong.length > 0 ? wrong : hits, 3, options.seed)
         .map((row) => JSON.stringify(row.name ?? ""))
         .join("  ");
+      const note = measurable(entry.id) ? shown : "not measured — this file cannot exercise it";
       console.log(
         knowsAges
-          ? `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${n(agrees).padEnd(8)} ${n(wrong.length).padEnd(8)} ${shown}`
-          : `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${shown}`
+          ? `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${n(agrees).padEnd(8)} ${n(wrong.length).padEnd(8)} ${note}`
+          : `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${note}`
       );
     });
   }

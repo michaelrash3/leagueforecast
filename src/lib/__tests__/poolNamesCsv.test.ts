@@ -26,6 +26,10 @@ const game = (id: string, ageGroupId: string, teamAId: string, teamBId: string):
   teamBScore: 3,
 });
 
+/** One named cell of a row, by the header it sits under. */
+const at = (row: string[] | undefined, name: (typeof POOL_NAMES_CSV_HEADERS)[number]) =>
+  row?.[POOL_NAMES_CSV_HEADERS.indexOf(name)];
+
 const rows = (text: string): string[][] =>
   text
     .split("\n")
@@ -43,7 +47,63 @@ describe("the pool's own names, as a file", () => {
   it("writes the id, the name and the age already filed", () => {
     const [header, first] = rows(poolNamesCsv(teams, ageGroups, games));
     expect(header).toEqual([...POOL_NAMES_CSV_HEADERS]);
-    expect(first).toEqual(["t1", "Cincy Legends", "10", "2027", "OH", "yes"]);
+    // Two games against one opponent, who names no age: one opponent, none naming an age.
+    expect(first).toEqual([
+      "t1",
+      "Cincy Legends",
+      "10",
+      "2027",
+      "OH",
+      "yes",
+      "2",
+      "2",
+      "0",
+      "0",
+      "1",
+      "0",
+      "",
+      "Elite Prospects",
+    ]);
+  });
+
+  /*
+   * The evidence half, counted the way `agelessEvidence` counts it — per distinct opponent, not
+   * per game. The tripwire compares what a rule does here against what it does on the backlog,
+   * and two different readings of "opponents" would make that comparison meaningless.
+   */
+  it("counts opponents once however often they are played", () => {
+    const many = [...games, game("x3", "g10", "t1", "t2"), game("x4", "g10", "t1", "t2")];
+    const [, first] = rows(poolNamesCsv(teams, ageGroups, many));
+    expect(at(first, "Games")).toBe("4");
+    expect(at(first, "Opponents")).toBe("1");
+  });
+
+  it("reads an age out of an opponent's name, and samples the ones with none", () => {
+    const named = [...teams, team("t3", "Dayton Dynamo 10U"), team("t4", "Just A Club")];
+    const withNamed = [...games, game("x5", "g10", "t1", "t3"), game("x6", "g10", "t1", "t4")];
+    const [, first] = rows(poolNamesCsv(named, ageGroups, withNamed));
+    expect(at(first, "Opponents")).toBe("3");
+    expect(at(first, "Opponents Naming An Age")).toBe("1");
+    expect(at(first, "Opponent Ages")).toBe("1×10U");
+    expect(at(first, "Played")).toBe("Elite Prospects; Just A Club");
+  });
+
+  it("counts a shutout blowout and a game scored ahead of today", () => {
+    const odd: ScoutGame[] = [
+      { id: "b1", teamAId: "t1", teamBId: "t2", ageGroupId: "g10", teamAScore: 12, teamBScore: 0 },
+      {
+        id: "b2",
+        teamAId: "t1",
+        teamBId: "t2",
+        ageGroupId: "g10",
+        teamAScore: 3,
+        teamBScore: 1,
+        date: "2099-01-01",
+      },
+    ];
+    const [, first] = rows(poolNamesCsv(teams, ageGroups, odd));
+    expect(at(first, "Shutout Blowouts")).toBe("1");
+    expect(at(first, "Ahead Of Today")).toBe("1");
   });
 
   /*

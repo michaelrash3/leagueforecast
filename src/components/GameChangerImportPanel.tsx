@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ageFromLeagueNames,
+  ageFromOrgName,
   parseGcTeamList,
   type GcTeamListEntry,
   type GcTeamProfile,
@@ -947,7 +948,15 @@ export function GameChangerImportPanel({
              * hand, so the link the import records carries them and the age a league names can
              * file a team GameChanger left ageless.
              */
-            const leagueAge = ageFromLeagueNames(entry?.leagues);
+            /*
+             * The league the list says they play in, and failing that the organization they sit
+             * under. The organization is the weaker of the two — a crawl types every organization
+             * the same way, so a tournament and a league are one word apart — which is why
+             * `ageFromOrgName` refuses event-sounding names and spans, and why it only answers
+             * where the league said nothing.
+             */
+            const leagueAge =
+              ageFromLeagueNames(entry?.leagues) ?? ageFromOrgName(entry?.org?.name);
             const listed =
               entry &&
               (entry.staff?.length || entry.playerCount !== undefined || leagueAge !== undefined)

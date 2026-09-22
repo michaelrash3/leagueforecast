@@ -717,6 +717,51 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**An age from the organization a team sits under.** The very bottom of the ladder. An
+organization named "TPABL 12U" or "GLL 8u Fall 2026" is saying what age plays under it, and
+for a team with no age of its own that beats nothing, which is what such a team has.
+GameChanger's public API has no route from a team to its organization, so this only arrives
+from a crawl that found the team through one.
+
+Refused for events and for spans, and both refusals are measured. Over 17,003 teams
+carrying an organization, 2,240 had both an org naming an age and an age of their own to
+check against. The org's age agreed **90.1%** of the time; excluding event-sounding names
+took it to 94.1%, excluding spans to 93.9%, and excluding both to **95.1%**. The errors are
+overwhelmingly one-directional — of 221 disagreements, 197 had the organization *older* —
+which is the play-up signature: "(09/25/2026) 17/18u Super Fall Invitational" holds 16U
+teams, "Suburban Travel 13/14u" holds 13U ones.
+
+The span filter allows an optional `U` after the first number as well as the second,
+because clubs write it both ways and without that "13U-16U" reads as a plain 16U and files
+thirteen-year-olds three years old.
+
+95% is not good enough to outrank anything a team says about itself, so it sits under the
+league rung and under the company a team keeps, and only ever answers a team that has no
+other answer at all. On a real backlog it reaches **273** rows — small, and honestly so.
+
+**An age from the company the pool already knows.** The last rung of the ladder, and the
+one that reaches the backlog's most hopeless population. `ageFromOpponentNames` reads an
+age out of an opponent's *name*, so it can never settle a team in a closed league where
+nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Over a real
+36,194-row backlog, 10,709 rows are exactly that shape.
+
+But the pool has usually met those opponents. A team refused for having no age has just had
+its whole schedule fetched, and most of the clubs on it are already filed, at an age
+something else settled. That answer was one lookup away and nothing asked for it.
+
+**By identity, never by name.** The opponent is matched on its avatar key — stable per club
+across schedules, and what `resolveOpponent` already trusts. That is what makes this safe: a
+name match on "Team 4" would collect a stranger from the other side of the country, and a
+pool holding tens of thousands of teams has a great many "Team 4"s. Where two clubs share a
+picture the picture identifies nobody, and the opponent is skipped; where the pool has a
+club filed at two ages it is running two squads, and it says nothing about this one.
+
+Held to the same bar as the name rule — `MIN_OPPONENT_AGE_EVIDENCE` distinct opponents
+agreeing, a tie refused — because it is the same kind of claim: circumstantial, about the
+company a club keeps, and wrong in the same way if a squad plays up all season. It sits
+below the name reading for the same reason: a club writing "12U" in its own name is telling
+you about itself, while this tells you who it plays.
+
 **A name outranks an age column, on a pasted list.** The age ladder reads two kinds of
 age field and does not trust them equally. GameChanger's own `age_group`, first-hand from
 its API, outranks a plain age in the team's name. The age column of a pasted list does
@@ -790,9 +835,24 @@ in that division is `Under 13` and 13U at once and neither is wrong. Read strict
 band vetoes 178 Intermediate teams it has no business vetoing.
 
 **The pool's own names, for measuring a rule against what it must not break.** Pool health
-carries a **Download the pool names** button: ids, names and the age each team is already
-filed under, and no games, so a hundred thousand teams is a few megabytes. Nothing in the
-app reads it. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
+carries a **Download the pool names** button: ids, names, the age each team is already
+filed under, and the same evidence the backlog rows carry — games, scored, ahead of today,
+shutout blowouts, opponents, how many of them named an age, which ages, and a sample of
+the ones that named none. No games themselves, so a hundred thousand teams is a few
+megabytes. Nothing in the app reads it.
+
+The evidence half is there because without it the tripwire can only measure the rules that
+read a name. The five that read a schedule — `closed-cluster`, `school-by-evidence`,
+`near-miss-tally`, `no-games`, `scored-ahead` — could not fire against a file of bare names
+at all, and reported a zero that means "not measured" and looks exactly like "safe".
+`closed-cluster` alone proposes a verdict for 10,709 backlog rows, so that distinction was
+worth the columns. The counts use the same definitions `agelessEvidence` uses, per distinct
+opponent rather than per game, because the tripwire compares what a rule does here against
+what it does on the backlog and two readings of "opponents" would make that meaningless.
+
+Two rules still cannot be measured this way whatever the file holds: `adult-label` and
+`school-label` read GameChanger's own age field, which the pool keeps no copy of. The sweep
+names them as not measured rather than printing their zero. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
 otherwise ask the only question that matters about a candidate rule — what it would do to
 the teams that already work. Because the file carries the filed age, a hit splits into
 "agrees with the pool" and "disagrees", and it is the second column that should be zero.

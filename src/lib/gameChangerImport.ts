@@ -614,6 +614,70 @@ export const ageFromOpponentNames = (games: readonly GcGame[]): number | undefin
  * about a team, and this is not. It is the pool's reading of the company a team keeps, and it
  * belongs to the import that has the schedule in hand.
  */
+/**
+ * The age the pool already files this team's opponents at.
+ *
+ * `ageFromOpponentNames` above reads an age out of an opponent's *name*, which is the only thing
+ * a schedule says about a club the pool has never met. But the pool has usually met them. A team
+ * refused for having no age has just had its whole schedule fetched, and most of the clubs on it
+ * are already in the pool, already filed, already at an age somebody or something settled. That
+ * answer was sitting one lookup away and nothing asked for it.
+ *
+ * It matters most exactly where the name rule fails. The backlog's worst population is the closed
+ * league where nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5" — and
+ * `ageFromOpponentNames` can never settle one of those, because it only reads names and the names
+ * say nothing. This rule can, as soon as one of those teams has been filed by any other route.
+ *
+ * **By identity, never by name.** The opponent is matched on its avatar key, which is stable per
+ * club across schedules and is what `resolveOpponent` already trusts. That is the whole reason
+ * this is safe: a name match on "Team 4" would collect a stranger from the other side of the
+ * country, and a pool holding tens of thousands of teams has a great many "Team 4"s.
+ *
+ * Held to the same evidence bar as the name rule — `MIN_OPPONENT_AGE_EVIDENCE` distinct opponents
+ * agreeing, a tie refused — because it is the same kind of claim: circumstantial, about the
+ * company a club keeps, and wrong in the same way if a squad plays up all season. An opponent the
+ * pool has filed at two different levels says nothing and is skipped rather than guessed at.
+ */
+export const ageFromPooledOpponents = (
+  games: readonly GcGame[],
+  index: ImportIndex,
+  needed: number
+): number | undefined => {
+  const seen = new Set<string>();
+  const counts = new Map<number, number>();
+  let readable = 0;
+  games.forEach((game) => {
+    const key = game.opponentAvatarKey;
+    if (!key) return;
+    const known = index.teamsByAvatar.get(key) ?? [];
+    // Two clubs sharing a picture is two clubs, and neither is evidence about this one.
+    if (known.length !== 1) return;
+    const team = known[0];
+    if (!team || seen.has(team.id)) return;
+    seen.add(team.id);
+    const levels = index.levelsByTeam.get(team.id);
+    // A club filed at two ages is a club running two squads: it says nothing about this one.
+    if (!levels || levels.size !== 1) return;
+    const level = [...levels][0];
+    if (level === undefined) return;
+    readable += 1;
+    counts.set(level, (counts.get(level) ?? 0) + 1);
+  });
+  if (readable < needed) return undefined;
+
+  let best: number | undefined;
+  let bestCount = 0;
+  let tied = false;
+  counts.forEach((count, level) => {
+    if (count > bestCount) {
+      best = level;
+      bestCount = count;
+      tied = false;
+    } else if (count === bestCount) tied = true;
+  });
+  return tied ? undefined : best;
+};
+
 const withOpponentAge = (
   schedule: GcTeamSchedule
 ): { schedule: GcTeamSchedule; inferred?: number } => {
@@ -1454,7 +1518,29 @@ const importOne = (
     fromLeague === undefined
       ? withNamed
       : { ...withNamed, profile: { ...withNamed.profile, ageLevel: fromLeague } };
-  const { schedule, inferred } = withOpponentAge(withLeague);
+  const fromNames = withOpponentAge(withLeague);
+  /*
+   * And last, the age the pool already files this team's opponents at.
+   *
+   * Below the name reading above it, and for a reason worth stating: a club that writes "12U" in
+   * its own name is telling you something about itself, while this is telling you about the
+   * company it keeps. But it reaches where the name rule cannot. The closed league where nobody
+   * writes an age in anything is the backlog's largest population and its most hopeless one —
+   * `ageFromOpponentNames` can never settle a team whose opponents are all called "Team 4" — and
+   * this settles it the moment any of those opponents has been filed by another route.
+   */
+  const fromPool =
+    profileAgeLevel(fromNames.schedule.profile) === undefined
+      ? ageFromPooledOpponents(fromNames.schedule.games, index, MIN_OPPONENT_AGE_EVIDENCE)
+      : undefined;
+  const schedule: GcTeamSchedule =
+    fromPool === undefined
+      ? fromNames.schedule
+      : {
+          ...fromNames.schedule,
+          profile: { ...fromNames.schedule.profile, ageLevel: fromPool },
+        };
+  const inferred = fromNames.inferred ?? fromPool;
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
