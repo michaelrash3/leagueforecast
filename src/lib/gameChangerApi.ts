@@ -281,6 +281,33 @@ export const parseGcAgeLevel = (label: unknown): number | undefined => {
 };
 
 /**
+ * The bracket a team name spells out — "Braves 9u/10u Fall", "Astros (9U/10U)", "AZ Core 17U/18U",
+ * and the shorthand "OM 9/10U" where only the second age carries its U. Undefined when the name
+ * carries no bracket, or when either end is not an age this app ranks.
+ *
+ * Its own function, rather than a step inside `ageLevelFromName`, because a bracket is not simply
+ * another way of writing a level. A single label is one age somebody typed; a bracket is the team
+ * saying which two ages it takes the field against, which is why `ageLevelOf` lets it outrank an
+ * age written anywhere else, and why `cleanTeamName` takes it off a name as one thing rather than
+ * as two labels with a separator stranded between them.
+ *
+ * The second age must carry the U, which is what keeps "Mears 1 - 2026" and other stray number
+ * pairs out.
+ */
+export const ageSpanFromName = (name: string): { low: number; high: number } | undefined => {
+  if (typeof name !== "string") return undefined;
+  const span =
+    /\b(\d{1,2})\s*(?:[uU][A-Da-d]{0,3})?\s*[/\-\u2013]\s*(\d{1,2})\s*[uU][A-Da-d]{0,3}/.exec(name);
+  if (!span) return undefined;
+  const first = Number(span[1]);
+  const second = Number(span[2]);
+  if (!inAgeRange(first) || !inAgeRange(second)) return undefined;
+  // Written both ways round in the wild — "9U/10U" and "12U/11U" are both in the export — so the
+  // two ends are sorted rather than assumed to be in order.
+  return { low: Math.min(first, second), high: Math.max(first, second) };
+};
+
+/**
  * The age label a team name carries ("9u Astros", "Trash Pandas 9u", "U11 Bandits") — the
  * fallback when GameChanger's profile or a CSV column leaves the age blank. The label is loose
  * evidence, so callers only use it when nothing better is known.
@@ -293,18 +320,11 @@ export const parseGcAgeLevel = (label: unknown): number | undefined => {
  */
 export const ageLevelFromName = (name: string): number | undefined => {
   if (typeof name !== "string") return undefined;
-  // A bracket written into the name — "Braves 9u/10u Fall", "Astros (9U/10U)", "AZ Core 17U/18U",
-  // and the shorthand "OM 9/10U" where only the second carries the U — reads as the older end,
-  // the same as the age column does. Checked first, because the plain search below would stop on
-  // the younger number and never see the rest of it. The second age must carry the U, which is
-  // what keeps "Mears 1 - 2026" and other stray number pairs out.
-  const span =
-    /\b(\d{1,2})\s*(?:[uU][A-Da-d]{0,3})?\s*[/\-\u2013]\s*(\d{1,2})\s*[uU][A-Da-d]{0,3}/.exec(name);
-  if (span) {
-    const low = Number(span[1]);
-    const high = Number(span[2]);
-    if (inAgeRange(low) && inAgeRange(high)) return Math.max(low, high);
-  }
+  // A bracket reads as its older end, the same as the age column does. Checked first, because the
+  // plain search below would stop on the younger number and never see the rest of it. A bracket
+  // with an unrankable end is no bracket at all, and falls through to that search.
+  const span = ageSpanFromName(name);
+  if (span) return span.high;
   const match = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/.exec(name);
   if (!match) return undefined;
   const level = Number(match[1] ?? match[2]);
@@ -484,6 +504,57 @@ export const ageFromGradYearLabel = (
   return year ? ageFromGradYear(Number(year[1]), squadYear) : undefined;
 };
 
+/**
+ * The age level a team plays at, out of everything that says anything about it: the age field
+ * (GameChanger's own `age_group`, or the age column of a pasted list), the team's name, and the
+ * squad year the two of them sit in.
+ *
+ * One function because a listing and the team it names must not read as two different ages. The
+ * profile normalizer and the list-row reader used to climb this ladder separately, side by side,
+ * agreeing only for as long as somebody kept editing both.
+ *
+ * Best evidence first, and the best evidence is a bracket in the name:
+ *
+ * 1. **A bracket in the name** — "Premier Ohio Lopez 9U/10U" — read as its older end, because a
+ *    club that writes both ages is naming the bracket it takes the field in. Above the age field
+ *    rather than below it, which is the one place this ladder trusts a name over a stated age, and
+ *    it is deliberate: the field holds one value, chosen from a dropdown when the team was
+ *    created, and a club running a 9U/10U squad routinely picks the younger of the two. The two
+ *    are then not so much in conflict as one being half of the other — and filing such a team at
+ *    the younger end makes every game it plays in its own bracket read as playing up, which is an
+ *    advantage in the rating it did not earn.
+ *
+ *    It is also the one comparison where the name is the measured better witness. Over a pull of
+ *    40,760 teams where a pasted list and GameChanger described the same teams, the two disagreed
+ *    about the age by one 343 times, and in 267 of those the team's own *name* carried the list's
+ *    level — so it is the age field that wanders. The README's "Check the id" table is that
+ *    measurement.
+ * 2. **The age field**, read strictly: the whole value has to be a label, so "9U", "12UA" and
+ *    "9U/10U" are levels and "Varsity" is not.
+ * 3. **A graduating class in the age field** — "2029" — which is an age once the squad year is known.
+ * 4. **A single age label in the name** — "Trash Pandas 9u".
+ * 5. **A graduating class in the name**, held to the two-year margin `gradYearFromName` needs,
+ *    because a four-digit number in a name is just as often a season.
+ *
+ * Undefined means nobody wrote an age anywhere this can read, which is not an age: see
+ * `ageFromOpponentNames` for what the pool makes of that, and `namedAges` for a person answering
+ * it outright, which beats every rung here.
+ */
+export const ageLevelOf = (
+  ageField: unknown,
+  name: string,
+  squadYear: number | undefined
+): number | undefined => {
+  const label = typeof ageField === "string" ? ageField : undefined;
+  return (
+    ageSpanFromName(name)?.high ??
+    parseGcAgeLevel(ageField) ??
+    (squadYear === undefined ? undefined : ageFromGradYearLabel(label, squadYear)) ??
+    ageLevelFromName(name) ??
+    (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear))
+  );
+};
+
 const SEASON_NAMES: Record<string, GcSeasonName> = {
   fall: "fall",
   autumn: "fall",
@@ -641,16 +712,7 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
 
   const ageLabel = asString(source.age_group ?? source.ageGroup);
   if (ageLabel) profile.ageLabel = ageLabel;
-  /*
-   * Best evidence first. An age label in the age field beats a graduating class in the same field,
-   * which beats an age label in the name, which beats a class in the name — each one is a step
-   * further from somebody saying outright what age the team is.
-   */
-  const ageLevel =
-    parseGcAgeLevel(source.age_group ?? source.ageGroup) ??
-    (squadYear === undefined ? undefined : ageFromGradYearLabel(ageLabel, squadYear)) ??
-    ageLevelFromName(name) ??
-    (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear));
+  const ageLevel = ageLevelOf(source.age_group ?? source.ageGroup, name, squadYear);
   if (ageLevel !== undefined) profile.ageLevel = ageLevel;
 
   const record = normalizeRecord(teamSeason?.record ?? source.record);
@@ -967,18 +1029,14 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   const season = parseGcSeasonLabel(cellAt(cells, columns.season));
   if (season) entry.season = season;
   const squadYear = season ? squadYearForGcSeason(season) : undefined;
-  // The same ladder `normalizeGcTeamProfile` climbs, so a row and the team it names cannot read as
-  // two different ages: a stated age beats a graduating class, and either column beats the name.
+  // The same ladder `normalizeGcTeamProfile` climbs, because it is the same function: a row and
+  // the team it names cannot read as two different ages.
   const ageCell = cellAt(cells, columns.age);
   // Marked, not filtered, like the wiffle mark above — the panel says how many were left out and
   // why. Read from the age column as well as the name, because a club that writes "Varsity" in
   // one of them often leaves the other as the school's plain name.
   if (isSchoolName(name) || isSchoolAgeLabel(ageCell)) entry.highSchool = true;
-  const ageLevel =
-    parseGcAgeLevel(ageCell) ??
-    (squadYear === undefined ? undefined : ageFromGradYearLabel(ageCell, squadYear)) ??
-    ageLevelFromName(name) ??
-    (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear));
+  const ageLevel = ageLevelOf(ageCell, name, squadYear);
   if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const city = cellAt(cells, columns.city);
   if (city) entry.city = city;

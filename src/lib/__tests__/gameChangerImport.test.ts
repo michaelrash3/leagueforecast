@@ -95,6 +95,77 @@ describe("importGcSchedule", () => {
     });
   });
 
+  /**
+   * A club that writes both ages into its name — "Premier Ohio Lopez 9U/10U", whose GameChanger
+   * age field says 9U — is a 10U team. Filed at 9U it sat on the younger page with every game in
+   * its own bracket recorded as playing up, which is an advantage in the rating it never earned.
+   */
+  it("files a squad whose name spells out a bracket on the older page", () => {
+    const profile = normalizeGcTeamProfile({
+      ...profileFixture,
+      id: "gcLOPEZ00001",
+      name: "Premier Ohio Lopez 9U/10U",
+      age_group: "9U",
+    });
+    const { state, outcome } = importGcSchedule(
+      { profile: profile!, games: [], fetchedAt: "2026-09-14T12:00:00.000Z" },
+      empty
+    );
+
+    expect(outcome.ageGroupName).toBe("10U 2027");
+    // The age level is off the name, so the name keeps none of it — slash included.
+    const pulled = state.teams.find((team) => team.gcTeams?.length);
+    expect(pulled?.name).toBe("Premier Ohio Lopez");
+    expect(pulled?.gcTeams?.[0]).toMatchObject({ ageLevel: 10 });
+    // What GameChanger is still calling it stays on the link, which is what the panel shows.
+    expect(pulled?.gcTeams?.[0]?.name).toBe("Premier Ohio Lopez 9U/10U");
+  });
+
+  it("moves a club filed at the younger end, and tidies the name it was stored under", () => {
+    /*
+     * The pool as the old readings left it: the younger page, and a name a cleaner that took the
+     * bracket off as two labels left a slash stranded in. A club already pulled is found by its
+     * GameChanger id and never by its name, so this re-pull is the only thing that can heal it.
+     */
+    const before: GcImportState = {
+      ageGroups: [{ id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] }],
+      teams: [
+        {
+          id: "S-lopez",
+          name: "Premier Ohio Lopez /",
+          gcTeams: [
+            {
+              teamId: "gcLOPEZ00001",
+              name: "Premier Ohio Lopez 9U/10U",
+              ageGroupId: "ag9",
+              ageLevel: 9,
+              season: "fall",
+              seasonYear: 2026,
+              importedAt: "2026-09-07T12:00:00.000Z",
+            },
+          ],
+        },
+      ],
+      games: [],
+    };
+    const profile = normalizeGcTeamProfile({
+      ...profileFixture,
+      id: "gcLOPEZ00001",
+      name: "Premier Ohio Lopez 9U/10U",
+      age_group: "9U",
+    });
+    const { state, outcome } = importGcSchedule(
+      { profile: profile!, games: [], fetchedAt: "2026-09-14T12:00:00.000Z" },
+      before
+    );
+
+    expect(outcome.ageGroupName).toBe("10U 2027");
+    const moved = state.teams.find((team) => team.id === "S-lopez");
+    expect(moved?.name).toBe("Premier Ohio Lopez");
+    const group = state.ageGroups.find((entry) => entry.ageLevel === 10);
+    expect(moved?.gcTeams?.[0]).toMatchObject({ ageGroupId: group?.id, ageLevel: 10 });
+  });
+
   it("records the GameChanger id on the team it was pulled as", () => {
     const { state } = importGcSchedule(
       schedule({ avatarKey: "av-legends", state: "ky", city: "Lexington" }, [game()]),

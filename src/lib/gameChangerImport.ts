@@ -36,6 +36,7 @@ import {
   isPlaceholderName,
   MIN_AGE_LEVEL,
   buildScoutTeam,
+  cleanTeamName,
   formatAgeGroupName,
   gcSeasonLabel,
   isRankedAgeLevel,
@@ -784,6 +785,16 @@ const withLink = (team: ScoutTeam, link: GcTeamLink): ScoutTeam => {
   const linked: ScoutTeam = { ...team, gcTeams: [...rest, carryListedFields(link, prior)] };
   // Its own schedule is here now, so it is a club rather than a name on somebody else's.
   delete linked.nameOnly;
+  /*
+   * The stored name is cleaned again here, because this is the only chance it gets. A club that
+   * has been pulled before is found by its GameChanger id and never by its name, so the healing
+   * `resolveOrCreateTeam` does when a name matches never reaches one: an entry stored as "Premier
+   * Ohio Lopez /" by a cleaner that took a bracket off as two labels would carry the debris for
+   * as long as the pool existed. A rename is cleaned on its way in too, so a stored name that
+   * still holds a label is always something a rule left behind rather than somebody's choice.
+   */
+  const cleaned = cleanTeamName(linked.name);
+  if (cleaned !== linked.name) linked.name = cleaned;
   return linked;
 };
 

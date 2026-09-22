@@ -135,6 +135,34 @@ season, and answering makes the page if the pull has not already. A season moves
 off whatever page held it before, since one league season is played at one age
 and leaving it on two would count its games twice.
 
+#### Which age a team is
+
+Five things can say, and they are asked in this order. `ageLevelOf` in
+`gameChangerApi.ts` is the whole of it, and the profile normalizer and the list-row
+reader both call it, so a row and the team it names can never read as two different
+ages.
+
+| Where it is written                                                  | Example                     | Read as                                |
+| -------------------------------------------------------------------- | --------------------------- | -------------------------------------- |
+| **A bracket in the name**                                            | "Premier Ohio Lopez 9U/10U" | the older end — 10U                    |
+| The age field — GameChanger's `age_group`, or a pasted list's column | "9U", "12UA", "11U/12U"     | that label, a bracket at its older end |
+| A graduating class in the age field                                  | "2029" in squad year 2027   | 16U                                    |
+| A single age label in the name                                       | "Trash Pandas 9u"           | 9U                                     |
+| A graduating class in the name                                       | "Midwest Nationals 2030"    | 15U, two years out or further          |
+
+The bracket sits above the age field, which is the one place the name outranks a
+stated age. The field holds one value picked from a dropdown when the team was
+created, and a club running a 9U/10U squad routinely picks the younger of the two —
+so the two are not so much in conflict as one being half of the other. Filed at the
+younger end, every game the squad plays in its own bracket reads as playing up, and
+the rating hands it an advantage it never earned. The name is also the measured
+better witness here: of the 343 teams where a pasted list and GameChanger disagreed
+about the age by one, 267 had the list's level in the team's own name (the table
+under **Check the id**).
+
+A person outranks all five. A level named by hand stands in until GameChanger's own
+answer *changes* — see **Naming an age**.
+
 #### High school squads are left out
 
 A varsity or JV side plays other varsity and JV sides. Its whole schedule is the
@@ -430,7 +458,12 @@ the panel draws the first two hundred and the file has them all.
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
 Lexington Red". The age level is already carried by the age group, and keeping it
-in the name would split one club into a new team every year as it plays up.
+in the name would split one club into a new team every year as it plays up. A
+bracket comes off as one thing, separator included — "Premier Ohio Lopez 9U/10U" is
+stored as "Premier Ohio Lopez", not as "Premier Ohio Lopez /" — because the level
+was read off the whole bracket, so the name has to lose the whole bracket. A club
+pulled before that rule existed is found by its GameChanger id rather than by its
+name, so nothing would ever heal it; its next pull cleans the stored name.
 
 Clicking a team opens everything logged for it, and is also where a name is
 corrected. **Renaming onto a name that already exists merges the two** — which is

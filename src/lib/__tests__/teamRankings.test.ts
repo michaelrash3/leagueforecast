@@ -152,6 +152,36 @@ describe("cleanTeamName", () => {
     expect(teamNameKey("Knights - Navy")).not.toBe(teamNameKey("Knights - Red"));
   });
 
+  /**
+   * A bracket is one label spanning two ages, and the level is read off the whole of it, so the
+   * name has to lose the whole of it. Taken off as two labels it left the separator stranded:
+   * "Premier Ohio Lopez 9U/10U" was stored as "Premier Ohio Lopez /".
+   */
+  it("drops a bracket as one thing, separator and all", () => {
+    expect(cleanTeamName("Premier Ohio Lopez 9U/10U")).toBe("Premier Ohio Lopez");
+    expect(cleanTeamName("Alvey 9U/10U | King Coconuts")).toBe("Alvey | King Coconuts");
+    expect(cleanTeamName("OM 9/10U Fall 2026 White - Malone")).toBe("OM Fall 2026 White - Malone");
+    expect(cleanTeamName("13u - 14u Bandits")).toBe("Bandits");
+    expect(cleanTeamName("11UA/12UB Rebels")).toBe("Rebels");
+    /*
+     * Not a bracket, because 5 is no age the reader will take: this is a squad number beside a
+     * level, so the number stays and only the level comes off. The cleaner never removes anything
+     * the reader would not have read as a bracket.
+     */
+    expect(cleanTeamName("Team 5 - 12U")).toBe("Team 5");
+    // And the debris a pool already holds: what the old cleaner stored, with no bracket left in
+    // it to recognise, tidied on the next pass that reads the name.
+    expect(cleanTeamName("Premier Ohio Lopez /")).toBe("Premier Ohio Lopez");
+  });
+
+  it("leaves the key a bracket name is matched by exactly where it was", () => {
+    // The key already read the separator as spacing, so tidying the name moves no team: an entry
+    // stored by the old cleaner heals into the tidier name instead of splitting off from it.
+    expect(teamNameKey("Premier Ohio Lopez 9U/10U")).toBe("premier ohio lopez");
+    expect(teamNameKey("Premier Ohio Lopez /")).toBe("premier ohio lopez");
+    expect(teamNameKey("Premier Ohio Lopez")).toBe("premier ohio lopez");
+  });
+
   it("keeps something when the name is nothing but an aside", () => {
     expect(cleanTeamName("(9U)")).toBe("(9U)");
   });

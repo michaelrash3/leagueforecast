@@ -11,6 +11,7 @@
  * covering rating maths, name handling, season arithmetic, GameChanger linking and ranking
  * assembly. `teamRankings.ts` re-exports this, so nothing that imports from there had to change.
  */
+import { ageSpanFromName } from "../gameChangerApi";
 import { createTeamId } from "../sim";
 import type { ScoutRankingRow, ScoutTeam } from "./types";
 
@@ -25,6 +26,23 @@ export const SCOUT_ID_PREFIX = "S-";
  */
 const AGE_LABEL = /\b(?:\d{1,2}\s*[uU][A-Da-d]{0,3}|[uU]\s*\d{1,2})\b/g;
 
+/**
+ * A bracket — "9U/10U", "13u - 14u", "11UA/12UB", and the shorthand "9/10U" — which comes off as
+ * one thing, separator and all.
+ *
+ * Taking the two labels off separately left the separator stranded in the middle of the name:
+ * "Premier Ohio Lopez 9U/10U" was stored as "Premier Ohio Lopez /", and "Alvey 9U/10U | King
+ * Coconuts" as "Alvey / | King Coconuts". The level was read from the whole bracket, so the name
+ * has to lose the whole bracket.
+ *
+ * The shape is `ageSpanFromName`'s, and what it matches is handed back to that function to decide:
+ * removed when it reads as a bracket, left exactly as it was when it does not, so the cleaner
+ * cannot take off something the reader would not have read. That is what keeps "Team 5 - 12U" —
+ * a squad number beside a level rather than a bracket, 5 being below any age the reader will
+ * take — with its 5, and the level still comes off as a plain label.
+ */
+const AGE_SPAN = /\b\d{1,2}\s*(?:[uU][A-Da-d]{0,3})?\s*[/\-\u2013]\s*\d{1,2}\s*[uU][A-Da-d]{0,3}/g;
+
 /** An innermost bracketed aside, so nesting comes apart a layer at a time. */
 const PARENTHETICAL = /\([^()]*\)/;
 
@@ -35,7 +53,9 @@ const PARENTHETICAL = /\([^()]*\)/;
  * the club, and the same club plays up a level every year ("South Lexington Red 9u" becomes
  * "…10u") — keeping it would fragment one real-world team into a new entity every season, which
  * is what the age-group scoping already handles — the division letters on "11UAA" go with it,
- * since they are part of the same label. And anything in **parentheses**, which on a
+ * since they are part of the same label, and a **bracket** goes as one thing, separator included,
+ * so "Premier Ohio Lopez 9U/10U" is stored as "Premier Ohio Lopez" rather than with a slash left
+ * where the ages were. And anything in **parentheses**, which on a
  * GameChanger schedule is an aside rather than part of the name: a season, a division, a
  * tournament, a note somebody typed. Labels anywhere in the name are handled, so
  * "NV Stars 9u Scout" becomes "NV Stars Scout".
@@ -49,9 +69,14 @@ export const cleanTeamName = (name: string): string => {
   let stripped = name;
   while (PARENTHETICAL.test(stripped)) stripped = stripped.replace(PARENTHETICAL, " ");
   stripped = stripped
+    .replace(AGE_SPAN, (match) => (ageSpanFromName(match) ? " " : match))
     .replace(AGE_LABEL, " ")
     .replace(/\s{2,}/g, " ")
-    .replace(/^[\s\-–—,]+|[\s\-–—,]+$/g, "");
+    // A slash joins two things, so one left at either end is joining the name to nothing: it is
+    // always debris, and it is the debris a pool already holds. Entries stored as "Premier Ohio
+    // Lopez /" by the cleaner that took a bracket off as two labels have no bracket left in them
+    // to recognise, so this is what heals them when their club is next pulled.
+    .replace(/^[\s\-–—,/]+|[\s\-–—,/]+$/g, "");
   // A name that is *only* an age label, or only an aside, still has to be called something.
   return stripped || name.trim();
 };
@@ -81,6 +106,7 @@ export const teamNameKey = (name: string) =>
  */
 export const squadNameKey = (listingName: string): string =>
   listingName
+    .replace(AGE_SPAN, (match) => (ageSpanFromName(match) ? " " : match))
     .replace(AGE_LABEL, " ")
     .toLowerCase()
     .replace(/[\u2018\u2019`]/g, "'")
