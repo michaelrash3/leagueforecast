@@ -2431,13 +2431,13 @@ describe("poolSignature", () => {
      * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
      * ever, because the stamp would still match and the tidy would never run.
      */
-    // r7 since the tidy learned to keep once a game two coaches scored apart at one start time.
+    // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r7|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r8|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r7|0|0|0|");
+    expect(poolSignature(empty)).toBe("r8|0|0|0|");
   });
 });
 
@@ -2653,6 +2653,82 @@ describe("who a name belongs to: level, state and the game", () => {
     const row = out.state.games.find((game) => game.id === "gc_gcMSA8000000_old")!;
     expect(row.teamBId).toBe(ms.id);
     expect(out.state.teams.find((team) => team.id === "S-CUBS-STUB")).toBeUndefined();
+  });
+
+  describe("a namesake across a state line", () => {
+    /*
+     * A Kentucky club's game sits on a "Cubs" stand-in, with no Cubs pulled in Kentucky. On the
+     * stand-in fixtures export of 22 September 2026, a sole namesake in a bordering state was the
+     * club the game itself identified 1,174 times in 1,240 — nearer the one-in-ten miss this
+     * rule already accepts within a state than a refusal is worth.
+     */
+    const cubsAt = (states: { state: string; city?: string }[]) => {
+      const clubs = states.map(({ state, city }, at) =>
+        club(`gcCUBS${state}${String(at).padStart(4, "0")}`, "Cubs 8U", 8, state, [], city)
+      );
+      const pool = fold([
+        ...clubs,
+        club(
+          "gcKYPULLER00",
+          "Louisville Legends 8U",
+          8,
+          "KY",
+          [played("k1", "Wylie Wolves 8U", "2026-09-01", 9, 0)],
+          "Louisville"
+        ),
+      ]);
+      const legends = named(pool, "Louisville Legends")[0]!;
+      const standIn: ScoutTeam = { id: "S-CUBS-STUB", name: "Cubs", nameOnly: true };
+      const stale: GcImportState = {
+        ...pool,
+        teams: [...pool.teams, standIn],
+        games: [
+          ...pool.games,
+          {
+            id: "gc_gcKYPULLER00_old",
+            teamAId: legends.id,
+            teamBId: standIn.id,
+            ageGroupId: pool.games[0]!.ageGroupId,
+            date: "2026-08-15",
+            teamAScore: 4,
+            teamBScore: 6,
+            ageLevelA: 8,
+            ageLevelB: 8,
+            source: { kind: "gamechanger", teamId: "gcKYPULLER00", gameId: "old" },
+          },
+        ],
+      };
+      const out = refileStandIns(stale);
+      const row = out.state.games.find((game) => game.id === "gc_gcKYPULLER00_old")!;
+      return { out, on: out.state.teams.find((team) => team.id === row.teamBId)! };
+    };
+
+    it("files a stand-in onto the one club of that name in a bordering state", () => {
+      const { out, on } = cubsAt([{ state: "OH" }, { state: "FL" }]);
+      expect(out.refiled).toBe(1);
+      expect(on.state).toBe("OH");
+      expect(on.nameOnly).toBeUndefined();
+    });
+
+    it("leaves it where the only namesake is in a state that does not border", () => {
+      const { out, on } = cubsAt([{ state: "FL" }]);
+      expect(out.refiled).toBe(0);
+      expect(on.id).toBe("S-CUBS-STUB");
+    });
+
+    it("leaves it where two namesakes sit across the borders", () => {
+      expect(cubsAt([{ state: "OH" }, { state: "IN" }]).out.refiled).toBe(0);
+    });
+
+    it("does not look across a border when two in the state cannot be told apart", () => {
+      // Two Kentucky Cubs, neither in the puller's town: that is a guess, and so is Ohio's.
+      const { out } = cubsAt([
+        { state: "KY", city: "Lexington" },
+        { state: "KY", city: "Paducah" },
+        { state: "OH" },
+      ]);
+      expect(out.refiled).toBe(0);
+    });
   });
 
   it("breaks a tie between two in-state clubs by the puller's own town", () => {
