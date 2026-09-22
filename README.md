@@ -841,6 +841,14 @@ shutout blowouts, opponents, how many of them named an age, which ages, and a sa
 the ones that named none. No games themselves, so a hundred thousand teams is a few
 megabytes. Nothing in the app reads it.
 
+The opponents' ages are read off `GcTeamLink.name` — the name GameChanger gave, age label
+and all — rather than the pool's own stored name, which `cleanTeamName` strips the age from.
+That distinction is not a detail: "how many of its opponents write an age" is the question
+`closed-cluster` turns on, and against cleaned names the answer is no for essentially every
+team in the pool by construction. The first export carrying evidence had 50,810 of 50,822
+ranked teams reading zero, which made `closed-cluster` look like it fired on 36.5% of the
+working pool when in truth the file could not tell.
+
 The evidence half is there because without it the tripwire can only measure the rules that
 read a name. The five that read a schedule — `closed-cluster`, `school-by-evidence`,
 `near-miss-tally`, `no-games`, `scored-ahead` — could not fire against a file of bare names

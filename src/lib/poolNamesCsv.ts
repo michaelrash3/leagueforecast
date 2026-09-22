@@ -118,12 +118,27 @@ type PoolEvidence = {
   played: string[];
 };
 
+/**
+ * An opponent's name as GameChanger wrote it, age label and all.
+ *
+ * The pool stores cleaned names — `cleanTeamName` strips the age label, so "Elite 12U" is filed
+ * as "Elite". That is right for the pool and wrong for this file: "how many of its opponents
+ * write an age in their name" is the question `closed-cluster` turns on, and against cleaned
+ * names the answer is no for essentially every team in the pool by construction. The first
+ * export carrying evidence proved it — 50,810 of 50,822 ranked teams had zero opponents naming
+ * an age, which made `closed-cluster` look like it fired on 36.5% of the working pool when in
+ * fact the file could not tell.
+ *
+ * `GcTeamLink.name` keeps the original, for exactly this kind of question.
+ */
+const rawName = (team: ScoutTeam): string => team.gcTeams?.[0]?.name ?? team.name;
+
 const evidenceOf = (
   teams: readonly ScoutTeam[],
   games: readonly ScoutGame[],
   today: string
 ): Map<string, PoolEvidence> => {
-  const named = new Map(teams.map((team) => [team.id, team.name]));
+  const named = new Map(teams.map((team) => [team.id, rawName(team)]));
   const out = new Map<string, PoolEvidence>();
   const seen = new Map<string, Set<string>>();
   const counts = new Map<string, Map<number, number>>();

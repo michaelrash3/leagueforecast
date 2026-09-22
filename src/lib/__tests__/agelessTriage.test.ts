@@ -87,6 +87,29 @@ describe("a PONY division word", () => {
     expect(verdictFrom(pony, "pony-division")).toEqual({ kind: "rec", level: 10 });
   });
 
+  /*
+   * A club called the Colts runs several squads and calls them all Colts, so a same-word test is
+   * satisfied trivially by a club playing itself. This is what the tripwire caught: accepting the
+   * team's own word, the rule fired on 102 teams the pool already ranks and got 46 wrong — "Irvine
+   * Colts" filed at 8U read as 16U, "OKC Broncos Gray" at 8U read as 12U.
+   */
+  it("is not corroborated by a club's own sibling squads", () => {
+    const ownSquads = row("Wellington Colts Blue", {
+      evidence: evidence({ sampleOpponents: ["Wellington Colts Orange", "Wellington Colts"] }),
+    });
+    expect(fired(ownSquads)).not.toContain("pony-division");
+  });
+
+  /*
+   * And why the rule is measured rather than applied even after that fix. Requiring a different
+   * sibling word cut it to 7 fires on the working pool, of which 6 were still wrong: horse-mascot
+   * clubs play each other. "Broncos Red" played "Mundelein Mustangs Red" — two words, two
+   * unrelated travel clubs, filed 9U and 12U.
+   */
+  it("is measured only, at one right answer in seven", () => {
+    expect(AGELESS_RULES.find((entry) => entry.id === "pony-division")?.tier).toBe("measure");
+  });
+
   it("is a mascot when the teams it played are travel clubs", () => {
     const travel = row("MVP Mustangs Red", {
       evidence: evidence({ sampleOpponents: ["Elite 12U", "Team Georgia"] }),
