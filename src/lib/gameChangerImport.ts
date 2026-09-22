@@ -2048,13 +2048,20 @@ export const resolveSlotGames = (
     .map((game) => filled.get(game.id) ?? game);
 
   // A stand-in nothing references any more is not a club and should not linger in the roster.
+  // One carrying GameChanger ids is a club a hand merge left flagged, and is never removed here.
   const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
   const teams = state.teams.filter(
-    (team) => (!team.placeholder && !team.nameOnly) || stillUsed.has(team.id)
+    (team) =>
+      (!team.placeholder && !team.nameOnly) ||
+      Boolean(team.gcTeams?.length) ||
+      stillUsed.has(team.id)
   );
 
   return { state: { ...state, teams, games }, resolved: merges.size };
 };
+
+/** How far apart two coaches' start times for one game may be; see `closeInTime`. */
+const JOIN_CLOCK_SLACK_MS = 60 * 60 * 1000;
 
 /**
  * Joins one game that each club filed against a stand-in for the other.
@@ -2081,9 +2088,17 @@ export const resolveSlotGames = (
  * from both ends: where either row could be the partner of two, nothing is joined, because a wrong
  * join moves a result onto a club that never played it and leaves nothing behind to notice.
  *
- * A result on both rows has to mirror, and when it does the start time may differ — two coaches
- * type the time independently, and `resolveSlotGames` measured how often they disagree. A row with
- * no result yet has only the clock to go on, so it needs a start time on both rows and the same one.
+ * A result on both rows has to mirror, and when it does the start times may differ by up to an
+ * hour — two coaches type the time independently, and `resolveSlotGames` measured how often they
+ * disagree — but no more, because three hours on is a club's other squad in the next slot. A row
+ * with no result yet has only the clock to go on: it joins a scored row that starts at the same
+ * instant, and two unplayed rows are left to wait until they are scored, because joining them
+ * throws away one row's id and a game put back a day came back as a second game.
+ *
+ * An age a coach typed into a stand-in's name has to be the other club's own: "Mustangs 11U" is a
+ * statement about which squad was played, and the age label comes off every name before names are
+ * compared. A team carrying GameChanger ids is never a stand-in, whatever flags a hand merge left
+ * on it, and only the stand-ins this pass emptied leave the roster.
  *
  * The surviving row is the first of the two in the pool, with the stand-in replaced by the club
  * that filed the other; the other club's schedule is recorded in `alsoFrom`, and the level its own
@@ -2111,6 +2126,13 @@ export const joinCrossedHalves = (
     standInScore: number | undefined;
     clubLevel: number | undefined;
     standInLevel: number | undefined;
+    /**
+     * The age a coach typed into the stand-in's name, and nothing else — no page level standing in.
+     * "Mustangs 11U" is a statement about which squad was played, and a club's 12U squad is not it
+     * however close the two levels are; `PLAYS_UP_TO` is the slack for a level nobody stated.
+     */
+    standInNamedLevel: number | undefined;
+    at: number | undefined;
   };
   const halfOf = (game: ScoutGame): Half | undefined => {
     if (!game.date || !game.source) return undefined;
@@ -2120,7 +2142,10 @@ export const joinCrossedHalves = (
     if (clubIsA === clubIsB) return undefined;
     const club = teamById.get(clubIsA ? game.teamAId : game.teamBId);
     const standIn = teamById.get(clubIsA ? game.teamBId : game.teamAId);
-    if (!club || !standIn?.nameOnly) return undefined;
+    // A team carrying GameChanger ids is a club, whatever flags a hand merge left on it: merging a
+    // pulled club into a stand-in keeps the stand-in's `nameOnly`, and reading that as a stand-in
+    // moved the merged club's rows and then deleted it, links and all.
+    if (!club || !standIn?.nameOnly || standIn.gcTeams?.length) return undefined;
     const pageLevel = levelOf.get(game.ageGroupId);
     return {
       game,
@@ -2131,6 +2156,8 @@ export const joinCrossedHalves = (
       standInScore: clubIsA ? game.teamBScore : game.teamAScore,
       clubLevel: (clubIsA ? game.ageLevelA : game.ageLevelB) ?? pageLevel,
       standInLevel: (clubIsA ? game.ageLevelB : game.ageLevelA) ?? pageLevel,
+      standInNamedLevel: clubIsA ? game.ageLevelB : game.ageLevelA,
+      at: game.startTs === undefined ? undefined : Date.parse(game.startTs),
     };
   };
   const scored = (half: Half) => half.clubScore !== undefined && half.standInScore !== undefined;
@@ -2158,6 +2185,20 @@ export const joinCrossedHalves = (
 
   const sameTime = (x: Half, y: Half) =>
     x.game.startTs !== undefined && x.game.startTs === y.game.startTs;
+  /*
+   * Two timed rows more than an hour apart are two games, mirrored result or not. Coaches type one
+   * start time independently — the Stix wrote 5:00 and the Hurricanes 5:30 — and a team whose
+   * GameChanger clock is set a time zone out is an hour off on every row, so an hour is the slack.
+   * Three hours is a club's other squad in the next slot: "Ohio Hawks 1" 10-0 at two and
+   * "Xposure Warriors 1" 0-10 at five were joined into a game neither played. The hour is a
+   * starting point, to be moved by the start times the stand-in fixtures export carries.
+   */
+  const closeInTime = (x: Half, y: Half) =>
+    x.at === undefined ||
+    y.at === undefined ||
+    !Number.isFinite(x.at) ||
+    !Number.isFinite(y.at) ||
+    Math.abs(x.at - y.at) <= JOIN_CLOCK_SLACK_MS;
   const levelsAgree = (named: number | undefined, own: number | undefined) =>
     named === undefined || own === undefined || Math.abs(named - own) <= PLAYS_UP_TO;
   /** Whether `y` is, on everything but uniqueness, the other end of `x`'s game. */
@@ -2167,6 +2208,9 @@ export const joinCrossedHalves = (
     inOneRegion(x.club.state, y.club.state) &&
     levelsAgree(x.standInLevel, y.clubLevel) &&
     levelsAgree(y.standInLevel, x.clubLevel) &&
+    (x.standInNamedLevel === undefined || x.standInNamedLevel === y.clubLevel) &&
+    (y.standInNamedLevel === undefined || y.standInNamedLevel === x.clubLevel) &&
+    closeInTime(x, y) &&
     nameFitsWithin(x.standIn.name, y.club.name) &&
     nameFitsWithin(y.standIn.name, x.club.name);
 
@@ -2198,6 +2242,13 @@ export const joinCrossedHalves = (
     if (!y || replaced.has(y.game.id) || dropped.has(y.game.id)) return;
     // From both ends, or it is a guess between two.
     if (partnerOf(y) !== x) return;
+    /*
+     * Neither row has a result: wait. An unplayed game counts for nothing yet, and joining it on
+     * the clock alone throws away the dropped row's id — so when the game was put back a day and
+     * both clubs scored it, the dropped club's re-pull could no longer find its own row and filed
+     * the game a second time. Once both results are in, the mirrored result joins them.
+     */
+    if (!scored(x) && !scored(y)) return;
 
     const clubIsA = x.game.teamAId === x.club.id;
     const takeScore = !scored(x) && scored(y);
@@ -2228,9 +2279,18 @@ export const joinCrossedHalves = (
   const games = state.games
     .filter((game) => !dropped.has(game.id))
     .map((game) => replaced.get(game.id) ?? game);
-  // A stand-in the join emptied is not a club, and should not linger in the roster.
+  /*
+   * A stand-in the join emptied is not a club, and should not linger in the roster — but only the
+   * ones this pass emptied. Every idle name-only team is not this pass's to remove, and one that
+   * carries GameChanger ids is never a stand-in at all.
+   */
+  const touched = new Set(
+    halves
+      .filter((half) => replaced.has(half.game.id) || dropped.has(half.game.id))
+      .map((half) => half.standIn.id)
+  );
   const stillUsed = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
-  const teams = state.teams.filter((team) => !team.nameOnly || stillUsed.has(team.id));
+  const teams = state.teams.filter((team) => !touched.has(team.id) || stillUsed.has(team.id));
   return { state: { ...state, teams, games }, joined: replaced.size };
 };
 
@@ -3068,8 +3128,12 @@ export const reclaimMisfiled = (
     const named = teamById.get(namedId);
     if (!named?.gcTeams?.length) return game;
     // Attached by name only: the club it sits on did not file it, and its own schedule does not
-    // hold a row that could be it.
-    if (isOwnRow(game, namedId) || holds(namedId, pullerId, game)) return game;
+    // hold a row that could be it. A row a join or a slot fold made one of two keeps the other
+    // club's schedule in `alsoFrom`, and that club filed it as surely as the puller did: reading
+    // `source` alone moved a joined Stix–Hurricanes game onto another Ohio "Hurricanes" in the
+    // very tidy that joined it.
+    const alsoFiled = (game.alsoFrom ?? []).some((id) => ownIds.get(namedId)?.has(id) ?? false);
+    if (isOwnRow(game, namedId) || alsoFiled || holds(namedId, pullerId, game)) return game;
     const pool = poolKeyOf(game.ageGroupId);
     const holders = (namesakes.get(teamNameKey(named.name)) ?? []).filter((clubId) => {
       if (clubId === namedId) return false;

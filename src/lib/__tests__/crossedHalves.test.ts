@@ -314,7 +314,7 @@ describe("joinCrossedHalves", () => {
     const black = {
       gcId: "gcHURBLACK01",
       name: "Hurricanes Black",
-      half: { ...hurricanesHalf, startTs: "2026-09-20T19:00:00.000Z" },
+      half: { ...hurricanesHalf, startTs: "2026-09-20T17:45:00.000Z" },
     };
     expect(joinCrossedHalves(halves(stixHalf, hurricanesHalf, [black])).joined).toBe(0);
   });
@@ -325,7 +325,7 @@ describe("joinCrossedHalves", () => {
     const gold = {
       gcId: "gcSTIXGOLD01",
       name: "Cincy Stix 9U Gold",
-      half: { ...stixHalf, startTs: "2026-09-20T19:00:00.000Z" },
+      half: { ...stixHalf, startTs: "2026-09-20T17:45:00.000Z" },
     };
     expect(joinCrossedHalves(halves(stixHalf, hurricanesHalf, [gold])).joined).toBe(0);
   });
@@ -334,7 +334,7 @@ describe("joinCrossedHalves", () => {
     const black = {
       gcId: "gcHURBLACK01",
       name: "Hurricanes Black",
-      half: { ...hurricanesHalf, startTs: "2026-09-20T19:00:00.000Z" },
+      half: { ...hurricanesHalf, startTs: "2026-09-20T17:45:00.000Z" },
     };
     const out = joinCrossedHalves(
       halves(stixHalf, { ...hurricanesHalf, startTs: stixHalf.startTs }, [black])
@@ -392,12 +392,45 @@ describe("joinCrossedHalves", () => {
     expect(standIns(pool, "2026-10-09")).toEqual([]);
   });
 
-  it("joins a game not yet played only on the same start time", () => {
+  it("does not join two halves of a game not yet played, whatever the clock says", () => {
+    /*
+     * An unplayed game counts for nothing yet, and joining it on the clock alone threw away the
+     * dropped row's id: when the game was put back a day and both clubs scored it, the dropped
+     * club's re-pull could not find its own row and filed the game a second time. Once both
+     * results are in, the mirrored result joins them.
+     */
     const at = (a: string, b: string) =>
       joinCrossedHalves(halves({ typed: "Hurricanes", startTs: a }, { typed: "Stix", startTs: b }))
         .joined;
-    expect(at("2026-09-20T15:00:00.000Z", "2026-09-20T15:00:00.000Z")).toBe(1);
+    expect(at("2026-09-20T15:00:00.000Z", "2026-09-20T15:00:00.000Z")).toBe(0);
     expect(at("2026-09-20T15:00:00.000Z", "2026-09-20T16:00:00.000Z")).toBe(0);
+  });
+
+  it("takes a result onto a game not yet scored only at the same start time", () => {
+    const unscored = (startTs: string) => ({ typed: "Stix", startTs });
+    expect(joinCrossedHalves(halves(stixHalf, unscored(stixHalf.startTs!))).joined).toBe(1);
+    // Within the hour but not the same instant: with one result, the clock is all there is.
+    expect(joinCrossedHalves(halves(stixHalf, unscored("2026-09-20T17:45:00.000Z"))).joined).toBe(
+      0
+    );
+  });
+
+  it("does not join two results more than an hour apart", () => {
+    const at = (startTs: string) =>
+      joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, startTs })).joined;
+    // Half an hour, as the two coaches typed it, and a full hour, as a clock a zone out would be.
+    expect(at("2026-09-20T17:00:00.000Z")).toBe(1);
+    expect(at("2026-09-20T18:30:00.000Z")).toBe(1);
+    // Three hours is a club's other squad in the next slot, not this game.
+    expect(at("2026-09-20T20:30:00.000Z")).toBe(0);
+  });
+
+  it("leaves idle stand-ins it did not empty where they are", () => {
+    const pool = halves(stixHalf, hurricanesHalf);
+    const idle = { id: "idle-1", name: "Idle Club", nameOnly: true as const };
+    const out = joinCrossedHalves({ ...pool, teams: [...pool.teams, idle] });
+    expect(out.joined).toBe(1);
+    expect(out.state.teams.some((team) => team.id === "idle-1")).toBe(true);
   });
 
   it("takes the result from the other end when only it has one", () => {

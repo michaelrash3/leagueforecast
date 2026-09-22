@@ -149,7 +149,29 @@ const nameWords = (name: string): Set<string> =>
  * is right only because the game, not the name, says which Headlines each row was; a rule that
  * matches on names alone keeps `teamNameKey`, where those two stay apart.
  */
+/**
+ * The numbers a name carries once its age label is off: a squad ("Xposure Warriors 3"), a squad
+ * written onto the word ("Headlines1"), a graduating class ("STX Showtime 2032"), an area code.
+ */
+const nameMarkers = (name: string): Set<string> => new Set(teamNameKey(name).match(/\d+/g) ?? []);
+
 export const nameFitsWithin = (a: string, b: string): boolean => {
+  /*
+   * Two names that each carry a number and share none are two squads, however well the words
+   * fit: "Xposure Warriors 1" is not "Xposure Warriors 3", nor "STX Showtime 2032" the 2033s —
+   * the spelling measurement judged every such pair it looked at two clubs, and a three-hour gap
+   * between the rows was all that separated a joined game from one neither played. A number on
+   * one side only is still a shorthand: "Headlines1" is what a coach calls "Headlines 9U Nagel".
+   */
+  const leftMarkers = nameMarkers(a);
+  const rightMarkers = nameMarkers(b);
+  if (
+    leftMarkers.size > 0 &&
+    rightMarkers.size > 0 &&
+    ![...leftMarkers].some((marker) => rightMarkers.has(marker))
+  ) {
+    return false;
+  }
   const left = nameWords(a);
   const right = nameWords(b);
   if (left.size === 0 || right.size === 0) return false;

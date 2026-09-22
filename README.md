@@ -608,10 +608,12 @@ gone over until a pass finds nothing more: games outside their squad year are
 deleted; a stand-in is settled by the other club's schedule (a mirrored result
 settles it even when the two coaches typed different start times, and two
 results that contradict are never folded into one); a game each club filed against
-a stand-in for the other is joined into one game between them (the same day, the result mirrored
-or, unplayed, the same start time, each stand-in's name a shorthand for the other club's — "Stix"
-for "Cincy Stix Navy" — the two clubs in one state or two that share a border, and no other pair
-that fits as well); a game sitting by name on
+a stand-in for the other is joined into one game between them (the same day; both results in and
+mirrored, or one result and the other half unplayed at the same start time — two unplayed halves
+wait until they are scored; the two start times within an hour; each stand-in's name a shorthand
+for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach typed pointing at
+another squad and no two different squad numbers; the two clubs in one state or two that share a
+border; and no other pair that fits as well); a game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
 puller down in shorthand; a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
