@@ -155,7 +155,15 @@ const nameWords = (name: string): Set<string> =>
  */
 const nameMarkers = (name: string): Set<string> => new Set(teamNameKey(name).match(/\d+/g) ?? []);
 
-export const nameFitsWithin = (a: string, b: string): boolean => {
+/** What `nameFitsWithin` reads off a name: its words and its numbers. */
+type NameParts = { words: Set<string>; markers: Set<string> };
+
+const partsOf = (name: string): NameParts => ({
+  words: nameWords(name),
+  markers: nameMarkers(name),
+});
+
+const partsFit = (a: NameParts, b: NameParts): boolean => {
   /*
    * Two names that each carry a number and share none are two squads, however well the words
    * fit: "Xposure Warriors 1" is not "Xposure Warriors 3", nor "STX Showtime 2032" the 2033s —
@@ -163,23 +171,41 @@ export const nameFitsWithin = (a: string, b: string): boolean => {
    * between the rows was all that separated a joined game from one neither played. A number on
    * one side only is still a shorthand: "Headlines1" is what a coach calls "Headlines 9U Nagel".
    */
-  const leftMarkers = nameMarkers(a);
-  const rightMarkers = nameMarkers(b);
   if (
-    leftMarkers.size > 0 &&
-    rightMarkers.size > 0 &&
-    ![...leftMarkers].some((marker) => rightMarkers.has(marker))
+    a.markers.size > 0 &&
+    b.markers.size > 0 &&
+    ![...a.markers].some((marker) => b.markers.has(marker))
   ) {
     return false;
   }
-  const left = nameWords(a);
-  const right = nameWords(b);
-  if (left.size === 0 || right.size === 0) return false;
-  const [short, long] = left.size <= right.size ? [left, right] : [right, left];
+  if (a.words.size === 0 || b.words.size === 0) return false;
+  const [short, long] = a.words.size <= b.words.size ? [a.words, b.words] : [b.words, a.words];
   for (const word of short) {
     if (!long.has(word)) return false;
   }
   return true;
+};
+
+export const nameFitsWithin = (a: string, b: string): boolean => partsFit(partsOf(a), partsOf(b));
+
+/**
+ * `nameFitsWithin`, remembering what it has read of each name for as long as the fitter is kept.
+ *
+ * A tidy compares every half of a day against every other that could be its partner, and the same
+ * few thousand names come round again and again; reading each one through `teamNameKey` every time
+ * was most of the join's cost — nine seconds a pass on a pool of 240,000 games. One fitter per
+ * pass, so nothing is kept once the pass is over.
+ */
+export const nameFitter = (): ((a: string, b: string) => boolean) => {
+  const read = new Map<string, NameParts>();
+  const parts = (name: string): NameParts => {
+    const known = read.get(name);
+    if (known) return known;
+    const made = partsOf(name);
+    read.set(name, made);
+    return made;
+  };
+  return (a, b) => partsFit(parts(a), parts(b));
 };
 
 const normalizeName = teamNameKey;

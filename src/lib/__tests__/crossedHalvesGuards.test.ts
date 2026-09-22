@@ -235,3 +235,32 @@ describe("squads told apart by a number", () => {
     expect(between(pool, a, b)).toEqual([]);
   });
 });
+
+describe("a namesake a squad older", () => {
+  /*
+   * The Stix (9U) filed a 13-2 win over "Hurricanes", which went by name to Toledo's 9U Hurricanes.
+   * A "Hurricanes 12U" lost 2-13 to a "Stix" at the same time — its own game, against the Stix's
+   * 12U squad. Its row fits the reclaim's shorthand and mirrors, but a 12U club is no home for a 9U
+   * game: taking it there set the reclaim and the level step handing the row back and forth every
+   * pass until the tidy stopped at its limit.
+   */
+  it("leaves the row where it is, and the tidy settles", () => {
+    const T = "2026-09-20T17:00:00.000Z";
+    const folded = fold([
+      club("gcTOLEDOHUR1", "Hurricanes 9U", "OH", [
+        played("t-0913", "Mud Hens 9U", "2026-09-13", 4, 3),
+      ]),
+      club("tu9c21dMzowB", "Cincy Stix 9U Navy", "OH", [
+        played("s-0920", "Hurricanes", DAY, 13, 2, T),
+      ]),
+      club("gcHUR12U0001", "Hurricanes 12U", "OH", [played("h12-0920", "Stix", DAY, 2, 13, T)], {
+        ageLevel: 12,
+      }),
+    ]);
+    const out = tidyPool(folded);
+    expect([out.reclaimed, out.resettled, out.passes]).toEqual([0, 0, 1]);
+    const twelve = pulled(out.state, "gcHUR12U0001")!.id;
+    const stixId = pulled(out.state, "tu9c21dMzowB")!.id;
+    expect(between(out.state, stixId, twelve)).toEqual([]);
+  });
+});

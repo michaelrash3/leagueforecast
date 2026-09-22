@@ -45,7 +45,7 @@ import {
   inSquadYear,
   matchExistingGame,
   MAX_AGE_LEVEL,
-  nameFitsWithin,
+  nameFitter,
   squadNameKey,
   normalizeState,
   squadYearForGcSeason,
@@ -2137,6 +2137,7 @@ const JOIN_CLOCK_SLACK_MS = 60 * 60 * 1000;
 export const joinCrossedHalves = (
   state: GcImportState
 ): { state: GcImportState; joined: number } => {
+  const fits = nameFitter();
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
@@ -2241,8 +2242,8 @@ export const joinCrossedHalves = (
     (x.standInNamedLevel === undefined || x.standInNamedLevel === y.clubLevel) &&
     (y.standInNamedLevel === undefined || y.standInNamedLevel === x.clubLevel) &&
     closeInTime(x, y) &&
-    nameFitsWithin(x.standIn.name, y.club.name) &&
-    nameFitsWithin(y.standIn.name, x.club.name);
+    fits(x.standIn.name, y.club.name) &&
+    fits(y.standIn.name, x.club.name);
 
   const partnerOf = (x: Half): Half | undefined => {
     const found = new Set<Half>();
@@ -3076,13 +3077,23 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
 export const reclaimMisfiled = (
   state: GcImportState
 ): { state: GcImportState; reclaimed: number } => {
+  const fits = nameFitter();
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
   const ownIds = new Map<string, Set<string>>();
+  /** The levels each pulled club is listed at, as `resettleOffLevel` reads them. */
+  const levels = new Map<string, Set<number>>();
   const namesakes = new Map<string, string[]>();
   state.teams.forEach((team) => {
     if (!team.gcTeams?.length) return;
     ownIds.set(team.id, new Set(team.gcTeams.map((link) => link.teamId)));
+    const listed = new Set<number>();
+    team.gcTeams.forEach((link) => {
+      const level = link.ageLevel ?? levelOf.get(link.ageGroupId);
+      if (level !== undefined) listed.add(level);
+    });
+    levels.set(team.id, listed);
     const key = teamNameKey(team.name);
     const bucket = namesakes.get(key);
     if (bucket) bucket.push(team.id);
@@ -3136,7 +3147,7 @@ export const reclaimMisfiled = (
         return ownClub === rowClub && ownPuller === rowPuller;
       }
       const stand = teamById.get(other);
-      if (!puller || !stand?.nameOnly || !nameFitsWithin(stand.name, puller.name)) return false;
+      if (!puller || !stand?.nameOnly || !fits(stand.name, puller.name)) return false;
       if (!inOneRegion(puller.state, teamById.get(clubId)?.state)) return false;
       const scored = [ownClub, ownPuller, rowClub, rowPuller].every((value) => value !== undefined);
       if (scored) return ownClub === rowClub && ownPuller === rowPuller;
@@ -3165,11 +3176,21 @@ export const reclaimMisfiled = (
     const alsoFiled = (game.alsoFrom ?? []).some((id) => ownIds.get(namedId)?.has(id) ?? false);
     if (isOwnRow(game, namedId) || alsoFiled || holds(namedId, pullerId, game)) return game;
     const pool = poolKeyOf(game.ageGroupId);
+    const level =
+      (namedId === game.teamAId ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
     const holders = (namesakes.get(teamNameKey(named.name)) ?? []).filter((clubId) => {
       if (clubId === namedId) return false;
       const club = teamById.get(clubId);
       const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
-      return Boolean(inPool) && holds(clubId, pullerId, game);
+      /*
+       * Only a namesake at a level the row could be played at — the test `resettleOffLevel` holds
+       * a row to. Without it a "Hurricanes 12U" with a mirrored result against a "Stix" that day
+       * took the 9U Stix's game, the next step handed it back for being three levels off, and
+       * the two did it again every pass until the tidy gave up at its limit.
+       */
+      return (
+        Boolean(inPool) && levelFits(levels.get(clubId), level) && holds(clubId, pullerId, game)
+      );
     });
     if (holders.length !== 1) return game;
     reclaimed += 1;
