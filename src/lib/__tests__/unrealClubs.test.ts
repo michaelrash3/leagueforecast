@@ -95,17 +95,31 @@ describe("a club that has been thrown out", () => {
         teamScore: 11,
         opponentScore: 0,
       },
+      /*
+       * One game already played. Without it this schedule is nothing but results from the future,
+       * which the import now refuses as invented before anybody has to delete it (see
+       * `isInventedSchedule`); with it, it is a club with a date typed wrong, which is what the
+       * list and a person are still for.
+       */
+      {
+        id: "x0",
+        date: "2026-09-12",
+        opponentName: "Orlando Scrappers",
+        status: "completed",
+        teamScore: 3,
+        opponentScore: 2,
+      },
     ],
     fetchedAt: "2026-09-20T03:35:17.077Z",
   };
   const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
 
   it("is pulled like any other until it is deleted", () => {
-    const importer = createGcImporter(empty);
+    const importer = createGcImporter(empty, { today: "2026-09-20" });
     const outcome = importer.add(schedule);
 
     expect(outcome.skip).toBeUndefined();
-    expect(importer.state.games).toHaveLength(1);
+    expect(importer.state.games).toHaveLength(2);
   });
 
   it("has its schedule refused, so the pull cannot rebuild it", () => {

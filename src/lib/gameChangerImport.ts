@@ -57,7 +57,13 @@ import {
 } from "./teamRankings";
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
-import { isDeletedClub, isDeletedGame, type DeletedClubs, type DeletedGames } from "./deletedGames";
+import {
+  isDeletedClub,
+  isDeletedGame,
+  isInventedSchedule,
+  type DeletedClubs,
+  type DeletedGames,
+} from "./deletedGames";
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
 import { todayIsoDay } from "./date";
@@ -756,7 +762,12 @@ export type GcSkipReason =
   /** A high school squad. A different season, played against a pool this app does not hold. */
   | "high-school"
   /** Grown men or a college side. There is no youth age to find, so it is never asked about. */
-  | "not-youth";
+  | "not-youth"
+  /**
+   * Every game on the schedule has a result on a day that has not happened. Refused before its
+   * age is asked, and remembered with the clubs the user threw out; see `isInventedSchedule`.
+   */
+  | "invented";
 
 /**
  * Whether GameChanger's answer describes a high school squad, by either of the two things it says.
@@ -1593,6 +1604,25 @@ const importOne = (
         ...base,
         skip: "below-min-age",
         issue: `This club is below ${MIN_AGE_LEVEL}U, so its schedule was not read again.`,
+      },
+    };
+  }
+
+  /*
+   * A schedule nothing on which has happened yet and all of which already has a result. Refused
+   * here, ahead of its age, because the age is the wrong question for it: an invented team with
+   * no age would otherwise join the waiting list and be asked about every week, and one with an
+   * age would file results nobody played. `inventedFromOutcomes` hands the id on to be remembered,
+   * so the refusal outlasts the dates that give it away.
+   */
+  if (isInventedSchedule(schedule.games, options.today ?? todayIsoDay())) {
+    return {
+      state,
+      outcome: {
+        ...base,
+        skip: "invented",
+        issue:
+          "Every game on its schedule has a result on a day that has not happened, so it was thrown out as invented.",
       },
     };
   }

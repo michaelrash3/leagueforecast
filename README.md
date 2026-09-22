@@ -1008,6 +1008,21 @@ reading, so nothing is ever thrown out on that number, no row is coloured by it,
 sorting last is not the app calling a team fake; an empty schedule is a club somebody
 made this morning as often as it is a fiction.
 
+**One shape is thrown out outright: a schedule that is nothing but results from the future.**
+Every game on it has a score and every one is dated after today — "Test team" with 68 of 68,
+"ShotByKoRob Scout Team" with 13 of 13. No reading of that is innocent, and the rule is the
+user's, stated flatly: if a team's entire schedule is completed games in the future, the team is
+fake. The import refuses such a schedule as `invented` before it asks the team's age, so it never
+joins the waiting list to be asked about every week, and the run hands its id up to the clubs the
+user has thrown out. That last part is what makes it stick: the dates give it away only until
+they pass, and a schedule of October results refused in September would read as a season played
+by November. Only the whole schedule counts — one game already played, or one future game still
+waiting for its result, and it is left to `unrealClubs` and a person, as before. A game dated
+today is never ahead, and a league row's "M/D" is never compared. The waiting list's
+`scored-ahead` rule reads the same definition off the evidence a row kept, so a team already
+waiting is named the same way before its next re-ask throws it out; the floor of five games it
+used to carry is gone.
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at

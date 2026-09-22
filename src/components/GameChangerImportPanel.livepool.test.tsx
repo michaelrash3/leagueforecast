@@ -99,6 +99,7 @@ describe("a pool that changed while the panel was open", () => {
         }}
         savedProgress={null}
         droppedClubs={new Set()}
+        onInvented={() => {}}
         namedAges={new Map()}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}
@@ -190,6 +191,7 @@ describe("a sectioned run over a pool that changed while the panel was open", ()
         }}
         savedProgress={null}
         droppedClubs={new Set()}
+        onInvented={() => {}}
         namedAges={new Map()}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}

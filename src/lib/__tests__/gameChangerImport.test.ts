@@ -484,13 +484,15 @@ describe("who an opponent is", () => {
   });
 
   it("never mints a fourth entry for a name one schedule keeps repeating", () => {
-    // What the real pull did: four games against one club on one day, four separate teams.
+    // What the real pull did: four games against one club on one day, four separate teams. A day
+    // already played: four results dated ahead of today are a schedule the import refuses as
+    // invented, which is not what this is about.
     const state = importGcSchedule(
       schedule({}, [
-        game({ id: "t1", opponentName: "Blueclaws", date: "2026-10-25" }),
-        game({ id: "t2", opponentName: "Blueclaws", date: "2026-10-25" }),
-        game({ id: "t3", opponentName: "Blueclaws", date: "2026-10-25" }),
-        game({ id: "t4", opponentName: "Blueclaws", date: "2026-10-25" }),
+        game({ id: "t1", opponentName: "Blueclaws", date: "2026-09-05" }),
+        game({ id: "t2", opponentName: "Blueclaws", date: "2026-09-05" }),
+        game({ id: "t3", opponentName: "Blueclaws", date: "2026-09-05" }),
+        game({ id: "t4", opponentName: "Blueclaws", date: "2026-09-05" }),
       ]),
       empty
     ).state;

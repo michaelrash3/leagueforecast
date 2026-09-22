@@ -188,6 +188,7 @@ const renderPanel = () => {
       }}
       savedProgress={null}
       droppedClubs={new Set()}
+      onInvented={() => {}}
       namedAges={new Map()}
       onSaveProgress={(progress) => cursors.push(progress)}
       onClearProgress={() => {}}

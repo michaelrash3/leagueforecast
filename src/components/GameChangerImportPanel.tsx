@@ -8,7 +8,7 @@ import {
 } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
-import type { DeletedClubs } from "../lib/deletedGames";
+import { inventedFromOutcomes, type DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
   holdingNow,
@@ -161,6 +161,12 @@ type GameChangerImportPanelProps = {
    * inside the memo would be a dependency React cannot see.
    */
   droppedClubs: DeletedClubs;
+  /**
+   * The GameChanger ids a finished run refused as invented, handed up to be thrown out for good.
+   * Up, because the list of thrown-out clubs is the view's state — this panel only reads it — and
+   * a save made here would leave the view offering the same ids to the rota until the next reload.
+   */
+  onInvented: (gcTeamIds: string[]) => void;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -320,6 +326,7 @@ export function GameChangerImportPanel({
   savedProgress,
   namedAges,
   droppedClubs,
+  onInvented,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -1094,6 +1101,13 @@ export function GameChangerImportPanel({
         setTooYoung(nextTooYoung);
         saveTooYoungClubs(nextTooYoung);
       }
+
+      /*
+       * And the ones whose whole schedule was results on days that have not happened. Thrown out
+       * like a club somebody deleted by hand, so the refusal outlasts the dates that gave it away.
+       */
+      const invented = inventedFromOutcomes(outcomesRef.current);
+      if (invented.length > 0) onInvented(invented);
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that

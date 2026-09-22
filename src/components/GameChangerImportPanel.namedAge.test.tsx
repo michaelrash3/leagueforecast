@@ -89,6 +89,7 @@ describe("an age somebody typed on the review card", () => {
         }}
         savedProgress={null}
         droppedClubs={new Set()}
+        onInvented={() => {}}
         namedAges={named}
         onSaveProgress={() => {}}
         onClearProgress={() => {}}
