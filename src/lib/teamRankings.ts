@@ -590,6 +590,7 @@ export const teamHomeAgeLevel = (
  * same game — a doubleheader is two games on one date against one opponent, and a schedule lists
  * each game once — so those are passed over rather than matched to each other.
  */
+
 export const matchExistingGame = (
   candidate: ScoutGame,
   games: ScoutGame[],
@@ -605,29 +606,51 @@ export const matchExistingGame = (
     if (game.id === candidate.id || !pool.has(game.ageGroupId)) continue;
     if (pairKeyOf(game) !== pairKey || (game.date ?? "") !== date) continue;
 
+    /*
+     * A start time settles it before anything else is asked, in both directions.
+     *
+     * Nobody plays two games at once, so two rows at the same moment are one fixture — whatever
+     * their ids say, and whatever their scores say. Two different results at one start time is a
+     * disagreement about one game, not two games; `collapseMirroredGames` already knows how to
+     * hold a disagreement, by keeping one row and noting what the other side reported.
+     *
+     * And nobody plays one game twice, so two different start times are two games however alike
+     * the rest of the row looks. This is the only test here that is a fact about the world rather
+     * than an inference about a feed, which is why it outranks them. GameChanger carries a start
+     * time on every game in the captured schedule fixture, all twelve of them.
+     */
+    const bothTimed = candidate.startTs !== undefined && game.startTs !== undefined;
+    if (bothTimed && candidate.startTs !== game.startTs) continue;
+
     let rank = 0;
     if (source && game.source && game.source.teamId === source.teamId) {
-      if (game.source.gameId !== source.gameId) continue;
-      rank = 2;
+      if (game.source.gameId === source.gameId) rank = 2;
+      /*
+       * Two ids off one schedule are normally two games, and that stays the rule: a real pull
+       * found four games against one club on a single day, and folding those would delete three
+       * results. A shared start time is the exception, and says there was only ever one fixture
+       * there — GameChanger lists one twice, under two ids, with the opponent spelled two ways.
+       */
+      else if (bothTimed) rank = 1;
+      else continue;
     } else if (
-      scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
-      scoreOf(game, candidate.teamBId) === candidate.teamBScore
+      bothTimed ||
+      (scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
+        scoreOf(game, candidate.teamBId) === candidate.teamBScore)
     ) {
       rank = 1;
-    } else {
+    } else if (
       /*
-       * Same pair, same day, and two results that contradict each other: a doubleheader, not one
+       * No time on either row, and two results that contradict each other: a doubleheader, not one
        * game written down twice. Treating it as one lost the second game whenever the other side's
-       * schedule listed both and this one listed only the first. A start time settles it the same
-       * way, and earlier, when both rows carry one.
+       * schedule listed both and this one listed only the first.
        */
-      const bothScored =
-        candidate.teamAScore !== undefined &&
-        candidate.teamBScore !== undefined &&
-        game.teamAScore !== undefined &&
-        game.teamBScore !== undefined;
-      if (bothScored) continue;
-      if (candidate.startTs && game.startTs && candidate.startTs !== game.startTs) continue;
+      candidate.teamAScore !== undefined &&
+      candidate.teamBScore !== undefined &&
+      game.teamAScore !== undefined &&
+      game.teamBScore !== undefined
+    ) {
+      continue;
     }
     if (!best || rank > best.rank) best = { rank, game };
     if (rank === 2) break;

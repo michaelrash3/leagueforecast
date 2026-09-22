@@ -396,6 +396,31 @@ that as evidence about how they compare to each other. Slots are not ranked,
 never offered as a name to log a game against, and never matched to a real club
 that looks similar.
 
+**One fixture listed twice on a club's own schedule.** GameChanger does this: the
+same game arrives under two game ids, with the opponent spelled two ways —
+"Cincinnati Angels Red" and "Cincinnati Angels- Red", 13-21 on both — and a club's
+record counted the loss twice. The opponent resolves to one team either way, since
+`teamNameKey` reads punctuation between words as spacing; it was the two rows that
+stayed two games.
+
+Two ids off one schedule are normally two games, and that stays the rule. A real
+pull found four games against one club on a single day, and folding those together
+would delete three results. The exception is narrow and rests on a fact rather than
+a guess: **nobody plays two games at once**, so where both rows carry a start time
+and it is the same one, there is only one fixture there. Every game in the captured
+schedule fixture carries a start time, all twelve of them, so the test has what it
+needs where it matters.
+
+The same fact settles it when the two rows disagree about the score. Two different
+results at one start time is a disagreement about one game, not two games — keeping
+both counted a loss and a win for a game played once. The later row's score is kept
+and the one it displaced is written into the game's note, the way the two sides of a
+fixture that disagree are already noted, so nothing is lost silently.
+
+Where a start time is missing from either row the two are kept, however alike they
+look — with nothing to tell a repeated fixture from a repeated row, losing a real
+game is the worse error.
+
 Most slots name themselves. A bracket posts "TBD" on one team's schedule and
 the real fixture on the other's, so pulling both sides answers the question:
 after a run, a slot whose fixture another schedule named is folded into that
