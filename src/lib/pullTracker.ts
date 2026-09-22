@@ -739,6 +739,7 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
     ...(log.tidy
       ? [
           pair("Tidy: placeholders named", log.tidy.named),
+          pair("Tidy: halves joined", log.tidy.joined),
           pair("Tidy: teams folded", log.tidy.folded),
           pair("Tidy: squads paired", log.tidy.paired),
           pair("Tidy: rows collapsed", log.tidy.collapsed),

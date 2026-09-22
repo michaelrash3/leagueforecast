@@ -115,6 +115,51 @@ export const squadNameKey = (listingName: string): string =>
     .replace(/^[\s,]+|[\s,]+$/g, "")
     .trim();
 
+/**
+ * Words that say what a club is rather than which one. "Dragons Baseball" is the Dragons, "Cincy
+ * Stix Baseball Club" is the Stix, and a coach typing an opponent's name leaves these off as often
+ * as not. Kept to the words that carry no identity at all: "Elite", "Select" and "Academy" are
+ * often the half of a name that tells two clubs in one town apart, so they stay.
+ */
+const NAME_FILLER = new Set(["baseball", "club", "bc", "bbc", "the", "team"]);
+
+/**
+ * The words of a name that could identify a club: the `teamNameKey` words, less the filler, less
+ * bare numbers (a birth year, a "2" telling a club's second squad from its first), and with a
+ * number stuck on the end of a word taken off it — a coach keeping two Headlines squads apart
+ * writes "Headlines1" and "Headlines2".
+ */
+const nameWords = (name: string): Set<string> =>
+  new Set(
+    teamNameKey(name)
+      .split(" ")
+      .map((word) => word.replace(/(?<=[a-z])\d+$/, ""))
+      .filter((word) => word && !/^\d+$/.test(word) && !NAME_FILLER.has(word))
+  );
+
+/**
+ * Whether one of two names could be a coach's shorthand for the other: every word of the shorter
+ * is in the longer. "Stix" for "Cincy Stix Navy", "Dragons" for "Dragons Baseball", "Hurricanes"
+ * for "Northern Kentucky Hurricanes".
+ *
+ * Nowhere near an identity on its own — every state has a club with "Dragons" in its name — and
+ * nothing may use it as one. It is the name half of a test whose other half is a fixture: two
+ * schedules that each describe the same game, on the same day, with the same result. A coach who
+ * writes two different clubs as "Headlines1" and "Headlines2" is read as "Headlines" twice, which
+ * is right only because the game, not the name, says which Headlines each row was; a rule that
+ * matches on names alone keeps `teamNameKey`, where those two stay apart.
+ */
+export const nameFitsWithin = (a: string, b: string): boolean => {
+  const left = nameWords(a);
+  const right = nameWords(b);
+  if (left.size === 0 || right.size === 0) return false;
+  const [short, long] = left.size <= right.size ? [left, right] : [right, left];
+  for (const word of short) {
+    if (!long.has(word)) return false;
+  }
+  return true;
+};
+
 const normalizeName = teamNameKey;
 
 /**
