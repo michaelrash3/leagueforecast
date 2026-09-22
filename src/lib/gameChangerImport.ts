@@ -128,6 +128,14 @@ type ImportIndex = {
    */
   levelsByTeam: Map<string, Set<number>>;
   /**
+   * The rows a pulled club filed against a stand-in, by id, where the other end of the game can
+   * find them: by the day and the result from the club's seat, and by the start time. A schedule
+   * that names no age asks these which pulled clubs it played (`ageFromFixtures`). Ids rather than
+   * rows, because a row is updated in place and the lookup must read what it says now.
+   */
+  halvesByResult: Map<string, string[]>;
+  halvesByTime: Map<string, string[]>;
+  /**
    * What each page is, by id, behind the two lookups below.
    *
    * Maps rather than closures because the fold creates pages as it goes and both lookups have to
@@ -200,6 +208,8 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     levelsByTeam: new Map(),
     opponentsByTeam: new Map(),
     gamesByTeamDate: new Map(),
+    halvesByResult: new Map(),
+    halvesByTime: new Map(),
   };
   // Before any game is indexed: a game's name keys are built from its page's level.
   state.ageGroups.forEach((group) => noteAgeGroup(index, group));
@@ -299,8 +309,35 @@ const noteOpponent = (index: ImportIndex, teamId: string, opponentId: string) =>
   else index.opponentsByTeam.set(teamId, new Set([opponentId]));
 };
 
+const halfResultKey = (pool: string, date: string, club: number, standIn: number): string =>
+  `${pool}\u0000${date}\u0000${club}-${standIn}`;
+const halfTimeKey = (pool: string, startTs: string): string => `${pool}\u0000${startTs}`;
+
+/** Whether a team is somebody's written name and nothing more: no GameChanger id behind it. */
+const isStandIn = (team: ScoutTeam | undefined): boolean =>
+  Boolean(team?.nameOnly) && !team?.gcTeams?.length;
+
+/**
+ * Files a row one side filed against a stand-in, under the keys `ageFromFixtures` looks it up by.
+ * Filed again when a row is updated, since a result posted later changes the first key; the
+ * lookup reads each row as it now stands and passes over one that no longer fits the key.
+ */
+const indexHalf = (index: ImportIndex, game: ScoutGame): void => {
+  if (!game.date || !game.source) return;
+  const standInIsA = isStandIn(index.teamsById.get(game.teamAId));
+  if (standInIsA === isStandIn(index.teamsById.get(game.teamBId))) return;
+  const pool = index.poolKeyOf(game.ageGroupId);
+  const club = standInIsA ? game.teamBScore : game.teamAScore;
+  const standIn = standInIsA ? game.teamAScore : game.teamBScore;
+  if (club !== undefined && standIn !== undefined) {
+    push(index.halvesByResult, halfResultKey(pool, game.date, club, standIn), game.id);
+  }
+  if (game.startTs) push(index.halvesByTime, halfTimeKey(pool, game.startTs), game.id);
+};
+
 const indexGame = (index: ImportIndex, game: ScoutGame) => {
   index.gamesById.set(game.id, game);
+  indexHalf(index, game);
   push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
   const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
   onPage.add(game.teamAId);
@@ -410,6 +447,12 @@ export type GcImportOutcome = {
    * is worth being able to trace back to whoever did.
    */
   ageFromLeague?: number;
+  /**
+   * The level this team was filed under because the pulled clubs whose own schedules hold its
+   * games are filed there (`ageFromFixtures`). Also counted in `ageFromOpponents`, which it is a
+   * kind of; kept apart so a level can be traced to the rung that set it.
+   */
+  ageFromFixtures?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -684,6 +727,102 @@ export const ageFromPooledOpponents = (
     } else if (count === bestCount) tied = true;
   });
   return tied ? undefined : best;
+};
+
+/**
+ * The age the pulled clubs a no-age team played are filed at — the clubs found by the games.
+ *
+ * A team refused for having no age has usually been met already. Each club that played it and was
+ * pulled holds its own half of the game, filed against a stand-in carrying whatever its coach
+ * typed for this team, so the evidence of who this team played is sitting in the pool. The names
+ * alone cannot find it: this team's coach wrote "Stix" and theirs wrote "Hurricanes", and a pool
+ * of a hundred thousand teams holds a great many of each. The game can. A row a pulled club filed
+ * that day, against a stand-in whose name is a shorthand for this team, with the result mirrored
+ * or at the same start time, is the other half of one of this team's games — once the name this
+ * team typed is a shorthand for that club and the two are in one region, as the crossed-halves
+ * join asks (`joinCrossedHalves`). Where two clubs could each have been one game, that game names
+ * nobody.
+ *
+ * The level read off each club is its own listing's, and a club listed at two levels says
+ * nothing. The answer is held to the name rule's bar (`ageFromOpponentNames`): `needed` distinct
+ * clubs, a strict majority, and at least `needed` of them on the level it gives. The bar is not a
+ * formality. On the stand-in fixtures export of 22 September 2026 the two clubs of a game joined
+ * this way were filed at the same level 73.5% of the time and a level apart 22%, so one opponent's
+ * level is a guess and three agreeing is not.
+ */
+export const ageFromFixtures = (
+  schedule: GcTeamSchedule,
+  index: ImportIndex,
+  needed: number
+): number | undefined => {
+  const { profile } = schedule;
+  if (!profile.season) return undefined;
+  const pool = `y:${squadYearForGcSeason(profile.season.season, profile.season.year)}`;
+  const fits = nameFitter();
+  const seen = new Set<string>();
+  const counts = new Map<number, number>();
+  let readable = 0;
+  schedule.games.forEach((game) => {
+    if (!game.date) return;
+    const scored = game.teamScore !== undefined && game.opponentScore !== undefined;
+    const ids = new Set([
+      ...(scored
+        ? (index.halvesByResult.get(
+            halfResultKey(pool, game.date, game.opponentScore!, game.teamScore!)
+          ) ?? [])
+        : []),
+      ...(game.startTs ? (index.halvesByTime.get(halfTimeKey(pool, game.startTs)) ?? []) : []),
+    ]);
+    const clubs = new Set<string>();
+    ids.forEach((id) => {
+      const row = index.gamesById.get(id);
+      if (!row) return;
+      const standInIsA = isStandIn(index.teamsById.get(row.teamAId));
+      const standIn = index.teamsById.get(standInIsA ? row.teamAId : row.teamBId);
+      const club = index.teamsById.get(standInIsA ? row.teamBId : row.teamAId);
+      // Still a stand-in: one a club has adopted since, pulled under that name, is that club's.
+      if (!club || !standIn || !isStandIn(standIn)) return;
+      // The club's own half, off its own schedule.
+      if (!club.gcTeams?.some((link) => link.teamId === row.source?.teamId)) return;
+      const clubScore = standInIsA ? row.teamBScore : row.teamAScore;
+      const standInScore = standInIsA ? row.teamAScore : row.teamBScore;
+      const mirrored =
+        scored && clubScore === game.opponentScore && standInScore === game.teamScore;
+      const sameStart = game.startTs !== undefined && row.startTs === game.startTs;
+      if (!mirrored && !sameStart) return;
+      if (!fits(standIn.name, profile.name) || !fits(game.opponentName, club.name)) return;
+      if (!inOneRegion(profile.state, club.state)) return;
+      clubs.add(club.id);
+    });
+    if (clubs.size !== 1) return;
+    const clubId = [...clubs][0]!;
+    if (seen.has(clubId)) return;
+    seen.add(clubId);
+    const levels = new Set<number>();
+    index.teamsById.get(clubId)?.gcTeams?.forEach((link) => {
+      const level = link.ageLevel ?? index.levelOf(link.ageGroupId);
+      if (level !== undefined) levels.add(level);
+    });
+    if (levels.size !== 1) return;
+    const level = [...levels][0]!;
+    readable += 1;
+    counts.set(level, (counts.get(level) ?? 0) + 1);
+  });
+
+  let best: number | undefined;
+  let bestCount = 0;
+  let tied = false;
+  counts.forEach((count, level) => {
+    if (count > bestCount) {
+      best = level;
+      bestCount = count;
+      tied = false;
+    } else if (count === bestCount) tied = true;
+  });
+  if (best === undefined || tied) return undefined;
+  // A strict majority of the clubs that said anything, and enough of them on its level.
+  if (bestCount * 2 <= readable) return undefined;
+  return bestCount >= needed ? best : undefined;
 };
 
 const withOpponentAge = (
@@ -1546,14 +1685,27 @@ const importOne = (
     profileAgeLevel(fromNames.schedule.profile) === undefined
       ? ageFromPooledOpponents(fromNames.schedule.games, index, MIN_OPPONENT_AGE_EVIDENCE)
       : undefined;
-  const schedule: GcTeamSchedule =
+  const withPool: GcTeamSchedule =
     fromPool === undefined
       ? fromNames.schedule
       : {
           ...fromNames.schedule,
           profile: { ...fromNames.schedule.profile, ageLevel: fromPool },
         };
-  const inferred = fromNames.inferred ?? fromPool;
+  /*
+   * And after that, the clubs the games themselves identify. The picture above turned out to be
+   * no kind of identifier — every one of 7,948 was different — so it seldom answers; the other
+   * halves of this team's games are already in the pool, filed by the clubs that played it.
+   */
+  const fromFixtures =
+    profileAgeLevel(withPool.profile) === undefined
+      ? ageFromFixtures(withPool, index, MIN_OPPONENT_AGE_EVIDENCE)
+      : undefined;
+  const schedule: GcTeamSchedule =
+    fromFixtures === undefined
+      ? withPool
+      : { ...withPool, profile: { ...withPool.profile, ageLevel: fromFixtures } };
+  const inferred = fromNames.inferred ?? fromPool ?? fromFixtures;
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1574,6 +1726,7 @@ const importOne = (
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
     ...(named === undefined ? {} : { ageNamedByUser: named }),
     ...(fromLeague === undefined ? {} : { ageFromLeague: fromLeague }),
+    ...(fromFixtures === undefined ? {} : { ageFromFixtures: fromFixtures }),
   };
 
   /*
@@ -1819,6 +1972,7 @@ const importOne = (
     const position = index.gamePos.get(existing.id);
     if (position !== undefined) games[position] = merged;
     index.gamesById.set(merged.id, merged);
+    indexHalf(index, merged);
     const sameBucket = index.gamesByMatch.get(matchKeyOf(merged, index.poolKeyOf));
     if (sameBucket) {
       const at = sameBucket.findIndex((entry) => entry.id === merged.id);

@@ -801,6 +801,23 @@ company a club keeps, and wrong in the same way if a squad plays up all season. 
 below the name reading for the same reason: a club writing "12U" in its own name is telling
 you about itself, while this tells you who it plays.
 
+**An age from the games themselves.** The picture turned out to be no kind of identifier —
+7,948 teams in a nationwide pull carried 7,948 different ones — so the rung above seldom
+answers. The games do. Each pulled club that played a no-age team holds its own half of the
+game, filed against a stand-in carrying whatever its coach typed for that team.
+`ageFromFixtures` finds those halves the way the crossed-halves join does: a row a pulled club
+filed that day off its own schedule, against a stand-in whose name is a shorthand for this
+team, with the result mirrored or at the same start time — and the name this team typed a
+shorthand for that club, the two in one region. A game two clubs could each have been names
+nobody. Each club counts once, at its own listing's level, and a club listed at two levels says
+nothing. The answer is held to the name rule's bar: three clubs, a strict majority, three on
+the level it gives. On the stand-in fixtures export of 22 September 2026 the two clubs of one
+game were filed at one level 73.5% of the time and a level apart 22%, so one club's level is a
+guess and three agreeing is not. From the waiting list's own file, which keeps only three of
+each team's opponents, it ages at least 32 teams, and every one of the 31 whose GameChanger age
+field gives a band lands inside it. It sits last, below the picture, and is recorded on the
+pull as `ageFromFixtures` as well as among the ages from opponents.
+
 **A name outranks an age column, on a pasted list.** The age ladder reads two kinds of
 age field and does not trust them equally. GameChanger's own `age_group`, first-hand from
 its API, outranks a plain age in the team's name. The age column of a pasted list does
