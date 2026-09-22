@@ -21,6 +21,8 @@ import {
   poolSignature,
   refileStandIns,
   resolveSlotGames,
+  tidyChangedAnything,
+  TIDY_STEPS,
   tidyPool,
   importGcSchedules,
   comparePairing,
@@ -164,6 +166,82 @@ describe("importGcSchedule", () => {
     expect(moved?.name).toBe("Premier Ohio Lopez");
     const group = state.ageGroups.find((entry) => entry.ageLevel === 10);
     expect(moved?.gcTeams?.[0]).toMatchObject({ ageGroupId: group?.id, ageLevel: 10 });
+  });
+
+  /*
+   * The coaches now come off the profile as well as off a pasted list, which matters because most
+   * of a nationwide pull is ids with no list behind them: without this the staff index — the
+   * strongest club-matching signal there is, at 89% same-town for two shared names — was empty
+   * for every team pulled by id alone.
+   */
+  it("keeps the coaches GameChanger names, and prefers the pasted list when there is one", () => {
+    const fromProfile = importGcSchedule(
+      {
+        ...schedule({ staff: ["Dana Reed", "Kit Alvarez"] }, [game()]),
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    );
+    const pulled = fromProfile.state.teams.find((team) => team.gcTeams?.length);
+    expect(pulled?.gcTeams?.[0]?.staff).toEqual(["Dana Reed", "Kit Alvarez"]);
+
+    // The list is the newer reading and the one its owner can correct, so it wins outright.
+    const withList = importGcSchedule(
+      {
+        ...schedule({ staff: ["Dana Reed"] }, [game()]),
+        listed: { staff: ["Correct Name"] },
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    );
+    const listed = withList.state.teams.find((team) => team.gcTeams?.length);
+    expect(listed?.gcTeams?.[0]?.staff).toEqual(["Correct Name"]);
+  });
+
+  /**
+   * The league the user's list names, for a team GameChanger left ageless.
+   *
+   * Below the club's own word and above its opponents': a league naming an age is a statement
+   * about every team in it, which beats reading the company a team keeps and loses to the club
+   * filling in its own page.
+   */
+  it("files an ageless team under the age its league names", () => {
+    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const { state, outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty);
+    expect(outcome.issue).toBeUndefined();
+    expect(outcome.ageGroupName).toBe("11U 2027");
+    expect(outcome.ageFromLeague).toBe(11);
+    expect(state.ageGroups[0]).toMatchObject({ ageLevel: 11 });
+  });
+
+  it("leaves a team that stated its own age exactly where it was", () => {
+    // The team's own word always wins; an association only ever answers a silence.
+    const { outcome } = importGcSchedule(
+      { ...schedule({ ageLevel: 9 }, [game()]), listed: { ageLevel: 11 } },
+      empty
+    );
+    expect(outcome.ageGroupName).toBe("9U 2027");
+    expect(outcome.ageFromLeague).toBeUndefined();
+  });
+
+  /*
+   * And a person still outranks it. A named age is applied before anything else reads the profile,
+   * so the league never gets a look at a team somebody has answered for.
+   */
+  it("is beaten by an age somebody named by hand", () => {
+    // The name has to say nothing either, or GameChanger has spoken and the named age is dropped.
+    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const { outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty, {
+      namedAges: new Map([
+        [
+          "gcAAAAAAAAAA",
+          { teamId: "gcAAAAAAAAAA", level: 10, namedAt: "2026-09-01T00:00:00.000Z" },
+        ],
+      ]),
+    });
+    expect(outcome.ageGroupName).toBe("10U 2027");
+    expect(outcome.ageNamedByUser).toBe(10);
+    expect(outcome.ageFromLeague).toBeUndefined();
   });
 
   it("records the GameChanger id on the team it was pulled as", () => {
@@ -3814,5 +3892,54 @@ describe("watching a tidy run", () => {
       alone.state.games.map((game) => game.id).sort()
     );
     expect(watchedRun.passes).toBe(alone.passes);
+  });
+});
+
+/**
+ * Whether a tidy is worth saving.
+ *
+ * The panel used to answer this with a sum written out by hand, and the sum named eight of the
+ * eleven counts. A pass whose only effect was deleting wiffle-ball or high school teams, or
+ * resettling a game onto a club that plays near its level, therefore stamped the pool as tidied
+ * and then did not save it: the deletions were lost, and the stamp said they had happened, so
+ * nothing would redo them until `TIDY_RULES_VERSION` moved.
+ */
+describe("whether a tidy changed anything", () => {
+  const nothing = {
+    state: { ageGroups: [], teams: [], games: [] },
+    named: 0,
+    folded: 0,
+    paired: 0,
+    collapsed: 0,
+    pruned: 0,
+    reclaimed: 0,
+    resettled: 0,
+    refiled: 0,
+    releveled: 0,
+    notBaseball: 0,
+    highSchool: 0,
+    passes: 1,
+  };
+
+  it("is false for a pass that found nothing, however many passes it took", () => {
+    expect(tidyChangedAnything(nothing)).toBe(false);
+    expect(tidyChangedAnything({ ...nothing, passes: 6 })).toBe(false);
+  });
+
+  // The three the hand-written sum left out, each on its own.
+  it("is true for the counts the old sum forgot", () => {
+    expect(tidyChangedAnything({ ...nothing, notBaseball: 1 })).toBe(true);
+    expect(tidyChangedAnything({ ...nothing, highSchool: 1 })).toBe(true);
+    expect(tidyChangedAnything({ ...nothing, resettled: 1 })).toBe(true);
+  });
+
+  /*
+   * And it cannot forget the next one either: the question is asked of `TIDY_STEPS`, which is the
+   * list a new step has to be added to anyway for the progress display to name it.
+   */
+  it("asks every step there is", () => {
+    TIDY_STEPS.forEach((step) => {
+      expect(tidyChangedAnything({ ...nothing, [step]: 1 })).toBe(true);
+    });
   });
 });

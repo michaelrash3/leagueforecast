@@ -511,6 +511,45 @@ filed under its own age group and squad year, and the pages are created as they
 are needed, because a nationwide list cannot expect a page to exist for every
 level first.
 
+#### Two lists: teams, and the organizations they belong to
+
+A team export can carry more than the team. The columns this reader now takes —
+`Organization ID`, `Organization Name`, `Organization Type`, `League Associations`,
+`Tournament Associations` — answer a question GameChanger's public API will not: there
+is no team-to-organization route, so nothing the app *fetches* can say which club or
+league a team is in. A crawl that found the team through its organization knows, and
+these columns are where it says so. Every one is optional, and independently so: a row
+naming a tournament and no club is an independent team playing one event.
+
+Associations read as `Name|Id`, several separated by semicolons. **A league may age a
+team and a tournament may not**, and the difference is not a nicety: you play your own
+age in your league and you enter tournaments *up*. An 11U team whose league is
+"NKB 11u" and whose tournaments include "NB Summer Slam 12U" is telling you both
+things, and reading the second as an age would file it a year old and make every game
+in its own league read as playing down.
+
+So a league's age is a rung of its own: **below the club's own word and above its
+opponents'**. A league naming an age is a statement about every team in it, which beats
+reading the company a team keeps and loses to the club filling in its own page — and a
+person naming an age by hand still outranks all of it. Two leagues naming different
+ages is not an answer, because one of them is about a different squad of the same club,
+so it refuses rather than picking. The whole rung only ever fires on a team GameChanger
+left with no age at all.
+
+Organizations are a **second file**, not rows mixed into the first, and the reason is
+that nothing inside one file could tell them apart: an organization id and a team id
+are the same shape. Two files make every row unambiguous by where it is, leave the team
+reader untouched, and mean no list already saved can be misread. Its columns are the
+ones the export writes — `Entity Type`, `Entity Name`, `Organization ID`, the three URL
+columns (any of which yields the id), `City`, `State`, `Season Name`, `Season Year`,
+`Sport`, `Team Count` — and the season pair is read leniently across both cells,
+because a real export puts `2027` in the *name* column with the year column empty.
+
+`Entity Type` says what a thing is, not how its teams should be rated. A travel
+organization is a club; a tournament is an event whose brackets often name an age; and
+a **league is neither automatically** — "NKB 11u" is a travel league and
+"Mt. Carmel Little League" is rec ball, and only the name says which.
+
 GameChanger's public API allows only its own site as an origin, so the browser
 cannot call it. `api/gc-team.ts` is a serverless function that reads a team's
 profile and games on the app's behalf and maps every failure to a reason the
@@ -608,6 +647,13 @@ a ceiling on how much one run may hold in memory rather than a pacer, so the who
 list is offered at once and a list longer than the ceiling has its overflow asked
 the next day rather than the next week.
 
+A club somebody throws out is answered for, and both halves of that now hold: the row leaves the
+waiting list at once rather than sitting there until a later pull happens to clean it up, and the
+rota stops offering it. Neither used to be true. The decision was written to the dropped-clubs list
+and nothing else changed, so the club was handed to the puller on every catch-up day, fetched twice,
+and refused by `importOne` only after both requests had been spent — two requests a week, per club,
+for an answer already given. At a dozen clubs that is invisible; at thirty thousand it is not.
+
 A team GameChanger says is below the youngest level ranked here is remembered rather
 than rediscovered. The paste already drops rows that name a too-young age themselves,
 but a row naming no age is kept — most do not name one — so it is fetched, GameChanger
@@ -671,6 +717,28 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**Taking the list away with you.** Thirty-six thousand rows is not a queue anybody works
+ten at a time, and the card cannot become a spreadsheet. So a **Download the list** button
+writes one: every team still waiting, each with the evidence behind it — the age field
+GameChanger did give, its sanctioning body, town and state, the games and how many were
+scored on days that have not happened, the opponents and whether any of them named an age,
+the roster count — and an empty **Answer** column to fill in. It sorts and filters on a
+bigger screen than the one it was collected on, and it is the file `npm run ageless:sweep`
+reads when the rules are being measured.
+
+It is also the only way this list leaves the browser at a workable size. It rides in the
+whole-browser backup too, but that file carries every season and every game beside it and
+runs to hundreds of megabytes on a nationwide pool — too big to move, and mostly things
+nobody looking at this question needs. These rows are a few megabytes.
+
+The first three columns are named to hit the aliases the team importer already matches, so
+a worked file pastes back into the import box as a team list. The fourth is deliberately
+**not**: the observed age field is called `Age Field`, never `Age Group`, because the
+importer reads `age group`, `age`, `age level` and `division` as the age. Naming it that
+way would let GameChanger's own rejected label beat the answer the reader was asked for
+precisely because it was rejected — silently, and the moment a division-name rule joins the
+ladder. A test pins the name.
+
 Throwing one out does not ask first. This is a queue worked ten at a time and mostly full of junk
 that takes a second to recognise, so a dialog in front of every one puts a second click on the
 common case to guard against the rare one. The guard sits after the action instead, as an **Undo**
@@ -721,9 +789,26 @@ spent by the ask it buys, since the fetch moves the last-asked stamp past the an
 own: an answer GameChanger overrules gets that one ask and then goes back to once a week
 rather than being fetched for ever.
 
+**Two things the profile says are kept for the rules to read.** GameChanger reports a
+team's **sanctioning body** — `usssa`, `little league` — and the **coaches** on its
+public profile, and the app read neither. The body is the only field that says whose
+word a division name is, which is the whole difficulty with them: "Majors" is a Little
+League division of nine- to twelve-year-olds and a USSSA skill class at any age, and
+"AAA" is a local Little League convention, a USSSA grade, and a provincial tier in
+Canada. The coaches matter for a different reason, measured elsewhere in this file: two
+teams sharing two of them are the same club 97% of the time by state and 89% by town,
+and before this that signal only ever arrived on a pasted list — never on the thousands
+of teams pulled by id alone. Both ride on a waiting team's row too, since its schedule
+is read once and thrown away and a fact not written down there costs two requests to
+learn again.
+
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
-all ride in an `answers` block. None of it can be recomputed — a pool can be pulled
+all ride in an `answers` block — in the Team Rankings pool file as well as the
+whole-browser one, which was not true until recently: the block was built when a backup
+was taken and restored when one was read, and the writer in between left it out. So the
+pool file restored answers it had never saved, and since a reset clears the waiting
+list, the file offered as the way back could not bring it back. None of it can be recomputed — a pool can be pulled
 again, a judgement about whether a club is real cannot — and without this, restoring
 into a fresh browser threw an evening's work away and then set about rediscovering the
 problems it had answered. The block is optional and absent means leave what is there

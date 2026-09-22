@@ -12,6 +12,8 @@ import type { AgeUnknownList } from "../../lib/ageUnknown";
 import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
+import { agelessCsvFilename, agelessCsvParts } from "../../lib/agelessCsv";
+import { downloadCsv, fileDay } from "../../lib/download";
 import { button, card, pill } from "../../styles/tokens";
 
 type AgelessReviewCardProps = {
@@ -230,6 +232,17 @@ export function AgelessReviewCard({
   const levels = useMemo(() => nameableAgeLevels(), []);
 
   /**
+   * The whole list as a file.
+   *
+   * Built on the click and not before: the rows are the same objects the card already holds, so
+   * nothing is copied until somebody asks, and the file is handed over in pieces so a
+   * thirty-six-thousand-row export never exists as one string in memory.
+   */
+  const download = () => {
+    downloadCsv(agelessCsvFilename(fileDay(now)), agelessCsvParts(waiting.map((row) => row.entry)));
+  };
+
+  /**
    * Hunting one club by name or id.
    *
    * Over the whole list rather than the queue, because the queue is the small end of it and "I
@@ -251,15 +264,26 @@ export function AgelessReviewCard({
 
   return (
     <div className={`${card} mt-4 p-5`}>
-      <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-        Teams waiting on an age
-      </h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          Teams waiting on an age
+        </h3>
+        <button type="button" className={`${button.ghost} text-xs`} onClick={download}>
+          Download the list
+        </button>
+      </div>
       <p className="mt-1 text-xs text-slate-500">
         {waiting.length.toLocaleString()} team{waiting.length === 1 ? "" : "s"} nobody could age.
         GameChanger gave no age group, the name does not say one, and too few of their opponents
         write one in theirs. Nothing automatic will settle these — the club has to fix its own page,
         or the team has to play somebody who names an age — so they are here, {AGELESS_BATCH} at a
         time, likeliest real first. The next {AGELESS_BATCH} come up once these are done.
+      </p>
+      <p className="mt-2 text-xs text-slate-500">
+        {waiting.length.toLocaleString()} of them is not a queue anybody works {AGELESS_BATCH} at a
+        time, so the whole list downloads as a spreadsheet — every row with the evidence behind it
+        and a blank <span className="font-semibold">Answer</span> column to fill in. It sorts, it
+        filters, and it reads on a bigger screen than the one it was collected on.
       </p>
       <label className="mt-3 block">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import teamListCsv from "./fixtures/gc-team-list.csv?raw";
+import orgListCsv from "./fixtures/gc-org-list.csv?raw";
+import teamListOrgsCsv from "./fixtures/gc-team-list-orgs.csv?raw";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import {
@@ -12,6 +14,7 @@ import {
   ageFromGradYearInName,
   ageFromGradYearLabel,
   ageLevelFromName,
+  ageFromLeagueNames,
   ageLevelOf,
   ageSpanFromName,
   avatarKeyFromUrl,
@@ -26,6 +29,11 @@ import {
   normalizeGcGames,
   normalizeGcTeamProfile,
   parseGcAgeLevel,
+  parseGcAssociations,
+  parseGcNgb,
+  parseGcOrgId,
+  parseGcOrgKind,
+  parseGcOrgList,
   parseGcSeasonLabel,
   parseGcTeamId,
   parseGcTeamList,
@@ -500,7 +508,27 @@ describe("normalizeGcTeamProfile", () => {
       record: { win: 11, loss: 1, tie: 0 },
       avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
       playerCount: 10,
+      // Both of these were in the capture from the start and neither was read: the sanctioning
+      // body, which is the only thing that says whether "Majors" is an age or a skill class, and
+      // the coaches, which are the strongest club-matching signal the app has.
+      ngb: ["usssa"],
+      staff: ["Noochie Varner", "Jordan Fox", "Tyler Coons"],
     });
+  });
+
+  /*
+   * Both of these were in the captured profile from the beginning and neither was read, because
+   * a comment on `GcTeamSchedule.listed` said the public endpoints return neither and the code
+   * believed it.
+   */
+  it("keeps the coaches the profile names, tidied the way a pasted cell is", () => {
+    const doubled = normalizeGcTeamProfile({
+      ...profileFixture,
+      staff: ["Noochie  Varner", "NOOCHIE VARNER", "", 7, "Jordan Fox"],
+    });
+    expect(doubled?.staff).toEqual(["Noochie Varner", "Jordan Fox"]);
+    const none = normalizeGcTeamProfile({ ...profileFixture, staff: [] });
+    expect(none?.staff).toBeUndefined();
   });
 
   it("keeps what GameChanger filed the team under, readable or not", () => {
@@ -569,6 +597,38 @@ describe("normalizeGcTeamProfile", () => {
     });
     expect(profile?.season).toBeUndefined();
     expect(profile?.record).toEqual({ win: 3, loss: 2, tie: 0 });
+  });
+});
+
+/**
+ * The sanctioning body, which is the only field in the payload that says whose word a division
+ * word is. It arrives in a shape nothing should produce — a JSON array inside a string — so it is
+ * read leniently and refuses rather than guesses when it is anything else.
+ */
+describe("parseGcNgb", () => {
+  it("reads the shape GameChanger actually sends", () => {
+    expect(parseGcNgb('["usssa"]')).toEqual(["usssa"]);
+    expect(parseGcNgb('["little league","usssa"]')).toEqual(["little league", "usssa"]);
+  });
+
+  it("reads a bare string and a real array too", () => {
+    expect(parseGcNgb("usssa")).toEqual(["usssa"]);
+    expect(parseGcNgb(["USSSA", "Pony"])).toEqual(["usssa", "pony"]);
+  });
+
+  // Compared against, never shown, so the answer must not turn on case or spacing.
+  it("lowercases, collapses spacing and counts a repeat once", () => {
+    expect(parseGcNgb('["Little  League","LITTLE LEAGUE"]')).toEqual(["little league"]);
+    expect(parseGcNgb(["  usssa  "])).toEqual(["usssa"]);
+  });
+
+  it("is empty for anything it cannot read", () => {
+    expect(parseGcNgb(undefined)).toEqual([]);
+    expect(parseGcNgb("")).toEqual([]);
+    expect(parseGcNgb("[not json")).toEqual([]);
+    expect(parseGcNgb('["", "  "]')).toEqual([]);
+    expect(parseGcNgb(7)).toEqual([]);
+    expect(parseGcNgb({ ngb: "usssa" })).toEqual([]);
   });
 });
 
@@ -936,5 +996,201 @@ describe("reading a graduation year as an age", () => {
       name: "Elite 2031",
     });
     expect(noSeason?.ageLevel).toBeUndefined();
+  });
+});
+
+/**
+ * The organization list: the leagues, tournaments and travel clubs the user found.
+ *
+ * A second file rather than rows mixed into the team list, because an organization id and a team
+ * id are the same shape and nothing inside one file could tell them apart.
+ */
+describe("parseGcOrgList against the real export", () => {
+  it("reads every row of the file the user actually has", () => {
+    const { orgs, skipped } = parseGcOrgList(orgListCsv);
+    expect(skipped).toEqual([]);
+    expect(orgs).toHaveLength(3);
+
+    expect(orgs[0]).toEqual({
+      orgId: "3sazmL1VgPnC",
+      name: "Cincy Legends Baseball",
+      kind: "travel",
+      city: "Cincinnati",
+      state: "OH",
+      sport: "baseball",
+      season: { season: "spring", year: 2027 },
+      teamCount: 12,
+    });
+  });
+
+  /*
+   * The season columns do not always hold what they say. This row reads `Season Name="2027"` with
+   * `Season Year` empty — the year landed in the name's cell — so both halves are read from
+   * either, and a year with no season word is reported as the half it is rather than dropped.
+   */
+  it("reads a year that arrived in the season-name column", () => {
+    const { orgs } = parseGcOrgList(orgListCsv);
+    const league = orgs.find((org) => org.orgId === "Pqy5Av4tHncy");
+    expect(league?.season).toBeUndefined();
+    expect(league?.seasonYear).toBe(2027);
+    expect(league?.kind).toBe("league");
+  });
+
+  /*
+   * And the names carry ages. A single-age league or tournament says what every team under it
+   * plays at, which is the fastest thing in this whole backlog: one row answers a membership.
+   */
+  it("keeps names an age can be read out of", () => {
+    const { orgs } = parseGcOrgList(orgListCsv);
+    expect(ageLevelFromName(orgs.find((o) => o.orgId === "Pqy5Av4tHncy")!.name!)).toBe(11);
+    expect(ageLevelFromName(orgs.find((o) => o.orgId === "e7BuP4Z9MPM4")!.name!)).toBe(12);
+    // A club that runs every age says nothing, and must not be made to.
+    expect(ageLevelFromName(orgs.find((o) => o.orgId === "3sazmL1VgPnC")!.name!)).toBeUndefined();
+  });
+
+  it("takes a bare id or a pasted URL with no header at all", () => {
+    const { orgs, skipped } = parseGcOrgList(
+      ["Pqy5Av4tHncy", "https://web.gc.com/organizations/e7BuP4Z9MPM4/teams", "not an id"].join(
+        "\n"
+      )
+    );
+    expect(orgs.map((org) => org.orgId)).toEqual(["Pqy5Av4tHncy", "e7BuP4Z9MPM4"]);
+    expect(skipped).toEqual(["not an id"]);
+  });
+
+  it("counts a repeated organization once", () => {
+    const twice = [orgListCsv.trim(), orgListCsv.split("\n")[1]].join("\n");
+    const { orgs, skipped } = parseGcOrgList(twice);
+    expect(orgs).toHaveLength(3);
+    expect(skipped).toHaveLength(1);
+  });
+});
+
+describe("the organization columns on a team row", () => {
+  it("reads the club, the leagues and the tournaments off the real export", () => {
+    const { entries, skipped } = parseGcTeamList(teamListOrgsCsv);
+    expect(skipped).toEqual([]);
+    expect(entries).toHaveLength(4);
+
+    const legends = entries[1]!;
+    expect(legends.org).toEqual({
+      orgId: "3sazmL1VgPnC",
+      name: "Cincy Legends Baseball",
+      kind: "travel",
+      city: "Cincinnati",
+      state: "OH",
+      season: { season: "spring", year: 2027 },
+    });
+    expect(legends.leagues).toEqual([{ name: "NKB 10 Majors", orgId: "TYhyg71UbyM9" }]);
+    expect(legends.tournaments).toBeUndefined();
+    // The columns that already worked still do.
+    expect(legends.staff).toEqual(["Coach Smith"]);
+    expect(legends.ageLevel).toBe(10);
+  });
+
+  /*
+   * A team that plays a tournament and belongs to no club: every organization cell is blank, so
+   * there must be no `org` at all rather than an object saying nothing.
+   */
+  it("leaves the club off a row that names none", () => {
+    const { entries } = parseGcTeamList(teamListOrgsCsv);
+    const independent = entries[2]!;
+    expect(independent.org).toBeUndefined();
+    expect(independent.tournaments).toEqual([
+      { name: "NB Summer Slam 12U", orgId: "e7BuP4Z9MPM4" },
+    ]);
+  });
+
+  /*
+   * The row that settles the rule: an 11U team whose league is "NKB 11u" and whose tournaments
+   * include "NB Summer Slam 12U". You play your own age in your league and you enter tournaments
+   * up, so the league may age a team and the tournament may not.
+   */
+  it("keeps several tournaments apart from the league", () => {
+    const { entries } = parseGcTeamList(teamListOrgsCsv);
+    const multi = entries[3]!;
+    expect(multi.leagues).toEqual([{ name: "NKB 11u", orgId: "Pqy5Av4tHncy" }]);
+    expect(multi.tournaments).toEqual([
+      { name: "NB Summer Slam 12U", orgId: "e7BuP4Z9MPM4" },
+      { name: "NSB Father's Day B-Bash", orgId: "prETpcCzpfL5" },
+    ]);
+    expect(ageLevelFromName(multi.leagues![0]!.name)).toBe(11);
+    expect(ageLevelFromName(multi.tournaments![0]!.name)).toBe(12);
+    /*
+     * And the two season columns are not crossed. This row's team season is "Summer 2027" while
+     * its organization season is a bare "2027", which is not a season at all — so the team has
+     * one and the club has none, and a reader that matched "season" loosely would give the club
+     * the team's.
+     */
+    expect(multi.season).toEqual({ season: "summer", year: 2027 });
+    expect(multi.org?.season).toBeUndefined();
+    expect(multi.org?.orgId).toBe("ORGID000004");
+  });
+
+  // The crawl's own bookkeeping columns cost nothing: unknown headers are ignored.
+  it("ignores the columns it does not know", () => {
+    const { entries } = parseGcTeamList(teamListOrgsCsv);
+    expect(entries[0]!.name).toBe("Example 9U Team");
+    expect(entries[0]!.org?.orgId).toBe("QXsVtQbOUWQB");
+  });
+});
+
+describe("organization ids, kinds and associations", () => {
+  it("reads an id from a page URL or a bare token", () => {
+    expect(parseGcOrgId("https://web.gc.com/organizations/3sazmL1VgPnC/teams")).toBe(
+      "3sazmL1VgPnC"
+    );
+    expect(parseGcOrgId("  Pqy5Av4tHncy ")).toBe("Pqy5Av4tHncy");
+    expect(parseGcOrgId("https://web.gc.com/teams/gsUthn4XoIxS")).toBeNull();
+    expect(parseGcOrgId("")).toBeNull();
+  });
+
+  it("reads the three kinds and nothing else", () => {
+    expect(parseGcOrgKind("travel")).toBe("travel");
+    expect(parseGcOrgKind("League")).toBe("league");
+    expect(parseGcOrgKind(" TOURNAMENT ")).toBe("tournament");
+    expect(parseGcOrgKind("club")).toBe("travel");
+    expect(parseGcOrgKind("something else")).toBeUndefined();
+    expect(parseGcOrgKind(undefined)).toBeUndefined();
+  });
+
+  it("reads a name, an id, both, or several", () => {
+    expect(parseGcAssociations("NKB 11u|Pqy5Av4tHncy")).toEqual([
+      { name: "NKB 11u", orgId: "Pqy5Av4tHncy" },
+    ]);
+    // A name with no id is still worth keeping: the name is what carries an age.
+    expect(parseGcAssociations("Some League")).toEqual([{ name: "Some League" }]);
+    expect(parseGcAssociations("A|Pqy5Av4tHncy;A|Pqy5Av4tHncy")).toHaveLength(1);
+    expect(parseGcAssociations("")).toEqual([]);
+    expect(parseGcAssociations("  ;  ")).toEqual([]);
+  });
+});
+
+/**
+ * A league ages a team; a tournament does not.
+ *
+ * You play your own age in your league and you enter tournaments up, so an age in a tournament's
+ * name is a ceiling a team reached rather than the age it is.
+ */
+describe("ageFromLeagueNames", () => {
+  it("reads the age a league names", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 11u", orgId: "Pqy5Av4tHncy" }])).toBe(11);
+    expect(ageFromLeagueNames([{ name: "Rec League 9U/10U" }])).toBe(10);
+  });
+
+  it("says nothing when no league names one", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 10 Majors" }])).toBeUndefined();
+    expect(ageFromLeagueNames([])).toBeUndefined();
+    expect(ageFromLeagueNames(undefined)).toBeUndefined();
+  });
+
+  /*
+   * Two leagues naming different ages is not an answer — one of them is about a different squad
+   * of the same club — so it refuses rather than picking, which is the rule a tie is already held
+   * to in `ageFromOpponentNames`.
+   */
+  it("refuses two leagues that disagree, and takes two that agree", () => {
+    expect(ageFromLeagueNames([{ name: "NKB 11u" }, { name: "Fall Ball 12U" }])).toBeUndefined();
+    expect(ageFromLeagueNames([{ name: "NKB 11u" }, { name: "Winter 11U" }])).toBe(11);
   });
 });

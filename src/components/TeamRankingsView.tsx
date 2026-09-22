@@ -80,10 +80,11 @@ import {
   saveNamedAges,
   saveDeletedGames,
   saveDroppedClubs,
+  saveAgeUnknown,
 } from "../lib/teamRankingsStorage";
 import { forgetClubs, forgetGames, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
-import type { AgeUnknownList } from "../lib/ageUnknown";
+import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
@@ -1146,6 +1147,15 @@ export function TeamRankingsView({
       const next = forgetClubs(loadDroppedClubs(), [teamId]);
       setDroppedClubs(next);
       saveDroppedClubs(next);
+      /*
+       * And off the waiting list, rather than leaving the row for a later pull to clean up. The
+       * row only ever left on a pull that came back with something other than "no age", so a
+       * thrown-out club sat there until it was fetched again — two requests to learn a thing
+       * somebody had already said. The undo below puts the id back on the queue by restoring the
+       * club; the row itself returns on the next pull that reaches the team.
+       */
+      const waiting = forgetAgeless(loadAgeUnknown(), [teamId]);
+      saveAgeUnknown(waiting);
       showToast(`${name ?? teamId} thrown out.`, {
         tone: "undo",
         actionLabel: "Undo",
@@ -1787,6 +1797,7 @@ This cannot be undone. Cancel and download the backup first if there is any chan
                */
               pool={{ ageGroups, teams: scoutTeams, games: wholePoolGames }}
               namedAges={namedAges}
+              droppedClubs={droppedClubs}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
                 const savedGroups = saveAgeGroups(next.ageGroups);

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
+import {
+  ageFromLeagueNames,
+  parseGcTeamList,
+  type GcTeamListEntry,
+  type GcTeamProfile,
+} from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
+import type { DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
   holdingNow,
@@ -33,6 +39,7 @@ import {
   poolSignature,
   proposeSeasonPairings,
   summarizeGcImport,
+  tidyChangedAnything,
   type GcImportOutcome,
   type GcImportState,
   type GcPairingComparison,
@@ -85,6 +92,7 @@ import {
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
+import { downloadCsv, fileDay } from "../lib/download";
 import {
   flushPoolWrites,
   loadAgeUnknown,
@@ -146,6 +154,12 @@ type GameChangerImportPanelProps = {
    * exclusive mounts, which is a thing no future layout has to respect.
    */
   namedAges: NamedAges;
+  /**
+   * The clubs somebody threw out, for the same reason and with the same caveat as `namedAges`:
+   * the rota must not offer a club that has already been answered for, and a `loadDroppedClubs()`
+   * inside the memo would be a dependency React cannot see.
+   */
+  droppedClubs: DeletedClubs;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -266,31 +280,10 @@ const nowIso = () => new Date().toISOString();
  */
 const msNow = () => Date.now();
 
-/**
- * Saves text as a CSV.
- *
- * The byte order mark is not decoration. These files are opened in Excel and mailed on, and
- * without it Excel reads them in the system codepage and mangles every accented and apostrophed
- * team name — which is most of what makes the rows readable, and all of the evidence about what a
- * club calls itself. A twelve-megabyte file nobody can read does not get downloaded twice.
- */
-const downloadCsv = (name: string, body: string) => {
-  const blob = new Blob(["\ufeff", body], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(url);
-};
-
 /** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
 const downloadProblems = (problems: GcImportProblem[]) => {
   downloadCsv("gamechanger-not-imported.csv", gcImportProblemsCsv(problems));
 };
-
-/** Today, as "2026-09-17", so two runs' files do not overwrite each other. */
-const fileDay = (): string => new Date().toISOString().slice(0, 10);
 
 /** How many rows of the list are drawn; the rest are in the file the button writes. */
 const PROBLEMS_SHOWN = 200;
@@ -325,6 +318,7 @@ export function GameChangerImportPanel({
   onPersist,
   savedProgress,
   namedAges,
+  droppedClubs,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -516,10 +510,11 @@ export function GameChangerImportPanel({
         ageless,
         cadence,
         namedAges,
+        refused: droppedClubs,
       }),
-      agelessLine: describeAgeUnknown(ageless, now, namedAges),
+      agelessLine: describeAgeUnknown(ageless, now, namedAges, droppedClubs),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -538,9 +533,10 @@ export function GameChangerImportPanel({
         ageless,
         cadence,
         namedAges,
+        refused: droppedClubs,
         force: true,
       }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -940,15 +936,20 @@ export function GameChangerImportPanel({
           if (result.ok) {
             const entry = claimed.get(teamId);
             /*
-             * The staff and the roster size come from the user's own list, not from GameChanger —
-             * its public API returns neither. Attached here, where both halves are in hand, so the
-             * link the import records carries them.
+             * What the user's own list knows and GameChanger's payload does not: the roster size
+             * as their export recorded it, and the leagues the team plays in — the API has no
+             * route from a team to its leagues at all. Attached here, where both halves are in
+             * hand, so the link the import records carries them and the age a league names can
+             * file a team GameChanger left ageless.
              */
+            const leagueAge = ageFromLeagueNames(entry?.leagues);
             const listed =
-              entry && (entry.staff?.length || entry.playerCount !== undefined)
+              entry &&
+              (entry.staff?.length || entry.playerCount !== undefined || leagueAge !== undefined)
                 ? {
                     ...(entry.staff?.length ? { staff: entry.staff } : {}),
                     ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+                    ...(leagueAge === undefined ? {} : { ageLevel: leagueAge }),
                   }
                 : undefined;
             const schedule = listed ? { ...result.schedule, listed } : result.schedule;
@@ -1038,17 +1039,9 @@ export function GameChangerImportPanel({
       if (tidy) {
         // Stamped before the save lands, so the page does not read the tidied pool as untidied.
         saveTidyStamp(poolSignature(tidy.state));
-        if (
-          tidy.named +
-            tidy.folded +
-            tidy.paired +
-            tidy.collapsed +
-            tidy.pruned +
-            tidy.reclaimed +
-            tidy.refiled +
-            tidy.releveled >
-          0
-        ) {
+        // Asked of the step list rather than summed here, where three of the eleven counts were
+        // missing and a pass that only deleted teams stamped a pool it did not save.
+        if (tidyChangedAnything(tidy)) {
           heldRef.current = holdingNow(heldRef.current, tidy.state);
           if (persist()) await flushPoolWrites();
         }
@@ -1062,7 +1055,17 @@ export function GameChangerImportPanel({
        */
       const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
       setAgeless(nextAgeless);
-      saveAgeUnknown(nextAgeless);
+      /*
+       * Checked, because this write is the one that can fail quietly. Without IndexedDB the whole
+       * pool lives in localStorage, where a list this size does not fit: the write throws, the
+       * store catches it and answers false, and every answer the run learned is gone with nothing
+       * said. `onPoolWriteError` does not cover it — that fires on the IndexedDB path only.
+       */
+      if (!saveAgeUnknown(nextAgeless)) {
+        showToast("The list of teams waiting on an age could not be saved — storage is full.", {
+          tone: "error",
+        });
+      }
 
       /*
        * And the ones GameChanger says are too young to rank. Remembered so the next export does

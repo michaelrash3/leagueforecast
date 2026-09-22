@@ -232,6 +232,26 @@ describe("the teams nobody could age", () => {
     expect(due.agelessIds).toEqual(["A", "B"]);
   });
 
+  /*
+   * A club the user threw out is answered for, and the rota has to stop handing it to the puller.
+   * It did not: the row stayed on the list and was fetched twice every catch-up day before
+   * `importOne` refused it, which is two requests per club per week for an answer already given.
+   */
+  it("does not offer a club somebody threw out", () => {
+    const list = [
+      ageless("KEPT", "2026-09-11T00:00:00.000Z"),
+      ageless("GONE", "2026-09-11T00:00:00.000Z"),
+    ];
+    const due = dueRefresh(friday, {}, [], [], {
+      cadence: "rotation",
+      ageless: list,
+      refused: new Set(["GONE"]),
+    });
+    expect(due.agelessIds).toEqual(["KEPT"]);
+    // And the count beside the button agrees, so the panel cannot offer a pull of nothing.
+    expect(due.agelessTotal).toBe(1);
+  });
+
   it("leaves them alone on a day that belongs to a level", () => {
     const due = dueRefresh(sunday, {}, [], [], {
       cadence: "rotation",

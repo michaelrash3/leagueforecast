@@ -39,6 +39,24 @@ export type GcTeamProfile = {
   /** The media id of the team's avatar; the one stable thing that identifies an opponent. */
   avatarKey?: string;
   playerCount?: number;
+  /**
+   * The bodies the team plays under — `["usssa"]`, `["little league"]` — lowercased.
+   *
+   * The one field in the payload that says which circuit a club belongs to, and the answer to the
+   * question the division words cannot settle on their own. "Majors" is a Little League division
+   * of nine- to twelve-year-olds and a USSSA skill class at any age; "AAA" is a local Little
+   * League convention and a USSSA grade and, in Canada, a provincial tier. The word is the same
+   * and the meaning is not, so reading an age out of one means knowing whose word it is.
+   */
+  ngb?: string[];
+  /**
+   * The coaches GameChanger names on the public profile.
+   *
+   * Worth as much here as it is on a pasted row, and for the measured reason recorded on
+   * `GcTeamListEntry.staff`: two teams sharing two of these are the same club 97% of the time by
+   * state and 89% by town.
+   */
+  staff?: string[];
 };
 
 export type GcGameStatus = "completed" | "scheduled" | "in_progress" | "canceled" | "unknown";
@@ -66,11 +84,27 @@ export type GcTeamSchedule = {
   /**
    * What the user's own team list said about this team, when they pasted one that carried it.
    *
-   * Never from GameChanger's API: its public endpoints return neither the staff nor the roster
-   * size, and both come from the list export instead. Kept apart from `profile` for exactly that
-   * reason — a field in there is something GameChanger said, and these are not.
+   * Kept apart from `profile` because the two have different authority: a field in there is
+   * something GameChanger said, and this is something the user's spreadsheet said. Where both
+   * speak, `linkFor` prefers this one — the export is the newer reading and the one its owner can
+   * correct.
+   *
+   * This used to say GameChanger's public endpoints return neither the staff nor the roster size,
+   * and the code followed the comment. The captured profile returns both: `player_count` was read
+   * anyway, `staff` was not, and the strongest club-matching signal in the data was arriving free
+   * on every fetch and being dropped on the floor.
    */
-  listed?: { staff?: string[]; playerCount?: number };
+  listed?: {
+    staff?: string[];
+    playerCount?: number;
+    /**
+     * The age the list implies, from a league association naming one — see `ageFromLeagueNames`.
+     *
+     * Here rather than on `profile` because GameChanger did not say it: the API has no route from
+     * a team to its leagues, so this is the user's crawl answering a question the API cannot.
+     */
+    ageLevel?: number;
+  };
 };
 
 export type GcFetchErrorReason =
@@ -133,6 +167,32 @@ export type GcTeamListEntry = {
    * looking at again rather than importing as though it were a club.
    */
   playerCount?: number;
+  /**
+   * The organization the team belongs to, when the list names one.
+   *
+   * The answer GameChanger's public API will not give: there is no team-to-organization route, so
+   * nothing the app fetches can say which club or league a team is part of. A crawl that found
+   * the team through its organization knows, and this is where it says so.
+   */
+  org?: {
+    orgId?: string;
+    name?: string;
+    kind?: GcOrgKind;
+    city?: string;
+    state?: string;
+    season?: GcSeason;
+  };
+  /**
+   * The leagues it plays in. A league is where a team plays its own age, so a league that names
+   * one — "NKB 11u" — is saying something about the team.
+   */
+  leagues?: GcTeamAssociation[];
+  /**
+   * The tournaments it entered. Not the same thing at all: a tournament is where a team plays
+   * **up**, so an age in a tournament's name is a ceiling it reached rather than the age it is.
+   * The sample that made this plain is an 11U team in "NB Summer Slam 12U".
+   */
+  tournaments?: GcTeamAssociation[];
 };
 
 /** The app's own proxy for GameChanger (a Vercel function; see `api/gc-team.ts`). */
@@ -188,6 +248,46 @@ const NOT_BASEBALL = /wh?iffle/i;
 export const isNotBaseball = (name: unknown): boolean =>
   typeof name === "string" && NOT_BASEBALL.test(name);
 
+/**
+ * The sanctioning bodies off a profile's `ngb` field.
+ *
+ * The shape is odd and has to be read leniently: the captured profile carries the *string*
+ * `"[\"usssa\"]"` — a JSON array that something serialised on its way out and nothing parsed on
+ * its way back. So a JSON array in a string, a bare string, and a real array are all read, and
+ * anything else comes back empty rather than guessed at.
+ *
+ * Lowercased, trimmed and deduplicated, because it is compared against, never displayed: the
+ * question asked of it is "is this Little League?", and the answer must not turn on spacing.
+ */
+export const parseGcNgb = (raw: unknown): string[] => {
+  const asList = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string") return [];
+    const text = value.trim();
+    if (!text) return [];
+    if (text.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        // A string that opens like an array and is not one says nothing; it is not a body name.
+        return [];
+      }
+    }
+    return [text];
+  };
+  const seen = new Set<string>();
+  const bodies: string[] = [];
+  for (const entry of asList(raw)) {
+    if (typeof entry !== "string") continue;
+    const body = entry.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!body || seen.has(body)) continue;
+    seen.add(body);
+    bodies.push(body);
+  }
+  return bodies;
+};
+
 export const gcTeamPageUrl = (teamId: string): string => `https://web.gc.com/teams/${teamId}`;
 
 export const gcProfileApiUrl = (teamId: string, base: string = GC_PUBLIC_API_BASE): string =>
@@ -210,6 +310,126 @@ export const parseGcTeamId = (input: string): string | null => {
   if (GC_TEAM_ID_PATTERN.test(trimmed)) return trimmed;
   const match = GC_TEAM_URL_PATTERN.exec(trimmed);
   return match?.[1] ?? null;
+};
+
+/**
+ * An organization's page URL. GameChanger's leagues, tournaments and travel clubs are all the
+ * same `organizations` object, reached at `/organizations/{id}/home`, `/teams` or `/schedule`.
+ */
+const GC_ORG_URL_PATTERN = /\bgc\.com\/organizations\/([A-Za-z0-9_-]{8,24})(?![A-Za-z0-9_-])/i;
+
+/**
+ * A bare organization id, or the id inside an organization URL.
+ *
+ * An org id and a team id are the same shape — both are short URL-safe strings against
+ * `GC_TEAM_ID_PATTERN` — so nothing here can tell one from the other, and nothing tries. What
+ * keeps them apart is the file a row arrives in: the team list means teams and the organization
+ * list means organizations, which is why they are two files rather than one with a type column.
+ */
+export const parseGcOrgId = (input: string): string | null => {
+  const trimmed = typeof input === "string" ? input.trim() : "";
+  if (!trimmed) return null;
+  const match = GC_ORG_URL_PATTERN.exec(trimmed);
+  if (match?.[1]) return match[1];
+  return GC_TEAM_ID_PATTERN.test(trimmed) ? trimmed : null;
+};
+
+export const gcOrgPageUrl = (orgId: string): string =>
+  `https://web.gc.com/organizations/${orgId}/home`;
+
+/**
+ * What kind of thing an organization is, which decides what its teams are.
+ *
+ * A travel organization is a club and its teams are ranked as any other. A tournament is an event
+ * whose brackets often name an age. A league is neither automatically: "NKB 11u" is a travel
+ * league and "Mt. Carmel Little League" is rec ball, and only the name says which — the kind says
+ * the shape of the thing, not how its teams should be rated.
+ */
+export type GcOrgKind = "league" | "tournament" | "travel";
+
+const ORG_KINDS: Record<string, GcOrgKind> = {
+  league: "league",
+  leagues: "league",
+  tournament: "tournament",
+  tournaments: "tournament",
+  travel: "travel",
+  "travel org": "travel",
+  "travel organization": "travel",
+  "travel organisation": "travel",
+  club: "travel",
+  organization: "travel",
+  organisation: "travel",
+  org: "travel",
+};
+
+export const parseGcOrgKind = (raw: unknown): GcOrgKind | undefined =>
+  typeof raw === "string" ? ORG_KINDS[raw.trim().toLowerCase()] : undefined;
+
+/** One row of the user's organization list. */
+export type GcOrgListEntry = {
+  orgId: string;
+  name?: string;
+  kind?: GcOrgKind;
+  city?: string;
+  state?: string;
+  sport?: string;
+  /** Both halves known. A season word with no year, or a year with no word, is neither. */
+  season?: GcSeason;
+  /** The year on its own, for the rows that carry one without a season word. */
+  seasonYear?: number;
+  /** How many teams the org had when the list was taken — an estimate before anything is fetched. */
+  teamCount?: number;
+};
+
+/** One league or tournament a team belongs to: `"NKB 11u|Pqy5Av4tHncy"`. */
+export type GcTeamAssociation = { name: string; orgId?: string };
+
+/**
+ * The associations out of one cell: `"Name|Id;Name|Id"`.
+ *
+ * Semicolons between entries and a pipe between a name and its id, which is the shape the export
+ * writes. Either half may be missing — a name with no id is still worth keeping, because the name
+ * is what carries an age — and a repeated id is one association.
+ */
+export const parseGcAssociations = (cell: string): GcTeamAssociation[] => {
+  if (typeof cell !== "string" || !cell.trim()) return [];
+  const seen = new Set<string>();
+  const out: GcTeamAssociation[] = [];
+  for (const part of cell.split(";")) {
+    const [rawName = "", rawId = ""] = part.split("|");
+    const name = rawName.replace(/\s+/g, " ").trim();
+    const orgId = parseGcOrgId(rawId);
+    if (!name && !orgId) continue;
+    const key = (orgId ?? name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, ...(orgId ? { orgId } : {}) });
+  }
+  return out;
+};
+
+/**
+ * The age a team's leagues say it plays at, when they say one and agree.
+ *
+ * A league is where a team plays its own age. A tournament is where it plays **up**, so this
+ * deliberately takes only the leagues: the row that settles it is an 11U team whose league is
+ * "NKB 11u" and whose tournaments include "NB Summer Slam 12U", and reading the tournament would
+ * file it a year old and make every game in its own league read as playing down.
+ *
+ * Two leagues naming different ages is not an answer — one of them is about a different squad of
+ * the same club — so it refuses rather than picking, which is the rule `ageFromOpponentNames`
+ * already holds a tie to.
+ */
+export const ageFromLeagueNames = (
+  leagues: readonly GcTeamAssociation[] | undefined
+): number | undefined => {
+  if (!leagues?.length) return undefined;
+  const levels = new Set<number>();
+  for (const league of leagues) {
+    const level = ageLevelFromName(league.name);
+    if (level !== undefined) levels.add(level);
+  }
+  return levels.size === 1 ? [...levels][0] : undefined;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -724,6 +944,14 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
   const playerCount = asNumber(source.player_count ?? source.playerCount);
   if (playerCount !== undefined) profile.playerCount = playerCount;
 
+  const ngb = parseGcNgb(source.ngb);
+  if (ngb.length > 0) profile.ngb = ngb;
+
+  // From the profile as well as from a pasted list. See `GcTeamSchedule.listed` for the comment
+  // that said this never arrives, and the fixture that has always disproved it.
+  const staff = Array.isArray(source.staff) ? staffNames(source.staff) : [];
+  if (staff.length > 0) profile.staff = staff;
+
   return profile;
 };
 
@@ -891,6 +1119,22 @@ const CITY_HEADERS = ["city"];
 const STATE_HEADERS = ["state"];
 const STAFF_HEADERS = ["staff", "coaches", "coach", "staff names"];
 const PLAYER_COUNT_HEADERS = ["player count", "players", "roster size", "player_count"];
+/*
+ * The organization a team belongs to, and the leagues and tournaments it plays in.
+ *
+ * GameChanger's public API has no team-to-organization route, so nothing the app fetches can say
+ * which league a club is in. The user's own crawl can and does, which is why these columns are
+ * worth reading: they carry the answer the API withholds, at no request cost.
+ */
+const ORG_ID_HEADERS = ["organization id", "org id", "organisation id"];
+const ORG_NAME_HEADERS = ["organization name", "org name", "organisation name"];
+const ORG_TYPE_HEADERS = ["organization type", "org type", "organisation type"];
+const ORG_CITY_HEADERS = ["organization city", "org city"];
+const ORG_STATE_HEADERS = ["organization state", "org state"];
+const ORG_SEASON_HEADERS = ["organization season", "org season"];
+const ORG_URL_HEADERS = ["organization url", "org url", "organisation url"];
+const LEAGUE_HEADERS = ["league associations", "leagues", "league"];
+const TOURNAMENT_HEADERS = ["tournament associations", "tournaments", "tournament"];
 
 const columnIndex = (headers: string[], names: string[]): number => {
   for (const name of names) {
@@ -937,6 +1181,15 @@ type ListColumns = {
   state: number;
   staff: number;
   playerCount: number;
+  orgId: number;
+  orgName: number;
+  orgType: number;
+  orgCity: number;
+  orgState: number;
+  orgSeason: number;
+  orgUrl: number;
+  leagues: number;
+  tournaments: number;
 };
 
 const readColumns = (headers: string[]): ListColumns | null => {
@@ -953,6 +1206,17 @@ const readColumns = (headers: string[]): ListColumns | null => {
     state: columnIndex(headers, STATE_HEADERS),
     staff: columnIndex(headers, STAFF_HEADERS),
     playerCount: columnIndex(headers, PLAYER_COUNT_HEADERS),
+    // All optional, and each on its own: a row can name a tournament and no organization, which
+    // is what an independent team playing one event looks like.
+    orgId: columnIndex(headers, ORG_ID_HEADERS),
+    orgName: columnIndex(headers, ORG_NAME_HEADERS),
+    orgType: columnIndex(headers, ORG_TYPE_HEADERS),
+    orgCity: columnIndex(headers, ORG_CITY_HEADERS),
+    orgState: columnIndex(headers, ORG_STATE_HEADERS),
+    orgSeason: columnIndex(headers, ORG_SEASON_HEADERS),
+    orgUrl: columnIndex(headers, ORG_URL_HEADERS),
+    leagues: columnIndex(headers, LEAGUE_HEADERS),
+    tournaments: columnIndex(headers, TOURNAMENT_HEADERS),
   };
 };
 
@@ -997,15 +1261,25 @@ const nameFromListCell = (cell: string): string => {
  * names and is read as two. That costs nothing here — a half-name matches a half-name, and two
  * teams sharing both halves still share both.
  */
-export const parseGcStaffCell = (cell: string): string[] => {
-  if (!cell) return [];
+export const parseGcStaffCell = (cell: string): string[] =>
+  cell ? staffNames(cell.split(/[,;]/)) : [];
+
+/**
+ * A list of coach names, tidied: whitespace collapsed, blanks dropped, and the same name twice
+ * counted once — a card that names one coach twice is one coach, not corroboration.
+ *
+ * Shared because the names now arrive two ways. The pasted list gives one cell to split; the
+ * public profile gives an array of its own (see `normalizeGcTeamProfile`), and both have to come
+ * out the same or `gcStaff`'s matching would see two spellings of one club as two clubs.
+ */
+export const staffNames = (raw: readonly unknown[]): string[] => {
   const seen = new Set<string>();
   const names: string[] = [];
-  for (const raw of cell.split(/[,;]/)) {
-    const name = raw.replace(/\s+/g, " ").trim();
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const name = entry.replace(/\s+/g, " ").trim();
     if (!name) continue;
     const key = name.toLowerCase();
-    // A card that names the same coach twice is one coach, not corroboration.
     if (seen.has(key)) continue;
     seen.add(key);
     names.push(name);
@@ -1046,6 +1320,31 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   if (staff.length > 0) entry.staff = staff;
   const playerCount = parsePlayerCount(cellAt(cells, columns.playerCount));
   if (playerCount !== undefined) entry.playerCount = playerCount;
+
+  const orgId =
+    parseGcOrgId(cellAt(cells, columns.orgId)) ?? parseGcOrgId(cellAt(cells, columns.orgUrl));
+  const orgName = cellAt(cells, columns.orgName);
+  const orgKind = parseGcOrgKind(cellAt(cells, columns.orgType));
+  const orgCity = cellAt(cells, columns.orgCity);
+  const orgState = cellAt(cells, columns.orgState);
+  const orgSeason = parseGcSeasonLabel(cellAt(cells, columns.orgSeason));
+  const org = {
+    ...(orgId ? { orgId } : {}),
+    ...(orgName ? { name: orgName } : {}),
+    ...(orgKind ? { kind: orgKind } : {}),
+    ...(orgCity ? { city: orgCity } : {}),
+    ...(orgState ? { state: orgState } : {}),
+    ...(orgSeason ? { season: orgSeason } : {}),
+  };
+  // Only when the row said something. A team that plays a tournament and belongs to no club has
+  // every one of these blank, and an empty object would read as "an organization with no name".
+  if (Object.keys(org).length > 0) entry.org = org;
+
+  const leagues = parseGcAssociations(cellAt(cells, columns.leagues));
+  if (leagues.length > 0) entry.leagues = leagues;
+  const tournaments = parseGcAssociations(cellAt(cells, columns.tournaments));
+  if (tournaments.length > 0) entry.tournaments = tournaments;
+
   return entry;
 };
 
@@ -1108,4 +1407,182 @@ export const parseGcTeamList = (
   }
 
   return { entries, skipped };
+};
+
+// ---------- The user's organization list ----------
+
+const ORG_LIST_ID_HEADERS = [...ORG_ID_HEADERS, "id"];
+const ORG_LIST_NAME_HEADERS = [
+  "entity name",
+  ...ORG_NAME_HEADERS,
+  "name",
+  "organization",
+  "league",
+  "tournament",
+];
+const ORG_LIST_KIND_HEADERS = ["entity type", ...ORG_TYPE_HEADERS, "type", "kind", "entity"];
+const ORG_LIST_URL_HEADERS = [
+  "home url",
+  "teams url",
+  "schedule url",
+  ...ORG_URL_HEADERS,
+  "url",
+  "link",
+];
+const ORG_LIST_SEASON_NAME_HEADERS = ["season name", "season"];
+const ORG_LIST_SEASON_YEAR_HEADERS = ["season year", "year"];
+const ORG_LIST_SPORT_HEADERS = ["sport"];
+const ORG_LIST_TEAM_COUNT_HEADERS = ["team count", "teams"];
+
+type OrgColumns = {
+  id: number;
+  url: number[];
+  name: number;
+  kind: number;
+  city: number;
+  state: number;
+  seasonName: number;
+  seasonYear: number;
+  sport: number;
+  teamCount: number;
+};
+
+const orgColumns = (headers: string[]): OrgColumns | null => {
+  const id = columnIndex(headers, ORG_LIST_ID_HEADERS);
+  // Every URL column, not the first: the export writes three of them, and a row whose id column
+  // was mangled by a spreadsheet still parses from whichever link survived.
+  const url = ORG_LIST_URL_HEADERS.map((name) => headers.indexOf(name)).filter((at) => at >= 0);
+  if (id < 0 && url.length === 0) return null;
+  return {
+    id,
+    url,
+    name: columnIndex(headers, ORG_LIST_NAME_HEADERS),
+    kind: columnIndex(headers, ORG_LIST_KIND_HEADERS),
+    city: columnIndex(headers, CITY_HEADERS),
+    state: columnIndex(headers, STATE_HEADERS),
+    seasonName: columnIndex(headers, ORG_LIST_SEASON_NAME_HEADERS),
+    seasonYear: columnIndex(headers, ORG_LIST_SEASON_YEAR_HEADERS),
+    sport: columnIndex(headers, ORG_LIST_SPORT_HEADERS),
+    teamCount: columnIndex(headers, ORG_LIST_TEAM_COUNT_HEADERS),
+  };
+};
+
+/**
+ * The season off an organization row, read leniently across its two columns.
+ *
+ * The export does not always put a season word in the season column: a real row reads
+ * `Season Name="2027"` with `Season Year` empty, so the year arrived in the name's cell. Both
+ * halves are therefore read from either, and a season word with no year — or a year with no
+ * word — is reported as the half it is rather than dropped.
+ */
+const orgSeasonFrom = (
+  nameCell: string,
+  yearCell: string
+): { season?: GcSeason; seasonYear?: number } => {
+  const joined = [nameCell, yearCell].filter(Boolean).join(" ");
+  const full = parseGcSeasonLabel(joined);
+  if (full) return { season: full };
+  const year = /\b((?:19|20)\d{2})\b/.exec(joined);
+  return year ? { seasonYear: Number(year[1]) } : {};
+};
+
+const orgEntryFromRow = (orgId: string, cells: string[], columns: OrgColumns): GcOrgListEntry => {
+  const entry: GcOrgListEntry = { orgId };
+  const name = nameFromListCell(cellAt(cells, columns.name));
+  if (name) entry.name = name;
+  const kind = parseGcOrgKind(cellAt(cells, columns.kind));
+  if (kind) entry.kind = kind;
+  const city = cellAt(cells, columns.city);
+  if (city) entry.city = city;
+  const state = cellAt(cells, columns.state);
+  if (state) entry.state = state;
+  const sport = cellAt(cells, columns.sport);
+  if (sport) entry.sport = sport.toLowerCase();
+  const { season, seasonYear } = orgSeasonFrom(
+    cellAt(cells, columns.seasonName),
+    cellAt(cells, columns.seasonYear)
+  );
+  if (season) entry.season = season;
+  if (seasonYear !== undefined) entry.seasonYear = seasonYear;
+  const teamCount = parsePlayerCount(cellAt(cells, columns.teamCount));
+  if (teamCount !== undefined) entry.teamCount = teamCount;
+  return entry;
+};
+
+const orgIdFromRow = (cells: string[], columns: OrgColumns): string | null => {
+  const fromId = parseGcOrgId(cellAt(cells, columns.id));
+  if (fromId) return fromId;
+  for (const at of columns.url) {
+    const fromUrl = parseGcOrgId(cellAt(cells, at));
+    if (fromUrl) return fromUrl;
+  }
+  for (const cell of cells) {
+    const match = GC_ORG_URL_PATTERN.exec(cell);
+    if (match?.[1]) return match[1];
+  }
+  const nonEmpty = cells.filter((cell) => cell.length > 0);
+  if (nonEmpty.length === 1 && nonEmpty[0] !== undefined) return parseGcOrgId(nonEmpty[0]);
+  return null;
+};
+
+/**
+ * Reads the user's organization list: the leagues, tournaments and travel clubs they found.
+ *
+ * A second file rather than rows mixed into the team list, and the reason is that nothing could
+ * tell the two apart inside one: an organization id and a team id are the same shape. Two files
+ * make every row unambiguous by where it is, leave `parseGcTeamList` untouched, and mean no list
+ * already saved can be misread.
+ *
+ * Everything else is the team list's machinery: the same BOM strip, the same tab-or-comma sniff
+ * so a spreadsheet copy works, the same header aliasing, the same first-line-wins de-duplication,
+ * and the same headerless mode for a plain list of ids or URLs.
+ */
+export const parseGcOrgList = (text: string): { orgs: GcOrgListEntry[]; skipped: string[] } => {
+  const orgs: GcOrgListEntry[] = [];
+  const skipped: string[] = [];
+  const seen = new Set<string>();
+  if (typeof text !== "string") return { orgs, skipped };
+
+  const lines = stripBom(text).split(/\r?\n/);
+  const firstLine = lines.find((line) => line.trim().length > 0) ?? "";
+  const delimiter = firstLine.includes("\t") && !firstLine.includes(",") ? "\t" : ",";
+  const headerCells = splitDelimitedLine(firstLine, delimiter).map(normalizeHeader);
+  const columns = orgColumns(headerCells);
+
+  const add = (orgId: string, build: () => GcOrgListEntry): boolean => {
+    if (seen.has(orgId)) return false;
+    seen.add(orgId);
+    orgs.push(build());
+    return true;
+  };
+
+  let headerSkipped = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (columns && !headerSkipped) {
+      headerSkipped = true;
+      continue;
+    }
+
+    if (columns) {
+      const cells = splitDelimitedLine(line, delimiter);
+      const orgId = orgIdFromRow(cells, columns);
+      if (!orgId || !add(orgId, () => orgEntryFromRow(orgId, cells, columns))) {
+        skipped.push(line);
+      }
+      continue;
+    }
+
+    // Headerless: a bare id or a pasted URL per line. No `looksLikeGeneratedId` weighing here,
+    // because an organization list has no team names in it to be mistaken for ids.
+    let added = 0;
+    for (const token of line.split(/[\s,;]+/).filter(Boolean)) {
+      const orgId = parseGcOrgId(token);
+      if (orgId && add(orgId, () => ({ orgId }))) added += 1;
+    }
+    if (added === 0) skipped.push(line);
+  }
+
+  return { orgs, skipped };
 };

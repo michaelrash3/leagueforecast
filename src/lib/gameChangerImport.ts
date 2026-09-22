@@ -395,6 +395,12 @@ export type GcImportOutcome = {
   ageFromOpponents?: number;
   /** The level a person named by hand, which was used in place of whatever GameChanger said. */
   ageNamedByUser?: number;
+  /**
+   * The level a league the user's list names filed this team under, GameChanger having named
+   * none. Recorded for the same reason as the two above: a level the club did not state itself
+   * is worth being able to trace back to whoever did.
+   */
+  ageFromLeague?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -746,8 +752,16 @@ const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
     ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
     ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
     ...(profile.record ? { record: profile.record } : {}),
-    // From the user's list rather than from GameChanger, and only when their list carried it.
-    ...(listed?.staff?.length ? { staff: listed.staff } : {}),
+    /*
+     * The user's list first, GameChanger's profile behind it. The list is the newer reading and
+     * the one its owner can correct; the profile is what every pull carries whether a list was
+     * pasted or not, which is what makes the staff index worth having at all on a pull by id.
+     */
+    ...(listed?.staff?.length
+      ? { staff: listed.staff }
+      : profile.staff?.length
+        ? { staff: profile.staff }
+        : {}),
     ...(listed?.playerCount === undefined
       ? {}
       : { playerCount: listed.playerCount, countedAt: fetchedAt }),
@@ -1406,7 +1420,25 @@ const importOne = (
     named === undefined
       ? original
       : { ...original, profile: { ...original.profile, ageLevel: named } };
-  const { schedule, inferred } = withOpponentAge(withNamed);
+  /*
+   * Then the league the user's list says this team plays in, when GameChanger itself said nothing.
+   *
+   * Below the club's own word and above its opponents': a league naming an age — "NKB 11u" — is a
+   * statement about every team in it, which is stronger than reading the company a team keeps and
+   * weaker than the club filling in its own page. It reaches here from `listed` rather than from
+   * `profile` because GameChanger never said it: its public API has no route from a team to its
+   * leagues, and only a crawl that found the team through one knows.
+   *
+   * Leagues only. A tournament is where a team plays up, so an age in one is a ceiling it reached
+   * rather than the age it is — see `ageFromLeagueNames`.
+   */
+  const fromLeague =
+    profileAgeLevel(withNamed.profile) === undefined ? withNamed.listed?.ageLevel : undefined;
+  const withLeague: GcTeamSchedule =
+    fromLeague === undefined
+      ? withNamed
+      : { ...withNamed, profile: { ...withNamed.profile, ageLevel: fromLeague } };
+  const { schedule, inferred } = withOpponentAge(withLeague);
   const { profile } = schedule;
   const base: GcImportOutcome = {
     gcTeamId: profile.id,
@@ -1426,6 +1458,7 @@ const importOne = (
     opponentsMatchedByName: 0,
     ...(inferred === undefined ? {} : { ageFromOpponents: inferred }),
     ...(named === undefined ? {} : { ageNamedByUser: named }),
+    ...(fromLeague === undefined ? {} : { ageFromLeague: fromLeague }),
   };
 
   /*
@@ -3111,6 +3144,22 @@ export const TIDY_STEPS = [
 ] as const;
 
 export type TidyStepName = (typeof TIDY_STEPS)[number];
+
+/**
+ * Whether a tidy actually changed the pool, and so whether it is worth saving.
+ *
+ * Read off `TIDY_STEPS` rather than written out as a sum, because a sum written out is a list
+ * that has to be kept in step with this one by hand — and was not. The caller's version named
+ * eight of the eleven, leaving out `notBaseball`, `highSchool` and `resettled`, while the tidy
+ * stamp was written whatever happened: a pass whose only effect was deleting wiffle-ball or high
+ * school teams stamped the pool as tidied and then did not save it, so the deletions were lost
+ * and nothing would redo them until `TIDY_RULES_VERSION` moved.
+ *
+ * `passes` is not a change — it is at least one on a tidy that found nothing — and `state` is the
+ * pool itself, which is why this asks the step list rather than every numeric field.
+ */
+export const tidyChangedAnything = (tidy: PoolTidy): boolean =>
+  TIDY_STEPS.some((step) => tidy[step] > 0);
 
 /**
  * One step of one pass, reported twice: once as it starts and once as it finishes.
