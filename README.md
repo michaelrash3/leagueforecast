@@ -790,9 +790,24 @@ in that division is `Under 13` and 13U at once and neither is wrong. Read strict
 band vetoes 178 Intermediate teams it has no business vetoing.
 
 **The pool's own names, for measuring a rule against what it must not break.** Pool health
-carries a **Download the pool names** button: ids, names and the age each team is already
-filed under, and no games, so a hundred thousand teams is a few megabytes. Nothing in the
-app reads it. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
+carries a **Download the pool names** button: ids, names, the age each team is already
+filed under, and the same evidence the backlog rows carry — games, scored, ahead of today,
+shutout blowouts, opponents, how many of them named an age, which ages, and a sample of
+the ones that named none. No games themselves, so a hundred thousand teams is a few
+megabytes. Nothing in the app reads it.
+
+The evidence half is there because without it the tripwire can only measure the rules that
+read a name. The five that read a schedule — `closed-cluster`, `school-by-evidence`,
+`near-miss-tally`, `no-games`, `scored-ahead` — could not fire against a file of bare names
+at all, and reported a zero that means "not measured" and looks exactly like "safe".
+`closed-cluster` alone proposes a verdict for 10,709 backlog rows, so that distinction was
+worth the columns. The counts use the same definitions `agelessEvidence` uses, per distinct
+opponent rather than per game, because the tripwire compares what a rule does here against
+what it does on the backlog and two readings of "opponents" would make that meaningless.
+
+Two rules still cannot be measured this way whatever the file holds: `adult-label` and
+`school-label` read GameChanger's own age field, which the pool keeps no copy of. The sweep
+names them as not measured rather than printing their zero. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
 otherwise ask the only question that matters about a candidate rule — what it would do to
 the teams that already work. Because the file carries the filed age, a hit splits into
 "agrees with the pool" and "disagrees", and it is the second column that should be zero.

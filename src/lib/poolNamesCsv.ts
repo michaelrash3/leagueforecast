@@ -20,6 +20,9 @@
  */
 
 import { csvEscape } from "./csv";
+import { ageLevelFromName } from "./gameChangerApi";
+import { AGELESS_SAMPLE_OPPONENTS } from "./agelessEvidence";
+import { todayIsoDay } from "./date";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings";
 
 export const POOL_NAMES_CSV_HEADERS = [
@@ -29,6 +32,16 @@ export const POOL_NAMES_CSV_HEADERS = [
   "Squad Year",
   "State",
   "Ranked",
+  // The evidence half. Without it the tripwire can measure only the rules that read a name, and
+  // the five that read a schedule report a zero that means "not measured" and looks like "safe".
+  "Games",
+  "Scored",
+  "Ahead Of Today",
+  "Shutout Blowouts",
+  "Opponents",
+  "Opponents Naming An Age",
+  "Opponent Ages",
+  "Played",
 ] as const;
 
 /**
@@ -78,6 +91,99 @@ const groupOf = (teams: readonly ScoutTeam[], games: readonly ScoutGame[]): Map<
   return best;
 };
 
+/**
+ * The same evidence `agelessEvidence` keeps, computed off the pool's own games.
+ *
+ * Deliberately the same definitions rather than near enough ones, because the tripwire compares
+ * what a rule does here against what it does on the backlog, and two different readings of
+ * "opponents" would make that comparison meaningless. Counted per distinct opponent rather than
+ * per game for the reason that file gives: a tournament against the same club four times is one
+ * club's opinion.
+ *
+ * What cannot be had this way is written down rather than faked. A pool team has no `ageLabel`,
+ * no `record` and no `playerCount` — those come off a GameChanger profile the pool never keeps —
+ * so the rules that read them (`adult-label`, `school-label`) still cannot be measured here, and
+ * the sweep says so rather than printing a zero.
+ */
+const BLOWOUT_MARGIN = 10;
+
+type PoolEvidence = {
+  games: number;
+  scored: number;
+  aheadOfToday: number;
+  shutoutBlowouts: number;
+  opponents: number;
+  namedAnAge: number;
+  tally: [number, number][];
+  played: string[];
+};
+
+const evidenceOf = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  today: string
+): Map<string, PoolEvidence> => {
+  const named = new Map(teams.map((team) => [team.id, team.name]));
+  const out = new Map<string, PoolEvidence>();
+  const seen = new Map<string, Set<string>>();
+  const counts = new Map<string, Map<number, number>>();
+
+  const bump = (teamId: string, opponentId: string, game: ScoutGame) => {
+    const evidence = out.get(teamId) ?? {
+      games: 0,
+      scored: 0,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 0,
+      namedAnAge: 0,
+      tally: [],
+      played: [],
+    };
+    evidence.games += 1;
+    const a = game.teamAScore;
+    const b = game.teamBScore;
+    if (a !== undefined && b !== undefined) {
+      evidence.scored += 1;
+      if (game.date !== undefined && game.date > today) evidence.aheadOfToday += 1;
+      if (Math.min(a, b) === 0 && Math.max(a, b) >= BLOWOUT_MARGIN) evidence.shutoutBlowouts += 1;
+    }
+    out.set(teamId, evidence);
+
+    const opponentName = named.get(opponentId);
+    if (opponentName === undefined) return;
+    const key = opponentName.trim().toLowerCase();
+    const already = seen.get(teamId) ?? new Set<string>();
+    if (!key || already.has(key)) return;
+    already.add(key);
+    seen.set(teamId, already);
+    evidence.opponents += 1;
+    const level = ageLevelFromName(opponentName);
+    if (level === undefined) {
+      if (evidence.played.length < AGELESS_SAMPLE_OPPONENTS) evidence.played.push(opponentName);
+      return;
+    }
+    evidence.namedAnAge += 1;
+    const tally = counts.get(teamId) ?? new Map<number, number>();
+    tally.set(level, (tally.get(level) ?? 0) + 1);
+    counts.set(teamId, tally);
+  };
+
+  games.forEach((game) => {
+    bump(game.teamAId, game.teamBId, game);
+    bump(game.teamBId, game.teamAId, game);
+  });
+  counts.forEach((tally, teamId) => {
+    const evidence = out.get(teamId);
+    if (!evidence) return;
+    evidence.tally = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  });
+  return out;
+};
+
+/** "2×9U 1×10U", written the way `agelessCsv` writes it so one reader serves both files. */
+const tallyCell = (tally: readonly [number, number][]): string =>
+  tally.map(([level, count]) => `${count}×${level}U`).join(" ");
+
 /** The whole pool, a chunk at a time, for a Blob to assemble without one giant string. */
 export const poolNamesCsvParts = (
   teams: readonly ScoutTeam[],
@@ -86,10 +192,12 @@ export const poolNamesCsvParts = (
 ): string[] => {
   const groups = new Map(ageGroups.map((group) => [group.id, group]));
   const playsIn = groupOf(teams, games);
+  const evidence = evidenceOf(teams, games, todayIsoDay());
   const parts = [`${POOL_NAMES_CSV_HEADERS.join(",")}\n`];
   teams.forEach((team) => {
     const groupId = playsIn.get(team.id);
     const group = groupId === undefined ? undefined : groups.get(groupId);
+    const e = evidence.get(team.id);
     const cells = [
       team.id,
       team.name,
@@ -97,6 +205,14 @@ export const poolNamesCsvParts = (
       group?.year ?? "",
       team.state ?? "",
       isRanked(team) ? "yes" : "no",
+      e?.games ?? 0,
+      e?.scored ?? 0,
+      e?.aheadOfToday ?? 0,
+      e?.shutoutBlowouts ?? 0,
+      e?.opponents ?? 0,
+      e?.namedAnAge ?? 0,
+      tallyCell(e?.tally ?? []),
+      (e?.played ?? []).join("; "),
     ];
     parts.push(`${cells.map(csvEscape).join(",")}\n`);
   });
