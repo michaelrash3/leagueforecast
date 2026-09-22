@@ -21,6 +21,7 @@ import {
 } from "./deletedGames";
 import { coerceTooYoungClubs, tooYoungClubsList, type TooYoungClubs } from "./tooYoungClubs";
 import { coerceNamedAges, namedAgesList, type NamedAge, type NamedAges } from "./namedAges";
+import { coerceOrgMembership, type OrgMembership } from "./orgMembership";
 import {
   archiveEntryOf,
   coerceArchivedSeason,
@@ -176,6 +177,8 @@ const GC_DROPPED_CLUBS_KEY = "league_forecast_gc_dropped_clubs_v1";
 const GC_TOO_YOUNG_KEY = "league_forecast_gc_too_young_v1";
 /** The ages somebody named by hand for teams the app could not work out. */
 const GC_NAMED_AGES_KEY = "league_forecast_gc_named_ages_v1";
+/** The organizations the user's Organizations file named, with the teams under each. */
+const GC_ORG_MEMBERSHIP_KEY = "league_forecast_gc_org_membership_v1";
 /**
  * One archived season's rows, a key each.
  *
@@ -408,6 +411,7 @@ const POOL_KEYS = [
   GC_DROPPED_CLUBS_KEY,
   GC_TOO_YOUNG_KEY,
   GC_NAMED_AGES_KEY,
+  GC_ORG_MEMBERSHIP_KEY,
 ];
 /**
  * Keys that live beside the pool in the store but are read on demand rather than into the cache.
@@ -628,6 +632,7 @@ export const clearTeamRankings = (): boolean => {
     GC_DROPPED_CLUBS_KEY,
     GC_TOO_YOUNG_KEY,
     GC_NAMED_AGES_KEY,
+    GC_ORG_MEMBERSHIP_KEY,
   ]);
   POOL_KEYS.filter((key) => !kept.has(key)).forEach((key) => forgetValue(key));
   shards.forEach((key) => forgetValue(key));
@@ -1330,6 +1335,12 @@ export const loadNamedAges = (): Map<string, NamedAge> =>
 
 export const saveNamedAges = (named: NamedAges): boolean =>
   writeValue(GC_NAMED_AGES_KEY, namedAgesList(named));
+
+export const loadOrgMembership = (): OrgMembership =>
+  coerceOrgMembership(readValue(GC_ORG_MEMBERSHIP_KEY));
+
+export const saveOrgMembership = (membership: OrgMembership): boolean =>
+  writeValue(GC_ORG_MEMBERSHIP_KEY, membership);
 
 /**
  * A value that is too big to keep in memory, read and written straight past the cache.

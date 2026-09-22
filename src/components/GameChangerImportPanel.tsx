@@ -2,12 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   ageFromLeagueNames,
   ageFromOrgName,
+  parseGcOrgList,
   parseGcTeamList,
   type GcTeamListEntry,
   type GcTeamProfile,
 } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
+import {
+  mergeOrgMembership,
+  orgAgesByTeam,
+  withOrgAges,
+  type OrgMembership,
+} from "../lib/orgMembership";
 import { inventedFromOutcomes, type DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
@@ -110,6 +117,8 @@ import {
   loadDroppedClubs,
   loadTooYoungClubs,
   saveTooYoungClubs,
+  loadOrgMembership,
+  saveOrgMembership,
   loadKeptApart,
   saveKeptApart,
 } from "../lib/teamRankingsStorage";
@@ -504,6 +513,47 @@ export function GameChangerImportPanel({
    * below has to see the new one without the panel being closed and reopened.
    */
   const [ageless, setAgeless] = useState<AgeUnknownList>(() => loadAgeUnknown());
+  /**
+   * The organizations the user's Organizations file named, with the teams under each, and the age
+   * each such team's organizations agree on. Read when a pull files a team GameChanger left
+   * ageless, and by the rota, which asks straight away about a waiting team a file can now age.
+   */
+  const [membership, setMembership] = useState<OrgMembership>(() => loadOrgMembership());
+  const orgAges = useMemo(() => orgAgesByTeam(membership), [membership]);
+  const asks = useMemo(
+    () => withOrgAges(namedAges, orgAges, membership.savedAt),
+    [namedAges, orgAges, membership.savedAt]
+  );
+  const waitingOrgAged = useMemo(
+    () => ageless.filter((entry) => orgAges.has(entry.teamId)).length,
+    [ageless, orgAges]
+  );
+  const linkedTeams = useMemo(
+    () => new Set(membership.orgs.flatMap((org) => org.teamIds)).size,
+    [membership]
+  );
+  const readOrgFile = (text: string) => {
+    const { orgs } = parseGcOrgList(text);
+    if (!orgs.some((org) => org.teamIds?.length)) {
+      showToast("That file names no teams under its organizations: it needs the Team IDs column.", {
+        tone: "error",
+      });
+      return;
+    }
+    const next = mergeOrgMembership(membership, orgs, new Date().toISOString());
+    if (next === membership) {
+      showToast("Nothing new in that file: every organization in it is already kept.");
+      return;
+    }
+    if (!saveOrgMembership(next)) {
+      showToast("Could not keep the organizations: the browser refused the write.", {
+        tone: "error",
+      });
+      return;
+    }
+    setMembership(next);
+    showToast(`Kept ${next.orgs.length.toLocaleString()} organizations with teams under them.`);
+  };
   const [cadence, setCadence] = useState<RefreshCadence>(() => loadRefreshCadence());
   const chooseCadence = useCallback((next: RefreshCadence) => {
     setCadence(next);
@@ -522,12 +572,12 @@ export function GameChangerImportPanel({
       due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
         ageless,
         cadence,
-        namedAges,
+        namedAges: asks,
         refused: droppedClubs,
       }),
-      agelessLine: describeAgeUnknown(ageless, now, namedAges, droppedClubs),
+      agelessLine: describeAgeUnknown(ageless, now, asks, droppedClubs),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -545,11 +595,11 @@ export function GameChangerImportPanel({
       dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
         ageless,
         cadence,
-        namedAges,
+        namedAges: asks,
         refused: droppedClubs,
         force: true,
       }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -962,14 +1012,20 @@ export function GameChangerImportPanel({
              * `ageFromOrgName` refuses event-sounding names and spans, and why it only answers
              * where the league said nothing.
              */
+            /*
+             * And failing both, the Organizations file: the age the organizations it put this team
+             * under agree on. It reaches a team the list does not describe at all — one the rota
+             * is asking about again because it is waiting on an age — which is most of the point.
+             */
             const leagueAge =
-              ageFromLeagueNames(entry?.leagues) ?? ageFromOrgName(entry?.org?.name);
+              ageFromLeagueNames(entry?.leagues) ??
+              ageFromOrgName(entry?.org?.name) ??
+              orgAges.get(teamId);
             const listed =
-              entry &&
-              (entry.staff?.length || entry.playerCount !== undefined || leagueAge !== undefined)
+              entry?.staff?.length || entry?.playerCount !== undefined || leagueAge !== undefined
                 ? {
-                    ...(entry.staff?.length ? { staff: entry.staff } : {}),
-                    ...(entry.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+                    ...(entry?.staff?.length ? { staff: entry.staff } : {}),
+                    ...(entry?.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
                     ...(leagueAge === undefined ? {} : { ageLevel: leagueAge }),
                   }
                 : undefined;
@@ -1822,6 +1878,34 @@ export function GameChangerImportPanel({
                 )}
               </>
             )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="inline-block">
+              <span className={`${button.ghost} inline-block cursor-pointer`}>
+                Choose an Organizations CSV
+              </span>
+              <input
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                className="hidden"
+                aria-label="Organizations CSV"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
+                  reader.onload = () => readOrgFile(String(reader.result ?? ""));
+                  reader.readAsText(file);
+                }}
+              />
+            </label>
+            <span className="text-xs text-slate-500" data-testid="gc-org-membership">
+              {membership.orgs.length === 0
+                ? "The Organizations export with its Team IDs column. A team GameChanger gives no age takes the age its organization's name states, and a file read later adds to this one."
+                : `${membership.orgs.length.toLocaleString()} organizations kept, ${linkedTeams.toLocaleString()} teams under them. ${orgAges.size.toLocaleString()} can take an age from an organization's name, ${waitingOrgAged.toLocaleString()} of them waiting on one.`}
+            </span>
           </div>
 
           {coverage && (

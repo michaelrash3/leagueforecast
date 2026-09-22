@@ -19,6 +19,7 @@
  */
 
 import {
+  ageFitsBand,
   ageFromGradYearInName,
   ageLevelFromName,
   formatGcSeason,
@@ -1664,8 +1665,20 @@ const importOne = (
    * Leagues only. A tournament is where a team plays up, so an age in one is a ceiling it reached
    * rather than the age it is — see `ageFromLeagueNames`.
    */
+  /*
+   * Never against GameChanger's own band. "Under 13" and "Between 13 - 18" bound an age without
+   * giving one, and a list's age outside the bound is the list being wrong about the team: of the
+   * 141 waiting teams a partial Organizations export of 22 September 2026 would age, the two whose
+   * band it contradicted were "Ritter", filed "Under 13" and under a 16U organization, and
+   * "Monster Blue", filed "Between 13 - 18" and under a 7U one.
+   */
+  const listedAge = withNamed.listed?.ageLevel;
   const fromLeague =
-    profileAgeLevel(withNamed.profile) === undefined ? withNamed.listed?.ageLevel : undefined;
+    profileAgeLevel(withNamed.profile) === undefined &&
+    listedAge !== undefined &&
+    ageFitsBand(listedAge, withNamed.profile.ageLabel)
+      ? listedAge
+      : undefined;
   const withLeague: GcTeamSchedule =
     fromLeague === undefined
       ? withNamed

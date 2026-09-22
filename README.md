@@ -570,6 +570,22 @@ columns (any of which yields the id), `City`, `State`, `Season Name`, `Season Ye
 `Sport`, `Team Count` — and the season pair is read leniently across both cells,
 because a real export puts `2027` in the _name_ column with the year column empty.
 
+**The Organizations file is read from the pull panel**, beside the team list, and kept:
+a file read later adds to it, replacing only the organizations it names again, so an
+export taken part way through a crawl and then the whole of it add up. What makes it
+worth reading is its `Team IDs` column — the teams under each organization, which is the
+link the team export almost never carries: its league column was empty on every row of
+three real exports, 309,504 rows between them. A team a pull brings back with no age from
+GameChanger or its own name, whether from the pasted list or from the rota asking again
+about a team waiting on an age, takes the age its organizations' names agree on
+(`orgMembership.ts`), read by the same `ageFromOrgName` that measured 95.1% against teams
+with an age of their own; two organizations naming different ages give nothing. Never
+against GameChanger's own band: a team filed "Under 13" is not filed at 16U because an
+organization's name says so. A waiting team a file can now age is asked about again at
+once, as one somebody named an age for by hand would be. A partial export of 22 September
+2026 kept 1,798 organizations over 11,515 teams and would age 141 waiting ones, 139 of
+them inside the band GameChanger gives them and the other two refused by it.
+
 `Entity Type` says what a thing is, not how its teams should be rated. A travel
 organization is a club; a tournament is an event whose brackets often name an age; and
 a **league is neither automatically** — "NKB 11u" is a travel league and

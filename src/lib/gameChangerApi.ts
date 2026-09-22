@@ -386,6 +386,14 @@ export type GcOrgListEntry = {
   seasonYear?: number;
   /** How many teams the org had when the list was taken — an estimate before anything is fetched. */
   teamCount?: number;
+  /**
+   * The GameChanger ids of the teams under it, when the list names them.
+   *
+   * GameChanger's public API has no route from a team to its organizations, so this column is the
+   * only way the app learns which league a team plays in when the team list's own row names none
+   * — and that is most of them: every row of three real team exports left the league column empty.
+   */
+  teamIds?: string[];
 };
 
 /** One league or tournament a team belongs to: `"NKB 11u|Pqy5Av4tHncy"`. */
@@ -1632,6 +1640,7 @@ const ORG_LIST_SEASON_NAME_HEADERS = ["season name", "season"];
 const ORG_LIST_SEASON_YEAR_HEADERS = ["season year", "year"];
 const ORG_LIST_SPORT_HEADERS = ["sport"];
 const ORG_LIST_TEAM_COUNT_HEADERS = ["team count", "teams"];
+const ORG_LIST_TEAM_IDS_HEADERS = ["team ids", "team id list"];
 
 type OrgColumns = {
   id: number;
@@ -1644,6 +1653,7 @@ type OrgColumns = {
   seasonYear: number;
   sport: number;
   teamCount: number;
+  teamIds: number;
 };
 
 const orgColumns = (headers: string[]): OrgColumns | null => {
@@ -1663,6 +1673,7 @@ const orgColumns = (headers: string[]): OrgColumns | null => {
     seasonYear: columnIndex(headers, ORG_LIST_SEASON_YEAR_HEADERS),
     sport: columnIndex(headers, ORG_LIST_SPORT_HEADERS),
     teamCount: columnIndex(headers, ORG_LIST_TEAM_COUNT_HEADERS),
+    teamIds: columnIndex(headers, ORG_LIST_TEAM_IDS_HEADERS),
   };
 };
 
@@ -1705,6 +1716,15 @@ const orgEntryFromRow = (orgId: string, cells: string[], columns: OrgColumns): G
   if (seasonYear !== undefined) entry.seasonYear = seasonYear;
   const teamCount = parsePlayerCount(cellAt(cells, columns.teamCount));
   if (teamCount !== undefined) entry.teamCount = teamCount;
+  // "KJz7is1kgzOm; 1AF7a2UggAi7": whatever separates them, only what reads as an id is kept.
+  const teamIds = [
+    ...new Set(
+      cellAt(cells, columns.teamIds)
+        .split(/[\s,;|]+/)
+        .filter((id) => GC_TEAM_ID_PATTERN.test(id))
+    ),
+  ];
+  if (teamIds.length > 0) entry.teamIds = teamIds;
   return entry;
 };
 

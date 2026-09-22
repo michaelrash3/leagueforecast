@@ -1005,6 +1005,35 @@ describe("reading a graduation year as an age", () => {
  * A second file rather than rows mixed into the team list, because an organization id and a team
  * id are the same shape and nothing inside one file could tell them apart.
  */
+describe("parseGcOrgList with the teams under each organization", () => {
+  // The header and two rows exactly as the Organizations export of 22 September 2026 wrote them.
+  const withTeams = [
+    "Entity Type,Entity Name,Organization ID,City,State,Season Name,Season Year,Sport,Home URL,Teams URL,Schedule URL,Team Count,Team IDs,Found Via Searches,First Seen,Last Seen",
+    '"travel","Strike Out Cancer","001HxWz6qGlu","Oxford","PA","fall","2026","baseball","https://web.gc.com/organizations/001HxWz6qGlu/home","https://web.gc.com/organizations/001HxWz6qGlu/teams","https://web.gc.com/organizations/001HxWz6qGlu/schedule","4","KJz7is1kgzOm; 1AF7a2UggAi7; dGdko0mnt5cg; QjBhPB3gwcb4","zut","2026-09-22T22:39:29.257Z",""',
+    '"travel","8U Back To School Ballout 26","00xMigfEP8B5","","","fall","2026","baseball","https://web.gc.com/organizations/00xMigfEP8B5/home","https://web.gc.com/organizations/00xMigfEP8B5/teams","https://web.gc.com/organizations/00xMigfEP8B5/schedule","2","w70w04ngxoIR; D0PvbUNHZLHB; w70w04ngxoIR; not an id","Jack",""',
+  ].join("\n");
+
+  it("reads the ids of the teams under each one", () => {
+    const { orgs, skipped } = parseGcOrgList(withTeams);
+    expect(skipped).toEqual([]);
+    expect(orgs[0]?.teamIds).toEqual([
+      "KJz7is1kgzOm",
+      "1AF7a2UggAi7",
+      "dGdko0mnt5cg",
+      "QjBhPB3gwcb4",
+    ]);
+    expect(orgs[0]?.teamCount).toBe(4);
+  });
+
+  it("keeps each id once and only what reads as an id", () => {
+    expect(parseGcOrgList(withTeams).orgs[1]?.teamIds).toEqual(["w70w04ngxoIR", "D0PvbUNHZLHB"]);
+  });
+
+  it("leaves the field off a file with no such column", () => {
+    expect(parseGcOrgList(orgListCsv).orgs.every((org) => org.teamIds === undefined)).toBe(true);
+  });
+});
+
 describe("parseGcOrgList against the real export", () => {
   it("reads every row of the file the user actually has", () => {
     const { orgs, skipped } = parseGcOrgList(orgListCsv);
