@@ -12,6 +12,8 @@ import {
   ageFromGradYearInName,
   ageFromGradYearLabel,
   ageLevelFromName,
+  ageLevelOf,
+  ageSpanFromName,
   avatarKeyFromUrl,
   gradYearFromName,
   formatGcSeason,
@@ -342,6 +344,21 @@ describe("age levels", () => {
     expect(ageLevelFromName("Alvey 9U/10U | King Coconuts")).toBe(10);
   });
 
+  it("reads both ends of a bracket, not just the one it files the team at", () => {
+    // The older end is the level; the pair is what says the level came from a bracket at all,
+    // which is what lets it outrank the age field and what takes the whole thing off the name.
+    expect(ageSpanFromName("Premier Ohio Lopez 9U/10U")).toEqual({ low: 9, high: 10 });
+    expect(ageSpanFromName("13u - 14u Bandits")).toEqual({ low: 13, high: 14 });
+    // Written the other way round, which really happens: the ends are sorted, not assumed.
+    expect(ageSpanFromName("Heat 12U/11U")).toEqual({ low: 11, high: 12 });
+    expect(ageSpanFromName("OM 9/10U Fall 2026 White - Malone")).toEqual({ low: 9, high: 10 });
+    expect(ageSpanFromName("11UA/12UB Rebels")).toEqual({ low: 11, high: 12 });
+    // One age, no age, and a pair of numbers that is not a bracket.
+    expect(ageSpanFromName("Trash Pandas 9u")).toBeUndefined();
+    expect(ageSpanFromName("Mears 1 - 2026")).toBeUndefined();
+    expect(ageSpanFromName("")).toBeUndefined();
+  });
+
   it("does not mistake a stray pair of numbers in a name for a bracket", () => {
     // The second age has to carry the U, which is what keeps these out.
     expect(ageLevelFromName("Mears 1 - 2026")).toBeUndefined();
@@ -360,6 +377,68 @@ describe("age levels", () => {
     expect(ageLevelFromName("Trash Pandas")).toBeUndefined();
     expect(ageLevelFromName("2026 Fall Squad")).toBeUndefined();
     expect(ageLevelFromName("")).toBeUndefined();
+  });
+});
+
+describe("ageLevelOf", () => {
+  /** Fall 2026 is squad year 2027, which is the season the team in these cases is playing. */
+  const SQUAD_YEAR = 2027;
+
+  it("files a squad whose name spells out a bracket at the older end, over the age field", () => {
+    /*
+     * Premier Ohio Lopez 9U/10U, Fall 2026, whose GameChanger age field says 9U. The field holds
+     * one value picked from a dropdown and the name holds the whole bracket, so the two are not
+     * in conflict so much as one is half the other. Filed at 9U, every game the squad played in
+     * its own bracket read as playing up, and the rating carried an advantage it had not earned.
+     */
+    expect(ageLevelOf("9U", "Premier Ohio Lopez 9U/10U", SQUAD_YEAR)).toBe(10);
+    // The same answer however the field is filled in, including not at all.
+    expect(ageLevelOf("10U", "Premier Ohio Lopez 9U/10U", SQUAD_YEAR)).toBe(10);
+    expect(ageLevelOf("", "Premier Ohio Lopez 9U/10U", SQUAD_YEAR)).toBe(10);
+    expect(ageLevelOf(undefined, "Premier Ohio Lopez 9U/10U", SQUAD_YEAR)).toBe(10);
+    // And a field that disagrees outright is still a field: the bracket is what the team wrote.
+    expect(ageLevelOf("12U", "Premier Ohio Lopez 9U/10U", SQUAD_YEAR)).toBe(10);
+  });
+
+  it("keeps the age field ahead of a single label in the name", () => {
+    // Unchanged, and deliberately: one age in a name is somebody's typing, while the field is the
+    // same somebody answering the question outright. Only a bracket says more than the field does.
+    expect(ageLevelOf("9U", "Aces 10U", SQUAD_YEAR)).toBe(9);
+    // A graduating class in the field outranks a label in the name for the same reason.
+    expect(ageLevelOf("2029", "Aces 10U", SQUAD_YEAR)).toBe(16);
+    // An unreadable field falls through to the name, as before.
+    expect(ageLevelOf("Varsity", "Aces 10U", SQUAD_YEAR)).toBe(10);
+    expect(ageLevelOf("", "Aces 10U", SQUAD_YEAR)).toBe(10);
+  });
+
+  it("falls to a graduating class in the name, and then to no level at all", () => {
+    expect(ageLevelOf("", "Midwest Nationals 2030", SQUAD_YEAR)).toBe(15);
+    // A year too near the season is a season, not a class, so this is a team with no age.
+    expect(ageLevelOf("", "Warriors Spring 2027", SQUAD_YEAR)).toBeUndefined();
+    expect(ageLevelOf("", "Trash Pandas", SQUAD_YEAR)).toBeUndefined();
+    // No squad year, so neither class reading is available to try.
+    expect(ageLevelOf("", "Midwest Nationals 2030", undefined)).toBeUndefined();
+  });
+
+  it("reads a profile and the list row naming it as one age", () => {
+    // The two climb the same ladder because they call the same function; a row and the team it
+    // names disagreeing about the age is what that is there to stop.
+    const profile = normalizeGcTeamProfile({
+      ...profileFixture,
+      name: "Premier Ohio Lopez 9U/10U",
+      age_group: "9U",
+    });
+    expect(profile?.ageLevel).toBe(10);
+    // What GameChanger actually filed it under is still kept, because the level is now a reading.
+    expect(profile?.ageLabel).toBe("9U");
+
+    const { entries } = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group,Season",
+        "Premier Ohio Lopez 9U/10U,gK5JSTKGwRYz,9U,Fall 2026",
+      ].join("\n")
+    );
+    expect(entries[0]!.ageLevel).toBe(10);
   });
 });
 
