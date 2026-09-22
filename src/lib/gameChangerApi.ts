@@ -871,17 +871,56 @@ export const ageFromGradYearLabel = (
  * `ageFromOpponentNames` for what the pool makes of that, and `namedAges` for a person answering
  * it outright, which beats every rung here.
  */
+/**
+ * A name that states an age this app cannot read at all — "4U Sparrows", "5U T-Ball Couto".
+ *
+ * Not the same as a name that says nothing. The club has stated its age and the answer is simply
+ * younger than `MIN_GC_AGE_LEVEL`, and on a pasted list that matters: with no reading of its own,
+ * the ladder would fall through to the age column, and a column that says 9U would file a team of
+ * four-year-olds against nine-year-olds. Measured over an 83,941-row export, 298 names state an
+ * age below the floor and the column offers 9U or 8U for 248 of them.
+ *
+ * Refusing leaves the team ageless, which is the safe direction: an unaged team costs its own
+ * ranking, where a team aged five years wrong corrupts every club it played.
+ */
+const UNRANKABLE_AGE_IN_NAME = /\b(?:(\d{1,2})\s*[uU][A-Da-d]{0,3}|[uU]\s*(\d{1,2}))\b/;
+
+export const nameStatesUnrankableAge = (name: string): boolean => {
+  if (typeof name !== "string") return false;
+  if (ageLevelFromName(name) !== undefined) return false;
+  const match = UNRANKABLE_AGE_IN_NAME.exec(name);
+  if (!match) return false;
+  const level = Number(match[1] ?? match[2]);
+  return Number.isInteger(level) && !inAgeRange(level);
+};
+
+export type AgeFieldSource =
+  /** GameChanger's own `age_group`, first-hand from its API. */
+  | "profile"
+  /** The age column of a pasted list: second-hand, and only as good as whoever built the file. */
+  | "list";
+
 export const ageLevelOf = (
   ageField: unknown,
   name: string,
-  squadYear: number | undefined
+  squadYear: number | undefined,
+  source: AgeFieldSource = "profile"
 ): number | undefined => {
   const label = typeof ageField === "string" ? ageField : undefined;
+  const stated = ageLevelFromName(name);
+  /*
+   * On a pasted list the name outranks the column, and a name too young to read stops the ladder
+   * rather than letting the column answer for it. See `nameStatesUnrankableAge`.
+   */
+  if (source === "list") {
+    if (stated !== undefined) return stated;
+    if (nameStatesUnrankableAge(name)) return undefined;
+  }
   return (
     ageSpanFromName(name)?.high ??
     parseGcAgeLevel(ageField) ??
     (squadYear === undefined ? undefined : ageFromGradYearLabel(label, squadYear)) ??
-    ageLevelFromName(name) ??
+    stated ??
     (squadYear === undefined ? undefined : ageFromGradYearInName(name, squadYear))
   );
 };
@@ -1424,7 +1463,7 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   // The same field, read for the other thing it says. This app ranks youth baseball, so an
   // over-18 or college side has no age to find and costs no request to refuse.
   if (isAdultAgeLabel(ageCell)) entry.notYouth = true;
-  const ageLevel = ageLevelOf(ageCell, name, squadYear);
+  const ageLevel = ageLevelOf(ageCell, name, squadYear, "list");
   if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const city = cellAt(cells, columns.city);
   if (city) entry.city = city;

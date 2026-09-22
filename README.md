@@ -717,6 +717,35 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**A name outranks an age column, on a pasted list.** The age ladder reads two kinds of
+age field and does not trust them equally. GameChanger's own `age_group`, first-hand from
+its API, outranks a plain age in the team's name. The age column of a pasted list does
+not: there the name wins.
+
+The reason is that a column is only as good as whoever built the file, and a name is the
+club's own statement. Measured against the 60,040 teams this pool already ranks: over an
+83,941-row export the column and the name disagreed 21,320 times, and for the 8,822 of
+those whose team could be found in the pool by name, the **name** matched the filed age
+7,603 times — 86.2% — against the column's 187, or 2.1%. That export's column turned out
+to be the age bucket its crawler had searched rather than the team's own: it was identical
+to the file's own `Found Via Ages` in 59,794 of 59,799 rows. "BattleHawks 10U" carried
+11U, "MBC 8U" carried 9U, "BNE NTH 1 12U" carried 18U.
+
+A correctly built list points the same way, less starkly. The "Check the id" pull of
+40,760 teams found the two disagreeing by one 343 times, with the name carrying the right
+level in 267 of them — so it is the age field that wanders, even when nothing is wrong
+with it.
+
+**And a name too young to read stops the ladder** rather than letting the column answer
+for it. `MIN_GC_AGE_LEVEL` is 6, so "4U Sparrows" and "5U T-Ball Couto Baseball" read as
+nothing at all — and without this the ladder fell through to a column that offered 9U.
+298 names in that export state an age below the floor and the column offers 9U or 8U for
+248 of them. Refusing leaves the team ageless, which is the safe direction: an unaged team
+costs its own ranking, where a team aged five years wrong corrupts every club it played.
+
+Across the whole export the two rules move 20,869 rows to a different age and refuse 254
+outright, leaving 62,818 exactly where they were.
+
 **The age field GameChanger was already sending.** The age group is not only "12U" and
 "Varsity". It carries a small closed vocabulary of its own, and for a long time this app
 understood none of it: `parseGcAgeLevel`, `ageLevelOf` and `isSchoolAgeLabel` all returned
