@@ -181,3 +181,53 @@ describe("the clubs worth pulling next", () => {
     expect(screen.queryByText(/clubs worth pulling next/i)).toBeNull();
   });
 });
+
+describe("the stand-in fixtures, as a file", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("searches the stand-in rows and hands them over", async () => {
+    const user = userEvent.setup();
+    const created: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      created.push(blob as Blob);
+      return "blob:stub";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    // Two pulled clubs and one start time, with a TBD where one schedule should name the other.
+    const pulled = (id: string, name: string): ScoutTeam =>
+      team(id, name, {
+        state: "KY",
+        gcTeams: [{ teamId: `gc${id}`, ageGroupId: "ag_10u_2027", name }],
+      });
+    const at = { date: seasonDate(2027), startTs: `${seasonDate(2027)}T22:00:00.000Z` };
+    renderTeamRankings({
+      ageGroups: [ageGroup(10, 2027)],
+      teams: [
+        pulled("S-HOME", "Home Club"),
+        pulled("S-AWAY", "Away Club"),
+        team("S-TBD", "TBD- 3:00 PM", { placeholder: true }),
+      ],
+      games: [
+        game("named", "ag_10u_2027", "S-HOME", "S-AWAY", 6, 2, at),
+        game("slot", "ag_10u_2027", "S-AWAY", "S-TBD", 2, 6, at),
+      ],
+    });
+    await openSetup(user);
+    await look(user);
+
+    await user.click(
+      await screen.findByRole("button", { name: /download the stand-in fixtures/i })
+    );
+    // Asynchronous, so the page can paint while it searches: the file arrives once it is done.
+    await screen.findByRole("button", { name: /download the stand-in fixtures/i });
+    expect(created).toHaveLength(1);
+    const text = await created[0]!.text();
+    expect(text).toContain("Kind,Game ID,");
+    // The TBD row is the one stand-in row, and the Away Club's named game at the same instant is
+    // the other half of it.
+    expect(text).toContain("same-club,slot,");
+  });
+});

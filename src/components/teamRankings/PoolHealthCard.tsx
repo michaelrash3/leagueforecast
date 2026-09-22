@@ -16,6 +16,7 @@ import { unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { todayIsoDay } from "../../lib/date";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
+import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/standInFixturesCsv";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { TidyProgressView } from "./TidyProgressView";
@@ -252,6 +253,31 @@ export function PoolHealthCard({
       poolNamesCsvFilename(fileDay()),
       poolNamesCsvParts(pool.teams, pool.ageGroups, pool.games)
     );
+  };
+
+  /**
+   * Every row with a stand-in on one side, and the rows at the same instant or on the same day
+   * that could be its other half — what joining a stand-in to its club by the fixture is measured on, since the
+   * whole-browser backup that holds the games is too large to hand over. Ten seconds or so on a
+   * pool of real size, so it breathes between chunks and says how far along it is.
+   */
+  const [fixturesProgress, setFixturesProgress] = useState<number | null>(null);
+  const downloadStandInFixtures = async () => {
+    setFixturesProgress(0);
+    try {
+      const parts = await standInFixturesCsvParts(
+        pool.teams,
+        pool.ageGroups,
+        pool.games,
+        (searched, of) => {
+          setFixturesProgress(Math.floor((100 * searched) / of));
+          return new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      );
+      downloadCsv(standInFixturesCsvFilename(fileDay()), parts);
+    } finally {
+      setFixturesProgress(null);
+    }
   };
 
   return (
@@ -613,6 +639,23 @@ export function PoolHealthCard({
             hundreds a whole-browser backup runs to. Nothing in the app reads it: it is the file the
             ageless sweep needs to answer &ldquo;what would this rule do to a team that already
             works?&rdquo;, which cannot be asked of the backlog alone.
+          </p>
+          <button
+            type="button"
+            onClick={() => void downloadStandInFixtures()}
+            disabled={fixturesProgress !== null}
+            className={`${button.ghost} mt-3 text-sm`}
+          >
+            {fixturesProgress === null
+              ? "Download the stand-in fixtures"
+              : `Searching the stand-in rows… ${fixturesProgress}%`}
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Every result filed against a stand-in or a TBD, and beside it any other club&apos;s row
+            at the same start time, or the same day, that could be the other half of the same game —
+            spelling slips and all — with the same searches run a week either side as a check on
+            chance. Nothing in the app reads it: it is what measures joining a stand-in to its club
+            by the game rather than the name. Takes ten seconds or so on a large pool.
           </p>
         </div>
       )}

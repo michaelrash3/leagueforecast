@@ -883,6 +883,48 @@ worth the columns. The counts use the same definitions `agelessEvidence` uses, p
 opponent rather than per game, because the tripwire compares what a rule does here against
 what it does on the backlog and two readings of "opponents" would make that meaningless.
 
+**The stand-in fixtures, for measuring a join by the game rather than the name.** Pool health
+also carries **Download the stand-in fixtures**. A stand-in is a club known only because a
+pulled schedule named it; the pool-names export found 46,118 of them holding 83,142 results,
+4,995 with exactly one ranked club of the same name, age and year, and at least 1,357 of those
+mirrored — each of two pulled clubs holding a stand-in for the other, one real game filed as two
+halves that never meet. GameChanger's games carry no opponent id, so a name is all a schedule
+gives; but a club plays one game at one instant, which makes the start time a proof a name can
+never be, misspellings included.
+
+The file holds every row with a stand-in or a TBD on one side and, beside it, each row that
+could be its other half. The puller's own second row at the same instant (`same-club`): it
+cannot have played two games at once. Another club's unsettled row at the same instant — against
+a stand-in, a slot, or a pulled club of exactly the puller's name — whose names both support the
+pairing, or one name and a mirrored result (`fixture`). And the same on the same day at another
+time (`same-day`), held to both names and no contradicting result, because the two schedules of
+one game do not always agree on its start: requiring the times to match once left about a
+thousand settled games standing. "Support" is generous on purpose, so a stricter rule can be
+tried on the file afterwards: the same key, the same letters run together, a word in common, or
+a word one slip apart — which lets a changed digit through too, and "2032" beside "2033" is two
+graduating classes, not a typo.
+
+Both searches are run again a week either side, same weekday and hour (`decoy`, `day-decoy`),
+where the schedule looks the same and the game is not there, so the rate at which each matches
+by chance is in the file beside what it finds — a week rather than an hour, because an hour off
+is exactly the mistake two coaches typing one start time make. Rows with nothing beside them are
+written as `none`, because they are the denominator. Each side's date, result and last pull are
+there too, because the first question about a pair that never joined is why the rung that joins
+exact names did not — it needs the dates to agree and the results to mirror.
+
+What the searches leave out was measured, on a pool of 241,000 games built from the pool's own
+120,210 team names paired at random, with 5,000 true mirrored pairs planted in it — all 5,000
+were found. A row between two clubs already connected to each other is left out: admitting those
+raised the stand-in rows with a decoy at the instant from 460 to 2,057 and those with a same-day
+"match" from 1,343 to 5,649, all chance, and took thirty seconds rather than twelve. One shared
+word with nothing else behind it found
+a "match" at the instant for 18,679 of the 84,000 unplanted stand-in rows, more than one in five,
+and admitting one name with a mirrored result on the day took the same-day search from 1,343
+rows to 6,104 — every one of them chance — so neither is in the file. What chance is left shows
+up as about 230 decoys a week-side at the instant and 960 on the day, against 94,000 stand-in
+rows. It took twelve seconds, and the button says how far along it is. Nothing in the app reads
+it.
+
 Two rules still cannot be measured this way whatever the file holds: `adult-label` and
 `school-label` read GameChanger's own age field, which the pool keeps no copy of. The sweep
 names them as not measured rather than printing their zero. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
