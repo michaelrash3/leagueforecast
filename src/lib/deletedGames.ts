@@ -76,6 +76,34 @@ export const isDatedAhead = (
   game.date > today;
 
 /**
+ * A schedule on which nothing has happened yet and every game already has a result.
+ *
+ * That is not a club that got some dates wrong — a handful of results on the wrong day is what
+ * `unrealClubs` lists for somebody to look at. It is a schedule that invented itself: "Test team"
+ * with 68 of 68, "ShotByKoRob Scout Team" with 13 of 13, "CA Wildcatters 2031" with 19 of 19. The
+ * user's rule, stated flatly: if a team's entire schedule is completed games in the future, the
+ * team is fake. So every game counts, scored and unscored alike: one real game already played, or
+ * one future game still waiting for its result, and the schedule is not this.
+ *
+ * "Today" is the caller's, as `isDatedAhead` takes it, and a game dated today is never ahead: a
+ * game finished this afternoon is a game, whatever the clock in another time zone says.
+ */
+export const isInventedSchedule = (
+  games: readonly { date?: string; teamScore?: number; opponentScore?: number }[],
+  today: string
+): boolean =>
+  games.length > 0 &&
+  games.every(
+    (game) =>
+      game.teamScore !== undefined &&
+      game.opponentScore !== undefined &&
+      game.date !== undefined &&
+      ISO_DAY.test(game.date) &&
+      ISO_DAY.test(today) &&
+      game.date > today
+  );
+
+/**
  * The clubs the user has thrown out, by GameChanger team id.
  *
  * A row deleted is a row; a club deleted is every row it will ever file. Some of what a
@@ -109,3 +137,16 @@ export const restoreClubs = (clubs: DeletedClubs, gcTeamIds: readonly string[]):
   gcTeamIds.forEach((id) => next.delete(id));
   return next;
 };
+
+/**
+ * The ids on a finished run whose schedules were refused as invented, to be thrown out for good.
+ *
+ * Refusing one is not enough on its own. Its dates are in the future only until they are not:
+ * the "Test team" schedule refused in September reads as a season played by November, and the
+ * next pull would file every result on it. Remembered here, it is refused before a game is read
+ * however the calendar has moved, exactly as a club somebody threw out by hand is.
+ */
+export const inventedFromOutcomes = (
+  outcomes: readonly { gcTeamId: string; skip?: string }[]
+): string[] =>
+  outcomes.filter((outcome) => outcome.skip === "invented").map((outcome) => outcome.gcTeamId);

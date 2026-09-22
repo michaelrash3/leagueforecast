@@ -373,9 +373,19 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
     label: "Every game scored on a day that has not happened",
     tier: "review",
     because: "you cannot score a game early",
+    /*
+     * The whole schedule, however short, and nothing less: every game has a result and every
+     * result is ahead of today. It is the rule the import now refuses a schedule by
+     * (`isInventedSchedule`), read here off the evidence a row kept, so a team already waiting is
+     * named the same way before its next re-ask throws it out. The floor of five this used to
+     * carry is gone because the user settled the rule outright; one unscored game, or one played,
+     * still keeps a team off it.
+     */
     read: (row) => {
       const evidence = evidenceOf(row);
-      return evidence.scored >= 5 && evidence.aheadOfToday === evidence.scored
+      return evidence.games > 0 &&
+        evidence.scored === evidence.games &&
+        evidence.aheadOfToday === evidence.scored
         ? { kind: "not-real" }
         : undefined;
     },

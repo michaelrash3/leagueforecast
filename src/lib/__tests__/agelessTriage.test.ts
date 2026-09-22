@@ -236,9 +236,24 @@ describe("the rules that read the evidence rather than the name", () => {
       evidence: evidence({ scored: 8, aheadOfToday: 8 }),
     });
     expect(verdictFrom(invented, "scored-ahead")).toEqual({ kind: "not-real" });
+    // However short: the whole schedule is the rule, not how much of it there is.
+    expect(
+      verdictFrom(
+        row("One game", { evidence: evidence({ games: 1, scored: 1, aheadOfToday: 1 }) }),
+        "scored-ahead"
+      )
+    ).toEqual({ kind: "not-real" });
     // One game ahead of today is a schedule with a date typed wrong.
     expect(
       fired(row("Test team", { evidence: evidence({ scored: 8, aheadOfToday: 1 }) }))
+    ).not.toContain("scored-ahead");
+    // One game still waiting for its result is not a schedule that is all results.
+    expect(
+      fired(row("Test team", { evidence: evidence({ games: 9, scored: 8, aheadOfToday: 8 }) }))
+    ).not.toContain("scored-ahead");
+    // Nor is one with no games at all.
+    expect(
+      fired(row("Nothing", { evidence: evidence({ games: 0, scored: 0, aheadOfToday: 0 }) }))
     ).not.toContain("scored-ahead");
   });
 
