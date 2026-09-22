@@ -1921,11 +1921,20 @@ export const importGcSchedules = (
  * and left alone it stands in the pool as a second result — a phantom extra win or loss on a
  * record that already counts the real one. Every GameChanger row carries the time, because the
  * date is worked out from it, so this costs nothing to ask.
+ *
+ * The clock also settles a result the two coaches scored differently. A club's own row against a
+ * stand-in, and the other club's row naming it at the very same start time, are one game however
+ * they were scored, provided the stand-in's name is a shorthand for that other club. On the
+ * stand-in fixtures export of 22 September 2026 that held 479 games twice: 358 a single run apart
+ * with the same winner, 13 with the winner changed. The named row's result stands and carries the
+ * other, as `collapseSameGames` keeps a game two pulled clubs scored apart. Where the names do not
+ * fit (303 more) or the slot is a bracket placeholder (143), the two rows stay.
  */
 export const resolveSlotGames = (
   state: GcImportState
 ): { state: GcImportState; resolved: number } => {
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const fits = nameFitter();
   /*
    * A side nobody has vouched for: a bracket slot, or a club known only because some schedule
    * wrote its name down. Both are stand-ins that a later schedule can turn out to have named
@@ -1985,6 +1994,21 @@ export const resolveSlotGames = (
       slotGame.startTs !== undefined && named.startTs === slotGame.startTs;
     const timeAgrees = (named: ScoutGame): boolean =>
       slotGame.startTs === undefined || named.startTs === undefined || sameTime(named);
+    const standIn = teamById.get(
+      knownId === slotGame.teamAId ? slotGame.teamBId : slotGame.teamAId
+    );
+    /**
+     * Asked only of a named row whose result contradicts the slot's: whether it is still this
+     * game. It is when the other club's schedule has it at this very start time — the known club
+     * cannot have played two games at once — and the stand-in's name is a shorthand for the club
+     * that row is against. A bracket slot has no name to hold the row to, and is left as it was.
+     */
+    const scoredApart = (named: ScoutGame): boolean => {
+      if (!sameTime(named) || sourceOf(named) === sourceOf(slotGame)) return false;
+      if (!standIn?.nameOnly) return false;
+      const namedOther = teamById.get(named.teamAId === knownId ? named.teamBId : named.teamAId);
+      return namedOther !== undefined && fits(standIn.name, namedOther.name);
+    };
 
     const candidates = (namedByTeamDay.get(dayKey(knownId, slotGame.date!)) ?? []).filter(
       (named) =>
@@ -1996,11 +2020,12 @@ export const resolveSlotGames = (
         sourceOf(named) !== undefined &&
         (sourceOf(named) !== sourceOf(slotGame) || sameTime(named)) &&
         /*
-         * Two results that contradict are two games, full stop. Folding the slot into the one
-         * named row of the day regardless was deleting real results: on a pool with no start
-         * times to hold it back, that fallback threw away 1,976 scored games in one tidy.
+         * Two results that contradict are two games, unless they are one game scored apart
+         * (`scoredApart`). Folding the slot into the one named row of the day regardless was
+         * deleting real results: on a pool with no start times to hold it back, that fallback
+         * threw away 1,976 scored games in one tidy.
          */
-        !(isScored(slotGame) && isScored(named) && !mirrors(named))
+        (!(isScored(slotGame) && isScored(named) && !mirrors(named)) || scoredApart(named))
     );
 
     /*
@@ -2061,10 +2086,27 @@ export const resolveSlotGames = (
     const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
     const knownScore = slotGame.teamAId === knownId ? slotGame.teamAScore : slotGame.teamBScore;
     const otherScore = slotGame.teamAId === knownId ? slotGame.teamBScore : slotGame.teamAScore;
+    // Settled against a result it contradicts, at one start time: the named row's result stands
+    // and carries the slot's, as `collapseSameGames` keeps a game two pulled clubs scored apart.
+    const namedKnownScore = named.teamAId === knownId ? named.teamAScore : named.teamBScore;
+    const namedOtherScore = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
+    const disputed =
+      isScored(slotGame) &&
+      isScored(named) &&
+      (namedKnownScore !== knownScore || namedOtherScore !== otherScore);
+    const [reportedA, reportedB] =
+      named.teamAId === knownId ? [knownScore, otherScore] : [otherScore, knownScore];
 
     filled.set(named.id, {
       ...current,
       ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
+      ...(disputed
+        ? {
+            note: [current.note, `Other side reported ${reportedA}-${reportedB}.`]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : {}),
       ...(fillScore
         ? named.teamAId === knownId
           ? { teamAScore: knownScore, teamBScore: otherScore }
@@ -2127,6 +2169,13 @@ export const resolveSlotGames = (
  * on: it joins a scored row that starts at the same instant, and two unplayed rows are left to
  * wait until they are scored, because joining them throws away one row's id and a game put back
  * a day came back as a second game.
+ *
+ * Two results that do not mirror are joined only at one start time, and only where no half with a
+ * result that agrees fits either end: one instant is one game, and two scores for it are two
+ * coaches' accounts of it. On that same export 265 games were scored apart like this — 190 of them
+ * a single run, 7 with the winner changed — against 5.5 such joins a week off, each again the same
+ * two clubs meeting in another week. The first row's result stands and carries what the other
+ * side reported, which is how `collapseSameGames` keeps a game two pulled clubs scored apart.
  *
  * An age a coach typed into a stand-in's name has to be the other club's own: "Mustangs 11U" is a
  * statement about which squad was played, and the age label comes off every name before names are
@@ -2193,6 +2242,9 @@ export const joinCrossedHalves = (
     };
   };
   const scored = (half: Half) => half.clubScore !== undefined && half.standInScore !== undefined;
+  /** Each end's result is the other's, read from the other seat. */
+  const mirrored = (x: Half, y: Half) =>
+    x.clubScore === y.standInScore && x.standInScore === y.clubScore;
 
   /*
    * Two lookups rather than a scan of the day. A Saturday in a nationwide pool is thousands of
@@ -2247,7 +2299,17 @@ export const joinCrossedHalves = (
     const fits = [...found].filter((y) => couldBeOtherEnd(x, y));
     // Where several fit, the clock picks between them or nothing is picked.
     const shortlist = fits.length > 1 ? fits.filter((y) => sameTime(x, y)) : fits;
-    return shortlist.length === 1 ? shortlist[0] : undefined;
+    if (shortlist.length === 1) return shortlist[0];
+    /*
+     * Failing any half that agrees, one at the same instant that does not: one start time is one
+     * game, and two scores for it are two coaches' accounts of it. Never where an agreeing half
+     * fits and the clock could not choose, which is a guess between games rather than a dispute
+     * about one.
+     */
+    if (fits.length > 0) return undefined;
+    // Everything at this instant that agrees was asked about above, so what fits here does not.
+    const disputed = (byTime.get(timeKey(x)) ?? []).filter((y) => couldBeOtherEnd(x, y));
+    return disputed.length === 1 ? disputed[0] : undefined;
   };
 
   /** The surviving row, by id, and the rows folded away into it. */
@@ -2269,6 +2331,11 @@ export const joinCrossedHalves = (
 
     const clubIsA = x.game.teamAId === x.club.id;
     const takeScore = !scored(x) && scored(y);
+    // The first row's result stands and carries the other side's, as `collapseSameGames` does.
+    const disputed = scored(x) && scored(y) && !mirrored(x, y);
+    const [theirA, theirB] = clubIsA
+      ? [y.standInScore, y.clubScore]
+      : [y.clubScore, y.standInScore];
     const otherSource = y.game.source!.teamId;
     const alsoFrom = [...new Set([...(x.game.alsoFrom ?? []), otherSource])];
     const otherLevel = y.game.teamAId === y.club.id ? y.game.ageLevelA : y.game.ageLevelB;
@@ -2286,6 +2353,13 @@ export const joinCrossedHalves = (
           : { teamAScore: y.clubScore, teamBScore: y.standInScore }
         : {}),
       ...(x.game.startTs === undefined && y.game.startTs ? { startTs: y.game.startTs } : {}),
+      ...(disputed
+        ? {
+            note: [x.game.note, `Other side reported ${theirA}-${theirB}.`]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : {}),
       alsoFrom,
     };
     replaced.set(x.game.id, joinedRow);
@@ -3114,9 +3188,12 @@ export const reclaimMisfiled = (
    * pulled first, the Stix's own row went to that one by name, and nothing could move it, because
    * the real Hurricanes' schedule held the game against a "Stix" stand-in rather than against the
    * Stix. A stand-in whose name is a shorthand for the puller's (`nameFitsWithin`), in the same
-   * region, is that row — but only on stronger evidence than the puller's own name needs: both
-   * results mirrored, or with no result yet, the same start time. A name that fits is weaker
-   * evidence than a name that is the puller's, so it does not get the benefit of a missing score.
+   * region, is that row — but only on stronger evidence than the puller's own name needs: the same
+   * start time, or at another time both results mirrored. A name that fits is weaker evidence than
+   * a name that is the puller's, so it does not get the benefit of a missing score. The same start
+   * time holds whatever the two coaches scored: on the stand-in fixtures export of 22 September
+   * 2026, 35 rows sat at one instant with results that differed, against 3 in the same search a
+   * week either side.
    */
   const holds = (clubId: string, pullerId: string, row: ScoutGame): boolean => {
     // The side of `row` that is not the puller: what the club being asked about would stand in.
@@ -3135,9 +3212,11 @@ export const reclaimMisfiled = (
       const stand = teamById.get(other);
       if (!puller || !stand?.nameOnly || !fits(stand.name, puller.name)) return false;
       if (!inOneRegion(puller.state, teamById.get(clubId)?.state)) return false;
+      // One start time is one game, whatever the two coaches scored it; at another time only a
+      // mirrored result says so.
+      if (own.startTs !== undefined && own.startTs === row.startTs) return true;
       const scored = [ownClub, ownPuller, rowClub, rowPuller].every((value) => value !== undefined);
-      if (scored) return ownClub === rowClub && ownPuller === rowPuller;
-      return own.startTs !== undefined && own.startTs === row.startTs;
+      return scored && ownClub === rowClub && ownPuller === rowPuller;
     });
   };
 
@@ -3796,8 +3875,10 @@ export const tidyPool = (
  *   5 — deleting the high school squads
  *   6 — joining a game each club filed against a stand-in for the other, and reclaiming a row
  *       from a namesake when the other club's schedule holds it against a stand-in for the puller
+ *   7 — keeping once a game two coaches scored differently at one start time: joining the two
+ *       halves, settling a stand-in into the named row, and taking a row back from a namesake
  */
-const TIDY_RULES_VERSION = 6;
+const TIDY_RULES_VERSION = 7;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
