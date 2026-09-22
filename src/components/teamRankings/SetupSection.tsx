@@ -9,6 +9,7 @@ import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { PoolHealthCard } from "./PoolHealthCard";
 import { AgelessReviewCard } from "./AgelessReviewCard";
+import type { AgelessAnswered } from "../../lib/agelessTriage";
 import type { AgeUnknownList } from "../../lib/ageUnknown";
 import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
@@ -46,6 +47,8 @@ type SetupSectionProps = {
     onThrowOut: (teamId: string, name: string | undefined) => Promise<boolean> | boolean;
     /** Takes back a named age or a throw-out, for a team found by searching. */
     onUndo: (teamId: string, name: string | undefined) => void;
+    /** Clears in one pass every row GameChanger's own age field has already answered for. */
+    onClearAnswered: (answered: readonly AgelessAnswered[]) => Promise<boolean> | boolean;
     now: Date;
   };
   /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
@@ -195,6 +198,7 @@ export function SetupSection({
         onNameAge={ageless.onNameAge}
         onThrowOut={ageless.onThrowOut}
         onUndo={ageless.onUndo}
+        onClearAnswered={ageless.onClearAnswered}
         now={ageless.now}
       />
 

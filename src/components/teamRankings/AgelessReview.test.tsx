@@ -40,6 +40,7 @@ const show = (
   const onNameAge = vi.fn();
   const onThrowOut = vi.fn().mockResolvedValue(true);
   const onUndo = vi.fn();
+  const onClearAnswered = vi.fn().mockResolvedValue(true);
   render(
     <AgelessReviewCard
       ageless={list}
@@ -48,11 +49,12 @@ const show = (
       onNameAge={onNameAge}
       onThrowOut={onThrowOut}
       onUndo={onUndo}
+      onClearAnswered={onClearAnswered}
       now={NOW}
       {...over}
     />
   );
-  return { onNameAge, onThrowOut, onUndo };
+  return { onNameAge, onThrowOut, onUndo, onClearAnswered };
 };
 
 const rows = () => screen.getAllByRole("listitem");
@@ -243,6 +245,7 @@ describe("the review card for teams waiting on an age", () => {
         onNameAge={vi.fn()}
         onThrowOut={vi.fn()}
         onUndo={vi.fn()}
+        onClearAnswered={vi.fn()}
         now={NOW}
       />
     );
@@ -320,5 +323,62 @@ describe("downloading the whole list", () => {
     expect(file.text).not.toContain("Club 3");
     expect(file.text).not.toContain("Club 4");
     expect(file.text).toContain("Club 5");
+  });
+});
+
+/**
+ * The button that clears the rows nobody needs to look at.
+ *
+ * What it must get right is *which* rows. Every other rule in `agelessTriage` infers something
+ * from a name or a schedule and is unmeasured; these two repeat GameChanger's own age field. A
+ * button that quietly took an inference rule along would be applying an unmeasured rule to
+ * thousands of teams at once, which is the one thing this whole approach is arranged to prevent.
+ */
+describe("clearing the rows GameChanger already answered", () => {
+  const labelled = (id: string, name: string, ageLabel: string) =>
+    team(id, name, { evidence: evidence({ ageLabel }) });
+
+  const mixed = (): AgeUnknownList => [
+    labelled("ADULT1", "Long Island Angels 44", "Over 18"),
+    labelled("ADULT2", "MCC Wolves", "college"),
+    labelled("SCHOOL1", "Flaming Bulldogs", "high_varsity"),
+    labelled("TEEBALL", "MTAA TBall White", "Under 13"),
+    team("PLAIN", "Some Club"),
+  ];
+
+  it("counts only the rows the age field answers, and says so", () => {
+    show(mixed());
+    expect(
+      screen.getByRole("button", { name: /Clear the 3 GameChanger already answered/ })
+    ).toBeInTheDocument();
+  });
+
+  it("hands over those rows and no others", async () => {
+    const user = userEvent.setup();
+    const { onClearAnswered } = show(mixed());
+
+    await user.click(screen.getByRole("button", { name: /Clear the 3/ }));
+
+    const handed = onClearAnswered.mock.calls[0]?.[0] as { row: { teamId: string } }[];
+    expect(handed.map((one) => one.row.teamId)).toEqual(["ADULT1", "ADULT2", "SCHOOL1"]);
+  });
+
+  it("offers nothing when the age field has answered nothing", () => {
+    show([team("PLAIN", "Some Club"), labelled("TEEBALL", "MTAA TBall White", "Under 13")]);
+    expect(screen.queryByRole("button", { name: /already answered/ })).toBeNull();
+  });
+
+  /*
+   * A row the reader has already answered for is not the button's to clear: it is off the waiting
+   * list, and sweeping it up would write a machine verdict over somebody's own decision.
+   */
+  it("leaves out a team already answered or thrown out", () => {
+    show(mixed(), {
+      named: new Map([["ADULT1", { teamId: "ADULT1", level: 10, namedAt: daysBefore(1) }]]),
+      dropped: forgetClubs(new Set<string>(), ["ADULT2"]),
+    });
+    expect(
+      screen.getByRole("button", { name: /Clear the 1 GameChanger already answered/ })
+    ).toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import {
 } from "./gameChangerSchedule";
 import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
+import { coerceAgelessCleared, type AgelessClearedPass } from "./agelessCleared";
 import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
 import {
   coerceDeletedClubs,
@@ -123,6 +124,15 @@ const GC_TRACK_KEY = "league_forecast_gc_track_v1";
  * on no page, so the weekly rotation never walks over them. Without this they are simply gone.
  */
 const GC_AGELESS_KEY = "league_forecast_gc_ageless_v1";
+/**
+ * The last bulk pass over that list, kept whole so it can be taken back.
+ *
+ * Lazy for the reason `GC_TRACK_KEY` is: it is read only when somebody asks to undo, and a row
+ * per cleared team is tens of thousands of objects that every page would otherwise hold for the
+ * sake of one button. See `agelessCleared.ts` for why a pass is stored at all when a single
+ * throw-out is not.
+ */
+const GC_CLEARED_KEY = "league_forecast_gc_ageless_cleared_v1";
 /**
  * The list of finished seasons kept as tables — names, dates and counts, no rows.
  *
@@ -404,7 +414,7 @@ const POOL_KEYS = [
  * They move out of `localStorage` with everything else the first time the store opens, and that is
  * the only thing the startup path does with them.
  */
-const LAZY_KEYS = [GC_TRACK_KEY];
+const LAZY_KEYS = [GC_TRACK_KEY, GC_CLEARED_KEY];
 
 const isGamesShardKey = (key: string): boolean => key.startsWith(GAMES_SHARD_PREFIX);
 /** Whether a key is part of the pool: one of the fixed keys above, or one year's games. */
@@ -1279,6 +1289,16 @@ export const clearPullLog = (): Promise<void> => dropBlob(GC_TRACK_KEY);
 export const loadAgeUnknown = (): AgeUnknownList => coerceAgeUnknown(readValue(GC_AGELESS_KEY));
 
 export const saveAgeUnknown = (list: AgeUnknownList): boolean => writeValue(GC_AGELESS_KEY, list);
+
+/** The last bulk pass over that list, or null where there is none to take back. */
+export const loadAgelessCleared = async (): Promise<AgelessClearedPass | null> =>
+  coerceAgelessCleared(await getBlob(GC_CLEARED_KEY));
+
+/** Resolves to whether the pass landed; a refusal means the undo will not be there. */
+export const saveAgelessCleared = (pass: AgelessClearedPass): Promise<boolean> =>
+  putBlob(GC_CLEARED_KEY, pass);
+
+export const clearAgelessCleared = (): Promise<void> => dropBlob(GC_CLEARED_KEY);
 
 /** The pairs of GameChanger ids the user has said are two clubs, never to be offered again. */
 export const loadKeptApart = (): Set<string> => coerceKeptApart(readValue(GC_APART_KEY));

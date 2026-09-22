@@ -115,6 +115,39 @@ describe("a PONY division word", () => {
 });
 
 /**
+ * Little League's Intermediate division, and the number the tripwire corrected.
+ *
+ * The division is ages 11 to 13, so 13U looked like the right ceiling to file it at. Run against
+ * the 60,040 teams this pool already ranks, the rule fires on nine and six carry an age to check
+ * against — and 13U disagreed with four of those six. "Brick Surge 50/70", "Corvallis Fall Ball
+ * 50/70", "BABL 50/70 Royals" and "MSM Victory Lakes Intermediate 6th Grade - Maroon" are all
+ * filed 12U in a pool that took their ages from GameChanger's own field, and the last of those
+ * names says why: sixth grade is eleven and twelve. It is the 50/70 field that makes the
+ * division, not the age of the boys on it.
+ */
+describe("the Intermediate division", () => {
+  it("files at 12U, which is where the teams that already work are filed", () => {
+    expect(verdictFrom(row("WSLL 50/70 Ballers"), "unique-division")).toEqual({
+      kind: "rec",
+      level: 12,
+    });
+    expect(verdictFrom(row("Harbor Hawks (Intermediate)"), "unique-division")).toEqual({
+      kind: "rec",
+      level: 12,
+    });
+  });
+
+  // Two of six agreeing is not a measurement to ship on, whatever the number is.
+  it("stays a proposal rather than an automatic answer", () => {
+    expect(AGELESS_RULES.find((entry) => entry.id === "unique-division")?.tier).toBe("review");
+  });
+
+  it("still stands down when the name states an age", () => {
+    expect(fired(row("Intermediate 13U Rangers"))).not.toContain("unique-division");
+  });
+});
+
+/**
  * USSSA grades travel teams A / AA / AAA / Major and Perfect Game does the same plus "Minor". The
  * grade rides alongside an age rather than instead of one, so a bare grade on this list is exactly
  * where reading it as an age would do the most damage — which is why the rule that matches them is
