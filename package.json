@@ -18,7 +18,8 @@
     "test:coverage": "vitest --run --coverage",
     "test:e2e": "playwright test",
     "verify:gc": "node --experimental-strip-types scripts/verify-gc-pull.ts",
-    "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts"
+    "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts",
+    "ageless:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/agelessSweep.ts"
   },
   "dependencies": {
     "react": "^19.3.0",
