@@ -548,6 +548,34 @@ describe("saying how big a backup will be before building it", () => {
     );
   });
 
+  /*
+   * The answers block was worth nothing at all to this estimate, and on a nationwide pool it is
+   * the biggest thing in the file: a row on the waiting list costs 374 bytes with its evidence
+   * (1.5 MB for 4,013 rows, measured in `agelessEvidence.ts`), so thirty-six thousand of them is
+   * thirteen megabytes the warning threshold of eight could not see.
+   */
+  it("counts the teams waiting on an age, which are most of a nationwide backup", () => {
+    const pool = poolOf(40, 300);
+    const waiting = {
+      ...pool,
+      answers: {
+        namedAges: [],
+        droppedClubs: [],
+        tooYoungClubs: [],
+        deletedGames: [],
+        keptApart: [],
+        ageUnknown: Array.from({ length: 36_194 }, (_, index) => ({
+          teamId: `gc${index}`,
+          firstSeen: "2026-09-01T00:00:00.000Z",
+          lastTried: "2026-09-08T00:00:00.000Z",
+          tries: 1,
+        })),
+      },
+    };
+    expect(estimateBackupBytes(pool)).toBeLessThan(LARGE_BACKUP_BYTES);
+    expect(estimateBackupBytes(waiting)).toBeGreaterThan(LARGE_BACKUP_BYTES);
+  });
+
   it("calls a nationwide pool large and a league's own pool not", () => {
     // Twenty thousand teams and the games that come with them: worth asking about first.
     expect(estimateBackupBytes(poolOf(20_000, 200_000))).toBeGreaterThan(LARGE_BACKUP_BYTES);

@@ -66,6 +66,7 @@ const renderPanel = (onPersist: () => boolean, pool: GcImportState = emptyPool) 
       pool={pool}
       onPersist={onPersist}
       savedProgress={null}
+      droppedClubs={new Set()}
       namedAges={new Map()}
       onSaveProgress={() => {}}
       onClearProgress={() => {}}

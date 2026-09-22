@@ -29,6 +29,7 @@ import {
 import {
   ageUnknownAsking,
   ageUnknownDue,
+  type AgelessRefusals,
   type AgeUnknownList,
   type NamedAgeAsk,
 } from "./ageUnknown";
@@ -220,6 +221,11 @@ export type DueRefreshOptions = {
    * pass the `NamedAges` map straight in.
    */
   namedAges?: NamedAgeAsk;
+  /**
+   * The clubs already answered for by being thrown out, so the rota stops handing them to the
+   * puller. Structural, so the caller passes its `DeletedClubs` set straight in.
+   */
+  refused?: AgelessRefusals;
   cadence?: RefreshCadence;
   /**
    * Ignore what has already been done today and offer the lot.
@@ -240,6 +246,7 @@ export const dueRefresh = (
     seasonYear,
     ageless = [],
     namedAges,
+    refused,
     cadence = DEFAULT_REFRESH_CADENCE,
     force = false,
   }: DueRefreshOptions = {}
@@ -263,8 +270,10 @@ export const dueRefresh = (
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
     cadence,
-    agelessIds: entry.catchUp ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP, now, namedAges) : [],
-    agelessTotal: ageUnknownAsking(ageless, now, namedAges),
+    agelessIds: entry.catchUp
+      ? ageUnknownDue(ageless, AGELESS_PER_CATCH_UP, now, namedAges, refused)
+      : [],
+    agelessTotal: ageUnknownAsking(ageless, now, namedAges, refused),
   };
 };
 

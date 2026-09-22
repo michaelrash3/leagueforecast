@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/teamRankingsHarness";
-import { loadDroppedClubs } from "../lib/teamRankingsStorage";
+import { loadAgeUnknown, loadDroppedClubs } from "../lib/teamRankingsStorage";
 import type { AgeUnknownList } from "../lib/ageUnknown";
 
 const ageless: AgeUnknownList = [
@@ -44,6 +44,22 @@ describe("throwing out a team from the review card", () => {
 
     expect(requestConfirmation).not.toHaveBeenCalled();
     expect(loadDroppedClubs().has("GC-DUCKS")).toBe(true);
+  });
+
+  /*
+   * And the row goes with it. A row only ever left the waiting list when a later pull came back
+   * with something other than "no age", so a thrown-out club sat there until it was fetched
+   * again — two requests to learn what somebody had already said, on every catch-up day until
+   * then. The answer takes the row with it now.
+   */
+  it("takes the row off the waiting list, rather than leaving it for a pull to clean up", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+    expect(loadAgeUnknown().map((entry) => entry.teamId)).toEqual(["GC-DUCKS"]);
+
+    await user.click(screen.getByRole("button", { name: "Not a real team" }));
+    expect(loadAgeUnknown()).toEqual([]);
   });
 
   it("offers the way back on the toast, and takes it", async () => {

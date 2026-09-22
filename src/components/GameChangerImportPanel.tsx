@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { parseGcTeamList, type GcTeamListEntry, type GcTeamProfile } from "../lib/gameChangerApi";
 import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
+import type { DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
   holdingNow,
@@ -33,6 +34,7 @@ import {
   poolSignature,
   proposeSeasonPairings,
   summarizeGcImport,
+  tidyChangedAnything,
   type GcImportOutcome,
   type GcImportState,
   type GcPairingComparison,
@@ -146,6 +148,12 @@ type GameChangerImportPanelProps = {
    * exclusive mounts, which is a thing no future layout has to respect.
    */
   namedAges: NamedAges;
+  /**
+   * The clubs somebody threw out, for the same reason and with the same caveat as `namedAges`:
+   * the rota must not offer a club that has already been answered for, and a `loadDroppedClubs()`
+   * inside the memo would be a dependency React cannot see.
+   */
+  droppedClubs: DeletedClubs;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -325,6 +333,7 @@ export function GameChangerImportPanel({
   onPersist,
   savedProgress,
   namedAges,
+  droppedClubs,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -516,10 +525,11 @@ export function GameChangerImportPanel({
         ageless,
         cadence,
         namedAges,
+        refused: droppedClubs,
       }),
-      agelessLine: describeAgeUnknown(ageless, now, namedAges),
+      agelessLine: describeAgeUnknown(ageless, now, namedAges, droppedClubs),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -538,9 +548,10 @@ export function GameChangerImportPanel({
         ageless,
         cadence,
         namedAges,
+        refused: droppedClubs,
         force: true,
       }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges]
+    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, namedAges, droppedClubs]
   );
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
@@ -1038,17 +1049,9 @@ export function GameChangerImportPanel({
       if (tidy) {
         // Stamped before the save lands, so the page does not read the tidied pool as untidied.
         saveTidyStamp(poolSignature(tidy.state));
-        if (
-          tidy.named +
-            tidy.folded +
-            tidy.paired +
-            tidy.collapsed +
-            tidy.pruned +
-            tidy.reclaimed +
-            tidy.refiled +
-            tidy.releveled >
-          0
-        ) {
+        // Asked of the step list rather than summed here, where three of the eleven counts were
+        // missing and a pass that only deleted teams stamped a pool it did not save.
+        if (tidyChangedAnything(tidy)) {
           heldRef.current = holdingNow(heldRef.current, tidy.state);
           if (persist()) await flushPoolWrites();
         }
@@ -1062,7 +1065,17 @@ export function GameChangerImportPanel({
        */
       const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
       setAgeless(nextAgeless);
-      saveAgeUnknown(nextAgeless);
+      /*
+       * Checked, because this write is the one that can fail quietly. Without IndexedDB the whole
+       * pool lives in localStorage, where a list this size does not fit: the write throws, the
+       * store catches it and answers false, and every answer the run learned is gone with nothing
+       * said. `onPoolWriteError` does not cover it — that fires on the IndexedDB path only.
+       */
+      if (!saveAgeUnknown(nextAgeless)) {
+        showToast("The list of teams waiting on an age could not be saved — storage is full.", {
+          tone: "error",
+        });
+      }
 
       /*
        * And the ones GameChanger says are too young to rank. Remembered so the next export does

@@ -547,7 +547,15 @@ export const estimateBackupBytes = (backup: TeamRankingsBackup): number =>
   backup.games.length * 70 +
   // An archived row is written as a plain object rather than a tuple — there are far fewer of them
   // than games, and a table that cannot be recomputed is worth being readable by hand.
-  (backup.archives ?? []).reduce((sum, season) => sum + season.rows.length * 150, 0);
+  (backup.archives ?? []).reduce((sum, season) => sum + season.rows.length * 150, 0) +
+  /*
+   * And the answers, which used to count for nothing at all. The teams waiting on an age are the
+   * only part of that block with any size to it, and on a nationwide pool they dwarf everything
+   * above: at 374 bytes a row — 1.5 MB for 4,013 rows, measured in `agelessEvidence.ts` — a list
+   * of thirty-six thousand is thirteen megabytes the estimate could not see, against a warning
+   * threshold of eight.
+   */
+  (backup.answers?.ageUnknown.length ?? 0) * 374;
 
 /** That estimate as something to put in a sentence: "2.7 MB", "840 KB". */
 export const formatBytes = (bytes: number): string => {

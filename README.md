@@ -608,6 +608,13 @@ a ceiling on how much one run may hold in memory rather than a pacer, so the who
 list is offered at once and a list longer than the ceiling has its overflow asked
 the next day rather than the next week.
 
+A club somebody throws out is answered for, and both halves of that now hold: the row leaves the
+waiting list at once rather than sitting there until a later pull happens to clean it up, and the
+rota stops offering it. Neither used to be true. The decision was written to the dropped-clubs list
+and nothing else changed, so the club was handed to the puller on every catch-up day, fetched twice,
+and refused by `importOne` only after both requests had been spent — two requests a week, per club,
+for an answer already given. At a dozen clubs that is invisible; at thirty thousand it is not.
+
 A team GameChanger says is below the youngest level ranked here is remembered rather
 than rediscovered. The paste already drops rows that name a too-young age themselves,
 but a row naming no age is kept — most do not name one — so it is fetched, GameChanger

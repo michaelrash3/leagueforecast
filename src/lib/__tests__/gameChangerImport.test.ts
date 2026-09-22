@@ -21,6 +21,8 @@ import {
   poolSignature,
   refileStandIns,
   resolveSlotGames,
+  tidyChangedAnything,
+  TIDY_STEPS,
   tidyPool,
   importGcSchedules,
   comparePairing,
@@ -3814,5 +3816,54 @@ describe("watching a tidy run", () => {
       alone.state.games.map((game) => game.id).sort()
     );
     expect(watchedRun.passes).toBe(alone.passes);
+  });
+});
+
+/**
+ * Whether a tidy is worth saving.
+ *
+ * The panel used to answer this with a sum written out by hand, and the sum named eight of the
+ * eleven counts. A pass whose only effect was deleting wiffle-ball or high school teams, or
+ * resettling a game onto a club that plays near its level, therefore stamped the pool as tidied
+ * and then did not save it: the deletions were lost, and the stamp said they had happened, so
+ * nothing would redo them until `TIDY_RULES_VERSION` moved.
+ */
+describe("whether a tidy changed anything", () => {
+  const nothing = {
+    state: { ageGroups: [], teams: [], games: [] },
+    named: 0,
+    folded: 0,
+    paired: 0,
+    collapsed: 0,
+    pruned: 0,
+    reclaimed: 0,
+    resettled: 0,
+    refiled: 0,
+    releveled: 0,
+    notBaseball: 0,
+    highSchool: 0,
+    passes: 1,
+  };
+
+  it("is false for a pass that found nothing, however many passes it took", () => {
+    expect(tidyChangedAnything(nothing)).toBe(false);
+    expect(tidyChangedAnything({ ...nothing, passes: 6 })).toBe(false);
+  });
+
+  // The three the hand-written sum left out, each on its own.
+  it("is true for the counts the old sum forgot", () => {
+    expect(tidyChangedAnything({ ...nothing, notBaseball: 1 })).toBe(true);
+    expect(tidyChangedAnything({ ...nothing, highSchool: 1 })).toBe(true);
+    expect(tidyChangedAnything({ ...nothing, resettled: 1 })).toBe(true);
+  });
+
+  /*
+   * And it cannot forget the next one either: the question is asked of `TIDY_STEPS`, which is the
+   * list a new step has to be added to anyway for the progress display to name it.
+   */
+  it("asks every step there is", () => {
+    TIDY_STEPS.forEach((step) => {
+      expect(tidyChangedAnything({ ...nothing, [step]: 1 })).toBe(true);
+    });
   });
 });

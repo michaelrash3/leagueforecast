@@ -7,6 +7,7 @@ import {
   ageUnknownDue,
   coerceAgeUnknown,
   describeAgeUnknown,
+  forgetAgeless,
   updateAgeUnknown,
   type AgeUnknownList,
 } from "../ageUnknown";
@@ -411,5 +412,83 @@ describe("the name on an entry", () => {
       NOW
     );
     expect(second[0]?.name).toBe("New Name");
+  });
+});
+
+/** A row on the list, asked about once a month ago, with plenty of budget left. */
+const waitingRow = (teamId: string) => ({
+  teamId,
+  name: `Team ${teamId}`,
+  firstSeen: daysBefore(30),
+  lastTried: daysBefore(30),
+  tries: 1,
+});
+
+/**
+ * A club somebody threw out has been answered for, and the asking rota has to know it.
+ *
+ * It did not. Throwing one out wrote the decision to the dropped-clubs list and took it off the
+ * review card, but `ageUnknownDue` reads tries, dates and named ages and nothing else — so the
+ * club was handed to the puller on every catch-up day, fetched twice, and refused by `importOne`
+ * only after both requests had been spent. A dozen clubs made that invisible; thirty thousand
+ * would have made it sixty thousand requests for answers already given.
+ */
+describe("a club somebody threw out", () => {
+  const list: AgeUnknownList = [waitingRow("KEPT"), waitingRow("GONE")];
+  const refused = new Set(["GONE"]);
+
+  it("is never offered to the puller again", () => {
+    expect(ageUnknownDue(list, 10, TODAY)).toEqual(["KEPT", "GONE"]);
+    expect(ageUnknownDue(list, 10, TODAY, undefined, refused)).toEqual(["KEPT"]);
+  });
+
+  /*
+   * Both answers at once — named in March, thrown out in May. A named age revives a team that has
+   * been left alone, so the two rules pull opposite ways here, and the refusal has to win: it is
+   * the later word, and the undo path exists for somebody who wants the club back.
+   */
+  it("stays refused even when its age was named as well", () => {
+    const named = new Map([["GONE", { namedAt: NOW }]]);
+    expect(ageUnknownDue(list, 10, TODAY, named)).toEqual(["GONE", "KEPT"]);
+    expect(ageUnknownDue(list, 10, TODAY, named, refused)).toEqual(["KEPT"]);
+  });
+
+  it("is not counted as still being asked about", () => {
+    expect(ageUnknownAsking(list, TODAY)).toBe(2);
+    expect(ageUnknownAsking(list, TODAY, undefined, refused)).toBe(1);
+  });
+
+  /*
+   * And it is in neither half of the sentence. "Left alone after 8 weeks of nobody naming an age"
+   * is untrue of a club somebody looked at and refused, so counting it there would describe it
+   * wrongly; counting it as still being asked about would be worse.
+   */
+  it("is in neither half of the sentence", () => {
+    expect(describeAgeUnknown(list, TODAY, undefined, refused)).toBe(
+      "1 team still being asked about."
+    );
+  });
+});
+
+/**
+ * Taking a row off outright, for an answer a pull did not produce.
+ *
+ * `updateAgeUnknown` removes a row when a pull comes back with anything other than "no age",
+ * which is right for what a pull learns and useless for what a person says: the row stayed put
+ * until a fetch the same answer had just made pointless.
+ */
+describe("forgetting a row outright", () => {
+  const list: AgeUnknownList = [waitingRow("A"), waitingRow("B"), waitingRow("C")];
+
+  it("removes exactly the ids named", () => {
+    expect(forgetAgeless(list, ["B"]).map((entry) => entry.teamId)).toEqual(["A", "C"]);
+    expect(forgetAgeless(list, ["A", "C"]).map((entry) => entry.teamId)).toEqual(["B"]);
+  });
+
+  // Identity is how the pool's readers tell new data from old, so a pass that changed nothing
+  // must hand back the array it was given rather than a copy of it.
+  it("hands back the same array when nothing matched", () => {
+    expect(forgetAgeless(list, [])).toBe(list);
+    expect(forgetAgeless(list, ["NOT-HERE"])).toBe(list);
   });
 });

@@ -181,6 +181,32 @@ export type NamedAgeAsk = {
 const NOBODY_NAMED: NamedAgeAsk = { has: () => false, get: () => undefined };
 
 /**
+ * The ids nobody should be asked about again, whatever the rest of the rules say.
+ *
+ * A club the user threw out is the case that matters. Throwing one out records the decision and
+ * takes it off the review card, but nothing took it off the *asking* rota: `ageUnknownDue` knew
+ * only about tries, dates and named ages, so a refused club was handed to the puller on every
+ * catch-up day, fetched twice, and refused by `importOne` after both requests had been spent. At
+ * a dozen clubs that is invisible. At thirty thousand it is sixty thousand requests for answers
+ * already given.
+ *
+ * Structural rather than a `DeletedClubs`, for the same reason `NamedAgeAsk` is structural: this
+ * file stays ignorant of what a refusal is, and a `Set`, a `Map` and a stub in a test all satisfy
+ * it.
+ *
+ * Teams GameChanger says are too young need no entry here. `updateAgeUnknown` already drops a row
+ * on any outcome that is not `no-age`, and `below-min-age` is one of those, so such a team leaves
+ * the list on the run that learns it and can never be on the rota to begin with.
+ */
+export type AgelessRefusals = { has: (teamId: string) => boolean };
+
+const NOTHING_REFUSED: AgelessRefusals = { has: () => false };
+
+/** The rows nobody is waiting on an answer for, because one has already been given. */
+const stillWaiting = (list: AgeUnknownList, refused: AgelessRefusals): AgeUnknownList =>
+  list.filter((entry) => !refused.has(entry.teamId));
+
+/**
  * Whether somebody answered for this team after the last time it was asked about.
  *
  * Both are ISO instants, so comparing them as strings is comparing them as times. A `lastTried`
@@ -226,10 +252,15 @@ export const ageUnknownDue = (
    * matters most for a team that was left alone: nothing would ever ask about it again, so the
    * age typed on the review card would sit in storage for ever and never reach a schedule.
    */
-  named: NamedAgeAsk = NOBODY_NAMED
+  named: NamedAgeAsk = NOBODY_NAMED,
+  /** Clubs already answered for by being thrown out; see `AgelessRefusals`. */
+  refused: AgelessRefusals = NOTHING_REFUSED
 ): string[] =>
   list
     .filter((entry) => {
+      // First, and before the try budget: a refusal is an answer, and an answered team is not
+      // asked again however many lives it has left.
+      if (refused.has(entry.teamId)) return false;
       if (!stillWorthAsking(entry, now) && !named.has(entry.teamId)) return false;
       if (answeredSinceLastAsk(entry, named)) return true;
       const since = daysSince(entry.lastTried, now);
@@ -256,8 +287,12 @@ export const ageUnknownDue = (
 export const ageUnknownAsking = (
   list: AgeUnknownList,
   now: Date,
-  named: NamedAgeAsk = NOBODY_NAMED
-): number => list.filter((entry) => stillWorthAsking(entry, now) || named.has(entry.teamId)).length;
+  named: NamedAgeAsk = NOBODY_NAMED,
+  refused: AgelessRefusals = NOTHING_REFUSED
+): number =>
+  stillWaiting(list, refused).filter(
+    (entry) => stillWorthAsking(entry, now) || named.has(entry.teamId)
+  ).length;
 
 /**
  * A line for the panel.
@@ -270,11 +305,18 @@ export const describeAgeUnknown = (
   list: AgeUnknownList,
   now: Date,
   /** The same argument the two counts above take, so this sentence agrees with them. */
-  named: NamedAgeAsk = NOBODY_NAMED
+  named: NamedAgeAsk = NOBODY_NAMED,
+  /**
+   * And the same refusals, which matters for the wording as well as the count: a club somebody
+   * threw out was never "left alone after 8 weeks of nobody naming an age". It was answered for.
+   * Counting it in either half of this sentence would describe it wrongly, so it is in neither.
+   */
+  refused: AgelessRefusals = NOTHING_REFUSED
 ): string => {
-  if (list.length === 0) return "";
-  const asking = ageUnknownAsking(list, now, named);
-  const done = list.length - asking;
+  const waiting = stillWaiting(list, refused);
+  if (waiting.length === 0) return "";
+  const asking = ageUnknownAsking(waiting, now, named);
+  const done = waiting.length - asking;
   const leftAlone = `${done.toLocaleString()} left alone after ${AGE_UNKNOWN_MAX_TRIES} weeks of nobody naming an age`;
   if (asking === 0) {
     return `${leftAlone.charAt(0).toUpperCase()}${leftAlone.slice(1)}.`;
@@ -284,6 +326,29 @@ export const describeAgeUnknown = (
     (done > 0 ? `, and ${leftAlone}` : "") +
     "."
   );
+};
+
+/**
+ * The list without these teams, for an answer given outside a pull.
+ *
+ * A row only ever left this list when a later pull came back with something other than "no age"
+ * (`updateAgeUnknown`), which is right for the answers a pull produces and wrong for the answers
+ * a person gives: throwing a club out wrote the decision to another store and left the row here,
+ * waiting to be cleaned up by a fetch that the same decision had just made pointless. So an
+ * answer takes the row with it now.
+ *
+ * Array-taking like `forgetClubs` and `rememberTooYoung`, so a bulk answer is one call and one
+ * write rather than one per team. The same array comes back when nothing matched, because the
+ * pool's readers take a new array to mean new data.
+ */
+export const forgetAgeless = (
+  list: AgeUnknownList,
+  gcTeamIds: readonly string[]
+): AgeUnknownList => {
+  if (gcTeamIds.length === 0) return list;
+  const going = new Set(gcTeamIds);
+  const kept = list.filter((entry) => !going.has(entry.teamId));
+  return kept.length === list.length ? list : kept;
 };
 
 export const coerceAgeUnknown = (raw: unknown): AgeUnknownList => {

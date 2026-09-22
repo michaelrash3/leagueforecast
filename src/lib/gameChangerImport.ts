@@ -3113,6 +3113,22 @@ export const TIDY_STEPS = [
 export type TidyStepName = (typeof TIDY_STEPS)[number];
 
 /**
+ * Whether a tidy actually changed the pool, and so whether it is worth saving.
+ *
+ * Read off `TIDY_STEPS` rather than written out as a sum, because a sum written out is a list
+ * that has to be kept in step with this one by hand — and was not. The caller's version named
+ * eight of the eleven, leaving out `notBaseball`, `highSchool` and `resettled`, while the tidy
+ * stamp was written whatever happened: a pass whose only effect was deleting wiffle-ball or high
+ * school teams stamped the pool as tidied and then did not save it, so the deletions were lost
+ * and nothing would redo them until `TIDY_RULES_VERSION` moved.
+ *
+ * `passes` is not a change — it is at least one on a tidy that found nothing — and `state` is the
+ * pool itself, which is why this asks the step list rather than every numeric field.
+ */
+export const tidyChangedAnything = (tidy: PoolTidy): boolean =>
+  TIDY_STEPS.some((step) => tidy[step] > 0);
+
+/**
  * One step of one pass, reported twice: once as it starts and once as it finishes.
  *
  * Twice because a step is where the time goes. Reported only on the way out, a step that takes ten
