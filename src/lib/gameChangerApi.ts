@@ -157,6 +157,32 @@ export type GcTeamListEntry = {
    * looking at again rather than importing as though it were a club.
    */
   playerCount?: number;
+  /**
+   * The organization the team belongs to, when the list names one.
+   *
+   * The answer GameChanger's public API will not give: there is no team-to-organization route, so
+   * nothing the app fetches can say which club or league a team is part of. A crawl that found
+   * the team through its organization knows, and this is where it says so.
+   */
+  org?: {
+    orgId?: string;
+    name?: string;
+    kind?: GcOrgKind;
+    city?: string;
+    state?: string;
+    season?: GcSeason;
+  };
+  /**
+   * The leagues it plays in. A league is where a team plays its own age, so a league that names
+   * one — "NKB 11u" — is saying something about the team.
+   */
+  leagues?: GcTeamAssociation[];
+  /**
+   * The tournaments it entered. Not the same thing at all: a tournament is where a team plays
+   * **up**, so an age in a tournament's name is a ceiling it reached rather than the age it is.
+   * The sample that made this plain is an 11U team in "NB Summer Slam 12U".
+   */
+  tournaments?: GcTeamAssociation[];
 };
 
 /** The app's own proxy for GameChanger (a Vercel function; see `api/gc-team.ts`). */
@@ -274,6 +300,102 @@ export const parseGcTeamId = (input: string): string | null => {
   if (GC_TEAM_ID_PATTERN.test(trimmed)) return trimmed;
   const match = GC_TEAM_URL_PATTERN.exec(trimmed);
   return match?.[1] ?? null;
+};
+
+/**
+ * An organization's page URL. GameChanger's leagues, tournaments and travel clubs are all the
+ * same `organizations` object, reached at `/organizations/{id}/home`, `/teams` or `/schedule`.
+ */
+const GC_ORG_URL_PATTERN = /\bgc\.com\/organizations\/([A-Za-z0-9_-]{8,24})(?![A-Za-z0-9_-])/i;
+
+/**
+ * A bare organization id, or the id inside an organization URL.
+ *
+ * An org id and a team id are the same shape — both are short URL-safe strings against
+ * `GC_TEAM_ID_PATTERN` — so nothing here can tell one from the other, and nothing tries. What
+ * keeps them apart is the file a row arrives in: the team list means teams and the organization
+ * list means organizations, which is why they are two files rather than one with a type column.
+ */
+export const parseGcOrgId = (input: string): string | null => {
+  const trimmed = typeof input === "string" ? input.trim() : "";
+  if (!trimmed) return null;
+  const match = GC_ORG_URL_PATTERN.exec(trimmed);
+  if (match?.[1]) return match[1];
+  return GC_TEAM_ID_PATTERN.test(trimmed) ? trimmed : null;
+};
+
+export const gcOrgPageUrl = (orgId: string): string =>
+  `https://web.gc.com/organizations/${orgId}/home`;
+
+/**
+ * What kind of thing an organization is, which decides what its teams are.
+ *
+ * A travel organization is a club and its teams are ranked as any other. A tournament is an event
+ * whose brackets often name an age. A league is neither automatically: "NKB 11u" is a travel
+ * league and "Mt. Carmel Little League" is rec ball, and only the name says which — the kind says
+ * the shape of the thing, not how its teams should be rated.
+ */
+export type GcOrgKind = "league" | "tournament" | "travel";
+
+const ORG_KINDS: Record<string, GcOrgKind> = {
+  league: "league",
+  leagues: "league",
+  tournament: "tournament",
+  tournaments: "tournament",
+  travel: "travel",
+  "travel org": "travel",
+  "travel organization": "travel",
+  "travel organisation": "travel",
+  club: "travel",
+  organization: "travel",
+  organisation: "travel",
+  org: "travel",
+};
+
+export const parseGcOrgKind = (raw: unknown): GcOrgKind | undefined =>
+  typeof raw === "string" ? ORG_KINDS[raw.trim().toLowerCase()] : undefined;
+
+/** One row of the user's organization list. */
+export type GcOrgListEntry = {
+  orgId: string;
+  name?: string;
+  kind?: GcOrgKind;
+  city?: string;
+  state?: string;
+  sport?: string;
+  /** Both halves known. A season word with no year, or a year with no word, is neither. */
+  season?: GcSeason;
+  /** The year on its own, for the rows that carry one without a season word. */
+  seasonYear?: number;
+  /** How many teams the org had when the list was taken — an estimate before anything is fetched. */
+  teamCount?: number;
+};
+
+/** One league or tournament a team belongs to: `"NKB 11u|Pqy5Av4tHncy"`. */
+export type GcTeamAssociation = { name: string; orgId?: string };
+
+/**
+ * The associations out of one cell: `"Name|Id;Name|Id"`.
+ *
+ * Semicolons between entries and a pipe between a name and its id, which is the shape the export
+ * writes. Either half may be missing — a name with no id is still worth keeping, because the name
+ * is what carries an age — and a repeated id is one association.
+ */
+export const parseGcAssociations = (cell: string): GcTeamAssociation[] => {
+  if (typeof cell !== "string" || !cell.trim()) return [];
+  const seen = new Set<string>();
+  const out: GcTeamAssociation[] = [];
+  for (const part of cell.split(";")) {
+    const [rawName = "", rawId = ""] = part.split("|");
+    const name = rawName.replace(/\s+/g, " ").trim();
+    const orgId = parseGcOrgId(rawId);
+    if (!name && !orgId) continue;
+    const key = (orgId ?? name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, ...(orgId ? { orgId } : {}) });
+  }
+  return out;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -963,6 +1085,22 @@ const CITY_HEADERS = ["city"];
 const STATE_HEADERS = ["state"];
 const STAFF_HEADERS = ["staff", "coaches", "coach", "staff names"];
 const PLAYER_COUNT_HEADERS = ["player count", "players", "roster size", "player_count"];
+/*
+ * The organization a team belongs to, and the leagues and tournaments it plays in.
+ *
+ * GameChanger's public API has no team-to-organization route, so nothing the app fetches can say
+ * which league a club is in. The user's own crawl can and does, which is why these columns are
+ * worth reading: they carry the answer the API withholds, at no request cost.
+ */
+const ORG_ID_HEADERS = ["organization id", "org id", "organisation id"];
+const ORG_NAME_HEADERS = ["organization name", "org name", "organisation name"];
+const ORG_TYPE_HEADERS = ["organization type", "org type", "organisation type"];
+const ORG_CITY_HEADERS = ["organization city", "org city"];
+const ORG_STATE_HEADERS = ["organization state", "org state"];
+const ORG_SEASON_HEADERS = ["organization season", "org season"];
+const ORG_URL_HEADERS = ["organization url", "org url", "organisation url"];
+const LEAGUE_HEADERS = ["league associations", "leagues", "league"];
+const TOURNAMENT_HEADERS = ["tournament associations", "tournaments", "tournament"];
 
 const columnIndex = (headers: string[], names: string[]): number => {
   for (const name of names) {
@@ -1009,6 +1147,15 @@ type ListColumns = {
   state: number;
   staff: number;
   playerCount: number;
+  orgId: number;
+  orgName: number;
+  orgType: number;
+  orgCity: number;
+  orgState: number;
+  orgSeason: number;
+  orgUrl: number;
+  leagues: number;
+  tournaments: number;
 };
 
 const readColumns = (headers: string[]): ListColumns | null => {
@@ -1025,6 +1172,17 @@ const readColumns = (headers: string[]): ListColumns | null => {
     state: columnIndex(headers, STATE_HEADERS),
     staff: columnIndex(headers, STAFF_HEADERS),
     playerCount: columnIndex(headers, PLAYER_COUNT_HEADERS),
+    // All optional, and each on its own: a row can name a tournament and no organization, which
+    // is what an independent team playing one event looks like.
+    orgId: columnIndex(headers, ORG_ID_HEADERS),
+    orgName: columnIndex(headers, ORG_NAME_HEADERS),
+    orgType: columnIndex(headers, ORG_TYPE_HEADERS),
+    orgCity: columnIndex(headers, ORG_CITY_HEADERS),
+    orgState: columnIndex(headers, ORG_STATE_HEADERS),
+    orgSeason: columnIndex(headers, ORG_SEASON_HEADERS),
+    orgUrl: columnIndex(headers, ORG_URL_HEADERS),
+    leagues: columnIndex(headers, LEAGUE_HEADERS),
+    tournaments: columnIndex(headers, TOURNAMENT_HEADERS),
   };
 };
 
@@ -1128,6 +1286,31 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   if (staff.length > 0) entry.staff = staff;
   const playerCount = parsePlayerCount(cellAt(cells, columns.playerCount));
   if (playerCount !== undefined) entry.playerCount = playerCount;
+
+  const orgId =
+    parseGcOrgId(cellAt(cells, columns.orgId)) ?? parseGcOrgId(cellAt(cells, columns.orgUrl));
+  const orgName = cellAt(cells, columns.orgName);
+  const orgKind = parseGcOrgKind(cellAt(cells, columns.orgType));
+  const orgCity = cellAt(cells, columns.orgCity);
+  const orgState = cellAt(cells, columns.orgState);
+  const orgSeason = parseGcSeasonLabel(cellAt(cells, columns.orgSeason));
+  const org = {
+    ...(orgId ? { orgId } : {}),
+    ...(orgName ? { name: orgName } : {}),
+    ...(orgKind ? { kind: orgKind } : {}),
+    ...(orgCity ? { city: orgCity } : {}),
+    ...(orgState ? { state: orgState } : {}),
+    ...(orgSeason ? { season: orgSeason } : {}),
+  };
+  // Only when the row said something. A team that plays a tournament and belongs to no club has
+  // every one of these blank, and an empty object would read as "an organization with no name".
+  if (Object.keys(org).length > 0) entry.org = org;
+
+  const leagues = parseGcAssociations(cellAt(cells, columns.leagues));
+  if (leagues.length > 0) entry.leagues = leagues;
+  const tournaments = parseGcAssociations(cellAt(cells, columns.tournaments));
+  if (tournaments.length > 0) entry.tournaments = tournaments;
+
   return entry;
 };
 
@@ -1190,4 +1373,182 @@ export const parseGcTeamList = (
   }
 
   return { entries, skipped };
+};
+
+// ---------- The user's organization list ----------
+
+const ORG_LIST_ID_HEADERS = [...ORG_ID_HEADERS, "id"];
+const ORG_LIST_NAME_HEADERS = [
+  "entity name",
+  ...ORG_NAME_HEADERS,
+  "name",
+  "organization",
+  "league",
+  "tournament",
+];
+const ORG_LIST_KIND_HEADERS = ["entity type", ...ORG_TYPE_HEADERS, "type", "kind", "entity"];
+const ORG_LIST_URL_HEADERS = [
+  "home url",
+  "teams url",
+  "schedule url",
+  ...ORG_URL_HEADERS,
+  "url",
+  "link",
+];
+const ORG_LIST_SEASON_NAME_HEADERS = ["season name", "season"];
+const ORG_LIST_SEASON_YEAR_HEADERS = ["season year", "year"];
+const ORG_LIST_SPORT_HEADERS = ["sport"];
+const ORG_LIST_TEAM_COUNT_HEADERS = ["team count", "teams"];
+
+type OrgColumns = {
+  id: number;
+  url: number[];
+  name: number;
+  kind: number;
+  city: number;
+  state: number;
+  seasonName: number;
+  seasonYear: number;
+  sport: number;
+  teamCount: number;
+};
+
+const orgColumns = (headers: string[]): OrgColumns | null => {
+  const id = columnIndex(headers, ORG_LIST_ID_HEADERS);
+  // Every URL column, not the first: the export writes three of them, and a row whose id column
+  // was mangled by a spreadsheet still parses from whichever link survived.
+  const url = ORG_LIST_URL_HEADERS.map((name) => headers.indexOf(name)).filter((at) => at >= 0);
+  if (id < 0 && url.length === 0) return null;
+  return {
+    id,
+    url,
+    name: columnIndex(headers, ORG_LIST_NAME_HEADERS),
+    kind: columnIndex(headers, ORG_LIST_KIND_HEADERS),
+    city: columnIndex(headers, CITY_HEADERS),
+    state: columnIndex(headers, STATE_HEADERS),
+    seasonName: columnIndex(headers, ORG_LIST_SEASON_NAME_HEADERS),
+    seasonYear: columnIndex(headers, ORG_LIST_SEASON_YEAR_HEADERS),
+    sport: columnIndex(headers, ORG_LIST_SPORT_HEADERS),
+    teamCount: columnIndex(headers, ORG_LIST_TEAM_COUNT_HEADERS),
+  };
+};
+
+/**
+ * The season off an organization row, read leniently across its two columns.
+ *
+ * The export does not always put a season word in the season column: a real row reads
+ * `Season Name="2027"` with `Season Year` empty, so the year arrived in the name's cell. Both
+ * halves are therefore read from either, and a season word with no year — or a year with no
+ * word — is reported as the half it is rather than dropped.
+ */
+const orgSeasonFrom = (
+  nameCell: string,
+  yearCell: string
+): { season?: GcSeason; seasonYear?: number } => {
+  const joined = [nameCell, yearCell].filter(Boolean).join(" ");
+  const full = parseGcSeasonLabel(joined);
+  if (full) return { season: full };
+  const year = /\b((?:19|20)\d{2})\b/.exec(joined);
+  return year ? { seasonYear: Number(year[1]) } : {};
+};
+
+const orgEntryFromRow = (orgId: string, cells: string[], columns: OrgColumns): GcOrgListEntry => {
+  const entry: GcOrgListEntry = { orgId };
+  const name = nameFromListCell(cellAt(cells, columns.name));
+  if (name) entry.name = name;
+  const kind = parseGcOrgKind(cellAt(cells, columns.kind));
+  if (kind) entry.kind = kind;
+  const city = cellAt(cells, columns.city);
+  if (city) entry.city = city;
+  const state = cellAt(cells, columns.state);
+  if (state) entry.state = state;
+  const sport = cellAt(cells, columns.sport);
+  if (sport) entry.sport = sport.toLowerCase();
+  const { season, seasonYear } = orgSeasonFrom(
+    cellAt(cells, columns.seasonName),
+    cellAt(cells, columns.seasonYear)
+  );
+  if (season) entry.season = season;
+  if (seasonYear !== undefined) entry.seasonYear = seasonYear;
+  const teamCount = parsePlayerCount(cellAt(cells, columns.teamCount));
+  if (teamCount !== undefined) entry.teamCount = teamCount;
+  return entry;
+};
+
+const orgIdFromRow = (cells: string[], columns: OrgColumns): string | null => {
+  const fromId = parseGcOrgId(cellAt(cells, columns.id));
+  if (fromId) return fromId;
+  for (const at of columns.url) {
+    const fromUrl = parseGcOrgId(cellAt(cells, at));
+    if (fromUrl) return fromUrl;
+  }
+  for (const cell of cells) {
+    const match = GC_ORG_URL_PATTERN.exec(cell);
+    if (match?.[1]) return match[1];
+  }
+  const nonEmpty = cells.filter((cell) => cell.length > 0);
+  if (nonEmpty.length === 1 && nonEmpty[0] !== undefined) return parseGcOrgId(nonEmpty[0]);
+  return null;
+};
+
+/**
+ * Reads the user's organization list: the leagues, tournaments and travel clubs they found.
+ *
+ * A second file rather than rows mixed into the team list, and the reason is that nothing could
+ * tell the two apart inside one: an organization id and a team id are the same shape. Two files
+ * make every row unambiguous by where it is, leave `parseGcTeamList` untouched, and mean no list
+ * already saved can be misread.
+ *
+ * Everything else is the team list's machinery: the same BOM strip, the same tab-or-comma sniff
+ * so a spreadsheet copy works, the same header aliasing, the same first-line-wins de-duplication,
+ * and the same headerless mode for a plain list of ids or URLs.
+ */
+export const parseGcOrgList = (text: string): { orgs: GcOrgListEntry[]; skipped: string[] } => {
+  const orgs: GcOrgListEntry[] = [];
+  const skipped: string[] = [];
+  const seen = new Set<string>();
+  if (typeof text !== "string") return { orgs, skipped };
+
+  const lines = stripBom(text).split(/\r?\n/);
+  const firstLine = lines.find((line) => line.trim().length > 0) ?? "";
+  const delimiter = firstLine.includes("\t") && !firstLine.includes(",") ? "\t" : ",";
+  const headerCells = splitDelimitedLine(firstLine, delimiter).map(normalizeHeader);
+  const columns = orgColumns(headerCells);
+
+  const add = (orgId: string, build: () => GcOrgListEntry): boolean => {
+    if (seen.has(orgId)) return false;
+    seen.add(orgId);
+    orgs.push(build());
+    return true;
+  };
+
+  let headerSkipped = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (columns && !headerSkipped) {
+      headerSkipped = true;
+      continue;
+    }
+
+    if (columns) {
+      const cells = splitDelimitedLine(line, delimiter);
+      const orgId = orgIdFromRow(cells, columns);
+      if (!orgId || !add(orgId, () => orgEntryFromRow(orgId, cells, columns))) {
+        skipped.push(line);
+      }
+      continue;
+    }
+
+    // Headerless: a bare id or a pasted URL per line. No `looksLikeGeneratedId` weighing here,
+    // because an organization list has no team names in it to be mistaken for ids.
+    let added = 0;
+    for (const token of line.split(/[\s,;]+/).filter(Boolean)) {
+      const orgId = parseGcOrgId(token);
+      if (orgId && add(orgId, () => ({ orgId }))) added += 1;
+    }
+    if (added === 0) skipped.push(line);
+  }
+
+  return { orgs, skipped };
 };

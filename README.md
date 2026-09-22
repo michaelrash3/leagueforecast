@@ -511,6 +511,37 @@ filed under its own age group and squad year, and the pages are created as they
 are needed, because a nationwide list cannot expect a page to exist for every
 level first.
 
+#### Two lists: teams, and the organizations they belong to
+
+A team export can carry more than the team. The columns this reader now takes —
+`Organization ID`, `Organization Name`, `Organization Type`, `League Associations`,
+`Tournament Associations` — answer a question GameChanger's public API will not: there
+is no team-to-organization route, so nothing the app *fetches* can say which club or
+league a team is in. A crawl that found the team through its organization knows, and
+these columns are where it says so. Every one is optional, and independently so: a row
+naming a tournament and no club is an independent team playing one event.
+
+Associations read as `Name|Id`, several separated by semicolons. **A league may age a
+team and a tournament may not**, and the difference is not a nicety: you play your own
+age in your league and you enter tournaments *up*. An 11U team whose league is
+"NKB 11u" and whose tournaments include "NB Summer Slam 12U" is telling you both
+things, and reading the second as an age would file it a year old and make every game
+in its own league read as playing down.
+
+Organizations are a **second file**, not rows mixed into the first, and the reason is
+that nothing inside one file could tell them apart: an organization id and a team id
+are the same shape. Two files make every row unambiguous by where it is, leave the team
+reader untouched, and mean no list already saved can be misread. Its columns are the
+ones the export writes — `Entity Type`, `Entity Name`, `Organization ID`, the three URL
+columns (any of which yields the id), `City`, `State`, `Season Name`, `Season Year`,
+`Sport`, `Team Count` — and the season pair is read leniently across both cells,
+because a real export puts `2027` in the *name* column with the year column empty.
+
+`Entity Type` says what a thing is, not how its teams should be rated. A travel
+organization is a club; a tournament is an event whose brackets often name an age; and
+a **league is neither automatically** — "NKB 11u" is a travel league and
+"Mt. Carmel Little League" is rec ball, and only the name says which.
+
 GameChanger's public API allows only its own site as an origin, so the browser
 cannot call it. `api/gc-team.ts` is a serverless function that reads a team's
 profile and games on the app's behalf and maps every failure to a reason the
