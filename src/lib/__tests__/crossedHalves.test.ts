@@ -181,6 +181,12 @@ describe("the Stix and the Hurricanes, 20 September 2026", () => {
     expect(standIns(pool)).toEqual(["Stix"]);
   });
 
+  it("leaves the namesake's row alone on two results that contradict at two different times", () => {
+    // At another time a contradicting result is as likely a second game as this one scored apart.
+    const pool = tidyPool(fold([toledo, stix(), hurricanes({ score: [3, 13] })])).state;
+    expect(onDay(pool, pulled(pool, TOLEDO).id, DAY)).toHaveLength(1);
+  });
+
   it("leaves the namesake's row alone on an unscored game at two different times", () => {
     const pool = tidyPool(
       fold([
@@ -288,10 +294,79 @@ describe("joinCrossedHalves", () => {
     expect(out.state).toBe(pool);
   });
 
-  it("does not join two results that do not mirror", () => {
+  it("does not join two results that do not mirror at two different times", () => {
+    // At another time a contradicting result is as likely a second game as a dispute about this one.
     expect(joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, score: [2, 12] })).joined).toBe(
       0
     );
+  });
+
+  describe("two coaches who scored one game apart", () => {
+    const apart: Half = { ...hurricanesHalf, score: [3, 13], startTs: stixHalf.startTs! };
+
+    it("joins them at one start time, the first result standing with the other noted", () => {
+      const out = joinCrossedHalves(halves(stixHalf, apart));
+      expect(out.joined).toBe(1);
+      expect(out.state.games).toHaveLength(1);
+      const row = out.state.games[0]!;
+      const stixId = pulled(out.state, STIX).id;
+      expect([row.teamAId, row.teamBId].sort()).toEqual(
+        [stixId, pulled(out.state, HURRICANES).id].sort()
+      );
+      expect(resultFor(row, stixId)).toEqual([13, 2]);
+      // In the row's own order, Stix first: the Hurricanes had it 13-3.
+      expect(row.teamAId).toBe(stixId);
+      expect(row.note).toBe("Other side reported 13-3.");
+    });
+
+    it("takes a half that agrees over one at the same instant that does not", () => {
+      const gold = { gcId: "gcHURGOLD001", name: "Hurricanes Gold", half: apart };
+      const out = joinCrossedHalves(halves(stixHalf, hurricanesHalf, [gold]));
+      expect(out.joined).toBe(1);
+      const row = out.state.games.find((game) => game.alsoFrom?.length)!;
+      expect(row.alsoFrom).toEqual([HURRICANES]);
+      expect(row.note).toBeUndefined();
+    });
+
+    it("does not fall back on a disputed half when two that agree could not be told apart", () => {
+      /*
+       * Two Hurricanes squads lost 2-13 to a "Stix" that day at other times, and a third was beaten
+       * at the Stix's own start time and scored it 3-13. The clock could not choose between the
+       * first two, and that is a guess between games, not a dispute about one.
+       */
+      const black = {
+        gcId: "gcHURBLACK01",
+        name: "Hurricanes Black",
+        half: { ...hurricanesHalf, startTs: "2026-09-20T17:45:00.000Z" },
+      };
+      const gold = { gcId: "gcHURGOLD001", name: "Hurricanes Gold", half: apart };
+      expect(joinCrossedHalves(halves(stixHalf, hurricanesHalf, [black, gold])).joined).toBe(0);
+    });
+
+    it("does not choose between two that scored it apart", () => {
+      const gold = {
+        gcId: "gcHURGOLD001",
+        name: "Hurricanes Gold",
+        half: { ...apart, score: [4, 13] as [number, number] },
+      };
+      expect(joinCrossedHalves(halves(stixHalf, apart, [gold])).joined).toBe(0);
+    });
+
+    it("keeps the one game through the whole tidy", () => {
+      const at = "2026-09-20T17:30:00.000Z";
+      const pool = tidyPool(
+        fold([toledo, stix(at), hurricanes({ score: [3, 13], startTs: at })])
+      ).state;
+      const stixId = pulled(pool, STIX).id;
+      const rows = onDay(pool, stixId, DAY);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.teamAId === stixId ? rows[0]!.teamBId : rows[0]!.teamAId).toBe(
+        pulled(pool, HURRICANES).id
+      );
+      expect(resultFor(rows[0]!, stixId)).toEqual([13, 2]);
+      expect(rows[0]!.note).toBe("Other side reported 13-3.");
+      expect(standIns(pool)).toEqual([]);
+    });
   });
 
   it("does not join when a stand-in's name is not a shorthand for the other club", () => {
@@ -456,6 +531,11 @@ describe("joinCrossedHalves", () => {
     expect(out.joined).toBe(1);
     const a = pulled(out.state, STIX);
     expect(resultFor(out.state.games[0]!, a.id)).toEqual([13, 2]);
+    // One result is no dispute, from either end.
+    expect(out.state.games[0]!.note).toBeUndefined();
+    const other = joinCrossedHalves(halves(stixHalf, { typed: "Stix", startTs: stixHalf.startTs }));
+    expect(other.joined).toBe(1);
+    expect(other.state.games[0]!.note).toBeUndefined();
   });
 });
 

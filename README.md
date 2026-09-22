@@ -607,9 +607,12 @@ on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are
 deleted; a stand-in is settled by the other club's schedule (a mirrored result
 settles it even when the two coaches typed different start times, and two
-results that contradict are never folded into one); a game each club filed against
+results that contradict are folded into one only at the very same start time,
+against a stand-in whose name is a shorthand for the club, since nobody plays two
+games at once); a game each club filed against
 a stand-in for the other is joined into one game between them (the same day; both results in and
-mirrored, or one result and the other half unplayed at the same start time — two unplayed halves
+mirrored, or one result and the other half unplayed at the same start time, or two results that
+differ at the same start time where nothing that agrees fits — two unplayed halves
 wait until they are scored; two mirrored results joined whatever start times the coaches typed,
 since 104 of the 1,211 games this joined on a real pool were more than an hour apart and the same
 search a week off matched no more for ignoring the clock; each stand-in's name a shorthand
@@ -617,13 +620,15 @@ for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach ty
 another squad and no two different squad numbers; the two clubs in one state or two that share a
 border; and no other pair that fits as well); a game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
-puller down in shorthand; a stand-in's rows
+puller down in shorthand or scored the game differently at the same start time; a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
 the one in the puller's own town); two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
 one state, under one listing name; and two schedules that each list one game
 against the other that day with different scores are one game two coaches scored
-differently, kept once with the other side's score noted. "Tidy now" on the
+differently, kept once with the other side's score noted — as is every game above that two
+coaches scored apart at one start time (on the stand-in fixtures export of 22 September 2026,
+265 games joined, 479 settled and 35 taken back from a namesake). "Tidy now" on the
 import panel runs the same thing for whoever wants to watch.
 
 A pairing with the **same name, same town and same state**, a season apart at

@@ -1880,6 +1880,110 @@ describe("resolveSlotGames", () => {
     expect(after.games).toHaveLength(2);
   });
 
+  describe("a game two coaches scored apart", () => {
+    /*
+     * Aces beat somebody they wrote as "Bears Baseball" 7-3 at six; the Bears' own schedule has
+     * them losing 3-8 to the Aces at six. Built by hand, because which step the import leaves this
+     * shape to depends on what else is pulled.
+     */
+    const SIX = "2026-09-05T18:00:00.000Z";
+    const day = (
+      opts: {
+        slotName?: string;
+        placeholder?: boolean;
+        /** Null for a named row with no start time. */
+        namedTime?: string | null;
+        namedSource?: string;
+      } = {}
+    ): GcImportState => {
+      let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+      for (const [id, name] of [
+        ["gcA", "Aces 9U"],
+        ["gcB", "Bears 9U"],
+      ] as const) {
+        state = importGcSchedule(
+          {
+            profile: { id, name, ageLevel: 9, season: { season: "fall", year: 2026 } },
+            games: [],
+            fetchedAt: "2026-09-06T00:00:00.000Z",
+          },
+          state
+        ).state;
+      }
+      const clubId = (gcId: string) =>
+        state.teams.find((team) => team.gcTeams?.some((link) => link.teamId === gcId))!.id;
+      const standIn = {
+        id: "S-STAND",
+        name: opts.slotName ?? "Bears Baseball",
+        ...(opts.placeholder ? { placeholder: true as const } : { nameOnly: true as const }),
+      };
+      const ageGroupId = state.ageGroups[0]!.id;
+      return {
+        ...state,
+        teams: [...state.teams, standIn],
+        games: [
+          {
+            id: "gc_gcA_a1",
+            teamAId: clubId("gcA"),
+            teamBId: standIn.id,
+            ageGroupId,
+            date: "2026-09-05",
+            teamAScore: 7,
+            teamBScore: 3,
+            startTs: SIX,
+            source: { kind: "gamechanger", teamId: "gcA", gameId: "a1" },
+          },
+          {
+            id: "gc_gcB_b1",
+            teamAId: clubId("gcB"),
+            teamBId: clubId("gcA"),
+            ageGroupId,
+            date: "2026-09-05",
+            teamAScore: 3,
+            teamBScore: 8,
+            ...(opts.namedTime === null ? {} : { startTs: opts.namedTime ?? SIX }),
+            source: { kind: "gamechanger", teamId: opts.namedSource ?? "gcB", gameId: "b1" },
+          },
+        ],
+      };
+    };
+
+    it("keeps it once at one start time, the named row standing with the other result noted", () => {
+      const { state, resolved } = resolveSlotGames(day());
+      expect(resolved).toBe(1);
+      expect(state.games).toHaveLength(1);
+      const row = state.games[0]!;
+      expect(row.id).toBe("gc_gcB_b1");
+      expect([row.teamAScore, row.teamBScore]).toEqual([3, 8]);
+      // In the row's own order, Bears first: the Aces had it 3-7.
+      expect(row.note).toBe("Other side reported 3-7.");
+      expect(state.teams.some((team) => team.id === "S-STAND")).toBe(false);
+    });
+
+    it("leaves two contradicting results at two different times as two games", () => {
+      expect(resolveSlotGames(day({ namedTime: "2026-09-05T20:30:00.000Z" })).resolved).toBe(0);
+    });
+
+    it("leaves them when the named row has no start time to agree with", () => {
+      // With no clock on one side, a contradicting result is the doubleheader the rule refuses.
+      expect(resolveSlotGames(day({ namedTime: null })).resolved).toBe(0);
+    });
+
+    it("leaves them when the stand-in's name is not a shorthand for the club", () => {
+      expect(resolveSlotGames(day({ slotName: "Sharks" })).resolved).toBe(0);
+    });
+
+    it("leaves them when the slot is a bracket placeholder, whatever it is labelled", () => {
+      // A placeholder's label is the bracket's, not a club's: "Bears" here says nothing about who.
+      expect(resolveSlotGames(day({ slotName: "Bears", placeholder: true })).resolved).toBe(0);
+    });
+
+    it("leaves them when one schedule wrote both", () => {
+      // One coach's two rows at one instant with two results: nobody else's account of the game.
+      expect(resolveSlotGames(day({ namedSource: "gcA" })).resolved).toBe(0);
+    });
+  });
+
   it("gives a doubleheader's mirrored row to the slot whose time matches", () => {
     // Aces list two "TBD"s that day, both 7-3, at 6:00 and 8:30; Bears list one game vs Aces,
     // 3-7 at 8:30. The 8:30 slot is the Bears game; the 6:00 one stays a slot.
@@ -2327,13 +2431,13 @@ describe("poolSignature", () => {
      * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
      * ever, because the stamp would still match and the tidy would never run.
      */
-    // r6 since the tidy learned to join a game each club filed against a stand-in for the other.
+    // r7 since the tidy learned to keep once a game two coaches scored apart at one start time.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r6|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r7|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r6|0|0|0|");
+    expect(poolSignature(empty)).toBe("r7|0|0|0|");
   });
 });
 
