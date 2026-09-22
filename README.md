@@ -161,7 +161,7 @@ about the age by one, 267 had the list's level in the team's own name (the table
 under **Check the id**).
 
 A person outranks all five. A level named by hand stands in until GameChanger's own
-answer *changes* — see **Naming an age**.
+answer _changes_ — see **Naming an age**.
 
 #### High school squads are left out
 
@@ -541,14 +541,14 @@ level first.
 A team export can carry more than the team. The columns this reader now takes —
 `Organization ID`, `Organization Name`, `Organization Type`, `League Associations`,
 `Tournament Associations` — answer a question GameChanger's public API will not: there
-is no team-to-organization route, so nothing the app *fetches* can say which club or
+is no team-to-organization route, so nothing the app _fetches_ can say which club or
 league a team is in. A crawl that found the team through its organization knows, and
 these columns are where it says so. Every one is optional, and independently so: a row
 naming a tournament and no club is an independent team playing one event.
 
 Associations read as `Name|Id`, several separated by semicolons. **A league may age a
 team and a tournament may not**, and the difference is not a nicety: you play your own
-age in your league and you enter tournaments *up*. An 11U team whose league is
+age in your league and you enter tournaments _up_. An 11U team whose league is
 "NKB 11u" and whose tournaments include "NB Summer Slam 12U" is telling you both
 things, and reading the second as an age would file it a year old and make every game
 in its own league read as playing down.
@@ -568,7 +568,7 @@ reader untouched, and mean no list already saved can be misread. Its columns are
 ones the export writes — `Entity Type`, `Entity Name`, `Organization ID`, the three URL
 columns (any of which yields the id), `City`, `State`, `Season Name`, `Season Year`,
 `Sport`, `Team Count` — and the season pair is read leniently across both cells,
-because a real export puts `2027` in the *name* column with the year column empty.
+because a real export puts `2027` in the _name_ column with the year column empty.
 
 `Entity Type` says what a thing is, not how its teams should be rated. A travel
 organization is a club; a tournament is an event whose brackets often name an age; and
@@ -607,8 +607,17 @@ on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are
 deleted; a stand-in is settled by the other club's schedule (a mirrored result
 settles it even when the two coaches typed different start times, and two
-results that contradict are never folded into one); a game sitting by name on
-one club moves to the namesake whose own schedule holds it; a stand-in's rows
+results that contradict are never folded into one); a game each club filed against
+a stand-in for the other is joined into one game between them (the same day; both results in and
+mirrored, or one result and the other half unplayed at the same start time — two unplayed halves
+wait until they are scored; two mirrored results joined whatever start times the coaches typed,
+since 104 of the 1,211 games this joined on a real pool were more than an hour apart and the same
+search a week off matched no more for ignoring the clock; each stand-in's name a shorthand
+for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach typed pointing at
+another squad and no two different squad numbers; the two clubs in one state or two that share a
+border; and no other pair that fits as well); a game sitting by name on
+one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
+puller down in shorthand; a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
 the one in the puller's own town); two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
@@ -752,7 +761,7 @@ Refused for events and for spans, and both refusals are measured. Over 17,003 te
 carrying an organization, 2,240 had both an org naming an age and an age of their own to
 check against. The org's age agreed **90.1%** of the time; excluding event-sounding names
 took it to 94.1%, excluding spans to 93.9%, and excluding both to **95.1%**. The errors are
-overwhelmingly one-directional — of 221 disagreements, 197 had the organization *older* —
+overwhelmingly one-directional — of 221 disagreements, 197 had the organization _older_ —
 which is the play-up signature: "(09/25/2026) 17/18u Super Fall Invitational" holds 16U
 teams, "Suburban Travel 13/14u" holds 13U ones.
 
@@ -766,7 +775,7 @@ other answer at all. On a real backlog it reaches **273** rows — small, and ho
 
 **An age from the company the pool already knows.** The last rung of the ladder, and the
 one that reaches the backlog's most hopeless population. `ageFromOpponentNames` reads an
-age out of an opponent's *name*, so it can never settle a team in a closed league where
+age out of an opponent's _name_, so it can never settle a team in a closed league where
 nobody writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Over a real
 36,194-row backlog, 10,709 rows are exactly that shape.
 
@@ -936,7 +945,7 @@ the teams that already work. Because the file carries the filed age, a hit split
 that clears, in one pass, every row whose age field says adult, college or a school
 squad — around thirteen per cent of a nationwide backlog. It asks first, where the single
 throw-out deliberately does not: the argument there is that a dialog in front of the
-common case costs a click to guard against the rare one, and here the action *is* the rare
+common case costs a click to guard against the rare one, and here the action _is_ the rare
 one, thousands of rows at once that nobody can check by eye afterwards.
 
 Only two rules feed it, and they are named by id rather than picked by tier. Both repeat

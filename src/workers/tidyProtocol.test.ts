@@ -134,6 +134,7 @@ describe("what the tidy says while it runs", () => {
       "releveled",
       "pruned",
       "named",
+      "joined",
       "reclaimed",
       "resettled",
       "refiled",

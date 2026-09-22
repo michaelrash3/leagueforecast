@@ -2327,13 +2327,13 @@ describe("poolSignature", () => {
      * changes a rule — otherwise an untouched pool would keep whatever the old rules decided for
      * ever, because the stamp would still match and the tidy would never run.
      */
-    // r5 since the tidy learned to delete high school squads. This digit is meant to move on
-    // exactly that kind of change: it is what makes a pool nobody has touched read as unseen,
-    // once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r5|1|2|1|2026-09-15T12:00:00.000Z`);
+    // r6 since the tidy learned to join a game each club filed against a stand-in for the other.
+    // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
+    // has touched read as unseen, once, so the new rule reaches what is already filed.
+    expect(before).toBe(`r6|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r5|0|0|0|");
+    expect(poolSignature(empty)).toBe("r6|0|0|0|");
   });
 });
 
@@ -3936,6 +3936,7 @@ describe("whether a tidy changed anything", () => {
   const nothing = {
     state: { ageGroups: [], teams: [], games: [] },
     named: 0,
+    joined: 0,
     folded: 0,
     paired: 0,
     collapsed: 0,

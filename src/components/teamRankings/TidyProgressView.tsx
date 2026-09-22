@@ -27,6 +27,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   releveled: { short: "Level", full: "Age level worked out from the team's name" },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   named: { short: "Name", full: "Stand-ins the other side's schedule could name" },
+  joined: {
+    short: "Join",
+    full: "Games each club filed against a stand-in for the other, made one game between them",
+  },
   reclaimed: { short: "Reclaim", full: "Games moved to the namesake whose schedule holds them" },
   resettled: {
     short: "Off age",
