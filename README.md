@@ -728,9 +728,26 @@ spent by the ask it buys, since the fetch moves the last-asked stamp past the an
 own: an answer GameChanger overrules gets that one ask and then goes back to once a week
 rather than being fetched for ever.
 
+**Two things the profile says are kept for the rules to read.** GameChanger reports a
+team's **sanctioning body** — `usssa`, `little league` — and the **coaches** on its
+public profile, and the app read neither. The body is the only field that says whose
+word a division name is, which is the whole difficulty with them: "Majors" is a Little
+League division of nine- to twelve-year-olds and a USSSA skill class at any age, and
+"AAA" is a local Little League convention, a USSSA grade, and a provincial tier in
+Canada. The coaches matter for a different reason, measured elsewhere in this file: two
+teams sharing two of them are the same club 97% of the time by state and 89% by town,
+and before this that signal only ever arrived on a pasted list — never on the thousands
+of teams pulled by id alone. Both ride on a waiting team's row too, since its schedule
+is read once and thrown away and a fact not written down there costs two requests to
+learn again.
+
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
-all ride in an `answers` block. None of it can be recomputed — a pool can be pulled
+all ride in an `answers` block — in the Team Rankings pool file as well as the
+whole-browser one, which was not true until recently: the block was built when a backup
+was taken and restored when one was read, and the writer in between left it out. So the
+pool file restored answers it had never saved, and since a reset clears the waiting
+list, the file offered as the way back could not bring it back. None of it can be recomputed — a pool can be pulled
 again, a judgement about whether a club is real cannot — and without this, restoring
 into a fresh browser threw an evening's work away and then set about rediscovering the
 problems it had answered. The block is optional and absent means leave what is there

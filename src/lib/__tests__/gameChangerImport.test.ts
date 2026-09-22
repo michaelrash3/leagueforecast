@@ -168,6 +168,36 @@ describe("importGcSchedule", () => {
     expect(moved?.gcTeams?.[0]).toMatchObject({ ageGroupId: group?.id, ageLevel: 10 });
   });
 
+  /*
+   * The coaches now come off the profile as well as off a pasted list, which matters because most
+   * of a nationwide pull is ids with no list behind them: without this the staff index — the
+   * strongest club-matching signal there is, at 89% same-town for two shared names — was empty
+   * for every team pulled by id alone.
+   */
+  it("keeps the coaches GameChanger names, and prefers the pasted list when there is one", () => {
+    const fromProfile = importGcSchedule(
+      {
+        ...schedule({ staff: ["Dana Reed", "Kit Alvarez"] }, [game()]),
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    );
+    const pulled = fromProfile.state.teams.find((team) => team.gcTeams?.length);
+    expect(pulled?.gcTeams?.[0]?.staff).toEqual(["Dana Reed", "Kit Alvarez"]);
+
+    // The list is the newer reading and the one its owner can correct, so it wins outright.
+    const withList = importGcSchedule(
+      {
+        ...schedule({ staff: ["Dana Reed"] }, [game()]),
+        listed: { staff: ["Correct Name"] },
+        fetchedAt: "2026-09-14T12:00:00.000Z",
+      },
+      empty
+    );
+    const listed = withList.state.teams.find((team) => team.gcTeams?.length);
+    expect(listed?.gcTeams?.[0]?.staff).toEqual(["Correct Name"]);
+  });
+
   it("records the GameChanger id on the team it was pulled as", () => {
     const { state } = importGcSchedule(
       schedule({ avatarKey: "av-legends", state: "ky", city: "Lexington" }, [game()]),

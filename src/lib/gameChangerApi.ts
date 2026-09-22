@@ -39,6 +39,24 @@ export type GcTeamProfile = {
   /** The media id of the team's avatar; the one stable thing that identifies an opponent. */
   avatarKey?: string;
   playerCount?: number;
+  /**
+   * The bodies the team plays under — `["usssa"]`, `["little league"]` — lowercased.
+   *
+   * The one field in the payload that says which circuit a club belongs to, and the answer to the
+   * question the division words cannot settle on their own. "Majors" is a Little League division
+   * of nine- to twelve-year-olds and a USSSA skill class at any age; "AAA" is a local Little
+   * League convention and a USSSA grade and, in Canada, a provincial tier. The word is the same
+   * and the meaning is not, so reading an age out of one means knowing whose word it is.
+   */
+  ngb?: string[];
+  /**
+   * The coaches GameChanger names on the public profile.
+   *
+   * Worth as much here as it is on a pasted row, and for the measured reason recorded on
+   * `GcTeamListEntry.staff`: two teams sharing two of these are the same club 97% of the time by
+   * state and 89% by town.
+   */
+  staff?: string[];
 };
 
 export type GcGameStatus = "completed" | "scheduled" | "in_progress" | "canceled" | "unknown";
@@ -66,9 +84,15 @@ export type GcTeamSchedule = {
   /**
    * What the user's own team list said about this team, when they pasted one that carried it.
    *
-   * Never from GameChanger's API: its public endpoints return neither the staff nor the roster
-   * size, and both come from the list export instead. Kept apart from `profile` for exactly that
-   * reason — a field in there is something GameChanger said, and these are not.
+   * Kept apart from `profile` because the two have different authority: a field in there is
+   * something GameChanger said, and this is something the user's spreadsheet said. Where both
+   * speak, `linkFor` prefers this one — the export is the newer reading and the one its owner can
+   * correct.
+   *
+   * This used to say GameChanger's public endpoints return neither the staff nor the roster size,
+   * and the code followed the comment. The captured profile returns both: `player_count` was read
+   * anyway, `staff` was not, and the strongest club-matching signal in the data was arriving free
+   * on every fetch and being dropped on the floor.
    */
   listed?: { staff?: string[]; playerCount?: number };
 };
@@ -187,6 +211,46 @@ const NOT_BASEBALL = /wh?iffle/i;
 
 export const isNotBaseball = (name: unknown): boolean =>
   typeof name === "string" && NOT_BASEBALL.test(name);
+
+/**
+ * The sanctioning bodies off a profile's `ngb` field.
+ *
+ * The shape is odd and has to be read leniently: the captured profile carries the *string*
+ * `"[\"usssa\"]"` — a JSON array that something serialised on its way out and nothing parsed on
+ * its way back. So a JSON array in a string, a bare string, and a real array are all read, and
+ * anything else comes back empty rather than guessed at.
+ *
+ * Lowercased, trimmed and deduplicated, because it is compared against, never displayed: the
+ * question asked of it is "is this Little League?", and the answer must not turn on spacing.
+ */
+export const parseGcNgb = (raw: unknown): string[] => {
+  const asList = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string") return [];
+    const text = value.trim();
+    if (!text) return [];
+    if (text.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        // A string that opens like an array and is not one says nothing; it is not a body name.
+        return [];
+      }
+    }
+    return [text];
+  };
+  const seen = new Set<string>();
+  const bodies: string[] = [];
+  for (const entry of asList(raw)) {
+    if (typeof entry !== "string") continue;
+    const body = entry.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!body || seen.has(body)) continue;
+    seen.add(body);
+    bodies.push(body);
+  }
+  return bodies;
+};
 
 export const gcTeamPageUrl = (teamId: string): string => `https://web.gc.com/teams/${teamId}`;
 
@@ -724,6 +788,14 @@ export const normalizeGcTeamProfile = (raw: unknown, fallbackId?: string): GcTea
   const playerCount = asNumber(source.player_count ?? source.playerCount);
   if (playerCount !== undefined) profile.playerCount = playerCount;
 
+  const ngb = parseGcNgb(source.ngb);
+  if (ngb.length > 0) profile.ngb = ngb;
+
+  // From the profile as well as from a pasted list. See `GcTeamSchedule.listed` for the comment
+  // that said this never arrives, and the fixture that has always disproved it.
+  const staff = Array.isArray(source.staff) ? staffNames(source.staff) : [];
+  if (staff.length > 0) profile.staff = staff;
+
   return profile;
 };
 
@@ -997,15 +1069,25 @@ const nameFromListCell = (cell: string): string => {
  * names and is read as two. That costs nothing here — a half-name matches a half-name, and two
  * teams sharing both halves still share both.
  */
-export const parseGcStaffCell = (cell: string): string[] => {
-  if (!cell) return [];
+export const parseGcStaffCell = (cell: string): string[] =>
+  cell ? staffNames(cell.split(/[,;]/)) : [];
+
+/**
+ * A list of coach names, tidied: whitespace collapsed, blanks dropped, and the same name twice
+ * counted once — a card that names one coach twice is one coach, not corroboration.
+ *
+ * Shared because the names now arrive two ways. The pasted list gives one cell to split; the
+ * public profile gives an array of its own (see `normalizeGcTeamProfile`), and both have to come
+ * out the same or `gcStaff`'s matching would see two spellings of one club as two clubs.
+ */
+export const staffNames = (raw: readonly unknown[]): string[] => {
   const seen = new Set<string>();
   const names: string[] = [];
-  for (const raw of cell.split(/[,;]/)) {
-    const name = raw.replace(/\s+/g, " ").trim();
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const name = entry.replace(/\s+/g, " ").trim();
     if (!name) continue;
     const key = name.toLowerCase();
-    // A card that names the same coach twice is one coach, not corroboration.
     if (seen.has(key)) continue;
     seen.add(key);
     names.push(name);

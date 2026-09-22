@@ -485,6 +485,35 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
     });
     parts.push("]");
   }
+  /*
+   * And the answers, which this file never carried.
+   *
+   * `readTeamRankingsBackup` has always built the block and `writeTeamRankingsBackup` has always
+   * restored it; only the writer in between left it out, so the pool backup restored answers it
+   * had never saved. That is the file the reset card offers as the way back, and a reset clears
+   * the waiting list — so backing up, resetting and restoring lost every team waiting on an age,
+   * which is the one answer here that costs two requests a team to learn again. Thirty-six
+   * thousand of them is seventy-two thousand requests to rebuild a file that was meant to be the
+   * safety net.
+   *
+   * The waiting list is written a row at a time, like the archives above and for the same reason:
+   * it is the biggest thing in the block by far, and the point of writing this file in pieces is
+   * that no single string ever holds all of it.
+   */
+  const answers = backup.answers;
+  if (answers) {
+    parts.push(',"answers":{');
+    parts.push(`"namedAges":${JSON.stringify(answers.namedAges)}`);
+    parts.push(`,"droppedClubs":${JSON.stringify(answers.droppedClubs)}`);
+    parts.push(`,"tooYoungClubs":${JSON.stringify(answers.tooYoungClubs)}`);
+    parts.push(`,"deletedGames":${JSON.stringify(answers.deletedGames)}`);
+    parts.push(`,"keptApart":${JSON.stringify(answers.keptApart)}`);
+    parts.push(',"ageUnknown":[');
+    answers.ageUnknown.forEach((row, at) => {
+      parts.push(`${at === 0 ? "" : ","}${JSON.stringify(row)}`);
+    });
+    parts.push("]}");
+  }
   parts.push("}");
   return parts;
 };
@@ -524,7 +553,17 @@ export const parseTeamRankingsJson = (raw: string): TeamRankingsBackup | null =>
         return season ? [season] : [];
       })
     : undefined;
-  return { ageGroups, teams, games, ...(archives ? { archives } : {}) };
+  // Absent in every file written before the block was saved at all, and `coerceBackupAnswers`
+  // answers undefined for one — which is what keeps a restore from wiping decisions this browser
+  // holds on being handed an older file.
+  const answers = coerceBackupAnswers(parsed.answers);
+  return {
+    ageGroups,
+    teams,
+    games,
+    ...(archives ? { archives } : {}),
+    ...(answers ? { answers } : {}),
+  };
 };
 
 /** Whether a file looks like JSON rather than CSV, without parsing the whole of it. */

@@ -746,8 +746,16 @@ const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
     ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
     ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
     ...(profile.record ? { record: profile.record } : {}),
-    // From the user's list rather than from GameChanger, and only when their list carried it.
-    ...(listed?.staff?.length ? { staff: listed.staff } : {}),
+    /*
+     * The user's list first, GameChanger's profile behind it. The list is the newer reading and
+     * the one its owner can correct; the profile is what every pull carries whether a list was
+     * pasted or not, which is what makes the staff index worth having at all on a pull by id.
+     */
+    ...(listed?.staff?.length
+      ? { staff: listed.staff }
+      : profile.staff?.length
+        ? { staff: profile.staff }
+        : {}),
     ...(listed?.playerCount === undefined
       ? {}
       : { playerCount: listed.playerCount, countedAt: fetchedAt }),

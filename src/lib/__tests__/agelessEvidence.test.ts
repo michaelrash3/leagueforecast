@@ -168,3 +168,31 @@ describe("what was known about a team nobody could age", () => {
     ]);
   });
 });
+
+/**
+ * The sanctioning body rides along, because this row is all that survives a refusal.
+ *
+ * The schedule is read once and thrown away, so a fact not written here costs two requests to
+ * learn again — and this is the fact that decides whether "Majors" on a waiting row is an age
+ * (Little League, 9-12) or a skill class (USSSA, any age).
+ */
+describe("the sanctioning body on a waiting row", () => {
+  it("is kept when GameChanger named one", () => {
+    const evidence = agelessEvidence(profile({ ngb: ["usssa"] }), [game("Bandits")], TODAY);
+    expect(evidence.ngb).toEqual(["usssa"]);
+  });
+
+  it("is absent rather than empty when it did not", () => {
+    expect(agelessEvidence(profile(), [game("Bandits")], TODAY).ngb).toBeUndefined();
+  });
+
+  it("survives being stored and read back, lowercased", () => {
+    const stored = JSON.parse(
+      JSON.stringify(agelessEvidence(profile({ ngb: ["little league"] }), [], TODAY))
+    ) as unknown;
+    expect(coerceAgelessEvidence(stored).ngb).toEqual(["little league"]);
+    // And anything unreadable in there is dropped, like every other stored field.
+    expect(coerceAgelessEvidence({ ngb: ["USSSA", 7, ""] }).ngb).toEqual(["usssa"]);
+    expect(coerceAgelessEvidence({ ngb: "usssa" }).ngb).toBeUndefined();
+  });
+});

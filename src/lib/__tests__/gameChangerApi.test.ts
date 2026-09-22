@@ -26,6 +26,7 @@ import {
   normalizeGcGames,
   normalizeGcTeamProfile,
   parseGcAgeLevel,
+  parseGcNgb,
   parseGcSeasonLabel,
   parseGcTeamId,
   parseGcTeamList,
@@ -500,7 +501,27 @@ describe("normalizeGcTeamProfile", () => {
       record: { win: 11, loss: 1, tie: 0 },
       avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
       playerCount: 10,
+      // Both of these were in the capture from the start and neither was read: the sanctioning
+      // body, which is the only thing that says whether "Majors" is an age or a skill class, and
+      // the coaches, which are the strongest club-matching signal the app has.
+      ngb: ["usssa"],
+      staff: ["Noochie Varner", "Jordan Fox", "Tyler Coons"],
     });
+  });
+
+  /*
+   * Both of these were in the captured profile from the beginning and neither was read, because
+   * a comment on `GcTeamSchedule.listed` said the public endpoints return neither and the code
+   * believed it.
+   */
+  it("keeps the coaches the profile names, tidied the way a pasted cell is", () => {
+    const doubled = normalizeGcTeamProfile({
+      ...profileFixture,
+      staff: ["Noochie  Varner", "NOOCHIE VARNER", "", 7, "Jordan Fox"],
+    });
+    expect(doubled?.staff).toEqual(["Noochie Varner", "Jordan Fox"]);
+    const none = normalizeGcTeamProfile({ ...profileFixture, staff: [] });
+    expect(none?.staff).toBeUndefined();
   });
 
   it("keeps what GameChanger filed the team under, readable or not", () => {
@@ -569,6 +590,38 @@ describe("normalizeGcTeamProfile", () => {
     });
     expect(profile?.season).toBeUndefined();
     expect(profile?.record).toEqual({ win: 3, loss: 2, tie: 0 });
+  });
+});
+
+/**
+ * The sanctioning body, which is the only field in the payload that says whose word a division
+ * word is. It arrives in a shape nothing should produce — a JSON array inside a string — so it is
+ * read leniently and refuses rather than guesses when it is anything else.
+ */
+describe("parseGcNgb", () => {
+  it("reads the shape GameChanger actually sends", () => {
+    expect(parseGcNgb('["usssa"]')).toEqual(["usssa"]);
+    expect(parseGcNgb('["little league","usssa"]')).toEqual(["little league", "usssa"]);
+  });
+
+  it("reads a bare string and a real array too", () => {
+    expect(parseGcNgb("usssa")).toEqual(["usssa"]);
+    expect(parseGcNgb(["USSSA", "Pony"])).toEqual(["usssa", "pony"]);
+  });
+
+  // Compared against, never shown, so the answer must not turn on case or spacing.
+  it("lowercases, collapses spacing and counts a repeat once", () => {
+    expect(parseGcNgb('["Little  League","LITTLE LEAGUE"]')).toEqual(["little league"]);
+    expect(parseGcNgb(["  usssa  "])).toEqual(["usssa"]);
+  });
+
+  it("is empty for anything it cannot read", () => {
+    expect(parseGcNgb(undefined)).toEqual([]);
+    expect(parseGcNgb("")).toEqual([]);
+    expect(parseGcNgb("[not json")).toEqual([]);
+    expect(parseGcNgb('["", "  "]')).toEqual([]);
+    expect(parseGcNgb(7)).toEqual([]);
+    expect(parseGcNgb({ ngb: "usssa" })).toEqual([]);
   });
 });
 

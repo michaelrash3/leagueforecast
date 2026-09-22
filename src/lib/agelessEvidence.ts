@@ -50,6 +50,15 @@ export type AgelessEvidence = {
   record?: { win: number; loss: number; tie: number };
   /** GameChanger's `player_count`. It takes nine to field a side. */
   playerCount?: number;
+  /**
+   * The bodies the team plays under, lowercased — `["usssa"]`, `["little league"]`.
+   *
+   * Kept because it is the thing that decides what a division word means, and because this row is
+   * all that survives a refusal: the schedule is read once and thrown away, so a fact not written
+   * down here costs two requests to learn again. "Majors" under Little League is an age; "Major"
+   * under USSSA is a skill class; without this the two are one string.
+   */
+  ngb?: string[];
   /** Rows on the schedule that was fetched. */
   games: number;
   /** Of those, how many carry a score. */
@@ -125,6 +134,7 @@ export const agelessEvidence = (
     ...(profile.state ? { state: profile.state } : {}),
     ...(profile.record ? { record: profile.record } : {}),
     ...(profile.playerCount === undefined ? {} : { playerCount: profile.playerCount }),
+    ...(profile.ngb?.length ? { ngb: profile.ngb } : {}),
     games: games.length,
     scored,
     aheadOfToday,
@@ -162,6 +172,12 @@ export const coerceAgelessEvidence = (raw: unknown): AgelessEvidence => {
           : [];
       })
     : [];
+  const ngb = Array.isArray(row.ngb)
+    ? row.ngb.flatMap((one) => {
+        const text = asText(one);
+        return text ? [text.toLowerCase()] : [];
+      })
+    : [];
   const sample = Array.isArray(row.sampleOpponents)
     ? row.sampleOpponents.flatMap((one) => {
         const text = asText(one);
@@ -184,6 +200,7 @@ export const coerceAgelessEvidence = (raw: unknown): AgelessEvidence => {
     ...(typeof row.playerCount === "number" && Number.isFinite(row.playerCount)
       ? { playerCount: asCount(row.playerCount) }
       : {}),
+    ...(ngb.length > 0 ? { ngb } : {}),
     games: asCount(row.games),
     scored: asCount(row.scored),
     aheadOfToday: asCount(row.aheadOfToday),

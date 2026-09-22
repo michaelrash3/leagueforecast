@@ -613,6 +613,85 @@ describe("the JSON backup", () => {
     expect(linked?.gcTeams).toEqual(original?.gcTeams);
   });
 
+  /**
+   * The answers, which this file never carried.
+   *
+   * `readTeamRankingsBackup` built the block and `writeTeamRankingsBackup` restored it; only the
+   * writer between them left it out, so the pool backup restored answers it had never saved. It
+   * is the file the reset card offers as the way back, and a reset clears the waiting list — so
+   * backing up, resetting and restoring lost every team waiting on an age, at two requests each
+   * to learn again.
+   */
+  it("carries the answers, and brings them back", () => {
+    const withAnswers = {
+      ...backup,
+      answers: {
+        namedAges: [{ teamId: "gcA", level: 11, namedAt: SAVED_AT }],
+        droppedClubs: ["gcB"],
+        tooYoungClubs: ["gcC"],
+        deletedGames: ["gc_gcA_1"],
+        keptApart: ["gcA\u0000gcB"],
+        ageUnknown: [
+          {
+            teamId: "gcD",
+            name: "D33 Minors Allied Gardens 2",
+            firstSeen: SAVED_AT,
+            lastTried: SAVED_AT,
+            tries: 2,
+            evidence: {
+              games: 8,
+              scored: 8,
+              aheadOfToday: 0,
+              shutoutBlowouts: 0,
+              opponents: 5,
+              namedAnAge: 0,
+              tally: [],
+              ngb: ["little league"],
+            },
+          },
+          {
+            teamId: "gcE",
+            name: "LLL Double A - S. Stevens",
+            firstSeen: SAVED_AT,
+            lastTried: SAVED_AT,
+            tries: 1,
+          },
+        ],
+      },
+    };
+    const back = parseTeamRankingsJson(teamRankingsJson(withAnswers, SAVED_AT));
+    expect(back!.answers).toEqual(withAnswers.answers);
+  });
+
+  // Written a row at a time like the archives, so the pieces still have to join into one file.
+  it("is still valid JSON with an answers block in it", () => {
+    const withAnswers = {
+      ...backup,
+      answers: {
+        namedAges: [],
+        droppedClubs: [],
+        tooYoungClubs: [],
+        deletedGames: [],
+        keptApart: [],
+        ageUnknown: Array.from({ length: 3 }, (_, index) => ({
+          teamId: `gc${index}`,
+          firstSeen: SAVED_AT,
+          lastTried: SAVED_AT,
+          tries: 1,
+        })),
+      },
+    };
+    const parsed = JSON.parse(teamRankingsJson(withAnswers, SAVED_AT));
+    expect(parsed.answers.ageUnknown).toHaveLength(3);
+  });
+
+  // A file written before the block existed must leave this browser's answers alone, rather than
+  // reading "no answers" as "clear them".
+  it("says nothing about answers when the file has none", () => {
+    const back = parseTeamRankingsJson(teamRankingsJson(backup, SAVED_AT));
+    expect(back!.answers).toBeUndefined();
+  });
+
   it("says what it is, so a file found on a disk a year from now can be read", () => {
     const parsed = JSON.parse(teamRankingsJson(backup, SAVED_AT));
     expect(parsed.format).toBe("league-forecast-team-rankings");
