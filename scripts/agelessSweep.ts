@@ -10,7 +10,7 @@
  * wrong age, or deleted, corrupts every club it played, and a wrongly refused club leaves nothing
  * behind to notice it by.
  *
- *   npm run ageless:sweep -- <file> [--rule=NAME] [--sample=20] [--seed=1] [--csv]
+ *   npm run ageless:sweep -- <file> [--pool=names.csv] [--rule=NAME] [--sample=20] [--seed=1] [--csv]
  *
  * **Two files will do.** Either is the whole waiting list; they differ in what comes with it.
  *
@@ -56,6 +56,7 @@ import { ageLevelFromName } from "../src/lib/gameChangerApi.ts";
 import { whyNoAge } from "../src/lib/agelessEvidence.ts";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "../src/lib/gameChangerImport.ts";
 import { AGELESS_CSV_HEADERS, parseAgelessCsv } from "../src/lib/agelessCsv.ts";
+import { POOL_NAMES_CSV_HEADERS } from "../src/lib/poolNamesCsv.ts";
 import { normalizeHeader, parseCSVLine, stripBom } from "../src/lib/csv.ts";
 import type { AgeUnknownList, AgeUnknownTeam } from "../src/lib/ageUnknown.ts";
 
@@ -70,6 +71,8 @@ declare const console: { log: (...args: unknown[]) => void; error: (...args: unk
 
 type Options = {
   file: string;
+  /** The working pool's names, for the tripwire the backlog cannot supply. */
+  pool?: string;
   rule?: string;
   sample: number;
   seed: number;
@@ -84,6 +87,7 @@ const readOptions = (argv: string[]): Options | null => {
     rest.find((arg) => arg.startsWith(`--${name}=`))?.split("=")[1];
   return {
     file,
+    ...(flag("pool") ? { pool: flag("pool") } : {}),
     ...(flag("rule") ? { rule: flag("rule") } : {}),
     sample: Number(flag("sample") ?? 12),
     seed: Number(flag("seed") ?? 1),
@@ -172,6 +176,54 @@ const looksLikeAgelessCsv = (raw: string): boolean => {
 };
 
 /**
+ * The working pool, out of the file the Pool health card writes.
+ *
+ * Only ever used for the tripwire, so only ever read for the three things the tripwire asks: the
+ * id, the name, and the age the pool already has. A row that is a bracket slot or a name-only
+ * opponent is dropped — neither is a club anybody ranks, and a rule firing on ten thousand "TBD"
+ * rows would swamp the number that matters.
+ */
+const readPoolNames = (file: string, raw: string): { team: PoolTeam; level?: number }[] | null => {
+  const lines = stripBom(raw).split(/\r?\n/);
+  const header = lines.find((line) => line.trim().length > 0);
+  if (!header) return null;
+  const headers = parseCSVLine(header).map(normalizeHeader);
+  const at = (name: string) => headers.indexOf(normalizeHeader(name));
+  const idAt = at("Team ID");
+  const nameAt = at("Team Name");
+  const levelAt = at("Age Level");
+  const rankedAt = at("Ranked");
+  if (idAt < 0 || nameAt < 0) {
+    console.error(
+      `! ${file} is not a pool-names file.\n` +
+        `  Its header should begin ${POOL_NAMES_CSV_HEADERS.slice(0, 3).join(",")} — press\n` +
+        '  "Download the pool names" on the Pool health card.'
+    );
+    return null;
+  }
+  const out: { team: PoolTeam; level?: number }[] = [];
+  let first = true;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    if (first) {
+      first = false;
+      continue;
+    }
+    const cells = parseCSVLine(line);
+    const id = (cells[idAt] ?? "").trim();
+    const name = (cells[nameAt] ?? "").trim();
+    if (!id || !name) continue;
+    if (rankedAt >= 0 && (cells[rankedAt] ?? "").trim().toLowerCase() === "no") continue;
+    const level = levelAt >= 0 ? Number((cells[levelAt] ?? "").trim()) : Number.NaN;
+    out.push({
+      team: { id, name },
+      ...(Number.isFinite(level) && level > 0 ? { level } : {}),
+    });
+  }
+  return out;
+};
+
+/**
  * The waiting list, out of whichever of the two files was handed over.
  *
  * Refusals are by file shape rather than by extension: a name says what somebody meant to export,
@@ -218,7 +270,7 @@ const main = (): void => {
   const options = readOptions(process.argv);
   if (!options) {
     console.error(
-      "usage: npm run ageless:sweep -- <backup.json|waiting.csv> [--rule=NAME] [--sample=20] [--seed=1] [--csv]"
+      "usage: npm run ageless:sweep -- <backup.json|waiting.csv> [--pool=names.csv] [--rule=NAME] [--sample=20] [--seed=1] [--csv]"
     );
     process.exitCode = 1;
     return;
@@ -230,7 +282,24 @@ const main = (): void => {
     process.exitCode = 1;
     return;
   }
-  const { waiting, pool } = source;
+  /*
+   * The tripwire population, from whichever file carries it. A backup brings its own; a backlog
+   * CSV cannot, so `--pool` is how the other half of the measurement arrives when the only file
+   * small enough to move is the backlog.
+   */
+  const named = options.pool
+    ? readPoolNames(options.pool, readFileSync(options.pool, "utf8"))
+    : null;
+  if (options.pool && !named) {
+    process.exitCode = 1;
+    return;
+  }
+  const filed = new Map<string, number>();
+  named?.forEach((row) => {
+    if (row.level !== undefined) filed.set(row.team.id, row.level);
+  });
+  const pool = named ? named.map((row) => row.team) : source.pool;
+  const { waiting } = source;
 
   console.log(rule);
   console.log(`Ageless sweep · ${options.file}`);
@@ -238,7 +307,7 @@ const main = (): void => {
   console.log(
     `${n(waiting.length)} teams waiting on an age · ` +
       (pool
-        ? `${n(pool.length)} teams in the pool · ${n(source.games ?? 0)} games`
+        ? `${n(pool.length)} teams in the pool${source.games === null ? "" : ` · ${n(source.games)} games`}`
         : "no working pool in this file, so the two sections that need one are skipped")
   );
 
@@ -338,8 +407,8 @@ const main = (): void => {
   console.log("-".repeat(96));
   if (!pool) {
     console.log(
-      "not measured: this file carries the backlog only. Run again against\n" +
-        "League_Forecast_Backup_<date>.json to get a false-positive rate."
+      'not measured: this file carries the backlog only. Press "Download the pool names" on the\n' +
+        "Pool health card and pass it as --pool=<file> to get a false-positive rate."
     );
   } else {
     const pooled: AgeUnknownTeam[] = pool.map((team) => ({
@@ -349,13 +418,39 @@ const main = (): void => {
       lastTried: "",
       tries: 0,
     }));
+    /*
+     * Where the pool file carried the age each team is already filed under, a hit splits in two,
+     * and only one half is bad news. A rule reading 10U off a team the pool has at 10U is
+     * agreeing with the pool, which is the best evidence there is that the rule works. A rule
+     * reading 16U off that same team is the thing this whole section exists to catch, and it is
+     * the "wrong" column that should be zero — not the "fires" one.
+     */
+    const knowsAges = filed.size > 0;
+    console.log(
+      knowsAges
+        ? `${"rule".padEnd(24)} ${"fires".padEnd(10)} ${"share".padEnd(8)} ${"agrees".padEnd(8)} ${"WRONG".padEnd(8)} examples`
+        : `${"rule".padEnd(24)} ${"fires".padEnd(10)} ${"share".padEnd(8)} examples`
+    );
     rules.forEach((entry) => {
       const hits = pooled.filter((row) => entry.read(row) !== undefined);
-      const shown = sampleOf(hits, 3, options.seed)
+      let agrees = 0;
+      const wrong: AgeUnknownTeam[] = [];
+      hits.forEach((row) => {
+        const verdict = entry.read(row);
+        const level =
+          verdict && (verdict.kind === "age" || verdict.kind === "rec") ? verdict.level : undefined;
+        const already = filed.get(row.teamId);
+        if (level === undefined || already === undefined) return;
+        if (level === already) agrees += 1;
+        else wrong.push(row);
+      });
+      const shown = sampleOf(wrong.length > 0 ? wrong : hits, 3, options.seed)
         .map((row) => JSON.stringify(row.name ?? ""))
         .join("  ");
       console.log(
-        `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${shown}`
+        knowsAges
+          ? `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${n(agrees).padEnd(8)} ${n(wrong.length).padEnd(8)} ${shown}`
+          : `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${shown}`
       );
     });
   }

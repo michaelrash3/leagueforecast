@@ -23,6 +23,7 @@ import {
   ageLevelFromName,
   formatGcSeason,
   isNotBaseball,
+  isAdultAgeLabel,
   isSchoolAgeLabel,
   isSchoolName,
   type GcGame,
@@ -687,7 +688,9 @@ export type GcSkipReason =
   /** A wiffle ball team. A different game, so its results belong to no baseball ranking. */
   | "not-baseball"
   /** A high school squad. A different season, played against a pool this app does not hold. */
-  | "high-school";
+  | "high-school"
+  /** Grown men or a college side. There is no youth age to find, so it is never asked about. */
+  | "not-youth";
 
 /**
  * Whether GameChanger's answer describes a high school squad, by either of the two things it says.
@@ -703,6 +706,19 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
     return {
       code: "not-baseball",
       message: "This is a wiffle ball team, which is a different game, so it was left out.",
+    };
+  }
+  /*
+   * Before the school test, because the two read the same field and an over-18 men's league is
+   * the more certain of the two readings: `college` and `Over 18` describe who is playing rather
+   * than what season they play it in.
+   */
+  if (isAdultAgeLabel(profile.ageLabel)) {
+    return {
+      code: "not-youth",
+      message:
+        "GameChanger files this team as adult or college. This app ranks youth baseball, so " +
+        "there is no age here to find and it is left out.",
     };
   }
   if (isSchoolTeam(profile)) {

@@ -236,6 +236,93 @@ describe("the rules that are safe on what they read alone", () => {
 });
 
 /**
+ * The rules that read the field GameChanger was already sending.
+ *
+ * Measured over the 36,194 rows waiting on 22 September 2026: `adult-label` reaches 3,303 (9.1%)
+ * and `school-label` 1,427 (3.9%), and between them 3,443 of those are rows no other rule in this
+ * file touches at all. They are the two largest certain answers in the set, and neither infers
+ * anything — both read GameChanger's own word for what the team is.
+ */
+describe("the rules that read GameChanger's own age field", () => {
+  const labelled = (label: string) => row("Some Club", { evidence: evidence({ ageLabel: label }) });
+
+  it("retires a team filed as adult or college", () => {
+    ["Over 18", "18O", "college"].forEach((label) => {
+      expect(verdictFrom(labelled(label), "adult-label")).toEqual({ kind: "not-youth" });
+    });
+  });
+
+  it("retires a team filed under any of the school bands", () => {
+    ["high_varsity", "high_junior_varsity", "high_freshman", "middle_13O", "elementary"].forEach(
+      (label) => {
+        expect(verdictFrom(labelled(label), "school-label")).toEqual({ kind: "high-school" });
+      }
+    );
+  });
+
+  it("reads middle_12U as a school team, never as a 12U age", () => {
+    expect(verdictFrom(labelled("middle_12U"), "school-label")).toEqual({ kind: "high-school" });
+    expect(agelessVerdicts(labelled("middle_12U")).filter((v) => v.verdict.kind === "age")).toEqual(
+      []
+    );
+  });
+
+  it("says nothing about the two bands, which name no team and no age", () => {
+    ["Under 13", "Between 13 - 18"].forEach((label) => {
+      expect(fired(labelled(label))).not.toContain("adult-label");
+      expect(fired(labelled(label))).not.toContain("school-label");
+    });
+  });
+});
+
+/**
+ * The band as a veto over every other rule.
+ *
+ * Measured over the same 36,194 rows: 1,186 of the 1,203 ages the rules derive already sit inside
+ * the band GameChanger states, 98.6%. So this changes almost nothing — and every one of the
+ * seventeen it does change is the same mistake, a PONY division word read off a mascot or a
+ * university.
+ */
+describe("an age GameChanger's band contradicts", () => {
+  it("drops a university read as a ten-year-old side", () => {
+    // "SMSU Mustangs" is Southwest Minnesota State, filed `college`, and was headed for 10U.
+    const uni = row("SMSU Mustangs Home", {
+      evidence: evidence({ ageLabel: "college", sampleOpponents: ["Broncos", "Pintos"] }),
+    });
+    expect(fired(uni)).not.toContain("pony-division");
+  });
+
+  it("drops a mascot read as a sixteen-year-old side", () => {
+    // "Owls Colt" and "Canes Colts" are filed `Under 13`; Colt would have filed them at 16U.
+    const mascot = row("Owls Colt", {
+      evidence: evidence({ ageLabel: "Under 13", sampleOpponents: ["Broncos", "Pintos"] }),
+    });
+    expect(fired(mascot)).not.toContain("pony-division");
+  });
+
+  it("leaves an age the band agrees with exactly where it was", () => {
+    const agrees = row("Fillmore Mustangs", {
+      evidence: evidence({ ageLabel: "Under 13", sampleOpponents: ["Broncos", "Pintos"] }),
+    });
+    expect(verdictFrom(agrees, "pony-division")).toEqual({ kind: "rec", level: 10 });
+  });
+
+  /*
+   * The veto lives in `agelessVerdicts` rather than inside each rule, so a rule written later
+   * cannot forget to apply it. This is the test that says so: the rule itself still answers, and
+   * the answer is dropped on the way out.
+   */
+  it("is applied centrally, not by the rule that derived the age", () => {
+    const mascot = row("Owls Colt", {
+      evidence: evidence({ ageLabel: "Under 13", sampleOpponents: ["Broncos", "Pintos"] }),
+    });
+    const rule = AGELESS_RULES.find((entry) => entry.id === "pony-division")!;
+    expect(rule.read(mascot)).toEqual({ kind: "rec", level: 16 });
+    expect(agelessVerdicts(mascot).map(({ rule: hit }) => hit.id)).not.toContain("pony-division");
+  });
+});
+
+/**
  * Nothing in this file is wired to the app, and that is deliberate: every rule is a candidate to
  * be measured by `scripts/agelessSweep.ts` against a real export before any of it ships.
  */

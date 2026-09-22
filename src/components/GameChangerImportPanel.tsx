@@ -442,7 +442,11 @@ export function GameChangerImportPanel({
     // rows — before a request is spent — and counted apart, because a reader who pasted a list
     // full of them deserves to be told which kind of "not for us" ate it.
     const club = baseball.filter((entry) => !entry.highSchool);
-    const entries = club.filter(
+    // And the third kind of "not for us": GameChanger's own field saying adult or college. Same
+    // terms again — refused before a request, counted apart — because a list of men's-league
+    // teams vanishing silently is indistinguishable from a list that failed to parse.
+    const youth = club.filter((entry) => !entry.notYouth);
+    const entries = youth.filter(
       (entry) =>
         !isTooYoungClub(tooYoung, entry.teamId) &&
         (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
@@ -450,9 +454,10 @@ export function GameChangerImportPanel({
     return {
       ...read,
       entries,
-      tooYoung: club.length - entries.length,
+      tooYoung: youth.length - entries.length,
       notBaseball: read.entries.length - baseball.length,
       highSchool: baseball.length - club.length,
+      notYouth: club.length - youth.length,
       // Counted here rather than again at run time: on a nationwide export this is a forty
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
@@ -744,7 +749,7 @@ export function GameChangerImportPanel({
             parsed: parsed.entries.length,
             skipped: parsed.skipped.length,
             skippedSamples: parsed.skipped,
-            tooYoung: parsed.tooYoung + parsed.notBaseball + parsed.highSchool,
+            tooYoung: parsed.tooYoung + parsed.notBaseball + parsed.highSchool + parsed.notYouth,
             alreadyHere: split.seen,
             asked: askedInRun,
           });
@@ -1780,6 +1785,11 @@ export function GameChangerImportPanel({
                 )}
                 {parsed.notBaseball > 0 && (
                   <span className={pill("neutral")}>{parsed.notBaseball} wiffle ball, skipped</span>
+                )}
+                {parsed.notYouth > 0 && (
+                  <span className={pill("neutral")}>
+                    {parsed.notYouth} adult or college, skipped
+                  </span>
                 )}
                 {parsed.highSchool > 0 && (
                   <span className={pill("neutral")}>{parsed.highSchool} high school, skipped</span>

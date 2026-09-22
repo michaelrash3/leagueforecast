@@ -38,6 +38,8 @@ import {
   isSchoolAgeLabel,
   isSchoolName,
   maybeSchoolTeam,
+  ageFitsBand,
+  isAdultAgeLabel,
 } from "./gameChangerApi";
 import type { AgelessEvidence } from "./agelessEvidence";
 import type { AgeUnknownTeam } from "./ageUnknown";
@@ -50,6 +52,8 @@ export type AgelessVerdict =
   /** Rec or house ball: aged from its division where one can be read, and never ranked. */
   | { kind: "rec"; level?: number }
   | { kind: "high-school" }
+  /** Grown men or a college side: there is no youth age to find, so it is never asked again. */
+  | { kind: "not-youth" }
   | { kind: "not-real" }
   /** Nothing to rate either way, and nothing to learn by asking again. */
   | { kind: "no-schedule" };
@@ -199,10 +203,17 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
     },
   },
   {
+    id: "adult-label",
+    label: "GameChanger filed it as adult or college",
+    tier: "auto",
+    because: "this app ranks youth baseball, and there is no youth age here to find",
+    read: (row) => (isAdultAgeLabel(evidenceOf(row).ageLabel) ? { kind: "not-youth" } : undefined),
+  },
+  {
     id: "school-label",
     label: "GameChanger filed it as a school team",
     tier: "auto",
-    because: "its age field says varsity or JV, which the school rule now reads",
+    because: "its age field names a school band, which the school rule now reads",
     read: (row) =>
       isSchoolAgeLabel(evidenceOf(row).ageLabel) ? { kind: "high-school" } : undefined,
   },
@@ -345,10 +356,31 @@ export const CLOSED_CLUSTER_SIZE = 6;
 const SCHOOL_HINTS = /\b(?:fresh(?:man|men)?|frosh|soph(?:omore)?|academy|prep(?:aratory)?)\b/i;
 
 /** Every rule that fires on a row, in the order they are declared. */
+/**
+ * Every rule, with the ones GameChanger's own band contradicts thrown away.
+ *
+ * Central rather than repeated inside each rule, because a veto a rule has to remember to apply
+ * is a veto the next rule will forget. Anything deriving an age passes through here, so the band
+ * cannot be skipped by writing a new rule.
+ *
+ * What it is worth, measured over the 36,194 rows waiting on 22 September 2026: of the 1,203
+ * ages the rules derive, 1,186 sit inside the band already — 98.6% — so this changes almost
+ * nothing and what it does change is all one mistake. Every one of the seventeen it drops is a
+ * PONY division word read off a mascot or a university: "SMSU Mustangs Home" is Southwest
+ * Minnesota State, filed `college`, and was about to be ranked at 10U; "Owls Colt" and "Canes
+ * Colts" are filed `Under 13` and were about to be ranked at 16U.
+ *
+ * The whole verdict goes, not just its number. A rule that read a university as a ten-year-old
+ * side has not got the age slightly wrong; it has misread what the team is, and the rest of what
+ * it concluded is worth no more than the part that was checkable.
+ */
 export const agelessVerdicts = (
   row: AgeUnknownTeam
 ): { rule: AgelessRule; verdict: AgelessVerdict }[] =>
   AGELESS_RULES.flatMap((rule) => {
     const verdict = rule.read(row);
-    return verdict ? [{ rule, verdict }] : [];
+    if (!verdict) return [];
+    const level = verdict.kind === "age" || verdict.kind === "rec" ? verdict.level : undefined;
+    if (level !== undefined && !ageFitsBand(level, row.evidence?.ageLabel)) return [];
+    return [{ rule, verdict }];
   });
