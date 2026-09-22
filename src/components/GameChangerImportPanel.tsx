@@ -92,6 +92,7 @@ import {
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
+import { downloadCsv, fileDay } from "../lib/download";
 import {
   flushPoolWrites,
   loadAgeUnknown,
@@ -279,31 +280,10 @@ const nowIso = () => new Date().toISOString();
  */
 const msNow = () => Date.now();
 
-/**
- * Saves text as a CSV.
- *
- * The byte order mark is not decoration. These files are opened in Excel and mailed on, and
- * without it Excel reads them in the system codepage and mangles every accented and apostrophed
- * team name — which is most of what makes the rows readable, and all of the evidence about what a
- * club calls itself. A twelve-megabyte file nobody can read does not get downloaded twice.
- */
-const downloadCsv = (name: string, body: string) => {
-  const blob = new Blob(["\ufeff", body], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(url);
-};
-
 /** Hands the whole list over as a file, since a few hundred rows is spreadsheet work. */
 const downloadProblems = (problems: GcImportProblem[]) => {
   downloadCsv("gamechanger-not-imported.csv", gcImportProblemsCsv(problems));
 };
-
-/** Today, as "2026-09-17", so two runs' files do not overwrite each other. */
-const fileDay = (): string => new Date().toISOString().slice(0, 10);
 
 /** How many rows of the list are drawn; the rest are in the file the button writes. */
 const PROBLEMS_SHOWN = 200;

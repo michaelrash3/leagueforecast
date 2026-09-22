@@ -10,13 +10,24 @@
  * wrong age, or deleted, corrupts every club it played, and a wrongly refused club leaves nothing
  * behind to notice it by.
  *
- *   npm run ageless:sweep -- <backup.json> [--rule=NAME] [--sample=20] [--seed=1] [--csv]
+ *   npm run ageless:sweep -- <file> [--rule=NAME] [--sample=20] [--seed=1] [--csv]
  *
- * **JSON, and the whole-browser backup.** The waiting list rides in the backup's `answers` block,
- * and `parseTeamRankingsCsv` has nowhere to put one — `CSV_SECTIONS` covers the schedule, the age
- * groups, the teams and the games, and stops. A `.csv` is refused by name rather than read as an
- * empty list, because "this file has no waiting teams" and "this file cannot carry them" are very
- * different answers and only one of them is worth acting on.
+ * **Two files will do.** Either is the whole waiting list; they differ in what comes with it.
+ *
+ *   - `gamechanger-waiting-on-an-age-<date>.csv`, the file the review card's download button
+ *     writes. A few megabytes, and the only one of the two that can be moved off the machine that
+ *     collected it: the whole-browser backup of a nationwide pool runs to hundreds of megabytes,
+ *     which is not a file anybody uploads. It carries the rows and their evidence and nothing
+ *     else, so the two sections below that measure against the *working* pool are skipped and say
+ *     so rather than printing a zero that looks like a clean bill of health.
+ *   - `League_Forecast_Backup_<date>.json`, the whole-browser backup, which carries the waiting
+ *     list in its `answers` block *and* the hundred thousand teams that already work. That second
+ *     population is what makes the tripwire possible, so where the file can be had, it is better.
+ *
+ * A Team Rankings *pool* CSV is still refused by name: `CSV_SECTIONS` covers the schedule, the age
+ * groups, the teams and the games, and has nowhere to put a waiting list. "This file has no
+ * waiting teams" and "this file cannot carry them" are very different answers and only one of them
+ * is worth acting on, so the header decides which file this is before anything is counted.
  *
  * What it prints is arranged around the ways a sweep like this produces a confident, tidy, wrong
  * answer:
@@ -44,7 +55,9 @@ import {
 import { ageLevelFromName } from "../src/lib/gameChangerApi.ts";
 import { whyNoAge } from "../src/lib/agelessEvidence.ts";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "../src/lib/gameChangerImport.ts";
-import type { AgeUnknownTeam } from "../src/lib/ageUnknown.ts";
+import { AGELESS_CSV_HEADERS, parseAgelessCsv } from "../src/lib/agelessCsv.ts";
+import { normalizeHeader, parseCSVLine, stripBom } from "../src/lib/csv.ts";
+import type { AgeUnknownList, AgeUnknownTeam } from "../src/lib/ageUnknown.ts";
 
 /**
  * The Node globals this script needs, declared here for the reason `recencySweep.ts` gives:
@@ -129,27 +142,57 @@ const describeRow = (row: AgeUnknownTeam): string => {
   return bits.join("  ·  ");
 };
 
-// ---------- the sweep ----------
+// ---------- the file ----------
 
-const main = (): void => {
-  const options = readOptions(process.argv);
-  if (!options) {
-    console.error(
-      "usage: npm run ageless:sweep -- <backup.json> [--rule=NAME] [--sample=20] [--seed=1] [--csv]"
-    );
-    process.exitCode = 1;
-    return;
+/** A pool team, reduced to what the rules read off one: nothing here fetches or rates anything. */
+type PoolTeam = { id: string; name: string };
+
+type Source = {
+  waiting: AgeUnknownList;
+  /**
+   * The teams that already work, where the file carries them.
+   *
+   * `null` rather than `[]`, and the difference is the whole point: an empty array would run the
+   * tripwire over nothing and print a column of zeroes, which reads exactly like a rule that never
+   * fires on a working club. "Not measured" has to look different from "measured, found nothing".
+   */
+  pool: PoolTeam[] | null;
+  games: number | null;
+};
+
+/** Whether the first non-blank line is the header the review card's download writes. */
+const looksLikeAgelessCsv = (raw: string): boolean => {
+  const header = stripBom(raw)
+    .split(/\r?\n/)
+    .find((line) => line.trim().length > 0);
+  if (!header) return false;
+  const headers = new Set(parseCSVLine(header).map(normalizeHeader));
+  // Three columns, because one of them alone is a header half the CSVs in this repo could have.
+  return ["Team ID", "Answer", "Why"].every((name) => headers.has(normalizeHeader(name)));
+};
+
+/**
+ * The waiting list, out of whichever of the two files was handed over.
+ *
+ * Refusals are by file shape rather than by extension: a name says what somebody meant to export,
+ * and the header says what they actually did. Each one names the file to go and get, because the
+ * commonest way to run this is with the wrong export — the pool backup rather than the whole
+ * browser's, or a CSV of the pool rather than of the backlog — and they are all `.json` and `.csv`
+ * alike from the outside.
+ */
+const readSource = (file: string, raw: string): Source | null => {
+  if (looksLikeAgelessCsv(raw)) {
+    return { waiting: parseAgelessCsv(raw), pool: null, games: null };
   }
-
-  const raw = readFileSync(options.file, "utf8");
   if (!looksLikeJsonBackup(raw)) {
     console.error(
-      `! ${options.file} is not a JSON backup.\n` +
-        "  The waiting list rides in the backup's answers block, and the CSV format has nowhere to\n" +
-        "  put one. Use the whole-browser backup — League_Forecast_Backup_<date>.json."
+      `! ${file} is neither a JSON backup nor a waiting-on-an-age CSV.\n` +
+        "  A pool CSV cannot carry a waiting list: its sections are the schedule, the age groups,\n" +
+        "  the teams and the games, and there is nowhere in them to put one. Use the whole-browser\n" +
+        `  backup — League_Forecast_Backup_<date>.json — or the file the "Download the list" button\n` +
+        `  writes, whose header begins ${AGELESS_CSV_HEADERS.slice(0, 4).join(",")}.`
     );
-    process.exitCode = 1;
-    return;
+    return null;
   }
 
   const parsed: unknown = JSON.parse(raw);
@@ -159,25 +202,52 @@ const main = (): void => {
       ? parseTeamRankingsJson(JSON.stringify((parsed as { teamRankings: unknown }).teamRankings))
       : null);
   if (!backup) {
-    console.error(`! ${options.file} is not a Team Rankings backup.`);
+    console.error(`! ${file} is not a Team Rankings backup.`);
+    return null;
+  }
+  return {
+    waiting: backup.answers?.ageUnknown ?? [],
+    pool: backup.teams.map((team) => ({ id: team.id, name: team.name })),
+    games: backup.games.length,
+  };
+};
+
+// ---------- the sweep ----------
+
+const main = (): void => {
+  const options = readOptions(process.argv);
+  if (!options) {
+    console.error(
+      "usage: npm run ageless:sweep -- <backup.json|waiting.csv> [--rule=NAME] [--sample=20] [--seed=1] [--csv]"
+    );
     process.exitCode = 1;
     return;
   }
 
-  const waiting = backup.answers?.ageUnknown ?? [];
+  const raw = readFileSync(options.file, "utf8");
+  const source = readSource(options.file, raw);
+  if (!source) {
+    process.exitCode = 1;
+    return;
+  }
+  const { waiting, pool } = source;
+
   console.log(rule);
   console.log(`Ageless sweep · ${options.file}`);
   console.log(rule);
   console.log(
-    `${n(waiting.length)} teams waiting on an age · ${n(backup.teams.length)} teams in the pool · ` +
-      `${n(backup.games.length)} games`
+    `${n(waiting.length)} teams waiting on an age · ` +
+      (pool
+        ? `${n(pool.length)} teams in the pool · ${n(source.games ?? 0)} games`
+        : "no working pool in this file, so the two sections that need one are skipped")
   );
 
   if (waiting.length === 0) {
     console.error(
-      "\n! This backup carries no waiting list.\n" +
+      "\n! This file carries no waiting list.\n" +
         "  The Team Rankings pool backup does not write the answers block; the whole-browser one\n" +
-        "  does. Look for League_Forecast_Backup_<date>.json."
+        "  does. Look for League_Forecast_Backup_<date>.json, or press \"Download the list\" on the\n" +
+        "  teams-waiting-on-an-age card for the CSV."
     );
     process.exitCode = 1;
     return;
@@ -266,22 +336,29 @@ const main = (): void => {
   console.log("");
   console.log("TRIPWIRE — the same rules against teams that already work");
   console.log("-".repeat(96));
-  const pooled: AgeUnknownTeam[] = backup.teams.map((team) => ({
-    teamId: team.id,
-    name: team.name,
-    firstSeen: "",
-    lastTried: "",
-    tries: 0,
-  }));
-  rules.forEach((entry) => {
-    const hits = pooled.filter((row) => entry.read(row) !== undefined);
-    const shown = sampleOf(hits, 3, options.seed)
-      .map((row) => JSON.stringify(row.name ?? ""))
-      .join("  ");
+  if (!pool) {
     console.log(
-      `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${shown}`
+      "not measured: this file carries the backlog only. Run again against\n" +
+        "League_Forecast_Backup_<date>.json to get a false-positive rate."
     );
-  });
+  } else {
+    const pooled: AgeUnknownTeam[] = pool.map((team) => ({
+      teamId: team.id,
+      name: team.name,
+      firstSeen: "",
+      lastTried: "",
+      tries: 0,
+    }));
+    rules.forEach((entry) => {
+      const hits = pooled.filter((row) => entry.read(row) !== undefined);
+      const shown = sampleOf(hits, 3, options.seed)
+        .map((row) => JSON.stringify(row.name ?? ""))
+        .join("  ");
+      console.log(
+        `${entry.id.padEnd(24)} ${n(hits.length).padEnd(10)} ${pct(hits.length, pooled.length).padEnd(8)} ${shown}`
+      );
+    });
+  }
 
   /*
    * And the question the grade words exist to answer: how often does a USSSA or Perfect Game grade
@@ -289,8 +366,6 @@ const main = (): void => {
    * is what reaches this backlog — which is exactly where reading it as an age does the damage.
    */
   const GRADES = /\b(?:a{1,3}|majors?|minors?)\b/i;
-  const gradedPool = backup.teams.filter((team) => GRADES.test(team.name));
-  const gradedWithAge = gradedPool.filter((team) => ageLevelFromName(team.name) !== undefined);
   const gradedWaiting = waiting.filter((row) => GRADES.test(row.name ?? ""));
   const gradedWaitingWithAge = gradedWaiting.filter(
     (row) => ageLevelFromName(row.name ?? "") !== undefined
@@ -298,9 +373,15 @@ const main = (): void => {
   console.log("");
   console.log("THE GRADE QUESTION — does A/AA/AAA/Major travel with an age?");
   console.log("-".repeat(96));
-  console.log(
-    `in the pool:   ${n(gradedPool.length)} names carry a grade, ${n(gradedWithAge.length)} also carry an age (${pct(gradedWithAge.length, gradedPool.length)})`
-  );
+  if (!pool) {
+    console.log("in the pool:   not measured — no working pool in this file");
+  } else {
+    const gradedPool = pool.filter((team) => GRADES.test(team.name));
+    const gradedWithAge = gradedPool.filter((team) => ageLevelFromName(team.name) !== undefined);
+    console.log(
+      `in the pool:   ${n(gradedPool.length)} names carry a grade, ${n(gradedWithAge.length)} also carry an age (${pct(gradedWithAge.length, gradedPool.length)})`
+    );
+  }
   console.log(
     `still waiting: ${n(gradedWaiting.length)} names carry a grade, ${n(gradedWaitingWithAge.length)} also carry an age (${pct(gradedWaitingWithAge.length, gradedWaiting.length)})`
   );
@@ -337,7 +418,9 @@ const main = (): void => {
     console.log(`  ${entry.because}`);
     sampleOf(rows, options.sample, options.seed).forEach((row) => {
       const verdict = verdictOf.get(entry.id)?.get(row.teamId);
-      console.log(`    ${verdict ? describeVerdict(verdict).padEnd(10) : "".padEnd(10)}${describeRow(row)}`);
+      console.log(
+        `    ${(verdict ? describeVerdict(verdict) : "").padEnd(13)}${describeRow(row)}`
+      );
     });
   });
 

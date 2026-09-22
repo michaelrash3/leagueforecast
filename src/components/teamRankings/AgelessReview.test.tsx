@@ -249,3 +249,76 @@ describe("the review card for teams waiting on an age", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * The button that gets the list off this machine.
+ *
+ * Tested through the Blob rather than through a mocked module, because the two things that can go
+ * wrong are both in what the file holds: the wrong population in it (the ten drawn, or the rows
+ * already answered) and the wrong name on it.
+ */
+describe("downloading the whole list", () => {
+  /** Captures the file the click hands to the browser, and gives back its text and its name. */
+  const catchDownload = () => {
+    const seen: { name: string; parts: BlobPart[] } = { name: "", parts: [] };
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:stub");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    /*
+     * jsdom's Blob will not give its contents back synchronously, so the parts are taken as they
+     * are handed to the constructor. That also happens to assert the thing worth asserting: that
+     * the file is built in pieces rather than as one string.
+     */
+    const RealBlob = globalThis.Blob;
+    vi.stubGlobal(
+      "Blob",
+      class extends RealBlob {
+        constructor(parts: BlobPart[] = [], options?: BlobPropertyBag) {
+          super(parts, options);
+          seen.parts = parts;
+        }
+      }
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      seen.name = this.download;
+    });
+    return {
+      get name() {
+        return seen.name;
+      },
+      get text() {
+        return seen.parts.map((part) => String(part)).join("");
+      },
+    };
+  };
+
+  it("writes every waiting team, not the ten on screen", async () => {
+    const user = userEvent.setup();
+    const file = catchDownload();
+    show(twelve());
+
+    await user.click(screen.getByRole("button", { name: /download the list/i }));
+
+    expect(file.name).toBe("gamechanger-waiting-on-an-age-2026-09-20.csv");
+    // Eleven behind the ten drawn, and the header.
+    expect(file.text.trim().split("\n")).toHaveLength(13);
+    expect(file.text).toContain("Club 11");
+    expect(file.text.startsWith("\ufeff")).toBe(true);
+  });
+
+  it("leaves out a team already answered or thrown out", async () => {
+    const user = userEvent.setup();
+    const file = catchDownload();
+    show(twelve(), {
+      named: new Map([["ID3", { teamId: "ID3", level: 10, namedAt: daysBefore(1) }]]),
+      dropped: forgetClubs(new Set<string>(), ["ID4"]),
+    });
+
+    await user.click(screen.getByRole("button", { name: /download the list/i }));
+
+    expect(file.text).not.toContain("Club 3");
+    expect(file.text).not.toContain("Club 4");
+    expect(file.text).toContain("Club 5");
+  });
+});

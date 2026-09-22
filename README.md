@@ -717,6 +717,28 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**Taking the list away with you.** Thirty-six thousand rows is not a queue anybody works
+ten at a time, and the card cannot become a spreadsheet. So a **Download the list** button
+writes one: every team still waiting, each with the evidence behind it — the age field
+GameChanger did give, its sanctioning body, town and state, the games and how many were
+scored on days that have not happened, the opponents and whether any of them named an age,
+the roster count — and an empty **Answer** column to fill in. It sorts and filters on a
+bigger screen than the one it was collected on, and it is the file `npm run ageless:sweep`
+reads when the rules are being measured.
+
+It is also the only way this list leaves the browser at a workable size. It rides in the
+whole-browser backup too, but that file carries every season and every game beside it and
+runs to hundreds of megabytes on a nationwide pool — too big to move, and mostly things
+nobody looking at this question needs. These rows are a few megabytes.
+
+The first three columns are named to hit the aliases the team importer already matches, so
+a worked file pastes back into the import box as a team list. The fourth is deliberately
+**not**: the observed age field is called `Age Field`, never `Age Group`, because the
+importer reads `age group`, `age`, `age level` and `division` as the age. Naming it that
+way would let GameChanger's own rejected label beat the answer the reader was asked for
+precisely because it was rejected — silently, and the moment a division-name rule joins the
+ladder. A test pins the name.
+
 Throwing one out does not ask first. This is a queue worked ten at a time and mostly full of junk
 that takes a second to recognise, so a dialog in front of every one puts a second click on the
 common case to guard against the rare one. The guard sits after the action instead, as an **Undo**
