@@ -67,7 +67,7 @@ import {
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
 import { todayIsoDay } from "./date";
-import { inOneRegion } from "./stateBorders";
+import { borderingStates, inOneRegion } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
 
 /**
@@ -3528,15 +3528,20 @@ export const resettleOffLevel = (
 };
 
 /**
- * Files a stand-in's rows onto the one pulled club of that name in the puller's state.
+ * Files a stand-in's rows onto the one pulled club of that name in the puller's state, or failing
+ * any there, across a border.
  *
  * A stand-in is a name a schedule wrote down before — or instead of — the club being pulled. Once
  * the whole pool is in, most of them have a pulled namesake, and where exactly one of those is in
  * the state of the club that named it, that is the club: right in about nine cases in ten on
  * known pairs, and the tenth is a traveller the game itself will usually settle first. Two in the
- * state, or none, stays a stand-in — a guess between namesakes is what made six River City
- * Raptors — and a lone namesake in another state is refused for the same reason. Nothing at
- * arrival time could do this, because the namesake was pulled after the mention 70 times in 100.
+ * state stays a stand-in — a guess between namesakes is what made six River City Raptors — unless
+ * exactly one is in the puller's own town. None in the state looks next door, because youth clubs
+ * play their neighbours: on the stand-in fixtures export of 22 September 2026, a sole namesake in
+ * a bordering state (`borderingStates`) was the club the game itself identified 1,174 times in
+ * 1,240, and where the file said anything about the other picks it backed about nine in ten.
+ * Two across the borders, or one further away, stays a stand-in. Nothing at arrival time could do
+ * this, because the namesake was pulled after the mention 70 times in 100.
  */
 export const refileStandIns = (state: GcImportState): { state: GcImportState; refiled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
@@ -3566,15 +3571,20 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     if (!standIn || !puller?.gcTeams?.length || !puller.state) return game;
     const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
     const slot = `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}\u0000${level}`;
-    const inState = (clubs.get(slot) ?? []).filter((club) => club.state === puller.state);
+    const namesakes = clubs.get(slot) ?? [];
+    const inState = namesakes.filter((club) => club.state === puller.state);
     // Two in the state: the one in the puller's own town, if exactly one is.
     const pullerTown = townKey(puller.city);
+    // None in the state: the one across a border, if exactly one is.
+    const near = borderingStates(puller.state);
     const chosen =
       inState.length === 1
         ? inState
-        : pullerTown
-          ? inState.filter((club) => townKey(club.city) === pullerTown)
-          : [];
+        : inState.length > 1
+          ? pullerTown
+            ? inState.filter((club) => townKey(club.city) === pullerTown)
+            : []
+          : namesakes.filter((club) => club.state !== undefined && near.has(club.state));
     if (chosen.length !== 1) return game;
     refiled += 1;
     const club = chosen[0]!;
@@ -3622,7 +3632,7 @@ export type PoolTidy = {
   reclaimed: number;
   /** Rows taken off a club that plays nowhere near the age they were played at. */
   resettled: number;
-  /** Stand-in rows filed onto the one club of that name in the puller's state. */
+  /** Stand-in rows filed onto the one club of that name in the puller's state, or next door. */
   refiled: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
@@ -4031,8 +4041,9 @@ export const tidyPool = (
  *       from a namesake when the other club's schedule holds it against a stand-in for the puller
  *   7 — keeping once a game two coaches scored differently at one start time: joining the two
  *       halves, settling a stand-in into the named row, and taking a row back from a namesake
+ *   8 — filing a stand-in onto the one namesake in a bordering state when none is in the puller's
  */
-const TIDY_RULES_VERSION = 7;
+const TIDY_RULES_VERSION = 8;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
