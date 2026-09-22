@@ -717,6 +717,57 @@ named its age, the name reads as a high school squad, or it was left alone after
 — and for the two of those that are your own answers, an **Undo that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
+**The age field GameChanger was already sending.** The age group is not only "12U" and
+"Varsity". It carries a small closed vocabulary of its own, and for a long time this app
+understood none of it: `parseGcAgeLevel`, `ageLevelOf` and `isSchoolAgeLabel` all returned
+nothing for every value in it, so teams whose own page plainly said what they were sat on
+the waiting list being asked about every week.
+
+Measured over the 36,194 teams waiting on 22 September 2026, where the field is set on
+36,182 of them — 99.97% — and holds exactly eleven values: `Under 13` (27,485), `Between
+13 - 18` (3,967), `Over 18` (2,049), `college` (719), `18O` (535), `middle_13O` (419),
+`middle_12U` (379), `high_varsity` (313), `high_freshman` (164), `elementary` (104) and
+`high_junior_varsity` (48). They are read three ways.
+
+**Adult and college** — `Over 18`, `18O`, `college` — are refused outright, the way a
+wiffle ball team is. This app ranks youth baseball, so there is no age on one of these to
+find: the `Over 18` rows include "Long island Angels 44" playing "LISM Patriots 44+", and
+the `college` rows "MCC Wolves" playing "Coffeyville CC". Asking weekly is two requests a
+week spent on a question with no answer. `18O` means eighteen and over and is the one that
+brushes against a real 18U squad; of the 3,303 rows carrying any of the three, thirty have
+a name that reads 18U-ish and almost all of those are plainly college ("UNT Club Baseball
+2026-2027") or a league's own admin account ("FALL Board 2027"). The handful left is the
+price of the other three thousand, and a refusal is undoable where a wrong age is not.
+
+**The school bands** — `high_*`, `middle_*`, `elementary` — retire on the same terms as a
+varsity side, because that is what they are: "Sentinel JH Bulldogs", "7th CyFair ISD -
+Salyards MSM" playing "Cy fair Combo 7th Grade". Note `middle_12U` names an age and is
+still not read as one. A seventh-grade school side is a school side; reading the 12 would
+file it against travel clubs it never plays.
+
+**The two bands bound an age without giving one.** `Under 13` and `Between 13 - 18` cover
+87% of the backlog and can file nobody — there is no single age in either — but they can
+refuse one, and that is where their value turns out to be. Against every candidate rule in
+`agelessTriage.ts` over the same rows, 1,186 of the 1,203 ages those rules derive already
+sit inside the band, 98.6%. All seventeen that do not are the same mistake: a PONY division
+word read off a mascot or a university. "SMSU Mustangs Home" is Southwest Minnesota State,
+filed `college`, and was about to be ranked at 10U; "Owls Colt" and "Canes Colts" are filed
+`Under 13` and were about to be ranked at 16U. The veto lives in `agelessVerdicts` rather
+than inside each rule, so a rule written later cannot forget it.
+
+`Under 13` is read as a ceiling of 13 rather than 12, deliberately loosely: Little League's
+Intermediate division is ages 11 to 13 and this app files it at 13U, so a twelve-year-old
+in that division is `Under 13` and 13U at once and neither is wrong. Read strictly, the
+band vetoes 178 Intermediate teams it has no business vetoing.
+
+**The pool's own names, for measuring a rule against what it must not break.** Pool health
+carries a **Download the pool names** button: ids, names and the age each team is already
+filed under, and no games, so a hundred thousand teams is a few megabytes. Nothing in the
+app reads it. It goes to `npm run ageless:sweep -- <backlog> --pool=<names>`, which cannot
+otherwise ask the only question that matters about a candidate rule — what it would do to
+the teams that already work. Because the file carries the filed age, a hit splits into
+"agrees with the pool" and "disagrees", and it is the second column that should be zero.
+
 **Taking the list away with you.** Thirty-six thousand rows is not a queue anybody works
 ten at a time, and the card cannot become a spreadsheet. So a **Download the list** button
 writes one: every team still waiting, each with the evidence behind it — the age field

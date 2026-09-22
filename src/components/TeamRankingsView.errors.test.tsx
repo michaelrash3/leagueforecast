@@ -60,6 +60,6 @@ describe("a section that throws", () => {
     await user.click(screen.getByRole("tab", { name: "Scouting" }));
     await user.click(screen.getByRole("tab", { name: "Setup" }));
 
-    expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /download a backup/i })).toBeInTheDocument();
   });
 });

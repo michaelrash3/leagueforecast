@@ -15,6 +15,8 @@ import { isDatedAhead } from "../../lib/deletedGames";
 import { unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { todayIsoDay } from "../../lib/date";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
+import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
+import { downloadCsv, fileDay } from "../../lib/download";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
@@ -234,13 +236,22 @@ export function PoolHealthCard({
    */
   const downloadToPull = () => {
     if (!toPull || toPull.length === 0) return;
-    const blob = new Blob([unpulledClubsCsv(toPull)], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "Clubs_To_Pull.csv";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadCsv("Clubs_To_Pull.csv", unpulledClubsCsv(toPull));
+  };
+
+  /**
+   * The pool's own names, for measuring a rule against the teams it must not break.
+   *
+   * Nothing in the app reads this file: it goes to `scripts/agelessSweep.ts`, which cannot ask
+   * "what would this rule do to a team that already works?" from the backlog alone. Ids, names
+   * and the age already filed — no games, so a hundred thousand teams is a few megabytes rather
+   * than the hundreds the whole-browser backup runs to.
+   */
+  const downloadPoolNames = () => {
+    downloadCsv(
+      poolNamesCsvFilename(fileDay()),
+      poolNamesCsvParts(pool.teams, pool.ageGroups, pool.games)
+    );
   };
 
   return (
@@ -589,6 +600,21 @@ export function PoolHealthCard({
             lastTidy.map((line) => <li key={line}>{line}</li>)
           )}
         </ul>
+      )}
+
+      {pool.teams.length > 0 && (
+        <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <button type="button" onClick={downloadPoolNames} className={`${button.ghost} text-sm`}>
+            Download the pool names ({count(pool.teams.length)})
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            For measuring a rule against the teams it must not break. Ids, names and the age each
+            team is already filed under — no games, so it is a few megabytes rather than the
+            hundreds a whole-browser backup runs to. Nothing in the app reads it: it is the file the
+            ageless sweep needs to answer &ldquo;what would this rule do to a team that already
+            works?&rdquo;, which cannot be asked of the backlog alone.
+          </p>
+        </div>
       )}
     </div>
   );

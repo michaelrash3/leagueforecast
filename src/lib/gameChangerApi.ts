@@ -146,6 +146,13 @@ export type GcTeamListEntry = {
   notBaseball?: true;
   /** A high school squad, which plays its own season. Never fetched and never filed. */
   highSchool?: true;
+  /**
+   * Grown men or a college side, by GameChanger's own age field. Never fetched and never filed.
+   *
+   * Marked from the list rather than learned from the profile because the export carries the
+   * field verbatim, and a team nobody will ever rank is not worth two requests to confirm.
+   */
+  notYouth?: true;
   ageLevel?: number;
   season?: GcSeason;
   city?: string;
@@ -604,18 +611,122 @@ export const isSchoolName = (name: unknown): boolean => {
   return stated === undefined;
 };
 
+/*
+ * ---------------------------------------------------------------------------------------------
+ * GameChanger's own age vocabulary
+ * ---------------------------------------------------------------------------------------------
+ *
+ * The age field does not only carry "12U" and "Varsity". It carries a small closed vocabulary of
+ * its own, and until these readers existed this app understood none of it — `parseGcAgeLevel`,
+ * `ageLevelOf` and `isSchoolAgeLabel` all returned nothing for every value below, which is why
+ * teams whose page plainly said what they were sat on the waiting list being asked about weekly.
+ *
+ * Measured over the 36,194 teams waiting on an age on 22 September 2026, where the field is set
+ * on 36,182 of them — 99.97% — and holds exactly eleven distinct values:
+ *
+ *   Under 13            27,485   75.9%   a ceiling, not an age
+ *   Between 13 - 18      3,967   11.0%   a band, not an age
+ *   Over 18              2,049    5.7%   adults
+ *   college                719    2.0%   college
+ *   18O                    535    1.5%   adults
+ *   middle_13O             419    1.2%   a school season
+ *   middle_12U             379    1.0%   a school season
+ *   high_varsity           313    0.9%   a school season
+ *   high_freshman          164    0.5%   a school season
+ *   elementary             104    0.3%   a school season
+ *   high_junior_varsity     48    0.1%   a school season
+ *
+ * The values are truthful where they were sampled: the `Over 18` rows include "Long island Angels
+ * 44" playing "LISM Patriots 44+", the `college` rows "MCC Wolves" playing "Coffeyville CC", and
+ * the `high_varsity` rows "Flaming Bulldogs" playing "Casa Roble Varsity Rams".
+ */
+
 /**
- * The same, in GameChanger's own age field, which carries "Varsity" and "JV" verbatim — this file
- * has cited "Varsity" as an unreadable value for as long as the parser has existed.
+ * The school squads, in GameChanger's own age field.
+ *
+ * Two vocabularies in one test. "Varsity" and "JV" arrive verbatim — this file has cited
+ * "Varsity" as an unreadable value for as long as the parser has existed — and beside them sits
+ * GameChanger's own school taxonomy, `high_`, `middle_` and `elementary`, which names the school
+ * band outright. A middle school team plays the school season exactly as a varsity side does, so
+ * it is refused on the same grounds and by the same rule rather than by a second one.
+ *
+ * Note `middle_12U` names an age and is still not read as one. A seventh-grade school side is a
+ * school side; reading the 12 would file it against travel clubs it never plays.
  *
  * Whole value only, the same strictness `parseGcAgeLevel` holds the column to: a team whose age
  * field is a sentence containing the word is not thereby a high school team.
  */
 const SCHOOL_LABEL =
-  /^(?:varsity|jv|junior\s+varsity|hs|high\s+school|jv\s*[/\-\u2013]\s*v|v\s*[/\-\u2013]\s*jv)$/i;
+  /^(?:varsity|jv|junior\s+varsity|hs|high\s+school|jv\s*[/\-\u2013]\s*v|v\s*[/\-\u2013]\s*jv|high_[a-z_]+|middle_[a-z0-9]+|elementary)$/i;
 
 export const isSchoolAgeLabel = (label: unknown): boolean =>
   typeof label === "string" && SCHOOL_LABEL.test(label.trim());
+
+/**
+ * Grown men, in GameChanger's own age field.
+ *
+ * This app ranks youth baseball — `MAX_AGE_LEVEL` is 18 — and an over-40 men's league is not a
+ * hard age to read so much as a different sport's worth of irrelevance. These teams can never be
+ * aged, because there is no youth age to find, so they are refused rather than asked about.
+ *
+ * `18O` means eighteen and over, which is the one value here that brushes against a real 18U
+ * squad. Of the 3,303 rows carrying any of these three, thirty have a name that reads 18U-ish,
+ * and almost all of those are plainly college ("UNT Club Baseball 2026-2027") or a league's own
+ * administrative account ("FALL Board 2027", "2026-2027 AAA Board Members"). The handful left is
+ * the price of the other three thousand, and a refusal here is undoable where a wrong age is not.
+ */
+const ADULT_LABEL = /^(?:over\s*18|18\s*o|college|adult)$/i;
+
+export const isAdultAgeLabel = (label: unknown): boolean =>
+  typeof label === "string" && ADULT_LABEL.test(label.trim());
+
+/**
+ * The bands, which bound an age without giving one.
+ *
+ * "Under 13" and "Between 13 - 18" are the two values that say something true about the age
+ * without saying what it is, and they cover 87% of the backlog between them. They cannot file a
+ * team — there is no single age in either — but they can refuse one, and that turns out to be
+ * where their value is.
+ *
+ * Measured against every candidate rule in `agelessTriage.ts` over the same 36,194 rows: 1,186 of
+ * the 1,203 ages those rules derive sit inside the band GameChanger states, 98.6%. All seventeen
+ * that do not are the same rule reading a mascot or a university as a PONY division — "SMSU
+ * Mustangs Home" is Southwest Minnesota State and is labelled `college`; "Owls Colt" and "Canes
+ * Colts" are labelled `Under 13` and would have been filed at 16U. The band catches every one.
+ *
+ * `Under 13` is read as a ceiling of 13 rather than 12, deliberately loosely. Little League's
+ * Intermediate division is ages 11 to 13 and this app files it at 13U, so a twelve-year-old in
+ * that division is `Under 13` and 13U at the same time and neither is wrong. Read strictly, the
+ * band would veto 178 Intermediate teams it has no business vetoing.
+ */
+export type GcAgeBand = { low?: number; high?: number };
+
+export const ageBandFromLabel = (label: unknown): GcAgeBand | undefined => {
+  if (typeof label !== "string") return undefined;
+  const value = label.trim().toLowerCase();
+  if (/^under\s*13$/.test(value)) return { high: 13 };
+  if (/^between\s*13\s*[-\u2013]\s*18$/.test(value)) return { low: 13, high: 18 };
+  return undefined;
+};
+
+/**
+ * Whether an age this app derived could be true of a team GameChanger filed under that label.
+ *
+ * Every reading of the field at once, because the question a caller has is one question. The two
+ * bands bound the age. The adult and school labels admit no youth age at all — a side filed
+ * `college` or `high_varsity` is not a nine-year-old team that happens to be labelled oddly, and
+ * a rule that derived a youth age for one has misread what the team is rather than by how much.
+ *
+ * A label this app does not recognise says nothing, and nothing is what it is taken to say: the
+ * common case is an ordinary unreadable label like "Minors", where the rules are on their own.
+ */
+export const ageFitsBand = (level: number, label: unknown): boolean => {
+  if (isAdultAgeLabel(label) || isSchoolAgeLabel(label)) return false;
+  const band = ageBandFromLabel(label);
+  if (!band) return true;
+  if (band.low !== undefined && level < band.low) return false;
+  return !(band.high !== undefined && level > band.high);
+};
 
 /**
  * A lone "V", with no letter against it on either side, and nothing else saying what it means.
@@ -1310,6 +1421,9 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   // why. Read from the age column as well as the name, because a club that writes "Varsity" in
   // one of them often leaves the other as the school's plain name.
   if (isSchoolName(name) || isSchoolAgeLabel(ageCell)) entry.highSchool = true;
+  // The same field, read for the other thing it says. This app ranks youth baseball, so an
+  // over-18 or college side has no age to find and costs no request to refuse.
+  if (isAdultAgeLabel(ageCell)) entry.notYouth = true;
   const ageLevel = ageLevelOf(ageCell, name, squadYear);
   if (ageLevel !== undefined) entry.ageLevel = ageLevel;
   const city = cellAt(cells, columns.city);

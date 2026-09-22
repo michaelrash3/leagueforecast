@@ -53,7 +53,7 @@ describe("a backup big enough to be worth mentioning", () => {
     harness.requestConfirmation.mockResolvedValue(false);
     await openSetup(user);
 
-    await user.click(screen.getByRole("button", { name: /download/i }));
+    await user.click(screen.getByRole("button", { name: /download a backup/i }));
 
     const asked = harness.requestConfirmation.mock.calls[0]?.[0] as { message: string };
     expect(asked.message).toContain("44.0 MB");
@@ -66,7 +66,7 @@ describe("a backup big enough to be worth mentioning", () => {
     harness.requestConfirmation.mockResolvedValue(false);
     await openSetup(user);
 
-    await user.click(screen.getByRole("button", { name: /download/i }));
+    await user.click(screen.getByRole("button", { name: /download a backup/i }));
 
     expect(created).toHaveLength(0);
     expect(harness.toasts().join(" ")).not.toMatch(/backup downloaded/i);
@@ -78,7 +78,7 @@ describe("a backup big enough to be worth mentioning", () => {
     const harness = renderTeamRankings(smallPool());
     await openSetup(user);
 
-    await user.click(screen.getByRole("button", { name: /download/i }));
+    await user.click(screen.getByRole("button", { name: /download a backup/i }));
 
     expect(created).toHaveLength(1);
     expect(harness.toasts().join(" ")).toMatch(/backup downloaded/i);

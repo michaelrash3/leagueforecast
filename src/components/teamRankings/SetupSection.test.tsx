@@ -40,7 +40,7 @@ describe("downloading a backup", () => {
     });
     await openSetup(user);
 
-    await user.click(screen.getByRole("button", { name: /download/i }));
+    await user.click(screen.getByRole("button", { name: /download a backup/i }));
 
     expect(harness.requestConfirmation).not.toHaveBeenCalled();
     expect(created).toHaveLength(1);

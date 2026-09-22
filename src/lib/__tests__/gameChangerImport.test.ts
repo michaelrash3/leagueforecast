@@ -3379,6 +3379,32 @@ describe("high school squads", () => {
     expect(outcome.skip).toBe("high-school");
   });
 
+  /*
+   * The other thing that field says. GameChanger files 3,303 of the 36,194 teams waiting on an
+   * age as `Over 18`, `18O` or `college` — men's leagues, JUCO and university club sides. There
+   * is no youth age to find on any of them, so asking weekly is two requests a week spent on a
+   * question with no answer.
+   */
+  it("refuses a team GameChanger files as adult or college", () => {
+    ["Over 18", "18O", "college"].forEach((label) => {
+      const { state, outcome } = importGcSchedule(
+        varsity("Long Island Angels 44", { ageLevel: undefined, ageLabel: label }),
+        empty
+      );
+      expect({ label, skip: outcome.skip }).toEqual({ label, skip: "not-youth" });
+      expect(state).toBe(empty);
+    });
+  });
+
+  it("does not put an adult team on the list of teams nobody could age", () => {
+    // Same reason as the school squads below: "not-youth" is terminal, "no-age" asks for ever.
+    const { outcome } = importGcSchedule(
+      varsity("The Red Sea Splitters", { ageLevel: undefined, ageLabel: "Over 18" }),
+      empty
+    );
+    expect(outcome.skip).not.toBe("no-age");
+  });
+
   it("refuses one only GameChanger's age field gives away", () => {
     // A club that writes "Varsity" in the age column very often leaves the name plain.
     const { outcome } = importGcSchedule(
