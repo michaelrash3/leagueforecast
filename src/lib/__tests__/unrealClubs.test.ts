@@ -21,13 +21,21 @@ const team = (id: string, name: string, gcId?: string): ScoutTeam => ({
   ...(gcId ? { gcTeams: [{ teamId: gcId, name, ageGroupId: group.id, ageLevel: 11 }] } : {}),
 });
 
-const game = (id: string, a: string, b: string, date: string, scored = true): ScoutGame => ({
+const game = (
+  id: string,
+  a: string,
+  b: string,
+  date: string,
+  scored = true,
+  filedBy?: string
+): ScoutGame => ({
   id,
   teamAId: a,
   teamBId: b,
   ageGroupId: group.id,
   date,
   ...(scored ? { teamAScore: 11, teamBScore: 0 } : {}),
+  ...(filedBy ? { source: { kind: "gamechanger" as const, teamId: filedBy, gameId: id } } : {}),
 });
 
 const pool: GcImportState = {
@@ -49,6 +57,56 @@ const pool: GcImportState = {
     game("g6", "S-ODD", "S-REAL", "2026-08-21"),
   ],
 };
+
+/**
+ * An inventor lists a real club as its opponent week after week. Charged to both sides, the real
+ * club carried every one of those rows and came out at the top of the list, above the inventor;
+ * charged to the schedule that filed them, the inventor leads and the real club is not listed.
+ */
+describe("the club that filed them, not the club they were filed against", () => {
+  const filed: GcImportState = {
+    ...pool,
+    games: [
+      game("f1", "S-FAKE", "S-REAL", "2027-07-31", true, "WpYo8bR3Smwp"),
+      game("f2", "S-FAKE", "S-REAL", "2027-07-30", true, "WpYo8bR3Smwp"),
+      game("f3", "S-FAKE", "S-ODD", "2027-07-29", true, "WpYo8bR3Smwp"),
+      // One the real club filed itself: it is charged with that one and nothing else.
+      game("f4", "S-REAL", "S-ODD", "2027-06-01", true, "lvvjCaqPngbP"),
+      game("f5", "S-REAL", "S-ODD", "2026-08-21", true, "lvvjCaqPngbP"),
+    ],
+  };
+
+  it("puts the club whose schedule wrote the most of them at the top", () => {
+    expect(unrealClubs(filed, TODAY).map((club) => [club.name, club.ahead, club.played])).toEqual([
+      ["Test team", 3, 3],
+      ["Orlando Scrappers", 1, 4],
+    ]);
+  });
+
+  it("charges both schedules when both listed the game", () => {
+    const both = {
+      ...filed,
+      games: [
+        {
+          ...game("b1", "S-FAKE", "S-REAL", "2027-07-31", true, "WpYo8bR3Smwp"),
+          alsoFrom: ["lvvjCaqPngbP"],
+        },
+      ],
+    };
+    expect(unrealClubs(both, TODAY).map((club) => club.name)).toEqual([
+      "Orlando Scrappers",
+      "Test team",
+    ]);
+  });
+
+  it("charges both sides of a game nothing traces to a schedule", () => {
+    const orphan = {
+      ...filed,
+      games: [game("o1", "S-FAKE", "S-REAL", "2027-07-31", true, "gone00000000")],
+    };
+    expect(unrealClubs(orphan, TODAY)).toHaveLength(2);
+  });
+});
 
 describe("the clubs behind results dated ahead", () => {
   const found = unrealClubs(pool, TODAY);

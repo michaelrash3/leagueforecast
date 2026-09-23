@@ -12,7 +12,8 @@ import { squadYearHoldings } from "../../lib/poolHealth";
 import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
 import { keepApart as apartAfter } from "../../lib/keptApart";
 import { isDatedAhead } from "../../lib/deletedGames";
-import { unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
+import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
+import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { todayIsoDay } from "../../lib/date";
 import { unpulledClubs, unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
@@ -140,6 +141,30 @@ export function PoolHealthCard({
    * of 68 is not one; a side with 3 of 40 has some wrong dates on it.
    */
   const unreal = useMemo(() => unrealClubs(pool, todayIsoDay()), [pool]);
+
+  /**
+   * The rows themselves, the worst club's first: each row sits where the club that filed it sits
+   * on the list below, and a club's rows run in date order. So the rows on screen are the ones
+   * doing the most damage, and each one says whose schedule to open to see it.
+   */
+  const aheadWorstFirst = useMemo(() => {
+    const rank = new Map(unreal.map((club, at) => [club.teamId, at]));
+    const clubOfGcId = clubsByGcId(pool.teams);
+    const byId = new Map(pool.teams.map((team) => [team.id, team]));
+    return datedAhead
+      .map((game) => {
+        const filers = filedBy(game, clubOfGcId);
+        const worst = filers.reduce(
+          (best, teamId) =>
+            (rank.get(teamId) ?? Infinity) < (rank.get(best) ?? Infinity) ? teamId : best,
+          filers[0] ?? game.teamAId
+        );
+        const gcId = byId.get(worst)?.gcTeams?.[0]?.teamId;
+        return { game, at: rank.get(worst) ?? Infinity, filer: worst, gcId };
+      })
+      .sort((a, b) => a.at - b.at || (a.game.date ?? "").localeCompare(b.game.date ?? ""));
+  }, [datedAhead, unreal, pool.teams]);
+  const [allClubs, setAllClubs] = useState(false);
 
   const sameSeasonPairs = (state: GcImportState) =>
     proposeSeasonPairings(state.teams, state.games, loadKeptApart()).filter(
@@ -450,17 +475,32 @@ export function PoolHealthCard({
             counting in a record and a rating right now.
           </p>
           <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
-            {datedAhead.slice(0, 6).map((game) => (
+            {aheadWorstFirst.slice(0, 6).map(({ game, filer, gcId }) => (
               <li key={game.id}>
                 <span className="font-bold text-slate-700 dark:text-slate-200">{game.date}</span>
                 {" — "}
                 {teamName(game.teamAId)} {game.teamAScore}–{game.teamBScore}{" "}
                 {teamName(game.teamBId)}
+                {gcId && (
+                  <>
+                    {" · "}
+                    <a
+                      href={gcTeamPageUrl(gcId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-slate-950 dark:hover:text-white"
+                    >
+                      {teamName(filer)}&rsquo;s schedule
+                    </a>
+                  </>
+                )}
               </li>
             ))}
           </ul>
           {datedAhead.length > 6 && (
-            <p className="mt-2 text-xs text-slate-500">Drawing 6 of {count(datedAhead.length)}.</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Drawing 6 of {count(datedAhead.length)}, the worst club&rsquo;s first.
+            </p>
           )}
           <button
             type="button"
@@ -483,11 +523,22 @@ export function PoolHealthCard({
                 then on.
               </p>
               <ul className="mt-2 space-y-1">
-                {unreal.slice(0, 12).map((club) => (
+                {(allClubs ? unreal : unreal.slice(0, 12)).map((club) => (
                   <li key={club.teamId} className="text-xs">
                     <span className="font-bold text-slate-700 dark:text-slate-200">
                       {club.name}
                     </span>{" "}
+                    {club.gcTeamIds.map((gcId, at) => (
+                      <a
+                        key={gcId}
+                        href={gcTeamPageUrl(gcId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mr-1 text-slate-500 underline hover:text-slate-950 dark:hover:text-white"
+                      >
+                        {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
+                      </a>
+                    ))}
                     <span className="text-slate-500">
                       {[club.city, club.state].filter(Boolean).join(", ")}
                     </span>{" "}
@@ -507,7 +558,16 @@ export function PoolHealthCard({
               </ul>
               {unreal.length > 12 && (
                 <p className="mt-2 text-xs text-slate-500">
-                  Drawing 12 of {count(unreal.length)}, worst first.
+                  {allClubs
+                    ? `All ${count(unreal.length)}, worst first. `
+                    : `Drawing 12 of ${count(unreal.length)}, worst first. `}
+                  <button
+                    type="button"
+                    onClick={() => setAllClubs((shown) => !shown)}
+                    className="underline hover:text-slate-950 dark:hover:text-white"
+                  >
+                    {allClubs ? "Show the worst 12" : `Show all ${count(unreal.length)}`}
+                  </button>
                 </p>
               )}
             </>

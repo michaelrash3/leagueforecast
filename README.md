@@ -1124,6 +1124,17 @@ today is never ahead, and a league row's "M/D" is never compared. The waiting li
 waiting is named the same way before its next re-ask throws it out; the floor of five games it
 used to carry is gone.
 
+**What is left is listed worst offender first, and each row opens its schedule.** Pool
+health's "Scored on a day that has not happened" charges each such game to the club whose own
+schedule filed it (`filedBy`: the pulled id in `source`, and any in `alsoFrom`), not to both
+sides. An invented game is written by one club against another that never played it, so
+counting both put the victim on the list with every invention against it — a real club an
+inventor listed as its opponent every week came out above the inventor. A game nothing traces
+to a schedule, one typed by hand, still counts against both. The rows drawn above the club list
+follow the same order, the worst club's first, and every club and every row links to the
+filing club's GameChanger page, so investigating one is a click rather than a search. Past the
+first twelve clubs, "Show all" lists the rest.
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at

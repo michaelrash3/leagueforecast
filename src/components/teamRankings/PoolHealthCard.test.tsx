@@ -231,3 +231,94 @@ describe("the stand-in fixtures, as a file", () => {
     expect(text).toContain("same-club,slot,");
   });
 });
+
+/**
+ * Games scored on a day that has not happened, and the clubs whose schedules filed them.
+ *
+ * The list leads with the club doing the most damage, and every club and every game drawn links
+ * to the schedule to open to see it: a person deciding whether a club is an invention should not
+ * have to go and find it first.
+ */
+describe("the impossible games, worst club first", () => {
+  const ahead = "2027-07-30";
+  const filedAs = (gcId: string, id: string) => ({
+    source: { kind: "gamechanger" as const, teamId: gcId, gameId: id },
+  });
+  const club = (id: string, name: string, gcId: string): ScoutTeam =>
+    team(id, name, {
+      state: "FL",
+      gcTeams: [{ teamId: gcId, name, ageGroupId: "ag_10u_2027", ageLevel: 10 }],
+    });
+  const pool = (extraClubs = 0) => {
+    const teams: ScoutTeam[] = [
+      club("S-INV", "Invented Nine", "gcINVENT0001"),
+      club("S-REAL", "Real Club", "gcREAL000001"),
+      club("S-ODD", "Wrong Dates", "gcWRONG00001"),
+      ...Array.from({ length: extraClubs }, (_, at) =>
+        club(`S-X${at}`, `Extra ${at}`, `gcEXTRA${String(at).padStart(5, "0")}`)
+      ),
+    ];
+    const games: ScoutGame[] = [
+      // Stored first, so the order on screen has to come from somewhere other than storage.
+      game("odd1", "ag_10u_2027", "S-ODD", "S-REAL", 5, 4, {
+        date: ahead,
+        ...filedAs("gcWRONG00001", "odd1"),
+      }),
+      // The inventor lists the real club three times; the real club filed none of them.
+      ...[1, 2, 3].map((n) =>
+        game(`inv${n}`, "ag_10u_2027", "S-INV", "S-REAL", 11, 0, {
+          date: ahead,
+          ...filedAs("gcINVENT0001", `inv${n}`),
+        })
+      ),
+      game("fine", "ag_10u_2027", "S-REAL", "S-ODD", 3, 2, {
+        date: seasonDate(2027),
+        ...filedAs("gcREAL000001", "fine"),
+      }),
+      ...Array.from({ length: extraClubs }, (_, at) =>
+        game(`x${at}`, "ag_10u_2027", `S-X${at}`, "S-REAL", 9, 1, {
+          date: ahead,
+          ...filedAs(`gcEXTRA${String(at).padStart(5, "0")}`, `x${at}`),
+        })
+      ),
+    ];
+    return { ageGroups: [ageGroup(10, 2027)], teams, games };
+  };
+
+  it("lists the club that filed the most first, and not the club they were filed against", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    const clubs = screen.getByRole("heading", { name: /The clubs they belong to/ })
+      .nextElementSibling?.nextElementSibling as HTMLElement;
+    const names = [...clubs.querySelectorAll("li > span.font-bold")].map((one) => one.textContent);
+    expect(names).toEqual(["Invented Nine", "Wrong Dates"]);
+  });
+
+  it("links every club and every game drawn to the schedule that filed it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    const links = screen.getAllByRole("link", { name: /schedule/i });
+    // The first game drawn is the worst club's, though another club's is stored first.
+    expect(links[0]).toHaveAttribute("href", "https://web.gc.com/teams/gcINVENT0001");
+    expect(
+      screen.getAllByRole("link", { name: "schedule" }).map((one) => one.getAttribute("href"))
+    ).toEqual(["https://web.gc.com/teams/gcINVENT0001", "https://web.gc.com/teams/gcWRONG00001"]);
+    expect(screen.getAllByRole("link", { name: "Invented Nine’s schedule" })).toHaveLength(3);
+    expect(screen.getAllByRole("link", { name: "Wrong Dates’s schedule" })).toHaveLength(1);
+  });
+
+  it("shows every club when asked, past the first twelve", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool(12));
+    await openSetup(user);
+
+    // Ties go by name, so "Extra 9" is past the first twelve.
+    expect(screen.queryByText("Extra 9")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Show all 14/ }));
+    expect(screen.getByText("Extra 9")).toBeInTheDocument();
+  });
+});

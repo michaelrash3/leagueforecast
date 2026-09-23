@@ -34,23 +34,48 @@ const isPlayed = (game: ScoutGame): boolean =>
   game.teamAScore !== undefined && game.teamBScore !== undefined;
 
 /**
+ * The sides of a game whose own schedule filed it: the club pulled under `source`, and any whose
+ * schedule also listed it (`alsoFrom`). Both sides when the game names no source it can be traced
+ * to — one typed in by hand, or a source whose club has since gone — because then nothing says
+ * which of the two wrote it.
+ */
+export const filedBy = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): string[] => {
+  const sources = [...(game.source ? [game.source.teamId] : []), ...(game.alsoFrom ?? [])];
+  const sides = [game.teamAId, game.teamBId].filter((teamId) =>
+    sources.some((gcId) => clubOfGcId.get(gcId) === teamId)
+  );
+  return sides.length > 0 ? sides : [game.teamAId, game.teamBId];
+};
+
+/** Which club in the pool each GameChanger id was pulled as. */
+export const clubsByGcId = (teams: readonly ScoutTeam[]): Map<string, string> =>
+  new Map(teams.flatMap((team) => (team.gcTeams ?? []).map((link) => [link.teamId, team.id])));
+
+/**
  * The clubs holding at least one result dated ahead, worst first.
  *
  * Worst is the count rather than the share, because the count is what is wrong with the pool and
  * the share is what says whether the club is wrong: a club with 103 of 115 is doing more damage
  * than one with 3 of 3, and both are on the list.
+ *
+ * A game is charged to the club whose schedule filed it, not to both sides. An invented game is
+ * written by one club against another that never played it, so counting both put the victim on
+ * the list with every invention against it — and a real club an inventor listed as its opponent
+ * every week came out above the inventor itself, at the top of a list meant to lead with the worst.
  */
 export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] => {
   const ahead = new Map<string, number>();
   const played = new Map<string, number>();
   const rows = new Map<string, string[]>();
+  const clubOfGcId = clubsByGcId(state.teams);
 
   state.games.forEach((game) => {
     if (!isPlayed(game)) return;
-    const impossible = isDatedAhead(game, today);
     [game.teamAId, game.teamBId].forEach((teamId) => {
       played.set(teamId, (played.get(teamId) ?? 0) + 1);
-      if (!impossible) return;
+    });
+    if (!isDatedAhead(game, today)) return;
+    filedBy(game, clubOfGcId).forEach((teamId) => {
       ahead.set(teamId, (ahead.get(teamId) ?? 0) + 1);
     });
   });
