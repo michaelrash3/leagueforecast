@@ -29,7 +29,7 @@ import {
   type ArchivedSeason,
   type ArchiveEntry,
 } from "./teamRankingsArchive";
-import { idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
+import { idbDelete, idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import {
   listenForLocalPoolWrites,
   openPoolBroadcast,
@@ -495,6 +495,8 @@ export type PoolStoreIo = {
   keys: () => Promise<string[]>;
   get: (key: string) => Promise<unknown>;
   set: (key: string, value: unknown) => Promise<boolean>;
+  /** Takes a key out of the store altogether; without it a reset writes the key empty instead. */
+  remove?: (key: string) => Promise<void>;
   readLocal: (key: string) => unknown;
   clearLocal: (key: string) => void;
 };
@@ -503,6 +505,7 @@ const browserIo: PoolStoreIo = {
   keys: idbKeys,
   get: idbGet,
   set: idbSet,
+  remove: idbDelete,
   readLocal: (key) => parseJson(safeGet(key)),
   clearLocal: safeRemove,
 };
@@ -602,15 +605,20 @@ const startPoolSync = (): void => {
 };
 
 /**
- * Empties Team Rankings outright: every age group, every team, every game, the cursor an
- * interrupted GameChanger pull left behind and the weekly rotation's log. Afterwards this browser
- * is in the state of one that has never opened Team Rankings.
+ * Empties Team Rankings outright: every age group, team and game, the cursor an interrupted
+ * GameChanger pull left behind, the weekly rotation's log, the waiting list and the teams cleared
+ * off it, the pull's record — and every decision made along the way too: the clubs and games
+ * thrown out, the pairs kept apart, the ids known to be too young, the ages named by hand and the
+ * Organizations file. Afterwards this browser is in the state of one that has never opened Team
+ * Rankings.
  *
- * It walks `POOL_KEYS` rather than naming the five keys again, so a key added to the pool later is
- * cleared by this too — a reset that quietly left one key behind would be worse than no reset at
- * all. League Standings lives in its own season-namespaced keys (see `storage.ts`) and is not
- * touched, and neither is the crumb that records the pool has moved into IndexedDB: where the pool
- * lives is not part of what the pool holds.
+ * The decisions used to be kept, on the reasoning that a reset was for the data and not for the
+ * judgements made about it. A reset that keeps anything is not a reset to the person pressing it:
+ * they cleared the app and found it still refusing clubs and filing teams at ages from before.
+ *
+ * It walks `POOL_KEYS` rather than naming the keys again, so a key added to the pool later is
+ * cleared by this too. League Standings lives in its own keys (see `storage.ts`) and is not
+ * touched here; `resetApp` is what clears those as well.
  *
  * `false` means the pool is in a store this session cannot reach, so nothing was cleared and the
  * data is still there — the caller must say so rather than reporting an empty pool as a reset one.
@@ -626,21 +634,44 @@ export const clearTeamRankings = (): boolean => {
   const archived = loadArchiveIndex();
   // Each year's games has a key of its own, named by the index; read them before the index goes.
   const shards = gamesShardKeys();
-  const kept = new Set<string>([
-    GC_APART_KEY,
-    GC_DELETED_KEY,
-    GC_DROPPED_CLUBS_KEY,
-    GC_TOO_YOUNG_KEY,
-    GC_NAMED_AGES_KEY,
-    GC_ORG_MEMBERSHIP_KEY,
-  ]);
-  POOL_KEYS.filter((key) => !kept.has(key)).forEach((key) => forgetValue(key));
+  POOL_KEYS.forEach((key) => forgetValue(key));
   shards.forEach((key) => forgetValue(key));
   decodedYear = null;
   archived.forEach((entry) => void dropBlob(archiveRowsKey(entry.id)));
-  // The pull's record is read on demand and so is in no key the walk above reaches.
-  void dropBlob(GC_TRACK_KEY);
+  // Read on demand, and so in no key the walk above reaches.
+  LAZY_KEYS.forEach((key) => void dropBlob(key));
   return true;
+};
+
+/**
+ * How emptying the pool's store went. `"unreachable"`: the pool is in a store this session cannot
+ * reach, and nothing was touched. `"incomplete"`: the store would not give up every key, and what it
+ * kept is still there.
+ */
+export type EmptiedPool = "done" | "unreachable" | "incomplete";
+
+/**
+ * The pool's store left with nothing in it at all.
+ *
+ * `clearTeamRankings` forgets the keys this app knows it writes. This also takes out anything else
+ * the store holds — a key an older version wrote and a newer one stopped naming — because a reset
+ * of the whole app should leave no trace of the pool, not only none the current code can name. The
+ * store is then read back rather than trusted, since a reset reported as done that was not is the
+ * one outcome worse than a reset that failed.
+ */
+export const emptyPoolStore = async (): Promise<EmptiedPool> => {
+  if (!clearTeamRankings()) return "unreachable";
+  // Whether every queued write landed is not asked: the sweep below takes out every key directly,
+  // and the read after it is what says whether the store is empty.
+  await flushPoolWrites();
+  if (!usingIdb) return "done";
+  const io = activeIo ?? browserIo;
+  const left = await io.keys();
+  await Promise.all(left.map((key) => (io.remove ? io.remove(key) : io.set(key, null))));
+  cache.clear();
+  decodedTeams = null;
+  const kept = await Promise.all((await io.keys()).map((key) => io.get(key)));
+  return kept.every((value) => value === null || value === undefined) ? "done" : "incomplete";
 };
 
 /** Only for tests: forgets the cache and goes back to reading storage directly. */

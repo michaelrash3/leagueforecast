@@ -1106,13 +1106,26 @@ clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting
 all ride in an `answers` block — in the Team Rankings pool file as well as the
 whole-browser one, which was not true until recently: the block was built when a backup
 was taken and restored when one was read, and the writer in between left it out. So the
-pool file restored answers it had never saved, and since a reset clears the waiting
-list, the file offered as the way back could not bring it back. None of it can be recomputed — a pool can be pulled
+pool file restored answers it had never saved, and since a reset clears every one of
+them, the file offered as the way back could not bring them back. None of it can be recomputed — a pool can be pulled
 again, a judgement about whether a club is real cannot — and without this, restoring
 into a fresh browser threw an evening's work away and then set about rediscovering the
 problems it had answered. The block is optional and absent means leave what is there
 alone, because "this file predates it" and "this file has nothing to say" are the same
 bytes.
+
+**Start from scratch means the whole app.** The reset in Team Rankings' Setup leaves the
+browser as if it had never opened the app: every League Standings season, the Team
+Rankings pool, every answer above, the Organizations file and the settings. It used to
+keep the answers and leave League Standings alone, on the reasoning that a reset was for
+the data and not the judgements about it; to the person pressing it, a reset that keeps
+anything is not one — they cleared the app and found it still refusing clubs and filing
+teams at the ages it had before. `localStorage` goes by prefix (`league_`, `lf_`,
+`nkb_`) rather than by a list of keys, so one added later goes too, and the pool's
+IndexedDB store is emptied of every key and then read back. If the store keeps any of it,
+`localStorage` is left alone — its note saying where the pool lives is what lets a
+second try find the rest — and the app says the reset did not finish. Then the page
+reloads, since every view holds copies of what it read.
 
 ### States
 

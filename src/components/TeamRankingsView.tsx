@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
+import { reloadApp, resetApp } from "../lib/resetApp";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -51,7 +52,6 @@ import {
 } from "../lib/storage";
 import {
   clearPullProgress,
-  clearTeamRankings,
   loadAgeGroups,
   loadArchiveIndex,
   loadPullProgress,
@@ -1725,45 +1725,28 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
   const resetEverything = async () => {
     const going = readTeamRankingsBackup();
     const confirmed = await requestConfirmation({
-      title: "Delete everything in Team Rankings?",
+      title: "Delete everything in the app?",
       message: `${summarizeTeamRankingsBackup(going)}
 
-All of it goes, along with where any interrupted GameChanger pull had got to. League Standings — your seasons, schedules and scores — is not touched.
+All of it goes, and so does everything else the app keeps in this browser: every League Standings season with its schedules and scores, the clubs and games you threw out, the ages you named by hand, the teams waiting on an age, the Organizations file and your settings. The app then starts again as if it had never been opened.
 
-This cannot be undone. Cancel and download the backup first if there is any chance you will want this data again.`,
+This cannot be undone. Cancel and download the backups first if there is any chance you will want any of it again.`,
       confirmLabel: "Delete everything",
     });
     if (!confirmed) return;
 
-    if (!clearTeamRankings()) {
+    const outcome = await resetApp();
+    if (outcome !== "done") {
       showToast(
-        "Could not clear Team Rankings — this browser cannot reach where the pool is kept.",
-        {
-          tone: "error",
-        }
+        outcome === "unreachable"
+          ? "Could not reset the app — this browser cannot reach where the pool is kept, so nothing was deleted."
+          : "The reset did not finish — this browser would not delete all of the pool. League Standings and your settings were left alone; try again.",
+        { tone: "error" }
       );
       return;
     }
-
-    setAgeGroups([]);
-    setScoutTeams([]);
-    bumpPool();
-    setPullProgress(null);
-    setRefreshLog({});
-    setArchives([]);
-    pickPage("");
-    setOpenTeamId(null);
-    setReportTeamId("");
-    setStateFilter("");
-    setStateTop(null);
-    setShowAll(false);
-    setImportOpen(false);
-    setEditingGameId(null);
-    setEditScoreA("");
-    setEditScoreB("");
-    setGameDraft(EMPTY_ADD_GAME_DRAFT);
-    onDataChange?.();
-    showToast("Team Rankings cleared. Nothing left but a blank slate.", { tone: "success" });
+    // Every view holds copies of what it read; only a fresh start is sure to hold none.
+    reloadApp();
   };
 
   // Scoped to this age group and the ones it continues from: a 9U opponent has no business being

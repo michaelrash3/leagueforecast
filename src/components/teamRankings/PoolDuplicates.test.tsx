@@ -146,7 +146,8 @@ describe("a club in the pool twice over", () => {
 
     // And still gone when the card is asked again, which is where a pull would put it back.
     await user.click(screen.getByRole("button", { name: /look again/i }));
-    await screen.findByText(/clubs/i);
+    // The health check has answered once its "Clubs" figure is up.
+    await screen.findByText("Clubs");
     expect(screen.queryByText(/one club, listed twice/i)).toBeNull();
   });
 
@@ -172,7 +173,8 @@ describe("a club in the pool twice over", () => {
     });
     await openSetup(user);
 
-    await screen.findByText(/clubs/i);
+    // The health check has answered once its "Clubs" figure is up.
+    await screen.findByText("Clubs");
     expect(screen.queryByText(/one club, listed twice/i)).toBeNull();
   });
 });
