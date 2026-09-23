@@ -16,7 +16,7 @@ type ResetRankingsCardProps = {
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /**
- * Start again from scratch.
+ * Start again from scratch: everything the app keeps in this browser, not only Team Rankings.
  *
  * The counts are on the card rather than only in the confirmation, because the number of games
  * about to go is the whole of what makes this decision easy or hard, and a reader should not have
@@ -41,25 +41,27 @@ export function ResetRankingsCard({
         Start from scratch
       </h2>
       <p className="mt-1 text-sm text-slate-500">
+        Deletes everything this app keeps in this browser and starts it again as if it had never
+        been opened:{" "}
         {empty ? (
-          "There is nothing in Team Rankings yet — no age groups, no teams, no games."
+          "Team Rankings, which is empty already"
         ) : (
           <>
-            Deletes everything Team Rankings holds:{" "}
+            Team Rankings&apos;{" "}
             <strong className="text-slate-950 dark:text-white">
               {plural(ageGroupCount, "age group")}, {plural(teamCount, "team")} and{" "}
               {plural(gameCount, "logged game")}
             </strong>
-            , along with where an interrupted GameChanger pull had got to and which age levels have
-            already had their weekly refresh. League Standings — your seasons, schedules and scores
-            — is not touched.
           </>
         )}
+        ; every League Standings season, with its schedules and scores; and every decision made
+        along the way — the clubs and games thrown out, the ages named by hand, the teams waiting on
+        an age, the Organizations file — along with your settings.
       </p>
       <p className="mt-2 text-xs text-slate-500">
-        This cannot be undone. Download the backup first if there is any chance you will want this
-        data again: it is one CSV file, the same one the app&apos;s own export writes, and importing
-        it puts the pool back.
+        This cannot be undone. Take a backup first if there is any chance you will want any of it
+        again: Backup JSON, under League Standings → Settings, saves everything in this browser; the
+        button here saves Team Rankings alone.
       </p>
       {!empty && (
         <p
@@ -75,13 +77,8 @@ export function ResetRankingsCard({
         <button type="button" onClick={onDownloadBackup} disabled={empty} className={button.ghost}>
           Download a backup first
         </button>
-        <button
-          type="button"
-          onClick={onReset}
-          disabled={empty}
-          className={`${button.danger} disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          Delete everything in Team Rankings
+        <button type="button" onClick={onReset} className={button.danger}>
+          Delete everything in the app
         </button>
       </div>
     </div>
