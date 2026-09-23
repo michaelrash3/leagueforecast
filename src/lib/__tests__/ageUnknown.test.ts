@@ -75,6 +75,16 @@ describe("keeping the teams nobody could age", () => {
     expect(updateAgeUnknown(first, [outcome("A", { ageFromOpponents: 9 })], NOW)).toEqual([]);
   });
 
+  // Out of its season with nothing on its schedule: off the list, and a later pull may find it.
+  it("drops a team with an empty schedule outside its season", () => {
+    const first: AgeUnknownList = [
+      { teamId: "A", firstSeen: LAST_WEEK, lastTried: LAST_WEEK, tries: 2 },
+    ];
+    expect(
+      updateAgeUnknown(first, [outcome("A", { skip: "out-of-season", issue: "out" })], NOW)
+    ).toEqual([]);
+  });
+
   /*
    * A team that could not be fetched this week has not been answered — nobody asked it anything.
    * Dropping it on the absence of a skip would lose it for good, which is the bug this list exists

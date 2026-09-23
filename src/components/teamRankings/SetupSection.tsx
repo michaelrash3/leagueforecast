@@ -47,8 +47,8 @@ type SetupSectionProps = {
     onThrowOut: (teamId: string, name: string | undefined) => Promise<boolean> | boolean;
     /** Takes back a named age or a throw-out, for a team found by searching. */
     onUndo: (teamId: string, name: string | undefined) => void;
-    /** Clears in one pass every row GameChanger's own age field has already answered for. */
-    onClearAnswered: (answered: readonly AgelessAnswered[]) => Promise<boolean> | boolean;
+    /** Clears in one pass the rows a rule has settled; see `CLEARABLE_RULES`. */
+    onClearRows: (rows: readonly AgelessAnswered[]) => Promise<boolean> | boolean;
     now: Date;
   };
   /** The whole stored pool, its tidy stamp, and where to put it back once tidied. */
@@ -198,7 +198,7 @@ export function SetupSection({
         onNameAge={ageless.onNameAge}
         onThrowOut={ageless.onThrowOut}
         onUndo={ageless.onUndo}
-        onClearAnswered={ageless.onClearAnswered}
+        onClearRows={ageless.onClearRows}
         now={ageless.now}
       />
 

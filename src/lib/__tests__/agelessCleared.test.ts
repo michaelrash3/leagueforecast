@@ -6,7 +6,7 @@ import {
   describeCleared,
   restoreCleared,
 } from "../agelessCleared";
-import { agelessAlreadyAnswered, GC_ANSWERED_RULES } from "../agelessTriage";
+import { agelessClearable, CLEARABLE_RULES } from "../agelessTriage";
 import type { AgeUnknownList, AgeUnknownTeam } from "../ageUnknown";
 
 const row = (teamId: string, name: string, ageLabel?: string): AgeUnknownTeam => ({
@@ -28,11 +28,10 @@ const row = (teamId: string, name: string, ageLabel?: string): AgeUnknownTeam =>
 });
 
 /**
- * Which rows a bulk pass may take. The whole safety of the button is that these two rules repeat
- * GameChanger's own age field rather than inferring anything, so the test that matters is the one
- * that shows an inference rule is not swept along with them.
+ * Which rows a bulk pass may take: GameChanger's own answers and the calls the user settled. The
+ * test that matters most is the one showing a rule that only proposes is not swept along.
  */
-describe("the rows GameChanger has already answered", () => {
+describe("the rows a rule has settled", () => {
   it("takes the adult and school labels", () => {
     const list = [
       row("a1", "Long Island Angels 44", "Over 18"),
@@ -41,7 +40,7 @@ describe("the rows GameChanger has already answered", () => {
       row("s1", "Flaming Bulldogs", "high_varsity"),
       row("s2", "Sentinel JH Bulldogs", "middle_13O"),
     ];
-    expect(agelessAlreadyAnswered(list).map(({ row: hit }) => hit.teamId)).toEqual([
+    expect(agelessClearable(list).map(({ row: hit }) => hit.teamId)).toEqual([
       "a1",
       "a2",
       "a3",
@@ -50,28 +49,53 @@ describe("the rows GameChanger has already answered", () => {
     ]);
   });
 
-  /*
-   * The accident this list exists to prevent. `tee-ball` is `auto` too, and it is a name rule
-   * that fires on five teams this pool already ranks — selecting by tier rather than by id would
-   * sweep it into a bulk pass nobody measured it for.
-   */
-  it("leaves every rule that infers something alone", () => {
-    expect(GC_ANSWERED_RULES).toEqual(["adult-label", "school-label"]);
-    const inferred = [
+  it("takes tee ball, a void name and rec ball in a closed league", () => {
+    const rec = row("r1", "Fire Chiefs", "Under 13");
+    rec.evidence = { ...rec.evidence!, ngb: ["little_league"] };
+    const claimed = agelessClearable([
       row("t1", "MTAA TBall White Fall 2026", "Under 13"),
+      row("v1", "VOID - DO NOT USE", "Under 13"),
+      rec,
+    ]);
+    expect(claimed.map(({ rule }) => rule.id)).toEqual(["tee-ball", "void-name", "rec-sanctioned"]);
+  });
+
+  /*
+   * A horse mascot is not a PONY division, and a closed league that names itself nothing a rule
+   * can read is not one this pass may guess at. Both stay for somebody to look at.
+   */
+  it("leaves the rules that only propose alone", () => {
+    expect(CLEARABLE_RULES).not.toContain("closed-cluster");
+    expect(CLEARABLE_RULES).not.toContain("pony-division");
+    expect(CLEARABLE_RULES).not.toContain("grade-word");
+    const proposed = [
       row("p1", "Fillmore Mustangs", "Under 13"),
       row("c1", "Mears 1 - 2026", "Under 13"),
     ];
-    expect(agelessAlreadyAnswered(inferred)).toEqual([]);
+    expect(agelessClearable(proposed)).toEqual([]);
   });
 
-  it("says nothing about a row with no label at all", () => {
-    expect(agelessAlreadyAnswered([row("n1", "Some Club")])).toEqual([]);
-    expect(agelessAlreadyAnswered([row("n2", "Some Club", "Minors")])).toEqual([]);
+  it("says nothing about a row with no label and nothing to read", () => {
+    expect(agelessClearable([row("n1", "Some Club")])).toEqual([]);
+  });
+
+  // "VOID" wins over every other reading of the same row, since it is the user's own call.
+  it("claims each row once, by the first rule in the list", () => {
+    const [hit] = agelessClearable([row("v1", "Void T-Ball", "Over 18")]);
+    expect(hit?.rule.id).toBe("void-name");
+  });
+
+  // Answers are kept per row object; a re-ask writes a new one, and that has to be read afresh.
+  it("reads a row again once a re-ask has replaced it", () => {
+    const before = row("r1", "Fire Chiefs", "Under 13");
+    expect(agelessClearable([before])).toEqual([]);
+    const after: AgeUnknownTeam = { ...before, evidence: { ...before.evidence!, ngb: ["pony"] } };
+    expect(agelessClearable([after]).map(({ rule }) => rule.id)).toEqual(["rec-sanctioned"]);
+    expect(agelessClearable([before])).toEqual([]);
   });
 
   it("carries the verdict, so the pass can say which kind each row was", () => {
-    const [adult, school] = agelessAlreadyAnswered([
+    const [adult, school] = agelessClearable([
       row("a1", "Long Island Angels 44", "Over 18"),
       row("s1", "Flaming Bulldogs", "high_varsity"),
     ]);
@@ -86,13 +110,16 @@ describe("the pass, kept so it can be taken back", () => {
       [
         { entry: row("a1", "Long Island Angels 44", "Over 18"), why: "not-youth" },
         { entry: row("s1", "Flaming Bulldogs", "high_varsity"), why: "high-school" },
+        { entry: row("v1", "VOID"), why: "not-real" },
+        { entry: row("t1", "Tball Bulls"), why: "too-young" },
+        { entry: row("r1", "Fire Chiefs"), why: "rec" },
       ],
       "2026-09-22T12:00:00.000Z"
     );
 
   it("names the ids it took off the list", () => {
-    expect(clearedIds(pass())).toEqual(["a1", "s1"]);
-    expect(describeCleared(pass())).toBe("2 teams");
+    expect(clearedIds(pass())).toEqual(["a1", "s1", "v1", "t1", "r1"]);
+    expect(describeCleared(pass())).toBe("5 teams");
   });
 
   it("round-trips through storage", () => {
@@ -115,7 +142,7 @@ describe("the pass, kept so it can be taken back", () => {
       ...pass(),
       rows: [...pass().rows, { entry: { teamId: "" }, why: "nonsense" }],
     };
-    expect(coerceAgelessCleared(damaged)?.rows).toHaveLength(2);
+    expect(coerceAgelessCleared(damaged)?.rows).toHaveLength(5);
   });
 
   it("puts the rows back on the waiting list", () => {
@@ -124,6 +151,9 @@ describe("the pass, kept so it can be taken back", () => {
       "other",
       "a1",
       "s1",
+      "v1",
+      "t1",
+      "r1",
     ]);
   });
 
@@ -134,6 +164,6 @@ describe("the pass, kept so it can be taken back", () => {
   it("does not put a row back twice", () => {
     const relearned: AgeUnknownList = [row("a1", "Long Island Angels 44", "Over 18")];
     const back = restoreCleared(relearned, pass());
-    expect(back.map((entry) => entry.teamId)).toEqual(["a1", "s1"]);
+    expect(back.map((entry) => entry.teamId)).toEqual(["a1", "s1", "v1", "t1", "r1"]);
   });
 });

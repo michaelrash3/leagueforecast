@@ -40,7 +40,7 @@ const show = (
   const onNameAge = vi.fn();
   const onThrowOut = vi.fn().mockResolvedValue(true);
   const onUndo = vi.fn();
-  const onClearAnswered = vi.fn().mockResolvedValue(true);
+  const onClearRows = vi.fn().mockResolvedValue(true);
   render(
     <AgelessReviewCard
       ageless={list}
@@ -49,12 +49,12 @@ const show = (
       onNameAge={onNameAge}
       onThrowOut={onThrowOut}
       onUndo={onUndo}
-      onClearAnswered={onClearAnswered}
+      onClearRows={onClearRows}
       now={NOW}
       {...over}
     />
   );
-  return { onNameAge, onThrowOut, onUndo, onClearAnswered };
+  return { onNameAge, onThrowOut, onUndo, onClearRows };
 };
 
 const rows = () => screen.getAllByRole("listitem");
@@ -245,7 +245,7 @@ describe("the review card for teams waiting on an age", () => {
         onNameAge={vi.fn()}
         onThrowOut={vi.fn()}
         onUndo={vi.fn()}
-        onClearAnswered={vi.fn()}
+        onClearRows={vi.fn()}
         now={NOW}
       />
     );
@@ -327,14 +327,13 @@ describe("downloading the whole list", () => {
 });
 
 /**
- * The button that clears the rows nobody needs to look at.
+ * The rows a rule has settled, cleared in one pass.
  *
- * What it must get right is *which* rows. Every other rule in `agelessTriage` infers something
- * from a name or a schedule and is unmeasured; these two repeat GameChanger's own age field. A
- * button that quietly took an inference rule along would be applying an unmeasured rule to
- * thousands of teams at once, which is the one thing this whole approach is arranged to prevent.
+ * What it must get right is *which* rows. `agelessTriage` holds rules that only propose — a
+ * closed league that names itself nothing, a horse mascot — beside the ones the user settled, and
+ * a button that quietly took one of those along would apply a guess to thousands of teams at once.
  */
-describe("clearing the rows GameChanger already answered", () => {
+describe("clearing the rows a rule has settled", () => {
   const labelled = (id: string, name: string, ageLabel: string) =>
     team(id, name, { evidence: evidence({ ageLabel }) });
 
@@ -343,29 +342,48 @@ describe("clearing the rows GameChanger already answered", () => {
     labelled("ADULT2", "MCC Wolves", "college"),
     labelled("SCHOOL1", "Flaming Bulldogs", "high_varsity"),
     labelled("TEEBALL", "MTAA TBall White", "Under 13"),
+    team("REC1", "Fire Chiefs", { evidence: evidence({ ngb: ["little_league"] }) }),
+    team("VOID1", "VOID - DO NOT USE"),
     team("PLAIN", "Some Club"),
+    team("MUSTANG", "Fillmore Mustangs"),
   ];
 
-  it("counts only the rows the age field answers, and says so", () => {
+  it("counts each rule's rows, ticked, and offers to clear them all", () => {
     show(mixed());
-    expect(
-      screen.getByRole("button", { name: /Clear the 3 GameChanger already answered/ })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /2 GameChanger filed it as adult/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /1 Tee ball and younger/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /1 Named void/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /1 A Little League/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Clear the 6 ticked" })).toBeInTheDocument();
   });
 
   it("hands over those rows and no others", async () => {
     const user = userEvent.setup();
-    const { onClearAnswered } = show(mixed());
+    const { onClearRows } = show(mixed());
 
-    await user.click(screen.getByRole("button", { name: /Clear the 3/ }));
+    await user.click(screen.getByRole("button", { name: "Clear the 6 ticked" }));
 
-    const handed = onClearAnswered.mock.calls[0]?.[0] as { row: { teamId: string } }[];
-    expect(handed.map((one) => one.row.teamId)).toEqual(["ADULT1", "ADULT2", "SCHOOL1"]);
+    const handed = onClearRows.mock.calls[0]?.[0] as { row: { teamId: string } }[];
+    expect(handed.map((one) => one.row.teamId).sort()).toEqual(
+      ["ADULT1", "ADULT2", "SCHOOL1", "TEEBALL", "REC1", "VOID1"].sort()
+    );
   });
 
-  it("offers nothing when the age field has answered nothing", () => {
-    show([team("PLAIN", "Some Club"), labelled("TEEBALL", "MTAA TBall White", "Under 13")]);
-    expect(screen.queryByRole("button", { name: /already answered/ })).toBeNull();
+  it("leaves a rule's rows where they are once it is unticked", async () => {
+    const user = userEvent.setup();
+    const { onClearRows } = show(mixed());
+
+    await user.click(screen.getByRole("checkbox", { name: /A Little League/ }));
+    await user.click(screen.getByRole("button", { name: "Clear the 5 ticked" }));
+
+    const handed = onClearRows.mock.calls[0]?.[0] as { row: { teamId: string } }[];
+    expect(handed.map((one) => one.row.teamId)).not.toContain("REC1");
+  });
+
+  it("offers nothing when no rule has settled anything", () => {
+    show([team("PLAIN", "Some Club"), team("MUSTANG", "Fillmore Mustangs")]);
+    expect(screen.queryByRole("button", { name: /ticked/ })).toBeNull();
+    expect(screen.queryByText("Settled by rule")).toBeNull();
   });
 
   /*
@@ -377,8 +395,6 @@ describe("clearing the rows GameChanger already answered", () => {
       named: new Map([["ADULT1", { teamId: "ADULT1", level: 10, namedAt: daysBefore(1) }]]),
       dropped: forgetClubs(new Set<string>(), ["ADULT2"]),
     });
-    expect(
-      screen.getByRole("button", { name: /Clear the 1 GameChanger already answered/ })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear the 4 ticked" })).toBeInTheDocument();
   });
 });

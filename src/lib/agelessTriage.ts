@@ -35,12 +35,14 @@
 import {
   ageLevelFromName,
   ageLevelOf,
+  ageWrittenInName,
   isSchoolAgeLabel,
   isSchoolName,
   maybeSchoolTeam,
   ageFitsBand,
   isAdultAgeLabel,
 } from "./gameChangerApi";
+import { MIN_AGE_LEVEL } from "./teamRankings/seasons";
 import type { AgelessEvidence } from "./agelessEvidence";
 import type { AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
@@ -55,6 +57,8 @@ export type AgelessVerdict =
   /** Grown men or a college side: there is no youth age to find, so it is never asked again. */
   | { kind: "not-youth" }
   | { kind: "not-real" }
+  /** Below the youngest level ranked here, and always will be: next year is a different id. */
+  | { kind: "too-young" }
   /** Nothing to rate either way, and nothing to learn by asking again. */
   | { kind: "no-schedule" };
 
@@ -163,8 +167,86 @@ const UNIQUE_DIVISIONS: [RegExp, number][] = [
   [/\b(?:50\s*[/-]\s*70|intermediate)\b/i, 12],
 ];
 
-/** The young end, which files below the youngest level ranked here rather than at an age. */
-const YOUNGEST = /\b(?:tee|t)[-\s]?ball\b/i;
+/**
+ * The young end, which files below the youngest level ranked here rather than at an age: tee ball,
+ * and PONY's Shetland (5-6) and Foal (3-4), which are that age by PONY's own definition.
+ */
+const YOUNGEST = /\b(?:(?:tee|t)[-\s]?ball|shetlands?|foals?)\b/i;
+
+/**
+ * A name somebody gave a team to say it should not be used — "VOID", "Old Team - Do Not Use". The
+ * user's own rule: these are cleared whatever the schedule says. 68 of the 38,603 rows waiting on
+ * 22 September 2026, 57 of them with no games at all.
+ */
+const VOID_NAME = /\bvoid(?:ed)?\b|\bdo\s*n[o'\u2019]?t\s*use\b/i;
+
+/**
+ * A side that says it travels or plays tournaments, which is the one thing that joins a league team
+ * to the rest of the pool. Wider than `CONNECTED` because it guards a rule that clears a team
+ * rather than one that only proposes it.
+ */
+const TRAVELS = /\b(?:all[-\s]?stars?|travel|select|elite|tournament|tourney|showcase)\b/i;
+
+/** The sanctioning bodies whose teams are league ball: GameChanger writes them `little_league`. */
+const REC_BODIES = /little league|babe ruth|cal ripken|pony|dixie/;
+
+const playsUnderRecBody = (evidence: AgelessEvidence): boolean =>
+  (evidence.ngb ?? []).some((body) => REC_BODIES.test(body.replace(/_/g, " ")));
+
+/**
+ * The words a rec league names its divisions and itself by: Little League's Majors, Minors, AAA,
+ * AA, Farm and Rookie; the pitching divisions; house and in-house; "LL" standing alone.
+ *
+ * A bare "A" is left out — "Team A" and the "A's" are everywhere — and so are the PONY horses,
+ * which are the commonest mascots in youth baseball (see `PONY_DIVISIONS`). None of these is ever
+ * read as an age here; the grade words mean one thing to Little League and another to USSSA, which
+ * is why `grade-word` is only ever measured. Here they only say the team is in a league.
+ */
+const DIVISION_WORDS =
+  /\b(?:ll|little\s+league|babe\s+ruth|cal\s+ripken|majors?|minors?|farm|rookies?|aaa|aa|(?:single|double|triple)[-\s]?a|(?:coach|machine|kid|player)[-\s]?pitch|pee[-\s]?wee|instructional|in[-\s]?house|house\s+league|rec|recreation(?:al)?|parks?\s*(?:and|&)\s*rec|ymca)\b/i;
+
+/**
+ * A league's initials ending in LL — "NCLL", "SFLL", "PALL" — as clubs write them in capitals.
+ *
+ * Capitals only, a stem of four letters or fewer with at most one vowel, and never an ordinary
+ * word: read case-blind, "Fall", "Ball" and "O'Neill" all end in LL, and a first draft of this
+ * rule cleared "Aces" for having played "Riverside Rats Fall 26".
+ */
+const LEAGUE_INITIALS = /\b([A-Z]{1,4})LL\b/g;
+const NOT_INITIALS = new Set(
+  "ALL BALL BELL BILL BULL CALL CELL CHILL DELL DILL DOLL DRILL DULL FALL FILL FULL GILL GRILL GULL HALL HILL HULL JILL KILL KNOLL KRALL MALL MILL NELL NULL PILL POLL PULL QUILL ROLL SELL SHELL SILL SKILL SMALL SMELL SNELL SPELL SPILL STALL STILL SWELL TALL TELL TILL TOLL TROLL WALL WELL WILL YELL".split(
+    " "
+  )
+);
+
+const namesLeagueInitials = (text: string): boolean =>
+  [...text.matchAll(LEAGUE_INITIALS)].some(
+    ([initials, stem]) =>
+      !NOT_INITIALS.has(initials) && (stem ?? "").replace(/[^AEIOU]/g, "").length <= 1
+  );
+
+const namesALeague = (text: string): boolean =>
+  DIVISION_WORDS.test(text) || namesLeagueInitials(text);
+
+/** Major League Baseball's thirty clubs, which a house league hands out as team names. */
+const MLB_CLUB =
+  /\b(?:yankees|red\s*sox|orioles|rays|blue\s*jays|white\s*sox|guardians|tigers|royals|twins|astros|angels|athletics|a's|mariners|rangers|braves|marlins|mets|phillies|nationals|cubs|reds|brewers|pirates|cardinals|diamondbacks|d-?backs|rockies|dodgers|padres|giants)\b/i;
+
+/**
+ * A team in a closed league: it has played, nobody it played writes an age, its own name states
+ * none, and it does not say it travels. What the three rec rules below have in common, and why
+ * they can clear a team rather than only propose it — nothing will ever age a team like this from
+ * its opponents, and nothing joins it to a club this app ranks.
+ */
+const inClosedLeague = (row: AgeUnknownTeam): boolean => {
+  const evidence = evidenceOf(row);
+  return (
+    evidence.games > 0 &&
+    evidence.namedAnAge === 0 &&
+    !TRAVELS.test(nameOf(row)) &&
+    ageLevelFromName(nameOf(row)) === undefined
+  );
+};
 
 /**
  * The words that are never an age, whatever else agrees with them.
@@ -250,11 +332,59 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
     read: (row) => (isSchoolName(nameOf(row)) ? { kind: "high-school" } : undefined),
   },
   {
+    id: "void-name",
+    label: "Named void or do not use",
+    tier: "review",
+    because: "whoever made the team named it so nobody would use it",
+    read: (row) => (VOID_NAME.test(nameOf(row)) ? { kind: "not-real" } : undefined),
+  },
+  {
     id: "tee-ball",
-    label: "Tee ball",
+    label: "Tee ball and younger",
     tier: "auto",
-    because: "tee ball is played below the youngest level ranked here",
-    read: (row) => (YOUNGEST.test(nameOf(row)) ? { kind: "no-schedule" } : undefined),
+    because:
+      "tee ball, Shetland, Foal and a name stating an age under 8U are all below the youngest level ranked here",
+    read: (row) => {
+      const name = nameOf(row);
+      const written = ageWrittenInName(name);
+      // A name stating an age says it outright, tee ball or not: "Tee Ball & 8U" is an 8U side.
+      if (written !== undefined) return written < MIN_AGE_LEVEL ? { kind: "too-young" } : undefined;
+      return YOUNGEST.test(name) ? { kind: "too-young" } : undefined;
+    },
+  },
+  {
+    id: "rec-sanctioned",
+    label: "A Little League, Cal Ripken or PONY team in a closed league",
+    tier: "review",
+    because:
+      "GameChanger says it plays under a rec body, and nobody it plays writes an age, so nothing will ever age it or join it to travel ball",
+    read: (row) =>
+      inClosedLeague(row) && playsUnderRecBody(evidenceOf(row)) ? { kind: "rec" } : undefined,
+  },
+  {
+    id: "rec-division",
+    label: "A rec division in a closed league",
+    tier: "review",
+    because:
+      "it or a team it plays is named for a rec division or league — Majors, AAA, Farm, Coach Pitch, NCLL — and nobody it plays writes an age",
+    read: (row) =>
+      inClosedLeague(row) &&
+      (namesALeague(nameOf(row)) || (evidenceOf(row).sampleOpponents ?? []).some(namesALeague))
+        ? { kind: "rec" }
+        : undefined,
+  },
+  {
+    id: "house-league",
+    label: "A house league named after big-league clubs",
+    tier: "review",
+    because:
+      "two of the teams it plays carry a Major League club's name, and nobody it plays writes an age",
+    read: (row) =>
+      inClosedLeague(row) &&
+      (evidenceOf(row).sampleOpponents ?? []).filter((opponent) => MLB_CLUB.test(opponent))
+        .length >= 2
+        ? { kind: "rec" }
+        : undefined,
   },
   {
     id: "rec-marker",
@@ -410,22 +540,7 @@ export const CLOSED_CLUSTER_SIZE = 6;
 /** The hint words that are never enough on their own; 972 teams in this pool carry one. */
 const SCHOOL_HINTS = /\b(?:fresh(?:man|men)?|frosh|soph(?:omore)?|academy|prep(?:aratory)?)\b/i;
 
-/** Every rule that fires on a row, in the order they are declared. */
-/**
- * The rules that read GameChanger's own answer rather than inferring one.
- *
- * These two are the only ones safe to apply in bulk without a person looking at each row, and the
- * reason is that neither of them reads anything: `adult-label` and `school-label` repeat what
- * GameChanger put in its own age field. Every other rule in this file infers something from a
- * name or a schedule, and inference is what the sweep exists to measure before it ships.
- *
- * Deliberately a list of ids rather than a tier. `tee-ball`, `school-name` and `name-resolves`
- * are `auto` too, and they are name rules — `tee-ball` alone fires on five teams this pool
- * already ranks. Selecting by tier would sweep them along with these, which is exactly the
- * accident this list exists to prevent.
- */
-export const GC_ANSWERED_RULES: readonly string[] = ["adult-label", "school-label"];
-
+/** A row, the rule that claimed it, and what the rule concluded. */
 export type AgelessAnswered = {
   row: AgeUnknownTeam;
   rule: AgelessRule;
@@ -433,15 +548,68 @@ export type AgelessAnswered = {
 };
 
 /**
- * The rows GameChanger has already answered for, out of a waiting list.
+ * The rules the waiting card clears with, in the order a row is claimed by one.
  *
- * One rule per row: a team cannot be both adult and a school squad, and if a later rule pair ever
- * could be, the first is taken rather than the row being counted twice.
+ * GameChanger's own two answers, and then the user's calls, made over the 38,603 rows waiting on
+ * 22 September 2026: a team named void or do-not-use goes whatever its schedule; tee ball and
+ * younger go, as every team under the floor already does at the door; and a rec-league team in a
+ * closed league goes for good, since nothing will ever age it from its opponents or join it to the
+ * clubs this app ranks. Over that file they claim 68, 0, 0, 1,919, 13,701, 4,400 and 1,869 rows —
+ * 21,957 of the 38,603, 57%. (GameChanger's two find nothing there because the import refuses
+ * those teams at the door now; they stay for lists kept from before it did.) Of the 19,970 rec
+ * rows, 38 carry a word a travel club might — "Academy", "Prospects", "Baseball Club",
+ * "National" — and all but four of those are Little League "National" divisions or plainly house
+ * league: "D33 Majors La Mesa National 1", "FHLL National - Hoffman".
+ *
+ * What is left is the other 43%: 5,885 with no games at all (asked again weekly in their own
+ * season, and dropped from the list outside it by the import), 2,691 whose opponents do name an
+ * age, and 8,070 closed leagues that name themselves nothing a rule here can read.
+ *
+ * Deliberately a list of ids rather than a tier. `school-name` and `name-resolves` are `auto`
+ * too, and neither belongs here: one would clear teams the import already refuses by the same
+ * name, the other is an age to file rather than a team to clear. And `tee-ball`, which does, fires
+ * on five teams this pool already ranks — which is why it stands down for a name that writes an
+ * age of its own, and why this list reads only rows that are still waiting.
+ *
+ * Every clear goes through the one confirmed, undoable pass: none of these is applied on its own.
  */
-export const agelessAlreadyAnswered = (rows: readonly AgeUnknownTeam[]): AgelessAnswered[] =>
+export const CLEARABLE_RULES: readonly string[] = [
+  "void-name",
+  "adult-label",
+  "school-label",
+  "tee-ball",
+  "rec-sanctioned",
+  "rec-division",
+  "house-league",
+];
+
+/**
+ * What each row was claimed by, kept per row object.
+ *
+ * The card asks again after every answer given on it, and every rule over 38,603 rows took 190 ms
+ * a pass. A waiting row is never changed in place — a re-ask writes a new object — so the answer
+ * for an object already seen is the answer still, and only rows new since the last pass are read.
+ */
+const claimedBy = new WeakMap<AgeUnknownTeam, AgelessAnswered | null>();
+
+const claim = (row: AgeUnknownTeam): AgelessAnswered | null => {
+  const verdicts = agelessVerdicts(row);
+  for (const id of CLEARABLE_RULES) {
+    const hit = verdicts.find(({ rule }) => rule.id === id);
+    if (hit) return { row, rule: hit.rule, verdict: hit.verdict };
+  }
+  return null;
+};
+
+/** The rows the card can clear, each claimed by the first of `CLEARABLE_RULES` that fires on it. */
+export const agelessClearable = (rows: readonly AgeUnknownTeam[]): AgelessAnswered[] =>
   rows.flatMap((row) => {
-    const hit = agelessVerdicts(row).find(({ rule }) => GC_ANSWERED_RULES.includes(rule.id));
-    return hit ? [{ row, rule: hit.rule, verdict: hit.verdict }] : [];
+    let hit = claimedBy.get(row);
+    if (hit === undefined) {
+      hit = claim(row);
+      claimedBy.set(row, hit);
+    }
+    return hit ? [hit] : [];
   });
 
 /**

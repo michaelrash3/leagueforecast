@@ -948,6 +948,18 @@ export const nameStatesUnrankableAge = (name: string): boolean => {
   return Number.isInteger(level) && !inAgeRange(level);
 };
 
+/**
+ * The age a name writes, whether or not it is one this app can rank — "5U Pirates" is 5, "Cubs 4U"
+ * is 4. For asking whether a team says it is too young; `ageLevelFromName` is what reads an age.
+ */
+export const ageWrittenInName = (name: string): number | undefined => {
+  if (typeof name !== "string") return undefined;
+  const match = UNRANKABLE_AGE_IN_NAME.exec(name);
+  if (!match) return undefined;
+  const level = Number(match[1] ?? match[2]);
+  return Number.isInteger(level) ? level : undefined;
+};
+
 export type AgeFieldSource =
   /** GameChanger's own `age_group`, first-hand from its API. */
   | "profile"
@@ -1016,6 +1028,46 @@ export const formatGcSeason = (season: GcSeason): string =>
  */
 export const squadYearForGcSeason = (season: GcSeason): number =>
   season.season === "fall" || season.season === "winter" ? season.year + 1 : season.year;
+
+/**
+ * The months each GameChanger season is played in, as [first, last] of the calendar year, 1-12.
+ *
+ * Generous and overlapping on purpose. A club picks its season label when it builds the team, and
+ * a spring league still finishing in June or a fall league starting in August is labelled either
+ * way; where two seasons overlap a team in either is counted as being played. Winter runs over the
+ * new year, so it is handled apart.
+ */
+const SEASON_MONTHS: Record<Exclude<GcSeasonName, "winter">, [number, number]> = {
+  spring: [2, 6],
+  summer: [5, 8],
+  fall: [8, 11],
+};
+
+/**
+ * Whether a GameChanger season is the one being played on `today` (an ISO day).
+ *
+ * What it is for is a team with no games at all: in its season that is a schedule not written yet,
+ * worth asking about again next week; outside it, a team from a season that is over or has not
+ * started, which nothing will change until it comes round. Erring towards "current" costs a
+ * weekly request; erring the other way only lets a later pull find the team again, so the windows
+ * are wide rather than tight.
+ *
+ * Winter is November to February and belongs to either year it straddles — "Winter 2026" and
+ * "Winter 2027" are both labels somebody might give the winter that starts in November 2026.
+ */
+export const gcSeasonIsCurrent = (season: GcSeason, today: string): boolean => {
+  const match = /^(\d{4})-(\d{2})/.exec(today);
+  if (!match) return true;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (season.season === "winter") {
+    if (month >= 11) return season.year === year || season.year === year + 1;
+    if (month <= 2) return season.year === year || season.year === year - 1;
+    return false;
+  }
+  const [first, last] = SEASON_MONTHS[season.season];
+  return season.year === year && month >= first && month <= last;
+};
 
 /**
  * The media id in a GameChanger avatar URL: the path segment after the media-service host, with

@@ -19,10 +19,23 @@
 
 import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 
-/** Why a row was cleared. Only the two readings that come from GameChanger's own age field. */
-export type AgelessClearedReason = "not-youth" | "high-school";
+/**
+ * Why a row was cleared: GameChanger's own two answers, and the three the user settled by rule on
+ * 23 September 2026 — named void, tee ball and younger, and rec ball in a closed league.
+ */
+export type AgelessClearedReason = "not-youth" | "high-school" | "not-real" | "too-young" | "rec";
 
-const REASONS: readonly AgelessClearedReason[] = ["not-youth", "high-school"];
+const REASONS: readonly AgelessClearedReason[] = [
+  "not-youth",
+  "high-school",
+  "not-real",
+  "too-young",
+  "rec",
+];
+
+/** Whether a verdict is one a pass can record, so the caller never has to cast one. */
+export const isClearedReason = (kind: string): kind is AgelessClearedReason =>
+  (REASONS as readonly string[]).includes(kind);
 
 export type AgelessClearedRow = {
   entry: AgeUnknownTeam;
