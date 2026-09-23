@@ -407,6 +407,9 @@ describe("rec ball in a closed league", () => {
       (name) => expect(recFired(league(name, rec))).toEqual([])
     );
     expect(recFired(league("Majors Dodgers 11U", rec))).toEqual([]);
+    // Nor one that writes it loosely, which its next ask will age rather than this pass clear.
+    expect(recFired(league("10U_Getskow_Phx_PONY", rec))).toEqual([]);
+    expect(recFired(league("Giants 11-12", rec))).toEqual([]);
   });
 });
 

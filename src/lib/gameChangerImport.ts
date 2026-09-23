@@ -21,6 +21,7 @@
 import {
   ageFitsBand,
   ageFromGradYearInName,
+  ageLevelFromLooseName,
   ageLevelFromName,
   formatGcSeason,
   gcSeasonIsCurrent,
@@ -455,6 +456,11 @@ export type GcImportOutcome = {
    * kind of; kept apart so a level can be traced to the rung that set it.
    */
   ageFromFixtures?: number;
+  /**
+   * The level read off the name by `ageLevelFromLooseName` — glued to its other words, or a span
+   * written without its U — nothing else having answered. Kept so the level can be traced.
+   */
+  ageFromLooseName?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -1721,10 +1727,26 @@ const importOne = (
     profileAgeLevel(withPool.profile) === undefined
       ? ageFromFixtures(withPool, index, MIN_OPPONENT_AGE_EVIDENCE)
       : undefined;
-  const schedule: GcTeamSchedule =
+  const withFixtures: GcTeamSchedule =
     fromFixtures === undefined
       ? withPool
       : { ...withPool, profile: { ...withPool.profile, ageLevel: fromFixtures } };
+  /*
+   * And very last, an age the name writes against its other words or without its U — "Spiders12U",
+   * "10U_Hartman", "Giants 11-12". Last of everything rather than beside the name reader, so a team
+   * anything else can age is aged by that, and no team the pool already files moves; see
+   * `ageLevelFromLooseName`. Never against GameChanger's own band.
+   */
+  const loose =
+    profileAgeLevel(withFixtures.profile) === undefined
+      ? ageLevelFromLooseName(withFixtures.profile.name)
+      : undefined;
+  const fromLooseName =
+    loose !== undefined && ageFitsBand(loose, withFixtures.profile.ageLabel) ? loose : undefined;
+  const schedule: GcTeamSchedule =
+    fromLooseName === undefined
+      ? withFixtures
+      : { ...withFixtures, profile: { ...withFixtures.profile, ageLevel: fromLooseName } };
   const inferred = fromNames.inferred ?? fromPool ?? fromFixtures;
   const { profile } = schedule;
   const base: GcImportOutcome = {
@@ -1747,6 +1769,7 @@ const importOne = (
     ...(named === undefined ? {} : { ageNamedByUser: named }),
     ...(fromLeague === undefined ? {} : { ageFromLeague: fromLeague }),
     ...(fromFixtures === undefined ? {} : { ageFromFixtures: fromFixtures }),
+    ...(fromLooseName === undefined ? {} : { ageFromLooseName: fromLooseName }),
   };
 
   /*
