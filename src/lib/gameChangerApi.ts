@@ -960,6 +960,47 @@ export const ageWrittenInName = (name: string): number | undefined => {
   return Number.isInteger(level) ? level : undefined;
 };
 
+/**
+ * An age written against the rest of a name, where `ageLevelFromName` reads none — "Spiders12U",
+ * "10U_Hartman", "Donegal Green 12u2", "U13s Blue" — or a span written without its U, "Giants
+ * 11-12", "Braves 9/10", read as its older end the way `ageSpanFromName` reads one with it.
+ *
+ * The ordinary reader's word boundaries are what keep "12UNDER" out, and its demand for a U on a
+ * span is what keeps a date or a team number out, so neither is loosened there: this is a separate
+ * reading, and only ever the last word — see `importOne`, where it answers a team nothing else
+ * could age, so no team the pool already files moves.
+ *
+ * Measured over the 115,053 teams in the pool-names export of 23 September 2026, on the 102,845
+ * whose name the ordinary reader finds nothing in. The glued forms fire on 254 and 236 (92.9%)
+ * are filed at exactly the age read, 251 (98.8%) within a year. The spans fire on 283, 205
+ * (72.4%) exactly and 264 (93.3%) within a year, most of the rest filed at the younger end. A span
+ * can be two school grades as well as two ages; the user settled that in these names it is ages,
+ * and a name that says "grade", or puts an ordinal against a number, is left alone. On the 38,603
+ * teams waiting on an age the week before, it reads 545, and GameChanger's own band refuses 12.
+ */
+const GLUED_AGE =
+  /(?<![0-9])(\d{1,2})\s*[uU][A-Da-d]{0,3}(?![a-zA-Z])|(?<![a-zA-Z0-9])[uU]\s*(\d{1,2})(?![0-9])/;
+const BARE_SPAN = /(?<![\d/.:$#-])(\d{1,2})\s*[-/&\u2013]\s*(\d{1,2})(?![\d/:%.-])/g;
+const SAYS_GRADE = /\bgrades?\b|\b\d{1,2}(?:st|nd|rd|th)\b/i;
+
+export const ageLevelFromLooseName = (name: string): number | undefined => {
+  if (typeof name !== "string") return undefined;
+  const glued = GLUED_AGE.exec(name);
+  if (glued) {
+    const level = Number(glued[1] ?? glued[2]);
+    if (inAgeRange(level)) return level;
+  }
+  if (SAYS_GRADE.test(name)) return undefined;
+  for (const [, first, second] of name.matchAll(BARE_SPAN)) {
+    const low = Number(first);
+    const high = Number(second);
+    // Two ages a year or two apart, in order: "11-12", "13/14", "15-17". Anything else is a date,
+    // a score or a squad number.
+    if (inAgeRange(low) && inAgeRange(high) && high > low && high - low <= 2) return high;
+  }
+  return undefined;
+};
+
 export type AgeFieldSource =
   /** GameChanger's own `age_group`, first-hand from its API. */
   | "profile"

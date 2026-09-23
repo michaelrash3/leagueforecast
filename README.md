@@ -833,8 +833,24 @@ the level it gives. On the stand-in fixtures export of 22 September 2026 the two
 game were filed at one level 73.5% of the time and a level apart 22%, so one club's level is a
 guess and three agreeing is not. From the waiting list's own file, which keeps only three of
 each team's opponents, it ages at least 32 teams, and every one of the 31 whose GameChanger age
-field gives a band lands inside it. It sits last, below the picture, and is recorded on the
+field gives a band lands inside it. It sits below the picture, and is recorded on the
 pull as `ageFromFixtures` as well as among the ages from opponents.
+
+**And last of all, an age the name writes loosely.** The ordinary reader wants an age
+with word boundaries round it and a U on both ends of a span, which is what keeps
+"12UNDER", a date or a squad number out. So it misses "Spiders12U", "10U_Hartman",
+"Donegal Green 12u2", "U13s Blue", and spans written without their U, "Giants 11-12" and
+"Braves 9/10". `ageLevelFromLooseName` reads those, a span at its older end the way one
+with a U is read: two ages a year or two apart, in order, and not a date or a score. A span
+can be two school grades as easily as two ages, and the user settled that in these names it
+is ages; a name that says "grade", or puts an ordinal against a number, is left alone. It
+is the very bottom rung, below the games, so no team anything else ages moves, and it never
+files against GameChanger's own band. On the pool-names export of 23 September 2026 it
+fires on 537 of the 102,845 names the ordinary reader finds nothing in — the glued forms
+92.9% exactly the age filed and 98.8% within a year, the spans 72.4% and 93.3%, most of the
+rest filed at the younger end. On the week's waiting list it reads 545; the band refuses
+12, and of the rest 514 are filed and 19 turned away as under 8U. Recorded
+on the pull as `ageFromLooseName`.
 
 **A name outranks an age column, on a pasted list.** The age ladder reads two kinds of
 age field and does not trust them equally. GameChanger's own `age_group`, first-hand from
@@ -1000,16 +1016,17 @@ and a school squad. The rest are the user's, made over the 38,603 rows waiting o
   stands down for a name that writes a rankable age of its own. 1,919 rows.
 - **Rec ball in a closed league**, cleared for good: nothing will ever age such a team from
   its opponents or join it to a club this app ranks. A team counts only once it has played,
-  when nobody it played writes an age, its own name states none, and it does not call itself
+  when nobody it played writes an age, its own name states none (not even loosely, as
+  `ageLevelFromLooseName` reads one), and it does not call itself
   an all-star, travel, select, elite or tournament side. Then any one of three things marks
-  it: GameChanger files it under Little League, Cal Ripken/Babe Ruth or PONY (13,701); it or a
+  it: GameChanger files it under Little League, Cal Ripken/Babe Ruth or PONY (13,538); it or a
   team it played is named for a rec division or league — Majors, Minors, AAA, Farm, Coach
-  Pitch, "LL", or a league's initials written in capitals like NCLL (4,400); or two of the
+  Pitch, "LL", or a league's initials written in capitals like NCLL (4,370); or two of the
   teams it played carry a Major League club's name, the way a house league hands them out
-  (1,869). Of those 19,970, 38 carry a word a travel club might, and all but four are Little
+  (1,813). Of those 19,721, 37 carry a word a travel club might, and all but three are Little
   League "National" divisions or plainly house league.
 
-Between them 21,957 of the 38,603, 57%. League initials are read in capitals only, from a stem
+Between them 21,708 of the 38,603, 56%. League initials are read in capitals only, from a stem
 of four letters with at most one vowel, and never as an ordinary word: read case-blind,
 "Fall", "Ball" and "O'Neill" all end in LL, and a first draft cleared "Aces" for having played
 "Riverside Rats Fall 26". The rules that only propose — a closed league that names itself

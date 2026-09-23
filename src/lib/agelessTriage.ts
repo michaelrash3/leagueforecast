@@ -33,6 +33,7 @@
  */
 
 import {
+  ageLevelFromLooseName,
   ageLevelFromName,
   ageLevelOf,
   ageWrittenInName,
@@ -244,7 +245,9 @@ const inClosedLeague = (row: AgeUnknownTeam): boolean => {
     evidence.games > 0 &&
     evidence.namedAnAge === 0 &&
     !TRAVELS.test(nameOf(row)) &&
-    ageLevelFromName(nameOf(row)) === undefined
+    ageLevelFromName(nameOf(row)) === undefined &&
+    // Nor loosely: "10U_Getskow_Phx_PONY" is aged at its next ask, and must not be cleared first.
+    ageLevelFromLooseName(nameOf(row)) === undefined
   );
 };
 
@@ -554,16 +557,17 @@ export type AgelessAnswered = {
  * 22 September 2026: a team named void or do-not-use goes whatever its schedule; tee ball and
  * younger go, as every team under the floor already does at the door; and a rec-league team in a
  * closed league goes for good, since nothing will ever age it from its opponents or join it to the
- * clubs this app ranks. Over that file they claim 68, 0, 0, 1,919, 13,701, 4,400 and 1,869 rows —
- * 21,957 of the 38,603, 57%. (GameChanger's two find nothing there because the import refuses
- * those teams at the door now; they stay for lists kept from before it did.) Of the 19,970 rec
- * rows, 38 carry a word a travel club might — "Academy", "Prospects", "Baseball Club",
- * "National" — and all but four of those are Little League "National" divisions or plainly house
- * league: "D33 Majors La Mesa National 1", "FHLL National - Hoffman".
+ * clubs this app ranks. Over that file they claim 68, 0, 0, 1,919, 13,538, 4,370 and 1,813 rows —
+ * 21,708 of the 38,603, 56%. (GameChanger's two find nothing there because the import refuses
+ * those teams at the door now; they stay for lists kept from before it did.) Of the 19,721 rec
+ * rows, 37 carry a word a travel club might — "Academy", "Prospects", "Baseball Club",
+ * "National" — and all but three of those are Little League "National" divisions or plainly
+ * house league: "D33 Majors La Mesa National 1", "FHLL National - Hoffman".
  *
- * What is left is the other 43%: 5,885 with no games at all (asked again weekly in their own
+ * What is left is the other 44%: 5,885 with no games at all (asked again weekly in their own
  * season, and dropped from the list outside it by the import), 2,691 whose opponents do name an
- * age, and 8,070 closed leagues that name themselves nothing a rule here can read.
+ * age, and 8,319 that a name reading will age at their next ask or that sit in closed leagues
+ * naming themselves nothing a rule here can read.
  *
  * Deliberately a list of ids rather than a tier. `school-name` and `name-resolves` are `auto`
  * too, and neither belongs here: one would clear teams the import already refuses by the same
