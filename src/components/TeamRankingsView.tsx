@@ -65,6 +65,7 @@ import {
   savePullProgress,
   loadAllArchivedSeasons,
   saveArchivedSeasons,
+  forgetArchivedSeason,
   saveRefreshLog,
   addScoutGames,
   saveScoutGames,
@@ -114,7 +115,8 @@ import {
   type RankingsSection,
 } from "../lib/rankingsRoute";
 import type { Command } from "./CommandPalette";
-import { archivableYears, archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
+import { archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
+import { deletableYears, deleteSquadYear } from "../lib/deleteSquadYear";
 import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
@@ -1621,13 +1623,15 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     const stored = new Map(
       storedYears.flatMap((entry) => (entry.year === undefined ? [] : [[entry.year, entry]]))
     );
-    return archivableYears(ageGroups).map((year) => ({
+    // Every year with anything to delete, which includes a year that is only archived tables now.
+    return deletableYears(ageGroups, archives).map((year) => ({
       year,
       pages: pages.get(year) ?? 0,
       games: stored.get(year)?.games ?? 0,
       teams: stored.get(year)?.teams ?? 0,
+      archives: archives.filter((entry) => entry.year === year).length,
     }));
-  }, [ageGroups, storedYears]);
+  }, [ageGroups, storedYears, archives]);
 
   /**
    * Freezes a baseball year's tables and deletes the games behind them.
@@ -1722,6 +1726,86 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       setReportTeamId("");
       showToast(
         `${year} archived. ${kept.length} final table${kept.length === 1 ? "" : "s"} kept under Archive; ${done.droppedGames.toLocaleString()} games deleted.`
+      );
+      onDataChange?.();
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  /**
+   * Deletes a whole squad year with nothing kept: its pages, their stored games, the clubs that
+   * played in no other year, the GameChanger ids filed under it, and its archived tables.
+   *
+   * The same writes as `archiveYear` in the same order — games while the pages that name them
+   * are still stored, then the pages — without the archive in front of them. The archived tables
+   * go last, one at a time: the pool is the part that matters, and a table that fails to go is
+   * still listed under Archive, where it can be seen.
+   */
+  const deleteYear = async (year: number) => {
+    const everyGame = loadScoutGames();
+    const stored = { ageGroups, teams: scoutTeams, games: everyGame };
+    // Whether the pool was tidy before this, for the reason `archiveYear` gives.
+    const wasTidy = loadTidyStamp() === poolSignature(stored);
+    const done = deleteSquadYear(year, stored, archives);
+
+    if (done.pages.length === 0 && done.archiveIds.length === 0) {
+      showToast(`Nothing is filed under ${year}.`, { tone: "error" });
+      return;
+    }
+
+    const lines: string[] = [];
+    if (done.pages.length > 0) {
+      lines.push(
+        `${done.pages.length} page${done.pages.length === 1 ? "" : "s"}: ${done.pages.join(", ")}.`,
+        `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} that played in no other year.`
+      );
+    }
+    if (done.unlinkedTeams > 0) {
+      lines.push(
+        `${done.unlinkedTeams.toLocaleString()} club${done.unlinkedTeams === 1 ? " plays" : "s play"} in another year too, so ${done.unlinkedTeams === 1 ? "it stays" : "they stay"} — without the GameChanger ids ${done.unlinkedTeams === 1 ? "it was" : "they were"} pulled as in ${year}.`
+      );
+    }
+    if (done.archiveIds.length > 0) {
+      lines.push(
+        `${done.archiveIds.length} archived table${done.archiveIds.length === 1 ? "" : "s"} from ${year}.`
+      );
+    }
+    if (done.leagueSeasonIds.length > 0) {
+      lines.push(
+        "The League Standings seasons linked to these pages stop feeding a ranking. League Standings keeps them — this does not touch them."
+      );
+    }
+    lines.push("Nothing is kept, and this cannot be undone.");
+
+    const confirmed = await requestConfirmation({
+      title: `Delete ${year} and everything in it?`,
+      message: lines.join("\n\n"),
+      confirmLabel: `Delete ${year}`,
+    });
+    if (!confirmed) return;
+
+    setArchiving(true);
+    try {
+      persistTeams(done.state.teams);
+      // Names the year, because it is the one save that means to leave a year with nothing in it.
+      persistAllGames(done.state.games, [year]);
+      persistAgeGroups(done.state.ageGroups);
+      if (wasTidy) saveTidyStamp(poolSignature(done.state));
+      let tablesLeft = 0;
+      for (const id of done.archiveIds) {
+        if (!(await forgetArchivedSeason(id))) tablesLeft += 1;
+      }
+      setArchives(loadArchiveIndex());
+      pickPage("");
+      setOpenTeamId(null);
+      setReportTeamId("");
+      showToast(
+        `${year} deleted.` +
+          (tablesLeft > 0
+            ? ` ${tablesLeft} archived table${tablesLeft === 1 ? "" : "s"} could not be removed and ${tablesLeft === 1 ? "is" : "are"} still under Archive.`
+            : ""),
+        tablesLeft > 0 ? { tone: "error" } : { tone: "success" }
       );
       onDataChange?.();
     } finally {
@@ -2028,6 +2112,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 currentYear: selectedYear,
                 busy: archiving,
                 onArchive: (year) => void archiveYear(year),
+                onDelete: (year) => void deleteYear(year),
               }}
             />
           )}

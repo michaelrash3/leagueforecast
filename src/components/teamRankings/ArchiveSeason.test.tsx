@@ -9,7 +9,12 @@ import {
   team,
 } from "../../test/teamRankingsHarness";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
-import { loadArchiveIndex, loadScoutGames } from "../../lib/teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadArchiveIndex,
+  loadScoutGames,
+  loadScoutTeams,
+} from "../../lib/teamRankingsStorage";
 
 const go = async (user: ReturnType<typeof userEvent.setup>, tab: string) => {
   await user.click(screen.getByRole("tab", { name: tab }));
@@ -165,5 +170,77 @@ describe("archiving a finished season from the app", () => {
     renderTeamRankings(pool());
     await go(user, "Archive");
     expect(screen.getByText(/Nothing archived yet/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Deleting a year outright, which is for a year nobody wants a record of: nothing is archived, and
+ * everything the year is made of goes.
+ */
+describe("deleting a season outright", () => {
+  const delete2026 = async (user: ReturnType<typeof userEvent.setup>) => {
+    await go(user, "Setup");
+    await user.selectOptions(screen.getByLabelText("Baseball year"), "2026");
+    await user.click(screen.getByRole("button", { name: "Delete this year" }));
+  };
+
+  it("deletes the year's pages, games and clubs, keeps nothing, and leaves the other year alone", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    await delete2026(user);
+
+    await waitFor(() => expect(harness.toasts().join(" ")).toContain("2026 deleted"));
+    expect(loadScoutGames().map((one) => one.id)).toEqual(["g9"]);
+    expect(loadAgeGroups().map((group) => group.id)).toEqual(["ag_9u_2027"]);
+    expect(
+      loadScoutTeams()
+        .map((one) => one.id)
+        .sort()
+    ).toEqual(["S-A", "S-NEXT"]);
+    // Not archived: that is the whole difference from the button beside it.
+    expect(loadArchiveIndex()).toEqual([]);
+  });
+
+  it("asks first, saying what goes", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    await delete2026(user);
+
+    const asked = harness.requestConfirmation.mock.calls[0]?.[0] as {
+      title: string;
+      message: string;
+      confirmLabel: string;
+    };
+    expect(asked.title).toBe("Delete 2026 and everything in it?");
+    expect(asked.message).toContain("8U 2026, 9U 2026, 10U 2026");
+    expect(asked.message).toContain("8 stored games and 6 teams");
+    expect(asked.message).toContain("Nothing is kept");
+    expect(asked.confirmLabel).toBe("Delete 2026");
+  });
+
+  it("changes nothing when the confirmation is declined", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    harness.requestConfirmation.mockResolvedValue(false);
+    await delete2026(user);
+
+    expect(loadScoutGames()).toHaveLength(9);
+    expect(loadAgeGroups()).toHaveLength(4);
+  });
+
+  it("takes the tables already archived from the year, and offers a year that is only those", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    await archive2026(user);
+    await waitFor(() => expect(harness.toasts().join(" ")).toContain("2026 archived"));
+    expect(loadArchiveIndex()).toHaveLength(2);
+
+    // No page left in 2026, so archiving it is not on offer, and deleting what is left of it is.
+    await user.selectOptions(screen.getByLabelText("Baseball year"), "2026");
+    expect(screen.getByRole("button", { name: "Archive this year" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Delete this year" }));
+
+    await waitFor(() => expect(loadArchiveIndex()).toEqual([]));
+    expect(loadScoutGames().map((one) => one.id)).toEqual(["g9"]);
   });
 });
