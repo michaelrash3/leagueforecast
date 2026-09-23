@@ -667,6 +667,35 @@ export const ageFromOpponentNames = (games: readonly GcGame[]): number | undefin
 };
 
 /**
+ * The age two opponents give a team when they both name it and nobody names another.
+ *
+ * Below `ageFromOpponentNames`' three, and measured before it was allowed: over the pool-names
+ * export of 23 September 2026, on the teams whose age the pool already files, exactly two opponents
+ * naming one age with none naming another matched the filed age for 10,330 of 10,623 teams — 97.2%
+ * exact, 99.7% within a year — where three agreeing is 99.0%. The two-opponent case is also the
+ * clean measurement: nothing could have been aged by two opponents before this, so none of those
+ * teams was filed by the rule being measured. On the waiting list of the same day it answers 554
+ * teams inside GameChanger's own band.
+ *
+ * Unanimous or nothing: two against one is not two agreeing, it is a split, and a split is the
+ * three-opponent rule's to judge. The caller holds it to the band, which the three-opponent reading
+ * has never been, and is left as it was.
+ */
+export const ageFromTwoOpponents = (games: readonly GcGame[]): number | undefined => {
+  const seen = new Set<string>();
+  const levels: number[] = [];
+  games.forEach((game) => {
+    const key = teamNameKey(game.opponentName);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const level = ageLevelFromName(game.opponentName);
+    if (level !== undefined) levels.push(level);
+  });
+  if (levels.length !== 2 || levels[0] !== levels[1]) return undefined;
+  return levels[0];
+};
+
+/**
  * The schedule with an age filled in from its opponents, when it had none and they agree.
  *
  * Done here rather than in the API layer on purpose: `GcTeamProfile` is what GameChanger said
@@ -837,7 +866,10 @@ const withOpponentAge = (
   schedule: GcTeamSchedule
 ): { schedule: GcTeamSchedule; inferred?: number } => {
   if (profileAgeLevel(schedule.profile) !== undefined) return { schedule };
-  const inferred = ageFromOpponentNames(schedule.games);
+  const two = ageFromTwoOpponents(schedule.games);
+  const inferred =
+    ageFromOpponentNames(schedule.games) ??
+    (two !== undefined && ageFitsBand(two, schedule.profile.ageLabel) ? two : undefined);
   if (inferred === undefined) return { schedule };
   return {
     schedule: { ...schedule, profile: { ...schedule.profile, ageLevel: inferred } },
@@ -964,8 +996,8 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
     return {
       code: "no-age",
       message:
-        "GameChanger gave no age group for this team, its name does not say one, and fewer than " +
-        `${MIN_OPPONENT_AGE_EVIDENCE} of its opponents agree on one either.`,
+        "GameChanger gave no age group for this team, its name does not say one, and its " +
+        `opponents do not settle one either: that takes two naming one age and none another, or ${MIN_OPPONENT_AGE_EVIDENCE} agreeing.`,
     };
   }
   if (ageLevel < MIN_AGE_LEVEL) {

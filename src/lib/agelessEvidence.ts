@@ -251,6 +251,12 @@ export const whyNoAge = (evidence: AgelessEvidence, needed: number): string => {
   if (evidence.namedAnAge === 0)
     return `None of its ${evidence.opponents} opponent${evidence.opponents === 1 ? "" : "s"} writes an age in its name either.`;
   const top = evidence.tally[0];
+  if (top && evidence.tally.length === 1 && top[1] === 1)
+    return `1 of its opponents says ${top[0]}U — it needs two to agree.`;
+  // Two agreeing settle a team now (`ageFromTwoOpponents`); a row still saying so was either last
+  // asked before that, or the age is one GameChanger's own band rules out.
+  if (top && evidence.tally.length === 1 && top[1] === 2)
+    return `2 of its opponents say ${top[0]}U. Two agreeing settle a team now, so its next ask files it unless GameChanger's own band rules ${top[0]}U out.`;
   if (top && evidence.tally.length === 1)
     return `${top[1]} of its opponents say ${top[0]}U — it needs ${needed}.`;
   const second = evidence.tally[1];

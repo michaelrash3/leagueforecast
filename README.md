@@ -748,6 +748,18 @@ for all of them, so the counts are kept and say which. "None of its four opponen
 writes an age" is a rec league and will never come good; "two of its three say 9U" is
 settled in a second; no games at all is a blank schedule.
 
+**Two opponents agreeing are enough.** Three agreeing is the old bar and still the one a
+split is judged by, but two opponents naming one age with nobody naming another now
+settle a team too (`ageFromTwoOpponents`), held to GameChanger's own band. It was
+measured before it shipped: over the pool-names export of 23 September 2026, on teams
+whose age the pool already files, it matched the filed age for 10,330 of 10,623 — 97.2%
+exact, 99.7% within a year, against 99.0% for three — and on the waiting list of the same
+day it answers 554. Rows whose stored name or opponents the rules of that day already
+answer jump the re-ask rota once (`withRulesMoved`, dated `AGELESS_RULES_CHANGED_AT`), so
+the next pull files them rather than the week after; on that list, 815 of 16,611. One
+opponent alone is 93.6% and is not enough: one team in sixteen would land a year or more
+off.
+
 A team whose name says a high school squad is not on this card at all, even one that
 went onto the list before that rule existed: the name settles it, so it costs none of
 the ten, and the next time the rota asks, the answer comes back `high-school` and the

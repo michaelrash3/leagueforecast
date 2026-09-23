@@ -1,5 +1,6 @@
 import { daysSince } from "./date";
 import { coerceAgelessEvidence, type AgelessEvidence } from "./agelessEvidence";
+import { ageFitsBand, ageLevelFromLooseName } from "./gameChangerApi";
 import type { GcImportOutcome } from "./gameChangerImport";
 
 /**
@@ -179,6 +180,50 @@ export type NamedAgeAsk = {
 };
 
 const NOBODY_NAMED: NamedAgeAsk = { has: () => false, get: () => undefined };
+
+/**
+ * When the rules that age a waiting team last moved: two agreeing opponents settle a team, and a
+ * name that writes its age loosely is read.
+ *
+ * A row last asked before this was asked under the old rules, so what it stores may already be an
+ * answer the new ones give. Dated rather than versioned because the rota already compares dates: a
+ * row asked since has been judged by these rules and does not jump again.
+ */
+export const AGELESS_RULES_CHANGED_AT = "2026-09-23T12:00:00.000Z";
+
+/**
+ * Whether what a waiting row already stores is an answer under those rules: a name
+ * `ageLevelFromLooseName` reads, or exactly two opponents naming one age (`ageFromTwoOpponents`),
+ * inside GameChanger's own band either way.
+ *
+ * Read from the row alone, so nothing is fetched to decide it. The ask that follows is what files
+ * the team, because filing needs the schedule and the row keeps only a summary of it.
+ */
+export const answerableNow = (entry: AgeUnknownTeam): boolean => {
+  const label = entry.evidence?.ageLabel;
+  const loose = entry.name ? ageLevelFromLooseName(entry.name) : undefined;
+  if (loose !== undefined && ageFitsBand(loose, label)) return true;
+  const tally = entry.evidence?.tally ?? [];
+  const top = tally[0];
+  return tally.length === 1 && top !== undefined && top[1] >= 2 && ageFitsBand(top[0], label);
+};
+
+/**
+ * The rota's asking rules, told which waiting rows the new rules can already settle.
+ *
+ * Each is exactly what a hand-named age is to the rota — an answer the last ask could not have
+ * known — so it is asked once straight away, dated by `AGELESS_RULES_CHANGED_AT`, and the ask
+ * moves `lastTried` past that date so the exemption closes behind it. A row somebody named by hand
+ * keeps its own date.
+ */
+export const withRulesMoved = (named: NamedAgeAsk, list: AgeUnknownList): NamedAgeAsk => {
+  const moved = new Set(list.filter(answerableNow).map((entry) => entry.teamId));
+  return {
+    has: (teamId) => named.has(teamId) || moved.has(teamId),
+    get: (teamId) =>
+      named.get(teamId) ?? (moved.has(teamId) ? { namedAt: AGELESS_RULES_CHANGED_AT } : undefined),
+  };
+};
 
 /**
  * The ids nobody should be asked about again, whatever the rest of the rules say.

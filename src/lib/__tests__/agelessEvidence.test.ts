@@ -48,14 +48,19 @@ describe("what was known about a team nobody could age", () => {
     ]);
     expect(whyNoAge(recLeague, 3)).toMatch(/None of its 3 opponents writes an age/);
 
-    // Two of three said 9U. It needed three — which the reader settles in one look.
+    // Two said 9U and the third named nothing: two agreeing settle it now, at its next ask.
     const nearMiss = agelessEvidence(
       profile(),
       [game("Prosper Bulls 9U"), game("Frisco Heat 9U"), game("Sandpoint Red")],
       TODAY
     );
     expect(nearMiss.tally).toEqual([[9, 2]]);
-    expect(whyNoAge(nearMiss, 3)).toBe("2 of its opponents say 9U — it needs 3.");
+    expect(whyNoAge(nearMiss, 3)).toMatch(
+      /^2 of its opponents say 9U\. Two agreeing settle a team now/
+    );
+    expect(whyNoAge({ ...nearMiss, namedAnAge: 1, tally: [[9, 1]] }, 3)).toBe(
+      "1 of its opponents says 9U — it needs two to agree."
+    );
 
     const blank = agelessEvidence(profile(), [], TODAY);
     expect(blank.games).toBe(0);

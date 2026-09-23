@@ -77,7 +77,9 @@ describe("the review card for teams waiting on an age", () => {
 
   it("says why each one could not be aged", () => {
     show([team("ID0", "Club 0", { evidence: evidence({ tally: [[9, 2]], namedAnAge: 2 }) })]);
-    expect(screen.getByText(/2 of its opponents say 9U — it needs 3/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 of its opponents say 9U\. Two agreeing settle a team now/)
+    ).toBeInTheDocument();
   });
 
   it("offers every age it ranks and nothing else", async () => {

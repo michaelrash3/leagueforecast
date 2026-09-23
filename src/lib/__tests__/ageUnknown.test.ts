@@ -7,8 +7,11 @@ import {
   ageUnknownDue,
   coerceAgeUnknown,
   describeAgeUnknown,
+  answerableNow,
   forgetAgeless,
   updateAgeUnknown,
+  withRulesMoved,
+  AGELESS_RULES_CHANGED_AT,
   type AgeUnknownList,
 } from "../ageUnknown";
 import type { GcImportOutcome } from "../gameChangerImport";
@@ -387,6 +390,63 @@ describe("a team somebody named an age for", () => {
 
     const due = ageUnknownDue([...stale, justAnswered], 3, TODAY, namedAt(NOW, "WANTED"));
     expect(due[0]).toBe("WANTED");
+  });
+});
+
+/**
+ * A row the new rules can already settle from what it stores: a name read loosely, or two
+ * opponents agreeing. It is asked once straight away, like a hand-named age, and not again.
+ */
+describe("a team the new rules can already settle", () => {
+  const row = (name: string, tally: [number, number][], ageLabel?: string) => ({
+    teamId: "T",
+    name,
+    firstSeen: daysBefore(20),
+    lastTried: "2026-09-18T00:00:00.000Z",
+    tries: 1,
+    evidence: {
+      games: 6,
+      scored: 6,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 4,
+      namedAnAge: tally.reduce((sum, [, count]) => sum + count, 0),
+      tally,
+      ...(ageLabel ? { ageLabel } : {}),
+    },
+  });
+
+  it("is one whose name writes its age loosely, or whose two naming opponents agree", () => {
+    expect(answerableNow(row("Simpson Spiders12U", []))).toBe(true);
+    expect(answerableNow(row("Warriors", [[9, 2]]))).toBe(true);
+    expect(answerableNow(row("Warriors", [[9, 1]]))).toBe(false);
+    expect(
+      answerableNow(
+        row("Warriors", [
+          [9, 2],
+          [10, 1],
+        ])
+      )
+    ).toBe(false);
+    expect(answerableNow(row("Warriors", []))).toBe(false);
+  });
+
+  it("is not one whose answer GameChanger's own band rules out", () => {
+    expect(answerableNow(row("Warriors", [[14, 2]], "Under 13"))).toBe(false);
+    expect(answerableNow(row("Giants 13-14", [], "Under 13"))).toBe(false);
+  });
+
+  it("is asked first, once, and then waits its week like any other", () => {
+    const waiting = row("Warriors", [[9, 2]]);
+    const plain = { ...row("Bandits", []), teamId: "P" };
+    const asks = withRulesMoved(new Map(), [waiting, plain]);
+    // Asked five days ago, so the week gate alone would hold both back.
+    const now = new Date("2026-09-23T13:00:00.000Z");
+    expect(ageUnknownDue([plain, waiting], 10, now, asks)).toEqual(["T"]);
+    // Once asked after the rules moved, the exemption is spent.
+    const asked = { ...waiting, lastTried: "2026-09-23T12:30:00.000Z" };
+    expect(ageUnknownDue([asked], 10, now, withRulesMoved(new Map(), [asked]))).toEqual([]);
+    expect(AGELESS_RULES_CHANGED_AT < asked.lastTried).toBe(true);
   });
 });
 
