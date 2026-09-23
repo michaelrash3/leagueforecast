@@ -62,12 +62,13 @@ type SetupSectionProps = {
     /** Throws a club out: the team, its rows, and its GameChanger ids. */
     onDropClub: (club: UnrealClub) => Promise<boolean>;
   };
-  /** The years that could be frozen, and the one the app is showing as current. */
+  /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
     years: ArchivableYear[];
     currentYear: number | undefined;
     busy: boolean;
     onArchive: (year: number) => void;
+    onDelete: (year: number) => void;
   };
   /** Everything the model check needs to refit this page's pool on demand. */
   modelCheck: {
@@ -226,6 +227,7 @@ export function SetupSection({
         currentYear={archive.currentYear}
         busy={archive.busy}
         onArchive={archive.onArchive}
+        onDelete={archive.onDelete}
       />
 
       <ResetRankingsCard

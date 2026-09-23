@@ -1485,6 +1485,20 @@ read as one — a save holding a year's games can still overwrite that year with
 fewer of them, and nothing here can tell that from a deletion somebody asked for.
 What it closes is the whole-year case, which is the one that loses a season.
 
+**A squad year leaves whole, archived or deleted.** Setup's **Archive or delete a season**
+card takes one baseball year at a time — every age on it, because they are rated together
+and taking one page would quietly change the tables of the rest. **Archive** freezes each
+page's final tables, a half at a time, and then lets the games go. **Delete** keeps nothing
+(`deleteSquadYear`): the year's pages, every stored game filed under them, the clubs that
+played in no other year, and any tables already archived from it. A club that also plays in
+another year stays, since one copy of a club is how a rename reaches both years, but loses
+the GameChanger ids filed under the deleted pages: those ids are that year's squads, and a
+link left to a page that is gone would be the one trace of the year still in the pool. A
+page that carried a squad on from one of the year's pages stops doing so. League Standings
+keeps its seasons either way; only the links from the deleted pages go, so their fixtures
+stop feeding a ranking. The confirmation says how many pages, games and clubs go, and how
+many clubs stay without that year's ids.
+
 ### Backups
 
 **Backup JSON is a whole-browser backup.** It carries every storage key this app
