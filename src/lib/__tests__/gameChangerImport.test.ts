@@ -14,6 +14,7 @@ import {
 } from "../gameChangerApi";
 import {
   ageFromOpponentNames,
+  ageFromTwoOpponents,
   createGcImporter,
   mergeSameSquadIds,
   importGcSchedule,
@@ -3097,7 +3098,55 @@ describe("asking the opponents what age a team is", () => {
 
   it("says so plainly when the opponents could not settle it either", () => {
     const { outcome } = importGcSchedule(against("Bandits", "Sluggers"), empty);
-    expect(outcome.issue).toMatch(/fewer than 3 of its opponents agree/i);
+    expect(outcome.issue).toMatch(/opponents do not settle one either/i);
+  });
+});
+
+/**
+ * Two opponents naming one age, and nobody naming another. Measured on the pool-names export of
+ * 23 September 2026 at 97.2% exact over 10,623 teams whose age the pool already files.
+ */
+describe("two opponents agreeing", () => {
+  const against = (opponents: string[], label?: string): GcTeamSchedule =>
+    schedule(
+      { name: "Warriors Spring 2027", ageLevel: undefined, ...(label ? { ageLabel: label } : {}) },
+      opponents.map((opponentName, at) => game({ id: `g${at}`, opponentName, date: "2026-08-22" }))
+    );
+
+  it("is enough when they both name the same age and nobody names another", () => {
+    expect(ageFromTwoOpponents(against(["A 9U", "B 9U"]).games)).toBe(9);
+    expect(ageFromTwoOpponents(against(["A 9U", "Bandits", "B 9U"]).games)).toBe(9);
+  });
+
+  it("is not two agreeing when they disagree, when one speaks, or when a third names anything", () => {
+    expect(ageFromTwoOpponents(against(["A 9U", "B 10U"]).games)).toBeUndefined();
+    expect(ageFromTwoOpponents(against(["A 9U", "Bandits"]).games)).toBeUndefined();
+    expect(ageFromTwoOpponents(against(["A 9U", "B 9U", "C 10U"]).games)).toBeUndefined();
+  });
+
+  // One club played four times is one club's opinion, as it is for three.
+  it("counts a club once however many times it was played", () => {
+    expect(ageFromTwoOpponents(against(["A 9U", "A 9U"]).games)).toBeUndefined();
+  });
+
+  it("files the team under that age", () => {
+    const { state, outcome } = importGcSchedule(against(["A 9U", "B 9U"]), empty);
+    expect(outcome.ageFromOpponents).toBe(9);
+    expect(state.ageGroups[0]?.ageLevel).toBe(9);
+  });
+
+  it("never files against GameChanger's own band", () => {
+    const { outcome } = importGcSchedule(against(["A 14U", "B 14U"], "Under 13"), empty);
+    expect(outcome.skip).toBe("no-age");
+    expect(
+      importGcSchedule(against(["A 11U", "B 11U"], "Under 13"), empty).outcome.ageFromOpponents
+    ).toBe(11);
+  });
+
+  // The three-opponent reading is left exactly as it was: never held to the band.
+  it("leaves three agreeing exactly as it was", () => {
+    const { outcome } = importGcSchedule(against(["A 14U", "B 14U", "C 14U"], "Under 13"), empty);
+    expect(outcome.ageFromOpponents).toBe(14);
   });
 });
 

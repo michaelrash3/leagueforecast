@@ -89,6 +89,7 @@ import {
   AGE_UNKNOWN_MAX_TRIES,
   describeAgeUnknown,
   updateAgeUnknown,
+  withRulesMoved,
   type AgeUnknownList,
 } from "../lib/ageUnknown";
 import {
@@ -521,8 +522,8 @@ export function GameChangerImportPanel({
   const [membership, setMembership] = useState<OrgMembership>(() => loadOrgMembership());
   const orgAges = useMemo(() => orgAgesByTeam(membership), [membership]);
   const asks = useMemo(
-    () => withOrgAges(namedAges, orgAges, membership.savedAt),
-    [namedAges, orgAges, membership.savedAt]
+    () => withRulesMoved(withOrgAges(namedAges, orgAges, membership.savedAt), ageless),
+    [namedAges, orgAges, membership.savedAt, ageless]
   );
   const waitingOrgAged = useMemo(
     () => ageless.filter((entry) => orgAges.has(entry.teamId)).length,
