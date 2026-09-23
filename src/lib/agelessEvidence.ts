@@ -27,7 +27,13 @@
  */
 
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings/seasons";
-import { ageLevelFromName, type GcGame, type GcTeamProfile } from "./gameChangerApi";
+import {
+  ageLevelFromName,
+  type GcGame,
+  type GcSeason,
+  type GcSeasonName,
+  type GcTeamProfile,
+} from "./gameChangerApi";
 
 /** How many opponent names are kept, for the case where none of them named an age. */
 export const AGELESS_SAMPLE_OPPONENTS = 3;
@@ -59,6 +65,15 @@ export type AgelessEvidence = {
    * under USSSA is a skill class; without this the two are one string.
    */
   ngb?: string[];
+  /**
+   * The season GameChanger files the team under — "Fall 2026".
+   *
+   * Kept because an empty schedule means two different things by it. In the season being played it
+   * is a schedule nobody has written yet, and worth asking about next week; in one that is over or
+   * not started, it is a team nothing will change until its season comes round. See
+   * `gcSeasonIsCurrent`.
+   */
+  season?: GcSeason;
   /** Rows on the schedule that was fetched. */
   games: number;
   /** Of those, how many carry a score. */
@@ -135,6 +150,7 @@ export const agelessEvidence = (
     ...(profile.record ? { record: profile.record } : {}),
     ...(profile.playerCount === undefined ? {} : { playerCount: profile.playerCount }),
     ...(profile.ngb?.length ? { ngb: profile.ngb } : {}),
+    ...(profile.season ? { season: profile.season } : {}),
     games: games.length,
     scored,
     aheadOfToday,
@@ -151,6 +167,17 @@ const asCount = (raw: unknown): number =>
 
 const asText = (raw: unknown): string | undefined =>
   typeof raw === "string" && raw.length > 0 ? raw : undefined;
+
+const SEASON_NAMES: readonly GcSeasonName[] = ["fall", "winter", "spring", "summer"];
+
+const asSeason = (raw: unknown): GcSeason | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { season, year } = raw as Record<string, unknown>;
+  const name = SEASON_NAMES.find((one) => one === season);
+  return name && typeof year === "number" && Number.isInteger(year)
+    ? { season: name, year }
+    : undefined;
+};
 
 /**
  * Whatever was stored, as evidence — anything unreadable dropped rather than guessed at.
@@ -201,6 +228,7 @@ export const coerceAgelessEvidence = (raw: unknown): AgelessEvidence => {
       ? { playerCount: asCount(row.playerCount) }
       : {}),
     ...(ngb.length > 0 ? { ngb } : {}),
+    ...(asSeason(row.season) ? { season: asSeason(row.season) as GcSeason } : {}),
     games: asCount(row.games),
     scored: asCount(row.scored),
     aheadOfToday: asCount(row.aheadOfToday),

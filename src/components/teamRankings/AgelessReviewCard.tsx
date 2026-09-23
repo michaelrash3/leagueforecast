@@ -13,7 +13,12 @@ import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { agelessCsvFilename, agelessCsvParts } from "../../lib/agelessCsv";
-import { agelessAlreadyAnswered, type AgelessAnswered } from "../../lib/agelessTriage";
+import {
+  agelessClearable,
+  CLEARABLE_RULES,
+  type AgelessAnswered,
+  type AgelessRule,
+} from "../../lib/agelessTriage";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -28,10 +33,10 @@ type AgelessReviewCardProps = {
   /** Takes back a named age or a throw-out. Only ever offered on a team found by searching. */
   onUndo: (teamId: string, name: string | undefined) => void;
   /**
-   * Clears every row GameChanger has already answered for, in one pass. Asks first, unlike the
-   * single throw-out: this is the rare, large action a dialog is actually for.
+   * Clears the ticked rows in one pass. Asks first, unlike the single throw-out: this is the rare,
+   * large action a dialog is actually for.
    */
-  onClearAnswered: (answered: readonly AgelessAnswered[]) => Promise<boolean> | boolean;
+  onClearRows: (rows: readonly AgelessAnswered[]) => Promise<boolean> | boolean;
   /** Today, so "has this been asked about recently" is one answer for the whole render. */
   now: Date;
 };
@@ -220,7 +225,7 @@ export function AgelessReviewCard({
   onNameAge,
   onThrowOut,
   onUndo,
-  onClearAnswered,
+  onClearRows,
   now,
 }: AgelessReviewCardProps) {
   const waiting = useMemo(
@@ -239,24 +244,45 @@ export function AgelessReviewCard({
   const levels = useMemo(() => nameableAgeLevels(), []);
 
   /**
-   * The rows nobody needs to look at, because GameChanger already said what they are.
+   * The rows a rule has settled, grouped under the rule that claimed each, in `CLEARABLE_RULES`
+   * order.
    *
-   * Over the whole waiting list and memoised on it alone: one pass of two regexes over
-   * thirty-six thousand stored labels, not the per-row work `agelessWaiting` does. These are the
-   * only two rules read here — both repeat GameChanger's own age field rather than inferring
-   * anything — so nothing on this button rests on a rule the sweep has not measured.
+   * Over the whole waiting list and memoised on it alone: one pass of the rules over the stored
+   * rows, not the per-row work `agelessWaiting` does. Every rule starts ticked, because each is one
+   * the user settled; unticking one leaves its rows where they are.
    */
-  const answered = useMemo(
-    () => agelessAlreadyAnswered(waiting.map((row) => row.entry)),
-    [waiting]
+  const clearable = useMemo(() => agelessClearable(waiting.map((row) => row.entry)), [waiting]);
+  const groups = useMemo(() => {
+    const byRule = new Map<string, { rule: AgelessRule; rows: AgelessAnswered[] }>();
+    clearable.forEach((hit) => {
+      const group = byRule.get(hit.rule.id);
+      if (group) group.rows.push(hit);
+      else byRule.set(hit.rule.id, { rule: hit.rule, rows: [hit] });
+    });
+    return CLEARABLE_RULES.flatMap((id) => {
+      const group = byRule.get(id);
+      return group ? [group] : [];
+    });
+  }, [clearable]);
+  const [unticked, setUnticked] = useState<ReadonlySet<string>>(() => new Set());
+  const chosen = useMemo(
+    () => clearable.filter(({ rule }) => !unticked.has(rule.id)),
+    [clearable, unticked]
   );
+  const toggle = (id: string) =>
+    setUnticked((before) => {
+      const next = new Set(before);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [clearing, setClearing] = useState(false);
 
-  const clearAnswered = async () => {
-    if (answered.length === 0 || clearing) return;
+  const clearChosen = async () => {
+    if (chosen.length === 0 || clearing) return;
     setClearing(true);
     try {
-      await onClearAnswered(answered);
+      await onClearRows(chosen);
     } finally {
       setClearing(false);
     }
@@ -316,24 +342,50 @@ export function AgelessReviewCard({
         and a blank <span className="font-semibold">Answer</span> column to fill in. It sorts, it
         filters, and it reads on a bigger screen than the one it was collected on.
       </p>
-      {answered.length > 0 && (
+      {groups.length > 0 && (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Settled by rule
+          </h4>
+          <ul className="mt-2 space-y-2">
+            {groups.map(({ rule, rows }) => (
+              <li key={rule.id}>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={!unticked.has(rule.id)}
+                    onChange={() => toggle(rule.id)}
+                  />
+                  <span>
+                    <span className="font-semibold">{rows.length.toLocaleString()}</span>{" "}
+                    {rule.label}
+                    <span className="block text-xs text-slate-500">
+                      {rule.because}. For example:{" "}
+                      {rows
+                        .slice(0, 3)
+                        .map(({ row }) => row.name ?? row.teamId)
+                        .join(", ")}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
           <button
             type="button"
-            className={`${button.ghost} text-sm`}
-            onClick={() => void clearAnswered()}
-            disabled={clearing}
+            className={`${button.ghost} mt-3 text-sm`}
+            onClick={() => void clearChosen()}
+            disabled={clearing || chosen.length === 0}
           >
-            {clearing
-              ? "Clearing…"
-              : `Clear the ${answered.length.toLocaleString()} GameChanger already answered`}
+            {clearing ? "Clearing…" : `Clear the ${chosen.length.toLocaleString()} ticked`}
           </button>
           <p className="mt-2 text-xs text-slate-500">
-            These are not a guess. GameChanger&rsquo;s own age field files them as adult, college or
-            a school squad — an over-40 men&rsquo;s league, a junior college side, a varsity or
-            middle school team — and none of those has a youth age to find, so asking again every
-            week costs two requests and can never come good. Nothing is fetched and nothing in the
-            pool is touched; the pass can be undone after the toast has gone.
+            Each of these is a call already made about what the team is: GameChanger&rsquo;s own age
+            field, a name saying void or do not use, tee ball and younger, or a rec league where
+            nobody writes an age — which nothing will ever age from its opponents or join to travel
+            ball. They leave the list and no later pull asks about them again. Nothing is fetched
+            and nothing in the pool is touched; the pass can be undone after the toast has gone.
           </p>
         </div>
       )}

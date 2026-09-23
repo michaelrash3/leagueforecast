@@ -22,7 +22,7 @@
  */
 
 import { csvEscape, normalizeHeader, parseCSVLine, stripBom } from "./csv";
-import { gcTeamPageUrl } from "./gameChangerApi";
+import { formatGcSeason, gcTeamPageUrl, parseGcSeasonLabel } from "./gameChangerApi";
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { AgeUnknownList, AgeUnknownTeam } from "./ageUnknown";
@@ -37,6 +37,7 @@ export const AGELESS_CSV_HEADERS = [
   "Sanctioning Body",
   "City",
   "State",
+  "Season",
   "Games",
   "Scored",
   "Ahead Of Today",
@@ -73,6 +74,7 @@ const rowCells = (row: AgeUnknownTeam): (string | number)[] => {
     (evidence?.ngb ?? []).join("; "),
     evidence?.city ?? "",
     evidence?.state ?? "",
+    evidence?.season ? formatGcSeason(evidence.season) : "",
     evidence?.games ?? 0,
     evidence?.scored ?? 0,
     evidence?.aheadOfToday ?? 0,
@@ -156,6 +158,7 @@ export const parseAgelessCsv = (text: string): AgeUnknownList => {
     ngb: at("Sanctioning Body"),
     city: at("City"),
     state: at("State"),
+    season: at("Season"),
     games: at("Games"),
     scored: at("Scored"),
     ahead: at("Ahead Of Today"),
@@ -192,6 +195,7 @@ export const parseAgelessCsv = (text: string): AgeUnknownList => {
       .split(";")
       .map((one) => one.trim().toLowerCase())
       .filter(Boolean);
+    const season = parseGcSeasonLabel(cell(cells, columns.season));
     const evidence: AgelessEvidence = {
       ...(cell(cells, columns.ageLabel) ? { ageLabel: cell(cells, columns.ageLabel) } : {}),
       ...(cell(cells, columns.city) ? { city: cell(cells, columns.city) } : {}),
@@ -200,6 +204,7 @@ export const parseAgelessCsv = (text: string): AgeUnknownList => {
         ? { playerCount: asCount(cell(cells, columns.players)) }
         : {}),
       ...(ngb.length > 0 ? { ngb } : {}),
+      ...(season ? { season } : {}),
       games: asCount(cell(cells, columns.games)),
       scored: asCount(cell(cells, columns.scored)),
       aheadOfToday: asCount(cell(cells, columns.ahead)),

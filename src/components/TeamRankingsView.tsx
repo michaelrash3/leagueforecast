@@ -92,8 +92,8 @@ import {
   agelessClearedPass,
   clearedIds,
   describeCleared,
+  isClearedReason,
   restoreCleared,
-  type AgelessClearedReason,
 } from "../lib/agelessCleared";
 import type { AgelessAnswered } from "../lib/agelessTriage";
 
@@ -1224,41 +1224,48 @@ export function TeamRankingsView({
   }, [showToast]);
 
   /**
-   * Clearing every row GameChanger has already answered for, in one pass.
+   * Clearing the rows a rule has settled, in one pass: GameChanger's own answers, and the rules the
+   * user settled — named void, tee ball and younger, rec ball in a closed league.
    *
    * Asks first, where the single throw-out deliberately does not. The argument there is that a
    * dialog in front of the common case costs a click to guard against the rare one; here the
    * action *is* the rare one, thousands of rows at once, and nobody can check it by eye
-   * afterwards.
+   * afterwards. So the dialog says how many each rule is clearing.
    *
    * One write per store rather than one per row: `forgetClubs` and `forgetAgeless` both take
-   * arrays, so four and a half thousand teams is two writes and one render, not nine thousand.
-   * The rows are stored whole before they go, which is what makes the undo real rather than a
-   * toast somebody had to catch.
+   * arrays, so twenty thousand teams is two writes and one render, not forty thousand. The rows
+   * are stored whole before they go, which is what makes the undo real rather than a toast
+   * somebody had to catch.
    */
-  const clearAnsweredAgeless = useCallback(
-    async (answered: readonly AgelessAnswered[]): Promise<boolean> => {
-      if (answered.length === 0) return false;
-      const adult = answered.filter(({ verdict }) => verdict.kind === "not-youth").length;
-      const school = answered.length - adult;
+  const clearAgelessRows = useCallback(
+    async (chosen: readonly AgelessAnswered[]): Promise<boolean> => {
+      const rows = chosen.flatMap(({ row, rule, verdict }) =>
+        isClearedReason(verdict.kind) ? [{ row, rule, why: verdict.kind }] : []
+      );
+      if (rows.length === 0) return false;
+      const byRule = new Map<string, { label: string; count: number }>();
+      rows.forEach(({ rule }) => {
+        const known = byRule.get(rule.id);
+        if (known) known.count += 1;
+        else byRule.set(rule.id, { label: rule.label, count: 1 });
+      });
+      const breakdown = [...byRule.values()]
+        .map(({ label, count }) => `${count.toLocaleString()}: ${label}`)
+        .join("\n");
       const confirmed = await requestConfirmation({
-        title: `Clear ${answered.length.toLocaleString()} teams?`,
+        title: `Clear ${rows.length.toLocaleString()} teams?`,
         message:
-          `GameChanger's own age field files ${adult.toLocaleString()} of them as adult or ` +
-          `college and ${school.toLocaleString()} as a school squad. None has a youth age to ` +
-          "find, so they leave the list and no later pull asks about them again. Nothing in the " +
-          "pool is touched, and the pass can be undone afterwards.",
+          `${breakdown}\n\n` +
+          "They leave the list and no later pull asks about them again. Nothing in the pool is " +
+          "touched, and the pass can be undone afterwards.",
         confirmLabel: "Clear them",
       });
       if (!confirmed) return false;
 
-      const ids = answered.map(({ row }) => row.teamId);
+      const ids = rows.map(({ row }) => row.teamId);
       // Stored before anything is removed: a pass that cannot be undone must not have happened.
       const pass = agelessClearedPass(
-        answered.map(({ row, verdict }) => ({
-          entry: row,
-          why: verdict.kind as AgelessClearedReason,
-        })),
+        rows.map(({ row, why }) => ({ entry: row, why })),
         new Date().toISOString()
       );
       const kept = await saveAgelessCleared(pass);
@@ -1269,7 +1276,7 @@ export function TeamRankingsView({
       saveAgeUnknown(forgetAgeless(loadAgeUnknown(), ids));
 
       showToast(
-        `${answered.length.toLocaleString()} teams cleared.` +
+        `${rows.length.toLocaleString()} teams cleared.` +
           (kept ? "" : " The undo could not be stored, so this one cannot be taken back."),
         kept
           ? { tone: "undo", actionLabel: "Undo", onAction: () => void undoClearedPass() }
@@ -1987,7 +1994,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 dropped: droppedClubs,
                 onNameAge: nameAgeFor,
                 onThrowOut: throwOutAgeless,
-                onClearAnswered: clearAnsweredAgeless,
+                onClearRows: clearAgelessRows,
                 onUndo: undoAgelessAnswer,
                 now: agelessNow,
               }}

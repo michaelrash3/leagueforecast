@@ -139,6 +139,18 @@ describe("the file read back by the team importer", () => {
 });
 
 describe("the file read back as the waiting list", () => {
+  it("writes the season as GameChanger labels it, and reads it back", () => {
+    const seasoned = row({
+      evidence: { ...row().evidence!, season: { season: "fall", year: 2026 } },
+    });
+    const [header, first] = asCells(agelessCsv([seasoned]));
+    expect(first?.[(header ?? []).indexOf("Season")]).toBe("Fall 2026");
+    expect(parseAgelessCsv(agelessCsv([seasoned]))[0]?.evidence?.season).toEqual({
+      season: "fall",
+      year: 2026,
+    });
+  });
+
   it("round-trips a row whole", () => {
     const list: AgeUnknownList = [row()];
     expect(parseAgelessCsv(agelessCsv(list))).toEqual([

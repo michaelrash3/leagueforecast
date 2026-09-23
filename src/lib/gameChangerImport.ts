@@ -23,6 +23,7 @@ import {
   ageFromGradYearInName,
   ageLevelFromName,
   formatGcSeason,
+  gcSeasonIsCurrent,
   isNotBaseball,
   isAdultAgeLabel,
   isSchoolAgeLabel,
@@ -907,7 +908,13 @@ export type GcSkipReason =
    * Every game on the schedule has a result on a day that has not happened. Refused before its
    * age is asked, and remembered with the clubs the user threw out; see `isInventedSchedule`.
    */
-  | "invented";
+  | "invented"
+  /**
+   * No age, no games, and a season that is not the one being played. Not remembered anywhere:
+   * the team leaves the waiting list, and a later pull may find it again once its season comes
+   * round with a schedule. See `gcSeasonIsCurrent`.
+   */
+  | "out-of-season";
 
 /**
  * Whether GameChanger's answer describes a high school squad, by either of the two things it says.
@@ -1804,10 +1811,31 @@ const importOne = (
      * team from an invention. Computed only for "no age", because it is the only refusal anyone
      * is ever asked to reconsider.
      */
+    const today = options.today ?? todayIsoDay();
+    /*
+     * A team with nothing on its schedule is only worth asking about again in its own season, when
+     * the schedule is a thing somebody has yet to write. From a season that is over or not begun,
+     * nothing changes week to week, so it leaves the list rather than being asked every week —
+     * and is not remembered, so the pull that meets it in its season files it as normal. A team
+     * whose season GameChanger does not say is asked about as before.
+     */
+    if (
+      why.code === "no-age" &&
+      schedule.games.length === 0 &&
+      profile.season &&
+      !gcSeasonIsCurrent(profile.season, today)
+    ) {
+      return {
+        state,
+        outcome: {
+          ...base,
+          skip: "out-of-season",
+          issue: `No age and no games, and its season (${formatGcSeason(profile.season)}) is not the one being played, so it was left for a later pull.`,
+        },
+      };
+    }
     const evidence =
-      why.code === "no-age"
-        ? agelessEvidence(profile, schedule.games, options.today ?? todayIsoDay())
-        : undefined;
+      why.code === "no-age" ? agelessEvidence(profile, schedule.games, today) : undefined;
     return {
       state,
       outcome: {

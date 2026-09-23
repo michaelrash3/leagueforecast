@@ -35,6 +35,8 @@ import {
   parseGcOrgKind,
   parseGcOrgList,
   parseGcSeasonLabel,
+  gcSeasonIsCurrent,
+  ageWrittenInName,
   parseGcTeamId,
   parseGcTeamList,
   squadYearForGcSeason,
@@ -238,6 +240,49 @@ describe("parseGcTeamList", () => {
   it("returns nothing for empty input", () => {
     expect(parseGcTeamList("")).toEqual({ entries: [], skipped: [] });
     expect(parseGcTeamList("\n\n")).toEqual({ entries: [], skipped: [] });
+  });
+});
+
+describe("the season being played", () => {
+  const is = (season: "fall" | "winter" | "spring" | "summer", year: number, today: string) =>
+    gcSeasonIsCurrent({ season, year }, today);
+
+  it("is the one the calendar is in", () => {
+    expect(is("fall", 2026, "2026-09-23")).toBe(true);
+    expect(is("summer", 2026, "2026-09-23")).toBe(false);
+    expect(is("spring", 2027, "2026-09-23")).toBe(false);
+    expect(is("fall", 2025, "2026-09-23")).toBe(false);
+  });
+
+  // A spring league still finishing in June, or a fall one starting in August, is either.
+  it("counts both seasons where they overlap", () => {
+    expect(is("summer", 2026, "2026-08-15")).toBe(true);
+    expect(is("fall", 2026, "2026-08-15")).toBe(true);
+    expect(is("spring", 2026, "2026-06-10")).toBe(true);
+    expect(is("summer", 2026, "2026-06-10")).toBe(true);
+  });
+
+  it("runs winter over the new year, under either year's label", () => {
+    expect(is("winter", 2026, "2026-12-10")).toBe(true);
+    expect(is("winter", 2027, "2026-12-10")).toBe(true);
+    expect(is("winter", 2026, "2027-01-15")).toBe(true);
+    expect(is("winter", 2027, "2027-01-15")).toBe(true);
+    expect(is("winter", 2025, "2027-01-15")).toBe(false);
+    expect(is("winter", 2026, "2026-09-23")).toBe(false);
+  });
+
+  // Not knowing the day is not a reason to stop asking about a team.
+  it("counts any season as current on a day it cannot read", () => {
+    expect(is("spring", 2020, "someday")).toBe(true);
+  });
+});
+
+describe("an age a name writes, rankable or not", () => {
+  it("reads the number in front of or behind the U", () => {
+    expect(ageWrittenInName("5U Pirates")).toBe(5);
+    expect(ageWrittenInName("Cubs 4U")).toBe(4);
+    expect(ageWrittenInName("U9 Bandits")).toBe(9);
+    expect(ageWrittenInName("Aces")).toBeUndefined();
   });
 });
 

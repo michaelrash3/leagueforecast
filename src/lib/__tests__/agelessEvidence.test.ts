@@ -196,3 +196,76 @@ describe("the sanctioning body on a waiting row", () => {
     expect(coerceAgelessEvidence({ ngb: "usssa" }).ngb).toBeUndefined();
   });
 });
+
+/**
+ * The season rides along too, because an empty schedule means two things by it: in the season
+ * being played, a schedule nobody has written yet; outside it, a team nothing will change until
+ * its season comes round.
+ */
+describe("the season on a waiting row", () => {
+  it("is kept when GameChanger named one, and absent when it did not", () => {
+    const fall = { season: "fall", year: 2026 } as const;
+    expect(agelessEvidence(profile({ season: fall }), [], TODAY).season).toEqual(fall);
+    expect(agelessEvidence(profile(), [], TODAY).season).toBeUndefined();
+  });
+
+  it("survives being stored and read back, and drops what it cannot read", () => {
+    const stored = JSON.parse(
+      JSON.stringify(
+        agelessEvidence(profile({ season: { season: "spring", year: 2027 } }), [], TODAY)
+      )
+    ) as unknown;
+    expect(coerceAgelessEvidence(stored).season).toEqual({ season: "spring", year: 2027 });
+    expect(
+      coerceAgelessEvidence({ season: { season: "monsoon", year: 2026 } }).season
+    ).toBeUndefined();
+    expect(
+      coerceAgelessEvidence({ season: { season: "fall", year: "2026" } }).season
+    ).toBeUndefined();
+    expect(coerceAgelessEvidence({ season: "Fall 2026" }).season).toBeUndefined();
+  });
+});
+
+/**
+ * A team with no age and no games, which the user settled on 23 September 2026: in its own season
+ * it is asked about again weekly, and outside it it leaves the list without being remembered, so a
+ * later pull can find it again once its season comes round.
+ */
+describe("an empty schedule outside its season", () => {
+  const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
+  const today = "2026-09-23";
+  const nothing = (season?: { season: "fall" | "spring" | "summer" | "winter"; year: number }) => ({
+    profile: { id: "bKpjvY5AVqOV", name: "Warriors", ...(season ? { season } : {}) },
+    games: [],
+    fetchedAt: "2026-09-23T12:00:00.000Z",
+  });
+
+  it("leaves the list, from a season that is over or has not started", () => {
+    [
+      { season: "summer", year: 2026 },
+      { season: "spring", year: 2027 },
+      { season: "fall", year: 2025 },
+    ].forEach((season) => {
+      const outcome = createGcImporter(empty, { today }).add(
+        nothing(season as { season: "summer" | "spring" | "fall"; year: number })
+      );
+      expect(outcome.skip).toBe("out-of-season");
+      expect(outcome.noAgeEvidence).toBeUndefined();
+    });
+  });
+
+  it("stays on the list in the season being played, or when GameChanger names no season", () => {
+    expect(
+      createGcImporter(empty, { today }).add(nothing({ season: "fall", year: 2026 })).skip
+    ).toBe("no-age");
+    expect(createGcImporter(empty, { today }).add(nothing()).skip).toBe("no-age");
+  });
+
+  it("stays on the list once it has any games at all, whatever its season", () => {
+    const played = {
+      ...nothing({ season: "summer", year: 2026 }),
+      games: [game("Mears 1 - 2026", { date: "2026-07-05", teamScore: 4, opponentScore: 3 })],
+    };
+    expect(createGcImporter(empty, { today }).add(played).skip).toBe("no-age");
+  });
+});

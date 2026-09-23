@@ -301,8 +301,112 @@ describe("the rules that are safe on what they read alone", () => {
 
   it("puts tee ball below the youngest level ranked here", () => {
     expect(verdictFrom(row("MTAA TBall White Fall 2026"), "tee-ball")).toEqual({
-      kind: "no-schedule",
+      kind: "too-young",
     });
+  });
+});
+
+/**
+ * The rules the user settled on 23 September 2026, over the 38,603 rows waiting that day: void
+ * names go, tee ball and younger go, and rec ball in a closed league goes for good.
+ */
+describe("tee ball and younger", () => {
+  it("reads PONY's Shetland and Foal, and a stated age under the floor", () => {
+    [
+      "Bruins Shetland CHPB",
+      "Foal (T-Ball) Puerto Rico",
+      "5u Cheifs- Fall 2026",
+      "4U Rangers",
+    ].forEach((name) => expect(verdictFrom(row(name), "tee-ball")).toEqual({ kind: "too-young" }));
+  });
+
+  // "Tee Ball & 8U" has said its age, and the age is one this app ranks.
+  it("stands down for a name that writes a rankable age of its own", () => {
+    expect(fired(row("Tee Ball & Coach Pitch 8U"))).not.toContain("tee-ball");
+  });
+});
+
+describe("a name that says void or do not use", () => {
+  it("is cleared whatever its schedule", () => {
+    [
+      "VOID",
+      "Old Team-Do Not Use",
+      "Scorpions (Do Not Use)",
+      "Void-do Not Use",
+      "Don't use",
+    ].forEach((name) => expect(verdictFrom(row(name), "void-name")).toEqual({ kind: "not-real" }));
+    const empty = evidence({ games: 0, scored: 0, opponents: 0 });
+    expect(fired(row("VOID TEAM.", { evidence: empty }))).toContain("void-name");
+  });
+
+  it("is not read into an ordinary word", () => {
+    expect(fired(row("Avoid the Noid Nine"))).not.toContain("void-name");
+    expect(fired(row("Do Use Your Glove"))).not.toContain("void-name");
+  });
+});
+
+describe("rec ball in a closed league", () => {
+  const recRules = ["rec-sanctioned", "rec-division", "house-league"];
+  const recFired = (entry: AgeUnknownTeam) => fired(entry).filter((id) => recRules.includes(id));
+  const league = (name: string, extra: Partial<AgelessEvidence> = {}) =>
+    row(name, { evidence: evidence(extra) });
+
+  it("reads a team GameChanger files under a rec body, as GameChanger spells it", () => {
+    expect(recFired(league("Fire Chiefs", { ngb: ["little_league"] }))).toEqual(["rec-sanctioned"]);
+    expect(recFired(league("LCCR Mets Live Arm", { ngb: ["babe_ruth_cal_ripken"] }))).toContain(
+      "rec-sanctioned"
+    );
+    expect(recFired(league("South West Boys", { ngb: ["pony"] }))).toContain("rec-sanctioned");
+    expect(recFired(league("Thunder", { ngb: ["usssa"] }))).toEqual([]);
+  });
+
+  it("reads a rec division in its own name or in a team it played", () => {
+    expect(recFired(league("BCLL AAA Broomhead"))).toEqual(["rec-division"]);
+    expect(recFired(league("Green - Machine Pitch"))).toEqual(["rec-division"]);
+    expect(
+      recFired(league("Pythons", { sampleOpponents: ["Royals", "Fall 2026 Minors Team 04"] }))
+    ).toEqual(["rec-division"]);
+  });
+
+  /*
+   * Read case-blind, "Fall", "Ball" and "O'Neill" all end in LL. A first draft cleared "Aces" for
+   * having played "Riverside Rats Fall 26", and "Team Feehan" for playing "Team O'Neill".
+   */
+  it("reads league initials only as a club writes them", () => {
+    expect(recFired(league("Aces", { sampleOpponents: ["Riverside Rats Fall 26"] }))).toEqual([]);
+    expect(recFired(league("Team Feehan", { sampleOpponents: ["Team O'Neill"] }))).toEqual([]);
+    expect(recFired(league("Knights", { sampleOpponents: ["FALL BALL WHITE"] }))).toEqual([]);
+    expect(recFired(league("SRBB - HALE", { sampleOpponents: ["SRBB - POWELL"] }))).toEqual([]);
+    expect(recFired(league("Yard Goats", { sampleOpponents: ["LLL Rangers"] }))).toEqual([
+      "rec-division",
+    ]);
+    expect(recFired(league("Rays", { sampleOpponents: ["SHLL Grasshoppers"] }))).toEqual([
+      "rec-division",
+    ]);
+  });
+
+  it("reads a house league off two big-league names among its opponents", () => {
+    expect(
+      recFired(league("Marlins", { sampleOpponents: ["Braves", "Angels", "Yankees"] }))
+    ).toEqual(["house-league"]);
+    // One is a coincidence: travel clubs are Cardinals and Rangers too.
+    expect(recFired(league("Marlins", { sampleOpponents: ["Braves", "Thunder"] }))).toEqual([]);
+  });
+
+  it("never clears a team that has not played, or plays anybody naming an age", () => {
+    const rec = { ngb: ["little_league"], sampleOpponents: ["AA Braves", "Cubs", "Mets"] };
+    expect(recFired(league("AA Giants", { ...rec, games: 0, scored: 0, opponents: 0 }))).toEqual(
+      []
+    );
+    expect(recFired(league("AA Giants", { ...rec, namedAnAge: 1, tally: [[10, 1]] }))).toEqual([]);
+  });
+
+  it("never clears a side that says it travels, or a name that states an age", () => {
+    const rec = { ngb: ["little_league"], sampleOpponents: ["AA Braves", "Cubs", "Mets"] };
+    ["Northview LL All Stars", "Webo Tigers Elite", "Bucks Select", "Hellcats Tournament"].forEach(
+      (name) => expect(recFired(league(name, rec))).toEqual([])
+    );
+    expect(recFired(league("Majors Dodgers 11U", rec))).toEqual([]);
   });
 });
 

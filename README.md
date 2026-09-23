@@ -981,18 +981,48 @@ otherwise ask the only question that matters about a candidate rule — what it 
 the teams that already work. Because the file carries the filed age, a hit splits into
 "agrees with the pool" and "disagrees", and it is the second column that should be zero.
 
-**Clearing the ones GameChanger already answered.** The waiting card carries a button
-that clears, in one pass, every row whose age field says adult, college or a school
-squad — around thirteen per cent of a nationwide backlog. It asks first, where the single
-throw-out deliberately does not: the argument there is that a dialog in front of the
-common case costs a click to guard against the rare one, and here the action _is_ the rare
-one, thousands of rows at once that nobody can check by eye afterwards.
+**Clearing what a rule has settled.** The waiting card lists, under **Settled by rule**,
+each rule that has claimed rows, with its count, a tickbox and a few of the names, and one
+button clears everything ticked in a single pass. It asks first, where the single throw-out
+deliberately does not: the argument there is that a dialog in front of the common case
+costs a click to guard against the rare one, and here the action _is_ the rare one,
+thousands of rows at once that nobody can check by eye afterwards. The dialog says how many
+each rule is clearing.
 
-Only two rules feed it, and they are named by id rather than picked by tier. Both repeat
-GameChanger's own field rather than inferring anything; every other rule in
-`agelessTriage.ts` reads a name or a schedule, and inference is what the sweep exists to
-measure before it ships. Selecting by tier would have swept `tee-ball` along with them —
-it is `auto` too, and it fires on five teams this pool already ranks.
+The rules are named by id in `CLEARABLE_RULES`, never picked by tier, and each is a call
+already made rather than a guess. Two repeat GameChanger's own age field — adult or college,
+and a school squad. The rest are the user's, made over the 38,603 rows waiting on
+22 September 2026:
+
+- **Named void or do not use** — cleared whatever its schedule. 68 rows.
+- **Tee ball and younger** — tee ball, PONY's Shetland and Foal, and a name stating an age
+  under 8U; below the youngest level ranked, as every such team already is at the door. It
+  stands down for a name that writes a rankable age of its own. 1,919 rows.
+- **Rec ball in a closed league**, cleared for good: nothing will ever age such a team from
+  its opponents or join it to a club this app ranks. A team counts only once it has played,
+  when nobody it played writes an age, its own name states none, and it does not call itself
+  an all-star, travel, select, elite or tournament side. Then any one of three things marks
+  it: GameChanger files it under Little League, Cal Ripken/Babe Ruth or PONY (13,701); it or a
+  team it played is named for a rec division or league — Majors, Minors, AAA, Farm, Coach
+  Pitch, "LL", or a league's initials written in capitals like NCLL (4,400); or two of the
+  teams it played carry a Major League club's name, the way a house league hands them out
+  (1,869). Of those 19,970, 38 carry a word a travel club might, and all but four are Little
+  League "National" divisions or plainly house league.
+
+Between them 21,957 of the 38,603, 57%. League initials are read in capitals only, from a stem
+of four letters with at most one vowel, and never as an ordinary word: read case-blind,
+"Fall", "Ball" and "O'Neill" all end in LL, and a first draft cleared "Aces" for having played
+"Riverside Rats Fall 26". The rules that only propose — a closed league that names itself
+nothing, a horse mascot, a grade word — are never on the list.
+
+**An empty schedule is judged by its season.** A team with no age and no games at all is
+asked about again weekly while its season is being played, because the schedule is a thing
+somebody has yet to write. From a season that is over or not begun, the import drops it from
+the list without remembering it (`out-of-season`), so a later pull finds it again once its
+season comes round with games. The windows are wide and overlap — spring February to June,
+summer May to August, fall August to November, winter November to February under either
+year's label — because erring towards "being played" only costs a weekly request. The
+season rides on the waiting row and in the downloaded file's **Season** column.
 
 The pass is stored whole before the rows go, at a lazy key beside the pull log, so **undo
 outlives the toast**. That matters more here than anywhere else: a team refused at the
@@ -1004,7 +1034,7 @@ they just did — and a new pass replaces it, which is also what bounds the size
 **Taking the list away with you.** Thirty-six thousand rows is not a queue anybody works
 ten at a time, and the card cannot become a spreadsheet. So a **Download the list** button
 writes one: every team still waiting, each with the evidence behind it — the age field
-GameChanger did give, its sanctioning body, town and state, the games and how many were
+GameChanger did give, its sanctioning body, town, state and season, the games and how many were
 scored on days that have not happened, the opponents and whether any of them named an age,
 the roster count — and an empty **Answer** column to fill in. It sorts and filters on a
 bigger screen than the one it was collected on, and it is the file `npm run ageless:sweep`
