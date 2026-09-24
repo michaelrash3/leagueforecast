@@ -936,7 +936,7 @@ export type GcSkipReason =
   | "below-min-age"
   | "above-max-age"
   | "no-season"
-  /** A wiffle ball team. A different game, so its results belong to no baseball ranking. */
+  /** A wiffle ball or blitzball team. A different game, so its results belong to no baseball ranking. */
   | "not-baseball"
   /** A high school squad. A different season, played against a pool this app does not hold. */
   | "high-school"
@@ -967,7 +967,8 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
   if (isNotBaseball(profile.name)) {
     return {
       code: "not-baseball",
-      message: "This is a wiffle ball team, which is a different game, so it was left out.",
+      message:
+        "This is a wiffle ball or blitzball team, which is a different game, so it was left out.",
     };
   }
   /*
@@ -3732,7 +3733,7 @@ export type PoolTidy = {
   refiled: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
-  /** Teams deleted for playing a different game — wiffle ball — along with their results. */
+  /** Teams deleted for playing a different game — wiffle ball or blitzball — along with their results. */
   notBaseball: number;
   /** Teams deleted for playing a high school season, along with their results. */
   highSchool: number;
@@ -4220,7 +4221,7 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       : []),
     ...(tidy.notBaseball > 0
       ? [
-          `${plural(tidy.notBaseball, "wiffle ball team", "wiffle ball teams")} deleted, and their results with them.`,
+          `${plural(tidy.notBaseball, "wiffle ball or blitzball team", "wiffle ball or blitzball teams")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.highSchool > 0

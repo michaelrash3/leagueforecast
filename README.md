@@ -173,11 +173,11 @@ nothing else. Filing one at 18U would put that cluster in the 18U table next to
 travel clubs and invite exactly the comparison the data cannot carry. So the whole
 category is refused.
 
-Refused on the name, the way wiffle ball is, which means the same three things: the
-rows never cost a request out of a pasted list, the import turns the schedule away
-with the reason `high-school`, and a tidy pass deletes any that reached the pool
-before the rule existed. Nothing has to remember an id — the name refuses it again
-every export, including ids never seen before.
+Refused on the name, the way wiffle ball and blitzball are, which means the same
+three things: the rows never cost a request out of a pasted list, the import turns
+the schedule away with the reason `high-school`, and a tidy pass deletes any that
+reached the pool before the rule existed. Nothing has to remember an id — the name
+refuses it again every export, including ids never seen before.
 
 | In the name or the age field                     | Read as                                                             |
 | ------------------------------------------------ | ------------------------------------------------------------------- |

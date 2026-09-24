@@ -142,7 +142,7 @@ export type GcTeamResponse =
 export type GcTeamListEntry = {
   teamId: string;
   name?: string;
-  /** A wiffle ball team, which is a different game. Never fetched and never filed. */
+  /** A wiffle ball or blitzball team, which is a different game. Never fetched and never filed. */
   notBaseball?: true;
   /** A high school squad, which plays its own season. Never fetched and never filed. */
   highSchool?: true;
@@ -246,11 +246,19 @@ export const isGcFetchErrorReason = (value: unknown): value is GcFetchErrorReaso
  * with them — "Wiffleball", "Whiffleball". No baseball word contains the sequence, so matching it
  * anywhere in the name costs nothing in false positives.
  *
+ * Blitzball is the same kind of game, a plastic ball thrown to curve, and it arrives the same way.
+ * The desktop crawl's team export of 24 September 2026 carried 93 names with "blitz" joined to
+ * "ball" among 266,350 teams, against 46 baseball clubs that are simply called Blitz — "Mid Ohio
+ * Blitz 13U", "Blitz Baseball 11U" — so the word is only read joined to "ball". Run together it is
+ * always the game, "Blitzballers" included; written apart it has to end at "ball", because "Blitz
+ * Ballers" is as likely to be a baseball team's pun as the game, and refusing a real club leaves
+ * nothing behind to notice it by. That reads 91 of the 93, and none of the 46.
+ *
  * Here rather than beside the pool's other name rules because both sides need it: the list parse,
  * which drops these before a request is ever spent on one, and the import, which refuses a
  * schedule and deletes a team already filed.
  */
-const NOT_BASEBALL = /wh?iffle/i;
+const NOT_BASEBALL = /wh?iffle|blitzball|blitz[\s_-]+ball(?![a-z])/i;
 
 export const isNotBaseball = (name: unknown): boolean =>
   typeof name === "string" && NOT_BASEBALL.test(name);

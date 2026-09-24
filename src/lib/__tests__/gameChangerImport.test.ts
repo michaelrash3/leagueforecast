@@ -3429,6 +3429,22 @@ describe("teams that are not playing baseball", () => {
     expect(isNotBaseball(undefined)).toBe(false);
   });
 
+  it("reads blitzball the same way, run together or ending at the ball", () => {
+    // Names off the desktop crawl's export of 24 September 2026, which carried 93 of them.
+    expect(isNotBaseball("Blitzball Dingers 12U")).toBe(true);
+    expect(isNotBaseball("Gw23blitzball")).toBe(true);
+    expect(isNotBaseball("Pottstown Scout Team Blitz Ball 11U")).toBe(true);
+    expect(isNotBaseball("Blake's Blitzballers")).toBe(true);
+  });
+
+  it("leaves a baseball club called Blitz alone, and a pun on one", () => {
+    // The same export held 46 clubs simply called Blitz. Written apart, "Blitz Ballers" is as
+    // likely a baseball team's pun as the game, and refusing a real club leaves no trace.
+    expect(isNotBaseball("Mid Ohio Blitz 13U")).toBe(false);
+    expect(isNotBaseball("Blitz Baseball 11U")).toBe(false);
+    expect(isNotBaseball("Zach's Blitz Ballers")).toBe(false);
+  });
+
   it("refuses the schedule, and says why in a word", () => {
     const { state, outcome } = importGcSchedule(wiffle("Wiffle Ball 12U"), empty);
     expect(outcome.skip).toBe("not-baseball");
@@ -3515,7 +3531,7 @@ describe("teams that are not playing baseball", () => {
       games: [],
     });
     expect(describeTidy(tidy)).toContain(
-      "1 wiffle ball team deleted, and their results with them."
+      "1 wiffle ball or blitzball team deleted, and their results with them."
     );
   });
 

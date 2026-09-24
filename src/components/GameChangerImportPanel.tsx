@@ -1864,7 +1864,9 @@ export function GameChangerImportPanel({
                   </span>
                 )}
                 {parsed.notBaseball > 0 && (
-                  <span className={pill("neutral")}>{parsed.notBaseball} wiffle ball, skipped</span>
+                  <span className={pill("neutral")}>
+                    {parsed.notBaseball} wiffle ball or blitzball, skipped
+                  </span>
                 )}
                 {parsed.notYouth > 0 && (
                   <span className={pill("neutral")}>
