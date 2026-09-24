@@ -39,6 +39,25 @@ describe("startPull", () => {
   });
 });
 
+describe("a run for particular seasons", () => {
+  it("keeps the seasons it was asked for, once each and in order", () => {
+    expect(startPull(ids, NOW, null, [2027, 2026, 2027]).seasonYears).toEqual([2026, 2027]);
+    // A run for every season, like the rota's, carries none.
+    expect(startPull(ids, NOW).seasonYears).toBeUndefined();
+  });
+
+  // A run that refused last year's teams has settled them, and continuing it with last year ticked
+  // would never fetch them again.
+  it("starts over when the same list is asked for different seasons", () => {
+    const first = settleTeam(startPull(ids, NOW, null, [2027]), ids[0]!, NOW);
+    expect(startPull(ids, LATER, first, [2027]).settled).toEqual([ids[0]]);
+    expect(startPull(ids, LATER, first, [2026, 2027]).settled).toEqual([]);
+    expect(startPull(ids, LATER, first).settled).toEqual([]);
+    const everySeason = settleTeam(startPull(ids, NOW), ids[0]!, NOW);
+    expect(startPull(ids, LATER, everySeason, [2027]).settled).toEqual([]);
+  });
+});
+
 describe("what is left to do", () => {
   it("is everything, in order, before anything is settled", () => {
     expect(remainingIds(startPull(ids, NOW))).toEqual(ids);
@@ -144,6 +163,18 @@ describe("a stored run, read back", () => {
 
   it("round-trips", () => {
     expect(coercePullProgress(JSON.parse(JSON.stringify(stored)))).toEqual(stored);
+  });
+
+  it("keeps the seasons a run was started for", () => {
+    const seasons: GcPullProgress = { ...stored, seasonYears: [2027] };
+    expect(coercePullProgress(JSON.parse(JSON.stringify(seasons)))).toEqual(seasons);
+  });
+
+  // Dropped instead, the run would resume filing every season: the opposite of what it was for.
+  it("is nothing when its seasons cannot be read", () => {
+    expect(coercePullProgress({ ...stored, seasonYears: "2027" })).toBeNull();
+    expect(coercePullProgress({ ...stored, seasonYears: [2027, "2026"] })).toBeNull();
+    expect(coercePullProgress({ ...stored, seasonYears: [2026.5] })).toBeNull();
   });
 
   it("is nothing when it cannot be read", () => {

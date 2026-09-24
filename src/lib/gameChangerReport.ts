@@ -90,6 +90,12 @@ export const collectGcImportProblems = (
 
   outcomes.forEach((outcome) => {
     if (!outcome.issue) return;
+    /*
+     * A team from a season the pull was not asked for is the pull doing what it was told, not
+     * something to look at. A crawl across a calendar year can carry tens of thousands of them,
+     * which would bury every real problem on this list; the run's summary counts them instead.
+     */
+    if (outcome.skip === "other-season") return;
     const teamName = outcome.teamName || names.get(outcome.gcTeamId);
     problems.push({
       teamId: outcome.gcTeamId,

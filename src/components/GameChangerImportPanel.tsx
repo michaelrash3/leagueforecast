@@ -133,7 +133,14 @@ import {
   type PullRunLog,
   type PullTracker,
 } from "../lib/pullTracker";
-import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds } from "../lib/teamRankings";
+import {
+  MIN_AGE_LEVEL,
+  mergeScoutTeams,
+  pulledGcTeamIds,
+  segmentOn,
+  squadYearForGcSeason,
+} from "../lib/teamRankings";
+import { todayIsoDay } from "../lib/date";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
 import { button, card, pill } from "../styles/tokens";
@@ -278,6 +285,9 @@ const estimatedMinutes = (fresh: number): number => {
 
 /** How many pasted ids still count as a hand-typed list rather than an export. */
 const HANDFUL = 25;
+
+/** A baseball year as the picker names it: "2027: Fall 2026 to Summer 2027". */
+const seasonYearLabel = (year: number): string => `${year}: Fall ${year - 1} to Summer ${year}`;
 
 const SAMPLE = `https://web.gc.com/teams/FtEExZwB4b8E/2026-fall-trosky-illinois-9u/schedule
 gsUthn4XoIxS
@@ -450,7 +460,7 @@ export function GameChangerImportPanel({
    */
   const [tooYoung, setTooYoung] = useState<TooYoungClubs>(() => loadTooYoungClubs());
 
-  const parsed = useMemo(() => {
+  const listRead = useMemo(() => {
     const read = parseGcTeamList(text);
     // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
     // the too-young ones because they are a different kind of "not for us" and the panel says so.
@@ -481,6 +491,71 @@ export function GameChangerImportPanel({
       lines: text ? text.split(/\r?\n/).length : 0,
     };
   }, [text, tooYoung]);
+
+  /**
+   * The seasons a pull files: the one being played, unless somebody ticks another.
+   *
+   * A season in this app's sense, the baseball year from August to July (`segmentOn`), so 2027 is
+   * Fall 2026 through Summer 2027. A crawl that searched every season of a calendar year hands over
+   * last spring's and summer's squads beside this fall's, and a finished year's team adds nothing
+   * to the tables being read now. Held against the list it was chosen for, so a new list starts
+   * from the season being played again rather than from whatever the last one asked for.
+   */
+  const currentSeasonYear = segmentOn(todayIsoDay()).year;
+  const [seasonChoice, setSeasonChoice] = useState<{ text: string; years: number[] } | null>(null);
+  const seasonYears = useMemo(
+    () =>
+      seasonChoice !== null && seasonChoice.text === text
+        ? seasonChoice.years
+        : [currentSeasonYear],
+    [seasonChoice, text, currentSeasonYear]
+  );
+  const toggleSeasonYear = (year: number) => {
+    const next = seasonYears.includes(year)
+      ? seasonYears.filter((kept) => kept !== year)
+      : [...seasonYears, year].sort((a, b) => b - a);
+    setSeasonChoice({ text, years: next });
+  };
+
+  /**
+   * The list less the rows from seasons nobody asked for.
+   *
+   * Only a row whose Season column says so is dropped here, before a request is spent on it. A row
+   * that does not say is kept and settled when it arrives, by GameChanger's own season: the run
+   * hands the same years to the importer, which refuses the rest (`seasonYears`).
+   */
+  const parsed = useMemo(() => {
+    const wanted = new Set(seasonYears);
+    const bySeason = new Map<number, number>();
+    const entries: GcTeamListEntry[] = [];
+    let noSeason = 0;
+    for (const entry of listRead.entries) {
+      if (!entry.season) {
+        noSeason += 1;
+        entries.push(entry);
+        continue;
+      }
+      const year = squadYearForGcSeason(entry.season.season, entry.season.year);
+      bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
+      if (wanted.has(year)) entries.push(entry);
+    }
+    return {
+      ...listRead,
+      entries,
+      otherSeason: listRead.entries.length - entries.length,
+      bySeason,
+      noSeason,
+    };
+  }, [listRead, seasonYears]);
+
+  /** The years the picker offers: the one being played, the one before, and any the list names. */
+  const seasonOptions = useMemo(
+    () =>
+      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.bySeason.keys()])].sort(
+        (a, b) => b - a
+      ),
+    [currentSeasonYear, parsed.bySeason]
+  );
 
   /**
    * The list less the teams already here.
@@ -808,7 +883,12 @@ export function GameChangerImportPanel({
             parsed: parsed.entries.length,
             skipped: parsed.skipped.length,
             skippedSamples: parsed.skipped,
-            tooYoung: parsed.tooYoung + parsed.notBaseball + parsed.highSchool + parsed.notYouth,
+            tooYoung:
+              parsed.tooYoung +
+              parsed.notBaseball +
+              parsed.highSchool +
+              parsed.notYouth +
+              parsed.otherSeason,
             alreadyHere: split.seen,
             asked: askedInRun,
           });
@@ -848,6 +928,8 @@ export function GameChangerImportPanel({
         // row vanished from the card because the queue hides a team once it is named, and the
         // next pull read an empty map and refused the team for having no age all over again.
         namedAges,
+        // The run's own seasons, not the panel's: a resumed run files what it was started for.
+        ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
       });
       progressRef.current = progress;
       // The summary is the whole run's, so a section adds to what the sections before it found.
@@ -1385,6 +1467,8 @@ export function GameChangerImportPanel({
   };
 
   const startNew = () => {
+    // The button is off with no season ticked; this is for anything else that calls it.
+    if (seasonYears.length === 0) return;
     const ids = (split.fresh.length > 0 ? split.fresh : split.refresh).map((entry) => entry.teamId);
     if (ids.length === 0) {
       showToast(
@@ -1393,7 +1477,7 @@ export function GameChangerImportPanel({
       );
       return;
     }
-    const progress = startPull(ids, nowIso(), savedProgress);
+    const progress = startPull(ids, nowIso(), savedProgress, seasonYears);
     onSaveProgress(progress);
     void runSectioned(remainingIds(progress), progress);
   };
@@ -1876,12 +1960,57 @@ export function GameChangerImportPanel({
                 {parsed.highSchool > 0 && (
                   <span className={pill("neutral")}>{parsed.highSchool} high school, skipped</span>
                 )}
+                {parsed.otherSeason > 0 && (
+                  <span className={pill("neutral")}>
+                    {parsed.otherSeason} from other seasons, skipped
+                  </span>
+                )}
                 {split.fresh.length > 200 && (
                   <span>About {estimatedMinutes(split.fresh.length)} minute(s) of requests.</span>
                 )}
               </>
             )}
           </div>
+
+          {text.trim() !== "" && (
+            <fieldset className="mt-3">
+              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Seasons to pull
+              </legend>
+              <div className="mt-1 flex flex-wrap gap-3">
+                {seasonOptions.map((year) => {
+                  const count = parsed.bySeason.get(year) ?? 0;
+                  return (
+                    <label key={year} className="flex items-center gap-1.5 text-xs font-bold">
+                      <input
+                        type="checkbox"
+                        checked={seasonYears.includes(year)}
+                        onChange={() => toggleSeasonYear(year)}
+                      />
+                      {seasonYearLabel(year)}
+                      {year === currentSeasonYear ? ", this season" : ""}
+                      {/* A space for the label's accessible name; flex layout drops it. */}
+                      {count > 0 && " "}
+                      {count > 0 && (
+                        <span className="font-normal text-slate-500">
+                          ({count.toLocaleString()} team{count === 1 ? "" : "s"})
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-xs text-slate-500" data-testid="gc-season-note">
+                {seasonYears.length === 0
+                  ? "Tick a season to pull."
+                  : parsed.noSeason > 0
+                    ? `${parsed.noSeason.toLocaleString()} ${
+                        parsed.noSeason === 1 ? "team does not say its" : "teams do not say their"
+                      } season, so each is checked when it arrives and filed only if it is from a ticked season.`
+                    : "Teams from any other season are left out before a request is spent on them."}
+              </p>
+            </fieldset>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <label className="inline-block">
@@ -1926,7 +2055,9 @@ export function GameChangerImportPanel({
             <button
               type="button"
               onClick={startNew}
-              disabled={split.fresh.length === 0 && split.refresh.length === 0}
+              disabled={
+                (split.fresh.length === 0 && split.refresh.length === 0) || seasonYears.length === 0
+              }
               className={button.primary}
             >
               {split.fresh.length === 0 && split.refresh.length > 0

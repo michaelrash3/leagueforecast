@@ -618,6 +618,21 @@ club's older games under its new id often enough that a nationwide pull carried
 three thousand of them; a game dated outside its squad year is left out on
 arrival and deleted from a pool that already holds one.
 
+**A pull files the season being played, unless told otherwise.** A crawl that
+searches every season of a calendar year hands over last spring's and summer's
+squads beside this fall's, each under a new GameChanger id with nothing else to
+say its year is finished. So the panel carries a season picker under the list,
+with the season being played ticked (2027 on 24 September 2026, which is Fall 2026
+through Summer 2027), the one before it, and any other the list's `Season` column
+names, each with its count. A row from a season left unticked is dropped before a
+request is spent on it. A row that does not say is fetched and settled by
+GameChanger's own season: the importer refuses a team from any other year before
+its age is read (`other-season`), so it never joins the waiting list, and the
+run's summary counts those in a line of their own instead of listing them under
+**Worth a look**. The choice is kept with the run, so a resumed run files what it
+was started for, and the same list asked for different seasons starts over. The
+rota is not filtered: it refreshes what the pool already holds, every year of it.
+
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
 on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are
