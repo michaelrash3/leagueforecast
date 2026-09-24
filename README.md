@@ -629,8 +629,8 @@ squads beside this fall's, each under a new GameChanger id with nothing else to
 say its year is finished. So the panel carries a season picker under the list,
 with the season being played ticked (2027 on 24 September 2026, which is Fall 2026
 through Summer 2027), the one before it, and any other the list's `Season` column
-names, each with its count. A row from a season left unticked is dropped before a
-request is spent on it. A row that does not say is fetched and settled by
+names, each with the number of rows that name it. A row from a season left unticked
+is dropped before a request is spent on it. A row that does not say is fetched and settled by
 GameChanger's own season: the importer refuses a team from any other year before
 its age is read (`other-season`), so it never joins the waiting list, and the
 run's summary counts those in a line of their own instead of listing them under
