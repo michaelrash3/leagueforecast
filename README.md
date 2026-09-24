@@ -421,6 +421,11 @@ Where a start time is missing from either row the two are kept, however alike th
 look — with nothing to tell a repeated fixture from a repeated row, losing a real
 game is the worse error.
 
+An all-day entry counts as having no start time. GameChanger writes a start for one
+anyway, midnight UTC with no timezone in the entries audited on 24 September 2026,
+and read as a time it made every all-day game on a date the same instant. Its date
+is kept and the placeholder is not.
+
 Most slots name themselves. A bracket posts "TBD" on one team's schedule and
 the real fixture on the other's, so pulling both sides answers the question:
 after a run, a slot whose fixture another schedule named is folded into that

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { importGcSchedule, type GcImportState } from "../gameChangerImport";
-import type { GcTeamSchedule } from "../gameChangerApi";
+import { normalizeGcGames, type GcTeamSchedule } from "../gameChangerApi";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
 
@@ -146,5 +146,26 @@ describe("one fixture listed twice on a club's own schedule", () => {
     expect(state.games).toHaveLength(1);
     expect(state.games[0]?.teamAScore).toBe(13);
     expect(state.games[0]?.teamBScore).toBe(21);
+  });
+});
+
+/*
+ * All-day entries. GameChanger writes midnight UTC as the start of one, and read as a time that
+ * made two all-day games against one club on one date look like one fixture listed twice — the
+ * later score kept and the other only noted.
+ */
+describe("two all-day games on one schedule", () => {
+  const allDay = (id: string, teamScore: number, opponentScore: number) => ({
+    id,
+    opponent_team: { name: "Cincinnati Angels Red" },
+    is_full_day: true,
+    start_ts: "2026-09-18T00:00:00.000Z",
+    timezone: null,
+    score: { team: teamScore, opponent_team: opponentScore },
+    game_status: "completed",
+  });
+
+  it("stay two games, since midnight is not when either was played", () => {
+    expect(gamesAfter(normalizeGcGames([allDay("a", 13, 21), allDay("b", 9, 4)]))).toBe(2);
   });
 });

@@ -1344,9 +1344,19 @@ const normalizeGcGame = (raw: unknown): GcGame | null => {
 
   const startTs = asString(raw.start_ts ?? raw.start);
   const timezone = asString(raw.timezone ?? raw.time_zone);
-  if (startTs) game.startTs = startTs;
+  /*
+   * An all-day entry has a date and no time, and GameChanger still writes a start for one: a
+   * placeholder. In the user's audit of 86 schedule rows on 24 September 2026, both all-day entries
+   * carried midnight UTC and no timezone. Kept as a time, it would make every rule that reads the
+   * same start as the same game (nobody plays two games at once) take two all-day games on one
+   * date for one. So the time goes and the date stays, read in UTC: midnight UTC is still the
+   * evening before in any American zone, and a local midnight is the same day in UTC either way.
+   * Both audited entries also named no opponent and are dropped above; this is for one that does.
+   */
+  const allDay = raw.is_full_day === true;
+  if (startTs && !allDay) game.startTs = startTs;
   if (timezone) game.timezone = timezone;
-  const date = startTs ? localDateInZone(startTs, timezone) : undefined;
+  const date = startTs ? localDateInZone(startTs, allDay ? undefined : timezone) : undefined;
   if (date) game.date = date;
 
   const avatarKey = avatarKeyFromUrl(opponent.avatar_url ?? opponent.avatarUrl);
