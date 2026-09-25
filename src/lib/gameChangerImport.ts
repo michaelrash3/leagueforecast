@@ -2931,9 +2931,9 @@ export const resolveSlotGames = (
  * And the day waits for whatever would answer it better: a club with a row of its own against the
  * other club, that day or the day either side, that no row of theirs is paired with yet is the
  * collapse's to pair first; a row the club it names answers for, by a copy of its own that fits, is
- * that club's; a team the other club's own schedule plays is not that club, nor is an age typed into
- * its name more than `PLAYS_UP_TO` from the one that club played at; and rows naming one team on
- * one day go to one club or none.
+ * that club's; a team the other club's own schedule plays is not that club — a pulled one only
+ * where the result is not the same — nor is an age typed into its name more than `PLAYS_UP_TO`
+ * from the one that club played at; and rows naming one team on one day go to one club or none.
  */
 export const claimFiledRows = (input: GcImportState): { state: GcImportState; claimed: number } => {
   const orphans = releaseOrphanedClaims(input);
@@ -2990,9 +2990,26 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
   const byTeamDay = new Map<string, ScoutGame[]>();
   state.games.forEach((game) => {
     const club = game.source ? clubOfSchedule.get(game.source.teamId) : undefined;
-    if (club !== undefined && (game.teamAId === club || game.teamBId === club)) {
-      plays(club, game.teamAId === club ? game.teamBId : game.teamAId);
-    }
+    /*
+     * Every schedule that gave the game a row of its own played the game's other side: the row it
+     * stands on, and the rows folded in or on record, which are the same game. Read off the row it
+     * stands on alone, which of two clubs' copies the collapse happened to keep decided what the
+     * other club had played, and a claim it should have refused went through in one pool order.
+     */
+    const playedIn = (schedule: string) => {
+      const own = clubOfSchedule.get(schedule);
+      if (own === undefined) return;
+      if (game.teamAId === own) plays(own, game.teamBId);
+      else if (game.teamBId === own) plays(own, game.teamAId);
+    };
+    if (game.source) playedIn(game.source.teamId);
+    const named = new Set((game.alsoRows ?? []).map((record) => record.teamId));
+    game.alsoRows?.forEach((record) => {
+      if (record.filedAgainst === undefined) playedIn(record.teamId);
+    });
+    game.alsoFrom?.forEach((schedule) => {
+      if (!named.has(schedule)) playedIn(schedule);
+    });
     game.alsoRows?.forEach((record) => {
       const recordClub = clubOfSchedule.get(record.teamId);
       if (record.filedAgainst === undefined || recordClub === undefined) return;
@@ -3049,6 +3066,8 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
   const removed = new Set<string>();
   const added: ScoutGame[] = [];
   let claimed = 0;
+  /** What each day decided for each of its rows: the copy it goes into, or none. */
+  const decisions: { entry: Filed; copy: ScoutGame | undefined }[] = [];
 
   filedByDay.forEach((filed, key) => {
     const { club, row: firstRow } = filed[0]!;
@@ -3090,7 +3109,19 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
      */
     const strength = (entry: Filed, copy: ScoutGame): number => {
       const otherId = otherOf(copy);
-      if (otherId === entry.against || played.get(otherId)?.has(entry.against)) return 0;
+      if (otherId === entry.against) return 0;
+      /*
+       * A team the other club's own schedule has played is one that club knows as another team. A
+       * stand-in's name is then that team's and nobody else's. A pulled club's still gives way to
+       * the same result — the NL Vandals' 15-3 against "Downingtown West Wolfpack Blue" was
+       * Downingtown Wolfpack Gold's own 3-15 at the very same start, the Blue listing nothing that
+       * day, though the Gold play the Blue — but to nothing less. On the pool of 24 September 2026,
+       * among rows filed against a pulled club the other club had played, the two clubs' names
+       * shared a word in 81% of the 47 with the same result within the hour, and in 13% of the 30
+       * scored apart within the hour, about what chance gives.
+       */
+      const knownApart = played.get(otherId)?.has(entry.against) === true;
+      if (knownApart && isStandIn(entry.against)) return 0;
       const typed = entry.level;
       const level =
         (copy.teamAId === otherId ? copy.ageLevelA : copy.ageLevelB) ??
@@ -3113,7 +3144,7 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
         return onClock;
       }
       if (same) return near ? 4 : 0;
-      return close ? onClock : 0;
+      return close && !knownApart ? onClock : 0;
     };
     /** A row the club it names answers for, by a copy of its own that fits, is that club's. */
     const answered = (entry: Filed) =>
@@ -3206,25 +3237,38 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       if ((clubsFor.get(entry.against)?.size ?? 0) > 1) chosen.delete(entry);
     });
 
-    filed.forEach((entry) => {
-      const copy = chosen.get(entry);
-      if (entry.holder && entry.record) {
-        if (copy === entry.holder) return;
-        // A claim the day no longer reads that way goes back to the team its row named.
-        updated.set(entry.holder.id, releaseClaim(current(entry.holder), entry.record));
-        claimed += 1;
-        if (!copy) {
-          added.push(ownPage(entry.row));
-          return;
-        }
-      } else if (!copy) {
+    filed.forEach((entry) => decisions.push({ entry, copy: chosen.get(entry) }));
+  });
+
+  /*
+   * A club's own row claimed away this pass is not a copy to claim into this pass. One standing row
+   * can be both: the Bears' row against the Aces, which no Aces schedule lists, was the copy an Aces
+   * row went into and a row the Bears filed by name that the Yanks' copy took, both decided on the
+   * pool as it came in; the Aces' row went into it, it went into the Yanks' copy without that row,
+   * and the Aces' row was in the pool nowhere. What went to it waits a pass, and is read again
+   * against the day as the claim away leaves it.
+   */
+  const goingAway = new Set(
+    decisions.flatMap(({ entry, copy }) => (copy && !entry.holder ? [entry.row.id] : []))
+  );
+  decisions.forEach(({ entry, copy }) => {
+    if (copy && goingAway.has(copy.id)) return;
+    if (entry.holder && entry.record) {
+      if (copy === entry.holder) return;
+      // A claim the day no longer reads that way goes back to the team its row named.
+      updated.set(entry.holder.id, releaseClaim(current(entry.holder), entry.record));
+      claimed += 1;
+      if (!copy) {
+        added.push(ownPage(entry.row));
         return;
-      } else {
-        removed.add(entry.row.id);
-        claimed += 1;
       }
-      updated.set(copy.id, claimInto(current(copy), entry.row, entry.against, entry.level));
-    });
+    } else if (!copy) {
+      return;
+    } else {
+      removed.add(entry.row.id);
+      claimed += 1;
+    }
+    updated.set(copy.id, claimInto(current(copy), entry.row, entry.against, entry.level));
   });
 
   if (claimed === 0) return { state, claimed: orphans.released };
@@ -3249,8 +3293,12 @@ const releaseOrphanedClaims = (
   state: GcImportState
 ): { state: GcImportState; released: number } => {
   const clubOfSchedule = new Map<string, string>();
+  const levelOfSchedule = new Map<string, number>();
   state.teams.forEach((team) =>
-    team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+    team.gcTeams?.forEach((link) => {
+      clubOfSchedule.set(link.teamId, team.id);
+      if (link.ageLevel !== undefined) levelOfSchedule.set(link.teamId, link.ageLevel);
+    })
   );
   const ownPage = ownPageFor(state.ageGroups);
   const added: ScoutGame[] = [];
@@ -3270,14 +3318,17 @@ const releaseOrphanedClaims = (
       }
       next = releaseClaim(next, record);
       // Neither of the game's sides is the club's now, so neither of their levels says anything of
-      // it: the row keeps the level its name gave the team it was filed against, and no other.
+      // it: the row takes its club's own level off the schedule it came from, which files it on its
+      // own page, and the level its name gave the team it was filed against.
       // A game the user threw out is still thrown out for the row that leaves it.
       const { ageLevelA: _own, ageLevelB: _other, ...row } = filedRowOf(game, record);
+      const level = levelOfSchedule.get(record.teamId);
       added.push(
         ownPage({
           ...row,
           teamAId: club,
           teamBId: record.filedAgainst,
+          ...(level === undefined ? {} : { ageLevelA: level }),
           ...(record.filedLevel === undefined ? {} : { ageLevelB: record.filedLevel }),
           ...(game.excluded ? { excluded: true } : {}),
         })
@@ -3962,9 +4013,10 @@ export const pairSettledSquads = (
     const teamAId = movedTo.get(game.teamAId) ?? game.teamAId;
     const teamBId = movedTo.get(game.teamBId) ?? game.teamBId;
     if (teamAId === teamBId) return [];
-    return teamAId === game.teamAId && teamBId === game.teamBId
-      ? [game]
-      : [{ ...game, teamAId, teamBId }];
+    const moved =
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
+    // A row claimed from a squad paired away was filed against the squad it pairs into.
+    return [withFiledRepointed(moved, (id) => movedTo.get(id) ?? id)];
   });
   return { state: { ...state, teams, games }, paired };
 };
@@ -4750,7 +4802,12 @@ const dropNotBaseball = (state: GcImportState): { state: GcImportState; dropped:
   return without(state, going);
 };
 
-/** Teams and the games either side of them, gone. */
+/**
+ * Teams and the games either side of them, gone — and a row claimed for another club's copy that
+ * its own schedule filed against one of them (`FoldedRow.filedAgainst`): by that schedule it was a
+ * game against a team that is going, as the import now refuses to file one, and left on record it
+ * would go back to a team that is not there.
+ */
 const without = (
   state: GcImportState,
   going: ReadonlySet<string>
@@ -4760,7 +4817,13 @@ const without = (
     state: {
       ...state,
       teams: state.teams.filter((team) => !going.has(team.id)),
-      games: state.games.filter((game) => !going.has(game.teamAId) && !going.has(game.teamBId)),
+      games: state.games.flatMap((game) => {
+        if (going.has(game.teamAId) || going.has(game.teamBId)) return [];
+        const filedAgainstGoing = (game.alsoRows ?? []).filter(
+          (record) => record.filedAgainst !== undefined && going.has(record.filedAgainst)
+        );
+        return [filedAgainstGoing.reduce(releaseClaim, game)];
+      }),
     },
     dropped: going.size,
   };

@@ -9,6 +9,7 @@ import {
   team,
   type Pool,
 } from "../test/teamRankingsHarness";
+import { loadScoutTeams } from "../lib/teamRankingsStorage";
 
 /**
  * Two age groups in the same season year, each with its own teams and its own results. The 9U and
@@ -137,6 +138,30 @@ describe("removing a team from a page", () => {
     expect(within(screen.getByRole("table")).queryByText("Comets")).toBeNull();
     // Their only opponent had no other games, so the page empties rather than leaving a stray row.
     expect(within(screen.getByRole("table")).queryByText("Rockets")).toBeNull();
+  });
+
+  it("keeps a team in the roster that a claimed row on another page was filed against", async () => {
+    // The 11U game holds a row of another club's schedule, filed against the Comets by name and
+    // claimed for this copy (`FoldedRow.filedAgainst`): the Comets are where that row goes back.
+    const user = userEvent.setup();
+    const pool = twoAgePool();
+    renderTeamRankings({
+      ...pool,
+      games: pool.games.map((one) =>
+        one.id === "g3"
+          ? { ...one, alsoRows: [{ teamId: "gcOTHER", gameId: "o1", filedAgainst: "S-COMET" }] }
+          : one
+      ),
+    });
+    await openFullTable(user);
+
+    const row = within(screen.getByRole("table"))
+      .getByRole("button", { name: "Comets" })
+      .closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Remove" }));
+
+    expect(within(screen.getByRole("table")).queryByText("Comets")).toBeNull();
+    expect(loadScoutTeams().some((one) => one.id === "S-COMET")).toBe(true);
   });
 
   it("asks first, and does nothing when the answer is no", async () => {

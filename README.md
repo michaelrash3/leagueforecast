@@ -606,9 +606,9 @@ score (`scoringRowsOf`): the row the game stands on where the score is its own, 
 folded row with a score of its own. Remembering only the row the game stood on let the other
 club's scored copy back on its next pull; remembering every row would keep the other club's
 real fixture, a game still to play, out for good. On the pool of 24 September 2026 the tidy
-folds 3,865 rows this way, settles 9 slots and stand-ins into the named game beside them, and
-claims 2,949 rows filed by name for the other club's copy of the game (**A row filed by name
-beside a game the club never listed**, below), leaving 241,514 games. Legacy's page reads six
+folds 3,866 rows this way, settles 9 slots and stand-ins into the named game beside them, and
+claims 2,997 rows filed by name for the other club's copy of the game (**A row filed by name
+beside a game the club never listed**, below), leaving 241,471 games. Legacy's page reads six
 games again.
 
 **Each club keeps its own score.** The Dragons' schedule says they beat the Hens 11-8;
@@ -699,10 +699,16 @@ made counts for nothing of its own, so the day reads the same whichever club was
 copies of a club the claiming club has a row against of its own, that day or the day either side,
 that no row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in
 row once took the copy that row was, and left it standing on its own, one game counted twice. A row the club it names answers for, by a copy
-of its own that fits, is that club's. A team the other club's own schedule has played is not that
-club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in October —
-and nor is an age typed into its name more than two levels from the one that club played at. Rows
-naming one team on one day go to one club or none.
+of its own that fits, is that club's. A stand-in the other club's own schedule has played is not
+that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
+October — and a pulled club it has played gives way only to the same result: the NL Vandals' 15-3
+against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-15 at the very same
+start, though the Gold play the Blue, but where the other club had played the named one the two
+names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
+What a club has played is read off every row of its own schedules, whichever row a game stands on.
+Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
+one team on one day go to one club or none, and a row claimed away is no copy for another row to
+go into in the same pass.
 
 Nothing claimed is final. The claim keeps the team the row was filed against and the level its name
 gave (`FoldedRow.filedAgainst`), through every save, backup and merge, and every tidy reads each
@@ -715,15 +721,20 @@ the club that claimed it went to a copy the claim had refused, five runs off at 
 back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when the copy
 holding it moves, and a stand-in with no game left stays in the roster while a claimed row can go
 back to it. A game the user has thrown out keeps the claims it holds: released, a row would stand
-as a game of its own and count. Kept as a bare fold, as the first version of this did it, a claim outlived all of that:
+as a game of its own and count. Deleting a club that is not one stands the claims its games held
+back up, and keeps it as a name only where a claimed row elsewhere goes back to it; removing a team
+from a page keeps it in the roster for the same reason; and a claimed row filed against a team the
+tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
+it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that:
 restore a backup from before it to have those rows read again this way.
 
-On that pool the tidy claims 2,949 rows: 1,734 filed against a pulled club, 939 against a named
+On that pool the tidy claims 2,997 rows: 1,782 filed against a pulled club, 939 against a named
 stand-in and 276 slots, in three passes; a second tidy after a storage round trip changes nothing,
-and 883 stand-ins stay only as where a claimed row goes back. Among the claims against a pulled club
+no row is held twice, the tidy takes out only the 28 rows it took out before, and 883 stand-ins
+stay only as where a claimed row goes back. Among the claims against a pulled club
 the two names share a word in 83% of those at the very start with the same result, 92% of those
 scored within four runs there, and 78% of those within the hour with the same result. The Athletics'
-page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,412 of the 43,432 teams
+page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,484 of the 43,432 teams
 rated in 2027 have another record: a club loses a game it had counted twice, or the games its
 opponents filed against it by name that another of its GameChanger teams, or another club, played.
 

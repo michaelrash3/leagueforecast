@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unrealClubs } from "../unrealClubs";
+import { unrealClubs, withoutClub } from "../unrealClubs";
 import { forgetClubs, isDeletedClub, restoreClubs } from "../deletedGames";
 import { createGcImporter, type GcImportState } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
@@ -200,5 +200,75 @@ describe("a club that has been thrown out", () => {
 
     expect(isDeletedClub(dropped, "WpYo8bR3Smwp")).toBe(true);
     expect(isDeletedClub(restoreClubs(dropped, ["WpYo8bR3Smwp"]), "WpYo8bR3Smwp")).toBe(false);
+  });
+});
+
+describe("deleting a club that is not one", () => {
+  // The Bears' copy of a game against the Aces holds the Aces' own row, filed against "Sharks" and
+  // claimed (`FoldedRow.filedAgainst`); a row of the Owls' filed against the Bears is claimed into
+  // the Hawks' copy of their game against the Owls.
+  const teams: ScoutTeam[] = [
+    team("S-BEARS", "Bears", "gcBEARS"),
+    team("S-ACES", "Aces", "gcACES"),
+    team("S-HAWKS", "Hawks", "gcHAWKS"),
+    team("S-OWLS", "Owls", "gcOWLS"),
+    { id: "S-SHARKS", name: "Sharks", nameOnly: true },
+  ];
+  const bearsCopy: ScoutGame = {
+    ...game("gc_gcBEARS_b1", "S-BEARS", "S-ACES", "2026-09-05", true, "gcBEARS"),
+    alsoFrom: ["gcACES"],
+    alsoRows: [
+      {
+        teamId: "gcACES",
+        gameId: "a1",
+        startTs: "2026-09-05T18:00:00.000Z",
+        ownScore: 0,
+        opponentScore: 11,
+        onSideB: true,
+        filedAgainst: "S-SHARKS",
+      },
+    ],
+  };
+  const hawksCopy: ScoutGame = {
+    ...game("gc_gcHAWKS_h1", "S-HAWKS", "S-OWLS", "2026-09-12", true, "gcHAWKS"),
+    alsoFrom: ["gcOWLS"],
+    alsoRows: [{ teamId: "gcOWLS", gameId: "o1", onSideB: true, filedAgainst: "S-BEARS" }],
+  };
+  const pool = [bearsCopy, hawksCopy];
+
+  it("stands a claimed row in its games back up against the team it was filed against", () => {
+    const left = withoutClub({ teamId: "S-BEARS", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [
+      group,
+    ]);
+    const aces = left.games.find((one) => one.id === "gc_gcACES_a1");
+    expect(aces).toMatchObject({
+      teamAId: "S-ACES",
+      teamBId: "S-SHARKS",
+      teamAScore: 0,
+      teamBScore: 11,
+      date: "2026-09-05",
+    });
+    expect(left.games.some((one) => one.id === "gc_gcBEARS_b1")).toBe(false);
+  });
+
+  it("keeps it as a name only where a claimed row elsewhere goes back to it", () => {
+    const left = withoutClub({ teamId: "S-BEARS", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [
+      group,
+    ]);
+    expect(left.teams.find((one) => one.id === "S-BEARS")).toEqual({
+      id: "S-BEARS",
+      name: "Bears",
+      city: "Orlando",
+      state: "FL",
+      nameOnly: true,
+    });
+    // With nothing filed against it, it goes.
+    const alone = withoutClub(
+      { teamId: "S-BEARS", gameIds: ["gc_gcBEARS_b1"] },
+      teams,
+      [bearsCopy],
+      [group]
+    );
+    expect(alone.teams.some((one) => one.id === "S-BEARS")).toBe(false);
   });
 });

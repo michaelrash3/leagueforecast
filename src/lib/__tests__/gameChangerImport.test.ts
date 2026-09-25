@@ -2786,6 +2786,27 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     expect(claimFiledRows(day).claimed).toBe(1);
   });
 
+  it("lets a claimed row go with the team it was filed against, where that team is not baseball", () => {
+    // Filed against "Sharks" and claimed; the name then reads as a wiffle team, which the tidy
+    // takes out with every game against it. By the Aces' own schedule this was one, as the import
+    // would no longer file it, and on record it would go back to a team that is not there.
+    const { state } = claimFiledRows(
+      build([{ id: "a1", clock: "18:00", score: [7, 3] }], [{ id: "b1", clock: "18:45" }])
+    );
+    expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+    const wiffle = {
+      ...state,
+      teams: state.teams.map((team) =>
+        team.id === "S-a1" ? { ...team, name: "Sharks Wiffle" } : team
+      ),
+    };
+    const tidy = tidyPool(wiffle);
+    expect(tidy.notBaseball).toBe(1);
+    expect(rowsOf(tidy.state)).toEqual(["gc_gcB_b1"]);
+    expect(tidy.state.teams.some((team) => team.id === "S-a1")).toBe(false);
+    expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+  });
+
   it("keeps the stand-in a claimed row goes back to when the named step settles a slot", () => {
     const schedule = (
       id: string,
@@ -2943,9 +2964,11 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
       expect(claimFiledRows(day(false)).claimed).toBe(1);
     });
 
-    it("leaves a row against a club the other club's own schedule plays", () => {
-      // The Bears' own schedule played the Cubs that morning: whoever the Aces met as the Cubs,
-      // it was not the Bears.
+    it("takes it where the other club's own schedule plays the club it was filed against", () => {
+      // The Bears played the Cubs that morning, and are not the Cubs; but the Aces' 9-3 at ten is
+      // the Bears' own 3-9 a quarter of an hour on, the Cubs list nothing, and the name is the
+      // slip. The NL Vandals' 15-3 against "Downingtown West Wolfpack Blue" was Downingtown
+      // Wolfpack Gold's own 3-15 at the very start, though the Gold play the Blue.
       const cubs = cubsOf(build([], []));
       const day = build(
         [{ id: "a1", clock: "10:00", score: [9, 3], pulled: "gcC" }],
@@ -2954,7 +2977,76 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
           { id: "b0", clock: "08:00", score: [5, 5], against: cubs },
         ]
       );
-      expect(claimFiledRows(day).claimed).toBe(0);
+      const { state, claimed } = claimFiledRows(day);
+      expect(claimed).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+    });
+
+    it("but not scored apart, where the other club's own schedule plays the club", () => {
+      // The Bears' 4-8 is two runs off the Aces' 9-3 and half an hour on: no more than a result
+      // that nearly agrees, against a name the Bears know as another team.
+      const cubs = cubsOf(build([], []));
+      const morning: Copy = { id: "b0", clock: "08:00", score: [5, 5], against: cubs };
+      const day = (played: boolean) =>
+        build(
+          [{ id: "a1", clock: "10:00", score: [9, 3], pulled: "gcC" }],
+          [{ id: "b1", clock: "10:30", score: [4, 8] }, ...(played ? [morning] : [])]
+        );
+      expect(claimFiledRows(day(true)).claimed).toBe(0);
+      expect(claimFiledRows(day(false)).claimed).toBe(1);
+    });
+
+    it("reads what the other club has played off every row of its own, whichever a game stands on", () => {
+      // The Bears' morning game against the Cubs is one game off two schedules: standing on the
+      // Cubs' row, the Bears' is folded into it, and the Bears have played the Cubs all the same.
+      const cubs = cubsOf(build([], []));
+      const built = build(
+        [{ id: "a1", clock: "10:00", score: [9, 3], pulled: "gcC" }],
+        [
+          { id: "b1", clock: "10:30", score: [4, 8] },
+          { id: "c0", club: "gcC", clock: "08:00", score: [5, 5], against: "" },
+        ]
+      );
+      const bears = built.games.find((game) => game.id === "gc_gcB_b1")!.teamAId;
+      const onCubsRow = {
+        ...built,
+        games: built.games.map((game) =>
+          game.id === "gc_gcC_c0"
+            ? {
+                ...game,
+                teamAId: cubs,
+                teamBId: bears,
+                alsoFrom: ["gcB"],
+                alsoRows: [
+                  { teamId: "gcB", gameId: "b0", ownScore: 5, opponentScore: 5, onSideB: true },
+                ],
+              }
+            : game
+        ),
+      };
+      expect(claimFiledRows(onCubsRow).claimed).toBe(0);
+    });
+
+    it("claims nothing into a row it claims away in the same pass", () => {
+      // The Bears' 3-7 against the Aces is a row the Bears filed by name, which no Aces schedule
+      // lists, and the Cubs' own 7-3 over the Bears a quarter of an hour on is that game. It is
+      // also the copy the Aces' blank "Sharks" row would go into. Both at once, the Aces' row went
+      // into the Bears' row as that went into the Cubs' copy, and was in the pool nowhere.
+      const bears = build([], []).teams.find((team) =>
+        team.gcTeams?.some((link) => link.teamId === "gcB")
+      )!.id;
+      const { state, claimed } = claimFiledRows(
+        build(
+          [{ id: "a1", clock: "18:00" }],
+          [
+            { id: "b1", clock: "18:15", score: [3, 7] },
+            { id: "c1", club: "gcC", clock: "18:30", score: [7, 3], against: bears },
+          ]
+        )
+      );
+      expect(claimed).toBe(1);
+      expect(rowsOf(state)).toEqual(["gc_gcA_a1", "gc_gcB_b1 + gc_gcC_c1"]);
+      expect(tidyChangedAnything(tidyPool(state))).toBe(false);
     });
 
     it("keeps one game through the whole tidy, a second tidy and a re-pull, in any pull order", () => {
@@ -3273,6 +3365,24 @@ describe("claimFiledRows: a claim the schedules stop bearing out goes back", () 
     settles(state);
   });
 
+  it("on its own club's page, where the copy it goes back from was another age's", () => {
+    // The Aces are 9U and the Bears 10U: the claimed row sat on the Bears' page, and standing back
+    // up once the copy went to a namesake, it goes on the Aces' own, as a fresh tidy files it.
+    const bears10 = (games: GcTeamSchedule["games"]): GcTeamSchedule => {
+      const bears = club("gcB", "Bears 10U", games);
+      return { ...bears, profile: { ...bears.profile, ageLevel: 10 } };
+    };
+    const tidied = tidyPool(pull(empty, aces, bears10([row("b1", "Aces 9U", "18:45", [2, 6])])));
+    expect(tidied.claimed).toBe(1);
+    const namesake = club("gcA2", "Aces 9U", [row("x1", "Bears 10U", "18:45", [6, 2])]);
+    const after = tidyPool(pull(tidied.state, namesake)).state;
+    const back = after.games.find((game) => game.id === "gc_gcA_a1")!;
+    const pageOf = (state: GcImportState, id: string) =>
+      state.ageGroups.find((group) => group.id === id)?.name;
+    expect([pageOf(after, back.ageGroupId), back.ageLevelA]).toEqual(["9U 2027", 9]);
+    expect(tidyChangedAnything(tidyPool(after))).toBe(false);
+  });
+
   it("thrown out still, where the copy the user threw out goes to its namesake", () => {
     const state = settled(row("b1", "Aces 9U", "18:45", [2, 6]));
     const thrown = {
@@ -3455,6 +3565,35 @@ describe("settled pairings", () => {
       teamBId: "s0",
     });
     expect(out.state.teams.find((team) => team.id === "chain-s")?.gcTeams).toHaveLength(3);
+  });
+
+  it("takes a row claimed from a squad paired away along to the squad it pairs into", () => {
+    // A row of the Aces' filed against the Butler Fall id and claimed for another club's copy
+    // (`FoldedRow.filedAgainst`) goes back to the Butler Baseball that is left, not to nothing.
+    const where = { city: "Butler", state: "PA" };
+    const teams = [
+      squad("bf", "Butler Baseball", "fall", 2026, where),
+      squad("bs", "Butler Baseball", "spring", 2027, where),
+      { id: "S-OWLS", name: "Owls" },
+      { id: "S-ACES", name: "Aces" },
+    ];
+    const holder: ScoutGame = {
+      ...played("o1", "S-OWLS", "S-ACES", "2026-09-05", 3, 9, "gc-owls"),
+      alsoFrom: ["gc-aces"],
+      alsoRows: [
+        {
+          teamId: "gc-aces",
+          gameId: "a1",
+          ownScore: 9,
+          opponentScore: 3,
+          onSideB: true,
+          filedAgainst: "bf",
+        },
+      ],
+    };
+    const out = pairSettledSquads({ ...state(teams), games: [holder] });
+    expect(out.paired).toBe(1);
+    expect(out.state.games[0]?.alsoRows?.[0]?.filedAgainst).toBe("bs");
   });
 
   it("does not pair two clubs of one name in different towns", () => {

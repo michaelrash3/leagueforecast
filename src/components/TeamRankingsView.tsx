@@ -10,6 +10,7 @@ import {
   buildUpcomingSchedule,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
+  filedTeamIds,
   findDuplicateGame,
   isRankedAgeLevel,
   isScoutGamePlayed,
@@ -108,7 +109,7 @@ import type { AgelessAnswered } from "../lib/agelessTriage";
 
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
-import type { UnrealClub } from "../lib/unrealClubs";
+import { withoutClub, type UnrealClub } from "../lib/unrealClubs";
 import {
   estimateBackupBytes,
   formatBytes,
@@ -1014,10 +1015,12 @@ export function TeamRankingsView({
       game.ageGroupId === selectedAgeGroupId &&
       (game.teamAId === team.id || game.teamBId === team.id);
     const relatedGames = scoutGames.filter(isHere);
-    // Every year, not the one on screen: a club with games in another season keeps its record.
-    const playedElsewhere = loadScoutGames().some(
-      (game) => !isHere(game) && (game.teamAId === team.id || game.teamBId === team.id)
-    );
+    // Every year, not the one on screen: a club with games in another season keeps its record,
+    // and one a claimed row elsewhere was filed against stays for that row to go back to.
+    const elsewhere = loadScoutGames().filter((game) => !isHere(game));
+    const playedElsewhere =
+      elsewhere.some((game) => game.teamAId === team.id || game.teamBId === team.id) ||
+      filedTeamIds(elsewhere).has(team.id);
     const confirmed = await requestConfirmation({
       title: `Remove ${team.name}?`,
       message: `This removes the ${relatedGames.length === 1 ? "game" : `${relatedGames.length} games`} logged against them in ${selectedGroupName || "this age group"}.${
@@ -1311,9 +1314,10 @@ export function TeamRankingsView({
       saveDroppedClubs(forgetClubs(loadDroppedClubs(), club.gcTeamIds));
     }
     saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, club.gameIds)));
-    const drop = new Set(club.gameIds);
-    persistAllGames(wholePoolGames.filter((game) => !drop.has(game.id)));
-    persistTeams(scoutTeams.filter((team) => team.id !== club.teamId));
+    // Another club's row one of its games held as a claim stands back up rather than go with it.
+    const left = withoutClub(club, scoutTeams, wholePoolGames, ageGroups);
+    persistAllGames(left.games);
+    persistTeams(left.teams);
     showToast(`Deleted ${club.name}.`, { tone: "success" });
     return true;
   };

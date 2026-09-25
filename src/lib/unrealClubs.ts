@@ -1,6 +1,13 @@
 import { isDatedAhead } from "./deletedGames";
 import type { GcImportState } from "./gameChangerImport";
-import type { ScoutGame, ScoutTeam } from "./teamRankings";
+import {
+  filedRowOf,
+  filedTeamIds,
+  ownPageFor,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings";
 
 /**
  * A club carrying results on days that have not happened, and how much of its record they are.
@@ -121,4 +128,48 @@ export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] =
       };
     })
     .sort((a, b) => b.ahead - a.ahead || a.name.localeCompare(b.name));
+};
+
+/**
+ * The pool without `club`: every game it is in, and the club itself — but not another club's own
+ * row that one of those games held as a claim (`FoldedRow.filedAgainst`), nor the club where such a
+ * row elsewhere was filed against it.
+ *
+ * A claimed row is a game of the other club's own schedule against somebody else, read as this
+ * club's copy of it by the clock: it stands back up against the team it was filed against rather
+ * than go with a club that did not play it, as it does when the copy holding it is withdrawn. And a
+ * club a claimed row was filed against is where that row goes back, so it stays as a name only
+ * (`nameOnly`), without the GameChanger ids the deletion refuses.
+ */
+export const withoutClub = (
+  club: Pick<UnrealClub, "teamId" | "gameIds">,
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  ageGroups: AgeGroup[]
+): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+  const drop = new Set(club.gameIds);
+  const ownPage = ownPageFor(ageGroups);
+  const stood: ScoutGame[] = [];
+  const kept = games.filter((game) => {
+    if (!drop.has(game.id)) return true;
+    game.alsoRows?.forEach((record) => {
+      if (record.filedAgainst === undefined || record.filedAgainst === club.teamId) return;
+      stood.push({
+        ...ownPage(filedRowOf(game, record)),
+        ...(game.excluded ? { excluded: true } : {}),
+      });
+    });
+    return false;
+  });
+  const left = [...kept, ...stood];
+  const named = filedTeamIds(left);
+  return {
+    teams: teams.flatMap((team) => {
+      if (team.id !== club.teamId) return [team];
+      if (!named.has(team.id)) return [];
+      const { gcTeams: _ids, ...rest } = team;
+      return [{ ...rest, nameOnly: true }];
+    }),
+    games: left,
+  };
 };
