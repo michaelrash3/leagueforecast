@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetPullSession } from "../lib/pullSession";
 import type { GcTeamResponse } from "../lib/gameChangerApi";
 import type { GcImportState } from "../lib/gameChangerImport";
+import { markRefreshed, type RefreshLog } from "../lib/gameChangerSchedule";
+import { AGE_LEVELS } from "../lib/teamRankings";
 
 /*
  * Two clubs playing this fall, and one from last summer: the squad a crawl across the calendar year
@@ -72,10 +74,13 @@ const { GameChangerImportPanel } = await import("./GameChangerImportPanel");
 
 const emptyPool: GcImportState = { ageGroups: [], teams: [], games: [] };
 
-const panel = (onPersist: (pool: GcImportState) => boolean = () => true) =>
+const panel = (
+  onPersist: (pool: GcImportState) => boolean = () => true,
+  { pool = emptyPool, refreshLog = {} }: { pool?: GcImportState; refreshLog?: RefreshLog } = {}
+) =>
   render(
     <GameChangerImportPanel
-      pool={emptyPool}
+      pool={pool}
       onPersist={onPersist}
       savedProgress={null}
       droppedClubs={new Set()}
@@ -85,7 +90,7 @@ const panel = (onPersist: (pool: GcImportState) => boolean = () => true) =>
       onClearProgress={() => {}}
       onClose={() => {}}
       showToast={() => {}}
-      refreshLog={{}}
+      refreshLog={refreshLog}
       onRefreshLog={() => {}}
     />
   );
@@ -178,5 +183,52 @@ describe("a pull keeps to the season being played", () => {
     const names = (persisted[persisted.length - 1]?.teams ?? []).map((team) => team.name);
     expect(names.some((name) => name.startsWith("Fall Club"))).toBe(true);
     expect(names.some((name) => name.startsWith("Summer Club"))).toBe(false);
+  });
+});
+
+/*
+ * The rota keeps to the season being played too. A finished season's pages cannot change, so
+ * walking them every day spent a pool's worth of requests on nothing.
+ */
+describe("the refresh keeps to the season being played", () => {
+  beforeEach(() => {
+    resetPullSession();
+    localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const twoSeasons: GcImportState = {
+    ageGroups: [
+      { id: "ag12now", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+      { id: "ag12old", name: "12U 2026", ageLevel: 12, year: 2026, seasonIds: [] },
+    ],
+    teams: [
+      {
+        id: "now",
+        name: "This Fall 12U",
+        gcTeams: [{ teamId: "NowTeam0001", name: "This Fall 12U", ageGroupId: "ag12now" }],
+      },
+      {
+        id: "old",
+        name: "Last Summer 12U",
+        gcTeams: [{ teamId: "OldTeam0001", name: "Last Summer 12U", ageGroupId: "ag12old" }],
+      },
+    ],
+    games: [],
+  };
+
+  it("offers this season's teams and not last season's", () => {
+    panel(undefined, { pool: twoSeasons });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams" })).toBeInTheDocument();
+  });
+
+  it("does the same when today is done and it is asked to run again", () => {
+    panel(undefined, {
+      pool: twoSeasons,
+      refreshLog: markRefreshed({}, AGE_LEVELS, new Date("2026-09-24T12:00:00")),
+    });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams again" })).toBeInTheDocument();
   });
 });

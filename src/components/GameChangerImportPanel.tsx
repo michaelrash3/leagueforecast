@@ -646,6 +646,12 @@ export function GameChangerImportPanel({
     const now = new Date();
     return {
       due: dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
+        /*
+         * The season being played and no other. A finished season's pages cannot change, so
+         * walking them every day spent a pool's worth of requests on nothing; what it costs is a
+         * result posted after August 1 for a game in late July, which the pull no longer reads.
+         */
+        seasonYear: segmentOn(todayIsoDay(now)).year,
         ageless,
         cadence,
         namedAges: asks,
@@ -666,17 +672,18 @@ export function GameChangerImportPanel({
    * Computing it beside the other one paid that walk twice on every change for an answer that is
    * read only when nothing is due.
    */
-  const everythingDue = useCallback(
-    () =>
-      dueRefresh(new Date(), refreshLog, pool.ageGroups, pool.teams, {
-        ageless,
-        cadence,
-        namedAges: asks,
-        refused: droppedClubs,
-        force: true,
-      }),
-    [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]
-  );
+  const everythingDue = useCallback(() => {
+    const now = new Date();
+    return dueRefresh(now, refreshLog, pool.ageGroups, pool.teams, {
+      // Held to the season being played for the same reason as `due` above.
+      seasonYear: segmentOn(todayIsoDay(now)).year,
+      ageless,
+      cadence,
+      namedAges: asks,
+      refused: droppedClubs,
+      force: true,
+    });
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
 

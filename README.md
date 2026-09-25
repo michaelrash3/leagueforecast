@@ -636,7 +636,7 @@ its age is read (`other-season`), so it never joins the waiting list, and the
 run's summary counts those in a line of their own instead of listing them under
 **Worth a look**. The choice is kept with the run, so a resumed run files what it
 was started for, and the same list asked for different seasons starts over. The
-rota is not filtered: it refreshes what the pool already holds, every year of it.
+rota keeps to the season being played as well; see the next section.
 
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
 on a pool whose shape differs from the one it last tidied, the whole pool is
@@ -710,6 +710,12 @@ pull twice — and a level is marked done only when its run actually finishes, s
 stopping half way leaves it due. When today is already done there is a button to
 run it again anyway, for when something has changed that a day log cannot know
 about.
+
+Either way, and that button too, only the season being played comes round. A
+finished season's pages cannot change, so walking them every day spent a whole
+year's worth of requests on nothing. What that costs is a result posted after
+August 1 for a game in late July, which the rota no longer goes back for. The
+teams waiting on an age are asked about as before, whatever their season.
 
 The teams with no age are paced by that same principle, and used not to be. Each
 is asked at most once a week — unless somebody has answered for it since its last
