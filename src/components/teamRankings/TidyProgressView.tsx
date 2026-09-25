@@ -40,6 +40,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   folded: { short: "Fold", full: "Clubs holding several GameChanger ids, folded into one" },
   paired: { short: "Pair", full: "A squad and the same squad's next season, joined" },
   collapsed: { short: "Collapse", full: "Rows that describe one game, made one game" },
+  regrouped: {
+    short: "Regroup",
+    full: "Games whose copies from the other club's schedule now fit another game, or none",
+  },
 };
 
 const count = (value: number) => value.toLocaleString();

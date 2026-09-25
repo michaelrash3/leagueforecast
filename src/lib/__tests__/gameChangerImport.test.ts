@@ -4206,6 +4206,7 @@ describe("whether a tidy changed anything", () => {
     folded: 0,
     paired: 0,
     collapsed: 0,
+    regrouped: 0,
     pruned: 0,
     reclaimed: 0,
     resettled: 0,

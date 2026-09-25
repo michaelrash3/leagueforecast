@@ -57,8 +57,12 @@ const club = (
  * scored on dates still ahead of the real clock: a schedule that is nothing but results from the
  * future is refused as invented (`isInventedSchedule`), which is not what these tests are about.
  */
-const fold = (schedules: GcTeamSchedule[], today?: string): GcImportState => {
-  const importer = createGcImporter(empty, today === undefined ? {} : { today });
+const fold = (
+  schedules: GcTeamSchedule[],
+  today?: string,
+  from: GcImportState = empty
+): GcImportState => {
+  const importer = createGcImporter(from, today === undefined ? {} : { today });
   schedules.forEach((schedule) => importer.add(schedule));
   return importer.state;
 };
@@ -99,7 +103,10 @@ const HURRICANES = "bKpjvY5AVqOV";
 /** A second Ohio 9U club of the same name, which is what the name alone cannot tell apart. */
 const TOLEDO = "gcTOLEDOHUR1";
 
-const stix = (startTs = "2026-09-20T17:30:00.000Z", score: [number, number] = [13, 2]) =>
+const stix = (
+  startTs = "2026-09-20T17:30:00.000Z",
+  score: [number | undefined, number | undefined] = [13, 2]
+) =>
   club(STIX, "Cincy Stix 9U Navy", "OH", [played("s-0920", "Hurricanes", DAY, ...score, startTs)], {
     city: "Harrison",
     season: spring,
@@ -301,6 +308,28 @@ describe("joinCrossedHalves", () => {
     );
   });
 
+  /*
+   * The Stix have posted nothing; the Hurricanes' 2-13 is the only result, and the join lends it to
+   * the Stix's row. Lent, so the Hurricanes' correction to 11-2 reaches both clubs rather than
+   * leaving the Stix holding a win no schedule gives.
+   */
+  it("lends a result only the other half has, and follows that club's correction", () => {
+    const unscored: Half = { typed: "Hurricanes", startTs: stixHalf.startTs! };
+    const lent: Half = { ...hurricanesHalf, startTs: stixHalf.startTs! };
+    const out = joinCrossedHalves(halves(unscored, lent));
+    expect(out.joined).toBe(1);
+    expect(out.state.games[0]!.scoreFromB).toBe(true);
+    let pool = tidyPool(halves(unscored, lent)).state;
+    const corrected = club(HURRICANES, "Hurricanes", "OH", [
+      played("1", "Stix", DAY, 11, 2, stixHalf.startTs!),
+    ]);
+    pool = tidyPool(fold([corrected], undefined, pool)).state;
+    const stixId = pulled(pool, STIX).id;
+    expect(onDay(pool, stixId, DAY).map((game) => scoreSeenBy(game, stixId))).toEqual([
+      { own: 2, opponent: 11 },
+    ]);
+  });
+
   describe("two coaches who scored one game apart", () => {
     const apart: Half = { ...hurricanesHalf, score: [3, 13], startTs: stixHalf.startTs! };
 
@@ -368,6 +397,51 @@ describe("joinCrossedHalves", () => {
       expect(resultFor(rows[0]!, stixId)).toEqual([13, 2]);
       expect(rows[0]!.reportedByB).toEqual({ teamAScore: 13, teamBScore: 3 });
       expect(standIns(pool)).toEqual([]);
+    });
+  });
+
+  /*
+   * The Hurricanes pulled before the Stix, each against a stand-in for the other at one start. The
+   * join put the Stix's own row on record against the stand-in, where it read as neither side,
+   * and the collapse later in the same tidy stood it back up on the Hurricanes' side.
+   */
+  describe("joined with the Hurricanes pulled first", () => {
+    const at = "2026-09-20T17:30:00.000Z";
+
+    it("keeps each club's own score through the tidy when the two disagree", () => {
+      const pool = tidyPool(
+        fold([toledo, hurricanes({ score: [5, 4], startTs: at }), stix(at, [6, 4])])
+      ).state;
+      const stixId = pulled(pool, STIX).id;
+      const rows = onDay(pool, stixId, DAY);
+      expect(rows).toHaveLength(1);
+      expect(scoreSeenBy(rows[0]!, stixId)).toEqual({ own: 6, opponent: 4 });
+      expect(scoreSeenBy(rows[0]!, pulled(pool, HURRICANES).id)).toEqual({ own: 5, opponent: 4 });
+      expect(rows[0]!.note).toBeUndefined();
+    });
+
+    it("writes no note when the two agree", () => {
+      const pool = tidyPool(fold([toledo, hurricanes({ startTs: at }), stix(at)])).state;
+      const rows = onDay(pool, pulled(pool, STIX).id, DAY);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.note).toBeUndefined();
+    });
+
+    /*
+     * The Stix have posted nothing and the Hurricanes' 2-13 is the only result. It is lent to the
+     * Stix's row, so the Hurricanes' correction to 11-2 is both clubs' result, and not the Stix
+     * still holding a win nobody's schedule gives.
+     */
+    it("follows the lending schedule's correction", () => {
+      let pool = tidyPool(
+        fold([toledo, hurricanes({ startTs: at }), stix(at, [undefined, undefined])])
+      ).state;
+      const hurricanesAt = hurricanes({ score: [11, 2], startTs: at });
+      pool = tidyPool(fold([hurricanesAt], undefined, pool)).state;
+      const stixId = pulled(pool, STIX).id;
+      const rows = onDay(pool, stixId, DAY);
+      expect(rows).toHaveLength(1);
+      expect(scoreSeenBy(rows[0]!, stixId)).toEqual({ own: 2, opponent: 11 });
     });
   });
 

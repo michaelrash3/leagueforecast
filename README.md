@@ -449,15 +449,24 @@ first, and each game takes the copy that fits it best:
 | Two clubs' copies of a day's meeting                           | One game?                                   |
 | -------------------------------------------------------------- | ------------------------------------------- |
 | Starting within the hour, with the same result                 | Yes — 1,115 of the 1,213 were within it     |
+| At the very same start, a result still to come on one side     | Yes                                         |
 | The same result, however far apart the clocks                  | Yes                                         |
 | Starting within the hour, a result still to come on one side   | Yes                                         |
 | Starting within the hour, scored differently                   | Yes, each club keeping its own score        |
+| No start on one side, a result on only one                     | Yes, before a copy with no result at all    |
 | Neither, with one game left on each schedule that day          | Yes, scored differently, as it always was   |
 | Neither, with more on one schedule than the other accounts for | No — that is a game only one of them listed |
 
 A result that agrees outranks a slot that has none yet, so a copy posted between the
 two games of a doubleheader goes to the game it reports, not to the empty slot nearer
-its clock. A game takes one row off each schedule: a second row off the same schedule
+its clock. The very same start is the exception, since nobody plays two games at once:
+both clubs list a doubleheader at 9:00 and 12:00, Legacy posts game 1 as an 8-11 loss and
+the Raptors post game 2 as an 11-8 win, and the Raptors' result belongs at 12:00 however
+game 1's reads. A copy with no start and a result fits fewer games than one with neither,
+so it is placed first. One club's own schedule repeating a result within the hour — the
+same game listed twice, below — is heard only after every link between the two schedules,
+so where the other club lists both slots of a mercy-rule doubleheader, 10-0 twice, its
+two rows keep the two games apart. A game takes one row off each schedule: a second row off the same schedule
 joins only as that schedule listing the game twice, which keeps a doubleheader two games
 when the other club's clock sits between its two slots. Where both schedules list the
 same number of games that day, first pairs with first before the nearer start is asked,
@@ -476,13 +485,21 @@ by id, updates the record and leaves the grouping to the tidy; a row the schedul
 longer lists — deleted, cancelled, moved to another day — has its record removed on that
 schedule's next pull. The same regrouping run twice changes nothing, which is what lets
 the tidy stop: on the pool of 24 September 2026 a second tidy over the first one's
-result, saved and read back, finds nothing to do. Records written before rows were kept
-say only the schedule (`alsoFrom`), and there a row is taken back only within the hour
-and agreeing — the folded row coming back, which 21 of the 23 results listed twice that
-way in the same pool were.
+result, saved and read back, finds nothing to do. A tidy that only moves a row from one
+game to another, or takes back a score whose row has gone, counts as a change
+(`regrouped`), so the pull that ran it saves it rather than stamping the pool tidied with
+the fix left in memory. Records written before rows were kept say only the schedule
+(`alsoFrom`), and there a row is taken back only within the hour and agreeing — the
+folded row coming back, which 21 of the 23 results listed twice that way in the same pool
+were — or at the game's very start whatever it says, which is how an earlier join left two
+coaches' different scores at one start.
 
 A start the schedule itself has since moved is taken on the next pull; another
-schedule's start is never written over a row, since that is the other coach's clock.
+schedule's start is never written over a row, nor fills a row that has none, since that
+is the other coach's clock — an all-day 5-3 win given the Raptors' 2:00 PM start sat at the
+very start of Legacy's own 2:00 PM game, and the next tidy read the two as one listed twice.
+A game whose own row the schedule deleted, entered again under a new id, takes the new
+row's result and start, so a correction made to the new row reaches the game.
 On the pool of 24 September 2026 the tidy folds 2,779 rows this way and settles 6
 slots whose starts were a fraction of a second apart, and Legacy's page reads six games
 again.
@@ -503,7 +520,11 @@ and record read its own schedule
 (`scoreSeenBy`); the rating reads the game once, at the average of the two margins
 (`ratedMargin`), so the Dragons are rated 2.5 runs better that day and a game both clubs
 claim to have won reads as even. A score typed in by hand answers for both clubs and
-clears the other schedule's.
+clears the other schedule's, and the record of side B's row takes the typed score from
+that club's seat, or the next tidy would stand the row up and put its old score back.
+Every other way a pull fills side A's blank from side B's schedule — settling a "TBD"
+into a named game, joining two clubs that each filed the game against a stand-in — marks
+the score borrowed the same way.
 
 On that pool the first tidy gives 1,500 folded games both scores, 131 of them different
 and 13 disagreeing about the winner, and 160 a score borrowed from side B; the rest fill
@@ -1241,8 +1262,11 @@ used to carry is gone.
 
 **What is left is listed worst offender first, and each row opens its schedule.** Pool
 health's "Scored on a day that has not happened" charges each such game to the club whose own
-schedule filed it (`filedBy`: the pulled id in `source`, and any in `alsoFrom`), not to both
-sides. An invented game is written by one club against another that never played it, so
+schedule filed it (`filedBy`: the pulled id in `source`, and any other schedule whose own row
+scored it), not to both sides. A schedule that listed the fixture with nothing in it filed no
+result: every copy of a game folded in is now on record, the victim's placeholder for it
+included, and counting those put a real club on the list at three of five beside the club
+that invented the scores. An invented game is written by one club against another that never played it, so
 counting both put the victim on the list with every invention against it — a real club an
 inventor listed as its opponent every week came out above the inventor. A game nothing traces
 to a schedule, one typed by hand, still counts against both. The rows drawn above the club list

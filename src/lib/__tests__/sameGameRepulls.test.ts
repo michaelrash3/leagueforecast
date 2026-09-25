@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   collapseSameGames,
+  ratedMargin,
+  rowOfRecord,
   sameStart,
   scoreSeenBy,
+  withScoreTyped,
   type AgeGroup,
   type ScoutGame,
 } from "../teamRankings";
 import {
+  describeTidy,
   importGcSchedule,
   importGcSchedules,
+  tidyChangedAnything,
   tidyPool,
   type GcImportState,
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
+import { unrealClubs } from "../unrealClubs";
 
 /*
  * The pool is re-pulled every day, and a schedule changes under it: a start moves, a score is
@@ -354,5 +360,301 @@ describe("naming an opponent among namesakes", () => {
       empty
     );
     expect(tidyPool(state).state.games).toHaveLength(2);
+  });
+});
+
+/*
+ * The second review's cases. Each is a schedule, or two, pulled in the order the reviewer pulled
+ * them, and each lost or doubled a result before the fix.
+ */
+describe("a start taken from the other club's copy", () => {
+  /*
+   * Legacy lists its first game with no start and its second at 14:00; the Raptors list only the
+   * first, at 14:00. Given the Raptors' start, Legacy's first game sat at the very start of its
+   * second, and the next tidy read the two as Legacy listing one game twice.
+   */
+  it("is never written over a game, so the next tidy does not fold away the other", () => {
+    let state = pull(
+      empty,
+      legacy([at("l1", RAPTORS, undefined, 5, 3), at("l2", RAPTORS, "14:00", 7, 2)])
+    );
+    state = pull(state, raptors([at("r1", LEGACY, "14:00", 3, 5)]));
+    state = tidyPool(state).state;
+    expect(legacySees(state)).toEqual(["5-3", "7-2"]);
+    expect(state.games.find((game) => game.id.endsWith("_l1"))!.startTs).toBeUndefined();
+  });
+});
+
+describe("a tidy that only moves a folded row", () => {
+  // The Raptors post their all-day copy as game 2's result after it went to game 1 by a tie.
+  it("counts as a change, so the pull that ran it saves it", () => {
+    const both = [at("l1", RAPTORS, "10:00", 14, 5), at("l2", RAPTORS, "14:00", 14, 2)];
+    let state = tidyPool(
+      importGcSchedules([legacy(both), raptors([at("r2", LEGACY, undefined)])], empty).state
+    ).state;
+    state = importGcSchedule(raptors([at("r2", LEGACY, undefined, 2, 14)]), state).state;
+    const tidy = tidyPool(state);
+    expect(tidy.state.games).not.toBe(state.games);
+    expect(tidyChangedAnything(tidy)).toBe(true);
+    expect(describeTidy(tidy).length).toBeGreaterThan(0);
+    expect(raptorsSee(tidy.state)).toEqual(["2-14", "5-14"]);
+  });
+
+  // The Raptors delete the only copy that scored Legacy's game: the score it lent goes too.
+  it("counts taking back a score whose copy is gone", () => {
+    let state = pull(empty, legacy([at("l1", RAPTORS, "10:00")]));
+    state = pull(state, raptors([at("r1", LEGACY, "10:00", 3, 5)]));
+    expect(legacySees(state)).toEqual(["5-3"]);
+    state = importGcSchedule(
+      raptors([at("other", "Somebody Else 11U", "09:00", 4, 4)]),
+      state
+    ).state;
+    const tidy = tidyPool(state);
+    expect(tidyChangedAnything(tidy)).toBe(true);
+    expect(legacySees(tidy.state)).toEqual(["unplayed"]);
+  });
+});
+
+describe("a tie between two links with no start on either", () => {
+  /*
+   * Legacy's all-day 10-0 and two all-day Raptors rows with nothing posted: two links of one
+   * strength and no gap to compare. The comparison read Infinity less Infinity, which is not a
+   * number, as a tie settled by where the rows sat, and the rows traded places on every pass.
+   */
+  it("is broken the same way on every pass", () => {
+    const state = tidyPool(
+      importGcSchedules(
+        [
+          legacy([at("l1", RAPTORS, undefined, 10, 0)]),
+          raptors([at("r1", LEGACY, undefined), at("r2", LEGACY, undefined)]),
+        ],
+        empty
+      ).state
+    ).state;
+    const again = tidyPool(state);
+    expect(again.state.games).toBe(state.games);
+    expect(again.passes).toBe(1);
+  });
+});
+
+describe("a doubleheader only one club has scored", () => {
+  // Two mercy-rule wins an hour apart, 10-0 each; the Raptors list both slots, unscored.
+  it("stays two games in either pull order", () => {
+    const l = legacy([at("l0", RAPTORS, "13:00", 10, 0), at("l1", RAPTORS, "14:00", 10, 0)]);
+    const r = raptors([at("r0", LEGACY, "13:00"), at("r1", LEGACY, "14:00")]);
+    for (const order of [
+      [l, r],
+      [r, l],
+    ]) {
+      const state = order.reduce(pull, empty);
+      expect(state.games).toHaveLength(2);
+      expect(legacySees(state)).toEqual(["10-0", "10-0"]);
+      expect(raptorsSee(state)).toEqual(["0-10", "0-10"]);
+    }
+  });
+});
+
+describe("each club posting a different game of a doubleheader", () => {
+  /*
+   * Both clubs list both games at 09:00 and 12:00. Legacy posted game 1, 8-11; the Raptors posted
+   * game 2, which ended by the same score. The same result three hours off is weaker than the
+   * very same start with nothing posted, so each posted result stays on its own game.
+   */
+  it("keeps both results", () => {
+    const state = [
+      legacy([at("l0", RAPTORS, "09:00", 8, 11), at("l2", RAPTORS, "12:00")]),
+      raptors([at("r1", LEGACY, "09:00"), at("r3", LEGACY, "12:00", 11, 8)]),
+    ].reduce(pull, empty);
+    expect(state.games).toHaveLength(2);
+    expect(legacySees(state)).toEqual(["8-11", "8-11"]);
+    expect(raptorsSee(state)).toEqual(["11-8", "11-8"]);
+  });
+});
+
+describe("a schedule that lists a doubleheader with no starts", () => {
+  /*
+   * Legacy lists 09:00, lost 8-9, and 12:00, not posted. The Raptors list both with no start, one
+   * posted 5-2. The posted one fits only the game Legacy has not scored; the unposted one fits
+   * either, so the posted one goes first and neither result is lost.
+   */
+  it("pairs the posted copy with the game it can be first", () => {
+    const state = [
+      legacy([at("l0", RAPTORS, "09:00", 8, 9), at("l2", RAPTORS, "12:00")]),
+      raptors([at("r1", LEGACY, undefined), at("r3", LEGACY, undefined, 5, 2)]),
+    ].reduce(pull, empty);
+    expect(legacySees(state)).toEqual(["8-9", "2-5"]);
+    expect(raptorsSee(state)).toEqual(["5-2", "9-8"]);
+  });
+});
+
+describe("a score typed in by hand", () => {
+  const typed = (state: GcImportState, a: number, b: number): GcImportState => ({
+    ...state,
+    games: state.games.map((game) => withScoreTyped(game, a, b)),
+  });
+
+  it("stands through the next tidy where it replaced a score borrowed from side B", () => {
+    let state = pull(empty, legacy([at("l1", RAPTORS, "14:00")]));
+    state = pull(state, raptors([at("r1", LEGACY, "14:00", 3, 5)]));
+    state = tidyPool(typed(state, 6, 3)).state;
+    expect(legacySees(state)).toEqual(["6-3"]);
+    expect(raptorsSee(state)).toEqual(["3-6"]);
+    // Legacy's score now, not one lent: the Raptors' next pull puts their own beside it, not over.
+    state = pull(state, raptors([at("r1", LEGACY, "14:00", 3, 5)]));
+    expect(legacySees(state)).toEqual(["6-3"]);
+    expect(raptorsSee(state)).toEqual(["3-5"]);
+  });
+
+  it("stands for both clubs through the next tidy where the two schedules disagreed", () => {
+    let state = pull(empty, legacy([at("l1", RAPTORS, "14:00", 5, 3)]));
+    state = pull(state, raptors([at("r1", LEGACY, "14:00", 2, 4)]));
+    expect(raptorsSee(state)).toEqual(["2-4"]);
+    state = tidyPool(typed(state, 5, 3)).state;
+    expect(raptorsSee(state)).toEqual(["3-5"]);
+    expect(ratedMargin(state.games[0]!)).toBe(2);
+  });
+});
+
+describe("side A's own score from a second listing of its game", () => {
+  // The Raptors' 3-6 was lent to Legacy's unscored copy; Legacy then lists the game again, 5-3.
+  it("replaces the score lent by side B, whichever order the schedules came in", () => {
+    const first = legacy([at("l1", RAPTORS, "14:00")]);
+    const twice = legacy([at("l1", RAPTORS, "14:00"), at("l1b", RAPTORS, "14:00", 5, 3)]);
+    const r = raptors([at("r1", LEGACY, "14:00", 3, 6)]);
+    for (const order of [
+      [first, r, twice],
+      [twice, r],
+      [r, twice],
+    ]) {
+      const state = tidyPool(order.reduce(pull, empty)).state;
+      expect(legacySees(state)).toEqual(["5-3"]);
+      expect(raptorsSee(state)).toEqual(["3-6"]);
+    }
+  });
+});
+
+describe("a game its schedule deleted and entered again", () => {
+  /*
+   * The Raptors' game stands on their own row, with Legacy's copy folded in. They delete the row,
+   * enter the game again under a new id, and then correct the new one's score.
+   */
+  it("takes the correction made to the new row", () => {
+    let state = pull(empty, raptors([at("r1", LEGACY, "10:00", 6, 0)]));
+    state = pull(state, legacy([at("l1", RAPTORS, "10:00", 0, 6)]));
+    state = pull(state, raptors([at("r2", LEGACY, "10:00", 6, 0)]));
+    state = pull(state, raptors([at("r2", LEGACY, "10:00", 7, 0)]));
+    expect(raptorsSee(state)).toEqual(["7-0"]);
+    expect(legacySees(state)).toEqual(["0-6"]);
+    expect(state.games[0]!.note).toBeUndefined();
+  });
+});
+
+describe("a result dated ahead that one club's schedule lists unscored", () => {
+  /*
+   * A club that files scores for games not yet played lists three October games against a real
+   * club, whose own schedule has the same three with nothing in them. Only the club that wrote the
+   * scores wrote anything impossible.
+   */
+  it("is charged to the club that scored it", () => {
+    const october = (id: string, day: string, opponentName: string, score?: [number, number]) => ({
+      id,
+      date: `2026-10-${day}`,
+      startTs: `2026-10-${day}T15:00:00.000Z`,
+      opponentName,
+      status: score ? ("completed" as const) : ("scheduled" as const),
+      ...(score ? { teamScore: score[0], opponentScore: score[1] } : {}),
+    });
+    const real = club("gcREAL000001", "Real Club 11U", [
+      at("r0", "Somebody Else 11U", "12:00", 4, 2),
+      october("r1", "03", "Pre Filled 11U"),
+      october("r2", "10", "Pre Filled 11U"),
+      october("r3", "17", "Pre Filled 11U"),
+    ]);
+    const filled = club("gcFILLED0001", "Pre Filled 11U", [
+      at("f0", "Somebody Else 11U", "13:00", 3, 1),
+      october("f1", "03", "Real Club 11U", [9, 1]),
+      october("f2", "10", "Real Club 11U", [8, 0]),
+      october("f3", "17", "Real Club 11U", [7, 2]),
+    ]);
+    for (const order of [
+      [real, filled],
+      [filled, real],
+    ]) {
+      const state = order.reduce(pull, empty);
+      expect(unrealClubs(state, "2026-09-25").map((found) => [found.name, found.ahead])).toEqual([
+        ["Pre Filled", 3],
+      ]);
+    }
+  });
+});
+
+describe("a score lent to a named game from a placeholder's schedule", () => {
+  /*
+   * The Raptors played "TBD" at 10:00 and lost 2-14; Legacy lists two games, 10:00 and 14:00, and
+   * has posted neither. The tidy settles the placeholder into Legacy's 10:00 game with the
+   * Raptors' result. That result is lent, and goes with the Raptors' row wherever it goes.
+   */
+  it("goes with the row when the row moves to the other game", () => {
+    let state = pull(empty, raptors([at("r", "TBD", "10:00", 2, 14)]));
+    state = pull(state, legacy([at("l1", RAPTORS, "10:00"), at("l2", RAPTORS, "14:00")]));
+    expect(legacySees(state)).toEqual(["14-2", "unplayed"]);
+    state = pull(state, raptors([at("r", "TBD", "14:00", 2, 14)]));
+    state = pull(state, legacy([at("l1", RAPTORS, "10:00"), at("l2", RAPTORS, "14:00", 14, 2)]));
+    expect(legacySees(state)).toEqual(["unplayed", "14-2"]);
+    expect(raptorsSee(state)).toEqual(["2-14"]);
+  });
+
+  // The Dragons' "TBD" is the Hens' unscored game at the same start.
+  it("follows the lending schedule's correction, and goes when that schedule drops the game", () => {
+    const hens = club("gcHENS000001", "Hens 11U", [at("h1", "Dragons 11U", "14:00")]);
+    const dragons = (games: GcTeamSchedule["games"]) => club("gcDRAGONS001", "Dragons 11U", games);
+    let state = [dragons([at("d1", "TBD", "14:00", 5, 3)]), hens].reduce(pull, empty);
+    const hensId = state.teams.find((team) => team.name === "Hens")!.id;
+    const hensSee = (pool: GcImportState) =>
+      pool.games
+        .filter((game) => game.teamAId === hensId || game.teamBId === hensId)
+        .map((game) => scoreSeenBy(game, hensId) ?? "unplayed");
+    expect(hensSee(state)).toEqual([{ own: 3, opponent: 5 }]);
+    state = pull(state, dragons([at("d1", "TBD", "14:00", 6, 3)]));
+    expect(hensSee(state)).toEqual([{ own: 3, opponent: 6 }]);
+    state = pull(state, dragons([at("d9", "Somebody Else 11U", "09:00", 4, 4)]));
+    expect(hensSee(state)).toEqual(["unplayed"]);
+  });
+});
+
+describe("a game joined before rows were kept, as two coaches' scores at one start", () => {
+  /*
+   * The earlier join left one row naming the Raptors' schedule (`alsoFrom`) and nothing of its
+   * row. The Raptors' next pull brings the row back at that very start with its own score, which
+   * is the same game, not a second one.
+   */
+  const l = legacy([at("l1", RAPTORS, "17:30", 13, 2)]);
+  const r = raptors([at("r1", LEGACY, "17:30", 3, 13)]);
+  const joined = [l, r].reduce(pull, empty);
+  const { alsoRows, reportedByB: _report, ...fields } = joined.games[0]!;
+  const before: ScoutGame = {
+    ...fields,
+    alsoFrom: ["gcRAPTORS001"],
+    note: "Other side reported 13-3.",
+  };
+
+  it("takes the other club's row back on its pull rather than filing the game twice", () => {
+    expect(joined.games).toHaveLength(1);
+    let state: GcImportState = { ...joined, games: [before] };
+    state = importGcSchedule(r, state).state;
+    expect(state.games).toHaveLength(1);
+    for (const next of [l, r]) {
+      state = pull(state, next);
+      expect(state.games).toHaveLength(1);
+      expect(legacySees(state)).toEqual(["13-2"]);
+      expect(raptorsSee(state)).toEqual(["3-13"]);
+    }
+  });
+
+  it("joins the row in the tidy where it was filed apart", () => {
+    const row = rowOfRecord(joined.games[0]!, alsoRows![0]!);
+    const state = tidyPool({ ...joined, games: [before, row] }).state;
+    expect(state.games).toHaveLength(1);
+    expect(raptorsSee(state)).toEqual(["3-13"]);
   });
 });
