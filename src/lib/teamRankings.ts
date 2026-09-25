@@ -1073,7 +1073,7 @@ const PLAN_MAX_LISTED_TWICE = 3;
  * exactly an hour out, a copy listed twice beside a slot of its own — and each rule added to rank
  * one link over another moved the loss to another day's shape.
  */
-const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
+const planDay = (bucket: ScoutGame[]): DayReading | undefined => {
   const schedules: string[] = [];
   for (const row of bucket) {
     const schedule = row.source?.teamId;
@@ -1377,13 +1377,23 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
   const plan: Plan = best;
 
   /*
-   * What the day leaves is settled by count (`pairedByCount`): a game one schedule lists that the
-   * other's games do not account for is one of them.
+   * What the day leaves is settled by count (`pairedByCount`), once a copy dated a day off has had
+   * its chance (`collapseSameGames`): a game one schedule lists that the other's games do not
+   * account for is one of them.
    */
-  return pairedByCount(bucket, plan.groups, (left, right) =>
-    recordsAllow(copyOf(left), copyOf(right))
-  );
+  return {
+    groups: plan.groups,
+    settle: (groups) =>
+      pairedByCount(bucket, groups, (left, right) => recordsAllow(copyOf(left), copyOf(right))),
+  };
 };
+
+/**
+ * A day's games as the links and the plan read them (`groups`, row positions in the day), and the
+ * count still to settle what they leave (`settle`, `pairedByCount` with this day's guard on which
+ * two games may be joined).
+ */
+type DayReading = { groups: number[][]; settle: (groups: number[][]) => number[][] };
 
 const sourceOfRow = (row: ScoutGame): string => row.source?.teamId ?? "";
 
@@ -1561,7 +1571,7 @@ const pairedByCount = (
  * one game — both scored, two coaches who scored it differently: 1,076 such pairs on a nationwide
  * pull, 654 of them a single run apart.
  */
-const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
+const sameGameGroups = (bucket: ScoutGame[]): DayReading => {
   const planned = planDay(bucket);
   if (planned) return planned;
   const sourceOf = (row: number) => bucket[row]?.source?.teamId;
@@ -1705,9 +1715,10 @@ const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
 
   // A count is no evidence about the rows, so it clears the same bar a weak link does.
   const byCount: SameGameEvidence = { strength: 0, gap: Infinity };
-  return pairedByCount(bucket, [...groups.values()], (left, right) =>
-    canJoin(left, right, byCount)
-  );
+  return {
+    groups: [...groups.values()],
+    settle: (left) => pairedByCount(bucket, left, (a, b) => canJoin(a, b, byCount)),
+  };
 };
 
 /**
@@ -1815,12 +1826,21 @@ const isNextDay = (day: string, later: string): boolean => {
  * both schedules, 142 of them at the same clock time a day apart: a date typed a day off, or a game
  * moved to the next day on one schedule only. Those are joined — the same result, or the very same
  * start a day off with a result missing on one side or two within `CLOSE_DISPUTE_RUNS` — where
- * nothing else from either club those two days could be the game: 274 copies. The rest are left
+ * nothing else from either club those two days could be the game: 275 copies. The rest are left
  * as two: a result that merely comes close, or none at all, hours apart across midnight, is not
  * enough to say, and neither is a start a day off whose two results are further apart than
  * scorekeepers are — fifteen were, five of them naming different winners.
  */
-const dayApartPairs = (early: ScoutGame[][], late: ScoutGame[][]): [ScoutGame[], ScoutGame[]][] => {
+const dayApartPairs = (
+  early: ScoutGame[][],
+  late: ScoutGame[][],
+  /**
+   * Only the same result, whatever else either club lists those days: the pass that runs before
+   * each day's count (`collapseSameGames`), where the count would otherwise give the copy to a
+   * blank game of its own day and leave its result to count again on the day before.
+   */
+  sameResultOnly = false
+): [ScoutGame[], ScoutGame[]][] => {
   const sample = early[0]?.[0] ?? late[0]?.[0];
   if (!sample || sample.teamAId === sample.teamBId) return [];
   /** A game only this club's schedule accounts for, with no schedule on record not here to count. */
@@ -1867,11 +1887,14 @@ const dayApartPairs = (early: ScoutGame[][], late: ScoutGame[][]): [ScoutGame[],
     const firsts = early.filter((group) => alone(group, a));
     const seconds = late.filter((group) => alone(group, b));
     if (firsts.length === 0 || seconds.length === 0) continue;
-    if (early.some((group) => alone(group, b)) || late.some((group) => alone(group, a))) continue;
+    const either = early.some((group) => alone(group, b)) || late.some((group) => alone(group, a));
+    if (either && !sameResultOnly) continue;
     const found = firsts.flatMap((x) =>
       seconds.flatMap((y) => {
         const evidence = evidenceOf(x, y);
-        return evidence ? [{ x, y, ...evidence, key: `${idsOf(x)}|${idsOf(y)}` }] : [];
+        return evidence && (!sameResultOnly || evidence.strength === 2)
+          ? [{ x, y, ...evidence, key: `${idsOf(x)}|${idsOf(y)}` }]
+          : [];
       })
     );
     found.sort(
@@ -1964,76 +1987,100 @@ export const collapseSameGames = (
     });
   });
 
-  /** Each day's games, as rows; a day of one game with nothing folded into it is left as it is. */
-  const groupsOf = new Map<Day, ScoutGame[][]>();
-  const untouched = new Set<ScoutGame[]>();
+  /**
+   * Each day read by the links and the plan (`sameGameGroups`), its games held as the rows'
+   * positions in the day; a day of one game with nothing folded into it is left as it is.
+   */
+  type Reading = { day: Day; groups: number[][]; settle?: (groups: number[][]) => number[][] };
+  const readings = new Map<Day, Reading>();
+  const untouched = new Set<number[]>();
   days.forEach((day) => {
     const [only] = day.rows;
     const lone = day.rows.length === 1 && only !== undefined && standing.get(only.id);
     if (lone && !folded(lone)) {
-      const group = [only];
+      const group = [0];
       untouched.add(group);
-      groupsOf.set(day, [group]);
+      readings.set(day, { day, groups: [group] });
       return;
     }
-    groupsOf.set(
-      day,
-      sameGameGroups(day.rows).map((group) => group.map((row) => day.rows[row]!))
-    );
+    readings.set(day, { day, ...sameGameGroups(day.rows) });
   });
 
-  // Then each pair's days side by side, for a copy one club dated a day off the other's.
+  /*
+   * Then each pair's days side by side, for a copy one club dated a day off the other's
+   * (`dayApartPairs`): the same result first, before either day's count can give that copy to a
+   * blank game of its own day and leave the result on the day before to count again — a 9-10 loss
+   * one club listed on a Saturday, and a blank placeholder on the Sunday that took the other club's
+   * Sunday copy of that loss, was that. Then each day's count, and after it the same start a day
+   * off, which is weaker evidence than a count on the day itself.
+   */
   const daysOfPair = new Map<string, Day[]>();
   days.forEach((day) => {
     const list = daysOfPair.get(day.pair);
     if (list) list.push(day);
     else daysOfPair.set(day.pair, [day]);
   });
-  daysOfPair.forEach((list) => {
-    if (list.length < 2) return;
-    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    list.forEach((early, at) => {
-      const late = list[at + 1];
-      if (!late || !isNextDay(early.date, late.date)) return;
-      const earlyGroups = groupsOf.get(early)!;
-      const lateGroups = groupsOf.get(late)!;
-      dayApartPairs(earlyGroups, lateGroups).forEach(([x, y]) => {
-        untouched.delete(x);
-        untouched.delete(y);
-        earlyGroups.splice(earlyGroups.indexOf(x), 1, [...x, ...y]);
-        lateGroups.splice(lateGroups.indexOf(y), 1);
-      });
-    });
+  daysOfPair.forEach((list) =>
+    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  );
+  const acrossDays: ScoutGame[][] = [];
+  const rowsOf = (reading: Reading, group: number[]) => group.map((row) => reading.day.rows[row]!);
+  const joinAcrossDays = (sameResultOnly: boolean) =>
+    daysOfPair.forEach((list) =>
+      list.forEach((day, at) => {
+        const next = list[at + 1];
+        if (!next || !isNextDay(day.date, next.date)) return;
+        const [early, late] = [readings.get(day)!, readings.get(next)!];
+        const earlyRows = early.groups.map((group) => rowsOf(early, group));
+        const lateRows = late.groups.map((group) => rowsOf(late, group));
+        const joins = dayApartPairs(earlyRows, lateRows, sameResultOnly).map(
+          ([x, y]) =>
+            [early.groups[earlyRows.indexOf(x)]!, late.groups[lateRows.indexOf(y)]!, x, y] as const
+        );
+        joins.forEach(([x, y, xRows, yRows]) => {
+          early.groups = early.groups.filter((group) => group !== x);
+          late.groups = late.groups.filter((group) => group !== y);
+          acrossDays.push([...xRows, ...yRows]);
+        });
+      })
+    );
+  joinAcrossDays(true);
+  readings.forEach((reading) => {
+    if (reading.settle) reading.groups = reading.settle(reading.groups);
   });
+  joinAcrossDays(false);
 
   const replaced = new Map<string, ScoutGame>();
   const dropped = new Set<string>();
   const stoodUp: ScoutGame[] = [];
   let regrouped = 0;
   const ownPage = ownPageOf(ageGroups, index);
-  groupsOf.forEach((groups) =>
-    groups.forEach((group) => {
-      if (untouched.has(group)) return;
-      // The game a standing row holds keeps it, so ids and side order stay put.
-      const at = Math.max(
-        0,
-        group.findIndex((row) => standing.has(row.id))
-      );
-      const [first, ...rest] = [group[at]!, ...group.slice(0, at), ...group.slice(at + 1)];
-      const kept = rest.reduce(foldedInto, first);
-      const foldedAway = rest.filter((row) => standing.has(row.id));
-      foldedAway.forEach((row) => dropped.add(row.id));
-      const before = standing.get(first.id);
-      if (!before) {
-        stoodUp.push(ownPage(kept));
-        regrouped += 1;
-        return;
-      }
-      if (foldedFields(kept) === foldedFields(before)) return;
-      replaced.set(before.id, kept);
-      if (foldedAway.length === 0) regrouped += 1;
+  const settled = (group: ScoutGame[]) => {
+    // The game a standing row holds keeps it, so ids and side order stay put.
+    const at = Math.max(
+      0,
+      group.findIndex((row) => standing.has(row.id))
+    );
+    const [first, ...rest] = [group[at]!, ...group.slice(0, at), ...group.slice(at + 1)];
+    const kept = rest.reduce(foldedInto, first);
+    const foldedAway = rest.filter((row) => standing.has(row.id));
+    foldedAway.forEach((row) => dropped.add(row.id));
+    const before = standing.get(first.id);
+    if (!before) {
+      stoodUp.push(ownPage(kept));
+      regrouped += 1;
+      return;
+    }
+    if (foldedFields(kept) === foldedFields(before)) return;
+    replaced.set(before.id, kept);
+    if (foldedAway.length === 0) regrouped += 1;
+  };
+  readings.forEach((reading) =>
+    reading.groups.forEach((group) => {
+      if (!untouched.has(group)) settled(rowsOf(reading, group));
     })
   );
+  acrossDays.forEach(settled);
 
   if (dropped.size === 0 && replaced.size === 0 && stoodUp.length === 0) {
     return { games, collapsed: 0, regrouped: 0 };

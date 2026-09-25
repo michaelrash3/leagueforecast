@@ -1728,6 +1728,25 @@ describe("a game one club dated a day off the other's", () => {
     expect(collapseSameGames(rows, [u11]).games).toBe(rows);
   });
 
+  /*
+   * Legacy lists its 9-10 loss on the Saturday and a blank placeholder at midnight on the Sunday;
+   * the Raptors list their 10-9 win on the Sunday. The win is the Saturday's game, not a result for
+   * the Sunday's blank one, which held it while each day was counted alone, and the loss counted
+   * twice.
+   */
+  it("takes the same result a day off before a day's own count", () => {
+    const l = legacy([
+      at("l1", RAPTORS, "17:00", 9, 10),
+      onDay("2026-08-30", "l2", RAPTORS, "00:00"),
+    ]);
+    const r = raptors([onDay("2026-08-30", "r1", LEGACY, "13:00", 10, 9)]);
+    for (const state of bothOrders(l, r)) {
+      expect(legacySees(state)).toEqual(["9-10", "unplayed"]);
+      expect(raptorsSee(state)).toEqual(["10-9"]);
+      expect(tidyPool(state).state.games).toBe(state.games);
+    }
+  });
+
   // The Raptors' copy, joined a day off, later reads as another game: it stands up on its own day.
   it("stands a copy back up on its own day", () => {
     let state = [

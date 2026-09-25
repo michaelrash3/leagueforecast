@@ -535,10 +535,11 @@ game moved to the next day on one schedule only. Once each day was read whole, 4
 days in that pool had a game one club listed only on the first day and the other only on the
 second; in 432 each club listed just that one game, and 212 of those gave the same result on
 both schedules, 142 at the same clock time a day apart. Across two days that follow each other,
-a game only one club accounts for is joined to the other club's on the same result, or on the
-very same start a day off where the results do not say two games — one missing, or within four
-runs — and only where nothing else either club lists those two days could be it: 274 copies
-in that pool. A result that merely comes close, or none at all, hours apart across midnight, is
+a game only one club accounts for is joined to the other club's on the same result — before
+either day's count, which gave one club's Sunday copy of a 9-10 loss to the other club's blank
+Sunday placeholder and left the Saturday's loss to count again — or, after the count, on the
+very same start a day off where the results do not say two games (one missing, or within four
+runs) and nothing else either club lists those two days could be it: 275 copies in that pool. A result that merely comes close, or none at all, hours apart across midnight, is
 left as two; so is a start a day off with results further apart than scorekeepers are, fifteen
 in all, five of them naming different winners. The copy folded in keeps its own day, so if it
 stands up again it stands up on that day.
