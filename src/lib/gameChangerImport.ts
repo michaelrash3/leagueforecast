@@ -1509,20 +1509,26 @@ const opponentFromSameFixture = (
   return index.teamsById.get(other)?.placeholder ? undefined : other;
 };
 
+/** The team `planOpponent` found for a name, or the kind of team it would make for one. */
+type OpponentPlan = OpponentMatch | { create: Partial<ScoutTeam>; basis: "created" };
+
 /**
  * The team an opponent name refers to. The avatar first, because it is the only identifier
  * GameChanger gives that means the same thing on two different schedules. Failing that, a name —
  * but only among teams already on this page, since a name on its own says nothing across levels or
  * seasons. Failing that, a new team, which is the honest answer for a club nobody has pulled.
+ *
+ * Only looked up here, never made: `resolveOpponent` makes the team a plan asks for. `byFixture`
+ * asks the game itself as well, which a caller asking what a name says leaves out.
  */
-const resolveOpponent = (
+const planOpponent = (
   game: GcGame,
   ageGroupId: string,
-  teams: ScoutTeam[],
   index: ImportIndex,
   ownTeamId: string,
-  sourceTeamId: string
-): OpponentMatch => {
+  sourceTeamId: string,
+  byFixture: boolean
+): OpponentPlan => {
   // The picture is a direct identifier, so it is asked first when the game carries one.
   if (game.opponentAvatarKey) {
     const byAvatar = index.teamsByAvatar.get(game.opponentAvatarKey) ?? [];
@@ -1536,7 +1542,9 @@ const resolveOpponent = (
    * Then the game itself, which beats the name even when the name is a real one — and is the only
    * thing that can answer a name that identifies nobody, so it comes before the slot below.
    */
-  const fromFixture = opponentFromSameFixture(index, ownTeamId, ageGroupId, game, sourceTeamId);
+  const fromFixture = byFixture
+    ? opponentFromSameFixture(index, ownTeamId, ageGroupId, game, sourceTeamId)
+    : undefined;
   if (fromFixture) return { teamId: fromFixture, basis: "avatar" };
 
   /**
@@ -1562,9 +1570,7 @@ const resolveOpponent = (
      */
     const pulled = sameName.filter((id) => index.teamsById.get(id)?.gcTeams?.length);
     if (pulled.length === 1 && pulled[0]) return { teamId: pulled[0], basis: "name" };
-    const slot = buildScoutTeam(game.opponentName, index.usedTeamIds, { placeholder: true });
-    addTeam(index, teams, slot);
-    return { teamId: slot.id, basis: "created" };
+    return { create: { placeholder: true }, basis: "created" };
   }
 
   /*
@@ -1641,9 +1647,33 @@ const resolveOpponent = (
     );
   if (reusable) return { teamId: reusable.id, basis: "name" };
 
-  const created = buildScoutTeam(game.opponentName, index.usedTeamIds, { nameOnly: true });
+  return { create: { nameOnly: true }, basis: "created" };
+};
+
+/** The team `plan` asks for, made where it asks for one and added to the roster. */
+const teamOfPlan = (
+  plan: OpponentPlan,
+  name: string,
+  index: ImportIndex,
+  teams: ScoutTeam[]
+): string => {
+  if (!("create" in plan)) return plan.teamId;
+  const created = buildScoutTeam(name, index.usedTeamIds, plan.create);
   addTeam(index, teams, created);
-  return { teamId: created.id, basis: "created" };
+  return created.id;
+};
+
+/** The team an opponent name refers to (`planOpponent`), made if there is none. */
+const resolveOpponent = (
+  game: GcGame,
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  index: ImportIndex,
+  ownTeamId: string,
+  sourceTeamId: string
+): OpponentMatch => {
+  const plan = planOpponent(game, ageGroupId, index, ownTeamId, sourceTeamId, true);
+  return { teamId: teamOfPlan(plan, game.opponentName, index, teams), basis: plan.basis };
 };
 
 /** Games GameChanger lists but that cannot be filed: no date to match on, or called off. */
