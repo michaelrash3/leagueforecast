@@ -214,6 +214,10 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
                     row.onSideB ? 1 : null,
                     // Its own day, where a schedule dated the game a day off the other's.
                     row.date === undefined ? null : (encodeDate(row.date) ?? row.date),
+                    // The team it was filed against, where another club's copy claimed it, and the
+                    // level that name gave: what it goes back to if the claim stops fitting.
+                    row.filedAgainst === undefined ? null : teams.index(row.filedAgainst),
+                    row.filedLevel ?? null,
                   ]),
                 ];
           })
@@ -304,6 +308,8 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
         const ownScore = num(entry[3]);
         const opponentScore = num(entry[4]);
         const date = decodeDate(entry[6]);
+        const filedAgainst = at(pool.t, entry[7]);
+        const filedLevel = num(entry[8]);
         return [
           {
             teamId,
@@ -314,6 +320,9 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
               ? { ownScore, opponentScore }
               : {}),
             ...(entry[5] === 1 ? { onSideB: true } : {}),
+            ...(filedAgainst
+              ? { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) }
+              : {}),
           },
         ];
       })
@@ -684,6 +693,12 @@ const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
                   ? { ownScore: entry.ownScore, opponentScore: entry.opponentScore }
                   : {}),
                 ...(entry.onSideB === true ? { onSideB: true } : {}),
+                ...(isFilledString(entry.filedAgainst)
+                  ? {
+                      filedAgainst: entry.filedAgainst,
+                      ...(isNumber(entry.filedLevel) ? { filedLevel: entry.filedLevel } : {}),
+                    }
+                  : {}),
               },
             ]
           : []

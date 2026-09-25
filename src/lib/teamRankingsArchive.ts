@@ -3,6 +3,7 @@ import {
   ageGroupYear,
   inSegment,
   buildTeamRankings,
+  filedTeamIds,
   SEASON_SEGMENT_ORDER,
   segmentLabel,
   type AgeGroup,
@@ -293,7 +294,11 @@ export const archiveSquadYear = (
 
   const going = new Set(ofYear.map((group) => group.id));
   const remaining = stored.games.filter((game) => !going.has(game.ageGroupId));
-  const wanted = new Set(remaining.flatMap((game) => [game.teamAId, game.teamBId]));
+  // A team a claimed row was filed against is still where that row goes back (`filedTeamIds`).
+  const wanted = new Set([
+    ...remaining.flatMap((game) => [game.teamAId, game.teamBId]),
+    ...filedTeamIds(remaining),
+  ]);
   const keptTeams = stored.teams.filter((team) => wanted.has(team.id));
 
   // A frozen game the stored pool never held came from the league, so the table is now its record.
@@ -373,7 +378,10 @@ export const withoutSeason = (
   state: { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] }
 ): { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[]; dropped: number } => {
   const games = state.games.filter((game) => game.ageGroupId !== groupId);
-  const wanted = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
+  const wanted = new Set([
+    ...games.flatMap((game) => [game.teamAId, game.teamBId]),
+    ...filedTeamIds(games),
+  ]);
   const teams = state.teams.filter((team) => wanted.has(team.id));
   return {
     // The page goes with its games: a page exists exactly when something is filed on it.

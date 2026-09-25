@@ -2453,6 +2453,33 @@ describe("mergeScoutTeams", () => {
     source: { kind: "gamechanger", ...source },
   });
 
+  it("takes the rows claimed from the team folded away along to the one it folds into", () => {
+    // The Cubs' copy holds a row of another schedule's filed against "Aces Spring" by name and
+    // claimed (`FoldedRow.filedAgainst`): folded into the Aces, that row goes back to the Aces.
+    const claimed = {
+      teamId: "gcOther",
+      gameId: "o1",
+      ownScore: 2,
+      opponentScore: 4,
+      onSideB: true as const,
+    };
+    const games: ScoutGame[] = [
+      {
+        ...filed("C", "D", 4, 2, { teamId: "gcCubs", gameId: "c1" }),
+        alsoFrom: ["gcOther"],
+        alsoRows: [
+          { ...claimed, filedAgainst: "B", filedLevel: 10 },
+          { ...claimed, gameId: "o2", filedAgainst: "C" },
+        ],
+      },
+    ];
+    const out = mergeScoutTeams("B", "A", [...teams, team("D", "Dukes")], games, []);
+    expect(out.games[0]?.alsoRows).toEqual([
+      { ...claimed, filedAgainst: "A", filedLevel: 10 },
+      { ...claimed, gameId: "o2", filedAgainst: "C" },
+    ]);
+  });
+
   it("makes one row of the game both halves filed against the same opponent", () => {
     // Fall id and Spring id each pulled their own schedule; both had the 3-2 over the Cubs.
     const games = [

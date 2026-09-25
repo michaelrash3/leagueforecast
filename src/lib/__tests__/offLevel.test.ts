@@ -196,6 +196,68 @@ describe("resettleOffLevel", () => {
     expect(state.games[0]?.teamBId).toBe("S-LOOK9");
   });
 
+  it("leaves a game the named club's own schedule gave a row too", () => {
+    /*
+     * The 9U club's own row of this game is folded into it, as a slot settled at one start or the
+     * collapse leaves one: its own schedule lists the game, so it is its game, whatever level the
+     * other schedule typed. Moved off, the 9U club's row went with it into a game the club was not
+     * in, and the club's next pull filed that row a second time.
+     */
+    const before = misfiled();
+    const record = { teamId: "p8KJXdIzoYPR", gameId: "9", ownScore: 0, opponentScore: 20 };
+    const folded = {
+      ...before,
+      games: [
+        {
+          ...before.games[0]!,
+          alsoFrom: ["p8KJXdIzoYPR"],
+          alsoRows: [{ ...record, onSideB: true as const }],
+        },
+      ],
+    };
+
+    expect(resettleOffLevel(folded).resettled).toBe(0);
+    // A row of the club's held only as a claim — filed against somebody else, and read as this game
+    // by the clock — is not the club's word for it, and the game moves as it would without it.
+    const claimed = {
+      ...folded,
+      games: [
+        {
+          ...folded.games[0]!,
+          alsoRows: [{ ...record, onSideB: true as const, filedAgainst: "S-EAGL" }],
+        },
+      ],
+    };
+    const { state, resettled } = resettleOffLevel(claimed);
+    expect(resettled).toBe(1);
+    expect(state.games[0]?.teamBId).toBe("S-LOOK15");
+  });
+
+  it("keeps a stand-in with no game that a claimed row goes back to", () => {
+    const before = misfiled();
+    const sharks: ScoutTeam = { id: "S-SHARKS", name: "Sharks", nameOnly: true };
+    const claimed = {
+      ...before,
+      teams: [...before.teams, sharks],
+      games: [
+        ...before.games,
+        {
+          id: "gc_gcOTHER_1",
+          teamAId: "S-PANDAS",
+          teamBId: "S-LOOK15",
+          ageGroupId: "ag15",
+          date: "2026-09-20",
+          source: { kind: "gamechanger" as const, teamId: "sd2CKtYsvOFh", gameId: "2" },
+          alsoFrom: ["gcELSE"],
+          alsoRows: [{ teamId: "gcELSE", gameId: "e1", filedAgainst: sharks.id }],
+        },
+      ],
+    };
+    const { state, resettled } = resettleOffLevel(claimed);
+    expect(resettled).toBe(1);
+    expect(state.teams.some((team) => team.id === sharks.id)).toBe(true);
+  });
+
   it("leaves a game nobody pulled alone", () => {
     const before = misfiled();
     const typed = { ...before, games: [{ ...before.games[0]!, source: undefined }] };

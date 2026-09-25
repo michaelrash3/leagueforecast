@@ -750,6 +750,7 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
           pair("Tidy: games withdrawn", log.tidy.withdrawn ?? 0),
           pair("Tidy: rows reclaimed", log.tidy.reclaimed),
           pair("Tidy: rows refiled", log.tidy.refiled),
+          pair("Tidy: rows claimed", log.tidy.claimed),
           pair("Tidy: passes", log.tidy.passes),
         ]
       : []),

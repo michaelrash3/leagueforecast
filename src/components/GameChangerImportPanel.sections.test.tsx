@@ -44,6 +44,7 @@ vi.mock("../hooks/usePoolTidy", () => ({
           pruned: 0,
           reclaimed: 0,
           refiled: 0,
+          claimed: 0,
           releveled: 0,
         },
       };

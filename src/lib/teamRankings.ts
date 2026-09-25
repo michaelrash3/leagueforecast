@@ -801,6 +801,35 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
 };
 
 /**
+ * A claimed row stood back up as its own schedule filed it: against the team its name gave
+ * (`FoldedRow.filedAgainst`), at the level the name gave, rather than against the club whose own
+ * schedule claimed it. A row with no such record stands up as `rowOfRecord` has it.
+ */
+export const filedRowOf = (holder: ScoutGame, record: FoldedRow): ScoutGame =>
+  asFiled(rowOfRecord(holder, record), record);
+
+/** `row`, a claimed record stood up against its holder, put back against the team it named. */
+const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
+  if (record.filedAgainst === undefined || record.filedAgainst === row.teamAId) return row;
+  const { ageLevelB: _level, ...rest } = row;
+  return {
+    ...rest,
+    teamBId: record.filedAgainst,
+    ...(record.filedLevel === undefined ? {} : { ageLevelB: record.filedLevel }),
+  };
+};
+
+/** `record` carrying the claim `from` holds, where it holds one and `record` does not. */
+const withClaimOf = (record: FoldedRow, from: FoldedRow | undefined): FoldedRow =>
+  from?.filedAgainst === undefined || record.filedAgainst !== undefined
+    ? record
+    : {
+        ...record,
+        filedAgainst: from.filedAgainst,
+        ...(from.filedLevel === undefined ? {} : { filedLevel: from.filedLevel }),
+      };
+
+/**
  * A result on the row being dropped fills a blank on the one kept; a result already there stands,
  * unless it was only borrowed from side B and the row dropped is side A's own word for it. A fill
  * is marked as the dropped row's (`scoreFromTwin`), or side B's where that is what the dropped row
@@ -852,9 +881,11 @@ export const withSchedulesOf = (keep: ScoutGame, drop: ScoutGame): ScoutGame => 
     (keep.alsoRows ?? []).map((record) => [gcRowId(record.teamId, record.gameId), record])
   );
   let rowsChanged = false;
-  incoming.forEach((record) => {
-    const id = gcRowId(record.teamId, record.gameId);
+  incoming.forEach((incomingRecord) => {
+    const id = gcRowId(incomingRecord.teamId, incomingRecord.gameId);
     const before = rows.get(id);
+    // A re-pull's newer record of a claimed row is still the claim (`FoldedRow.filedAgainst`).
+    const record = withClaimOf(incomingRecord, before);
     if (before && JSON.stringify(before) === JSON.stringify(record)) return;
     rows.set(id, record);
     rowsChanged = true;
@@ -1835,9 +1866,10 @@ export const standUpWithdrawn = (
   const kept = games.flatMap((game) => {
     if (!game.withdrawn) return [game];
     withdrawn += 1;
-    // What the user said of the game goes with each row that stands in its place.
+    // What the user said of the game goes with each row that stands in its place; a claimed row
+    // goes back against the team its own schedule named, not the club whose copy has gone.
     return (game.alsoRows ?? []).map((record) => {
-      const row = ownPage(rowOfRecord(game, record));
+      const row = ownPage(filedRowOf(game, record));
       return {
         ...row,
         ...(game.excluded ? { excluded: true } : {}),
@@ -2068,22 +2100,71 @@ export const collapseSameGames = (
     foldedDays.add(rows);
   });
   const known = new Map<ScoutGame[], Set<string>>();
+  /*
+   * The claimed rows among them (`FoldedRow.filedAgainst`), by the row of the game holding each and
+   * by the claimed row's id. A claim is not regrouped: it stays with the game that holds it, and
+   * goes wherever that game's own row goes. Where it belongs is `claimFiledRows`'s to say, which
+   * alone knows the team the row was filed against; read here as one more row against the club
+   * that claimed it, a claim between two of that club's copies an hour either side was taken by
+   * the one the claim step had refused, five runs off, and the two steps passed it back and forth
+   * until the tidy stopped.
+   */
+  const pinned = new Map<ScoutGame, ScoutGame[]>();
+  const claimOf = new Map<string, FoldedRow>();
+  const standingRowOf = new Map<ScoutGame, ScoutGame>();
+  bareOf.forEach((game, row) => standingRowOf.set(game, row));
+  /** The rows already on a pair's day, without making the day where there are none. */
+  const rowsIfAny = (pair: string, date: string): ScoutGame[] | undefined => {
+    const found = pairs.get(pair);
+    if (found === undefined) return undefined;
+    if (found instanceof Map) return found.get(date);
+    return found.date === date ? found.rows : undefined;
+  };
+  const idsOf = (rows: ScoutGame[]): Set<string> => {
+    let ids = known.get(rows);
+    if (!ids) {
+      ids = new Set(rows.map((entry) => entry.id));
+      known.set(rows, ids);
+    }
+    return ids;
+  };
   games.forEach((game) => {
     if (!inScope(game) || !game.alsoRows?.length) return;
     game.alsoRows.forEach((record) => {
       const row = rowOfRecord(game, record);
-      const rows = rowsOn(pairOf(game), row.date ?? "");
-      let ids = known.get(rows);
-      if (!ids) {
-        ids = new Set(rows.map((entry) => entry.id));
-        known.set(rows, ids);
+      if (record.filedAgainst !== undefined) {
+        // A claimed row standing in the pool as well is the row, and the claim of it goes.
+        const day = rowsIfAny(pairOf(game), row.date ?? "");
+        if (claimOf.has(row.id) || (day && idsOf(day).has(row.id))) return;
+        claimOf.set(row.id, record);
+        const holder = standingRowOf.get(game)!;
+        const list = pinned.get(holder);
+        if (list) list.push(row);
+        else pinned.set(holder, [row]);
+        return;
       }
-      if (ids.has(row.id)) return;
+      const rows = rowsOn(pairOf(game), row.date ?? "");
+      const ids = idsOf(rows);
+      if (ids.has(row.id) || claimOf.has(row.id)) return;
       ids.add(row.id);
       fromRecord.add(row);
       rows.push(row);
     });
   });
+  /** `game` with every claimed row it holds still carrying its claim. */
+  const withClaims = (game: ScoutGame): ScoutGame =>
+    claimOf.size === 0 ||
+    !game.alsoRows?.some(
+      (record) =>
+        record.filedAgainst === undefined && claimOf.has(gcRowId(record.teamId, record.gameId))
+    )
+      ? game
+      : {
+          ...game,
+          alsoRows: game.alsoRows.map((record) =>
+            withClaimOf(record, claimOf.get(gcRowId(record.teamId, record.gameId)))
+          ),
+        };
 
   /**
    * Each day read by the links and the plan (`sameGameGroups`), its games held as the rows'
@@ -2178,7 +2259,9 @@ export const collapseSameGames = (
       group.findIndex((row) => standingFor(row) !== undefined)
     );
     const [first, ...rest] = [group[at]!, ...group.slice(0, at), ...group.slice(at + 1)];
-    const kept = rest.reduce(foldedInto, first);
+    // The claims each game in the group held go with it, after the rows the regroup placed.
+    const claimed = group.flatMap((row) => pinned.get(row) ?? []);
+    const kept = withClaims(claimed.reduce(foldedInto, rest.reduce(foldedInto, first)));
     const foldedAway = rest.filter((row) => standingFor(row) !== undefined);
     foldedAway.forEach((row) => dropped.add(row.id));
     const before = standingFor(first);
@@ -3514,6 +3597,87 @@ export const externalResultsForSeason = (
   leagueScoutBridge(seasonId, ageGroups, teams, games, leagueTeams, seasonFixtures).results;
 
 /**
+ * `copy` holding `row` as its club's own copy of the game, claimed (`claimFiledRows`): `row` is a
+ * club's own row, on side A as its schedule filed it, against a team it named that is not the club
+ * `copy` came off — a stand-in, or a pulled club whose own schedules never listed it. `copy` is that
+ * other club's own row, the named club on its side B. The row goes on record with the team it was
+ * filed against, so it can go back there, and its score beside `copy`'s own (`withSideBReport`).
+ */
+export const claimInto = (
+  copy: ScoutGame,
+  row: ScoutGame,
+  filedAgainst: string,
+  filedLevel: number | undefined
+): ScoutGame => {
+  const asCopy: ScoutGame = { ...row, teamBId: copy.teamAId };
+  const recorded = withSchedulesOf(copy, asCopy);
+  const claim = { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) };
+  const marked: ScoutGame = {
+    ...recorded,
+    alsoRows: (recorded.alsoRows ?? []).map((record) =>
+      gcRowId(record.teamId, record.gameId) === row.id ? { ...record, ...claim } : record
+    ),
+  };
+  return withSideBReport(marked, asCopy) ?? marked;
+};
+
+/**
+ * `holder` without the claimed row `record`, and without its schedule on record where no other row
+ * of that schedule is: what the regroup after reads the game as (`collapseSameGames`), which takes
+ * back the score the row lent it.
+ */
+export const releaseClaim = (holder: ScoutGame, record: FoldedRow): ScoutGame => {
+  const alsoRows = (holder.alsoRows ?? []).filter(
+    (entry) => entry.teamId !== record.teamId || entry.gameId !== record.gameId
+  );
+  const named = alsoRows.some((entry) => entry.teamId === record.teamId);
+  const alsoFrom = named
+    ? holder.alsoFrom
+    : (holder.alsoFrom ?? []).filter((schedule) => schedule !== record.teamId);
+  const { alsoRows: _rows, alsoFrom: _from, ...rest } = holder;
+  return {
+    ...rest,
+    ...(alsoRows.length > 0 ? { alsoRows } : {}),
+    ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
+  };
+};
+
+/** The page a row stood back up is filed under, for a caller outside the regroup (`ownPageOf`). */
+export const ownPageFor = (ageGroups: AgeGroup[]): ((row: ScoutGame) => ScoutGame) =>
+  ownPageOf(ageGroups, indexGroups(ageGroups));
+
+/**
+ * `game` with every claim it holds (`FoldedRow.filedAgainst`) filed against `to(team)` instead: a
+ * team folded into another takes the rows claimed from it along. The same game when nothing moves.
+ */
+export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => string): ScoutGame => {
+  if (!game.alsoRows?.some((record) => record.filedAgainst !== undefined)) return game;
+  let changed = false;
+  const alsoRows = game.alsoRows.map((record) => {
+    if (record.filedAgainst === undefined) return record;
+    const next = to(record.filedAgainst);
+    if (next === record.filedAgainst) return record;
+    changed = true;
+    return { ...record, filedAgainst: next };
+  });
+  return changed ? { ...game, alsoRows } : game;
+};
+
+/**
+ * Every team a claimed row was filed against (`FoldedRow.filedAgainst`). A stand-in with no game of
+ * its own left is still the team such a row goes back to, so it stays in the roster while one does.
+ */
+export const filedTeamIds = (games: readonly ScoutGame[]): Set<string> => {
+  const ids = new Set<string>();
+  games.forEach((game) =>
+    game.alsoRows?.forEach((record) => {
+      if (record.filedAgainst !== undefined) ids.add(record.filedAgainst);
+    })
+  );
+  return ids;
+};
+
+/**
  * Renames a team, merging it into an existing one when the new name is already taken.
  *
  * The merge is the point. A schedule that listed an opponent as "TBD", or a name typed two ways,
@@ -3592,9 +3756,10 @@ export const mergeScoutTeams = (
       droppedGames += 1;
       return;
     }
-    repointed.push(
-      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId }
-    );
+    const moved =
+      teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
+    // A row claimed from the team folded away was filed against the survivor.
+    repointed.push(withFiledRepointed(moved, (id) => (id === fromId ? intoId : id)));
   });
 
   const linkedIds = new Set((survivor.gcTeams ?? []).map((link) => link.teamId));

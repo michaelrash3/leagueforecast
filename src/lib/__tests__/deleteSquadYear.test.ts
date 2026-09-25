@@ -94,6 +94,22 @@ describe("deleting a squad year", () => {
     expect(done.droppedTeams).toBe(3);
   });
 
+  it("keeps a team a claimed row in another year's game was filed against", () => {
+    // The 2027 game holds a row of another club's schedule that was filed against the Cubs by name
+    // and claimed: the Cubs are where that row goes back, though no game of theirs is left.
+    const before = pool();
+    const claimed = {
+      ...before,
+      games: before.games.map((game) =>
+        game.id === "g3"
+          ? { ...game, alsoRows: [{ teamId: "gcOTHER", gameId: "o1", filedAgainst: "S-C" }] }
+          : game
+      ),
+    };
+    const done = deleteSquadYear(2026, claimed, []);
+    expect(done.state.teams.map((team) => team.id)).toEqual(["S-A", "S-C", "S-N"]);
+  });
+
   /*
    * A club in both years stays — one copy of a club is how a rename reaches both — but the ids its
    * 2026 squads were pulled as are this year's, and a link left to a page that is gone would be
