@@ -808,6 +808,18 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
 export const filedRowOf = (holder: ScoutGame, record: FoldedRow): ScoutGame =>
   asFiled(rowOfRecord(holder, record), record);
 
+/**
+ * Whether `record` is a claim filed against the very team it faces in `holder`: a stand-in its row
+ * was filed against, merged since into the club whose copy claimed it (`withFiledRepointed`), by
+ * hand or with the club's other squad. The name is that club's now, so the row is where its name
+ * says, as a row filed against the club by name is. It stays a claim, so a re-pull does not read
+ * it as a fold with nothing to say where it was filed (`FoldedRow.filedAgainst`), but it is not a
+ * claim the schedules can take back: there is no other team for it to go back to.
+ */
+export const isSettledClaim = (holder: ScoutGame, record: FoldedRow): boolean =>
+  record.filedAgainst !== undefined &&
+  record.filedAgainst === (record.onSideB ? holder.teamAId : holder.teamBId);
+
 /** `row`, a claimed record stood up against its holder, put back against the team it named. */
 const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
   if (record.filedAgainst === undefined || record.filedAgainst === row.teamAId) return row;
@@ -3610,15 +3622,24 @@ export const claimInto = (
   filedLevel: number | undefined
 ): ScoutGame => {
   const asCopy: ScoutGame = { ...row, teamBId: copy.teamAId };
-  const recorded = withSchedulesOf(copy, asCopy);
+  const marked = withFiledMark(withSchedulesOf(copy, asCopy), row.id, filedAgainst, filedLevel);
+  return withSideBReport(marked, asCopy) ?? marked;
+};
+
+/** `game` with its record of the row `rowId` marked as filed against `filedAgainst` by name. */
+export const withFiledMark = (
+  game: ScoutGame,
+  rowId: string,
+  filedAgainst: string,
+  filedLevel: number | undefined
+): ScoutGame => {
   const claim = { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) };
-  const marked: ScoutGame = {
-    ...recorded,
-    alsoRows: (recorded.alsoRows ?? []).map((record) =>
-      gcRowId(record.teamId, record.gameId) === row.id ? { ...record, ...claim } : record
+  return {
+    ...game,
+    alsoRows: (game.alsoRows ?? []).map((record) =>
+      gcRowId(record.teamId, record.gameId) === rowId ? { ...record, ...claim } : record
     ),
   };
-  return withSideBReport(marked, asCopy) ?? marked;
 };
 
 /**

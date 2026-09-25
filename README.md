@@ -736,8 +736,45 @@ as a game of its own and count. Deleting a club that is not one stands the claim
 back up, and keeps it as a name only where a claimed row elsewhere goes back to it; removing a team
 from a page keeps it in the roster for the same reason; and a claimed row filed against a team the
 tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
-it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that:
-restore a backup from before it to have those rows read again this way.
+it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that.
+
+The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name
+again and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is
+gone, the pull makes one for the name. It marks only what the claim step would have claimed. The
+row must be on the same day, on the other side of the other club's own copy, with no other row of
+the club in that copy. The claim step's rules for a stand-in must hold, and no row of the club
+against the other club may be waiting that day or either side of it. It leaves alone a fold whose
+name files it against the other club:
+
+- the other club's name, a GameChanger listing's name, or its picture;
+- a shorthand for the other club's name at the very start, in one region;
+- a name the club's other rows already stand against the other club under, as a hand merge
+  leaves them;
+- a name that finds a pulled club.
+
+It also leaves the same result, and the very start with results that do not disagree. The slot
+settle folds those with no mark, and would fold them again after every release.
+
+This was measured on the pool of 24 September 2026, tidied by the first version, by pulling again
+every schedule holding such a fold. The pulls marked 1,105 folds. After a tidy, 1,099 of them are
+the claims that a tidy of the pool from before the first version makes. 5 went back to their
+stand-in, as that tidy leaves them, and 3 rows elsewhere were claimed as it claims them. One stays
+claimed where that tidy leaves the row standing, on a day both pools count twice. The pool then
+holds 241,471 games, as that tidy leaves it, and a second pull marks nothing and makes nothing.
+126 of that tidy's claims are left as they were:
+
+- 94 rows typed with the other club's own name;
+- 13 whose name now finds a pulled club or a stand-in the other club has played;
+- 12 with the same result, or at the very start with results that agree;
+- 7 that are not the first version's folds.
+
+A merge can leave a claim filed against the very club whose copy holds it: "Sharks" merged into
+the Bears by hand, or a club's two GameChanger teams paired. The row's name is that club's now, so
+the claim is settled (`isSettledClaim`). The claim step does not read it or take it back, a
+re-pull leaves it alone, and it counts as the club's own row in its copy, as a row filed against
+the club by name does. Read as a claim, it went back against that club beside the club's own
+copy. The collapse then folded it in again with no mark, and the next pull would have marked it as
+filed against a new "Sharks".
 
 On that pool the tidy claims 2,997 rows: 1,782 filed against a pulled club, 939 against a named
 stand-in and 276 slots, in three passes; a second tidy after a storage round trip changes nothing,
