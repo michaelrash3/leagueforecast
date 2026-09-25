@@ -36,6 +36,7 @@ import {
 } from "../gameChangerImport";
 import {
   countsTowardRating,
+  gcRowId,
   isScoutGamePlayed,
   mergeScoutTeams,
   scoreSeenBy,
@@ -1911,6 +1912,8 @@ describe("resolveSlotGames", () => {
         /** Null for a named row with no start time. */
         namedTime?: string | null;
         namedSource?: string;
+        /** The Bears' own score first, as their schedule has it. */
+        namedScore?: [number, number];
       } = {}
     ): GcImportState => {
       let state: GcImportState = { ageGroups: [], teams: [], games: [] };
@@ -1956,8 +1959,8 @@ describe("resolveSlotGames", () => {
             teamBId: clubId("gcA"),
             ageGroupId,
             date: "2026-09-05",
-            teamAScore: 3,
-            teamBScore: 8,
+            teamAScore: opts.namedScore?.[0] ?? 3,
+            teamBScore: opts.namedScore?.[1] ?? 8,
             ...(opts.namedTime === null ? {} : { startTs: opts.namedTime ?? SIX }),
             source: { kind: "gamechanger", teamId: opts.namedSource ?? "gcB", gameId: "b1" },
           },
@@ -1987,18 +1990,604 @@ describe("resolveSlotGames", () => {
       expect(resolveSlotGames(day({ namedTime: null })).resolved).toBe(0);
     });
 
-    it("leaves them when the stand-in's name is not a shorthand for the club", () => {
-      expect(resolveSlotGames(day({ slotName: "Sharks" })).resolved).toBe(0);
+    it("keeps it once whatever the stand-in is called, where no Aces schedule lists the Bears' copy", () => {
+      // "Sharks" is no shorthand for the Bears, but the Bears' 3-8 at six is a game the Aces played
+      // and list nowhere else, and the Aces were playing somebody at six: their own 7-3.
+      const { state, resolved } = resolveSlotGames(day({ slotName: "Sharks" }));
+      expect(resolved).toBe(1);
+      expect(state.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
+      expect(state.games[0]!.reportedByB).toEqual({ teamAScore: 3, teamBScore: 7 });
     });
 
-    it("leaves them when the slot is a bracket placeholder, whatever it is labelled", () => {
-      // A placeholder's label is the bracket's, not a club's: "Bears" here says nothing about who.
-      expect(resolveSlotGames(day({ slotName: "Bears", placeholder: true })).resolved).toBe(0);
+    it("leaves a result more than four runs from the other club's when the name is no shorthand", () => {
+      // The Bears' 3-12 against the Aces' 7-3: nine runs apart, and "Sharks" says nothing of the
+      // Bears. Mostly some other Aces, filed against these by name; two games.
+      const { state, resolved } = resolveSlotGames(
+        day({ slotName: "Sharks", namedScore: [3, 12] })
+      );
+      expect(resolved).toBe(0);
+      expect(state.games).toHaveLength(2);
+    });
+
+    it("keeps a bracket slot once at one start time, scored within four runs", () => {
+      // A placeholder's label is the bracket's, not a club's, and says nothing about who; the clock
+      // and the two scores do, where no Aces schedule lists the Bears' copy.
+      const { state, resolved } = resolveSlotGames(day({ slotName: "Bears", placeholder: true }));
+      expect(resolved).toBe(1);
+      expect(state.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
+    });
+
+    it("leaves a bracket slot whose result is more than four runs from the other club's", () => {
+      const { resolved } = resolveSlotGames(
+        day({ slotName: "Bears", placeholder: true, namedScore: [3, 12] })
+      );
+      expect(resolved).toBe(0);
     });
 
     it("leaves them when one schedule wrote both", () => {
       // One coach's two rows at one instant with two results: nobody else's account of the game.
       expect(resolveSlotGames(day({ namedSource: "gcA" })).resolved).toBe(0);
+    });
+  });
+
+  describe("a stand-in row beside a copy its club's schedules leave out", () => {
+    /*
+     * The Aces' own schedule has games against clubs typed as nothing GameChanger lists; the Bears'
+     * and the Cubs' own schedules have games against the Aces that no Aces schedule gives a row.
+     * Built by hand, as the day above is. A row's score is the Aces' first; a copy's is its own
+     * club's first, as that club's schedule has it.
+     */
+    const at = (clock: string) => `2026-09-05T${clock}:00.000Z`;
+    type Row = {
+      id: string;
+      clock?: string;
+      score?: [number, number];
+      name?: string;
+      slot?: boolean;
+      /** The schedule behind the row, where it is not the Aces'; null for none at all. */
+      source?: string | null;
+      /** An age the Aces' coach typed into the stand-in's name. */
+      typedLevel?: number;
+    };
+    type Copy = {
+      id: string;
+      club?: "gcB" | "gcC";
+      clock?: string;
+      score?: [number, number];
+      /** The Aces' own named row against this club, rather than the club's copy. */
+      aces?: boolean;
+      /** A copy that already holds a row off the Aces' schedule, folded in. */
+      heldByAces?: boolean;
+      /** The schedule behind the copy, where it is not its own club's; null for none at all. */
+      source?: string | null;
+      /** Another day than the rows'. */
+      date?: string;
+      /** A team on the other side of this club's own row, where it is not the Aces. */
+      against?: string;
+    };
+    const build = (rows: Row[], copies: Copy[]): GcImportState => {
+      let state: GcImportState = { ageGroups: [], teams: [], games: [] };
+      for (const [id, name] of [
+        ["gcA", "Aces 9U"],
+        ["gcB", "Bears 9U"],
+        ["gcC", "Cubs 9U"],
+      ] as const) {
+        state = importGcSchedule(
+          {
+            profile: { id, name, ageLevel: 9, season: { season: "fall", year: 2026 } },
+            games: [],
+            fetchedAt: "2026-09-06T00:00:00.000Z",
+          },
+          state
+        ).state;
+      }
+      const clubId = (gcId: string) =>
+        state.teams.find((team) => team.gcTeams?.some((link) => link.teamId === gcId))!.id;
+      const ageGroupId = state.ageGroups[0]!.id;
+      const aces = clubId("gcA");
+      return {
+        ...state,
+        teams: [
+          ...state.teams,
+          ...rows.map((row) => ({
+            id: `S-${row.id}`,
+            name: row.name ?? "Sharks",
+            ...(row.slot ? { placeholder: true as const } : { nameOnly: true as const }),
+          })),
+        ],
+        games: [
+          ...rows.map((row): ScoutGame => ({
+            id: `gc_gcA_${row.id}`,
+            teamAId: aces,
+            teamBId: `S-${row.id}`,
+            ageGroupId,
+            date: "2026-09-05",
+            ...(row.score ? { teamAScore: row.score[0], teamBScore: row.score[1] } : {}),
+            ...(row.clock ? { startTs: at(row.clock) } : {}),
+            ...(row.typedLevel === undefined ? {} : { ageLevelB: row.typedLevel }),
+            ...(row.source === null
+              ? {}
+              : {
+                  source: {
+                    kind: "gamechanger" as const,
+                    teamId: row.source ?? "gcA",
+                    gameId: row.id,
+                  },
+                }),
+          })),
+          ...copies.map((copy): ScoutGame => {
+            const club = clubId(copy.club ?? "gcB");
+            const schedule = copy.aces ? "gcA" : (copy.club ?? "gcB");
+            const source = copy.source === undefined ? schedule : copy.source;
+            const [own, other] = copy.aces ? [aces, club] : [club, copy.against ?? aces];
+            return {
+              id: `gc_${schedule}_${copy.id}`,
+              teamAId: own,
+              teamBId: other,
+              ageGroupId,
+              date: copy.date ?? "2026-09-05",
+              ...(copy.score ? { teamAScore: copy.score[0], teamBScore: copy.score[1] } : {}),
+              ...(copy.clock ? { startTs: at(copy.clock) } : {}),
+              ...(source === null
+                ? {}
+                : { source: { kind: "gamechanger" as const, teamId: source, gameId: copy.id } }),
+              ...(copy.heldByAces
+                ? {
+                    alsoRows: [
+                      {
+                        teamId: "gcA",
+                        gameId: `${copy.id}-aces`,
+                        ...(copy.clock ? { startTs: at(copy.clock) } : {}),
+                        onSideB: true,
+                      },
+                    ],
+                    alsoFrom: ["gcA"],
+                  }
+                : {}),
+            };
+          }),
+        ],
+      };
+    };
+    /** Which copy each settled row went into, by the rows each copy now holds. */
+    const heldRows = (state: GcImportState) =>
+      Object.fromEntries(
+        state.games
+          .filter((game) => (game.alsoRows ?? []).some((record) => record.teamId === "gcA"))
+          .map((game) => [game.id, (game.alsoRows ?? []).map((record) => record.gameId).sort()])
+      );
+
+    it("takes the copy an hour or less off its clock, a result still to come on one side", () => {
+      // The Aces' 7-3 at six against "Sharks"; the Bears' own schedule has them playing the Aces
+      // at a quarter to seven, not scored yet. The Aces were playing at six: it is that game.
+      const { state, resolved } = resolveSlotGames(
+        build([{ id: "a1", clock: "18:00", score: [7, 3] }], [{ id: "b1", clock: "18:45" }])
+      );
+      expect(resolved).toBe(1);
+      expect(state.games).toHaveLength(1);
+      const game = state.games[0]!;
+      expect(game.id).toBe("gc_gcB_b1");
+      // The Bears have posted nothing, so the Aces' score is lent, marked as side B's.
+      expect([game.teamAScore, game.teamBScore, game.scoreFromB]).toEqual([3, 7, true]);
+      expect(game.reportedByB).toEqual({ teamAScore: 3, teamBScore: 7 });
+      expect(game.alsoRows).toEqual([
+        {
+          teamId: "gcA",
+          gameId: "a1",
+          startTs: at("18:00"),
+          ownScore: 7,
+          opponentScore: 3,
+          onSideB: true,
+        },
+      ]);
+      expect(game.alsoFrom).toEqual(["gcA"]);
+      // The stand-in held nothing else, so it goes.
+      expect(state.teams.some((team) => team.id === "S-a1")).toBe(false);
+    });
+
+    it("takes one scored within four runs, each club keeping its own schedule's score", () => {
+      // The Aces had it 7-3; the Bears had it 4-8 half an hour later. Two runs apart.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "18:00", score: [7, 3] }],
+          [{ id: "b1", clock: "18:30", score: [4, 8] }]
+        )
+      );
+      expect(resolved).toBe(1);
+      const game = state.games[0]!;
+      expect([game.teamAScore, game.teamBScore, game.scoreFromB]).toEqual([4, 8, undefined]);
+      expect(game.reportedByB).toEqual({ teamAScore: 3, teamBScore: 7 });
+    });
+
+    it("leaves one within the hour whose result is more than four runs off", () => {
+      // The Bears' 12-1 over the Aces against the Aces' own 7-3 win: two games.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "18:00", score: [7, 3] }],
+          [{ id: "b1", clock: "18:30", score: [12, 1] }]
+        )
+      );
+      expect(resolved).toBe(0);
+      expect(state.games).toHaveLength(2);
+    });
+
+    it("leaves one more than an hour off, a result still to come on one side", () => {
+      expect(
+        resolveSlotGames(
+          build([{ id: "a1", clock: "18:00", score: [7, 3] }], [{ id: "b1", clock: "19:01" }])
+        ).resolved
+      ).toBe(0);
+    });
+
+    it("takes one exactly an hour off, as two schedules' copies of one game are read", () => {
+      expect(
+        resolveSlotGames(build([{ id: "a1", clock: "18:00" }], [{ id: "b1", clock: "19:00" }]))
+          .resolved
+      ).toBe(1);
+    });
+
+    it("leaves a row with no start to go on", () => {
+      // An all-day 7-3 against "Sharks" and the Bears' 4-8 at half six: only the day, and a result
+      // that differs, to go on.
+      expect(
+        resolveSlotGames(
+          build([{ id: "a1", score: [7, 3] }], [{ id: "b1", clock: "18:30", score: [4, 8] }])
+        ).resolved
+      ).toBe(0);
+    });
+
+    it("leaves a copy an Aces schedule already holds a row of", () => {
+      // The Bears' copy at half six already holds the Aces' own row: the Aces listed that game.
+      // Their six o'clock game against "Sharks" is another one.
+      const { resolved } = resolveSlotGames(
+        build([{ id: "a1", clock: "18:00" }], [{ id: "b1", clock: "18:30", heldByAces: true }])
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("leaves the Aces' own named row, which is a game they listed", () => {
+      const { resolved } = resolveSlotGames(
+        build([{ id: "a1", clock: "18:00" }], [{ id: "a9", clock: "18:30", aces: true }])
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("will not choose between two copies that each fit the row as well", () => {
+      // One game off two GameChanger teams of one club, 1-5 at half nine on both: which is the
+      // Aces' row is not a choice to make on the order the pool holds them in.
+      const { resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "21:30", score: [5, 1] }],
+          [
+            { id: "b1", clock: "21:30", score: [1, 5] },
+            { id: "c1", club: "gcC", clock: "21:30", score: [1, 5] },
+          ]
+        )
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("will not choose between two rows that each fit the copy as well", () => {
+      const { resolved } = resolveSlotGames(
+        build(
+          [
+            { id: "a1", clock: "10:00" },
+            { id: "a2", clock: "11:00" },
+          ],
+          [{ id: "b1", clock: "10:30" }]
+        )
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("reads a doubleheader's rows and copies in both schedules' order", () => {
+      // The Aces list two games at ten and eleven against names nobody pulled; the Bears list both
+      // against the Aces, each half an hour later. Eleven fits either copy on its own; the day
+      // reads first with first.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [
+            { id: "a1", clock: "10:00" },
+            { id: "a2", clock: "11:00" },
+          ],
+          [
+            { id: "b1", clock: "10:30" },
+            { id: "b2", clock: "11:30" },
+          ]
+        )
+      );
+      expect(resolved).toBe(2);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"], gc_gcB_b2: ["a2"] });
+    });
+
+    it("gives a copy to the row at its very start over one within the hour", () => {
+      // The Aces' 5-3 at ten against "Sharks", scored two runs from the Bears' 2-6 at ten, and a
+      // blank Aces row at twenty to eleven: both could be the Bears' game, and one instant says
+      // which. (The rounds above leave both: the names do not fit, and the clocks do not agree.)
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [
+            { id: "a1", clock: "10:00", score: [5, 3] },
+            { id: "a2", clock: "10:40" },
+          ],
+          [{ id: "b1", clock: "10:00", score: [2, 6] }]
+        )
+      );
+      expect(resolved).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+    });
+
+    it("takes the same result within the hour over the same result hours off", () => {
+      // The Aces' 5-3 at ten; the Bears have 3-5 at twenty past, the Cubs 3-5 at three. Two copies
+      // agree, so the rounds above leave the row; the one within the hour is its game.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "10:00", score: [5, 3] }],
+          [
+            { id: "b1", clock: "10:20", score: [3, 5] },
+            { id: "c1", club: "gcC", clock: "15:00", score: [3, 5] },
+          ]
+        )
+      );
+      expect(resolved).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+    });
+
+    it("pairs first with first where the clocks alone would pair them either way", () => {
+      // Ten and twenty to eleven on the Aces' schedule; twenty past ten and eleven on the Bears'.
+      // Every row is within the hour of every copy, so only the order says which is which.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [
+            { id: "a1", clock: "10:00" },
+            { id: "a2", clock: "10:40" },
+          ],
+          [
+            { id: "b1", clock: "10:20" },
+            { id: "b2", clock: "11:00" },
+          ]
+        )
+      );
+      expect(resolved).toBe(2);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"], gc_gcB_b2: ["a2"] });
+    });
+
+    it("leaves a copy no schedule of the other club's stands behind", () => {
+      // Typed in by hand, or written off a schedule that is neither club's: nobody's own copy.
+      for (const source of [null, "gcC"]) {
+        expect(
+          resolveSlotGames(
+            build([{ id: "a1", clock: "18:00" }], [{ id: "b1", clock: "18:30", source }])
+          ).resolved
+        ).toBe(0);
+      }
+    });
+
+    it("leaves a stand-in row the Aces' own schedules did not write", () => {
+      for (const source of [null, "gcZ"]) {
+        expect(
+          resolveSlotGames(
+            build([{ id: "a1", clock: "18:00", source }], [{ id: "b1", clock: "18:30" }])
+          ).resolved
+        ).toBe(0);
+      }
+    });
+
+    it("leaves a day with more rows than it reads", () => {
+      // Rows ten minutes before copies, an hour apart: each fits one. Five a side are read.
+      const day = (count: number) =>
+        build(
+          Array.from({ length: count }, (_, i) => ({ id: `a${i}`, clock: `${10 + i}:00` })),
+          Array.from({ length: count }, (_, i) => ({ id: `b${i}`, clock: `${10 + i}:10` }))
+        );
+      expect(resolveSlotGames(day(5)).resolved).toBe(5);
+      expect(resolveSlotGames(day(6)).resolved).toBe(0);
+    });
+
+    it("leaves the copy of a game the Aces list against the Bears by name, not yet paired", () => {
+      // The Aces list the Bears at half nine; the Bears list the Aces once, at seven. Their two
+      // rows are one game the collapse has still to pair, so the "Canes" row at twenty past six is
+      // some other game, however near seven it sits.
+      const { resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "18:20", score: [5, 3] }],
+          [
+            { id: "b1", clock: "19:00" },
+            { id: "a9", clock: "21:30", score: [9, 13], aces: true },
+          ]
+        )
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("leaves the copy of a game the Aces list against the Bears a day off", () => {
+      const { resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "16:00" }],
+          [
+            { id: "b1", clock: "17:00" },
+            { id: "a9", clock: "17:00", aces: true, date: "2026-09-04" },
+          ]
+        )
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("takes the Bears' copy the Aces' own rows against them leave, once those are paired", () => {
+      // The Bears list the Aces at twenty past ten and at two; the Aces list the Bears at two,
+      // already one game with the Bears' two o'clock copy, and "Sharks" at ten.
+      const { state, resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "10:00" }],
+          [
+            { id: "b1", clock: "10:20" },
+            { id: "b2", clock: "14:00", heldByAces: true },
+          ]
+        )
+      );
+      expect(resolved).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"], gc_gcB_b2: ["b2-aces"] });
+    });
+
+    /** Each game of the pool as the rows it stands on, its own and those folded into it. */
+    const rowsOf = (state: GcImportState) =>
+      state.games
+        .map((game) =>
+          [game.id, ...(game.alsoRows ?? []).map((record) => gcRowId(record.teamId, record.gameId))]
+            .sort()
+            .join(" + ")
+        )
+        .sort();
+
+    it("waits for the collapse to pair the Aces' own row against the Bears, then takes what it leaves", () => {
+      // As above, but the Aces' two o'clock row stands on its own when the tidy begins: which Bears
+      // copy it is, is the collapse's to say, and the stand-in row takes the other one after.
+      const tidy = tidyPool(
+        build(
+          [{ id: "a1", clock: "10:00" }],
+          [
+            { id: "b1", clock: "10:20" },
+            { id: "b2", clock: "14:00" },
+            { id: "a9", clock: "14:00", aces: true },
+          ]
+        )
+      );
+      expect(tidy.named).toBe(1);
+      expect(rowsOf(tidy.state)).toEqual(["gc_gcA_a1 + gc_gcB_b1", "gc_gcA_a9 + gc_gcB_b2"]);
+      expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+    });
+
+    it("does not give a stand-in row the copy the Aces' own row against the Bears was waiting for", () => {
+      // The Bears lost to the Aces 2-16 at two and 1-9 at six; the Aces list the 9-1 at six, and an
+      // 8-1 against "Canes" at a quarter to seven. The six o'clock copy is the Aces' 9-1, and the
+      // 8-1 is nothing like the 2-16 four hours before it: three games, as they were.
+      const day = build(
+        [{ id: "a1", clock: "18:45", score: [8, 1] }],
+        [
+          { id: "b1", clock: "14:00", score: [2, 16] },
+          { id: "b2", clock: "18:00", score: [1, 9] },
+          { id: "a9", clock: "18:00", score: [9, 1], aces: true },
+        ]
+      );
+      const tidy = tidyPool(day);
+      expect(tidy.named).toBe(0);
+      expect(rowsOf(tidy.state)).toEqual(["gc_gcA_a1", "gc_gcA_a9 + gc_gcB_b2", "gc_gcB_b1"]);
+    });
+
+    it("leaves a row against a stand-in the Bears' own schedule plays", () => {
+      // The Bears played "Sharks" themselves a week before: whoever the Aces' "Sharks" were, they
+      // were not the Bears.
+      const { resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "18:00" }],
+          [
+            { id: "b1", clock: "18:30" },
+            { id: "b7", clock: "12:00", date: "2026-08-29", against: "S-a1" },
+          ]
+        )
+      );
+      expect(resolved).toBe(0);
+    });
+
+    it("leaves a row whose stand-in carries an age more than two levels from the Bears'", () => {
+      // "Sharks 12U" is a statement about which squad was played, and the Bears are a 9U squad.
+      const day = (typedLevel: number) =>
+        build([{ id: "a1", clock: "18:00", typedLevel }], [{ id: "b1", clock: "18:30" }]);
+      expect(resolveSlotGames(day(12)).resolved).toBe(0);
+      expect(resolveSlotGames(day(11)).resolved).toBe(1);
+    });
+
+    it("takes a slot within the hour scored within four runs", () => {
+      const { resolved } = resolveSlotGames(
+        build(
+          [{ id: "a1", clock: "18:00", score: [7, 3], slot: true }],
+          [{ id: "b1", clock: "18:40", score: [3, 8] }]
+        )
+      );
+      expect(resolved).toBe(1);
+    });
+
+    it("reads the same whatever order the pool holds the rows in", () => {
+      const day = build(
+        [
+          { id: "a1", clock: "10:00", score: [4, 2] },
+          { id: "a2", clock: "11:00" },
+          { id: "a3", clock: "15:00", score: [1, 6] },
+        ],
+        [
+          { id: "b1", clock: "10:20", score: [3, 4] },
+          { id: "b2", clock: "11:45" },
+          { id: "c1", club: "gcC", clock: "15:30", score: [5, 1] },
+        ]
+      );
+      const forward = resolveSlotGames(day).state;
+      const backward = resolveSlotGames({ ...day, games: day.games.slice().reverse() }).state;
+      expect(heldRows(backward)).toEqual(heldRows(forward));
+      expect(heldRows(forward)).toEqual({
+        gc_gcB_b1: ["a1"],
+        gc_gcB_b2: ["a2"],
+        gc_gcC_c1: ["a3"],
+      });
+    });
+
+    it("keeps one game through the whole tidy, a second tidy and a re-pull, in either pull order", () => {
+      const aces: GcTeamSchedule = {
+        profile: {
+          id: "gcA",
+          name: "Aces 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "a1",
+            date: "2026-09-05",
+            startTs: at("18:00"),
+            opponentName: "Sharks",
+            teamScore: 7,
+            opponentScore: 3,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      };
+      const bears: GcTeamSchedule = {
+        profile: {
+          id: "gcB",
+          name: "Bears 9U",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+        },
+        games: [
+          {
+            id: "b1",
+            date: "2026-09-05",
+            startTs: at("18:45"),
+            opponentName: "Aces 9U",
+            teamScore: 3,
+            opponentScore: 8,
+            status: "completed",
+          },
+        ],
+        fetchedAt: "2026-09-06T00:00:00.000Z",
+      };
+      for (const order of [
+        [aces, bears],
+        [bears, aces],
+      ]) {
+        const pulled = importGcSchedules(order, { ageGroups: [], teams: [], games: [] }).state;
+        // Filed apart: the Aces' row against a "Sharks" stand-in, the Bears' against the Aces.
+        expect(pulled.games).toHaveLength(2);
+        const tidy = tidyPool(pulled);
+        expect(tidy.named).toBe(1);
+        expect(tidy.state.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
+        expect(tidy.state.teams.some((team) => team.nameOnly)).toBe(false);
+        // Nothing left to do, and the Aces' next pull finds its row where the tidy put it.
+        expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+        const again = importGcSchedule(aces, tidy.state).state;
+        expect(again.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
+        expect(tidyChangedAnything(tidyPool(again))).toBe(false);
+      }
     });
   });
 
@@ -2452,10 +3041,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r10|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r11|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r10|0|0|0|");
+    expect(poolSignature(empty)).toBe("r11|0|0|0|");
   });
 });
 
