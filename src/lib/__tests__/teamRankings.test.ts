@@ -2466,22 +2466,29 @@ describe("mergeScoutTeams", () => {
     expect(out.droppedGames).toBe(0);
   });
 
-  it("reads one game each with different scores as one game, two scorekeepers", () => {
-    // Each schedule lists one game against the Cubs that day; the results differ by a run. A row's
-    // own club is always its side A, as every game pulled from GameChanger has it.
+  it("keeps one game each on one club's two ids apart where the results differ", () => {
+    // Each of the club's two GameChanger teams lists one game against the Cubs that day, with no
+    // start, and the results differ. Two clubs each list every game they play each other, so one
+    // game a side is one game; one club's two teams need not list the same games, so this is not
+    // read as two scorekeepers, and neither result goes. A row's own club is always its side A, as
+    // every game pulled from GameChanger has it.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
       filed("B", "C", 1, 3, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games.map((g) => g.id).sort()).toEqual(["gc_gcFall_f1", "gc_gcSpring_s1"]);
+    expect(out.collapsedGames).toBe(0);
+  });
+
+  it("still reads one game on one club's two ids as one where the results agree", () => {
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("B", "C", 3, 2, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.games).toHaveLength(1);
-    expect(out.games[0]).toMatchObject({
-      id: "gc_gcFall_f1",
-      teamAScore: 3,
-      teamBScore: 2,
-      // Both ids are the one club's, so this is its own schedule scoring the game two ways.
-      note: "Also reported 1-3.",
-    });
+    expect(out.games[0]).toMatchObject({ id: "gc_gcFall_f1", teamAScore: 3, teamBScore: 2 });
     expect(out.collapsedGames).toBe(1);
   });
 

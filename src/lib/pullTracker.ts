@@ -746,6 +746,8 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
           // A log written before the count existed has none, which is nothing regrouped.
           pair("Tidy: games regrouped", log.tidy.regrouped ?? 0),
           pair("Tidy: rows pruned", log.tidy.pruned),
+          // Nor this one, which is nothing withdrawn.
+          pair("Tidy: games withdrawn", log.tidy.withdrawn ?? 0),
           pair("Tidy: rows reclaimed", log.tidy.reclaimed),
           pair("Tidy: rows refiled", log.tidy.refiled),
           pair("Tidy: passes", log.tidy.passes),

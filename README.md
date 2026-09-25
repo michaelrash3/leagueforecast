@@ -451,16 +451,18 @@ no game is, found 7.
 So a row off the other club's schedule can be the same game on any of these, strongest
 first:
 
-| Two clubs' copies of a day's meeting                           | One game?                                   |
-| -------------------------------------------------------------- | ------------------------------------------- |
-| Starting within the hour, with the same result                 | Yes — 1,115 of the 1,213 were within it     |
-| The same result, however far apart the clocks                  | Yes, the nearer the likelier                |
-| At the very same start, a result still to come on one side     | Yes                                         |
-| Starting within the hour, a result still to come on one side   | Yes, the nearer the likelier                |
-| No start on one side                                           | Yes, a copy with a result first             |
-| Starting within the hour, scored differently                   | Yes, each club keeping its own score        |
-| Neither, with one game left on each schedule that day          | Yes, scored differently, as it always was   |
-| Neither, with more on one schedule than the other accounts for | No — that is a game only one of them listed |
+| Two clubs' copies of a day's meeting                         | One game?                                   |
+| ------------------------------------------------------------ | ------------------------------------------- |
+| Starting within the hour, with the same result               | Yes — 1,115 of the 1,213 were within it     |
+| The same result, however far apart the clocks                | Yes, the nearer the likelier                |
+| At the very same start, a result still to come on one side   | Yes                                         |
+| Starting within the hour, a result still to come on one side | Yes, the nearer the likelier                |
+| No start on one side                                         | Yes, a copy with a result first             |
+| Starting within the hour, scored differently                 | Yes, each club keeping its own score        |
+| Neither, left on each schedule that day with nothing to pair | Yes, by count, as many as the shorter list  |
+| The rest of the longer list                                  | No — that is a game only one of them listed |
+| A day apart, the same result or the same start               | Yes, where nothing else those days could be |
+| On two GameChanger teams of one club, left by the links      | No — one club's two teams are not a count   |
 
 **A day is read whole.** Which copy each game takes is decided for the whole day at once
 rather than a link at a time (`planDay`): every way of pairing the two schedules' games is
@@ -502,9 +504,20 @@ another moved the loss to another shape. The weighing:
   doubleheader, 10-0 twice, stays two games wherever the other club lists both slots,
   posted or not, timed or all day. A game listed twice is as near the other club's copy as
   the nearer of its two rows.
-- **Two copies that contradict are never one game** by any link. The day's leftovers are
-  still settled by count: one game left on each schedule, both scored, is one game two
-  coaches scored differently.
+- **Two copies that contradict are never one game** by any link, but **what the day leaves
+  is settled by count** (`pairedByCount`). Two clubs each list every game they play each
+  other, so a game on one schedule that nothing on the other accounts for is one of the
+  other's, under a clock or a score that did not read as it: a tournament running behind with
+  nobody moving the placeholders, a coach's GameChanger set to another zone, 3:00 typed for
+  15:00, two scorekeepers who disagree. On the pool of 24 September 2026, after the links, 786
+  days still had such a game on each schedule, each counted twice; 660 had one a side, 432 of
+  those at clocks a whole number of hours apart — 199 two hours, 58 twelve. So as many are
+  paired as the shorter list holds, whatever they say: first the pairing whose copies read most
+  alike — the same result, a dispute within four runs, a start twelve hours out — then the
+  nearer starts, which keep both schedules' games in their order. A club's 8-3 win at 19:00
+  goes to the other's 6-8 loss at 15:30, not its 0-2 at 17:00. Two GameChanger teams of one
+  club are not two accounts of a game, so they are never paired by count: each lists its own
+  games, and a result paired wrongly would be lost.
 - **The same rows read the same way whatever order they were pulled in.** A copy is read
   by its scored rows and the best of them, and every choice between readings falls to the
   rows' ids, never to their place in the pool: a fuzz of 2,000 days found 50 that read
@@ -517,10 +530,23 @@ with the same guard against contradicting copies. A game takes one row off each 
 and two games that each hold a row off both schedules stay two unless the rows share a
 start.
 
+**A day apart.** One club can date a game a day off the other: a date typed a day out, or a
+game moved to the next day on one schedule only. Once each day was read whole, 466 pairs of
+days in that pool had a game one club listed only on the first day and the other only on the
+second; in 432 each club listed just that one game, and 212 of those gave the same result on
+both schedules, 142 at the same clock time a day apart. Across two days that follow each other,
+a game only one club accounts for is joined to the other club's on the same result, or on the
+very same start a day off where the results do not say two games — one missing, or within four
+runs — and only where nothing else either club lists those two days could be it: 274 copies
+in that pool. A result that merely comes close, or none at all, hours apart across midnight, is
+left as two; so is a start a day off with results further apart than scorekeepers are, fifteen
+in all, five of them naming different winners. The copy folded in keeps its own day, so if it
+stands up again it stands up on that day.
+
 **A fold is never final.** A game keeps every row folded into it whole — the schedule,
-the row's id, its start and its score from its own seat (`alsoRows`) — and every tidy
-stands those rows back up beside the games still standing and groups the day again from
-scratch. So a fold made on one day's schedules answers to the next day's: a copy that
+the row's id, its start, its day where that is not the game's, and its score from its own
+seat (`alsoRows`) — and every tidy stands those rows back up, each on its own day, beside the
+games still standing and groups the days again from scratch. So a fold made on one day's schedules answers to the next day's: a copy that
 went to the wrong game of a doubleheader on a tie moves when a score says which it was,
 two games listed at one placeholder slot come apart when the schedule moves one, and a
 row that fits nothing now stands up as a game under its own id — filed under its own
@@ -531,16 +557,25 @@ real club over a stand-in, then the one holding folded rows, with the newest sco
 copy carries. The tidy used to fold both away, and then to keep the stale copy's.) A re-pull finds its row
 by id, updates the record and leaves the grouping to the tidy; a row the schedule no
 longer lists — deleted, cancelled, moved to another day — has its record removed on that
-schedule's next pull. The same regrouping run twice changes nothing, which is what lets
+schedule's next pull. A game standing on such a row is marked (`withdrawn`), and the next tidy
+takes it away and stands up the rows folded into it to be placed again: a game Legacy deleted
+and entered again, all day before and timed now, otherwise stood beside its new entry holding
+the Raptors' copy, one game counted twice. A game that holds another row of the same schedule
+still listed is not taken away — the next pull stands it on that row — and nor is anything on
+a schedule that comes back with no games at all, which is as likely a failed read as a club
+that deleted its season. The same regrouping run twice changes nothing, which is what lets
 the tidy stop: on the pool of 24 September 2026 a second tidy over the first one's
-result, saved and read back, finds nothing to do. A tidy that only moves a row from one
+result, saved and read back, finds nothing to do, and a fuzz of 2,000 random days groups each
+the same whatever order its rows came in. A tidy that only moves a row from one
 game to another, or takes back a score whose row has gone, counts as a change
 (`regrouped`), so the pull that ran it saves it rather than stamping the pool tidied with
 the fix left in memory. Records written before rows were kept say only the schedule
 (`alsoFrom`), and there a row is taken back only within the hour and agreeing — the
 folded row coming back, which 21 of the 23 results listed twice that way in the same pool
-were — or at the game's very start whatever it says, which is how an earlier join left two
-coaches' different scores at one start.
+were — with the same result however far off the clocks, as any two schedules' copies of one
+game are, or at the game's very start whatever it says, which is how an earlier join left two
+coaches' different scores at one start. A different result hours off is the day's second
+meeting, which the record was kept to show.
 
 A start the schedule itself has since moved is taken on the next pull; another
 schedule's start is never written over a row, nor fills a row that has none, since that
@@ -550,13 +585,17 @@ A game whose own row the schedule deleted, entered again under a new id, stands 
 row from then on — its result, its start, set or cleared, and the pulls after it — so a
 correction to the new row reaches the game, and one entered again all day is not split
 from the row it replaced. A club's second listing of a game its first row leaves blank
-gives the game its score, corrections included, marked as the listing's. Deleting a game
-that took over a row remembers both the row and the game's id, from Pool Health's
-dated-ahead list and from deleting a club alike. On the pool of 24 September 2026 the tidy
-folds 2,779 rows this way and settles 7 slots: 6 whose starts were a fraction of a second
-apart, and a stand-in copy of a 3-2 win that had two games of that score to choose from
-until one was seen to hold the club's own row already. Legacy's page reads six games
-again.
+gives the game its score, corrections included, marked as the listing's. Deleting a club
+remembers every row its games stood on, and a game's id where it took over a row entered
+again. Deleting a game from Pool Health's dated-ahead list remembers the rows that carried the
+score (`scoringRowsOf`): the row the game stands on where the score is its own, and every
+folded row with a score of its own. Remembering only the row the game stood on let the other
+club's scored copy back on its next pull; remembering every row would keep the other club's
+real fixture, a game still to play, out for good. On the pool of 24 September 2026 the tidy
+folds 3,865 rows this way, leaving 244,471 games, and settles 7 slots: 6 whose starts were a
+fraction of a second apart, and a stand-in copy of a 3-2 win that had two games of that score
+to choose from until one was seen to hold the club's own row already. Legacy's page reads six
+games again.
 
 **Each club keeps its own score.** The Dragons' schedule says they beat the Hens 11-8;
 the Hens' says they lost 8-10; it is one game, listed on both at 10am. The game used to

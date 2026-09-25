@@ -7,6 +7,7 @@ import {
   isDeletedGame,
   restoreGames,
   rowsOfGames,
+  scoringRowsOf,
 } from "../deletedGames";
 import {
   createGcImporter,
@@ -162,6 +163,77 @@ describe("a game that took over a row entered again", () => {
       deleted,
     }).state;
     expect(again.games).toEqual([]);
+  });
+});
+
+describe("a game whose score dated ahead came from the other club's copy", () => {
+  /*
+   * The Nitros list a July fixture with no score; Katy's schedule lists the same game already won
+   * 11-0, the only copy with a score. Thrown out, it is Katy's row that is remembered: the Nitros'
+   * fixture comes back on their next pull as the game still to play it is, and Katy's score does
+   * not come back on theirs.
+   */
+  const katy = (games: GcTeamSchedule["games"]): GcTeamSchedule => ({
+    profile: {
+      id: "KatyGold0001",
+      name: "Texas Twelve Gold Katy",
+      ageLevel: 11,
+      season: { season: "winter", year: 2026 },
+      state: "TX",
+      city: "Katy",
+    },
+    games,
+    fetchedAt: "2026-09-20T03:35:17.077Z",
+  });
+  const fixture = {
+    ...ahead,
+    id: "n1",
+    status: "scheduled" as const,
+  } as GcTeamSchedule["games"][number];
+  delete fixture.teamScore;
+  delete fixture.opponentScore;
+  const scored = {
+    ...ahead,
+    id: "k1",
+    opponentName: "CF Nitros Black 11U",
+    teamScore: 0,
+    opponentScore: 11,
+  };
+  // A game already played beside it, or the whole schedule reads as invented and is refused.
+  const played = { ...behind, id: "k0", opponentName: "Somebody Else 11U" };
+  const pull = (state: GcImportState, next: GcTeamSchedule, deleted?: Set<string>) =>
+    tidyPool(importGcSchedule(next, state, deleted ? { deleted } : {}).state).state;
+
+  it("remembers the row that carried the score, not the fixture beside it", () => {
+    let state = pull(empty, schedule([fixture]));
+    state = pull(state, katy([scored, played]));
+    const game = state.games.find((entry) => entry.date === ahead.date)!;
+    expect(isDatedAhead(game, "2026-09-20")).toBe(true);
+    expect(game.scoreFromB).toBe(true);
+    const rows = scoringRowsOf(state.games, [game.id]);
+    expect(rows).toEqual(["gc_KatyGold0001_k1"]);
+
+    const deleted = forgetGames(new Set<string>(), rows);
+    state = { ...state, games: state.games.filter((entry) => entry.id !== game.id) };
+    state = pull(state, katy([scored, played]), deleted);
+    state = pull(state, schedule([fixture]), deleted);
+    const back = state.games.filter((entry) => entry.date === ahead.date);
+    expect(back).toHaveLength(1);
+    expect(back[0]!.id).toBe("gc_WpYo8bR3Smwp_n1");
+    expect(back[0]!.teamAScore).toBeUndefined();
+  });
+
+  it("remembers the row the game stands on when the score is that row's own", () => {
+    let state = pull(empty, schedule([ahead, behind]));
+    const game = state.games.find((entry) => entry.date === ahead.date)!;
+    expect(scoringRowsOf(state.games, [game.id])).toEqual(["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
+    state = pull(
+      state,
+      katy([{ ...fixture, id: "k1", opponentName: "CF Nitros Black 11U" }, played])
+    );
+    const held = state.games.find((entry) => entry.date === ahead.date)!;
+    // The other club's plain fixture is not remembered: it is a game still to play.
+    expect(scoringRowsOf(state.games, [held.id])).toEqual(["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
   });
 });
 

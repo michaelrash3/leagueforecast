@@ -92,6 +92,7 @@ import {
   forgetGames,
   restoreClubs,
   rowsOfGames,
+  scoringRowsOf,
   type DeletedClubs,
 } from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
@@ -1085,12 +1086,12 @@ export function TeamRankingsView({
     const confirmed = await requestConfirmation({
       title: `Delete ${ids.length} game${ids.length === 1 ? "" : "s"}?`,
       message:
-        "Each one carries a score on a date still to come, so it cannot be a result. They are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
+        "Each one carries a score on a date still to come, so it cannot be a result. The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
     const drop = new Set(ids);
-    saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, ids)));
+    saveDeletedGames(forgetGames(loadDeletedGames(), scoringRowsOf(wholePoolGames, ids)));
     const kept = wholePoolGames.filter((game) => !drop.has(game.id));
     if (kept.length !== wholePoolGames.length) persistAllGames(kept);
     showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {

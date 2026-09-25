@@ -61,6 +61,7 @@ import {
   squadNameKey,
   normalizeState,
   squadYearForGcSeason,
+  standUpWithdrawn,
   teamNameKey,
   type AgeGroup,
   type GcTeamLink,
@@ -103,6 +104,8 @@ type ImportIndex = {
   foldedInto: Map<string, string>;
   /** The games holding a folded row of each schedule, so a pull can clear the ones it dropped. */
   recordsBySchedule: Map<string, Set<string>>;
+  /** The games standing on a row of each schedule, so a pull can tell the ones it no longer lists. */
+  gamesBySchedule: Map<string, Set<string>>;
   /** Where each game sits in the working array, so an update is an assignment rather than a map. */
   gamePos: Map<string, number>;
   /** Where each team sits, for the same reason. */
@@ -216,6 +219,7 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     gamesById: new Map(),
     foldedInto: new Map(),
     recordsBySchedule: new Map(),
+    gamesBySchedule: new Map(),
     gamePos: new Map(),
     teamPos: new Map(),
     usedTeamIds: new Set(),
@@ -366,6 +370,9 @@ const indexFolded = (index: ImportIndex, game: ScoutGame): void => {
   if (game.source) {
     const own = gcRowId(game.source.teamId, game.source.gameId);
     if (own !== game.id) index.foldedInto.set(own, game.id);
+    const standing = index.gamesBySchedule.get(game.source.teamId);
+    if (standing) standing.add(game.id);
+    else index.gamesBySchedule.set(game.source.teamId, new Set([game.id]));
   }
   (game.alsoRows ?? []).forEach((row) => {
     index.foldedInto.set(gcRowId(row.teamId, row.gameId), game.id);
@@ -2358,6 +2365,33 @@ const importOne = (
   }
 
   /*
+   * A game standing on a row this schedule no longer lists — deleted, cancelled, moved off the day
+   * — is marked for the tidy to take away, and one standing on a row listed again is unmarked
+   * (`ScoutGame.withdrawn`). Not a game holding another row of this schedule's that it still lists:
+   * that is the game entered again, which its next pull stands on the new row under the old id (the
+   * folded row above). Not on a schedule that lists nothing at all, either: that is as likely an
+   * answer that came back empty as a club that deleted its whole season.
+   */
+  if (schedule.games.length > 0) {
+    const stillListed = (teamId: string, gameId: string) =>
+      teamId === profile.id && listed.has(gcGameId(teamId, gameId));
+    (index.gamesBySchedule.get(profile.id) ?? new Set<string>()).forEach((gameId) => {
+      const game = index.gamesById.get(gameId);
+      if (!game?.source || game.source.teamId !== profile.id) return;
+      const gone =
+        !stillListed(game.source.teamId, game.source.gameId) &&
+        !(game.alsoRows ?? []).some((record) => stillListed(record.teamId, record.gameId));
+      if (gone === (game.withdrawn === true)) return;
+      if (gone) {
+        writeInPlace(game, { ...game, withdrawn: true });
+      } else {
+        const { withdrawn: _gone, ...rest } = game;
+        writeInPlace(game, rest);
+      }
+    });
+  }
+
+  /*
    * A record of a row this schedule no longer files — deleted, cancelled, moved off the day — goes,
    * so a game does not go on standing for a row that is not there, and the tidy does not stand up
    * a row nobody lists.
@@ -4087,6 +4121,11 @@ export type PoolTidy = {
   regrouped: number;
   /** Rows dated outside their squad year, dropped. */
   pruned: number;
+  /**
+   * Games whose own row their schedule no longer lists, taken away, with the rows folded into each
+   * stood up to be placed again (`ScoutGame.withdrawn`).
+   */
+  withdrawn: number;
   /** Rows moved to the namesake whose own schedule holds the game. */
   reclaimed: number;
   /** Rows taken off a club that plays nowhere near the age they were played at. */
@@ -4260,6 +4299,7 @@ export const TIDY_STEPS = [
   "highSchool",
   "releveled",
   "pruned",
+  "withdrawn",
   "named",
   "joined",
   "reclaimed",
@@ -4436,7 +4476,13 @@ const tidyOnce = (
   starting("pruned", levels.state);
   const season = pruneOutOfSeason(levels.state);
   finished("pruned", season.pruned, season.state);
-  const unique = withoutRepeatedIds(season.state);
+  // Before anything settles a stand-in into it or folds a row into it: the game is going.
+  starting("withdrawn", season.state);
+  const gone = standUpWithdrawn(season.state.games, season.state.ageGroups);
+  const standing =
+    gone.games !== season.state.games ? { ...season.state, games: gone.games } : season.state;
+  finished("withdrawn", gone.withdrawn, standing);
+  const unique = withoutRepeatedIds(standing);
   starting("named", unique.state);
   const named = resolveSlotGames(unique.state);
   finished("named", named.resolved, named.state);
@@ -4500,6 +4546,7 @@ const tidyOnce = (
     collapsed: same.collapsed + unique.dropped,
     regrouped: same.regrouped,
     pruned: season.pruned,
+    withdrawn: gone.withdrawn,
     reclaimed: moved.reclaimed,
     resettled: graded.resettled,
     refiled: placed.refiled,
@@ -4529,6 +4576,7 @@ export const tidyPool = (
     collapsed: 0,
     regrouped: 0,
     pruned: 0,
+    withdrawn: 0,
     reclaimed: 0,
     resettled: 0,
     refiled: 0,
@@ -4548,6 +4596,7 @@ export const tidyPool = (
     total.collapsed += step.collapsed;
     total.regrouped += step.regrouped;
     total.pruned += step.pruned;
+    total.withdrawn += step.withdrawn;
     total.reclaimed += step.reclaimed;
     total.resettled += step.resettled;
     total.refiled += step.refiled;
@@ -4562,6 +4611,7 @@ export const tidyPool = (
       step.collapsed +
       step.regrouped +
       step.pruned +
+      step.withdrawn +
       step.reclaimed +
       step.resettled +
       step.refiled +
@@ -4594,8 +4644,10 @@ export const tidyPool = (
  *       the same result at any start, with the other club's score kept beside it rather than in a
  *       note; the blitzball refusal released before it had no bump of its own, and reaches a pool
  *       already tidied with this one
+ *  10 — keeping once a game each club's schedule lists that nothing on the other's accounts for,
+ *       whatever the two clocks say, and taking away a game its club's schedule no longer lists
  */
-const TIDY_RULES_VERSION = 9;
+const TIDY_RULES_VERSION = 10;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -4642,6 +4694,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.pruned > 0
       ? [
           `${plural(tidy.pruned, "game", "games")} dated before the season began (August 1), left out.`,
+        ]
+      : []),
+    ...(tidy.withdrawn > 0
+      ? [
+          `${plural(tidy.withdrawn, "game", "games")} its club's schedule no longer lists, taken out, and the other club's copy placed again.`,
         ]
       : []),
     ...(tidy.named > 0

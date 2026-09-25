@@ -121,11 +121,18 @@ describe("teamRankingsCsvSections", () => {
               onSideB: true,
             },
             { teamId: "gsUthn4XoIxS", gameId: "twice" },
+            {
+              teamId: "q7Lk2mZpVw01",
+              gameId: "next-day",
+              date: "2028-04-06",
+              ownScore: 6,
+              opponentScore: 4,
+            },
           ],
           reportedByB: { teamAScore: 6, teamBScore: 4 },
           scoreFromB: true,
         },
-        { ...games[1]!, scoreFromTwin: true },
+        { ...games[1]!, scoreFromTwin: true, withdrawn: true },
       ],
     };
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(folded))).toEqual(folded);
@@ -229,12 +236,13 @@ describe("teamRankingsCsvSections", () => {
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
+        "Withdrawn",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
     // a game with no start, and one only its own club's schedule scored, and scored on its own row.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,$/);
-    expect(lines[2]).toMatch(/,,,,,,,,,,,$/);
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,,,,,$/);
   });
 });
 

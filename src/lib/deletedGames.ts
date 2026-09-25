@@ -59,6 +59,48 @@ export const rowsOfGames = (
   return [...ids, ...stoodOn];
 };
 
+/**
+ * The rows to remember for games thrown out for a score dated ahead: the rows that carried the
+ * score, and only those.
+ *
+ * A game holds a row off each club's schedule, and the score can be either one's: a club that
+ * files results ahead of time scores its copy, while the other club's copy of the same fixture is
+ * the plain schedule entry it always was. Remembering only the row the game stood on missed the
+ * scored copy when it was the other club's, folded in, and that club's next pull filed it, score
+ * and all, straight back. Remembering every row would keep the other club's real fixture out for
+ * good. So a row is remembered where it gave the game a score of its own: the row the game stands
+ * on (and the id it was made from) when the game's score is that row's, not one it borrowed
+ * (`scoreFromB`, `scoreFromTwin`), and every folded row whose record kept a score.
+ */
+export const scoringRowsOf = (
+  games: readonly Pick<
+    ScoutGame,
+    "id" | "source" | "teamAScore" | "teamBScore" | "scoreFromB" | "scoreFromTwin" | "alsoRows"
+  >[],
+  ids: readonly string[]
+): string[] => {
+  const drop = new Set(ids);
+  const rows = new Set<string>();
+  games.forEach((game) => {
+    if (!drop.has(game.id)) return;
+    const ownScore =
+      game.teamAScore !== undefined &&
+      game.teamBScore !== undefined &&
+      !game.scoreFromB &&
+      !game.scoreFromTwin;
+    if (ownScore) {
+      rows.add(game.id);
+      if (game.source) rows.add(gcRowId(game.source.teamId, game.source.gameId));
+    }
+    (game.alsoRows ?? []).forEach((record) => {
+      if (record.ownScore !== undefined && record.opponentScore !== undefined) {
+        rows.add(gcRowId(record.teamId, record.gameId));
+      }
+    });
+  });
+  return [...rows];
+};
+
 /** The list with these rows allowed back, so the next pull may file them again. */
 export const restoreGames = (deleted: DeletedGames, ids: readonly string[]): Set<string> => {
   const next = new Set(deleted);

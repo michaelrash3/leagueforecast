@@ -155,8 +155,9 @@ const GAME_HEADERS = [
    */
   "Start",
   /**
-   * The rows folded into this game, whole: `team:game`, then `@start`, `=own-opponent` and `/B` for
-   * a row whose club is side B, each where there is one.
+   * The rows folded into this game, whole: `team:game`, then `#day` for a row its schedule dated a
+   * day off the game's, `@start`, `=own-opponent` and `/B` for a row whose club is side B, each
+   * where there is one.
    */
   "Also Rows",
   /** The score as Team B's own schedule gave it, where that was kept: A's runs, a dash, B's. */
@@ -165,6 +166,8 @@ const GAME_HEADERS = [
   "Score From Team B",
   /** The score is another listing's of the game on Team A's schedule, the row it stands on blank. */
   "Score From Second Listing",
+  /** Team A's schedule no longer lists the row the game stands on; the next tidy takes it away. */
+  "Withdrawn",
 ];
 
 /**
@@ -376,6 +379,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
         .map(
           (row) =>
             `${row.teamId}:${row.gameId}` +
+            (row.date ? `#${row.date}` : "") +
             (row.startTs ? `@${row.startTs}` : "") +
             (row.ownScore !== undefined && row.opponentScore !== undefined
               ? `=${row.ownScore}-${row.opponentScore}`
@@ -386,6 +390,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
       yesNo(game.scoreFromB),
       yesNo(game.scoreFromTwin),
+      yesNo(game.withdrawn),
     ]
       .map(csvEscape)
       .join(",")
@@ -727,21 +732,23 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const alsoFrom = cell("Also From").split(/\s+/).filter(Boolean);
     const startTs = cell("Start");
     // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
-    // colons of its own, but never "@", "=" or "/".
+    // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
+    // day after "#", which no id holds either.
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
       .flatMap((entry) => {
         // A score typed by hand can be any number the score cell takes, so not only whole ones.
         const parsed =
-          /^([^:@=/]+):([^:@=/]+)(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
+          /^([^:@=/#]+):([^:@=/#]+)(?:#(\d{4}-\d{2}-\d{2}))?(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
             entry
           );
         if (!parsed) return [];
-        const [, teamId, gameId, startTs, own, opponent, sideB] = parsed;
+        const [, teamId, gameId, date, startTs, own, opponent, sideB] = parsed;
         return [
           {
             teamId: teamId!,
             gameId: gameId!,
+            ...(date ? { date } : {}),
             ...(startTs ? { startTs } : {}),
             ...(own !== undefined && opponent !== undefined
               ? { ownScore: Number(own), opponentScore: Number(opponent) }
@@ -768,6 +775,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(isYes(cell("Excluded")) ? { excluded: true as const } : {}),
         ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
         ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
+        ...(isYes(cell("Withdrawn")) ? { withdrawn: true as const } : {}),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),

@@ -550,6 +550,79 @@ describe("a game its schedule deleted and entered again", () => {
   });
 });
 
+describe("a game its club's schedule no longer lists", () => {
+  /** Which rows each game holds, as sorted ids. */
+  const together = (state: GcImportState) =>
+    state.games
+      .map((game) =>
+        [game.id, ...(game.alsoRows ?? []).map((row) => gcRowId(row.teamId, row.gameId))]
+          .sort()
+          .join(",")
+      )
+      .sort();
+
+  /*
+   * Legacy's game stood all day, with the Raptors' copy at 10:00 folded in. Legacy deletes its row
+   * and enters the game again at 10:00: the new row cannot be the old one's second listing, one
+   * all day and one timed, so it stood beside it, and the game was counted twice.
+   */
+  it("is taken away, and its club's new entry takes the other club's copy", () => {
+    for (const score of [undefined, [5, 3]] as const) {
+      let state = pull(empty, legacy([at("l1", RAPTORS, undefined, ...(score ?? []))]));
+      state = pull(state, raptors([at("r1", LEGACY, "10:00", ...(score ? [3, 5] : []))]));
+      expect(together(state)).toEqual(["gc_gcLEGACY0001_l1,gc_gcRAPTORS001_r1"]);
+      const imported = importGcSchedule(
+        legacy([at("l2", RAPTORS, "10:00", ...(score ?? []))]),
+        state
+      ).state;
+      const tidy = tidyPool(imported);
+      expect(tidy.withdrawn).toBe(1);
+      expect(describeTidy(tidy).join(" ")).toContain("no longer lists");
+      state = tidy.state;
+      expect(together(state)).toEqual(["gc_gcLEGACY0001_l2,gc_gcRAPTORS001_r1"]);
+      expect(legacySees(state)).toEqual([score ? "5-3" : "unplayed"]);
+      expect(tidyPool(state).state.games).toBe(state.games);
+    }
+  });
+
+  // Legacy cancels the game, then the Raptors do: their copy stands alone, then goes too.
+  it("leaves the other club's copy standing until that club lets it go", () => {
+    let state = [legacy([at("l1", RAPTORS, "10:00")]), raptors([at("r1", LEGACY, "10:00")])].reduce(
+      pull,
+      empty
+    );
+    expect(state.games).toHaveLength(1);
+    const cancelled = { ...at("l1", RAPTORS, "10:00"), status: "canceled" as const };
+    const other = at("l9", "Somebody Else 11U", "15:00");
+    state = pull(state, legacy([cancelled, other]));
+    expect(together(state)).toEqual(["gc_gcLEGACY0001_l9", "gc_gcRAPTORS001_r1"]);
+    state = pull(state, raptors([at("r9", "Somebody Else 11U", "15:00")]));
+    expect(together(state)).toEqual(["gc_gcLEGACY0001_l9", "gc_gcRAPTORS001_r9"]);
+  });
+
+  // An answer with nothing in it is as likely a failed read as a club that deleted its season.
+  it("is kept when the schedule comes back empty", () => {
+    const state = pull(empty, legacy([at("l1", RAPTORS, "10:00", 5, 3)]));
+    const again = pull(state, legacy([]));
+    expect(again.games).toEqual(state.games);
+  });
+
+  it("is kept when its row is listed again before the tidy", () => {
+    const state = pull(
+      empty,
+      legacy([at("l1", RAPTORS, "10:00", 5, 3), at("l2", RAPTORS, "12:00")])
+    );
+    const marked = importGcSchedule(legacy([at("l2", RAPTORS, "12:00")]), state).state;
+    expect(marked.games.find((game) => game.id === "gc_gcLEGACY0001_l1")?.withdrawn).toBe(true);
+    const back = importGcSchedule(
+      legacy([at("l1", RAPTORS, "10:00", 5, 3), at("l2", RAPTORS, "12:00")]),
+      marked
+    ).state;
+    expect(back.games.some((game) => game.withdrawn)).toBe(false);
+    expect(legacySees(tidyPool(back).state)).toEqual(["5-3", "unplayed"]);
+  });
+});
+
 describe("a result dated ahead that one club's schedule lists unscored", () => {
   /*
    * A club that files scores for games not yet played lists three October games against a real
@@ -657,6 +730,44 @@ describe("a game joined before rows were kept, as two coaches' scores at one sta
     const state = tidyPool({ ...joined, games: [before, row] }).state;
     expect(state.games).toHaveLength(1);
     expect(raptorsSee(state)).toEqual(["3-13"]);
+  });
+});
+
+describe("a game joined before rows were kept, and the other club's copy hours off", () => {
+  /*
+   * The earlier join left Legacy's 4-3 win at 20:00 naming the Raptors' schedule and nothing of its
+   * row. The Raptors' row comes back at 17:15 with the same result: the same game whatever the
+   * clocks say, as two schedules' copies of one game are. A different result that far off is the
+   * day's second meeting, which the record was kept to show.
+   */
+  const l = legacy([at("l1", RAPTORS, "20:00", 4, 3)]);
+  const r = raptors([at("r1", LEGACY, "17:15", 3, 4)]);
+  const joined = [l, r].reduce(pull, empty);
+  const { alsoRows, reportedByB: _report, ...fields } = joined.games[0]!;
+  const before: ScoutGame = { ...fields, alsoFrom: ["gcRAPTORS001"] };
+
+  it("takes the row back on its pull", () => {
+    expect(joined.games).toHaveLength(1);
+    let state: GcImportState = { ...joined, games: [before] };
+    state = importGcSchedule(r, state).state;
+    expect(state.games).toHaveLength(1);
+    state = pull(state, r);
+    expect(state.games).toHaveLength(1);
+    expect(raptorsSee(state)).toEqual(["3-4"]);
+  });
+
+  it("joins the row in the tidy where it was filed apart", () => {
+    const row = rowOfRecord(joined.games[0]!, alsoRows![0]!);
+    const state = tidyPool({ ...joined, games: [before, row] }).state;
+    expect(state.games).toHaveLength(1);
+    expect(raptorsSee(state)).toEqual(["3-4"]);
+  });
+
+  it("keeps a different result that far off as the second meeting", () => {
+    const other = raptors([at("r1", LEGACY, "17:15", 13, 12)]);
+    const state = pull({ ...joined, games: [before] }, other);
+    expect(state.games).toHaveLength(2);
+    expect(raptorsSee(state)).toEqual(["13-12", "3-4"]);
   });
 });
 
@@ -969,8 +1080,9 @@ describe("a club's own game whose first row says nothing of the result", () => {
 describe("a cross-age game's copy stood back up", () => {
   /*
    * Legacy's 11U and the Raptors' 12U list one game at 10:00, filed under each club's own page and
-   * folded into one. The Raptors then move theirs to 14:00, and their row stands up as a game of
-   * its own — under their own page, where a refresh of that page alone finds it by id.
+   * folded into one. The Raptors then move theirs to 14:00 and list the 10:00 game again under a
+   * new id — they played twice, and Legacy lists one — so their moved row stands up as a game of
+   * its own, under their own page, where a refresh of that page alone finds it by id.
    */
   it("is filed under its own club's page", () => {
     const raptors12 = (games: GcTeamSchedule["games"]): GcTeamSchedule => ({
@@ -987,7 +1099,8 @@ describe("a cross-age game's copy stood back up", () => {
       raptors12([at("r1", LEGACY, "10:00")]),
     ].reduce(pull, empty);
     expect(state.games).toHaveLength(1);
-    state = pull(state, raptors12([at("r1", LEGACY, "14:00")]));
+    state = pull(state, raptors12([at("r1", LEGACY, "14:00"), at("r2", LEGACY, "10:00")]));
+    expect(state.games).toHaveLength(2);
     const page = (id: string) =>
       state.ageGroups.find((group) => group.id === state.games.find((g) => g.id === id)?.ageGroupId)
         ?.ageLevel;
@@ -1370,5 +1483,262 @@ describe("two different results between the same two clubs", () => {
     for (const state of bothOrders(l, r)) {
       expect(legacySees(state).sort()).toEqual(["10-0", "10-0", "10-0", "4-4"]);
     }
+  });
+});
+
+/*
+ * Two clubs each list every game they play against each other, so a game on one schedule that
+ * nothing on the other accounts for is one of the other's, under a clock or a score that did not
+ * read as it. Each shape here is one the pool of 24 September 2026 counted twice.
+ */
+describe("a game each club lists that the other's games do not account for", () => {
+  const bothOrders = (l: GcTeamSchedule, r: GcTeamSchedule) => [
+    [l, r].reduce(pull, empty),
+    [r, l].reduce(pull, empty),
+  ];
+  /** Which rows each game holds, as sorted ids. */
+  const together = (state: GcImportState) =>
+    state.games
+      .map((game) =>
+        [game.id, ...(game.alsoRows ?? []).map((row) => gcRowId(row.teamId, row.gameId))]
+          .sort()
+          .join(",")
+      )
+      .sort();
+
+  it("is one game a side whatever the two clocks say", () => {
+    for (const [l, r] of [
+      // Neither scored, two hours apart: another zone's clock, or a tournament running behind.
+      [legacy([at("l1", RAPTORS, "13:00")]), raptors([at("r1", LEGACY, "15:00")])],
+      // One scored, the other's copy five hours on.
+      [legacy([at("l1", RAPTORS, "12:00", 5, 8)]), raptors([at("r1", LEGACY, "17:00")])],
+      // AM typed for PM.
+      [legacy([at("l1", RAPTORS, "03:00")]), raptors([at("r1", LEGACY, "15:00")])],
+      // Both scored, a run apart and two hours apart.
+      [legacy([at("l1", RAPTORS, "15:00", 10, 8)]), raptors([at("r1", LEGACY, "17:00", 6, 9)])],
+    ] as const) {
+      for (const state of bothOrders(l, r)) expect(state.games).toHaveLength(1);
+    }
+  });
+
+  it("keeps the game's own score on each club's page", () => {
+    const l = legacy([at("l1", RAPTORS, "12:00", 5, 8)]);
+    for (const state of bothOrders(l, raptors([at("r1", LEGACY, "17:00")]))) {
+      expect(legacySees(state)).toEqual(["5-8"]);
+      expect(raptorsSee(state)).toEqual(["8-5"]);
+    }
+    const r = raptors([at("r1", LEGACY, "17:00", 9, 6)]);
+    for (const state of bothOrders(legacy([at("l1", RAPTORS, "15:00", 10, 8)]), r)) {
+      expect(legacySees(state)).toEqual(["10-8"]);
+      expect(raptorsSee(state)).toEqual(["9-6"]);
+    }
+  });
+
+  it("pairs two a side in both schedules' order", () => {
+    // A doubleheader on a clock four and a half hours out, neither club's copies scored yet.
+    const l = legacy([at("l1", RAPTORS, "17:30"), at("l2", RAPTORS, "19:30")]);
+    const r = raptors([at("r1", LEGACY, "13:00"), at("r2", LEGACY, "15:00")]);
+    for (const state of bothOrders(l, r)) {
+      expect(together(state)).toEqual([
+        "gc_gcLEGACY0001_l1,gc_gcRAPTORS001_r1",
+        "gc_gcLEGACY0001_l2,gc_gcRAPTORS001_r2",
+      ]);
+    }
+  });
+
+  /*
+   * Legacy lists one game, a 3-14 loss at 04:30; the Raptors list a 13-3 win at 16:30 and a 3-1 win
+   * at 18:30. The loss is the 13-3, typed twelve hours out and scored a run apart; the 3-1 is a
+   * second game Legacy does not list.
+   */
+  it("gives the shorter list's game to the copy that reads most like it", () => {
+    const l = legacy([at("l1", RAPTORS, "04:30", 3, 14)]);
+    const r = raptors([at("r1", LEGACY, "16:30", 13, 3), at("r2", LEGACY, "18:30", 3, 1)]);
+    for (const state of bothOrders(l, r)) {
+      expect(together(state)).toEqual([
+        "gc_gcLEGACY0001_l1,gc_gcRAPTORS001_r1",
+        "gc_gcRAPTORS001_r2",
+      ]);
+      expect(legacySees(state).sort()).toEqual(["1-3", "3-14"]);
+    }
+    // An 8-3 win at 19:00 is the 6-8 loss at 15:30, a run apart, not the nearer 0-2.
+    const runs = bothOrders(
+      legacy([at("l1", RAPTORS, "15:30", 6, 8), at("l2", RAPTORS, "17:00", 0, 2)]),
+      raptors([at("r1", LEGACY, "19:00", 8, 3)])
+    );
+    for (const state of runs) {
+      expect(together(state)).toEqual([
+        "gc_gcLEGACY0001_l1,gc_gcRAPTORS001_r1",
+        "gc_gcLEGACY0001_l2",
+      ]);
+    }
+    // Neither scored: the copy twelve hours out, rather than the nearer one.
+    const blank = bothOrders(
+      legacy([at("l1", RAPTORS, "13:00"), at("l2", RAPTORS, "15:00")]),
+      raptors([at("r1", LEGACY, "03:00")])
+    );
+    for (const state of blank) {
+      expect(together(state)).toEqual([
+        "gc_gcLEGACY0001_l1",
+        "gc_gcLEGACY0001_l2,gc_gcRAPTORS001_r1",
+      ]);
+    }
+  });
+
+  // Six a side is past what the plan weighs, and the links settle it (`sameGameGroups`).
+  it("is counted the same on a day too crowded to plan", () => {
+    const hours = ["08", "09", "10", "11", "12"];
+    const l = legacy([
+      ...hours.map((hour, i) => at(`l${i}`, RAPTORS, `${hour}:00`)),
+      at("l5", RAPTORS, "13:00"),
+    ]);
+    const r = raptors([
+      ...hours.map((hour, i) => at(`r${i}`, LEGACY, `${hour}:00`)),
+      at("r5", LEGACY, "18:00"),
+    ]);
+    for (const state of bothOrders(l, r)) {
+      expect(state.games).toHaveLength(6);
+      expect(together(state)).toContain("gc_gcLEGACY0001_l5,gc_gcRAPTORS001_r5");
+    }
+  });
+
+  it("never takes apart a game the links paired, or a second meeting's own game", () => {
+    // Legacy lists two games, the Raptors one that agrees with the first: the second stays.
+    const l = legacy([at("l1", RAPTORS, "10:00", 5, 3), at("l2", RAPTORS, "16:00", 2, 1)]);
+    for (const state of bothOrders(l, raptors([at("r1", LEGACY, "10:30", 3, 5)]))) {
+      expect(together(state)).toEqual([
+        "gc_gcLEGACY0001_l1,gc_gcRAPTORS001_r1",
+        "gc_gcLEGACY0001_l2",
+      ]);
+    }
+  });
+});
+
+/*
+ * One club dated the game a day off the other: a date typed a day out, or a game moved to the next
+ * day on one schedule only. Each day alone holds one club's copy, and each copy counted as a game.
+ */
+describe("a game one club dated a day off the other's", () => {
+  const bothOrders = (l: GcTeamSchedule, r: GcTeamSchedule) => [
+    [l, r].reduce(pull, empty),
+    [r, l].reduce(pull, empty),
+  ];
+  const onDay = (
+    date: string,
+    id: string,
+    opponentName: string,
+    time: string | undefined,
+    teamScore?: number,
+    opponentScore?: number
+  ) => ({
+    ...at(id, opponentName, time, teamScore, opponentScore),
+    date,
+    ...(time ? { startTs: `${date}T${time}:00.000Z` } : {}),
+  });
+  const days = (state: GcImportState) => state.games.map((game) => game.date).sort();
+
+  it("is one game on the same result, or the same start a day apart", () => {
+    for (const [l, r] of [
+      // The same result at the same clock.
+      [
+        legacy([at("l1", RAPTORS, "19:10", 6, 1)]),
+        raptors([onDay("2026-08-30", "r1", LEGACY, "19:10", 1, 6)]),
+      ],
+      // The same result at another clock.
+      [
+        legacy([at("l1", RAPTORS, "20:00", 6, 1)]),
+        raptors([onDay("2026-08-30", "r1", LEGACY, "17:00", 1, 6)]),
+      ],
+      // The same start, neither scored yet.
+      [legacy([at("l1", RAPTORS, "10:00")]), raptors([onDay("2026-08-30", "r1", LEGACY, "10:00")])],
+      // The same start, the scorekeepers a run apart.
+      [
+        legacy([at("l1", RAPTORS, "10:00", 5, 4)]),
+        raptors([onDay("2026-08-30", "r1", LEGACY, "10:00", 5, 5)]),
+      ],
+    ] as const) {
+      for (const state of bothOrders(l, r)) {
+        expect(state.games).toHaveLength(1);
+        expect(tidyPool(state).state.games).toBe(state.games);
+      }
+    }
+    const [state] = bothOrders(
+      legacy([at("l1", RAPTORS, "19:10", 6, 1)]),
+      raptors([onDay("2026-08-30", "r1", LEGACY, "19:10", 1, 6)])
+    );
+    expect(legacySees(state!)).toEqual(["6-1"]);
+    expect(raptorsSee(state!)).toEqual(["1-6"]);
+  });
+
+  it("is two games on a result that differs hours apart, or nothing at all", () => {
+    for (const [l, r] of [
+      // The same start a day off, but two results that name different winners by ten runs.
+      [
+        legacy([at("l1", RAPTORS, "14:00", 7, 12)]),
+        raptors([onDay("2026-08-30", "r1", LEGACY, "14:00", 3, 15)]),
+      ],
+      [
+        legacy([at("l1", RAPTORS, "20:00", 6, 1)]),
+        raptors([onDay("2026-08-30", "r1", LEGACY, "12:00", 2, 6)]),
+      ],
+      [legacy([at("l1", RAPTORS, "20:00")]), raptors([onDay("2026-08-30", "r1", LEGACY, "12:00")])],
+    ] as const) {
+      for (const state of bothOrders(l, r))
+        expect(days(state)).toEqual(["2026-08-29", "2026-08-30"]);
+    }
+  });
+
+  it("is two games where either club lists another game those days that it could be", () => {
+    const l = legacy([at("l1", RAPTORS, "19:10", 6, 1)]);
+    const r = raptors([
+      at("r0", LEGACY, "12:00", 3, 3),
+      onDay("2026-08-30", "r1", LEGACY, "19:10", 1, 6),
+    ]);
+    for (const state of bothOrders(l, r)) expect(state.games).toHaveLength(2);
+  });
+
+  /*
+   * Legacy's two GameChanger teams and the Raptors each list a game on the first day that nothing
+   * pairs, so which of the Raptors' games Legacy's is stays open: none joins across the night.
+   */
+  it("is left alone where the first day holds both clubs' unpaired games", () => {
+    const u11: AgeGroup = { id: "u11", name: "11U 2027", ageLevel: 11, year: 2027, seasonIds: [] };
+    const row = (
+      schedule: string,
+      id: string,
+      a: string,
+      b: string,
+      date: string,
+      time: string
+    ): ScoutGame => ({
+      id: `gc_${schedule}_${id}`,
+      teamAId: a,
+      teamBId: b,
+      ageGroupId: "u11",
+      date,
+      startTs: `${date}T${time}:00.000Z`,
+      source: { kind: "gamechanger", teamId: schedule, gameId: id },
+    });
+    const rows = [
+      row("gcL1", "l1", "L", "R", "2026-08-29", "10:00"),
+      row("gcL2", "l2", "L", "R", "2026-08-29", "14:00"),
+      row("gcR", "r1", "R", "L", "2026-08-29", "20:00"),
+      row("gcR", "r2", "R", "L", "2026-08-30", "10:00"),
+    ];
+    expect(collapseSameGames(rows, [u11]).games).toBe(rows);
+  });
+
+  // The Raptors' copy, joined a day off, later reads as another game: it stands up on its own day.
+  it("stands a copy back up on its own day", () => {
+    let state = [
+      legacy([at("l1", RAPTORS, "19:10", 6, 1)]),
+      raptors([onDay("2026-08-30", "r1", LEGACY, "19:10", 1, 6)]),
+    ].reduce(pull, empty);
+    expect(state.games).toHaveLength(1);
+    const [game] = state.games;
+    expect(game!.alsoRows?.[0]?.date).toBe("2026-08-30");
+    state = pull(state, raptors([onDay("2026-08-30", "r1", LEGACY, "12:00", 2, 6)]));
+    expect(days(state)).toEqual(["2026-08-29", "2026-08-30"]);
+    expect(state.games.find((entry) => entry.date === "2026-08-30")!.id).toBe("gc_gcRAPTORS001_r1");
   });
 });

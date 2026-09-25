@@ -133,6 +133,8 @@ describe("what the tidy says while it runs", () => {
       "highSchool",
       "releveled",
       "pruned",
+      // Before anything settles a stand-in into a game its own schedule has taken away.
+      "withdrawn",
       "named",
       "joined",
       "reclaimed",

@@ -105,6 +105,7 @@ describe("games round-trip", () => {
             onSideB: true,
           },
           { teamId: "gcLEGACY01", gameId: "l2-again", startTs: "2026-08-29T17:00:00.355Z" },
+          { teamId: "gcRAPTORS01", gameId: "r9", date: "2026-08-30" },
         ],
         scoreFromB: true,
         reportedByB: { teamAScore: 14, teamBScore: 3 },
@@ -120,6 +121,7 @@ describe("games round-trip", () => {
         date: "2026-08-30",
         alsoRows: [{ teamId: "gcLEGACY01", gameId: "l3b", ownScore: 5, opponentScore: 3 }],
         scoreFromTwin: true,
+        withdrawn: true,
         source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l3" },
       },
     ];

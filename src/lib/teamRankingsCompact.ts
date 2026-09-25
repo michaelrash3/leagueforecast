@@ -108,6 +108,8 @@ const EXCLUDED = 1;
 const SCORE_FROM_B = 2;
 /** `ScoutGame.scoreFromTwin`: the score is another listing's of the game, on side A's schedule. */
 const SCORE_FROM_TWIN = 4;
+/** `ScoutGame.withdrawn`: side A's schedule no longer lists the row the game stands on. */
+const WITHDRAWN = 8;
 
 /**
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
@@ -177,7 +179,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       encodeDate(game.date) ?? game.date ?? null,
       (game.excluded ? EXCLUDED : 0) |
         (game.scoreFromB ? SCORE_FROM_B : 0) |
-        (game.scoreFromTwin ? SCORE_FROM_TWIN : 0),
+        (game.scoreFromTwin ? SCORE_FROM_TWIN : 0) |
+        (game.withdrawn ? WITHDRAWN : 0),
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
       seasons.index(game.season),
@@ -209,6 +212,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
                     row.ownScore ?? null,
                     row.opponentScore ?? null,
                     row.onSideB ? 1 : null,
+                    // Its own day, where a schedule dated the game a day off the other's.
+                    row.date === undefined ? null : (encodeDate(row.date) ?? row.date),
                   ]),
                 ];
           })
@@ -264,6 +269,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
   if (flags & EXCLUDED) game.excluded = true;
   if (flags & SCORE_FROM_B) game.scoreFromB = true;
   if (flags & SCORE_FROM_TWIN) game.scoreFromTwin = true;
+  if (flags & WITHDRAWN) game.withdrawn = true;
 
   const levelA = num(row[7]);
   const levelB = num(row[8]);
@@ -297,11 +303,13 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
         const startTs = str(entry[2]);
         const ownScore = num(entry[3]);
         const opponentScore = num(entry[4]);
+        const date = decodeDate(entry[6]);
         return [
           {
             teamId,
             gameId,
             ...(startTs ? { startTs } : {}),
+            ...(date ? { date } : {}),
             ...(ownScore !== undefined && opponentScore !== undefined
               ? { ownScore, opponentScore }
               : {}),
@@ -671,6 +679,7 @@ const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
                 teamId: entry.teamId,
                 gameId: entry.gameId,
                 ...(isFilledString(entry.startTs) ? { startTs: entry.startTs } : {}),
+                ...(isFilledString(entry.date) ? { date: entry.date } : {}),
                 ...(isNumber(entry.ownScore) && isNumber(entry.opponentScore)
                   ? { ownScore: entry.ownScore, opponentScore: entry.opponentScore }
                   : {}),
@@ -709,6 +718,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(entry.excluded === true ? { excluded: true } : {}),
         ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
         ...(entry.scoreFromTwin === true ? { scoreFromTwin: true } : {}),
+        ...(entry.withdrawn === true ? { withdrawn: true } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),

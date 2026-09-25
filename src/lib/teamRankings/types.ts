@@ -176,6 +176,12 @@ export type FoldedRow = {
   /** Its id on that schedule. */
   gameId: string;
   startTs?: string;
+  /**
+   * The day its schedule filed it on, where that is not the game's: one club's copy of a game dated
+   * a day off the other's, folded in on the same result or the same start a day apart. Kept so a
+   * copy stood back up is filed on its own day, not the game's.
+   */
+  date?: string;
   /** Its own club's runs, as its schedule gave them. */
   ownScore?: number;
   /** The other club's runs, as its schedule gave them. */
@@ -223,6 +229,15 @@ export type ScoutGame = {
    * turned out to be two games, and the result counted twice.
    */
   scoreFromTwin?: boolean;
+  /**
+   * The row this game stands on (`source`) is one its schedule no longer lists: deleted, cancelled
+   * or taken off the day. Set by the pull that finds it gone and cleared by one that lists it again;
+   * the tidy then takes the game away and stands up the rows folded into it, so what the other
+   * club's schedule and the club's own new entry say of the game is what is left. Kept, a game its
+   * club deleted and entered again all day stood beside the new entry holding the other club's
+   * copy, and the one game was counted twice.
+   */
+  withdrawn?: boolean;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
   /**
