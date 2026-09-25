@@ -154,10 +154,15 @@ const GAME_HEADERS = [
    * a restore lost every start, and the start is half of what says two rows are one game.
    */
   "Start",
-  /** The rows folded into this game, each as its schedule's id and its game id, `team:game`. */
+  /**
+   * The rows folded into this game, whole: `team:game`, then `@start`, `=own-opponent` and `/B` for
+   * a row whose club is side B, each where there is one.
+   */
   "Also Rows",
   /** The score as Team B's own schedule gave it, where that was kept: A's runs, a dash, B's. */
   "Team B Reported",
+  /** The score is Team B's, borrowed while Team A's schedule has posted none. */
+  "Score From Team B",
 ];
 
 /**
@@ -365,8 +370,19 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.source?.gameId ?? "",
       (game.alsoFrom ?? []).join(" "),
       game.startTs ?? "",
-      (game.alsoRows ?? []).map((row) => `${row.teamId}:${row.gameId}`).join(" "),
+      (game.alsoRows ?? [])
+        .map(
+          (row) =>
+            `${row.teamId}:${row.gameId}` +
+            (row.startTs ? `@${row.startTs}` : "") +
+            (row.ownScore !== undefined && row.opponentScore !== undefined
+              ? `=${row.ownScore}-${row.opponentScore}`
+              : "") +
+            (row.onSideB ? "/B" : "")
+        )
+        .join(" "),
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
+      yesNo(game.scoreFromB),
     ]
       .map(csvEscape)
       .join(",")
@@ -707,12 +723,25 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     // quoting in a cell this is only ever read back from.
     const alsoFrom = cell("Also From").split(/\s+/).filter(Boolean);
     const startTs = cell("Start");
-    // A colon, because neither a GameChanger team id nor a game id ever holds one.
+    // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
+    // colons of its own, but never "@", "=" or "/".
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
-      .flatMap((pair) => {
-        const [teamId, gameId, ...rest] = pair.split(":");
-        return teamId && gameId && rest.length === 0 ? [{ teamId, gameId }] : [];
+      .flatMap((entry) => {
+        const parsed = /^([^:@=/]+):([^:@=/]+)(?:@([^@=/]+))?(?:=(\d+)-(\d+))?(\/B)?$/.exec(entry);
+        if (!parsed) return [];
+        const [, teamId, gameId, startTs, own, opponent, sideB] = parsed;
+        return [
+          {
+            teamId: teamId!,
+            gameId: gameId!,
+            ...(startTs ? { startTs } : {}),
+            ...(own !== undefined && opponent !== undefined
+              ? { ownScore: Number(own), opponentScore: Number(opponent) }
+              : {}),
+            ...(sideB ? { onSideB: true } : {}),
+          },
+        ];
       });
     const reported = /^(\d+)-(\d+)$/.exec(cell("Team B Reported").trim());
     return [
@@ -730,6 +759,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(event ? { event } : {}),
         ...(note ? { note } : {}),
         ...(isYes(cell("Excluded")) ? { excluded: true as const } : {}),
+        ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),

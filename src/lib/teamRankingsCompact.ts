@@ -104,6 +104,8 @@ const str = (value: unknown): string | undefined =>
 
 /** The one flag a game carries that is neither a number nor a name. */
 const EXCLUDED = 1;
+/** `ScoutGame.scoreFromB`: the score is side B's, borrowed while side A has posted none. */
+const SCORE_FROM_B = 2;
 
 /**
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
@@ -121,7 +123,7 @@ const EXCLUDED = 1;
  * treats a missing position as the field being absent, so a pool written before a position existed
  * still reads.
  */
-type GameRow = (number | string | null | number[] | (number | string)[])[];
+type GameRow = (number | string | null | number[] | (number | string | null)[][])[];
 
 export type CompactPool = {
   v: number;
@@ -171,7 +173,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       groups.index(game.ageGroupId) ?? -1,
       // A date this cannot read is kept as the text it was, not thrown away.
       encodeDate(game.date) ?? game.date ?? null,
-      game.excluded ? EXCLUDED : 0,
+      (game.excluded ? EXCLUDED : 0) | (game.scoreFromB ? SCORE_FROM_B : 0),
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
       seasons.index(game.season),
@@ -188,11 +190,23 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
             return index === null ? [] : [index];
           })
         : null,
-      // The same, row by row: each folded row as its schedule's index and its game id, in pairs.
+      // The same, row by row: each folded row whole — its schedule's index, its id, its start, its
+      // own score and whether its club is side B — so the tidy can judge it again.
       game.alsoRows?.length
         ? game.alsoRows.flatMap((row) => {
             const index = sources.index(row.teamId);
-            return index === null ? [] : [index, row.gameId];
+            return index === null
+              ? []
+              : [
+                  trimTrailing<number | string | null>([
+                    index,
+                    row.gameId,
+                    row.startTs ?? null,
+                    row.ownScore ?? null,
+                    row.opponentScore ?? null,
+                    row.onSideB ? 1 : null,
+                  ]),
+                ];
           })
         : null,
       // Side B's own schedule's score, A's runs then B's.
@@ -244,6 +258,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
 
   const flags = num(row[6]) ?? 0;
   if (flags & EXCLUDED) game.excluded = true;
+  if (flags & SCORE_FROM_B) game.scoreFromB = true;
 
   const levelA = num(row[7]);
   const levelB = num(row[8]);
@@ -268,14 +283,28 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
       })
     : [];
   if (alsoFrom.length > 0) game.alsoFrom = alsoFrom;
-  const alsoRows: FoldedRow[] = [];
-  if (Array.isArray(row[17])) {
-    for (let at_ = 0; at_ + 1 < row[17].length; at_ += 2) {
-      const teamId = at(pool.c, row[17][at_]);
-      const gameId = str(row[17][at_ + 1]);
-      if (teamId && gameId) alsoRows.push({ teamId, gameId });
-    }
-  }
+  const alsoRows: FoldedRow[] = Array.isArray(row[17])
+    ? row[17].flatMap((entry): FoldedRow[] => {
+        if (!Array.isArray(entry)) return [];
+        const teamId = at(pool.c, entry[0]);
+        const gameId = str(entry[1]);
+        if (!teamId || !gameId) return [];
+        const startTs = str(entry[2]);
+        const ownScore = num(entry[3]);
+        const opponentScore = num(entry[4]);
+        return [
+          {
+            teamId,
+            gameId,
+            ...(startTs ? { startTs } : {}),
+            ...(ownScore !== undefined && opponentScore !== undefined
+              ? { ownScore, opponentScore }
+              : {}),
+            ...(entry[5] === 1 ? { onSideB: true } : {}),
+          },
+        ];
+      })
+    : [];
   if (alsoRows.length > 0) game.alsoRows = alsoRows;
   if (Array.isArray(row[18])) {
     const reportA = num(row[18][0]);
@@ -627,12 +656,22 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
     });
 };
 
-/** Folded rows read leniently: each needs both ids, and anything else is dropped. */
+/** Folded rows read leniently: each needs both ids; a start or a score it cannot read is dropped. */
 const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
   Array.isArray(raw)
-    ? raw.flatMap((entry) =>
+    ? raw.flatMap((entry): FoldedRow[] =>
         isRecord(entry) && isFilledString(entry.teamId) && isFilledString(entry.gameId)
-          ? [{ teamId: entry.teamId, gameId: entry.gameId }]
+          ? [
+              {
+                teamId: entry.teamId,
+                gameId: entry.gameId,
+                ...(isFilledString(entry.startTs) ? { startTs: entry.startTs } : {}),
+                ...(isNumber(entry.ownScore) && isNumber(entry.opponentScore)
+                  ? { ownScore: entry.ownScore, opponentScore: entry.opponentScore }
+                  : {}),
+                ...(entry.onSideB === true ? { onSideB: true } : {}),
+              },
+            ]
           : []
       )
     : [];
@@ -663,6 +702,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(isString(entry.event) ? { event: entry.event } : {}),
         ...(isString(entry.note) ? { note: entry.note } : {}),
         ...(entry.excluded === true ? { excluded: true } : {}),
+        ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),

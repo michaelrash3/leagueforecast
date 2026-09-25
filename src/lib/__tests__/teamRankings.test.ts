@@ -2243,7 +2243,17 @@ describe("collapseSameGames", () => {
     );
     expect(out.games).toHaveLength(1);
     expect(out.games[0]?.alsoFrom).toEqual(["gcB"]);
-    expect(out.games[0]?.alsoRows).toEqual([{ teamId: "gcB", gameId: "1" }]);
+    // Kept whole, from its own seat, so the tidy can judge it again tomorrow.
+    expect(out.games[0]?.alsoRows).toEqual([
+      {
+        teamId: "gcB",
+        gameId: "1",
+        startTs: "2026-09-11T18:00:00.000Z",
+        ownScore: 4,
+        opponentScore: 5,
+        onSideB: true,
+      },
+    ]);
   });
 
   /*

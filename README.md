@@ -448,25 +448,42 @@ first, and each game takes the copy that fits it best:
 
 | Two clubs' copies of a day's meeting                           | One game?                                   |
 | -------------------------------------------------------------- | ------------------------------------------- |
-| Starting within the hour, results agreeing or not yet posted   | Yes — 1,115 of the 1,213 were within it     |
+| Starting within the hour, with the same result                 | Yes — 1,115 of the 1,213 were within it     |
 | The same result, however far apart the clocks                  | Yes                                         |
-| Starting within the hour, scored differently                   | Yes, with the other side's score noted      |
+| Starting within the hour, a result still to come on one side   | Yes                                         |
+| Starting within the hour, scored differently                   | Yes, each club keeping its own score        |
 | Neither, with one game left on each schedule that day          | Yes, scored differently, as it always was   |
 | Neither, with more on one schedule than the other accounts for | No — that is a game only one of them listed |
 
-A game takes one row off each schedule. A second row off the same schedule joins
-only as that schedule listing the game twice, which is what keeps a doubleheader two
-games when the other club's clock sits between its two slots. A folded row is kept on
-record by its schedule and its own id (`alsoRows`), so a re-pull finds the game its
-copy went into, however the start or the score has since been edited, and the tidy
-never lets a game take a second, different row off a schedule it has already taken one
-from. Records written before rows were named say only the schedule (`alsoFrom`), and
-there a row is taken back only within the hour and agreeing, which is the folded row
-coming back — 21 of the 23 results listed twice that way in the same pool.
+A result that agrees outranks a slot that has none yet, so a copy posted between the
+two games of a doubleheader goes to the game it reports, not to the empty slot nearer
+its clock. A game takes one row off each schedule: a second row off the same schedule
+joins only as that schedule listing the game twice, which keeps a doubleheader two games
+when the other club's clock sits between its two slots. Where both schedules list the
+same number of games that day, first pairs with first before the nearer start is asked,
+since one coach's clock runs behind the other's all day. And two games that each hold a
+row off both schedules stay two unless the rows share a start: both clubs listing both
+games at two slots is a doubleheader, even when a mercy rule made it 10-0 twice.
+
+**A fold is never final.** A game keeps every row folded into it whole — the schedule,
+the row's id, its start and its score from its own seat (`alsoRows`) — and every tidy
+stands those rows back up beside the games still standing and groups the day again from
+scratch. So a fold made on one day's schedules answers to the next day's: a copy that
+went to the wrong game of a doubleheader on a tie moves when a score says which it was,
+two games listed at one placeholder slot come apart when the schedule moves one, and a
+row that fits nothing now stands up as a game under its own id. A re-pull finds its row
+by id, updates the record and leaves the grouping to the tidy; a row the schedule no
+longer lists — deleted, cancelled, moved to another day — has its record removed on that
+schedule's next pull. The same regrouping run twice changes nothing, which is what lets
+the tidy stop: on the pool of 24 September 2026 a second tidy over the first one's
+result, saved and read back, finds nothing to do. Records written before rows were kept
+say only the schedule (`alsoFrom`), and there a row is taken back only within the hour
+and agreeing — the folded row coming back, which 21 of the 23 results listed twice that
+way in the same pool were.
 
 A start the schedule itself has since moved is taken on the next pull; another
 schedule's start is never written over a row, since that is the other coach's clock.
-On the pool of 24 September 2026 the tidy folds 2,777 rows this way and settles 6
+On the pool of 24 September 2026 the tidy folds 2,779 rows this way and settles 6
 slots whose starts were a fraction of a second apart, and Legacy's page reads six games
 again.
 
@@ -480,14 +497,17 @@ went round. Two schedules disagreed about 13,865 games in the pool of 24 Septemb
 Side A of a pulled game is always the club whose schedule it came off — every one of
 the pool's 248,371 games — and its score is side A's own. Side B's own schedule's score
 now sits beside it (`reportedByB`) instead of over it, and fills it only where side A
-has posted nothing yet. Each club's page and record read its own schedule
+has posted nothing yet — marked as borrowed (`scoreFromB`), so it goes if side B's row
+moves to another game and gives way the moment side A posts its own. Each club's page
+and record read its own schedule
 (`scoreSeenBy`); the rating reads the game once, at the average of the two margins
 (`ratedMargin`), so the Dragons are rated 2.5 runs better that day and a game both clubs
 claim to have won reads as even. A score typed in by hand answers for both clubs and
 clears the other schedule's.
 
-On that pool the first tidy gives 1,498 folded games both scores, 131 of them different
-and 13 disagreeing about the winner; the rest fill in as each club is refreshed. Every
+On that pool the first tidy gives 1,500 folded games both scores, 131 of them different
+and 13 disagreeing about the winner, and 160 a score borrowed from side B; the rest fill
+in as each club is refreshed. Every
 2027 rating moves a little, since every game is fitted together, and none by more than
 0.57 of a run.
 

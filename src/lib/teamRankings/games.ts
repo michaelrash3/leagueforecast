@@ -97,25 +97,27 @@ export const minutesApart = (a: string | undefined, b: string | undefined): numb
   return x === undefined || y === undefined ? undefined : Math.abs(x - y) / MINUTE_MS;
 };
 
-/**
- * Whether two rows give the same start.
- *
- * Read as instants under a minute apart rather than as equal strings. The pool of 24 September 2026
- * stores every start in one spelling, but 1,013 of its rows start at an odd second or millisecond,
- * and 54 pairs of rows between the same two clubs on the same day were under a minute apart — 12 of
- * them off one schedule, which is one game listed twice however the strings compare. A start that
- * is not a time matches only its own spelling.
- */
-export const sameStart = (a: string | undefined, b: string | undefined): boolean => {
-  if (a === undefined || b === undefined) return false;
-  const gap = minutesApart(a, b);
-  return gap === undefined ? a === b : gap < 1;
-};
-
 /** A start rounded to its minute, so an index can be keyed on what `sameStart` compares. */
 export const startMinuteOf = (startTs: string | undefined): number | undefined => {
   const at = instantOf(startTs);
   return at === undefined ? undefined : Math.round(at / MINUTE_MS);
+};
+
+/**
+ * Whether two rows give the same start: the same minute, to the nearest.
+ *
+ * Read as instants rather than as equal strings. The pool of 24 September 2026 stores every start
+ * in one spelling, but 1,013 of its rows start at an odd second or millisecond, and 54 pairs of rows
+ * between the same two clubs on the same day were under a minute apart — 12 of them off one
+ * schedule, which is one game listed twice however the strings compare. The nearest minute rather
+ * than "under a minute apart" so that an index keyed on `startMinuteOf` finds exactly the pairs this
+ * matches. A start that is not a time matches only its own spelling.
+ */
+export const sameStart = (a: string | undefined, b: string | undefined): boolean => {
+  if (a === undefined || b === undefined) return false;
+  const x = startMinuteOf(a);
+  const y = startMinuteOf(b);
+  return x === undefined || y === undefined ? a === b : x === y;
 };
 
 /**
