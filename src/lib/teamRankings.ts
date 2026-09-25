@@ -1039,8 +1039,12 @@ const SAME_START_DISPUTE_WORTH = 50;
  * is no reason to keep a result off a blank game (`lendsTwice`). Read at full worth, a 4-4 at the
  * same start as a 0-10 on a clock an hour out took the 0-10 from the game it was; read as the
  * 4-4's game, a 0-10 an hour away left one club's 0-10, listed twice, counted twice.
+ *
+ * Where one side is only a stand-in whose name says nothing of the other club, the bar is the same
+ * and there it is the whole allowance: a wider dispute is not settled into the other club's copy
+ * at all (`resolveSlotGames`).
  */
-const CLOSE_DISPUTE_RUNS = 4;
+export const CLOSE_DISPUTE_RUNS = 4;
 const DAY_MINUTES = 24 * 60;
 const nearness = (gap: number): number =>
   gap <= ONE_GAME_WINDOW_MINUTES

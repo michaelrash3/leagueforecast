@@ -401,13 +401,15 @@ describe("a tidy that only moves a folded row", () => {
     expect(raptorsSee(tidy.state)).toEqual(["2-14", "5-14"]);
   });
 
-  // The Raptors delete the only copy that scored Legacy's game: the score it lent goes too.
+  // The Raptors delete the only copy that scored Legacy's game: the score it lent goes too. Their
+  // other game is hours off: within the hour, a row against a name nobody pulled is the Raptors'
+  // own copy of the game Legacy lists and no Raptors schedule does (`resolveSlotGames`).
   it("counts taking back a score whose copy is gone", () => {
     let state = pull(empty, legacy([at("l1", RAPTORS, "10:00")]));
     state = pull(state, raptors([at("r1", LEGACY, "10:00", 3, 5)]));
     expect(legacySees(state)).toEqual(["5-3"]);
     state = importGcSchedule(
-      raptors([at("other", "Somebody Else 11U", "09:00", 4, 4)]),
+      raptors([at("other", "Somebody Else 11U", "13:00", 4, 4)]),
       state
     ).state;
     const tidy = tidyPool(state);

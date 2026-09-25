@@ -54,6 +54,8 @@ import {
   sameStart,
   withSchedulesOf,
   withSideBReport,
+  CLOSE_DISPUTE_RUNS,
+  startsWithinTheHour,
   scoreSeenBy,
   mayTakeRow,
   gcRowId,
@@ -2571,6 +2573,19 @@ export const importGcSchedules = (
 };
 
 /**
+ * The most rows, and the most copies, one club's day may hold for `resolveSlotGames` to read the
+ * day's stand-in rows against the copies its schedules leave out. Every reading is tried, and five
+ * a side is under two thousand of them; a day with more is left as it is.
+ */
+const MISSING_COPY_MAX = 5;
+
+/** The ISO day `days` from `date`, or undefined for a date that is not one. */
+const isoDayFrom = (date: string, days: number): string | undefined => {
+  const at = Date.parse(`${date}T00:00:00Z`);
+  return Number.isNaN(at) ? undefined : new Date(at + days * 86_400_000).toISOString().slice(0, 10);
+};
+
+/**
  * Names the slots that another schedule already answered.
  *
  * A bracket posts "TBD" on one team's schedule and the real fixture on the other's, so the same
@@ -2600,7 +2615,9 @@ export const importGcSchedules = (
  * stand-in fixtures export of 22 September 2026 that held 479 games twice: 358 a single run apart
  * with the same winner, 13 with the winner changed. The named row's result stands and carries the
  * other, as `collapseSameGames` keeps a game two pulled clubs scored apart. Where the names do not
- * fit (303 more) or the slot is a bracket placeholder (143), the two rows stay.
+ * fit (303 more) or the slot is a bracket placeholder (143), the two rows stay — unless the named
+ * row is one none of the club's own schedules gives a row, which a last round reads by the clock
+ * and the scores alone: within the hour, and within four runs.
  */
 export const resolveSlotGames = (
   state: GcImportState
@@ -2744,6 +2761,232 @@ export const resolveSlotGames = (
   };
   slotGames.forEach((slotGame) => settle(slotGame, true));
   slotGames.forEach((slotGame) => settle(slotGame, false));
+
+  /*
+   * What the two rounds leave: a club's own row against a stand-in, and beside it that day a game
+   * another club's own schedule lists against this club that none of this club's schedules gives a
+   * row. That game is on this club's schedule somewhere, and the stand-in row is where: its coach
+   * typed the other club as something GameChanger does not list, and the two copies of one game
+   * stood as two games, the club's record counting it twice.
+   *
+   * The rounds above ask a stand-in to agree with the other club's copy to the minute, or to give
+   * the same result, because a game the club's own schedule already accounts for is a candidate
+   * there too. A copy the club's schedules leave out answers for nothing else the club listed, so
+   * here it is read as `ONE_GAME_WINDOW_MINUTES` reads two schedules' copies of one game: within
+   * the hour is one game, as nobody plays two an hour apart. On the pool of 24 September 2026,
+   * after a whole tidy, 1,542 of its 82,471 games against a stand-in sat beside such a copy within
+   * the hour or with the same result. The stand-in's name shared a word with the club the other
+   * schedule named in 68% of those within the hour with a result still to come, and in 67% of
+   * those scored within `CLOSE_DISPUTE_RUNS`, against 3% to 10% of the pairs the same search makes
+   * a week either side; most of the rest were a shorthand no word test sees — "R.E.B." for
+   * Rockland Elite Black, "KBC" for Kennedale Baseball Club.
+   *
+   * What reads as two games is left as two. Scores further apart than scorekeepers are shared a
+   * word in 13% of the pairs within the hour and 34% at the very same start — mostly a game of
+   * some other club of that name, filed against this one by name — and one to three hours apart,
+   * 18% with a result to come and 8% scored close. A slot has no name to test and is held to the
+   * same clock and scores: slots within four runs at the very start or within the hour stood beside
+   * such a copy 231 times, against 34 with the clock moved three hours to where the club lists no
+   * game. The tidy settles 1,223 rows this way, 945 against a name and 278 slots; 66% of the names
+   * share a word with the club they go to.
+   *
+   * Every row and copy of the club's day is read at once, as `pairedByCount` reads a day: as many
+   * pairs as the day allows, then in both schedules' order, then the stronger links — the same
+   * result, then the very same start, then within the hour. Where two readings are as good as each
+   * other, only what they agree on is settled: two copies of one game off two GameChanger teams of
+   * one club, 5-1 at 9:30 on both, are not a choice to make on the order the pool holds them in.
+   */
+  const clubOfSchedule = new Map<string, string>();
+  state.teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+  );
+  /** Whether any of this club's own schedules gave the game a row: its own, folded in, or on record. */
+  const listedBy = (game: ScoutGame, clubId: string): boolean =>
+    [
+      game.source?.teamId,
+      ...(game.alsoRows ?? []).map((record) => record.teamId),
+      ...(game.alsoFrom ?? []),
+    ].some((schedule) => schedule !== undefined && clubOfSchedule.get(schedule) === clubId);
+  /*
+   * The stand-ins each club's own schedules name. A club never plays itself, so a stand-in the other
+   * club's own schedule has played is somebody else: on the pool of 24 September 2026 a club's 1-13
+   * against "Natives Black" at half nine went to Salty Stars' blank copy at nine, whose own schedule
+   * plays Natives Black in October — one of seven settles this took back, one of which shared a
+   * word with the club it was given to.
+   */
+  const standInsOf = new Map<string, Set<string>>();
+  state.games.forEach((game) => {
+    if (isSlot(game.teamAId) === isSlot(game.teamBId) || !game.source) return;
+    const clubId = clubOfSchedule.get(game.source.teamId);
+    if (clubId === undefined) return;
+    const standInId = isSlot(game.teamAId) ? game.teamAId : game.teamBId;
+    const bucket = standInsOf.get(clubId);
+    if (bucket) bucket.add(standInId);
+    else standInsOf.set(clubId, new Set([standInId]));
+  });
+  const pageLevel = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const waiting = new Map<string, ScoutGame[]>();
+  slotGames.forEach((slotGame) => {
+    if (merges.has(slotGame.id) || !slotGame.source) return;
+    const knownId = isSlot(slotGame.teamAId) ? slotGame.teamBId : slotGame.teamAId;
+    // The club's own row: a row it filed, not one another schedule wrote about it.
+    if (clubOfSchedule.get(slotGame.source.teamId) !== knownId) return;
+    const key = dayKey(knownId, slotGame.date!);
+    const bucket = waiting.get(key);
+    if (bucket) bucket.push(slotGame);
+    else waiting.set(key, [slotGame]);
+  });
+  waiting.forEach((rows, key) => {
+    const first = rows[0]!;
+    const knownId = isSlot(first.teamAId) ? first.teamBId : first.teamAId;
+    const otherOf = (game: ScoutGame) => (game.teamAId === knownId ? game.teamBId : game.teamAId);
+    const unclaimed = (namedByTeamDay.get(key) ?? []).filter((named) => {
+      if (spoken.has(named.id) || !named.source) return false;
+      return (
+        clubOfSchedule.get(named.source.teamId) === otherOf(named) && !listedBy(named, knownId)
+      );
+    });
+    /*
+     * A copy no row of this club's is folded into yet can still be the partner of a row this club
+     * lists against that club by name, one the collapse after this step has not paired with it yet —
+     * a start hours off, a date a day out. A stand-in row settled into it left that row standing on
+     * its own, the one game counted twice, or was moved by the collapse to a copy of that club's it
+     * did not fit: on the pool of 24 September 2026 a club's 5-6 settled beside the other club's 6-5
+     * an hour off went to its 12-1 six hours off, once the club's own row took the 6-5. So while
+     * this club has a row against that club, over the day and the day either side, that no row of
+     * that club's is paired with, that club's copies wait: the next pass reads what the collapse
+     * leaves of them.
+     */
+    const around = [-1, 0, 1].flatMap((days) => {
+      const day = days === 0 ? first.date! : isoDayFrom(first.date!, days);
+      return day === undefined ? [] : [dayKey(knownId, day)];
+    });
+    const unpaired = new Set<string>();
+    around.forEach((day) =>
+      (namedByTeamDay.get(day) ?? []).forEach((game) => {
+        const otherId = otherOf(game);
+        if (listedBy(game, knownId) && !listedBy(game, otherId)) unpaired.add(otherId);
+      })
+    );
+    const copies = unclaimed.filter((copy) => !unpaired.has(otherOf(copy)));
+    if (copies.length === 0) return;
+    const seat = (game: ScoutGame): [number, number] | undefined =>
+      !isScored(game)
+        ? undefined
+        : game.teamAId === knownId
+          ? [game.teamAScore!, game.teamBScore!]
+          : [game.teamBScore!, game.teamAScore!];
+    /**
+     * Whether the stand-in on `row` can be the club behind `copy` at all: not a stand-in that club's
+     * own schedule plays, and not an age typed into its name more than `PLAYS_UP_TO` from the level
+     * that club played at — the bound `resettleOffLevel` holds a row to.
+     */
+    const mayBe = (row: ScoutGame, copy: ScoutGame): boolean => {
+      const otherId = otherOf(copy);
+      if (standInsOf.get(otherId)?.has(otherOf(row))) return false;
+      const typed = row.teamAId === knownId ? row.ageLevelB : row.ageLevelA;
+      const played =
+        (copy.teamAId === otherId ? copy.ageLevelA : copy.ageLevelB) ??
+        pageLevel.get(copy.ageGroupId);
+      return typed === undefined || played === undefined || Math.abs(typed - played) <= PLAYS_UP_TO;
+    };
+    /** How strongly a row and a copy read as one game, from the club's seat; 0 for not at all. */
+    const strength = (row: ScoutGame, copy: ScoutGame): number => {
+      if (!mayBe(row, copy)) return 0;
+      const ours = seat(row);
+      const theirs = seat(copy);
+      const near = startsWithinTheHour(row.startTs, copy.startTs);
+      if (ours && theirs && ours[0] === theirs[0] && ours[1] === theirs[1]) return near ? 4 : 3;
+      if (
+        ours &&
+        theirs &&
+        Math.abs(ours[0] - theirs[0]) + Math.abs(ours[1] - theirs[1]) > CLOSE_DISPUTE_RUNS
+      ) {
+        return 0;
+      }
+      return sameStart(row.startTs, copy.startTs) ? 2 : near ? 1 : 0;
+    };
+    type Link = { row: number; copy: number; strength: number };
+    const links: Link[] = rows.flatMap((row, r) =>
+      copies.flatMap((copy, c) => {
+        const found = strength(row, copy);
+        return found > 0 ? [{ row: r, copy: c, strength: found }] : [];
+      })
+    );
+    if (links.length === 0) return;
+    const byRow = new Map<number, Link[]>();
+    links.forEach((link) => {
+      const bucket = byRow.get(link.row);
+      if (bucket) bucket.push(link);
+      else byRow.set(link.row, [link]);
+    });
+    // A busy day is left as it is rather than read in every order there is.
+    if (
+      byRow.size > MISSING_COPY_MAX ||
+      new Set(links.map((link) => link.copy)).size > MISSING_COPY_MAX
+    )
+      return;
+    const minuteOf = (game: ScoutGame) => startMinuteOf(game.startTs);
+    /** Two links whose rows and copies run in opposite orders, all four with a start. */
+    const crossed = (a: Link, b: Link): boolean => {
+      const [ra, rb, ca, cb] = [
+        minuteOf(rows[a.row]!),
+        minuteOf(rows[b.row]!),
+        minuteOf(copies[a.copy]!),
+        minuteOf(copies[b.copy]!),
+      ];
+      if (ra === undefined || rb === undefined || ca === undefined || cb === undefined)
+        return false;
+      return (ra - rb) * (ca - cb) < 0;
+    };
+    type Reading = { links: Link[]; crossings: number; strength: number };
+    /** Whether `a` reads the day better than `b`: more pairs, fewer crossings, stronger links. */
+    const compare = (a: Reading, b: Reading): number =>
+      a.links.length !== b.links.length
+        ? a.links.length - b.links.length
+        : a.crossings !== b.crossings
+          ? b.crossings - a.crossings
+          : a.strength - b.strength;
+    let best: Reading[] = [];
+    const chosen: Link[] = [];
+    const used = new Set<number>();
+    const rowOrder = [...byRow.keys()];
+    const visit = (at: number) => {
+      if (at === rowOrder.length) {
+        if (chosen.length === 0) return;
+        let crossings = 0;
+        chosen.forEach((a, i) =>
+          chosen.slice(i + 1).forEach((b) => (crossings += crossed(a, b) ? 1 : 0))
+        );
+        const reading: Reading = {
+          links: chosen.slice(),
+          crossings,
+          strength: chosen.reduce((sum, link) => sum + link.strength, 0),
+        };
+        const order = best.length === 0 ? 1 : compare(reading, best[0]!);
+        if (order > 0) best = [reading];
+        else if (order === 0) best.push(reading);
+        return;
+      }
+      visit(at + 1);
+      byRow.get(rowOrder[at]!)!.forEach((link) => {
+        if (used.has(link.copy)) return;
+        used.add(link.copy);
+        chosen.push(link);
+        visit(at + 1);
+        chosen.pop();
+        used.delete(link.copy);
+      });
+    };
+    visit(0);
+    best[0]?.links
+      .filter((link) => best.every((reading) => reading.links.includes(link)))
+      .forEach((link) => {
+        const copy = copies[link.copy]!;
+        spoken.add(copy.id);
+        merges.set(rows[link.row]!.id, copy);
+      });
+  });
 
   if (merges.size === 0) return { state, resolved: 0 };
 
@@ -4730,8 +4973,10 @@ export const tidyPool = (
  *       already tidied with this one
  *  10 — keeping once a game each club's schedule lists that nothing on the other's accounts for,
  *       whatever the two clocks say, and taking away a game its club's schedule no longer lists
+ *  11 — settling a club's own row against a stand-in into a game another club's schedule lists
+ *       against it that none of its own schedules does, within the hour and scored within four runs
  */
-const TIDY_RULES_VERSION = 10;
+const TIDY_RULES_VERSION = 11;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
