@@ -156,6 +156,8 @@ const GAME_HEADERS = [
   "Start",
   /** The rows folded into this game, each as its schedule's id and its game id, `team:game`. */
   "Also Rows",
+  /** The score as Team B's own schedule gave it, where that was kept: A's runs, a dash, B's. */
+  "Team B Reported",
 ];
 
 /**
@@ -364,6 +366,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       (game.alsoFrom ?? []).join(" "),
       game.startTs ?? "",
       (game.alsoRows ?? []).map((row) => `${row.teamId}:${row.gameId}`).join(" "),
+      game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
     ]
       .map(csvEscape)
       .join(",")
@@ -711,12 +714,16 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         const [teamId, gameId, ...rest] = pair.split(":");
         return teamId && gameId && rest.length === 0 ? [{ teamId, gameId }] : [];
       });
+    const reported = /^(\d+)-(\d+)$/.exec(cell("Team B Reported").trim());
     return [
       {
         id,
         teamAId,
         teamBId,
         ageGroupId,
+        ...(reported
+          ? { reportedByB: { teamAScore: Number(reported[1]), teamBScore: Number(reported[2]) } }
+          : {}),
         ...(teamAScore === undefined ? {} : { teamAScore }),
         ...(teamBScore === undefined ? {} : { teamBScore }),
         ...(date ? { date } : {}),

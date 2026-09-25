@@ -47,6 +47,40 @@ export const countsTowardRating = (game: ScoutGame, today: string = todayIsoDay(
 export const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;
 
+/**
+ * The score one side's own schedule gave it — its runs, then its opponent's — or undefined for a
+ * game not played. Side B reads `reportedByB` where its schedule said something different, so
+ * neither club's page shows the other's version of its own game.
+ */
+export const scoreSeenBy = (
+  game: ScoutGame,
+  teamId: string
+): { own: number; opponent: number } | undefined => {
+  if (game.teamAScore === undefined || game.teamBScore === undefined) return undefined;
+  if (game.teamAId === teamId) return { own: game.teamAScore, opponent: game.teamBScore };
+  const seen = game.reportedByB ?? game;
+  return { own: seen.teamBScore!, opponent: seen.teamAScore! };
+};
+
+/** A game with side B's own report taken off, for a score that now answers for both clubs. */
+export const withoutReportedByB = (game: ScoutGame): ScoutGame => {
+  if (game.reportedByB === undefined) return game;
+  const { reportedByB: _dropped, ...rest } = game;
+  return rest;
+};
+
+/**
+ * Side A's margin as the rating reads it: the one score, or where the two clubs' schedules
+ * disagree, the average of the two — the game counts once, and neither schedule is taken at its
+ * word over the other. Undefined for a game not played.
+ */
+export const ratedMargin = (game: ScoutGame): number | undefined => {
+  if (game.teamAScore === undefined || game.teamBScore === undefined) return undefined;
+  const margin = game.teamAScore - game.teamBScore;
+  const other = game.reportedByB;
+  return other ? (margin + other.teamAScore - other.teamBScore) / 2 : margin;
+};
+
 const MINUTE_MS = 60_000;
 
 /** A start as an instant, or undefined when there is none or it is not a time. */

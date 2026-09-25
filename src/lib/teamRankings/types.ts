@@ -180,6 +180,19 @@ export type ScoutGame = {
    */
   teamAScore?: number;
   teamBScore?: number;
+  /**
+   * The score as side B's own schedule gave it, in this game's order: A's runs, then B's.
+   *
+   * Side A is always the club whose schedule the game came off (`source`) — true of every one of
+   * the 248,371 games in the pool of 24 September 2026 — and `teamAScore`/`teamBScore` are what
+   * that schedule says, or side B's where side A has posted nothing. When side B's own schedule
+   * lists the game, its score is kept here rather than written over side A's. Two schedules
+   * disagreed about 13,865 games in that pool, 563 of them about who won, and a single score let
+   * whichever schedule was pulled last speak for both clubs, flipping as the refresh went round.
+   * Each club's page and record read its own schedule's score (`scoreSeenBy`); the rating reads
+   * the game once, at the average of the two (`ratedMargin`).
+   */
+  reportedByB?: { teamAScore: number; teamBScore: number };
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
   /**

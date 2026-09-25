@@ -195,6 +195,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
             return index === null ? [] : [index, row.gameId];
           })
         : null,
+      // Side B's own schedule's score, A's runs then B's.
+      game.reportedByB ? [game.reportedByB.teamAScore, game.reportedByB.teamBScore] : null,
     ]);
   });
 
@@ -275,6 +277,13 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
     }
   }
   if (alsoRows.length > 0) game.alsoRows = alsoRows;
+  if (Array.isArray(row[18])) {
+    const reportA = num(row[18][0]);
+    const reportB = num(row[18][1]);
+    if (reportA !== undefined && reportB !== undefined) {
+      game.reportedByB = { teamAScore: reportA, teamBScore: reportB };
+    }
+  }
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -663,6 +672,16 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
           : {}),
         ...(coerceFoldedRows(entry.alsoRows).length > 0
           ? { alsoRows: coerceFoldedRows(entry.alsoRows) }
+          : {}),
+        ...(isRecord(entry.reportedByB) &&
+        isNumber(entry.reportedByB.teamAScore) &&
+        isNumber(entry.reportedByB.teamBScore)
+          ? {
+              reportedByB: {
+                teamAScore: entry.reportedByB.teamAScore,
+                teamBScore: entry.reportedByB.teamBScore,
+              },
+            }
           : {}),
         ...(source ? { source } : {}),
       };

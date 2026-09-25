@@ -60,6 +60,7 @@ import {
   countedInWindow,
   gcAgeLevels,
   teamRecordInPool,
+  withoutReportedByB,
   teamsInRankingPool,
   unlinkGcTeam,
   type AgeGroup,
@@ -2355,7 +2356,7 @@ describe("mergeScoutTeams", () => {
     // Fall id and Spring id each pulled their own schedule; both had the 3-2 over the Cubs.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
-      filed("C", "B", 2, 3, { teamId: "gcSpring", gameId: "s1" }),
+      filed("B", "C", 3, 2, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.games).toHaveLength(1);
@@ -2365,10 +2366,11 @@ describe("mergeScoutTeams", () => {
   });
 
   it("reads one game each with different scores as one game, two scorekeepers", () => {
-    // Each schedule lists one game against the Cubs that day; the results differ by a run.
+    // Each schedule lists one game against the Cubs that day; the results differ by a run. A row's
+    // own club is always its side A, as every game pulled from GameChanger has it.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
-      filed("C", "B", 3, 1, { teamId: "gcSpring", gameId: "s1" }),
+      filed("B", "C", 1, 3, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.games).toHaveLength(1);
@@ -2376,7 +2378,8 @@ describe("mergeScoutTeams", () => {
       id: "gc_gcFall_f1",
       teamAScore: 3,
       teamBScore: 2,
-      note: "Other side reported 1-3.",
+      // Both ids are the one club's, so this is its own schedule scoring the game two ways.
+      note: "Also reported 1-3.",
     });
     expect(out.collapsedGames).toBe(1);
   });
@@ -2557,6 +2560,25 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
         .map((t) => t.id)
         .sort()
     ).toEqual(["A", "B"]);
+  });
+
+  // Both clubs' schedules claim the win: each club's record is its own schedule's.
+  it("counts each side's record by its own schedule where the two disagree", () => {
+    const disputed = [
+      { ...game("A", "B", 5, 4, "u9"), reportedByB: { teamAScore: 4, teamBScore: 5 } },
+    ];
+    expect(teamRecordInPool("A", "u9", disputed, pool)).toMatchObject({ wins: 1, losses: 0 });
+    expect(teamRecordInPool("B", "u9", disputed, pool)).toMatchObject({ wins: 1, losses: 0 });
+  });
+
+  it("drops the other schedule's score when a score is typed in for both", () => {
+    const disputed = {
+      ...game("A", "B", 5, 4, "u9"),
+      reportedByB: { teamAScore: 4, teamBScore: 5 },
+    };
+    expect(withoutReportedByB(disputed)).not.toHaveProperty("reportedByB");
+    const plain = game("A", "B", 5, 4, "u9");
+    expect(withoutReportedByB(plain)).toBe(plain);
   });
 
   it("counts a team's record across the pool, cross-age games included", () => {

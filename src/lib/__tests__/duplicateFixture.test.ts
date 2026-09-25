@@ -6,6 +6,7 @@ import {
   type GcImportState,
 } from "../gameChangerImport";
 import { normalizeGcGames, type GcTeamSchedule } from "../gameChangerApi";
+import { ratedMargin, scoreSeenBy } from "../teamRankings";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
 
@@ -269,6 +270,16 @@ describe("one game on two clubs' schedules", () => {
       empty
     );
     expect(within.state.games).toHaveLength(1);
+    // Each club keeps its own: Legacy's 14-2 on Legacy's page, the Raptors' 3-14 on theirs.
+    const idOf = (name: string) => within.state.teams.find((team) => team.name === name)!.id;
+    expect(scoreSeenBy(within.state.games[0]!, idOf("Legacy Baseball Club"))).toEqual({
+      own: 14,
+      opponent: 2,
+    });
+    expect(scoreSeenBy(within.state.games[0]!, idOf("River City Raptors"))).toEqual({
+      own: 3,
+      opponent: 14,
+    });
 
     const past = importGcSchedules(
       [
@@ -437,5 +448,91 @@ describe("one club's own schedule within the hour", () => {
         }),
       ])
     ).toBe(1);
+  });
+});
+
+/*
+ * One game, two schedules, two scores. The Dragons' schedule says they beat the Hens 11-8 at 10am;
+ * the Hens' says they lost to the Dragons 8-10 at 10am. It is one game, and each club's page shows
+ * what its own schedule says, not the other's.
+ */
+describe("each club keeps its own schedule's score", () => {
+  const club = (id: string, name: string, games: GcTeamSchedule["games"]): GcTeamSchedule => ({
+    profile: { id, name, ageLevel: 11, season: { season: "fall", year: 2026 } },
+    games,
+    fetchedAt: "2026-09-20T12:00:00.000Z",
+  });
+  const at10 = (id: string, opponentName: string, teamScore?: number, opponentScore?: number) => ({
+    id,
+    date: "2026-09-12",
+    startTs: "2026-09-12T14:00:00.000Z",
+    opponentName,
+    status: teamScore === undefined ? ("scheduled" as const) : ("completed" as const),
+    ...(teamScore === undefined ? {} : { teamScore }),
+    ...(opponentScore === undefined ? {} : { opponentScore }),
+  });
+  const dragons = (teamScore?: number, opponentScore?: number) =>
+    club("gcDRAGONS001", "Dragons 11U", [at10("d1", "Hens 11U", teamScore, opponentScore)]);
+  const hens = (teamScore?: number, opponentScore?: number) =>
+    club("gcHENS000001", "Hens 11U", [at10("h1", "Dragons 11U", teamScore, opponentScore)]);
+  const idOf = (state: GcImportState, name: string) =>
+    state.teams.find((team) => team.name === name)!.id;
+  const views = (state: GcImportState) => {
+    const [game] = state.games;
+    return {
+      dragons: scoreSeenBy(game!, idOf(state, "Dragons")),
+      hens: scoreSeenBy(game!, idOf(state, "Hens")),
+    };
+  };
+
+  it("is one game, with the Dragons' 11-8 on theirs and the Hens' 8-10 on theirs", () => {
+    const { state } = importGcSchedules([dragons(11, 8), hens(8, 10)], empty);
+    expect(state.games).toHaveLength(1);
+    expect(views(state)).toEqual({
+      dragons: { own: 11, opponent: 8 },
+      hens: { own: 8, opponent: 10 },
+    });
+  });
+
+  it("does not flip to whichever schedule was pulled last", () => {
+    const first = importGcSchedules([dragons(11, 8), hens(8, 10)], empty);
+    const again = importGcSchedules([hens(8, 10), dragons(11, 8), hens(8, 10)], first.state);
+    expect(again.state.games).toHaveLength(1);
+    expect(views(again.state)).toEqual(views(first.state));
+  });
+
+  it("rates the game once, at the average of the two margins", () => {
+    const { state } = importGcSchedules([dragons(11, 8), hens(8, 10)], empty);
+    const [game] = state.games;
+    expect(ratedMargin(game!)).toBe(game!.teamAId === idOf(state, "Dragons") ? 2.5 : -2.5);
+  });
+
+  it("gives each club its own result where the two disagree about who won", () => {
+    const { state } = importGcSchedules([dragons(5, 4), hens(5, 4)], empty);
+    expect(views(state)).toEqual({
+      dragons: { own: 5, opponent: 4 },
+      hens: { own: 5, opponent: 4 },
+    });
+    // Both schedules claim the win, so the rating reads it as even.
+    expect(ratedMargin(state.games[0]!)).toBe(0);
+  });
+
+  it("takes the Hens' score while the Dragons have posted none, and keeps it once they do", () => {
+    const early = importGcSchedules([dragons(), hens(8, 10)], empty);
+    expect(views(early.state)).toEqual({
+      dragons: { own: 10, opponent: 8 },
+      hens: { own: 8, opponent: 10 },
+    });
+    const posted = importGcSchedule(dragons(11, 8), early.state);
+    expect(views(posted.state)).toEqual({
+      dragons: { own: 11, opponent: 8 },
+      hens: { own: 8, opponent: 10 },
+    });
+  });
+
+  it("calls the Hens' first copy news only where it changes what the Hens see", () => {
+    const first = importGcSchedule(dragons(11, 8), empty);
+    expect(importGcSchedule(hens(8, 11), first.state).outcome.gamesUnchanged).toBe(1);
+    expect(importGcSchedule(hens(8, 10), first.state).outcome.gamesUpdated).toBe(1);
   });
 });

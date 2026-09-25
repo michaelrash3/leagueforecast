@@ -83,7 +83,7 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
-  it("keeps the start and every row folded into a game, which say what is one game", () => {
+  it("keeps the start, every row folded into a game and the other club's score", () => {
     const games: ScoutGame[] = [
       {
         id: "gc_gcLEGACY01_l2",
@@ -99,6 +99,7 @@ describe("games round-trip", () => {
           { teamId: "gcRAPTOR01", gameId: "r2" },
           { teamId: "gcLEGACY01", gameId: "l2-again" },
         ],
+        reportedByB: { teamAScore: 14, teamBScore: 3 },
         source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l2" },
       },
     ];

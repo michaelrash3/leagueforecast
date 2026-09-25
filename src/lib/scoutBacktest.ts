@@ -6,6 +6,7 @@ import {
 import {
   RATING_CAP,
   EVERY_DAY,
+  ratedMargin,
   scoutRatingGames,
   type AgeGroup,
   type ScoutGame,
@@ -358,7 +359,7 @@ const componentsOf = (train: DatedGame[]): Map<string, string> => {
 const asRatingGame = ({ game, ageGap }: DatedGame): RatingGame => ({
   home: game.teamAId,
   away: game.teamBId,
-  homeMargin: game.teamAScore! - game.teamBScore!,
+  homeMargin: ratedMargin(game)!,
   // Team A is simply the side entered first, not the home team.
   neutral: true,
   ...(ageGap ? { ageGap } : {}),
@@ -470,7 +471,7 @@ export const backtestScoutRatings = (
 
   test.forEach((entry) => {
     const { game, ageGap } = entry;
-    const actual = clamp(game.teamAScore! - game.teamBScore!, -scoreCap, scoreCap);
+    const actual = clamp(ratedMargin(game)!, -scoreCap, scoreCap);
     const predicted =
       (fit.ratings.get(game.teamAId) ?? 0) -
       (fit.ratings.get(game.teamBId) ?? 0) +

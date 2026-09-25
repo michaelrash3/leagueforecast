@@ -52,6 +52,8 @@ import {
   sameGameEvidence,
   sameStart,
   withSchedulesOf,
+  withSideBReport,
+  scoreSeenBy,
   mayTakeRow,
   gcRowId,
   startMinuteOf,
@@ -2165,6 +2167,24 @@ const importOne = (
         if (at >= 0) sameBucket[at] = next;
       }
     };
+    /*
+     * The other club's own copy of the game: its score goes beside this one's rather than over it
+     * (`withSideBReport`), so neither club's schedule speaks for the other's and the score no longer
+     * flips to whichever of the two was pulled last. Only a change to what that club's own page
+     * shows is news; the rest is bookkeeping.
+     */
+    const reported = existing === known ? undefined : withSideBReport(recorded, candidate);
+    if (reported) {
+      const before = scoreSeenBy(existing, candidate.teamAId);
+      const after = scoreSeenBy(reported, candidate.teamAId);
+      if (reported !== existing) writeInPlace(reported);
+      if (before?.own !== after?.own || before?.opponent !== after?.opponent) {
+        outcome.gamesUpdated += 1;
+      } else {
+        outcome.gamesUnchanged += 1;
+      }
+      continue;
+    }
     if (!differs(existing, candidate) && !moved) {
       // The record is bookkeeping, not news: nothing the reader would call a change.
       if (recorded !== existing) writeInPlace(recorded);
@@ -2469,11 +2489,26 @@ export const resolveSlotGames = (
     const [reportedA, reportedB] =
       named.teamAId === knownId ? [knownScore, otherScore] : [otherScore, knownScore];
 
+    /*
+     * The slot's row is the known club's own copy. Where that club is the named row's side B, its
+     * score goes beside the named row's (`reportedByB`) rather than into a note, as every other
+     * copy off the other club's schedule does; where it is side A, it is that club's own schedule
+     * scoring the game twice.
+     */
+    if (named.teamBId === knownId && isScored(slotGame)) {
+      const report = { teamAScore: otherScore!, teamBScore: knownScore! };
+      filled.set(named.id, {
+        ...recorded,
+        ...(fillScore ? report : {}),
+        reportedByB: report,
+      });
+      return;
+    }
     filled.set(named.id, {
       ...recorded,
       ...(disputed
         ? {
-            note: [current.note, `Other side reported ${reportedA}-${reportedB}.`]
+            note: [current.note, `Also reported ${reportedA}-${reportedB}.`]
               .filter(Boolean)
               .join(" "),
           }
@@ -2722,13 +2757,20 @@ export const joinCrossedHalves = (
           : { teamAScore: y.clubScore, teamBScore: y.standInScore }
         : {}),
       ...(x.game.startTs === undefined && y.game.startTs ? { startTs: y.game.startTs } : {}),
-      ...(disputed
-        ? {
-            note: [x.game.note, `Other side reported ${theirA}-${theirB}.`]
-              .filter(Boolean)
-              .join(" "),
-          }
-        : {}),
+      /*
+       * The other club's own score, beside this one's rather than in a note: it is that club's
+       * schedule, and its page reads it (`reportedByB`). Only where the joined row's side B is that
+       * club, which is every row a schedule of its own filed.
+       */
+      ...(clubIsA && scored(y)
+        ? { reportedByB: { teamAScore: y.standInScore!, teamBScore: y.clubScore! } }
+        : disputed
+          ? {
+              note: [x.game.note, `Other side reported ${theirA}-${theirB}.`]
+                .filter(Boolean)
+                .join(" "),
+            }
+          : {}),
     };
     replaced.set(x.game.id, joinedRow);
     dropped.add(y.game.id);
@@ -4264,8 +4306,9 @@ export const tidyPool = (
  *       halves, settling a stand-in into the named row, and taking a row back from a namesake
  *   8 — filing a stand-in onto the one namesake in a bordering state when none is in the puller's
  *   9 — keeping once a game two clubs' schedules started within the hour of each other, or gave
- *       the same result at any start; the blitzball refusal released before it had no bump of its
- *       own, and reaches a pool already tidied with this one
+ *       the same result at any start, with the other club's score kept beside it rather than in a
+ *       note; the blitzball refusal released before it had no bump of its own, and reaches a pool
+ *       already tidied with this one
  */
 const TIDY_RULES_VERSION = 9;
 

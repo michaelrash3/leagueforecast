@@ -470,6 +470,27 @@ On the pool of 24 September 2026 the tidy folds 2,777 rows this way and settles 
 slots whose starts were a fraction of a second apart, and Legacy's page reads six games
 again.
 
+**Each club keeps its own score.** The Dragons' schedule says they beat the Hens 11-8;
+the Hens' says they lost 8-10; it is one game, listed on both at 10am. The game used to
+carry one score, whichever schedule had been pulled last, so the Hens' page could show
+the Dragons' version of the Hens' own game, and the score flipped as the daily refresh
+went round. Two schedules disagreed about 13,865 games in the pool of 24 September 2026,
+563 of them about who won.
+
+Side A of a pulled game is always the club whose schedule it came off — every one of
+the pool's 248,371 games — and its score is side A's own. Side B's own schedule's score
+now sits beside it (`reportedByB`) instead of over it, and fills it only where side A
+has posted nothing yet. Each club's page and record read its own schedule
+(`scoreSeenBy`); the rating reads the game once, at the average of the two margins
+(`ratedMargin`), so the Dragons are rated 2.5 runs better that day and a game both clubs
+claim to have won reads as even. A score typed in by hand answers for both clubs and
+clears the other schedule's.
+
+On that pool the first tidy gives 1,498 folded games both scores, 131 of them different
+and 13 disagreeing about the winner; the rest fill in as each club is refreshed. Every
+2027 rating moves a little, since every game is fitted together, and none by more than
+0.57 of a run.
+
 Most slots name themselves. A bracket posts "TBD" on one team's schedule and
 the real fixture on the other's, so pulling both sides answers the question:
 after a run, a slot whose fixture another schedule named is folded into that

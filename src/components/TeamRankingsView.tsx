@@ -27,6 +27,7 @@ import {
   statesInUse,
   teamNameSuggestions,
   unlinkGcTeam,
+  withoutReportedByB,
   type AgeGroup,
   type AgeGroupSeason,
   type LeagueSeasonSnapshot,
@@ -1528,7 +1529,8 @@ export function TeamRankingsView({
     }
     persistGames(
       scoutGames.map((game) =>
-        game.id === gameId ? { ...game, teamAScore: a, teamBScore: b } : game
+        // A score typed here is the answer for both clubs, so the other schedule's goes with it.
+        game.id === gameId ? { ...withoutReportedByB(game), teamAScore: a, teamBScore: b } : game
       )
     );
     setEditingGameId(null);

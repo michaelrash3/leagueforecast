@@ -39,8 +39,10 @@ import {
   LEAGUE_GAME_PREFIX,
   minutesApart,
   pairKeyOf,
+  ratedMargin,
   sameStart,
   scoreOf,
+  scoreSeenBy,
   startsWithinTheHour,
 } from "./teamRankings/games";
 import {
@@ -327,8 +329,11 @@ const recordsFor = (playedGames: ScoutGame[]): Map<string, WinLoss> => {
     else record.ties += 1;
   };
   playedGames.forEach((game) => {
-    tally(game.teamAId, game.teamAScore!, game.teamBScore!);
-    tally(game.teamBId, game.teamBScore!, game.teamAScore!);
+    // Each side by its own schedule's score, so a result the two disagree about is each club's own.
+    [game.teamAId, game.teamBId].forEach((teamId) => {
+      const seen = scoreSeenBy(game, teamId);
+      if (seen) tally(teamId, seen.own, seen.opponent);
+    });
   });
   return records;
 };
@@ -771,6 +776,34 @@ export const withSchedulesOf = (keep: ScoutGame, drop: ScoutGame): ScoutGame => 
 };
 
 /**
+ * `keep` with the score side B's own copy of the game gave (`reportedByB`), or undefined when
+ * `drop` is not that: a row off another schedule whose own club — its side A — is `keep`'s side B.
+ *
+ * Side B's score goes beside side A's rather than over it, and only fills side A's where side A
+ * has posted nothing yet: each club's page and record then read its own schedule, and the rating
+ * both (`ratedMargin`). An unscored copy says nothing and leaves the game as it was.
+ */
+export const withSideBReport = (keep: ScoutGame, drop: ScoutGame): ScoutGame | undefined => {
+  if (drop.source === undefined || keep.teamAId === keep.teamBId) return undefined;
+  if (drop.teamAId !== keep.teamBId) return undefined;
+  if (!scoredGame(drop)) return keep;
+  const report = {
+    teamAScore: scoreOf(drop, keep.teamAId)!,
+    teamBScore: scoreOf(drop, keep.teamBId)!,
+  };
+  const fill = !scoredGame(keep);
+  const known =
+    keep.reportedByB?.teamAScore === report.teamAScore &&
+    keep.reportedByB.teamBScore === report.teamBScore;
+  if (known && !fill) return keep;
+  return {
+    ...keep,
+    ...(fill ? { teamAScore: report.teamAScore, teamBScore: report.teamBScore } : {}),
+    reportedByB: report,
+  };
+};
+
+/**
  * Whether a game may take a row off a schedule it already has on record.
  *
  * A game takes one row off each schedule, so a row off a schedule that is already on record is
@@ -800,30 +833,23 @@ const withNote = (note: string | undefined, sentence: string): string =>
   note && note.includes(sentence) ? note : [note, sentence].filter(Boolean).join(" ");
 
 /**
- * What folding `drop` into `keep` leaves on `keep`. A result on the dropped row fills a blank, a
- * start fills a missing start, and the schedules that listed it go on record (`withSchedulesOf`). A result that contradicts the one kept goes into the note rather
- * than nowhere: "Other side reported" when it came off the other club's schedule, "Also reported"
- * when one schedule listed the game twice and scored it two ways, as the import words it. Two rows
- * that agree leave no note, since there is nothing to say.
+ * What folding `drop` into `keep` leaves on `keep`. The schedules that listed it go on record
+ * (`withSchedulesOf`) and a start fills a missing start. The other club's own copy leaves its
+ * score beside this one's (`withSideBReport`). A copy off side A's own schedules — the same game
+ * listed twice, or another of its ids — fills a blank result, and one that scores the game
+ * differently goes into the note, "Also reported", as the import words it; two that agree leave
+ * no note, since there is nothing to say.
  */
 const foldedInto = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
-  let next = withSchedulesOf(filledFrom(keep, drop), drop);
+  const recorded = withSchedulesOf(keep, drop);
+  let next = withSideBReport(recorded, drop) ?? filledFrom(recorded, drop);
   if (next.startTs === undefined && drop.startTs !== undefined) {
     next = { ...next, startTs: drop.startTs };
   }
-  if (scoredGame(keep) && scoredGame(drop) && !sameResultAs(keep, drop)) {
-    const oneSchedule =
-      keep.source !== undefined &&
-      drop.source !== undefined &&
-      keep.source.teamId === drop.source.teamId;
+  const sideA = withSideBReport(keep, drop) === undefined;
+  if (sideA && scoredGame(keep) && scoredGame(drop) && !sameResultAs(keep, drop)) {
     const theirs = `${scoreOf(drop, keep.teamAId)}-${scoreOf(drop, keep.teamBId)}`;
-    next = {
-      ...next,
-      note: withNote(
-        next.note,
-        `${oneSchedule ? "Also reported" : "Other side reported"} ${theirs}.`
-      ),
-    };
+    next = { ...next, note: withNote(next.note, `Also reported ${theirs}.`) };
   }
   return next;
 };
@@ -1363,7 +1389,7 @@ export const buildTeamRankings = (
     playedGames.map((game, at) => ({
       home: game.teamAId,
       away: game.teamBId,
-      homeMargin: game.teamAScore! - game.teamBScore!,
+      homeMargin: ratedMargin(game)!,
       // Team A is simply the side entered first, not the home team.
       neutral: true,
       ...(weights ? { weight: weights[at] ?? 1 } : {}),
@@ -1526,7 +1552,7 @@ export const rankScoutPool = (
     rated.map(({ game, ageGap }, at) => ({
       home: game.teamAId,
       away: game.teamBId,
-      homeMargin: game.teamAScore! - game.teamBScore!,
+      homeMargin: ratedMargin(game)!,
       // Team A is simply the side entered first, not the home team.
       neutral: true,
       ...(ageGap ? { ageGap } : {}),
@@ -2180,7 +2206,7 @@ export const leagueScoutBridge = (
     : onLinkedPage.filter(touchesLeague).map((game) => ({
         home: ratingId(game.teamAId),
         away: ratingId(game.teamBId),
-        homeMargin: game.teamAScore! - game.teamBScore!,
+        homeMargin: ratedMargin(game)!,
         ...(game.date ? { date: game.date } : {}),
         neutral: true as const,
       }));

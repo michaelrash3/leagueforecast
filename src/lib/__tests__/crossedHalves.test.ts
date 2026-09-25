@@ -6,7 +6,7 @@ import {
   type GcImportState,
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
-import { nameFitsWithin } from "../teamRankings";
+import { nameFitsWithin, scoreSeenBy } from "../teamRankings";
 import { borderingStates, inOneRegion } from "../stateBorders";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
@@ -304,7 +304,7 @@ describe("joinCrossedHalves", () => {
   describe("two coaches who scored one game apart", () => {
     const apart: Half = { ...hurricanesHalf, score: [3, 13], startTs: stixHalf.startTs! };
 
-    it("joins them at one start time, the first result standing with the other noted", () => {
+    it("joins them at one start time, each club keeping its own schedule's score", () => {
       const out = joinCrossedHalves(halves(stixHalf, apart));
       expect(out.joined).toBe(1);
       expect(out.state.games).toHaveLength(1);
@@ -314,9 +314,11 @@ describe("joinCrossedHalves", () => {
         [stixId, pulled(out.state, HURRICANES).id].sort()
       );
       expect(resultFor(row, stixId)).toEqual([13, 2]);
-      // In the row's own order, Stix first: the Hurricanes had it 13-3.
+      // In the row's own order, Stix first: the Hurricanes had it 13-3, and read it so.
       expect(row.teamAId).toBe(stixId);
-      expect(row.note).toBe("Other side reported 13-3.");
+      expect(row.reportedByB).toEqual({ teamAScore: 13, teamBScore: 3 });
+      expect(scoreSeenBy(row, pulled(out.state, HURRICANES).id)).toEqual({ own: 3, opponent: 13 });
+      expect(row.note).toBeUndefined();
     });
 
     it("takes a half that agrees over one at the same instant that does not", () => {
@@ -364,7 +366,7 @@ describe("joinCrossedHalves", () => {
         pulled(pool, HURRICANES).id
       );
       expect(resultFor(rows[0]!, stixId)).toEqual([13, 2]);
-      expect(rows[0]!.note).toBe("Other side reported 13-3.");
+      expect(rows[0]!.reportedByB).toEqual({ teamAScore: 13, teamBScore: 3 });
       expect(standIns(pool)).toEqual([]);
     });
   });
