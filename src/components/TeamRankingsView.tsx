@@ -22,6 +22,7 @@ import {
   seasonAtAge,
   seasonYearOptions,
   filterRankingsByState,
+  gcRowId,
   normalizeState,
   renameScoutTeam,
   statesInUse,
@@ -1083,8 +1084,16 @@ export function TeamRankingsView({
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
-    saveDeletedGames(forgetGames(loadDeletedGames(), ids));
     const drop = new Set(ids);
+    // A game standing on a row entered again after its first was deleted is remembered by both.
+    const rows = wholePoolGames.flatMap((game) =>
+      drop.has(game.id) &&
+      game.source &&
+      gcRowId(game.source.teamId, game.source.gameId) !== game.id
+        ? [gcRowId(game.source.teamId, game.source.gameId)]
+        : []
+    );
+    saveDeletedGames(forgetGames(loadDeletedGames(), [...ids, ...rows]));
     const kept = wholePoolGames.filter((game) => !drop.has(game.id));
     if (kept.length !== wholePoolGames.length) persistAllGames(kept);
     showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {

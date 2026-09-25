@@ -443,36 +443,55 @@ the pool of 24 September 2026, 1,213 pairs of rows off two schedules gave the sa
 the same result on the same day at different starts; the same search a week off, where
 no game is, found 7.
 
-So a row off the other club's schedule is the same game on any of these, strongest
-first, and each game takes the copy that fits it best:
+So a row off the other club's schedule can be the same game on any of these, strongest
+first:
 
 | Two clubs' copies of a day's meeting                           | One game?                                   |
 | -------------------------------------------------------------- | ------------------------------------------- |
 | Starting within the hour, with the same result                 | Yes — 1,115 of the 1,213 were within it     |
+| The same result, however far apart the clocks                  | Yes, the nearer the likelier                |
 | At the very same start, a result still to come on one side     | Yes                                         |
-| The same result, however far apart the clocks                  | Yes                                         |
-| Starting within the hour, a result still to come on one side   | Yes                                         |
+| Starting within the hour, a result still to come on one side   | Yes, the nearer the likelier                |
+| No start on one side                                           | Yes, a copy with a result first             |
 | Starting within the hour, scored differently                   | Yes, each club keeping its own score        |
-| No start on one side, a result on only one                     | Yes, before a copy with no result at all    |
 | Neither, with one game left on each schedule that day          | Yes, scored differently, as it always was   |
 | Neither, with more on one schedule than the other accounts for | No — that is a game only one of them listed |
 
-A result that agrees outranks a slot that has none yet, so a copy posted between the
-two games of a doubleheader goes to the game it reports, not to the empty slot nearer
-its clock. The very same start is the exception, since nobody plays two games at once:
-both clubs list a doubleheader at 9:00 and 12:00, Legacy posts game 1 as an 8-11 loss and
-the Raptors post game 2 as an 11-8 win, and the Raptors' result belongs at 12:00 however
-game 1's reads. A copy with no start and a result fits fewer games than one with neither,
-so it is placed first. One club's own schedule repeating a result within the hour — the
-same game listed twice, below — is heard only after every link between the two schedules,
-so where the other club lists both slots of a mercy-rule doubleheader, 10-0 twice, its
-two rows keep the two games apart. A game takes one row off each schedule: a second row off the same schedule
-joins only as that schedule listing the game twice, which keeps a doubleheader two games
-when the other club's clock sits between its two slots. Where both schedules list the
-same number of games that day, first pairs with first before the nearer start is asked,
-since one coach's clock runs behind the other's all day. And two games that each hold a
-row off both schedules stay two unless the rows share a start: both clubs listing both
-games at two slots is a doubleheader, even when a mercy rule made it 10-0 twice.
+**A day is read whole.** Which copy each game takes is decided for the whole day at once
+rather than a link at a time (`planDay`): every way of pairing the two schedules' games is
+weighed, and the one that best accounts for both schedules together wins. The strongest
+single link first used to lose a result wherever it was the wrong link for the day — three
+review rounds found one shape after another — and each rule added to rank one link over
+another moved the loss to another shape. The weighing:
+
+- **Both schedules' games in both schedules' order.** A coach lists the games in the order
+  they were played, whatever the clock says, so first pairs with first. Legacy posts game 1
+  of a doubleheader as an 8-11 loss and the Raptors post game 2 as an 11-8 win an hour
+  later: the Raptors' copy belongs to game 2, not to game 1 because the score repeats. And a
+  clock exactly an hour out all day pairs 9:00 with 10:00 and 10:00 with 11:00, rather than
+  the two 10:00 rows. Rows with no start fit wherever they fit best.
+- **A result that agrees outranks a copy with nothing in it, however near.** Taken for a
+  blank game beside it, a copy's result counts twice until the other game is posted, and for
+  good if that game was a slot never played. On the pool of 24 September 2026 a 9U club with
+  four games was charged one 9-12 loss twice that way. Taken for the game it repeats, the
+  worst is a result missing until it is posted, and once both clubs have scored everything,
+  the same result within the hour puts each copy where it belongs.
+- **A scorekeepers' dispute is worth little.** Two different results within the hour are
+  one game when nothing else explains them, but never at the cost of a result that agrees.
+- **One schedule repeating a result within the hour is that schedule listing the game
+  twice** — but only where it does not stop the other club's rows each finding a game of
+  their own. So a mercy-rule doubleheader, 10-0 twice, stays two games wherever the other
+  club lists both slots, posted or not.
+- **Two copies that contradict are never one game** by any link. The day's leftovers are
+  still settled by count: one game left on each schedule, both scored, is one game two
+  coaches scored differently.
+
+Each schedule's rows at one start are one game before any of this (nobody plays two games
+at once). Days with a row that no schedule stands behind, such as a game typed in by hand,
+or with three schedules, are few (one in the pool) and are still settled a link at a time,
+with the same guard against contradicting copies. A game takes one row off each schedule,
+and two games that each hold a row off both schedules stay two unless the rows share a
+start.
 
 **A fold is never final.** A game keeps every row folded into it whole — the schedule,
 the row's id, its start and its score from its own seat (`alsoRows`) — and every tidy
@@ -480,7 +499,11 @@ stands those rows back up beside the games still standing and groups the day aga
 scratch. So a fold made on one day's schedules answers to the next day's: a copy that
 went to the wrong game of a doubleheader on a tie moves when a score says which it was,
 two games listed at one placeholder slot come apart when the schedule moves one, and a
-row that fits nothing now stands up as a game under its own id. A re-pull finds its row
+row that fits nothing now stands up as a game under its own id — filed under its own
+club's page, by the level it played at, so a cross-age game's copy stood back up is
+where a refresh of that page alone finds it by id. (One row filed twice under one id is
+kept once, the copy against a real club over a stand-in, then a scored one; the tidy used
+to fold both away.) A re-pull finds its row
 by id, updates the record and leaves the grouping to the tidy; a row the schedule no
 longer lists — deleted, cancelled, moved to another day — has its record removed on that
 schedule's next pull. The same regrouping run twice changes nothing, which is what lets
@@ -498,10 +521,14 @@ A start the schedule itself has since moved is taken on the next pull; another
 schedule's start is never written over a row, nor fills a row that has none, since that
 is the other coach's clock — an all-day 5-3 win given the Raptors' 2:00 PM start sat at the
 very start of Legacy's own 2:00 PM game, and the next tidy read the two as one listed twice.
-A game whose own row the schedule deleted, entered again under a new id, takes the new
-row's result and start, so a correction made to the new row reaches the game.
-On the pool of 24 September 2026 the tidy folds 2,779 rows this way and settles 6
-slots whose starts were a fraction of a second apart, and Legacy's page reads six games
+A game whose own row the schedule deleted, entered again under a new id, stands on the new
+row from then on — its result, its start, set or cleared, and the pulls after it — so a
+correction to the new row reaches the game, and one entered again all day is not split
+from the row it replaced. A club's second listing of a game its first row leaves blank
+gives the game its score, corrections included. On the pool of 24 September 2026 the tidy
+folds 2,779 rows this way and settles 7 slots: 6 whose starts were a fraction of a second
+apart, and a stand-in copy of a 3-2 win that had two games of that score to choose from
+until one was seen to hold the club's own row already. Legacy's page reads six games
 again.
 
 **Each club keeps its own score.** The Dragons' schedule says they beat the Hens 11-8;
@@ -526,7 +553,7 @@ Every other way a pull fills side A's blank from side B's schedule — settling 
 into a named game, joining two clubs that each filed the game against a stand-in — marks
 the score borrowed the same way.
 
-On that pool the first tidy gives 1,500 folded games both scores, 131 of them different
+On that pool the first tidy gives 1,501 folded games both scores, 131 of them different
 and 13 disagreeing about the winner, and 160 a score borrowed from side B; the rest fill
 in as each club is refreshed. Every
 2027 rating moves a little, since every game is fitted together, and none by more than
@@ -541,7 +568,10 @@ posted yet is taken from the slot's row.
 
 That only happens where it is certain. The naming row has to come from another
 club's schedule, since a team listing both a placeholder and a named opponent
-on one day is playing two games and neither names the other. Where both rows
+on one day is playing two games and neither names the other — and nor can a game that
+already holds a row off the slot's own schedule, unless at the same start: one schedule
+lists a game once, and a row settled there was one the regroup stood back up against the
+named club, a result filed against a club that never played it. Where both rows
 give a start time they have to agree on it, which is what tells the halves of a
 doubleheader apart. A day with two clubs that could both be the answer is left
 alone.

@@ -68,6 +68,7 @@ import {
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
+  gcRowId,
 } from "../teamRankings";
 
 const team = (id: string, name: string, isMine?: boolean): ScoutTeam => ({
@@ -2278,6 +2279,87 @@ describe("collapseSameGames", () => {
       [u9]
     );
     expect(second.games).toHaveLength(2);
+  });
+
+  /*
+   * A day with a game typed in by hand is left to the links, which must not pair a copy with one
+   * row of a game listed twice when it contradicts the other: the Raptors' all-day 10-0 for Legacy
+   * is not Legacy's game listed at 09:00 as a 0-10 loss and again blank.
+   */
+  it("links no copy into a game whose score it contradicts, on a day typed in by hand", () => {
+    const ids = (id: string, source: string, gameId: string) => ({
+      id,
+      source: { kind: "gamechanger" as const, teamId: source, gameId },
+    });
+    const out = collapseSameGames(
+      [
+        timed({ ...row("A", "B", 0, 10, "u9", "gcA"), ...ids("gc_gcA_a0", "gcA", "a0") }, "09:00"),
+        timed(
+          {
+            ...row("A", "B", 0, 0, "u9", "gcA"),
+            teamAScore: undefined,
+            teamBScore: undefined,
+            ...ids("gc_gcA_a1", "gcA", "a1"),
+          },
+          "09:00"
+        ),
+        timed(
+          {
+            ...row("A", "B", 0, 0, "u9", "gcA"),
+            teamAScore: undefined,
+            teamBScore: undefined,
+            ...ids("gc_gcA_a2", "gcA", "a2"),
+          },
+          "11:00"
+        ),
+        { ...row("B", "A", 0, 10, "u9", "gcB"), ...ids("gc_gcB_r0", "gcB", "r0") },
+        { ...game("A", "B", 3, 3, "u9"), id: "typed", date: "2026-09-11" },
+      ],
+      [u9]
+    );
+    const holding = (id: string) =>
+      out.games.find(
+        (g) => g.id === id || (g.alsoRows ?? []).some((r) => gcRowId(r.teamId, r.gameId) === id)
+      )!;
+    expect(holding("gc_gcB_r0")).toBe(holding("gc_gcA_a2"));
+    expect(holding("gc_gcA_a0").reportedByB).toBeUndefined();
+  });
+
+  /*
+   * A day with three schedules is left to the links too. Two all-day blank copies tie for one
+   * all-day result, both with no gap to compare; the tie has to go the same way on every pass, or
+   * the two trade places for ever.
+   */
+  it("breaks a tie between links with no start the same way every time, on a day of three schedules", () => {
+    const blank = (id: string, source: string, a: string, b: string): ScoutGame => ({
+      ...game(a, b, 0, 0, "u9"),
+      teamAScore: undefined,
+      teamBScore: undefined,
+      id: `gc_${source}_${id}`,
+      date: "2026-09-11",
+      source: { kind: "gamechanger", teamId: source, gameId: id },
+    });
+    const day = [
+      {
+        ...row("A", "B", 10, 0, "u9", "gcA"),
+        id: "gc_gcA_a1",
+        source: { kind: "gamechanger" as const, teamId: "gcA", gameId: "a1" },
+      },
+      blank("b1", "gcB", "B", "A"),
+      blank("b2", "gcB", "B", "A"),
+      timed(blank("c1", "gcC", "A", "B"), "09:00"),
+    ];
+    const once = collapseSameGames(day, [u9]).games;
+    const twice = collapseSameGames(once, [u9]);
+    expect(twice.games).toBe(once);
+    // Whichever row holds each game, the rows go together the same way from either order.
+    const grouping = (games: ScoutGame[]) =>
+      games
+        .map((g) =>
+          [g.id, ...(g.alsoRows ?? []).map((r) => gcRowId(r.teamId, r.gameId))].sort().join(",")
+        )
+        .sort();
+    expect(grouping(collapseSameGames(day.slice().reverse(), [u9]).games)).toEqual(grouping(once));
   });
 
   it("keeps two games apart when each holds a schedule-only record of the other's club", () => {

@@ -728,7 +728,11 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
       .flatMap((entry) => {
-        const parsed = /^([^:@=/]+):([^:@=/]+)(?:@([^@=/]+))?(?:=(\d+)-(\d+))?(\/B)?$/.exec(entry);
+        // A score typed by hand can be any number the score cell takes, so not only whole ones.
+        const parsed =
+          /^([^:@=/]+):([^:@=/]+)(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
+            entry
+          );
         if (!parsed) return [];
         const [, teamId, gameId, startTs, own, opponent, sideB] = parsed;
         return [
@@ -743,7 +747,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
           },
         ];
       });
-    const reported = /^(\d+)-(\d+)$/.exec(cell("Team B Reported").trim());
+    const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
     return [
       {
         id,

@@ -130,6 +130,32 @@ describe("teamRankingsCsvSections", () => {
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(folded))).toEqual(folded);
   });
 
+  // A score typed by hand is any number the score cell takes, and it is written into side B's row.
+  it("round-trips a folded row and the other club's score that are not whole numbers", () => {
+    const typed: TeamRankingsBackup = {
+      ...backup,
+      games: [
+        {
+          ...games[0]!,
+          teamAScore: 5.5,
+          teamBScore: 3,
+          alsoFrom: ["zjvVkYnqLrf0"],
+          alsoRows: [
+            {
+              teamId: "zjvVkYnqLrf0",
+              gameId: "0b1e-77",
+              ownScore: 3,
+              opponentScore: 5.5,
+              onSideB: true,
+            },
+          ],
+          reportedByB: { teamAScore: 5.5, teamBScore: 3 },
+        },
+      ],
+    };
+    expect(parseTeamRankingsCsv(teamRankingsCsvSections(typed))).toEqual(typed);
+  });
+
   it("round-trips the pool appended to a schedule export", () => {
     expect(parseTeamRankingsCsv(backupCsv)).toEqual(backup);
   });

@@ -973,8 +973,322 @@ const foldedInto = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
 };
 
 /**
+ * What pairing two copies off two schedules is worth to `planDay`, by the evidence between them.
+ *
+ * A result that agrees is the strongest evidence there is: two games between two clubs on one day
+ * end by the same score about one time in eighty (`ONE_GAME_WINDOW_MINUTES`). So the same result
+ * within the hour is worth most, and past the hour it fades — the nearer of two games with that
+ * score is the likelier — but never below the very same start with a result still to come, which
+ * comes next; then within the hour with a result still to come, nearer worth more; then no start
+ * on one side; and last two scorekeepers who disagree within the hour, worth only a little more
+ * than two games, so never enough to outbid a result that agrees.
+ *
+ * A copy with a result goes to the game it repeats rather than to a blank game beside it, however
+ * near, because of what each does while the other club has not posted: taken for the blank game,
+ * the result counted twice — on the pool of 24 September 2026 a 9U club with four games was
+ * charged a 9-12 loss twice, the club that beat it listing one game at 12:30 and a blank at 19:00
+ * and the loser one at 18:30 — and stayed counted twice for good if that blank was a slot never
+ * played; taken for the game it repeats, the worst is a result missing until it is posted, and
+ * once both clubs have scored everything the same result within the hour puts every copy where
+ * it belongs.
+ */
+const PAIRING_WORTH: Record<number, number> = {
+  [EVIDENCE.togetherScored]: 100,
+  [EVIDENCE.sameStartUnplayed]: 80,
+  [EVIDENCE.together]: 60,
+  [EVIDENCE.untimedOneResult]: 45,
+  [EVIDENCE.untimedUnplayed]: 40,
+  [EVIDENCE.scoredApart]: 10,
+};
+/**
+ * One schedule's two rows within the hour with the same result, taken as that schedule listing the
+ * game twice: worth less than either row pairing with a copy of its own off the other schedule, so
+ * the other club's two rows at the two slots keep a doubleheader two games — two mercy-rule 10-0
+ * wins an hour apart were one while this came first — and more than two rows left on their own, so
+ * a schedule that lists one game twice against a club that lists it once, or not at all, is one game.
+ */
+const LISTED_TWICE_WORTH = 50;
+const DAY_MINUTES = 24 * 60;
+const nearness = (gap: number): number =>
+  gap <= ONE_GAME_WINDOW_MINUTES
+    ? Math.round((20 * (ONE_GAME_WINDOW_MINUTES - gap)) / ONE_GAME_WINDOW_MINUTES)
+    : 0;
+
+/**
+ * Past this, `planDay` leaves the day to the links rather than weigh every reading of it: the
+ * busiest day in the pool of 24 September 2026 had four rows on one schedule, and a day at these
+ * limits — five rows a side, three of each schedule's neighbours possibly one game listed twice —
+ * took 18 milliseconds to weigh.
+ */
+const PLAN_MAX_COPIES = 5;
+const PLAN_MAX_LISTED_TWICE = 3;
+
+/**
+ * The day's games as the best account of both schedules at once, or undefined for a day it does
+ * not plan — rows with no schedule behind them, or three schedules — which the links settle.
+ *
+ * Each schedule's rows at one start are one game (nobody plays two at once). Then every way of
+ * reading the day is weighed whole: which of one schedule's same results within the hour are the
+ * game listed twice, and which copy off the other schedule each game takes, the timed ones in
+ * both schedules' order — first with first, whatever either clock says, since a coach lists the
+ * games in the order they were played — and the untimed ones wherever they fit. The best total
+ * (`PAIRING_WORTH`) wins; a tie goes to more pairings, then to the nearer starts, then to the rows'
+ * ids, so the same day reads the same way whatever order its rows came in.
+ *
+ * Taking the strongest link first could not do this: it lost a result wherever the strongest single
+ * link was the wrong one for the day — game 1's score repeated in game 2 an hour on, a clock
+ * exactly an hour out, a copy listed twice beside a slot of its own — and each rule added to rank
+ * one link over another moved the loss to another day's shape.
+ */
+const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
+  const schedules: string[] = [];
+  for (const row of bucket) {
+    const schedule = row.source?.teamId;
+    if (schedule === undefined) return undefined;
+    if (!schedules.includes(schedule)) schedules.push(schedule);
+  }
+  if (schedules.length > 2) return undefined;
+  schedules.sort();
+
+  type Copy = { rows: number[]; rep: number; start: number | undefined; legacy: Set<string> };
+  const copyOf = (rows: number[]): Copy => {
+    const sorted = rows.slice().sort((x, y) => x - y);
+    const rep = sorted.find((row) => scoredGame(bucket[row]!)) ?? sorted[0]!;
+    const starts = sorted
+      .map((row) => startMinuteOf(bucket[row]!.startTs))
+      .filter((start): start is number => start !== undefined);
+    return {
+      rows: sorted,
+      rep,
+      start: starts.length > 0 ? Math.min(...starts) : undefined,
+      legacy: new Set(sorted.flatMap((row) => bucket[row]!.alsoFrom ?? [])),
+    };
+  };
+  const byStart = (a: Copy, b: Copy) =>
+    a.start === undefined
+      ? b.start === undefined
+        ? a.rows[0]! - b.rows[0]!
+        : 1
+      : b.start === undefined
+        ? -1
+        : a.start - b.start;
+
+  /** A schedule's rows as copies: one per start, one per row with none; and where two may be one. */
+  const copiesOf = (schedule: string) => {
+    const atStart = new Map<string, number[]>();
+    const untimed: number[][] = [];
+    bucket.forEach((row, at) => {
+      if (row.source?.teamId !== schedule) return;
+      const minute = startMinuteOf(row.startTs);
+      const key = minute !== undefined ? `m${minute}` : row.startTs ? `s${row.startTs}` : undefined;
+      if (key === undefined) {
+        untimed.push([at]);
+        return;
+      }
+      const list = atStart.get(key);
+      if (list) list.push(at);
+      else atStart.set(key, [at]);
+    });
+    const copies = [...atStart.values(), ...untimed].map(copyOf).sort(byStart);
+    const twice: number[] = [];
+    for (let at = 0; at + 1 < copies.length; at += 1) {
+      const [x, y] = [copies[at]!, copies[at + 1]!];
+      if (x.start === undefined || y.start === undefined) continue;
+      if (sameGameEvidence(bucket[x.rep]!, bucket[y.rep]!) !== undefined) twice.push(at);
+    }
+    return { copies, twice };
+  };
+
+  /** Every reading of one schedule's rows: which neighbouring copies are one game listed twice. */
+  const readings = (schedule: string | undefined): { copies: Copy[]; twice: number }[] => {
+    if (schedule === undefined) return [{ copies: [], twice: 0 }];
+    const { copies, twice } = copiesOf(schedule);
+    if (copies.length > PLAN_MAX_COPIES || twice.length > PLAN_MAX_LISTED_TWICE) return [];
+    const out: { copies: Copy[]; twice: number }[] = [];
+    for (let mask = 0; mask < 1 << twice.length; mask += 1) {
+      const joinNext = new Set(twice.filter((_, bit) => (mask >> bit) & 1));
+      const runs: Copy[][] = [];
+      copies.forEach((copy, at) => {
+        if (at > 0 && joinNext.has(at - 1)) runs[runs.length - 1]!.push(copy);
+        else runs.push([copy]);
+      });
+      // One game listed more than twice has to be the same game read from every pair of its rows.
+      const whole = runs.every((run) =>
+        run.every((x, i) =>
+          run
+            .slice(i + 1)
+            .every((y) => sameGameEvidence(bucket[x.rep]!, bucket[y.rep]!) !== undefined)
+        )
+      );
+      if (!whole) continue;
+      out.push({
+        copies: runs.map((run) => copyOf(run.flatMap((copy) => copy.rows))).sort(byStart),
+        twice: joinNext.size,
+      });
+    }
+    return out;
+  };
+
+  /**
+   * A schedule on record without its row (from before rows were kept) is a copy not here to
+   * compare. A schedule on record on both is one taken twice, and two games that each hold the
+   * other's schedule already hold a copy each.
+   */
+  const recordsAllow = (x: Copy, y: Copy): boolean => {
+    const [xSchedule, ySchedule] = [sourceOfRow(bucket[x.rep]!), sourceOfRow(bucket[y.rep]!)];
+    if (x.legacy.has(ySchedule) && y.legacy.has(xSchedule)) return false;
+    return ![...x.legacy].some((schedule) => y.legacy.has(schedule));
+  };
+  const worthOf = (x: Copy, y: Copy): number | undefined => {
+    const evidence = sameGameEvidence(bucket[x.rep]!, bucket[y.rep]!);
+    if (!evidence || !recordsAllow(x, y)) return undefined;
+    // Another copy off a schedule on record is the folded row coming back only if it agrees within
+    // the hour or starts at the very start, as `mayTakeRow` has it.
+    const [xSchedule, ySchedule] = [sourceOfRow(bucket[x.rep]!), sourceOfRow(bucket[y.rep]!)];
+    if (
+      (x.legacy.has(ySchedule) || y.legacy.has(xSchedule)) &&
+      !agreesWithinTheHour(evidence) &&
+      !sameStart(bucket[x.rep]!.startTs, bucket[y.rep]!.startTs)
+    ) {
+      return undefined;
+    }
+    if (evidence.strength === EVIDENCE.sameResult) {
+      return Number.isFinite(evidence.gap)
+        ? Math.max(81, 100 - Math.round((evidence.gap - ONE_GAME_WINDOW_MINUTES) / 4))
+        : 85;
+    }
+    const base = PAIRING_WORTH[evidence.strength] ?? 0;
+    if (evidence.strength === EVIDENCE.togetherScored || evidence.strength === EVIDENCE.together) {
+      return base + nearness(evidence.gap);
+    }
+    if (evidence.strength === EVIDENCE.scoredApart) return base + nearness(evidence.gap) / 2;
+    return base;
+  };
+
+  type Plan = { worth: number; pairs: number; spread: number; groups: number[][] };
+  let best: Plan | undefined;
+  const keyOf = (groups: number[][]) =>
+    groups
+      .map((group) =>
+        group
+          .map((row) => bucket[row]!.id)
+          .sort()
+          .join(",")
+      )
+      .sort()
+      .join("|");
+  const consider = (groups: number[][], worth: number, pairs: number, spread: number) => {
+    // A tie goes to more pairings, then to the nearer starts, then to the rows' ids.
+    const better =
+      !best ||
+      worth > best.worth ||
+      (worth === best.worth &&
+        (pairs > best.pairs ||
+          (pairs === best.pairs &&
+            (spread < best.spread ||
+              (spread === best.spread && keyOf(groups) < keyOf(best.groups))))));
+    if (!better) return;
+    const sorted = groups.map((group) => group.slice().sort((x, y) => x - y));
+    sorted.sort((x, y) => x[0]! - y[0]!);
+    best = { worth, pairs, spread, groups: sorted };
+  };
+
+  for (const left of readings(schedules[0])) {
+    for (const right of readings(schedules[1])) {
+      const [a, b] = [left.copies, right.copies];
+      const listedTwice = (left.twice + right.twice) * LISTED_TWICE_WORTH;
+      const pairedWith: (number | undefined)[] = a.map(() => undefined);
+      const walk = (
+        at: number,
+        used: number,
+        lastTimed: number,
+        worth: number,
+        pairs: number,
+        spread: number
+      ) => {
+        if (at === a.length) {
+          const groups = [
+            ...a.map((copy, i) =>
+              pairedWith[i] === undefined ? copy.rows : [...copy.rows, ...b[pairedWith[i]!]!.rows]
+            ),
+            ...b.filter((_, j) => !((used >> j) & 1)).map((copy) => copy.rows),
+          ];
+          consider(groups, worth + listedTwice, pairs, spread);
+          return;
+        }
+        pairedWith[at] = undefined;
+        walk(at + 1, used, lastTimed, worth, pairs, spread);
+        const x = a[at]!;
+        b.forEach((y, j) => {
+          if ((used >> j) & 1) return;
+          // Both schedules' timed games in both schedules' order.
+          const timed = x.start !== undefined && y.start !== undefined;
+          if (timed && j <= lastTimed) return;
+          const value = worthOf(x, y);
+          if (value === undefined) return;
+          const gap = minutesApart(bucket[x.rep]!.startTs, bucket[y.rep]!.startTs);
+          pairedWith[at] = j;
+          walk(
+            at + 1,
+            used | (1 << j),
+            timed ? j : lastTimed,
+            worth + value,
+            pairs + 1,
+            spread + Math.min(gap ?? DAY_MINUTES, DAY_MINUTES)
+          );
+          pairedWith[at] = undefined;
+        });
+      };
+      walk(0, 0, -1, 0, 0, 0);
+    }
+  }
+  if (!best) return undefined;
+  const plan: Plan = best;
+
+  /*
+   * What the day leaves is settled by count, as the links have it: one game off each schedule, both
+   * played and not accounted for by the other, is one game two coaches scored differently.
+   */
+  if (schedules.length === 2) {
+    const accounts = (group: number[], schedule: string) =>
+      group.some(
+        (row) =>
+          bucket[row]!.source?.teamId === schedule ||
+          (bucket[row]!.alsoFrom ?? []).includes(schedule)
+      );
+    const [first, second] = schedules as [string, string];
+    const onlyFirst = plan.groups.filter((g) => accounts(g, first) && !accounts(g, second));
+    const onlySecond = plan.groups.filter((g) => accounts(g, second) && !accounts(g, first));
+    const played = (group: number[]) => group.some((row) => scoredGame(bucket[row]!));
+    const [left] = onlyFirst;
+    const [right] = onlySecond;
+    if (
+      onlyFirst.length === 1 &&
+      onlySecond.length === 1 &&
+      left &&
+      right &&
+      played(left) &&
+      played(right) &&
+      recordsAllow(copyOf(left), copyOf(right))
+    ) {
+      const joined = [...left, ...right].sort((x, y) => x - y);
+      return [...plan.groups.filter((g) => g !== left && g !== right), joined].sort(
+        (x, y) => x[0]! - y[0]!
+      );
+    }
+  }
+  return plan.groups;
+};
+
+const sourceOfRow = (row: ScoutGame): string => row.source?.teamId ?? "";
+
+/**
  * The rows of one bucket — one pool, one pair of clubs, one day — grouped into games, each group
  * listed in the order the rows were given.
+ *
+ * A day of one or two schedules is read whole (`planDay`); what follows is how the rest are
+ * settled — a day with a row no schedule stands behind, three schedules, or more rows than the plan
+ * weighs — one link at a time.
  *
  * Every two rows `sameGameEvidence` links could be one game, and the links are taken strongest
  * first, so each game takes the copy that fits it best rather than the first one found. Where two
@@ -998,6 +1312,8 @@ const foldedInto = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
  * scored differently — 1,076 such pairs on a nationwide pull, 654 of them a single run apart.
  */
 const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
+  const planned = planDay(bucket);
+  if (planned) return planned;
   const sourceOf = (row: number) => bucket[row]?.source?.teamId;
   /** The schedules a group accounts for: its own rows', and the ones on record on them. */
   const schedulesOf = (group: number[]) =>
@@ -1012,6 +1328,17 @@ const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
   const groups = new Map<number, number[]>(bucket.map((_, row) => [row, [row]]));
 
   const canJoin = (a: number[], b: number[], evidence: SameGameEvidence): boolean => {
+    /*
+     * Never a link into a game whose score the other group's contradicts: a copy linked to one row
+     * of a game listed twice took the other row's score with it, which it contradicted. The count
+     * alone joins two results that differ, as it always has.
+     */
+    const contradicts = (x: number, y: number) =>
+      sourceOf(x) !== sourceOf(y) &&
+      scoredGame(bucket[x]!) &&
+      scoredGame(bucket[y]!) &&
+      sameGameEvidence(bucket[x]!, bucket[y]!) === undefined;
+    if (evidence.strength > 0 && a.some((x) => b.some((y) => contradicts(x, y)))) return false;
     const inB = schedulesOf(b);
     const onBothSides: [number[], number[]][] = [];
     for (const schedule of schedulesOf(a)) {
@@ -1234,6 +1561,25 @@ export const collapseSameGames = (
   const dropped = new Set<string>();
   const stoodUp: ScoutGame[] = [];
   let regrouped = 0;
+  /*
+   * The page a row stood back up is filed under: its own club's, by the level it played at, where
+   * that is not the holder's. A cross-age game is filed by each club under its own page, and a row
+   * stood up under the other club's page was one a refresh of its own page could not find by id,
+   * so it filed the row a second time.
+   */
+  const pageOf = new Map<string, string>();
+  ageGroups.forEach((group) => {
+    const year = index.year(group.id);
+    const level = index.level(group.id);
+    const key = `${year}|${level}`;
+    if (year !== undefined && level !== undefined && !pageOf.has(key)) pageOf.set(key, group.id);
+  });
+  const ownPage = (row: ScoutGame): ScoutGame => {
+    const level = row.ageLevelA;
+    if (level === undefined || index.level(row.ageGroupId) === level) return row;
+    const page = pageOf.get(`${index.year(row.ageGroupId)}|${level}`);
+    return page === undefined ? row : { ...row, ageGroupId: page };
+  };
   buckets.forEach((bucket) => {
     // A lone game is looked at again only if something on it came from another row.
     const folded = (game: ScoutGame) =>
@@ -1258,7 +1604,7 @@ export const collapseSameGames = (
       foldedAway.forEach((row) => dropped.add(row.id));
       const before = standing.get(first.id);
       if (!before) {
-        stoodUp.push(kept);
+        stoodUp.push(ownPage(kept));
         regrouped += 1;
         return;
       }

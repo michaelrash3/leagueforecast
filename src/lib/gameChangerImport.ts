@@ -358,8 +358,15 @@ const indexHalf = (index: ImportIndex, game: ScoutGame): void => {
   if (minute !== undefined) push(index.halvesByTime, halfTimeKey(pool, minute), game.id);
 };
 
-/** Records where each row folded into `game` went. */
+/**
+ * Records where each row folded into `game` went, and the row it stands on where that is not the
+ * row its id was made from (a game whose first row was deleted and entered again).
+ */
 const indexFolded = (index: ImportIndex, game: ScoutGame): void => {
+  if (game.source) {
+    const own = gcRowId(game.source.teamId, game.source.gameId);
+    if (own !== game.id) index.foldedInto.set(own, game.id);
+  }
   (game.alsoRows ?? []).forEach((row) => {
     index.foldedInto.set(gcRowId(row.teamId, row.gameId), game.id);
     const holders = index.recordsBySchedule.get(row.teamId);
@@ -2026,9 +2033,9 @@ const importOne = (
   };
   /** Every row this pull filed or matched, so a record of one it no longer lists can go. */
   const seen = new Set<string>();
-  /** Every row this schedule lists now, so a game whose own row it dropped can be told apart. */
-  const listed = new Set(
-    schedule.games.filter(isFilable).map((game) => gcGameId(profile.id, game.id))
+  /** Every row this schedule lists now, by id, so a game whose own row it dropped can be told. */
+  const listed = new Map(
+    schedule.games.filter(isFilable).map((game) => [gcGameId(profile.id, game.id), game])
   );
   for (const game of schedule.games) {
     if (!isFilable(game)) {
@@ -2047,19 +2054,24 @@ const importOne = (
      * opponent it already settled on is the answer — working it out again on a name that is
      * ambiguous would mint a fresh team, and a weekly re-pull would do that every week forever.
      */
-    const known = index.gamesById.get(gcGameId(profile.id, game.id));
+    const byId = index.gamesById.get(gcGameId(profile.id, game.id));
     /*
      * Or the game this row was folded into, the last time it came: the other club's copy of it, or
      * this schedule's own copy listed twice. That is the same game whatever its start and result
      * say now, and it is found by id rather than asked about again.
      */
-    const foldedId = known ? undefined : index.foldedInto.get(gcGameId(profile.id, game.id));
+    const foldedId = byId ? undefined : index.foldedInto.get(gcGameId(profile.id, game.id));
     const foldedGame = foldedId === undefined ? undefined : index.gamesById.get(foldedId);
     // Only while this club is still on it: a game since moved to another club is not its copy.
-    const folded =
+    const onIt =
       foldedGame && (foldedGame.teamAId === own.teamId || foldedGame.teamBId === own.teamId)
         ? foldedGame
         : undefined;
+    // A game standing on this very row under an earlier row's id, since that row went, is its own.
+    const standsHere =
+      onIt?.source?.teamId === profile.id && onIt.source.gameId === game.id ? onIt : undefined;
+    const known = byId ?? standsHere;
+    const folded = standsHere ? undefined : onIt;
     // A row folded into a game names its opponent too: the game's other side.
     const placedIn = known ?? folded;
     const knownOpponentId = placedIn
@@ -2153,22 +2165,72 @@ const importOne = (
       claimed.set(folded.id, candidate);
       const updated = withSchedulesOf(folded, candidate);
       /*
-       * This schedule's own game, entered again under a new id after the row the game stands on
-       * was deleted: the new row is all the schedule says of it now, so its result and start are
-       * the game's. Kept as a record only, a correction to it never reached the game — a 6-0
-       * re-entered and then put right as 7-0 stayed 6-0, with "Also reported 7-0." beside it.
+       * This schedule's own game, where the row the game stands on says nothing of the result: the
+       * schedule deleted it and entered the game again under a new id, or lists it twice and has
+       * scored only the second. The other row is all the schedule says of the result, so its score
+       * is the game's — kept as a record only, a correction to it never reached the game: a 6-0
+       * re-entered and put right as 7-0 stayed 6-0, and so did a second listing's 5-3 corrected to
+       * 7-3. Where the first row is gone, its start goes with it, set or cleared: a re-entered game
+       * left at the deleted row's start was split from its own row by the next tidy and counted
+       * twice.
        */
-      const orphaned = folded.source?.teamId === profile.id && !listed.has(folded.id);
-      const reentered =
-        orphaned && (differs(folded, candidate) || !sameStart(folded.startTs, candidate.startTs))
+      const ownSchedule = folded.source?.teamId === profile.id;
+      const ownRow = ownSchedule
+        ? listed.get(gcGameId(profile.id, folded.source!.gameId))
+        : undefined;
+      const orphaned = ownSchedule && ownRow === undefined;
+      const silent =
+        orphaned ||
+        (ownRow !== undefined &&
+          (ownRow.teamScore === undefined || ownRow.opponentScore === undefined));
+      const scores = scoresAsExisting(folded, candidate);
+      const rescore =
+        silent &&
+        isScored(candidate) &&
+        (folded.teamAScore !== scores.a ||
+          folded.teamBScore !== scores.b ||
+          folded.scoreFromB === true);
+      const restart =
+        orphaned &&
+        (folded.startTs === undefined
+          ? candidate.startTs !== undefined
+          : !sameStart(folded.startTs, candidate.startTs));
+      const rewritten =
+        rescore || restart
           ? (() => {
-              const moved = candidate.startTs ? { startTs: candidate.startTs } : {};
-              if (!isScored(candidate)) return { ...updated, ...moved };
-              const { scoreFromB: _borrowed, ...rest } = updated;
-              const scores = scoresAsExisting(folded, candidate);
-              return { ...rest, teamAScore: scores.a, teamBScore: scores.b, ...moved };
+              const { scoreFromB: borrowed, startTs: start, ...rest } = updated;
+              const kept = restart ? candidate.startTs : start;
+              return {
+                ...rest,
+                ...(rescore
+                  ? { teamAScore: scores.a, teamBScore: scores.b }
+                  : borrowed
+                    ? { scoreFromB: borrowed }
+                    : {}),
+                ...(kept === undefined ? {} : { startTs: kept }),
+              };
             })()
           : updated;
+      /*
+       * Where the row the game stood on is gone, the game stands on this one from now: its source
+       * is this row, which comes off the record. Kept as a record beside a row nobody lists, the
+       * two were one schedule's two rows, and the tidy split them — two all-day rows off one
+       * schedule are two games — so a game deleted and entered again all day counted twice. The
+       * id stays, so nothing filed against it moves; the index finds the game by this row's id.
+       */
+      const reentered: ScoutGame = orphaned
+        ? (() => {
+            const { alsoRows, ...rest } = rewritten;
+            const rows = (alsoRows ?? []).filter(
+              (record) => gcRowId(record.teamId, record.gameId) !== candidate.id
+            );
+            return {
+              ...rest,
+              source: candidate.source!,
+              ...(rows.length > 0 ? { alsoRows: rows } : {}),
+            };
+          })()
+        : rewritten;
       const next = withSideBReport(reentered, candidate) ?? reentered;
       const before = scoreSeenBy(folded, candidate.teamAId);
       const after = scoreSeenBy(next, candidate.teamAId);
@@ -2448,6 +2510,12 @@ export const resolveSlotGames = (
   if (namedByTeamDay.size === 0) return { state, resolved: 0 };
 
   const sourceOf = (game: ScoutGame) => game.source?.teamId;
+  /** Whether a game has a row off this schedule: its own, or one folded into it. */
+  const holdsSchedule = (game: ScoutGame, schedule: string | undefined) =>
+    schedule !== undefined &&
+    (sourceOf(game) === schedule ||
+      (game.alsoFrom ?? []).includes(schedule) ||
+      (game.alsoRows ?? []).some((record) => record.teamId === schedule));
   /** A named row already used to answer a slot cannot answer a second one. */
   const spoken = new Set<string>();
   /** Slot rows to drop, and the named row each one's scores were folded into. */
@@ -2494,11 +2562,14 @@ export const resolveSlotGames = (
       (named) =>
         !spoken.has(named.id) &&
         /*
-         * The other club's schedule — or this very one, where the two rows start at the same
-         * instant, since a club cannot be playing both of them.
+         * A game none of whose rows is off this schedule — or one that is, where the two start at
+         * the same instant, since a club cannot be playing both of them. One schedule lists one
+         * game once: a row settled into a game already holding its own schedule's row was one the
+         * tidy's regroup then stood back up against the named club, a result filed against a club
+         * that never played it (`collapseSameGames` keeps no stand-in on the record).
          */
         sourceOf(named) !== undefined &&
-        (sourceOf(named) !== sourceOf(slotGame) || sameTime(named)) &&
+        (!holdsSchedule(named, sourceOf(slotGame)) || sameTime(named)) &&
         /*
          * Two results that contradict are two games, unless they are one game scored apart
          * (`scoredApart`). Folding the slot into the one named row of the day regardless was
@@ -4223,6 +4294,36 @@ export type TidyStep = {
 /** Told after every step, so a caller can show the work rather than a spinner. */
 export type TidyWatcher = (step: TidyStep) => void;
 
+/**
+ * The pool with one game per id. One GameChanger row is one game, and two games under one id are
+ * that row filed twice — a refresh of one page that could not see the other page's copy. Every
+ * pass after this one keys its work on the id, and folding one of the two away took both. The copy
+ * kept is the one against a real club over a stand-in, then a scored one, then the later.
+ */
+const withoutRepeatedIds = (state: GcImportState): { state: GcImportState; dropped: number } => {
+  const seen = new Set<string>();
+  let repeated = false;
+  state.games.forEach((game) => {
+    if (seen.has(game.id)) repeated = true;
+    seen.add(game.id);
+  });
+  if (!repeated) return { state, dropped: 0 };
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const real = (game: ScoutGame) =>
+    [game.teamAId, game.teamBId].every((id) => {
+      const team = teamById.get(id);
+      return team !== undefined && !team.placeholder && !team.nameOnly;
+    });
+  const rank = (game: ScoutGame) => (real(game) ? 2 : 0) + (isScored(game) ? 1 : 0);
+  const best = new Map<string, number>();
+  state.games.forEach((game, at) => {
+    const held = best.get(game.id);
+    if (held === undefined || rank(game) >= rank(state.games[held]!)) best.set(game.id, at);
+  });
+  const games = state.games.filter((game, at) => best.get(game.id) === at);
+  return { state: { ...state, games }, dropped: state.games.length - games.length };
+};
+
 const tidyOnce = (
   state: GcImportState,
   pass: number,
@@ -4265,8 +4366,9 @@ const tidyOnce = (
   starting("pruned", levels.state);
   const season = pruneOutOfSeason(levels.state);
   finished("pruned", season.pruned, season.state);
-  starting("named", season.state);
-  const named = resolveSlotGames(season.state);
+  const unique = withoutRepeatedIds(season.state);
+  starting("named", unique.state);
+  const named = resolveSlotGames(unique.state);
   finished("named", named.resolved, named.state);
   // Straight after the slots, and for the same reason: two stand-ins joined here are a pair of
   // clubs the passes after it can compare.
@@ -4314,7 +4416,7 @@ const tidyOnce = (
   const same = collapseSameGames(seasons.state.games, seasons.state.ageGroups);
   const after =
     same.games !== seasons.state.games ? { ...seasons.state, games: same.games } : seasons.state;
-  finished("collapsed", same.collapsed, after);
+  finished("collapsed", same.collapsed + unique.dropped, after);
   // The same pass, reported as its own step: a regroup that folds nothing away is still a change,
   // and one the pool has to be saved for.
   starting("regrouped", after);
@@ -4325,7 +4427,7 @@ const tidyOnce = (
     joined: halves.joined,
     folded: squads.merged,
     paired: seasons.paired,
-    collapsed: same.collapsed,
+    collapsed: same.collapsed + unique.dropped,
     regrouped: same.regrouped,
     pruned: season.pruned,
     reclaimed: moved.reclaimed,
