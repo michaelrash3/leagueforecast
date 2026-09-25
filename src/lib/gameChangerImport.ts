@@ -49,6 +49,13 @@ import {
   matchExistingGame,
   MAX_AGE_LEVEL,
   nameFitter,
+  sameGameEvidence,
+  sameStart,
+  withSchedulesOf,
+  mayTakeRow,
+  gcRowId,
+  startMinuteOf,
+  startsWithinTheHour,
   squadNameKey,
   normalizeState,
   squadYearForGcSeason,
@@ -87,6 +94,11 @@ import { namedAgeFor, type NamedAges } from "./namedAges";
  */
 type ImportIndex = {
   gamesById: Map<string, ScoutGame>;
+  /**
+   * The game each folded row went into, by the row's own id (`ScoutGame.alsoRows`), so a re-pull
+   * of the schedule it came off finds its game rather than filing the row a second time.
+   */
+  foldedInto: Map<string, string>;
   /** Where each game sits in the working array, so an update is an assignment rather than a map. */
   gamePos: Map<string, number>;
   /** Where each team sits, for the same reason. */
@@ -198,6 +210,7 @@ const buildIndex = (state: GcImportState): ImportIndex => {
     poolKeyOf: (ageGroupId: string) => poolKeys.get(ageGroupId) ?? `g:${ageGroupId}`,
     levelOf: (ageGroupId: string) => levels.get(ageGroupId),
     gamesById: new Map(),
+    foldedInto: new Map(),
     gamePos: new Map(),
     teamPos: new Map(),
     usedTeamIds: new Set(),
@@ -314,7 +327,8 @@ const noteOpponent = (index: ImportIndex, teamId: string, opponentId: string) =>
 
 const halfResultKey = (pool: string, date: string, club: number, standIn: number): string =>
   `${pool}\u0000${date}\u0000${club}-${standIn}`;
-const halfTimeKey = (pool: string, startTs: string): string => `${pool}\u0000${startTs}`;
+/** Keyed by the minute rather than the text, so one start spelt or rounded two ways is one key. */
+const halfTimeKey = (pool: string, minute: number): string => `${pool}\u0000${minute}`;
 
 /** Whether a team is somebody's written name and nothing more: no GameChanger id behind it. */
 const isStandIn = (team: ScoutTeam | undefined): boolean =>
@@ -335,11 +349,20 @@ const indexHalf = (index: ImportIndex, game: ScoutGame): void => {
   if (club !== undefined && standIn !== undefined) {
     push(index.halvesByResult, halfResultKey(pool, game.date, club, standIn), game.id);
   }
-  if (game.startTs) push(index.halvesByTime, halfTimeKey(pool, game.startTs), game.id);
+  const minute = startMinuteOf(game.startTs);
+  if (minute !== undefined) push(index.halvesByTime, halfTimeKey(pool, minute), game.id);
+};
+
+/** Records where each row folded into `game` went. */
+const indexFolded = (index: ImportIndex, game: ScoutGame): void => {
+  (game.alsoRows ?? []).forEach((row) =>
+    index.foldedInto.set(gcRowId(row.teamId, row.gameId), game.id)
+  );
 };
 
 const indexGame = (index: ImportIndex, game: ScoutGame) => {
   index.gamesById.set(game.id, game);
+  indexFolded(index, game);
   indexHalf(index, game);
   push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
   const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
@@ -808,7 +831,9 @@ export const ageFromFixtures = (
             halfResultKey(pool, game.date, game.opponentScore!, game.teamScore!)
           ) ?? [])
         : []),
-      ...(game.startTs ? (index.halvesByTime.get(halfTimeKey(pool, game.startTs)) ?? []) : []),
+      ...(startMinuteOf(game.startTs) === undefined
+        ? []
+        : (index.halvesByTime.get(halfTimeKey(pool, startMinuteOf(game.startTs)!)) ?? [])),
     ]);
     const clubs = new Set<string>();
     ids.forEach((id) => {
@@ -825,8 +850,7 @@ export const ageFromFixtures = (
       const standInScore = standInIsA ? row.teamAScore : row.teamBScore;
       const mirrored =
         scored && clubScore === game.opponentScore && standInScore === game.teamScore;
-      const sameStart = game.startTs !== undefined && row.startTs === game.startTs;
-      if (!mirrored && !sameStart) return;
+      if (!mirrored && !sameStart(game.startTs, row.startTs)) return;
       if (!fits(standIn.name, profile.name) || !fits(game.opponentName, club.name)) return;
       if (!inOneRegion(profile.state, club.state)) return;
       clubs.add(club.id);
@@ -1293,7 +1317,10 @@ type OpponentMatch = {
  * What counts as "the same one": the day has to match, a start time on both sides has to agree,
  * and where both rows carry a result the results have to mirror. The other side of their row must
  * be this very team, or a stand-in — a bracket slot, or a club nobody has pulled yet — because
- * that is what their row looks like before this team's own turn comes round.
+ * that is what their row looks like before this team's own turn comes round. Against this very
+ * team the two starts need only be within the hour: those are the two clubs' own schedules, whose
+ * clocks drift apart when a tournament runs late (`ONE_GAME_WINDOW_MINUTES`). Against a stand-in
+ * nothing but the name says who the other side is, so the start has to be the same one.
  */
 const holdsThisGame = (
   index: ImportIndex,
@@ -1304,8 +1331,10 @@ const holdsThisGame = (
   if (!game.date) return false;
   const sameDay = index.gamesByTeamDate.get(`${candidateId}\u0000${game.date}`) ?? [];
   return sameDay.some((existing) => {
-    if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
     const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
+    if (game.startTs && existing.startTs && !sameStart(game.startTs, existing.startTs)) {
+      if (other !== ownTeamId || !startsWithinTheHour(game.startTs, existing.startTs)) return false;
+    }
     const theirs = existing.teamAId === candidateId ? existing.teamAScore : existing.teamBScore;
     const ours = existing.teamAId === candidateId ? existing.teamBScore : existing.teamAScore;
     const resultsAgree =
@@ -1351,7 +1380,9 @@ const corroborates = (
   if (game.date) {
     const sameDay = index.gamesByTeamDate.get(`${candidateId}\u0000${game.date}`) ?? [];
     const couldBeThisGame = sameDay.some((existing) => {
-      if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
+      if (game.startTs && existing.startTs && !sameStart(game.startTs, existing.startTs)) {
+        return false;
+      }
       const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
       if (other === ownTeamId) return true;
       /*
@@ -1420,7 +1451,8 @@ const opponentFromSameFixture = (
     if (existing.source?.teamId === sourceTeamId) return false;
     if (index.poolKeyOf(existing.ageGroupId) !== pool) return false;
     // A time on both sides has to agree: two games in a day are two games.
-    if (game.startTs && existing.startTs && game.startTs !== existing.startTs) return false;
+    if (game.startTs && existing.startTs && !sameStart(game.startTs, existing.startTs))
+      return false;
 
     const ourScore = existing.teamAId === ownTeamId ? existing.teamAScore : existing.teamBScore;
     const theirScore = existing.teamAId === ownTeamId ? existing.teamBScore : existing.teamAScore;
@@ -1430,7 +1462,7 @@ const opponentFromSameFixture = (
       ourScore === game.teamScore &&
       theirScore === game.opponentScore;
     // Either the result matches, or the day and the start time pin it on their own.
-    const timeAgrees = Boolean(game.startTs) && game.startTs === existing.startTs;
+    const timeAgrees = sameStart(game.startTs, existing.startTs);
     return scoresAgree || timeAgrees;
   });
 
@@ -1966,6 +1998,13 @@ const importOne = (
   const ageGroups = resolved.ageGroups;
 
   const squadYear = ageGroupYear(group);
+  /*
+   * The games this schedule's rows have matched from another schedule's copy, by the row that
+   * matched each. One schedule lists one game once, so a second row off it is a second game unless
+   * it is that same game listed twice — however close a doubleheader's other slot sits to it — and
+   * the row that matched first is what says whether it is.
+   */
+  const claimed = new Map<string, ScoutGame>();
   for (const game of schedule.games) {
     if (!isFilable(game)) {
       outcome.gamesIgnored += 1;
@@ -1984,6 +2023,18 @@ const importOne = (
      * ambiguous would mint a fresh team, and a weekly re-pull would do that every week forever.
      */
     const known = index.gamesById.get(gcGameId(profile.id, game.id));
+    /*
+     * Or the game this row was folded into, the last time it came: the other club's copy of it, or
+     * this schedule's own copy listed twice. That is the same game whatever its start and result
+     * say now, and it is found by id rather than asked about again.
+     */
+    const foldedId = known ? undefined : index.foldedInto.get(gcGameId(profile.id, game.id));
+    const foldedGame = foldedId === undefined ? undefined : index.gamesById.get(foldedId);
+    // Only while this club is still on it: a game since moved to another club is not its copy.
+    const folded =
+      foldedGame && (foldedGame.teamAId === own.teamId || foldedGame.teamBId === own.teamId)
+        ? foldedGame
+        : undefined;
     const knownOpponentId = known
       ? known.teamAId === own.teamId
         ? known.teamBId
@@ -2067,17 +2118,56 @@ const importOne = (
     // meaning the same thing. Failing that, the other team's copy of the game.
     const existing =
       known ??
+      folded ??
       matchExistingGame(
         candidate,
         index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [],
-        ageGroups
+        ageGroups,
+        (game) => {
+          const evidence = sameGameEvidence(candidate, game);
+          if (evidence === undefined) return false;
+          // Taken by a row off this schedule already: only as that same game listed twice.
+          const earlier = claimed.get(game.id);
+          if (earlier !== undefined) return sameGameEvidence(candidate, earlier) !== undefined;
+          return mayTakeRow(game, candidate, evidence);
+        }
       );
     if (!existing) {
       addGame(index, games, candidate);
       outcome.gamesAdded += 1;
       continue;
     }
-    if (!differs(existing, candidate)) {
+    if (existing !== known) claimed.set(existing.id, candidate);
+    /*
+     * A start this schedule has since moved is taken, on its own row only. Every later comparison
+     * reads the stored start, and one left behind made the next copy of the game look like another
+     * game. Another schedule's start is never written over a row: that is the other coach's clock.
+     */
+    const moved =
+      existing === known &&
+      candidate.startTs !== undefined &&
+      !sameStart(existing.startTs, candidate.startTs);
+    /*
+     * Another schedule's copy of a game leaves its schedule on record, which is how the tidy's
+     * count knows this game already took this club's row for the day (`withSchedulesOf`).
+     */
+    const recorded = existing === known ? existing : withSchedulesOf(existing, candidate);
+    // Same id, same pool, same pair, same date, so nothing it is filed under moves.
+    const writeInPlace = (next: ScoutGame) => {
+      const position = index.gamePos.get(existing.id);
+      if (position !== undefined) games[position] = next;
+      index.gamesById.set(next.id, next);
+      indexFolded(index, next);
+      indexHalf(index, next);
+      const sameBucket = index.gamesByMatch.get(matchKeyOf(next, index.poolKeyOf));
+      if (sameBucket) {
+        const at = sameBucket.findIndex((entry) => entry.id === next.id);
+        if (at >= 0) sameBucket[at] = next;
+      }
+    };
+    if (!differs(existing, candidate) && !moved) {
+      // The record is bookkeeping, not news: nothing the reader would call a change.
+      if (recorded !== existing) writeInPlace(recorded);
       outcome.gamesUnchanged += 1;
       continue;
     }
@@ -2094,7 +2184,7 @@ const importOne = (
      * lists a game twice and the two copies do not always agree — and silently keeping the later
      * one would leave a club's record resting on whichever row happened to arrive second.
      *
-     * Noted the way `collapseMirroredGames` notes the same thing when the two sides of a fixture
+     * Noted the way `collapseSameGames` notes the same thing when the two sides of a fixture
      * disagree, so there is one convention for it rather than two.
      */
     const displaced =
@@ -2104,21 +2194,13 @@ const importOne = (
         ? `Also reported ${existing.teamAScore}-${existing.teamBScore}.`
         : undefined;
     const merged: ScoutGame = {
-      ...existing,
+      ...recorded,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: [existing.note, displaced].filter(Boolean).join(" ") } : {}),
+      ...(moved ? { startTs: candidate.startTs } : {}),
     };
-    // Same id, same pool, same pair, same date, so nothing it is filed under moves.
-    const position = index.gamePos.get(existing.id);
-    if (position !== undefined) games[position] = merged;
-    index.gamesById.set(merged.id, merged);
-    indexHalf(index, merged);
-    const sameBucket = index.gamesByMatch.get(matchKeyOf(merged, index.poolKeyOf));
-    if (sameBucket) {
-      const at = sameBucket.findIndex((entry) => entry.id === merged.id);
-      if (at >= 0) sameBucket[at] = merged;
-    }
+    writeInPlace(merged);
     outcome.gamesUpdated += 1;
   }
 
@@ -2285,8 +2367,7 @@ export const resolveSlotGames = (
       const namedOther = named.teamAId === knownId ? named.teamBScore : named.teamAScore;
       return slotKnown === namedKnown && slotOther === namedOther;
     };
-    const sameTime = (named: ScoutGame): boolean =>
-      slotGame.startTs !== undefined && named.startTs === slotGame.startTs;
+    const sameTime = (named: ScoutGame): boolean => sameStart(slotGame.startTs, named.startTs);
     const timeAgrees = (named: ScoutGame): boolean =>
       slotGame.startTs === undefined || named.startTs === undefined || sameTime(named);
     const standIn = teamById.get(
@@ -2369,11 +2450,7 @@ export const resolveSlotGames = (
      * opponent is saying they met twice, and without this the two results are indistinguishable
      * from one game written down differently — which is how a real result came to be deleted.
      */
-    const slotSource = slotGame.source?.teamId;
-    const alsoFrom =
-      slotSource !== undefined && slotSource !== current.source?.teamId
-        ? [...new Set([...(current.alsoFrom ?? []), slotSource])]
-        : current.alsoFrom;
+    const recorded = withSchedulesOf(current, slotGame);
 
     // A score is only taken from the stand-in's row when the surviving row has none: the other
     // schedule may have posted a result this one has not.
@@ -2393,8 +2470,7 @@ export const resolveSlotGames = (
       named.teamAId === knownId ? [knownScore, otherScore] : [otherScore, knownScore];
 
     filled.set(named.id, {
-      ...current,
-      ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
+      ...recorded,
       ...(disputed
         ? {
             note: [current.note, `Other side reported ${reportedA}-${reportedB}.`]
@@ -2552,18 +2628,18 @@ export const joinCrossedHalves = (
   const byTime = new Map<string, Half[]>();
   const resultKey = (half: Half, mine: number | undefined, theirs: number | undefined) =>
     `${half.pool}\u0000${half.game.date}\u0000${mine}-${theirs}`;
-  const timeKey = (half: Half) => `${half.pool}\u0000${half.game.date}\u0000${half.game.startTs}`;
+  const timeKey = (half: Half) =>
+    `${half.pool}\u0000${half.game.date}\u0000${startMinuteOf(half.game.startTs)}`;
   state.games.forEach((game) => {
     const half = halfOf(game);
     if (!half) return;
     halves.push(half);
     if (scored(half)) push(byResult, resultKey(half, half.clubScore, half.standInScore), half);
-    if (half.game.startTs) push(byTime, timeKey(half), half);
+    if (startMinuteOf(half.game.startTs) !== undefined) push(byTime, timeKey(half), half);
   });
   if (halves.length < 2) return { state, joined: 0 };
 
-  const sameTime = (x: Half, y: Half) =>
-    x.game.startTs !== undefined && x.game.startTs === y.game.startTs;
+  const sameTime = (x: Half, y: Half) => sameStart(x.game.startTs, y.game.startTs);
   const levelsAgree = (named: number | undefined, own: number | undefined) =>
     named === undefined || own === undefined || Math.abs(named - own) <= PLAYS_UP_TO;
   /** Whether `y` is, on everything but uniqueness, the other end of `x`'s game. */
@@ -2631,11 +2707,9 @@ export const joinCrossedHalves = (
     const [theirA, theirB] = clubIsA
       ? [y.standInScore, y.clubScore]
       : [y.clubScore, y.standInScore];
-    const otherSource = y.game.source!.teamId;
-    const alsoFrom = [...new Set([...(x.game.alsoFrom ?? []), otherSource])];
     const otherLevel = y.game.teamAId === y.club.id ? y.game.ageLevelA : y.game.ageLevelB;
     const joinedRow: ScoutGame = {
-      ...x.game,
+      ...withSchedulesOf(x.game, y.game),
       ...(clubIsA ? { teamBId: y.club.id } : { teamAId: y.club.id }),
       ...(otherLevel === undefined
         ? {}
@@ -2655,7 +2729,6 @@ export const joinCrossedHalves = (
               .join(" "),
           }
         : {}),
-      alsoFrom,
     };
     replaced.set(x.game.id, joinedRow);
     dropped.add(y.game.id);
@@ -3516,7 +3589,7 @@ export const reclaimMisfiled = (
       if (!inOneRegion(puller.state, teamById.get(clubId)?.state)) return false;
       // One start time is one game, whatever the two coaches scored it; at another time only a
       // mirrored result says so.
-      if (own.startTs !== undefined && own.startTs === row.startTs) return true;
+      if (sameStart(own.startTs, row.startTs)) return true;
       const scored = [ownClub, ownPuller, rowClub, rowPuller].every((value) => value !== undefined);
       return scored && ownClub === rowClub && ownPuller === rowPuller;
     });
@@ -4190,8 +4263,11 @@ export const tidyPool = (
  *   7 — keeping once a game two coaches scored differently at one start time: joining the two
  *       halves, settling a stand-in into the named row, and taking a row back from a namesake
  *   8 — filing a stand-in onto the one namesake in a bordering state when none is in the puller's
+ *   9 — keeping once a game two clubs' schedules started within the hour of each other, or gave
+ *       the same result at any start; the blitzball refusal released before it had no bump of its
+ *       own, and reaches a pool already tidied with this one
  */
-const TIDY_RULES_VERSION = 8;
+const TIDY_RULES_VERSION = 9;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

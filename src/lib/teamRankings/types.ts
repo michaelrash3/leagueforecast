@@ -160,6 +160,15 @@ export type ScoutGameSource = {
   gameId: string;
 };
 
+/** One schedule's row, by the GameChanger team whose schedule listed it and the id it had there. */
+export type FoldedRow = {
+  teamId: string;
+  gameId: string;
+};
+
+/** The id a GameChanger row is filed under: its schedule and its game id on that schedule. */
+export const gcRowId = (teamId: string, gameId: string): string => `gc_${teamId}_${gameId}`;
+
 export type ScoutGame = {
   id: string;
   teamAId: string;
@@ -207,6 +216,17 @@ export type ScoutGame = {
    * meetings and leave both alone.
    */
   alsoFrom?: string[];
+  /**
+   * The GameChanger rows folded into this one, by the schedule and the game id each carried.
+   *
+   * `alsoFrom` says a schedule listed this game; this says which of its rows it was, and the
+   * difference is a club that meets another twice in a day. A game that has taken one of the other
+   * club's two rows still names that club's schedule, and with nothing to say which row, the other
+   * one read as the same row pulled again: Next Level Prospects' two 10-2 losses to Bama Ballers on
+   * 12 September 2026 became one. With the row, a re-pull finds the game its copy went into, and a
+   * game never takes a second row off one schedule unless that schedule listed the game twice.
+   */
+  alsoRows?: FoldedRow[];
   /** Season label from the source, as in "Fall 2026" — display and filtering only. */
   season?: string;
   /**

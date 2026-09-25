@@ -2225,6 +2225,93 @@ describe("collapseSameGames", () => {
     const games = [row("A", "B", 5, 4, "u9", "gcA")];
     expect(collapseSameGames(games, [u9]).games).toBe(games);
   });
+
+  const timed = (game: ScoutGame, time: string, extra: Partial<ScoutGame> = {}): ScoutGame => ({
+    ...game,
+    startTs: `2026-09-11T${time}:00.000Z`,
+    ...extra,
+  });
+
+  it("puts the other schedule's row on record on the game that took it", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("A", "B", 5, 4, "u9", "gcA"), "17:00"),
+        timed(row("B", "A", 4, 5, "u9", "gcB"), "18:00"),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.alsoFrom).toEqual(["gcB"]);
+    expect(out.games[0]?.alsoRows).toEqual([{ teamId: "gcB", gameId: "1" }]);
+  });
+
+  /*
+   * Records from before rows were named say only which schedule a folded row came off. The row
+   * pulled again, within the hour and agreeing, is taken back — 21 of the 23 results listed twice
+   * this way on the pool of 24 September 2026 — and a different result from that schedule is its
+   * second game of the day, which is what the record was kept to show.
+   */
+  it("takes back a row a schedule-only record is holding, and nothing that disagrees with it", () => {
+    const holding = timed(row("B", "A", 11, 1, "u9", "gcB"), "15:20", { alsoFrom: ["gcA"] });
+    const back = collapseSameGames(
+      [holding, timed(row("A", "B", 1, 11, "u9", "gcA"), "15:00")],
+      [u9]
+    );
+    expect(back.games).toHaveLength(1);
+
+    const second = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 8, "u9", "gcB"), "15:00", { alsoFrom: ["gcA"] }),
+        timed(row("A", "B", 6, 8, "u9", "gcA"), "16:00"),
+      ],
+      [u9]
+    );
+    expect(second.games).toHaveLength(2);
+  });
+
+  it("keeps two games apart when each holds a schedule-only record of the other's club", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 2, "u9", "gcB"), "21:30", { alsoFrom: ["gcA"] }),
+        timed(row("A", "B", 2, 10, "u9", "gcA"), "22:00", { alsoFrom: ["gcB"] }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
+
+  // Two of one club's ids, each holding a game that took one of the other club's rows: those were
+  // two rows of that club's schedule, so two games, however alike the two copies look.
+  it("keeps two games apart when both have taken a row off the same third schedule", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("A", "B", 2, 10, "u9", "gcA"), "21:30", { alsoFrom: ["gcB"] }),
+        timed({ ...row("A", "B", 2, 10, "u9", "gcA2"), id: "gc_gcA2_1" }, "22:00", {
+          alsoFrom: ["gcB"],
+        }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
+
+  it("keeps two games apart when each has already taken a row off both schedules", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 2, "u9", "gcB"), "14:00", {
+          alsoFrom: ["gcA"],
+          alsoRows: [{ teamId: "gcA", gameId: "slot" }],
+        }),
+        timed({ ...row("A", "B", 2, 10, "u9", "gcA"), id: "gc_gcA_2" }, "22:00", {
+          source: { kind: "gamechanger", teamId: "gcA", gameId: "2" },
+          alsoFrom: ["gcB"],
+          alsoRows: [{ teamId: "gcB", gameId: "late" }],
+        }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
 });
 
 describe("mergeScoutTeams", () => {

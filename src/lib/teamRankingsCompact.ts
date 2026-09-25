@@ -26,6 +26,7 @@
 import {
   isPlaceholderName,
   type AgeGroup,
+  type FoldedRow,
   type GcTeamLink,
   type ScoutGame,
   type ScoutGameSource,
@@ -120,7 +121,7 @@ const EXCLUDED = 1;
  * treats a missing position as the field being absent, so a pool written before a position existed
  * still reads.
  */
-type GameRow = (number | string | null | number[])[];
+type GameRow = (number | string | null | number[] | (number | string)[])[];
 
 export type CompactPool = {
   v: number;
@@ -185,6 +186,13 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
         ? game.alsoFrom.flatMap((teamId) => {
             const index = sources.index(teamId);
             return index === null ? [] : [index];
+          })
+        : null,
+      // The same, row by row: each folded row as its schedule's index and its game id, in pairs.
+      game.alsoRows?.length
+        ? game.alsoRows.flatMap((row) => {
+            const index = sources.index(row.teamId);
+            return index === null ? [] : [index, row.gameId];
           })
         : null,
     ]);
@@ -258,6 +266,15 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
       })
     : [];
   if (alsoFrom.length > 0) game.alsoFrom = alsoFrom;
+  const alsoRows: FoldedRow[] = [];
+  if (Array.isArray(row[17])) {
+    for (let at_ = 0; at_ + 1 < row[17].length; at_ += 2) {
+      const teamId = at(pool.c, row[17][at_]);
+      const gameId = str(row[17][at_ + 1]);
+      if (teamId && gameId) alsoRows.push({ teamId, gameId });
+    }
+  }
+  if (alsoRows.length > 0) game.alsoRows = alsoRows;
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -601,6 +618,16 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
     });
 };
 
+/** Folded rows read leniently: each needs both ids, and anything else is dropped. */
+const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
+  Array.isArray(raw)
+    ? raw.flatMap((entry) =>
+        isRecord(entry) && isFilledString(entry.teamId) && isFilledString(entry.gameId)
+          ? [{ teamId: entry.teamId, gameId: entry.gameId }]
+          : []
+      )
+    : [];
+
 export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -633,6 +660,9 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(isString(entry.startTs) ? { startTs: entry.startTs } : {}),
         ...(Array.isArray(entry.alsoFrom) && entry.alsoFrom.some(isString)
           ? { alsoFrom: entry.alsoFrom.filter(isString) }
+          : {}),
+        ...(coerceFoldedRows(entry.alsoRows).length > 0
+          ? { alsoRows: coerceFoldedRows(entry.alsoRows) }
           : {}),
         ...(source ? { source } : {}),
       };

@@ -407,15 +407,23 @@ Two ids off one schedule are normally two games, and that stays the rule. A real
 pull found four games against one club on a single day, and folding those together
 would delete three results. The exception is narrow and rests on a fact rather than
 a guess: **nobody plays two games at once**, so where both rows carry a start time
-and it is the same one, there is only one fixture there. Every game in the captured
-schedule fixture carries a start time, all twelve of them, so the test has what it
-needs where it matters.
+and it is the same one, there is only one fixture there. "The same one" means under
+a minute apart: 1,013 rows of the pool of 24 September 2026 started at an odd second
+or millisecond, and 12 pairs off one schedule were a fraction of a second apart.
 
 The same fact settles it when the two rows disagree about the score. Two different
 results at one start time is a disagreement about one game, not two games — keeping
 both counted a loss and a win for a game played once. The later row's score is kept
 and the one it displaced is written into the game's note, the way the two sides of a
 fixture that disagree are already noted, so nothing is lost silently.
+
+Within the hour, one schedule's two rows are one game only when they give the same
+result. A coach writes a doubleheader down at its slot times, and the same pool held
+109 pairs of rows exactly an hour apart with two different results — 23-6 and 12-2 —
+that are plainly two games. A repeated result is different: of 212 scored pairs off
+one schedule within the hour, 34 gave the same result (16%), against 81 of 6,044
+pairs two hours or more apart (1.3%), which are doubleheaders. That is the same game
+listed twice.
 
 Where a start time is missing from either row the two are kept, however alike they
 look — with nothing to tell a repeated fixture from a repeated row, losing a real
@@ -425,6 +433,42 @@ An all-day entry counts as having no start time. GameChanger writes a start for 
 anyway, midnight UTC with no timezone in the entries audited on 24 September 2026,
 and read as a time it made every all-day game on a date the same instant. Its date
 is kept and the placeholder is not.
+
+**One game on two clubs' schedules.** A start on a schedule is when the game was
+planned. A tournament runs behind and neither coach moves the placeholder, so the two
+clubs' copies of one game drift apart: Legacy Baseball Club had its 14-2 win over
+River City Raptors on 29 August 2026 at 1:00 PM, the Raptors had it at 2:00 PM, and the pool
+held it twice, because two starts used to mean two games whoever wrote them down. On
+the pool of 24 September 2026, 1,213 pairs of rows off two schedules gave the same pair
+the same result on the same day at different starts; the same search a week off, where
+no game is, found 7.
+
+So a row off the other club's schedule is the same game on any of these, strongest
+first, and each game takes the copy that fits it best:
+
+| Two clubs' copies of a day's meeting                           | One game?                                   |
+| -------------------------------------------------------------- | ------------------------------------------- |
+| Starting within the hour, results agreeing or not yet posted   | Yes — 1,115 of the 1,213 were within it     |
+| The same result, however far apart the clocks                  | Yes                                         |
+| Starting within the hour, scored differently                   | Yes, with the other side's score noted      |
+| Neither, with one game left on each schedule that day          | Yes, scored differently, as it always was   |
+| Neither, with more on one schedule than the other accounts for | No — that is a game only one of them listed |
+
+A game takes one row off each schedule. A second row off the same schedule joins
+only as that schedule listing the game twice, which is what keeps a doubleheader two
+games when the other club's clock sits between its two slots. A folded row is kept on
+record by its schedule and its own id (`alsoRows`), so a re-pull finds the game its
+copy went into, however the start or the score has since been edited, and the tidy
+never lets a game take a second, different row off a schedule it has already taken one
+from. Records written before rows were named say only the schedule (`alsoFrom`), and
+there a row is taken back only within the hour and agreeing, which is the folded row
+coming back — 21 of the 23 results listed twice that way in the same pool.
+
+A start the schedule itself has since moved is taken on the next pull; another
+schedule's start is never written over a row, since that is the other coach's clock.
+On the pool of 24 September 2026 the tidy folds 2,777 rows this way and settles 6
+slots whose starts were a fraction of a second apart, and Legacy's page reads six games
+again.
 
 Most slots name themselves. A bracket posts "TBD" on one team's schedule and
 the real fixture on the other's, so pulling both sides answers the question:
@@ -613,8 +657,9 @@ day AWS WAF starts challenging server traffic.
 | A club already here as a stand-in | is adopted rather than duplicated when its own turn comes: the stand-in its own schedule confirms, else the one at its level whose namers are in its state. In a full pull nearly every team appears as somebody's opponent first.                                                                                                                                                              |
 
 The same game is on both teams' schedules and a re-pull brings back a schedule
-almost entirely unchanged; both are matched rather than filed again, and only a
-score that has since been played is written. A 0-0 is read as no score entered,
+almost entirely unchanged; both are matched rather than filed again (**One game on
+two clubs' schedules** says how), and only a score that has since been played is
+written. A 0-0 is read as no score entered,
 which is what GameChanger means by it.
 
 **A squad year runs August 1 to July 31.** "2027" is the squad that plays Fall
@@ -662,11 +707,14 @@ the one in the puller's own town; none in the state: the one in a bordering stat
 is — on the stand-in fixtures export of 22 September 2026 that was the club the game itself named
 1,174 times in 1,240); two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
-one state, under one listing name; and two schedules that each list one game
-against the other that day with different scores are one game two coaches scored
-differently, kept once with the other side's score noted — as is every game above that two
-coaches scored apart at one start time (on the stand-in fixtures export of 22 September 2026,
-265 games joined, 479 settled and 35 taken back from a namesake). "Tidy now" on the
+one state, under one listing name; and two clubs' copies of one game are one game as
+**One game on two clubs' schedules** sets out, kept once with the other side's score
+noted where they disagree — as is every game above that two coaches scored apart at one
+start time (on the stand-in fixtures export of 22 September 2026, 265 games joined, 479
+settled and 35 taken back from a namesake). Where the other side is only a name — a
+stand-in, a slot, a namesake — the start still has to be the same one, read as the same
+minute: a club's own schedule can put two games an hour apart, so within the hour says
+nothing about which club a name meant. "Tidy now" on the
 import panel runs the same thing for whoever wants to watch.
 
 A pairing with the **same name, same town and same state**, a season apart at

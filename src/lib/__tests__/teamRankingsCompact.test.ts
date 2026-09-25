@@ -83,6 +83,28 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
+  it("keeps the start and every row folded into a game, which say what is one game", () => {
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gcLEGACY01_l2",
+        teamAId: "S-LEGA",
+        teamBId: "S-RIVE",
+        teamAScore: 14,
+        teamBScore: 2,
+        ageGroupId: "ag_1",
+        date: "2026-08-29",
+        startTs: "2026-08-29T17:00:00.000Z",
+        alsoFrom: ["gcRAPTOR01"],
+        alsoRows: [
+          { teamId: "gcRAPTOR01", gameId: "r2" },
+          { teamId: "gcLEGACY01", gameId: "l2-again" },
+        ],
+        source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l2" },
+      },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+  });
+
   // A scheduled game has no scores at all, and that is the difference between "not played" and
   // "nil-nil", so it must survive the trip as absence rather than as zero.
   it("keeps a scheduled game unscored", () => {

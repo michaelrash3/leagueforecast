@@ -24,6 +24,7 @@ export * from "./teamRankings/seasons";
 export * from "./teamRankings/games";
 
 import {
+  gcRowId,
   isScoutGamePlayed,
   type AgeGroup,
   type GcTeamLink,
@@ -33,7 +34,15 @@ import {
   type ScoutRankingRow,
   type ScoutTeam,
 } from "./teamRankings/types";
-import { countsTowardRating, LEAGUE_GAME_PREFIX, pairKeyOf, scoreOf } from "./teamRankings/games";
+import {
+  countsTowardRating,
+  LEAGUE_GAME_PREFIX,
+  minutesApart,
+  pairKeyOf,
+  sameStart,
+  scoreOf,
+  startsWithinTheHour,
+} from "./teamRankings/games";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -579,81 +588,122 @@ export const teamHomeAgeLevel = (
 };
 
 /**
- * Same pair (either order) on the same date in the same pool, ignoring score — what a re-pull or
- * the other team's copy of a game matches. Unlike `findDuplicateGame`, the score is exactly what
- * may have changed: a scheduled game is now final, or the other side's schedule reports the same
- * result from its seat. The pool rather than the group, because the two sides of a cross-age game
- * file it under different pages.
+ * How strongly two rows about the same two clubs on the same day say they are one game, or
+ * `undefined` when they are two. Callers ask it only of rows already known to share the pair, the
+ * date and the rating pool; this is the rest of the question, answered once for both the import
+ * (`matchExistingGame`) and the tidy (`collapseSameGames`) so the two cannot drift apart.
  *
- * When several games fit, the same GameChanger game id on the same schedule is certainly it, then
- * one whose scores agree, then the first. Two different game ids on one schedule are never the
- * same game — a doubleheader is two games on one date against one opponent, and a schedule lists
- * each game once — so those are passed over rather than matched to each other.
+ * Rows off one schedule are two games unless they are the same row or one game listed twice:
+ * GameChanger does list a game twice, under two ids with the opponent spelled two ways, and then the
+ * two rows give the same start (`sameStart`), or give the same result within the hour
+ * (`ONE_GAME_WINDOW_MINUTES` says why only then). A doubleheader is two rows at two slots, often
+ * exactly an hour apart, and must stay two.
+ *
+ * Rows off two schedules are the two clubs' copies of what may be one game, and the clock there is
+ * only what each coach typed. So, strongest first: starts within the hour whose results do not
+ * contradict; the same result whatever the clocks say (1,213 such pairs off two schedules in the
+ * pool of 24 September 2026, against 7 in the same search a week off); starts within the hour whose
+ * scorekeepers disagree. With no start on one side the result is all there is: the same result, or
+ * no result yet, is one game, and two results that contradict are a doubleheader.
  */
+export type SameGameEvidence = {
+  /** Higher is stronger; see `EVIDENCE`. */
+  strength: number;
+  /** Minutes between the two starts, or Infinity when either has none — nearer wins a tie. */
+  gap: number;
+};
 
+export const EVIDENCE = {
+  /** One schedule's own game id: the same row, pulled again. */
+  sameRow: 6,
+  /** Starting together, and not contradicting each other. */
+  together: 5,
+  /** The same result, one game however the clocks read. */
+  sameResult: 4,
+  /** Starting within the hour on two schedules, with two different results. */
+  scoredApart: 3,
+  /** No start on one side, and no result on either. */
+  untimedUnplayed: 2,
+  /** No start on one side, and a result on only one. */
+  untimedOneResult: 1,
+} as const;
+
+const scoredGame = (game: ScoutGame): boolean =>
+  game.teamAScore !== undefined && game.teamBScore !== undefined;
+
+/** Both scored, and the same result read from either seat. */
+const sameResultAs = (row: ScoutGame, other: ScoutGame): boolean =>
+  scoredGame(row) &&
+  scoredGame(other) &&
+  scoreOf(other, row.teamAId) === row.teamAScore &&
+  scoreOf(other, row.teamBId) === row.teamBScore;
+
+export const sameGameEvidence = (
+  row: ScoutGame,
+  other: ScoutGame
+): SameGameEvidence | undefined => {
+  const gap = minutesApart(row.startTs, other.startTs) ?? Infinity;
+  const at = (strength: number): SameGameEvidence => ({ strength, gap });
+  const bothScored = scoredGame(row) && scoredGame(other);
+  const agree = !bothScored || sameResultAs(row, other);
+
+  const source = row.source;
+  if (source && other.source && other.source.teamId === source.teamId) {
+    if (other.source.gameId === source.gameId) return at(EVIDENCE.sameRow);
+    if (sameStart(row.startTs, other.startTs)) return at(EVIDENCE.together);
+    if (startsWithinTheHour(row.startTs, other.startTs) && sameResultAs(row, other)) {
+      return at(EVIDENCE.sameResult);
+    }
+    return undefined;
+  }
+
+  const bothTimed = row.startTs !== undefined && other.startTs !== undefined;
+  if (bothTimed) {
+    const near = startsWithinTheHour(row.startTs, other.startTs);
+    if (near && agree) return at(EVIDENCE.together);
+    if (bothScored && agree) return at(EVIDENCE.sameResult);
+    if (near) return at(EVIDENCE.scoredApart);
+    return undefined;
+  }
+  if (bothScored) return agree ? at(EVIDENCE.sameResult) : undefined;
+  return at(
+    scoredGame(row) || scoredGame(other) ? EVIDENCE.untimedOneResult : EVIDENCE.untimedUnplayed
+  );
+};
+
+const strongerEvidence = (a: SameGameEvidence, b: SameGameEvidence): boolean =>
+  a.strength !== b.strength ? a.strength > b.strength : a.gap < b.gap;
+
+/**
+ * Same pair (either order) on the same date in the same pool — what a re-pull or the other team's
+ * copy of a game matches. Unlike `findDuplicateGame`, the score is exactly what may have changed: a
+ * scheduled game is now final, or the other side's schedule reports the same result from its seat.
+ * The pool rather than the group, because the two sides of a cross-age game file it under
+ * different pages.
+ *
+ * Of the rows that could be it, the one `sameGameEvidence` rates strongest, the nearer start
+ * breaking a tie. `accept` lets a caller pass over rows it has already spoken for: an import that
+ * matched one of a schedule's rows to a game should not match a second row off that schedule to it
+ * as well, since one schedule lists one game once.
+ */
 export const matchExistingGame = (
   candidate: ScoutGame,
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  accept: (game: ScoutGame) => boolean = () => true
 ): ScoutGame | null => {
   const pool = new Set(rankingPoolGroupIds(candidate.ageGroupId, ageGroups));
   const pairKey = pairKeyOf(candidate);
   const date = candidate.date ?? "";
-  const source = candidate.source;
 
-  let best: { rank: number; game: ScoutGame } | null = null;
+  let best: { evidence: SameGameEvidence; game: ScoutGame } | null = null;
   for (const game of games) {
     if (game.id === candidate.id || !pool.has(game.ageGroupId)) continue;
     if (pairKeyOf(game) !== pairKey || (game.date ?? "") !== date) continue;
-
-    /*
-     * A start time settles it before anything else is asked, in both directions.
-     *
-     * Nobody plays two games at once, so two rows at the same moment are one fixture — whatever
-     * their ids say, and whatever their scores say. Two different results at one start time is a
-     * disagreement about one game, not two games; `collapseMirroredGames` already knows how to
-     * hold a disagreement, by keeping one row and noting what the other side reported.
-     *
-     * And nobody plays one game twice, so two different start times are two games however alike
-     * the rest of the row looks. This is the only test here that is a fact about the world rather
-     * than an inference about a feed, which is why it outranks them. GameChanger carries a start
-     * time on every game in the captured schedule fixture, all twelve of them.
-     */
-    const bothTimed = candidate.startTs !== undefined && game.startTs !== undefined;
-    if (bothTimed && candidate.startTs !== game.startTs) continue;
-
-    let rank = 0;
-    if (source && game.source && game.source.teamId === source.teamId) {
-      if (game.source.gameId === source.gameId) rank = 2;
-      /*
-       * Two ids off one schedule are normally two games, and that stays the rule: a real pull
-       * found four games against one club on a single day, and folding those would delete three
-       * results. A shared start time is the exception, and says there was only ever one fixture
-       * there — GameChanger lists one twice, under two ids, with the opponent spelled two ways.
-       */
-      else if (bothTimed) rank = 1;
-      else continue;
-    } else if (
-      bothTimed ||
-      (scoreOf(game, candidate.teamAId) === candidate.teamAScore &&
-        scoreOf(game, candidate.teamBId) === candidate.teamBScore)
-    ) {
-      rank = 1;
-    } else if (
-      /*
-       * No time on either row, and two results that contradict each other: a doubleheader, not one
-       * game written down twice. Treating it as one lost the second game whenever the other side's
-       * schedule listed both and this one listed only the first.
-       */
-      candidate.teamAScore !== undefined &&
-      candidate.teamBScore !== undefined &&
-      game.teamAScore !== undefined &&
-      game.teamBScore !== undefined
-    ) {
-      continue;
-    }
-    if (!best || rank > best.rank) best = { rank, game };
-    if (rank === 2) break;
+    const evidence = sameGameEvidence(candidate, game);
+    if (!evidence || !accept(game)) continue;
+    if (!best || strongerEvidence(evidence, best.evidence)) best = { evidence, game };
+    if (evidence.strength === EVIDENCE.sameRow) break;
   }
   return best ? best.game : null;
 };
@@ -670,9 +720,7 @@ const poolKeyFor = (ageGroupId: string, index: GroupIndex): string => {
 
 /** A result on the row being dropped fills a blank on the one kept; a result already there stands. */
 const filledFrom = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
-  const scored = (game: ScoutGame) =>
-    game.teamAScore !== undefined && game.teamBScore !== undefined;
-  if (scored(keep) || !scored(drop)) return keep;
+  if (scoredGame(keep) || !scoredGame(drop)) return keep;
   return {
     ...keep,
     teamAScore: scoreOf(drop, keep.teamAId),
@@ -681,16 +729,256 @@ const filledFrom = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
 };
 
 /**
+ * `keep`, with the schedules that listed `drop` put on record beside its own (`alsoFrom`).
+ *
+ * A fold removes a row, and with it the fact that the schedule it came off listed this game. That
+ * fact is what the count in `sameGameGroups` reads: without it, a game that has taken the other
+ * club's copy still looks like a game only one schedule listed, and the next pass hands it that
+ * club's other game of the day as well. On the pool of 24 September 2026 that took a 12-3 win of
+ * Bulls-Baker's into a 6-3 against the same club, once the two copies of the 6-3 had been folded.
+ * Unchanged, and the same object, when there is nothing new to record.
+ */
+export const withSchedulesOf = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
+  const own = keep.source?.teamId;
+  const schedules = new Set(keep.alsoFrom ?? []);
+  const addedSchedules = [
+    ...new Set(
+      [drop.source?.teamId, ...(drop.alsoFrom ?? [])].filter(
+        (source): source is string =>
+          source !== undefined && source !== own && !schedules.has(source)
+      )
+    ),
+  ];
+  const rows = new Set((keep.alsoRows ?? []).map((row) => gcRowId(row.teamId, row.gameId)));
+  if (keep.source) rows.add(gcRowId(keep.source.teamId, keep.source.gameId));
+  const addedRows = [
+    ...(drop.source ? [{ teamId: drop.source.teamId, gameId: drop.source.gameId }] : []),
+    ...(drop.alsoRows ?? []),
+  ].filter((row) => {
+    const id = gcRowId(row.teamId, row.gameId);
+    if (rows.has(id)) return false;
+    rows.add(id);
+    return true;
+  });
+  if (addedSchedules.length === 0 && addedRows.length === 0) return keep;
+  return {
+    ...keep,
+    ...(addedSchedules.length > 0
+      ? { alsoFrom: [...(keep.alsoFrom ?? []), ...addedSchedules] }
+      : {}),
+    ...(addedRows.length > 0 ? { alsoRows: [...(keep.alsoRows ?? []), ...addedRows] } : {}),
+  };
+};
+
+/**
+ * Whether a game may take a row off a schedule it already has on record.
+ *
+ * A game takes one row off each schedule, so a row off a schedule that is already on record is
+ * that same row pulled again or it is another game. Where the record names its rows
+ * (`alsoRows`) that is simply read off. A record from before rows were named (`alsoFrom` alone)
+ * cannot say, and there the row is taken back only when it starts within the hour of the game and
+ * agrees with it — the folded row coming back, which is what 21 of the 23 results listed twice this
+ * way in the pool of 24 September 2026 were — and never on a same result alone, which is also what
+ * two games of a doubleheader can give.
+ */
+export const mayTakeRow = (
+  game: ScoutGame,
+  row: ScoutGame,
+  evidence: SameGameEvidence
+): boolean => {
+  const schedule = row.source?.teamId;
+  if (schedule === undefined || game.source?.teamId === schedule) return true;
+  const named = (game.alsoRows ?? []).filter((folded) => folded.teamId === schedule);
+  if (named.length > 0)
+    return named.some((folded) => gcRowId(folded.teamId, folded.gameId) === row.id);
+  if ((game.alsoFrom ?? []).includes(schedule)) return evidence.strength >= EVIDENCE.together;
+  return true;
+};
+
+/** Adds a sentence to a note once, so a fold the tidy makes again on every run is written once. */
+const withNote = (note: string | undefined, sentence: string): string =>
+  note && note.includes(sentence) ? note : [note, sentence].filter(Boolean).join(" ");
+
+/**
+ * What folding `drop` into `keep` leaves on `keep`. A result on the dropped row fills a blank, a
+ * start fills a missing start, and the schedules that listed it go on record (`withSchedulesOf`). A result that contradicts the one kept goes into the note rather
+ * than nowhere: "Other side reported" when it came off the other club's schedule, "Also reported"
+ * when one schedule listed the game twice and scored it two ways, as the import words it. Two rows
+ * that agree leave no note, since there is nothing to say.
+ */
+const foldedInto = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
+  let next = withSchedulesOf(filledFrom(keep, drop), drop);
+  if (next.startTs === undefined && drop.startTs !== undefined) {
+    next = { ...next, startTs: drop.startTs };
+  }
+  if (scoredGame(keep) && scoredGame(drop) && !sameResultAs(keep, drop)) {
+    const oneSchedule =
+      keep.source !== undefined &&
+      drop.source !== undefined &&
+      keep.source.teamId === drop.source.teamId;
+    const theirs = `${scoreOf(drop, keep.teamAId)}-${scoreOf(drop, keep.teamBId)}`;
+    next = {
+      ...next,
+      note: withNote(
+        next.note,
+        `${oneSchedule ? "Also reported" : "Other side reported"} ${theirs}.`
+      ),
+    };
+  }
+  return next;
+};
+
+/**
+ * The rows of one bucket — one pool, one pair of clubs, one day — grouped into games, each group
+ * listed in pool order.
+ *
+ * Every two rows `sameGameEvidence` links could be one game, and the links are taken strongest
+ * first, the nearer start breaking a tie, so each game takes the copy that fits it best rather than
+ * the first one found. A game takes at most one row off each schedule: a second row off the same
+ * schedule joins only as that schedule's own copy listed twice, which is what keeps a doubleheader
+ * two games when the other club's clock sits between its two slots. And a schedule already on record
+ * for a game, a row of its folded in when a stand-in was settled (`alsoFrom`), adds another row only
+ * where the results agree. That row is the folded one coming back on a re-pull, since the record
+ * names the schedule and not the game; 23 games in the pool of 24 September 2026 were a result
+ * listed twice this way. A different result from it is its second meeting that day, which is what
+ * the record was kept to show.
+ *
+ * What the links leave is settled by count. Two results that contradict are a doubleheader only if
+ * one schedule lists more games against this club that day than the other accounts for. When all
+ * that is left is one game off each of two schedules, both scored, it is one game two coaches
+ * scored differently — 1,076 such pairs on a nationwide pull, 654 of them a single run apart.
+ */
+const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
+  const sourceOf = (row: number) => bucket[row]?.source?.teamId;
+  /** The schedules a group accounts for: its own rows', and the ones folded into them. */
+  const schedulesOf = (group: number[]) =>
+    new Set(
+      group.flatMap((row) => {
+        const game = bucket[row];
+        if (!game) return [];
+        return [
+          ...(game.source ? [game.source.teamId] : []),
+          ...(game.alsoFrom ?? []),
+          ...(game.alsoRows ?? []).map((folded) => folded.teamId),
+        ];
+      })
+    );
+  const groupOf = bucket.map((_, row) => row);
+  const groups = new Map<number, number[]>(bucket.map((_, row) => [row, [row]]));
+
+  /**
+   * Whether two groups can be one game: every schedule both account for has to be one row of it
+   * seen twice — the same schedule's one game listed twice where both rows are here, or a row the
+   * other group already took (`mayTakeRow`) where only one is.
+   */
+  const canJoin = (a: number[], b: number[], evidence: SameGameEvidence): boolean => {
+    const inB = schedulesOf(b);
+    const inA = schedulesOf(a);
+    for (const schedule of inA) {
+      if (!inB.has(schedule)) continue;
+      const hereA = a.filter((row) => sourceOf(row) === schedule);
+      const hereB = b.filter((row) => sourceOf(row) === schedule);
+      if (hereA.length > 0 && hereB.length > 0) {
+        const listedTwice = hereA.every((x) =>
+          hereB.every((y) => sameGameEvidence(bucket[x]!, bucket[y]!) !== undefined)
+        );
+        if (!listedTwice) return false;
+        continue;
+      }
+      // Both groups already took a row of this schedule, and neither row is here to compare.
+      if (hereA.length === 0 && hereB.length === 0) return false;
+      const [rows, recordedIn] = hereA.length > 0 ? [hereA, b] : [hereB, a];
+      // A row coming back alone, never a group that already stands for another schedule's game.
+      if (schedulesOf(rows).size !== 1 || rows.length !== (hereA.length > 0 ? a : b).length) {
+        return false;
+      }
+      const taken = rows.every((row) =>
+        recordedIn.some((held) => {
+          const game = bucket[held];
+          return (
+            game !== undefined &&
+            (game.alsoFrom ?? [])
+              .concat((game.alsoRows ?? []).map((folded) => folded.teamId))
+              .includes(schedule) &&
+            mayTakeRow(game, bucket[row]!, evidence)
+          );
+        })
+      );
+      if (!taken) return false;
+    }
+    return true;
+  };
+  const join = (a: number, b: number) => {
+    const into = Math.min(groupOf[a] ?? a, groupOf[b] ?? b);
+    const from = Math.max(groupOf[a] ?? a, groupOf[b] ?? b);
+    const moving = groups.get(from) ?? [];
+    moving.forEach((row) => (groupOf[row] = into));
+    groups.set(
+      into,
+      [...(groups.get(into) ?? []), ...moving].sort((x, y) => x - y)
+    );
+    groups.delete(from);
+  };
+
+  const links: { a: number; b: number; evidence: SameGameEvidence }[] = [];
+  bucket.forEach((row, b) => {
+    for (let a = 0; a < b; a += 1) {
+      const other = bucket[a];
+      const evidence = other && sameGameEvidence(row, other);
+      if (evidence) links.push({ a, b, evidence });
+    }
+  });
+  links.sort(
+    (x, y) =>
+      y.evidence.strength - x.evidence.strength ||
+      x.evidence.gap - y.evidence.gap ||
+      x.a - y.a ||
+      x.b - y.b
+  );
+  links.forEach(({ a, b, evidence }) => {
+    const left = groupOf[a] ?? a;
+    const right = groupOf[b] ?? b;
+    if (left === right) return;
+    if (canJoin(groups.get(left) ?? [], groups.get(right) ?? [], evidence)) join(a, b);
+  });
+
+  const schedules = new Set(bucket.map((_, row) => sourceOf(row)));
+  if (schedules.size === 2 && !schedules.has(undefined)) {
+    const [first, second] = [...schedules] as [string, string];
+    const accounts = (group: number[], source: string) => schedulesOf(group).has(source);
+    const played = (group: number[]) => group.some((row) => scoredGame(bucket[row]!));
+    const all = [...groups.values()];
+    const onlyFirst = all.filter((group) => accounts(group, first) && !accounts(group, second));
+    const onlySecond = all.filter((group) => accounts(group, second) && !accounts(group, first));
+    const [left] = onlyFirst;
+    const [right] = onlySecond;
+    // A count is no evidence about the rows, so it clears the same bar a weak link does.
+    const byCount: SameGameEvidence = { strength: 0, gap: Infinity };
+    if (
+      onlyFirst.length === 1 &&
+      onlySecond.length === 1 &&
+      left &&
+      right &&
+      played(left) &&
+      played(right) &&
+      canJoin(left, right, byCount)
+    ) {
+      join(left[0]!, right[0]!);
+    }
+  }
+  return [...groups.values()];
+};
+
+/**
  * Folds together rows that describe one game.
  *
- * Same rule as the import applies to each row as it arrives (`matchExistingGame`): the same two
- * teams on the same day in the same pool, results that mirror or a side with none, and never two
- * game ids off one schedule, which is a doubleheader. Applying it on arrival is enough for as long
- * as the two teams stay the two teams. It stops being enough the moment two entries are folded
- * into one club — a squad's Fall and Spring ids proving to be one squad, or the user's own "same
- * team as" — because each id filed its own row for the game, against the same opponent, and those
- * rows only *become* the same game once the pair matches, which is after both were already here.
- * Yeager Davis held three GameChanger ids and showed its 8-2 loss twice.
+ * The same judgement the import makes of each row as it arrives (`sameGameEvidence`), made again
+ * over everything the pool holds. Applying it on arrival is not enough. The two teams do not stay
+ * the two teams: when two entries are folded into one club — a squad's Fall and Spring ids proving
+ * to be one squad, or the user's own "same team as" — each id filed its own row for the game, and
+ * those rows only *become* the same game once the pair matches, which is after both were already
+ * here (Yeager Davis held three GameChanger ids and showed its 8-2 loss twice). And the import sees
+ * one row at a time, while the grouping (`sameGameGroups`) sees every copy of the day at once.
  *
  * The earlier row is kept, so ids and side order stay put. `teamId` narrows the pass to the rows
  * one team is on, which is all a single fold can have changed.
@@ -714,63 +1002,13 @@ export const collapseSameGames = (
   const dropped = new Set<string>();
   buckets.forEach((bucket) => {
     if (bucket.length < 2) return;
-    const kept: ScoutGame[] = [];
-    bucket.forEach((game) => {
-      const same = matchExistingGame(game, kept, ageGroups);
-      if (!same) {
-        kept.push(game);
-        return;
-      }
-      const filled = filledFrom(same, game);
-      if (filled !== same) {
-        kept[kept.indexOf(same)] = filled;
-        replaced.set(same.id, filled);
-      }
-      dropped.add(game.id);
+    sameGameGroups(bucket).forEach((group) => {
+      const [first, ...rest] = group.map((row) => bucket[row]!);
+      if (!first || rest.length === 0) return;
+      const kept = rest.reduce(foldedInto, first);
+      rest.forEach((row) => dropped.add(row.id));
+      if (kept !== first) replaced.set(first.id, kept);
     });
-
-    /*
-     * Same game, two scorekeepers. Two results that contradict are a doubleheader only if one of
-     * the two schedules lists two games against this club that day. When each schedule lists
-     * exactly one and the results differ, that is one game two coaches scored differently — 1,076
-     * such pairs on a nationwide pull, 654 of them a single run apart — not two games. The first
-     * row stands and carries what the other side reported.
-     */
-    if (kept.length === 2) {
-      const [first, second] = kept as [ScoutGame, ScoutGame];
-      const scored = (game: ScoutGame) =>
-        game.teamAScore !== undefined && game.teamBScore !== undefined;
-      const sourceOf = (game: ScoutGame) => game.source?.teamId;
-      /**
-       * How many of this day's meetings one schedule accounted for — its own rows, plus the rows
-       * folded into them when a stand-in was settled. A schedule that listed the same opponent
-       * twice, once by name and once as "TBD", has said these are two games, and saying so is the
-       * whole reason the fold records where it came from.
-       */
-      const rowsFrom = (source: string | undefined) =>
-        source === undefined
-          ? 0
-          : bucket.filter(
-              (game) => sourceOf(game) === source || (game.alsoFrom ?? []).includes(source)
-            ).length;
-      const oneEach =
-        sourceOf(first) !== undefined &&
-        sourceOf(second) !== undefined &&
-        sourceOf(first) !== sourceOf(second) &&
-        rowsFrom(sourceOf(first)) === 1 &&
-        rowsFrom(sourceOf(second)) === 1;
-      if (oneEach && scored(first) && scored(second)) {
-        const theirA = scoreOf(second, first.teamAId);
-        const theirB = scoreOf(second, first.teamBId);
-        const noted: ScoutGame = {
-          ...first,
-          note: [first.note, `Other side reported ${theirA}-${theirB}.`].filter(Boolean).join(" "),
-        };
-        kept[0] = noted;
-        replaced.set(first.id, noted);
-        dropped.add(second.id);
-      }
-    }
   });
 
   if (dropped.size === 0) return { games, collapsed: 0 };

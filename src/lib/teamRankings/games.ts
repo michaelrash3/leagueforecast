@@ -47,6 +47,69 @@ export const countsTowardRating = (game: ScoutGame, today: string = todayIsoDay(
 export const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;
 
+const MINUTE_MS = 60_000;
+
+/** A start as an instant, or undefined when there is none or it is not a time. */
+const instantOf = (startTs: string | undefined): number | undefined => {
+  if (startTs === undefined) return undefined;
+  const at = Date.parse(startTs);
+  return Number.isFinite(at) ? at : undefined;
+};
+
+/** Minutes between two starts; undefined when either is missing or is not a time. */
+export const minutesApart = (a: string | undefined, b: string | undefined): number | undefined => {
+  const x = instantOf(a);
+  const y = instantOf(b);
+  return x === undefined || y === undefined ? undefined : Math.abs(x - y) / MINUTE_MS;
+};
+
+/**
+ * Whether two rows give the same start.
+ *
+ * Read as instants under a minute apart rather than as equal strings. The pool of 24 September 2026
+ * stores every start in one spelling, but 1,013 of its rows start at an odd second or millisecond,
+ * and 54 pairs of rows between the same two clubs on the same day were under a minute apart — 12 of
+ * them off one schedule, which is one game listed twice however the strings compare. A start that
+ * is not a time matches only its own spelling.
+ */
+export const sameStart = (a: string | undefined, b: string | undefined): boolean => {
+  if (a === undefined || b === undefined) return false;
+  const gap = minutesApart(a, b);
+  return gap === undefined ? a === b : gap < 1;
+};
+
+/** A start rounded to its minute, so an index can be keyed on what `sameStart` compares. */
+export const startMinuteOf = (startTs: string | undefined): number | undefined => {
+  const at = instantOf(startTs);
+  return at === undefined ? undefined : Math.round(at / MINUTE_MS);
+};
+
+/**
+ * How far apart two clubs' schedules can put one game and still mean it.
+ *
+ * A start on a schedule is when the game was planned, not when it began: a tournament runs behind
+ * and nobody moves the placeholder, so the two coaches' copies of one game drift apart. On the pool
+ * of 24 September 2026, 1,213 pairs of rows off two schedules gave the same pair of clubs the same
+ * result on the same day at different starts, and 1,115 of them were an hour apart or less; the
+ * same search a week off, where no game is, found 7. A game runs longer than an hour, so two
+ * starts within one of each other on two schedules are one game — inclusive, because the pair that
+ * brought this to light, Legacy Baseball Club and River City Raptors, was exactly sixty minutes out.
+ *
+ * One club's own schedule is held to more. The same pool had 109 pairs of rows off one schedule,
+ * against one opponent, exactly an hour apart with two different results — 23-6 and 12-2 — which
+ * is a doubleheader written down at its slot times, so there the hour only counts where the two
+ * rows give the same result. Of 212 such scored pairs within the hour, 34 did (16%); of 6,044 two
+ * hours or more apart, which are doubleheaders, 81 did (1.3%). A repeated result that much more
+ * often than doubleheaders produce one is the same game listed twice.
+ */
+export const ONE_GAME_WINDOW_MINUTES = 60;
+
+export const startsWithinTheHour = (a: string | undefined, b: string | undefined): boolean => {
+  if (a === undefined || b === undefined) return false;
+  const gap = minutesApart(a, b);
+  return gap === undefined ? a === b : gap <= ONE_GAME_WINDOW_MINUTES;
+};
+
 /**
  * Finds an existing game that looks like the same game as `candidate` — same two teams (in either
  * order), same date, same score. That is the shape a double-entry takes, whether it came from

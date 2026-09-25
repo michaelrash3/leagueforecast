@@ -103,6 +103,21 @@ describe("teamRankingsCsvSections", () => {
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(backup))).toEqual(backup);
   });
 
+  it("round-trips a game's start and the rows folded into it", () => {
+    const folded: TeamRankingsBackup = {
+      ...backup,
+      games: [
+        {
+          ...games[0]!,
+          startTs: "2028-04-05T17:00:00.000Z",
+          alsoFrom: ["zjvVkYnqLrf0"],
+          alsoRows: [{ teamId: "zjvVkYnqLrf0", gameId: "0b1e-77" }],
+        },
+      ],
+    };
+    expect(parseTeamRankingsCsv(teamRankingsCsvSections(folded))).toEqual(folded);
+  });
+
   it("round-trips the pool appended to a schedule export", () => {
     expect(parseTeamRankingsCsv(backupCsv)).toEqual(backup);
   });
@@ -174,12 +189,13 @@ describe("teamRankingsCsvSections", () => {
       [
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
-        "Also From",
+        "Also From,Start,Also Rows",
       ].join(",")
     );
-    // The trailing empty cell is a game no stand-in was ever folded into, which is nearly all of them.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,$/);
-    expect(lines[2]).toMatch(/,,,,,,$/);
+    // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
+    // and a game with no start.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,$/);
   });
 });
 

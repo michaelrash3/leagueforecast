@@ -149,6 +149,13 @@ const GAME_HEADERS = [
   "Source Game ID",
   /** Other GameChanger schedules that listed this game — what tells a doubleheader from a dispute. */
   "Also From",
+  /**
+   * When the game started, as the schedule gave it. Missing from the file until September 2026, so
+   * a restore lost every start, and the start is half of what says two rows are one game.
+   */
+  "Start",
+  /** The rows folded into this game, each as its schedule's id and its game id, `team:game`. */
+  "Also Rows",
 ];
 
 /**
@@ -355,6 +362,8 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.source?.teamId ?? "",
       game.source?.gameId ?? "",
       (game.alsoFrom ?? []).join(" "),
+      game.startTs ?? "",
+      (game.alsoRows ?? []).map((row) => `${row.teamId}:${row.gameId}`).join(" "),
     ]
       .map(csvEscape)
       .join(",")
@@ -694,6 +703,14 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     // Space-separated, because a GameChanger team id never contains one and a comma would need
     // quoting in a cell this is only ever read back from.
     const alsoFrom = cell("Also From").split(/\s+/).filter(Boolean);
+    const startTs = cell("Start");
+    // A colon, because neither a GameChanger team id nor a game id ever holds one.
+    const alsoRows = cell("Also Rows")
+      .split(/\s+/)
+      .flatMap((pair) => {
+        const [teamId, gameId, ...rest] = pair.split(":");
+        return teamId && gameId && rest.length === 0 ? [{ teamId, gameId }] : [];
+      });
     return [
       {
         id,
@@ -712,6 +729,8 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         // Lost on a restore, a settled stand-in looks like a disputed score again and a real
         // result gets deleted a second time — so it is carried in the file rather than rebuilt.
         ...(alsoFrom.length > 0 ? { alsoFrom } : {}),
+        ...(alsoRows.length > 0 ? { alsoRows } : {}),
+        ...(startTs ? { startTs } : {}),
         // Half a source names nothing a re-pull could match, so it takes both ids or neither.
         ...(sourceTeamId && sourceGameId
           ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }
