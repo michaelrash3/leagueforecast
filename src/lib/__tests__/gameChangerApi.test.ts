@@ -763,6 +763,43 @@ describe("normalizeGcGames", () => {
     );
   });
 
+  /*
+   * An all-day entry has a date and no time. GameChanger writes a start for one anyway: in the
+   * user's audit of 24 September 2026, midnight UTC and no timezone. Read as a time, that is the
+   * same instant for every all-day game on the day.
+   */
+  it("keeps an all-day entry's date and drops its placeholder time", () => {
+    const allDay = (id: string, timezone: string | null) => ({
+      id,
+      opponent_team: { name: "Blue Ridge Elite 2028" },
+      is_full_day: true,
+      start_ts: "2026-09-12T00:00:00.000Z",
+      timezone,
+      score: { team: 7, opponent_team: 0 },
+      game_status: "completed",
+    });
+    const [noZone, withZone, timed] = normalizeGcGames([
+      allDay("d1", null),
+      // Midnight UTC is the evening before in New York; the placeholder names the day in UTC.
+      allDay("d2", "America/New_York"),
+      {
+        id: "t1",
+        opponent_team: { name: "Blue Ridge Elite 2028" },
+        is_full_day: false,
+        start_ts: "2026-09-12T14:15:00.000Z",
+        timezone: "America/New_York",
+        score: { team: 7, opponent_team: 0 },
+        game_status: "completed",
+      },
+    ]);
+    expect(noZone?.startTs).toBeUndefined();
+    expect(noZone?.date).toBe("2026-09-12");
+    expect(withZone?.startTs).toBeUndefined();
+    expect(withZone?.date).toBe("2026-09-12");
+    expect(timed?.startTs).toBe("2026-09-12T14:15:00.000Z");
+    expect(timed?.date).toBe("2026-09-12");
+  });
+
   it("reads scheduled games without scores and canceled ones", () => {
     const list = normalizeGcGames([
       {

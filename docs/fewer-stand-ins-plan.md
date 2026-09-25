@@ -104,6 +104,12 @@ proxy). With those hosts allowed: check whether a schedule payload links an oppo
 from GameChanger search, and whether a public team search exists. Either would let the never-pulled
 remainder be found automatically instead of by hand.
 
+**Answered, 24 September 2026, by the user's audit from a logged-in session.** No schedule payload
+links an opponent: `/public/teams/{id}/games` names each one as free text (`opponent_team: { name }`)
+and nothing in the web app's schedule traffic carries an id. Team search does exist (`POST /search`,
+which the crawl calls with the logged-in session's headers), so finding clubs is the crawl's job
+rather than the app's. Matching the two halves of a game stays the tidy's.
+
 ## Critical files
 
 - `src/lib/gameChangerImport.ts` — `joinCrossedHalves`, `reclaimMisfiled`, tidy wiring; Part 2 rung + index

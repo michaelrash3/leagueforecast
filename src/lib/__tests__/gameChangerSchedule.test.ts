@@ -119,6 +119,12 @@ describe("what is due", () => {
     expect(due.catchUp).toBe(false);
   });
 
+  // The panel holds the rota to the season being played: a finished season's pages cannot change.
+  it("can be held to the season being played", () => {
+    const due = dueRefresh(SUNDAY, empty, groups, teams, { cadence: "rotation", seasonYear: 2027 });
+    expect(due.teamIds.sort()).toEqual(["gc8a", "gc9a", "gc9b"]);
+  });
+
   it("is nothing once the day has been done", () => {
     const log = markRefreshed(empty, [8, 9], SUNDAY);
     const due = dueRefresh(SUNDAY, log, groups, teams, { cadence: "rotation" });

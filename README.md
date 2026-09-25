@@ -173,11 +173,11 @@ nothing else. Filing one at 18U would put that cluster in the 18U table next to
 travel clubs and invite exactly the comparison the data cannot carry. So the whole
 category is refused.
 
-Refused on the name, the way wiffle ball is, which means the same three things: the
-rows never cost a request out of a pasted list, the import turns the schedule away
-with the reason `high-school`, and a tidy pass deletes any that reached the pool
-before the rule existed. Nothing has to remember an id — the name refuses it again
-every export, including ids never seen before.
+Refused on the name, the way wiffle ball and blitzball are, which means the same
+three things: the rows never cost a request out of a pasted list, the import turns
+the schedule away with the reason `high-school`, and a tidy pass deletes any that
+reached the pool before the rule existed. Nothing has to remember an id — the name
+refuses it again every export, including ids never seen before.
 
 | In the name or the age field                     | Read as                                                             |
 | ------------------------------------------------ | ------------------------------------------------------------------- |
@@ -421,6 +421,11 @@ Where a start time is missing from either row the two are kept, however alike th
 look — with nothing to tell a repeated fixture from a repeated row, losing a real
 game is the worse error.
 
+An all-day entry counts as having no start time. GameChanger writes a start for one
+anyway, midnight UTC with no timezone in the entries audited on 24 September 2026,
+and read as a time it made every all-day game on a date the same instant. Its date
+is kept and the placeholder is not.
+
 Most slots name themselves. A bracket posts "TBD" on one team's schedule and
 the real fixture on the other's, so pulling both sides answers the question:
 after a run, a slot whose fixture another schedule named is folded into that
@@ -618,6 +623,21 @@ club's older games under its new id often enough that a nationwide pull carried
 three thousand of them; a game dated outside its squad year is left out on
 arrival and deleted from a pool that already holds one.
 
+**A pull files the season being played, unless told otherwise.** A crawl that
+searches every season of a calendar year hands over last spring's and summer's
+squads beside this fall's, each under a new GameChanger id with nothing else to
+say its year is finished. So the panel carries a season picker under the list,
+with the season being played ticked (2027 on 24 September 2026, which is Fall 2026
+through Summer 2027), the one before it, and any other the list's `Season` column
+names, each with the number of rows that name it. A row from a season left unticked
+is dropped before a request is spent on it. A row that does not say is fetched and settled by
+GameChanger's own season: the importer refuses a team from any other year before
+its age is read (`other-season`), so it never joins the waiting list, and the
+run's summary counts those in a line of their own instead of listing them under
+**Worth a look**. The choice is kept with the run, so a resumed run files what it
+was started for, and the same list asked for different seasons starts over. The
+rota keeps to the season being played as well; see the next section.
+
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
 on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are
@@ -690,6 +710,12 @@ pull twice — and a level is marked done only when its run actually finishes, s
 stopping half way leaves it due. When today is already done there is a button to
 run it again anyway, for when something has changed that a day log cannot know
 about.
+
+Either way, and that button too, only the season being played comes round. A
+finished season's pages cannot change, so walking them every day spent a whole
+year's worth of requests on nothing. What that costs is a result posted after
+August 1 for a game in late July, which the rota no longer goes back for. The
+teams waiting on an age are asked about as before, whatever their season.
 
 The teams with no age are paced by that same principle, and used not to be. Each
 is asked at most once a week — unless somebody has answered for it since its last

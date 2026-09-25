@@ -33,6 +33,12 @@ export type GcPullProgress = {
   /** ISO timestamps, so the panel can say how old an interrupted run is. */
   startedAt: string;
   updatedAt: string;
+  /**
+   * The baseball years this run files (see `GcImportOptions.seasonYears`), kept with the cursor so
+   * a resumed run goes on filing what it was asked to rather than whatever the panel shows now.
+   * Absent on a run that files every year: the rota's, and every run saved before this existed.
+   */
+  seasonYears?: number[];
 };
 
 export const emptyPullProgress = (startedAt: string): GcPullProgress => ({
@@ -47,20 +53,31 @@ export const emptyPullProgress = (startedAt: string): GcPullProgress => ({
  * A run over these ids. An existing run for the same list keeps its place, so reopening the panel
  * and pressing the button again continues rather than starting over; a different list is a new
  * run, because the user has asked for something else.
+ *
+ * So is the same list for different seasons. A run that refused last year's teams has settled
+ * them, and continuing it with last year ticked would never fetch them again.
  */
 export const startPull = (
   ids: string[],
   now: string,
-  previous?: GcPullProgress | null
+  previous?: GcPullProgress | null,
+  seasonYears?: readonly number[]
 ): GcPullProgress => {
   const wanted = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
-  if (previous && sameList(previous.ids, wanted)) {
+  const years =
+    seasonYears === undefined ? undefined : Array.from(new Set(seasonYears)).sort((a, b) => a - b);
+  if (
+    previous &&
+    sameList(previous.ids, wanted) &&
+    sameList(previous.seasonYears ?? [], years ?? []) &&
+    (previous.seasonYears === undefined) === (years === undefined)
+  ) {
     return { ...previous, updatedAt: now };
   }
-  return { ...emptyPullProgress(now), ids: wanted };
+  return { ...emptyPullProgress(now), ids: wanted, ...(years ? { seasonYears: years } : {}) };
 };
 
-const sameList = (a: string[], b: string[]): boolean =>
+const sameList = <T>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((value, index) => value === b[index]);
 
 /** The ids still to fetch, in the order they were given. */
@@ -161,7 +178,23 @@ export const coercePullProgress = (raw: unknown): GcPullProgress | null => {
   const ids = strings(raw.ids);
   if (ids.length === 0) return null;
   const known = new Set(ids);
+  /*
+   * Unreadable seasons make the whole run unreadable rather than dropping the field. Dropped, the
+   * run would resume filing every year — the opposite of what it was started for — where no run at
+   * all starts the next pull from the panel's own choice.
+   */
+  const { seasonYears } = raw;
+  if (
+    seasonYears !== undefined &&
+    !(
+      Array.isArray(seasonYears) &&
+      seasonYears.every((year) => isNumber(year) && Number.isInteger(year))
+    )
+  ) {
+    return null;
+  }
   return {
+    ...(Array.isArray(seasonYears) ? { seasonYears: seasonYears.filter(isNumber) } : {}),
     ids,
     // A settled id that is not in the list means the list changed under the cursor; drop it.
     settled: strings(raw.settled).filter((id) => known.has(id)),

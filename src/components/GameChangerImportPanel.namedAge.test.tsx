@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetPullSession } from "../lib/pullSession";
 import { resetTeamRankingsStore, saveNamedAges } from "../lib/teamRankingsStorage";
 import { nameAge, type NamedAges } from "../lib/namedAges";
@@ -71,6 +71,17 @@ const { GameChangerImportPanel } = await import("./GameChangerImportPanel");
  * for having no age all over again. Nothing looked broken from the outside, which is exactly why
  * the guard has to run the real panel rather than the importer.
  */
+/*
+ * The pull files only the season being played, and these teams play Fall 2026. Pinned to a day in
+ * that season so the test means the same thing after August 2027 as it does now; only the date is
+ * faked, so the pull's own timers run as they always do.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+});
+afterEach(() => vi.useRealTimers());
+
 describe("an age somebody typed on the review card", () => {
   beforeEach(() => {
     resetPullSession();

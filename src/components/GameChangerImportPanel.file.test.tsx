@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/teamRankingsHarness";
 
 /**
@@ -33,6 +33,17 @@ const csv = (rows: number): string =>
     // GameChanger ids are 8-24 characters, and a shorter one is not read as an id at all.
     (_unused, at) => `Club ${at} 12U,gcteam${String(at).padStart(6, "0")},12U,Fall 2026,Town,KY`
   ).join("\n");
+
+/*
+ * The pull files only the season being played, and these teams play Fall 2026. Pinned to a day in
+ * that season so the test means the same thing after August 2027 as it does now; only the date is
+ * faked, so the pull's own timers run as they always do.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+});
+afterEach(() => vi.useRealTimers());
 
 describe("choosing a team list file", () => {
   it("does not put the file's contents in the textarea", async () => {

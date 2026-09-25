@@ -3429,6 +3429,22 @@ describe("teams that are not playing baseball", () => {
     expect(isNotBaseball(undefined)).toBe(false);
   });
 
+  it("reads blitzball the same way, run together or ending at the ball", () => {
+    // Names off the desktop crawl's export of 24 September 2026, which carried 93 of them.
+    expect(isNotBaseball("Blitzball Dingers 12U")).toBe(true);
+    expect(isNotBaseball("Gw23blitzball")).toBe(true);
+    expect(isNotBaseball("Pottstown Scout Team Blitz Ball 11U")).toBe(true);
+    expect(isNotBaseball("Blake's Blitzballers")).toBe(true);
+  });
+
+  it("leaves a baseball club called Blitz alone, and a pun on one", () => {
+    // The same export held 46 clubs simply called Blitz. Written apart, "Blitz Ballers" is as
+    // likely a baseball team's pun as the game, and refusing a real club leaves no trace.
+    expect(isNotBaseball("Mid Ohio Blitz 13U")).toBe(false);
+    expect(isNotBaseball("Blitz Baseball 11U")).toBe(false);
+    expect(isNotBaseball("Zach's Blitz Ballers")).toBe(false);
+  });
+
   it("refuses the schedule, and says why in a word", () => {
     const { state, outcome } = importGcSchedule(wiffle("Wiffle Ball 12U"), empty);
     expect(outcome.skip).toBe("not-baseball");
@@ -3515,7 +3531,7 @@ describe("teams that are not playing baseball", () => {
       games: [],
     });
     expect(describeTidy(tidy)).toContain(
-      "1 wiffle ball team deleted, and their results with them."
+      "1 wiffle ball or blitzball team deleted, and their results with them."
     );
   });
 
@@ -4296,5 +4312,68 @@ describe("an age from the company the pool already knows", () => {
       game({ id: "o3", opponentName: "Team 5", opponentAvatarKey: "av-2" }),
     ]);
     expect(importGcSchedule(own, filed()).outcome.ageGroupName).toContain("12U");
+  });
+});
+
+describe("a pull asked for particular seasons", () => {
+  /*
+   * Seasons in this app's sense: the baseball year from August to July. Fall 2026 is the 2027
+   * season, Summer 2026 the 2026 one — the squad a crawl across the calendar year hands over beside
+   * this fall's, with a new GameChanger id and nothing else to say it is finished.
+   */
+  const lastSummer = { season: "summer", year: 2026 } as const;
+  const thisSeasonOnly = { seasonYears: new Set([2027]) };
+
+  it("files a team from a season it was asked for", () => {
+    const { state, outcome } = importGcSchedule(schedule({}, [game()]), empty, thisSeasonOnly);
+    expect(outcome.skip).toBeUndefined();
+    expect(state.games).toHaveLength(1);
+  });
+
+  it("refuses one from any other, by GameChanger's own season, and files nothing", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({ season: lastSummer }, [game({ date: "2026-06-20" })]),
+      empty,
+      thisSeasonOnly
+    );
+    expect(outcome.skip).toBe("other-season");
+    expect(outcome.issue).toBe(
+      "Summer 2026 falls in the 2026 season, which this pull was not asked for, so its schedule was not read."
+    );
+    expect(state).toBe(empty);
+  });
+
+  it("refuses it before its age is asked, so it never joins the waiting list", () => {
+    // Nothing anywhere says this team's age. Asked first, that is "no-age", and the waiting list
+    // would ask about it every week for a season nobody wanted.
+    const { outcome } = importGcSchedule(
+      schedule({ name: "Hawks", ageLevel: undefined, season: lastSummer }, [
+        game({ date: "2026-06-20", opponentName: "Eagles" }),
+      ]),
+      empty,
+      thisSeasonOnly
+    );
+    expect(outcome.skip).toBe("other-season");
+  });
+
+  it("files every season when none is named, which is what the rota asks for", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({ season: lastSummer }, [game({ date: "2026-06-20" })]),
+      empty
+    );
+    expect(outcome.skip).toBeUndefined();
+    expect(state.games).toHaveLength(1);
+  });
+
+  it("counts them in a line of their own, not among the teams that could not be filed", () => {
+    const filed = importGcSchedule(schedule({}, [game()]), empty, thisSeasonOnly).outcome;
+    const refused = importGcSchedule(
+      schedule({ season: lastSummer }),
+      empty,
+      thisSeasonOnly
+    ).outcome;
+    const lines = summarizeGcImport([filed, refused]);
+    expect(lines[0]).toBe("1 schedule read.");
+    expect(lines).toContain("1 team from a season this pull was not asked for left out.");
   });
 });

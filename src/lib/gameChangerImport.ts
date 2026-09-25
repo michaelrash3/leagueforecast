@@ -936,7 +936,7 @@ export type GcSkipReason =
   | "below-min-age"
   | "above-max-age"
   | "no-season"
-  /** A wiffle ball team. A different game, so its results belong to no baseball ranking. */
+  /** A wiffle ball or blitzball team. A different game, so its results belong to no baseball ranking. */
   | "not-baseball"
   /** A high school squad. A different season, played against a pool this app does not hold. */
   | "high-school"
@@ -952,7 +952,13 @@ export type GcSkipReason =
    * the team leaves the waiting list, and a later pull may find it again once its season comes
    * round with a schedule. See `gcSeasonIsCurrent`.
    */
-  | "out-of-season";
+  | "out-of-season"
+  /**
+   * A team from a season this pull was not asked for: its GameChanger season falls in a baseball
+   * year outside `GcImportOptions.seasonYears`. Refused before its age is read, and not remembered
+   * anywhere, because a later pull that ticks that year should file it as normal.
+   */
+  | "other-season";
 
 /**
  * Whether GameChanger's answer describes a high school squad, by either of the two things it says.
@@ -967,7 +973,8 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
   if (isNotBaseball(profile.name)) {
     return {
       code: "not-baseball",
-      message: "This is a wiffle ball team, which is a different game, so it was left out.",
+      message:
+        "This is a wiffle ball or blitzball team, which is a different game, so it was left out.",
     };
   }
   /*
@@ -1645,6 +1652,18 @@ export type GcImportOptions = {
    * afternoon it runs on.
    */
   today?: string;
+  /**
+   * The baseball years this pull files, by `squadYearForGcSeason`: 2027 is Fall 2026 through
+   * Summer 2027. A team whose GameChanger season falls in any other year is refused before its age
+   * is read.
+   *
+   * A crawl that searches every season of a calendar year hands over last spring's and summer's
+   * squads beside this fall's, and GameChanger mints a new id per team per season, so nothing
+   * else in a list tells a finished year's team from one playing now. The panel passes the season
+   * being played unless somebody ticks another. Absent means every year: the rota refreshes what
+   * the pool already holds, and every caller before this one passed nothing.
+   */
+  seasonYears?: ReadonlySet<number>;
 };
 
 const NOTHING_DELETED: DeletedGames = new Set<string>();
@@ -1832,6 +1851,32 @@ const importOne = (
         ...base,
         skip: "below-min-age",
         issue: `This club is below ${MIN_AGE_LEVEL}U, so its schedule was not read again.`,
+      },
+    };
+  }
+
+  /*
+   * A team from a season this pull was not asked for. Refused ahead of its age for the reason the
+   * invented schedule below is: a team with no age would otherwise join the waiting list and be
+   * asked about every week for a season nobody wanted. GameChanger's own season decides it, since
+   * the list's column is a claim about the id and this is the answer. A team GameChanger gives no
+   * season at all is left to the refusal that already says so, a few lines on.
+   */
+  const seasonYear = profile.season
+    ? squadYearForGcSeason(profile.season.season, profile.season.year)
+    : undefined;
+  if (
+    options.seasonYears &&
+    profile.season &&
+    seasonYear !== undefined &&
+    !options.seasonYears.has(seasonYear)
+  ) {
+    return {
+      state,
+      outcome: {
+        ...base,
+        skip: "other-season",
+        issue: `${formatGcSeason(profile.season)} falls in the ${seasonYear} season, which this pull was not asked for, so its schedule was not read.`,
       },
     };
   }
@@ -3110,7 +3155,9 @@ export const comparePairing = (
  */
 export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
   const filed = outcomes.filter((outcome) => !outcome.issue);
-  const failed = outcomes.length - filed.length;
+  // Left out because the pull was told to leave them out, which is not the same as failing.
+  const otherSeason = outcomes.filter((outcome) => outcome.skip === "other-season").length;
+  const failed = outcomes.length - filed.length - otherSeason;
   const sum = (pick: (outcome: GcImportOutcome) => number) =>
     filed.reduce((total, outcome) => total + pick(outcome), 0);
 
@@ -3120,6 +3167,11 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
       failed ? `, ${failed} that could not be filed` : ""
     }.`
   );
+  if (otherSeason > 0) {
+    lines.push(
+      `${otherSeason} team${otherSeason === 1 ? "" : "s"} from a season this pull was not asked for left out.`
+    );
+  }
 
   const outOfSeason = sum((outcome) => outcome.gamesOutOfSeason);
   if (outOfSeason > 0) {
@@ -3732,7 +3784,7 @@ export type PoolTidy = {
   refiled: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
-  /** Teams deleted for playing a different game — wiffle ball — along with their results. */
+  /** Teams deleted for playing a different game — wiffle ball or blitzball — along with their results. */
   notBaseball: number;
   /** Teams deleted for playing a high school season, along with their results. */
   highSchool: number;
@@ -4220,7 +4272,7 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       : []),
     ...(tidy.notBaseball > 0
       ? [
-          `${plural(tidy.notBaseball, "wiffle ball team", "wiffle ball teams")} deleted, and their results with them.`,
+          `${plural(tidy.notBaseball, "wiffle ball or blitzball team", "wiffle ball or blitzball teams")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.highSchool > 0

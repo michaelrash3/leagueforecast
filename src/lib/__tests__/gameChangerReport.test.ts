@@ -86,6 +86,22 @@ describe("collectGcImportProblems", () => {
     expect(problems[0]!.reason).toBe("something-new");
   });
 
+  // A team from a season the pull was not asked for is the pull doing what it was told. A crawl
+  // across a calendar year can carry tens of thousands, which would bury every real problem here.
+  it("leaves out a team the pull was told to leave out", () => {
+    const problems = collectGcImportProblems(
+      [],
+      [
+        outcome({
+          skip: "other-season",
+          issue:
+            "Summer 2026 falls in the 2026 season, which this pull was not asked for, so its schedule was not read.",
+        }),
+      ]
+    );
+    expect(problems).toEqual([]);
+  });
+
   it("is empty when a run lost nobody", () => {
     expect(collectGcImportProblems([], [outcome({})])).toEqual([]);
   });
