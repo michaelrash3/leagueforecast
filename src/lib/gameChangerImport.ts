@@ -781,7 +781,7 @@ export const ageFromTwoOpponents = (games: readonly GcGame[]): number | undefine
  * say nothing. This rule can, as soon as one of those teams has been filed by any other route.
  *
  * **By identity, never by name.** The opponent is matched on its avatar key, which is stable per
- * club across schedules and is what `resolveOpponent` already trusts. That is the whole reason
+ * club across schedules and is what `planOpponent` already trusts. That is the whole reason
  * this is safe: a name match on "Team 4" would collect a stranger from the other side of the
  * country, and a pool holding tens of thousands of teams has a great many "Team 4"s.
  *
@@ -1521,7 +1521,7 @@ type OpponentPlan = OpponentMatch | { create: Partial<ScoutTeam>; basis: "create
  * but only among teams already on this page, since a name on its own says nothing across levels or
  * seasons. Failing that, a new team, which is the honest answer for a club nobody has pulled.
  *
- * Only looked up here, never made: `resolveOpponent` makes the team a plan asks for. `byFixture`
+ * Only looked up here, never made: `teamOfPlan` makes the team a plan asks for. `byFixture`
  * asks the game itself as well, which a caller asking what a name says leaves out.
  */
 const planOpponent = (
@@ -1666,19 +1666,6 @@ const teamOfPlan = (
   return created.id;
 };
 
-/** The team an opponent name refers to (`planOpponent`), made if there is none. */
-const resolveOpponent = (
-  game: GcGame,
-  ageGroupId: string,
-  teams: ScoutTeam[],
-  index: ImportIndex,
-  ownTeamId: string,
-  sourceTeamId: string
-): OpponentMatch => {
-  const plan = planOpponent(game, ageGroupId, index, ownTeamId, sourceTeamId, true);
-  return { teamId: teamOfPlan(plan, game.opponentName, index, teams), basis: plan.basis };
-};
-
 /**
  * A club's own row held in another club's copy of the game with nothing to say where it was filed
  * (`FoldedRow.filedAgainst`), read on its schedule's next pull: the team its name says, where that
@@ -1688,22 +1675,28 @@ const resolveOpponent = (
  * no such mark, and the pools it tidied hold those folds with nothing that can give them back: on
  * the pool of 24 September 2026, 1,223 of them. The row's name is not kept in the pool, so its
  * next pull is where it can be read, and the fold marked as the claim step would have made it.
- * Every other way a row comes to be folded into the other club's copy files it against that club,
- * and the tests here keep those as they are:
+ * A fold the name files against the other club is left as it is:
  *
  * - The same day, the club's own row on side B of the other club's own copy, and no other row of
  *   the club in it: a claim is read by its own day, and a copy holding the club's own row is not
  *   one the claim step offers.
- * - A name that is not the other club's, by its key, a GameChanger listing's, its picture, or a
- *   shorthand the two clubs' region and the game bear out; nor one this pull's other rows already
- *   stand against the other club under, which is what a hand merge leaves. The name is read as a
- *   pull reads one, less the game itself (`planOpponent`), and a pulled club is not marked.
+ * - A name that is not the other club's, by its key, a GameChanger listing's or its picture, nor a
+ *   shorthand for it at the very start, as the slot settle files one; nor one this pull's other
+ *   rows already stand against the other club under, which is what a hand merge leaves. The name
+ *   is read as a pull reads one, less the game itself (`planOpponent`), and a pulled club is not
+ *   marked.
  * - Not the same result, nor the very start with results that do not disagree: the slot settle
  *   folds those back with no mark (`resolveSlotGames`), and a mark it undid would be made again,
  *   with a new stand-in, on every pull.
  * - The claim step's own rules for a stand-in: levels in reach, a stand-in the other club has not
  *   played, the clock, scores within four runs, and no row of the club's against the other club
- *   waiting that day or either side of it.
+ *   waiting that day or either side of it. Its rule for the whole day, one club for one name, is
+ *   read over all of the pull's marks at once, where they are made.
+ *
+ * A fold the fixture match or the slot settle made at the very start with results a run or so
+ * apart is marked too, the first time its club is pulled after it: it is the claim the claim step
+ * makes where the two clubs' rows come in the other order. A merge settles the rows it folds
+ * (`isSettledClaim`), so nothing a merge made is read here.
  */
 const filedMarkFor = (
   index: ImportIndex,
@@ -1769,14 +1762,10 @@ const filedMarkFor = (
     return undefined;
   }
   if (!atStart && !startsWithinTheHour(candidate.startTs, holder.startTs)) return undefined;
-  // A shorthand for the other club's name at the very start, in one region, is what the joins
-  // file against it (`joinCrossedHalves`, `reclaimMisfiled`); the same result is left above.
-  const own = index.teamsById.get(ownTeamId);
-  if (
-    atStart &&
-    listings.some((name) => nameFitsWithin(game.opponentName, name)) &&
-    inOneRegion(own?.state, club.state)
-  ) {
+  // A shorthand for the other club's name at the very start is what the slot settle files against
+  // it wherever the two clubs are (`resolveSlotGames`), and the joins in one region; the same
+  // result is left above.
+  if (atStart && listings.some((name) => nameFitsWithin(game.opponentName, name))) {
     return undefined;
   }
   const level = holder.ageLevelA ?? index.levelOf(holder.ageGroupId);
@@ -1828,6 +1817,52 @@ const filedMarkFor = (
     });
   });
   return waiting ? undefined : plan;
+};
+
+/**
+ * The one copy of another club's holding `sourceTeamId` on record with no row kept (`alsoFrom`
+ * alone) that `row`, one of that schedule's rows, can be: its club on one side, the other club's own
+ * copy, the same day, within the hour, and not scored further apart than scorekeepers are
+ * (`CLOSE_DISPUTE_RUNS`). None where two could be.
+ */
+const heldOnRecord = (
+  index: ImportIndex,
+  row: GcGame,
+  ownTeamId: string,
+  sourceTeamId: string
+): ScoutGame | undefined => {
+  if (!row.date) return undefined;
+  const mine =
+    row.teamScore !== undefined && row.opponentScore !== undefined
+      ? [row.teamScore, row.opponentScore]
+      : undefined;
+  const found = new Map<string, ScoutGame>();
+  (index.gamesByTeamDate.get(`${ownTeamId}\u0000${row.date}`) ?? []).forEach((stale) => {
+    const holder = index.gamesById.get(stale.id);
+    if (!holder || found.has(holder.id) || holder.date !== row.date) return;
+    if (!(holder.alsoFrom ?? []).includes(sourceTeamId)) return;
+    if ((holder.alsoRows ?? []).some((record) => record.teamId === sourceTeamId)) return;
+    const ownOnA = holder.teamAId === ownTeamId;
+    const clubId = ownOnA ? holder.teamBId : holder.teamAId;
+    if (!ownOnA && holder.teamBId !== ownTeamId) return;
+    if (!holder.source || index.teamByGcId.get(holder.source.teamId)?.id !== clubId) return;
+    if (!startsWithinTheHour(row.startTs, holder.startTs)) return;
+    const theirs =
+      isScored(holder) && !holder.scoreFromB
+        ? ownOnA
+          ? [holder.teamAScore!, holder.teamBScore!]
+          : [holder.teamBScore!, holder.teamAScore!]
+        : undefined;
+    if (
+      mine &&
+      theirs &&
+      Math.abs(mine[0]! - theirs[0]!) + Math.abs(mine[1]! - theirs[1]!) > CLOSE_DISPUTE_RUNS
+    ) {
+      return;
+    }
+    found.set(holder.id, holder);
+  });
+  return found.size === 1 ? [...found.values()][0] : undefined;
 };
 
 /** Games GameChanger lists but that cannot be filed: no date to match on, or called off. */
@@ -2382,12 +2417,30 @@ const importOne = (
     }
 
     let opponentId = knownOpponentId;
+    /*
+     * The other club's copy holding this schedule on record with no row kept (`alsoFrom` alone, from
+     * before rows were kept), where this row is one its name files against nobody the pool knows,
+     * within the hour of the copy and not scored apart from it (`heldOnRecord`). The record stood
+     * for a row of this schedule's that day, and this is it: it goes back on record there, whole,
+     * as it would have stayed had rows been kept. Filed as a game of its own, the record came off
+     * (below), and the tidy could pair the copy with this club's other game against that club that
+     * day, a 3-12 folded into a 6-3, where the kept row held the day apart.
+     */
+    let onRecord: ScoutGame | undefined;
     if (opponentId === undefined) {
-      const opponent = resolveOpponent(game, group.id, teams, index, own.teamId, profile.id);
-      opponentId = opponent.teamId;
-      if (opponent.basis === "created") outcome.opponentsCreated += 1;
-      else if (opponent.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
-      else outcome.opponentsMatchedByName += 1;
+      const plan = planOpponent(game, group.id, index, own.teamId, profile.id, true);
+      const named = "teamId" in plan ? index.teamsById.get(plan.teamId) : undefined;
+      if ("create" in plan || named?.placeholder || isStandIn(named)) {
+        onRecord = heldOnRecord(index, game, own.teamId, profile.id);
+      }
+      if (onRecord) {
+        opponentId = onRecord.teamAId === own.teamId ? onRecord.teamBId : onRecord.teamAId;
+      } else {
+        opponentId = teamOfPlan(plan, game.opponentName, index, teams);
+        if (plan.basis === "created") outcome.opponentsCreated += 1;
+        else if (plan.basis === "avatar") outcome.opponentsMatchedByAvatar += 1;
+        else outcome.opponentsMatchedByName += 1;
+      }
     }
 
     /*
@@ -2513,6 +2566,7 @@ const importOne = (
     // meaning the same thing. Failing that, the other team's copy of the game.
     const existing =
       known ??
+      onRecord ??
       matchExistingGame(
         candidate,
         index.gamesByMatch.get(matchKeyOf(candidate, index.poolKeyOf)) ?? [],
@@ -2526,6 +2580,9 @@ const importOne = (
           return mayTakeRow(game, candidate, evidence);
         }
       );
+    // Back on record as it was folded, for the note to read as any fold with nothing to say where
+    // its row was filed (`filedMarkFor`).
+    if (onRecord) unmarkedFolds.push({ holderId: onRecord.id, game, candidate, theirLevel });
     if (!existing) {
       addGame(index, games, candidate);
       outcome.gamesAdded += 1;
@@ -2677,13 +2734,13 @@ const importOne = (
       if (bucket) bucket.add(against);
       else standingByName.set(key, new Set([against]));
     });
-    unmarkedFolds.forEach(({ holderId, game, candidate, theirLevel }) => {
+    const marks = unmarkedFolds.flatMap(({ holderId, game, candidate, theirLevel }) => {
       const holder = index.gamesById.get(holderId);
       const record = holder?.alsoRows?.find(
         (entry) => gcRowId(entry.teamId, entry.gameId) === candidate.id
       );
-      if (!holder || !record) return;
-      const mark = filedMarkFor(index, {
+      if (!holder || !record) return [];
+      const plan = filedMarkFor(index, {
         game,
         candidate,
         holder,
@@ -2694,14 +2751,56 @@ const importOne = (
         theirLevel,
         standingByName,
       });
-      if (!mark) return;
-      const against = teamOfPlan(mark, game.opponentName, index, teams);
-      if ("create" in mark) {
-        noteInPool(index, group.id, against, theirLevel ?? index.levelOf(group.id));
-        noteOpponent(index, own.teamId, against);
-        noteOpponent(index, against, own.teamId);
+      return plan ? [{ holder, game, candidate, theirLevel, plan }] : [];
+    });
+    type Mark = (typeof marks)[number];
+    /*
+     * Rows naming one team on one day go to one club or none (`claimFiledRows`). Marks under one
+     * name that day in two clubs' copies, or beside a claim of this club's against that team in
+     * another club's copy, were all stood back up by the claim step, each beside the copy it had
+     * been in: two games, each counted twice.
+     */
+    const nameOf = (mark: Mark) =>
+      "teamId" in mark.plan ? mark.plan.teamId : `\u0000${teamNameKey(mark.game.opponentName)}`;
+    const dayOf = (mark: Mark) => `${mark.candidate.date}\u0000${nameOf(mark)}`;
+    const clubsOn = new Map<string, Set<string>>();
+    const onDay = (key: string, clubId: string) => {
+      const bucket = clubsOn.get(key);
+      if (bucket) bucket.add(clubId);
+      else clubsOn.set(key, new Set([clubId]));
+    };
+    marks.forEach((mark) => {
+      onDay(dayOf(mark), mark.holder.teamAId);
+      if (!("teamId" in mark.plan)) return;
+      const against = mark.plan.teamId;
+      (index.gamesByTeamDate.get(`${own.teamId}\u0000${mark.candidate.date}`) ?? []).forEach(
+        (stale) => {
+          const other = index.gamesById.get(stale.id);
+          other?.alsoRows?.forEach((record) => {
+            if (record.filedAgainst !== against) return;
+            if (index.teamByGcId.get(record.teamId)?.id !== own.teamId) return;
+            onDay(dayOf(mark), record.onSideB ? other.teamAId : other.teamBId);
+          });
+        }
+      );
+    });
+    /** The team each name is marked against: made once, where the plan makes one. */
+    const markedAgainst = new Map<string, string>();
+    marks.forEach((mark) => {
+      if ((clubsOn.get(dayOf(mark))?.size ?? 0) > 1) return;
+      let against = markedAgainst.get(nameOf(mark));
+      if (against === undefined) {
+        against = teamOfPlan(mark.plan, mark.game.opponentName, index, teams);
+        if ("create" in mark.plan) {
+          noteInPool(index, group.id, against, mark.theirLevel ?? index.levelOf(group.id));
+          noteOpponent(index, own.teamId, against);
+          noteOpponent(index, against, own.teamId);
+          outcome.opponentsCreated += 1;
+        }
+        markedAgainst.set(nameOf(mark), against);
       }
-      writeInPlace(holder, withFiledMark(holder, candidate.id, against, theirLevel));
+      const holder = index.gamesById.get(mark.holder.id) ?? mark.holder;
+      writeInPlace(holder, withFiledMark(holder, mark.candidate.id, against, mark.theirLevel));
     });
   }
 
@@ -4646,13 +4745,19 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
  * Whether one of `schedules` gave `game` a row of its own that `game` holds folded in or on record
  * (`ScoutGame.alsoFrom`): the club they belong to filed the game as surely as its source did. A
  * schedule on record only through rows it filed against somebody else, which `game`'s club claimed
- * (`FoldedRow.filedAgainst`), did not file this game against that club, and does not count.
+ * (`FoldedRow.filedAgainst`), did not file this game against that club, and does not count. A claim
+ * a merge settled on that very club (`isSettledClaim`) is filed against it by name, and does: read
+ * as a claim, a namesake pulled later took the copy, and the row stood back up against the club
+ * whose copy it had been, one loss counted twice.
  */
 const filedInto = (game: ScoutGame, schedules: ReadonlySet<string> | undefined): boolean =>
   (game.alsoFrom ?? []).some((id) => {
     if (!schedules?.has(id)) return false;
     const records = (game.alsoRows ?? []).filter((record) => record.teamId === id);
-    return records.length === 0 || records.some((record) => record.filedAgainst === undefined);
+    return (
+      records.length === 0 ||
+      records.some((record) => record.filedAgainst === undefined || isSettledClaim(game, record))
+    );
   });
 
 /**

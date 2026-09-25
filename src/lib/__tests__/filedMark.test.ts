@@ -139,7 +139,9 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
   it("makes a stand-in for the name where the one it had is gone, once", () => {
     const { bare } = folded([], [], false);
     expect(bare.teams.some((team) => team.name === "Sharks")).toBe(false);
-    const noted = pull(bare, aces());
+    const { state: noted, outcome } = importGcSchedule(aces(), bare);
+    // The pull says it made a team.
+    expect(outcome.opponentsCreated).toBe(1);
     const sharks = noted.teams.find((team) => team.name === "Sharks")!;
     expect(sharks.nameOnly).toBe(true);
     expect(recordOf(noted)?.filedAgainst).toBe(sharks.id);
@@ -188,6 +190,83 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
     // the Bears, the club whose copy had held it.
     const kept = tidied(pull(bare, bears(row("b2", "Cubs 9U", "10:00", [2, 1], "2026-09-19"))));
     expect(page(kept, "gcA")).toEqual(["7-3 v Bears at 18:00"]);
+  });
+
+  /*
+   * Rows naming one team on one day go to one club or none (`claimFiledRows`). The Aces typed
+   * "Sharks" for both their games of the day, the Bears' copy at half past six and the Owls' at ten,
+   * each at its copy's very start and a run apart, so the pull filed each against the club whose
+   * copy it was. Marked against one "Sharks", both went back to it, each beside the copy it had
+   * been in: two games, each counted twice.
+   */
+  it("marks no fold under a name the day's other rows are in another club's copy under", () => {
+    const owls = club("gcO", "Owls 9U", [row("o1", "Aces 9U", "10:00", [5, 2])]);
+    const twoGames = [row("a1", "Sharks", "18:30", [7, 3]), row("a3", "Sharks", "10:00", [2, 4])];
+    const scored = (state: GcImportState) =>
+      page(state, "gcA").filter((line) => !line.startsWith("unplayed"));
+    const first = tidied(
+      pull(empty, bears(row("b1", "Aces 9U", "18:30", [4, 7])), owls, aces(...twoGames))
+    );
+    expect(scored(first)).toEqual(["2-4 v Owls at 10:00", "7-3 v Bears at 18:30"]);
+    const again = tidied(pull(first, aces(...twoGames)));
+    expect(again.games).toEqual(first.games);
+    expect(scored(again)).toEqual(["2-4 v Owls at 10:00", "7-3 v Bears at 18:30"]);
+  });
+
+  it("marks no fold beside a claim of the club's under the same name in another club's copy", () => {
+    const { bare } = folded();
+    const sharks = idOf(bare, "Sharks");
+    const aceId = idOf(bare, "Aces");
+    const group = bare.games.find((game) => game.alsoRows)!.ageGroupId;
+    const owls = {
+      id: "S-OWLS",
+      name: "Owls",
+      gcTeams: [{ teamId: "gcO", name: "Owls 9U", ageGroupId: group }],
+    };
+    const owlsCopy: ScoutGame = {
+      id: gcRowId("gcO", "o1"),
+      teamAId: "S-OWLS",
+      teamBId: aceId,
+      ageGroupId: group,
+      date: "2026-09-05",
+      startTs: at("10:00"),
+      source: { kind: "gamechanger", teamId: "gcO", gameId: "o1" },
+      alsoFrom: ["gcA"],
+      alsoRows: [
+        { teamId: "gcA", gameId: "a3", startTs: at("10:00"), onSideB: true, filedAgainst: sharks },
+      ],
+    };
+    const state = pull(
+      { ...bare, teams: [...bare.teams, owls], games: [...bare.games, owlsCopy] },
+      aces(row("a1", "Sharks", "18:00", [7, 3]), row("a3", "Sharks", "10:00"))
+    );
+    expect(recordOf(state)?.filedAgainst).toBeUndefined();
+  });
+
+  /*
+   * A fold the slot settle made, which the claim step claims where the rows come in the other
+   * order, is marked the first time its club is pulled after it, and holds from then on. The
+   * Giants list the Cubs twice that day, once with no start; the Cubs' unscored "Canes" row went
+   * to the Giants' 2-9 at one.
+   */
+  it("marks a fold the slot settle made once, then holds", () => {
+    const ohio = (id: string, name: string, level: number, games: GcTeamSchedule["games"]) =>
+      club(id, name, games, { ageLevel: level, state: "OH" });
+    const day = "2026-09-06";
+    const cubsRow = ohio("gcCU", "Cubs 9U", 9, [row("cu3", "Canes 9U", "13:30", undefined, day)]);
+    const acesRow = ohio("gcAC", "Aces 9U", 9, [row("ac3", "Canes 9U", "09:15", [12, 4], day)]);
+    const giants = ohio("gcGI", "Giants 10U", 10, [
+      { id: "gi1", date: day, opponentName: "Cubs 9U", status: "scheduled" },
+      row("gi2", "Cubs 9U", "13:00", [2, 9], day),
+    ]);
+    const all = [cubsRow, acesRow, giants];
+    const first = tidied(pull(empty, ...all));
+    const cu3 = gcRowId("gcCU", "cu3");
+    expect(recordOf(first, cu3)?.filedAgainst).toBeUndefined();
+    const second = tidied(pull(first, ...all));
+    expect(recordOf(second, cu3)?.filedAgainst).toBe(idOf(second, "Canes"));
+    expect(second.games.length).toBe(first.games.length);
+    expect(tidied(pull(second, ...all)).games).toEqual(second.games);
   });
 
   describe("leaves a fold its name, day, clock or company file against the other club", () => {
@@ -398,8 +477,19 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
     });
     const disputed = club("gcB", "Round Rock Bears 9U", [row("b1", "Aces 9U", "18:30", [4, 7])]);
 
-    it("a shorthand for the other club's name at the very start, in one region", () => {
+    it("a shorthand for the other club's name at the very start, wherever the two clubs are", () => {
       expect(markAfter(row("a1", "Bears", "18:30", [7, 3]), roundRock, disputed)).toBeUndefined();
+      // The slot settle files it against the other club at the start with no region to ask.
+      const california = (bare: GcImportState): GcImportState => {
+        const renamed = roundRock(bare);
+        return {
+          ...renamed,
+          teams: renamed.teams.map((team) =>
+            team.name === "Round Rock Bears" ? { ...team, state: "CA" } : team
+          ),
+        };
+      };
+      expect(markAfter(row("a1", "Bears", "18:30", [7, 3]), california, disputed)).toBeUndefined();
       // Half an hour off, the shorthand is a name like any other.
       expect(markAfter(row("a1", "Bears", "18:00", [7, 3]), roundRock, disputed)).toBeDefined();
     });
@@ -488,6 +578,68 @@ describe("a claim a merge settles on the club whose copy holds it", () => {
     expect(again.games).toEqual(state.games);
     expect(again.teams.some((team) => team.name === "Sharks")).toBe(false);
     expect(page(again, "gcA")).toEqual(["7-3 v Bears at 18:30"]);
+  });
+
+  it("is what a merge made before any tidy leaves too, which the next pull leaves alone", () => {
+    const pulled = pull(empty, bears(), aces());
+    const merged = renameScoutTeam(
+      idOf(pulled, "Sharks"),
+      "Bears 9U",
+      pulled.teams,
+      pulled.games,
+      pulled.ageGroups
+    );
+    const state = tidied({ ...pulled, teams: merged.teams, games: merged.games });
+    expect(recordOf(state)?.filedAgainst).toBe(idOf(state, "Bears"));
+    const again = pull(state, aces());
+    expect(again.teams.some((team) => team.name === "Sharks")).toBe(false);
+    expect(again.games).toEqual(state.games);
+  });
+
+  it("keeps the Aces' other game against the Bears that day a game of its own", () => {
+    const doubleheader = [
+      row("a1", "Sharks", "18:00", [7, 3]),
+      row("a3", "Sharks", "20:30", [2, 4]),
+    ];
+    const claimed = tidied(pull(empty, aces(...doubleheader), bears()));
+    const merged = renameScoutTeam(
+      idOf(claimed, "Sharks"),
+      "Bears 9U",
+      claimed.teams,
+      claimed.games,
+      claimed.ageGroups
+    );
+    const state = tidied(
+      pull(tidied({ ...claimed, teams: merged.teams, games: merged.games }), aces(...doubleheader))
+    );
+    expect(page(state, "gcA")).toEqual(["2-4 v Bears at 20:30", "7-3 v Bears at 18:30"]);
+    // And a game against them the Bears never listed, pulled later, stays one too.
+    const later = tidied(
+      pull(
+        settled(),
+        aces(row("a1", "Sharks", "18:00", [7, 3]), row("a2", "Bears 9U", "12:00", [1, 0]))
+      )
+    );
+    expect(page(later, "gcA")).toEqual(["1-0 v Bears at 12:00", "7-3 v Bears at 18:30"]);
+  });
+
+  it("keeps the copy from a namesake of the Aces pulled later", () => {
+    const claimed = tidied(pull(empty, aces(), bears(row("b1", "Aces 9U", "18:30", [3, 6]))));
+    const merged = renameScoutTeam(
+      idOf(claimed, "Sharks"),
+      "Bears 9U",
+      claimed.teams,
+      claimed.games,
+      claimed.ageGroups
+    );
+    const state = tidied({ ...claimed, teams: merged.teams, games: merged.games });
+    const otherAces = club("gcZ", "Aces 9U", [row("z1", "Bears 9U", "18:30")], { state: "OK" });
+    const next = tidied(pull(state, otherAces));
+    // The Bears list one game against an Aces that day, a 3-6 loss: it is counted once.
+    expect(page(next, "gcB").filter((line) => line.includes("v Aces"))).toEqual([
+      "3-6 v Aces at 18:30",
+      "unplayed v Aces at 18:30",
+    ]);
   });
 
   it("is the Aces' own row there, so no other row of theirs is claimed into the copy", () => {

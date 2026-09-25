@@ -585,19 +585,30 @@ the fix left in memory. Records written before rows were kept say only the sched
 folded row coming back, which 21 of the 23 results listed twice that way in the same pool
 were — with the same result however far off the clocks, as any two schedules' copies of one
 game are, or at the game's very start whatever it says, which is how an earlier join left two
-coaches' different scores at one start. A pull whose answer files no row into such a game
-takes its schedule off the record. Every row a pull files goes on record whole, so the row the
-record stood for is one the schedule no longer files there: deleted, or filed now against
-another name. Left on record, it answered for the club's row that day with no row to read. The
-claim step took the game as holding the club's row already, and the club's row filed against
-another name, the same game ten minutes off, stood beside it and counted twice. Which row the
-record stood for is not known, so a row the answer held unread does not keep it, and an answer
-with no row to trust takes nothing off. A different result hours off, the club's one row
-against the other club that day, now reads as the game where the row was kept does: one game,
-each club's own score. On the pool of 24 September 2026, 20,576 schedules were on record with
-no row kept. A tidy that let a club's own row through beside a record of its own schedule within
-the hour claimed 27 more rows and left 23 fewer games; the pulls decide which records have gone,
-so that is the size of it rather than a count.
+coaches' different scores at one start.
+
+Such a record answered for the club's row that day with no row to read. When the row came back
+filed against another name, the claim step took the game as holding the club's row already, and
+the row stood beside it, the same game ten minutes off, counted twice. So a pull now does two
+things with a record like that:
+
+- A new row of the schedule, filed by name against nobody the pool knows, that the one copy
+  holding the record could be — the same day, within the hour, not scored further apart than
+  scorekeepers are — goes back on record in that copy, whole, as it would have stayed had rows
+  been kept (`heldOnRecord`). Filed as a game of its own, it once let the tidy pair the copy with
+  the club's other game against that club that day, a 3-12 folded into a 6-3.
+- Where the answer files no row into the game at all, the schedule comes off the record. Every
+  row a pull files goes on record whole, so the row the record stood for is one the schedule no
+  longer files there: deleted, or filed now against another name, further off. Which row it was
+  is not known, so a row the answer held unread does not keep it, and an answer with no row to
+  trust takes nothing off. A different result hours off, the club's one row against the other
+  club that day, now reads as the game where the row was kept does: one game, each club's own
+  score.
+
+On the pool of 24 September 2026, 20,576 schedules were on record with no row kept. A tidy that
+let a club's own row through beside a record of its own schedule within the hour claimed 27 more
+rows and left 23 fewer games; the pulls decide which records have gone, so that is the size of it
+rather than a count.
 
 A start the schedule itself has since moved is taken on the next pull, and so is a day it has
 moved the game to, which the rows folded into the game on its old day move to with it: left on
@@ -747,21 +758,31 @@ against the other club may be waiting that day or either side of it. It leaves a
 name files it against the other club:
 
 - the other club's name, a GameChanger listing's name, or its picture;
-- a shorthand for the other club's name at the very start, in one region;
+- a shorthand for the other club's name at the very start, wherever the two clubs are, as the
+  slot settle files one;
 - a name the club's other rows already stand against the other club under, as a hand merge
   leaves them;
 - a name that finds a pulled club.
 
 It also leaves the same result, and the very start with results that do not disagree. The slot
-settle folds those with no mark, and would fold them again after every release.
+settle folds those with no mark, and would fold them again after every release. And it marks no
+fold of a name the club's other rows that day are in another club's copy under, marked by the
+same pull or claimed already: rows naming one team on one day go to one club or none, so the claim
+step stood every one of them back up beside the copy it had been in, each game counted twice. A
+fold the fixture match or the slot settle made at the very start, with results a run or so apart,
+is marked too, the first time its club is pulled after it: it is the claim the claim step makes
+where the two clubs' rows come in the other order. The pull counts the stand-ins it makes among
+the teams it made.
 
 This was measured on the pool of 24 September 2026, tidied by the first version, by pulling again
-every schedule holding such a fold. The pulls marked 1,105 folds. After a tidy, 1,099 of them are
-the claims that a tidy of the pool from before the first version makes. 5 went back to their
-stand-in, as that tidy leaves them, and 3 rows elsewhere were claimed as it claims them. One stays
-claimed where that tidy leaves the row standing, on a day both pools count twice. The pool then
-holds 241,471 games, as that tidy leaves it, and a second pull marks nothing and makes nothing.
-126 of that tidy's claims are left as they were:
+every schedule holding such a fold. The pulls marked 1,103 folds and made 815 stand-ins. After a
+tidy, 1,099 of them are the claims that a tidy of the pool from before the first version makes. 3
+went back to their stand-in, as that tidy leaves them, and 3 rows elsewhere were claimed as it
+claims them. One stays claimed where that tidy leaves the row standing, on a day both pools count
+twice. The pool then holds 241,469 games, two fewer than that tidy leaves: Boro Force typed "Crash
+Outs" for two games that day, held in two clubs' copies, and that tidy stands both back up beside
+them where the note marks neither. A second pull marks nothing and makes nothing. 126 of that
+tidy's claims are left as they were:
 
 - 94 rows typed with the other club's own name;
 - 13 whose name now finds a pulled club or a stand-in the other club has played;
@@ -772,9 +793,17 @@ A merge can leave a claim filed against the very club whose copy holds it: "Shar
 the Bears by hand, or a club's two GameChanger teams paired. The row's name is that club's now, so
 the claim is settled (`isSettledClaim`). The claim step does not read it or take it back, a
 re-pull leaves it alone, and it counts as the club's own row in its copy, as a row filed against
-the club by name does. Read as a claim, it went back against that club beside the club's own
-copy. The collapse then folded it in again with no mark, and the next pull would have marked it as
-filed against a new "Sharks".
+the club by name does: the regroup reads the copy as holding it, and so do the steps that move a
+copy to a namesake (`reclaimMisfiled`, `resettleOffLevel`). Read as a claim, it went back against
+that club beside the club's own copy, and the collapse folded it in again with no mark, which the
+next pull would have marked as filed against a new "Sharks". Read by the regroup as a copy with no
+row of the club in it, it took the club's other game against that club that day, a 7-3 lost
+into a 2-4; read by a namesake step, the copy went to a namesake and the row stood back up, one
+loss counted twice. A merge that folds a stand-in's row into the survivor's copy settles it too
+(`settledOnMerge`), whether or not a claim was made first. A merge made before claims existed left
+no mark, and nothing in the pool tells its fold from the first version's, so the note can make
+the merged name again as a stand-in for such a row; the game still counts once while the copy
+holds it.
 
 On that pool the tidy claims 2,997 rows: 1,782 filed against a pulled club, 939 against a named
 stand-in and 276 slots, in three passes; a second tidy after a storage round trip changes nothing,
