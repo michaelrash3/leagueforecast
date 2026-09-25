@@ -110,6 +110,18 @@ describe("games round-trip", () => {
         reportedByB: { teamAScore: 14, teamBScore: 3 },
         source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l2" },
       },
+      {
+        id: "gc_gcLEGACY01_l3",
+        teamAId: "LEG",
+        teamBId: "RAP",
+        ageGroupId: "ag_1",
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2026-08-30",
+        alsoRows: [{ teamId: "gcLEGACY01", gameId: "l3b", ownScore: 5, opponentScore: 3 }],
+        scoreFromTwin: true,
+        source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l3" },
+      },
     ];
     expect(roundTripGames(games)).toEqual(games);
   });

@@ -69,6 +69,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
   gcRowId,
+  recordOf,
 } from "../teamRankings";
 
 const team = (id: string, name: string, isMine?: boolean): ScoutTeam => ({
@@ -2360,6 +2361,14 @@ describe("collapseSameGames", () => {
         )
         .sort();
     expect(grouping(collapseSameGames(day.slice().reverse(), [u9]).games)).toEqual(grouping(once));
+  });
+
+  // A score a row had only from another listing of its game is not its own, so it is not kept.
+  it("keeps no score on the record of a row whose score was another listing's", () => {
+    const holder = timed(row("B", "A", 3, 5, "u9", "gcB"), "09:00");
+    const lent = { ...timed(row("A", "B", 5, 3, "u9", "gcA"), "09:00"), scoreFromTwin: true };
+    expect(recordOf(holder, lent)).not.toHaveProperty("ownScore");
+    expect(recordOf(holder, { ...lent, scoreFromTwin: undefined })).toHaveProperty("ownScore", 5);
   });
 
   it("keeps two games apart when each holds a schedule-only record of the other's club", () => {

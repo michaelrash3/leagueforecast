@@ -72,23 +72,26 @@ export const withoutReportedByB = (game: ScoutGame): ScoutGame => {
 /**
  * A game with a score typed in by hand: the one answer for both clubs.
  *
- * Side B's report goes, and so does the mark that the score was borrowed from side B — the tidy
- * takes a borrowed score off with side B's row (`bareRow`), which took the typed score with it. The
- * record of each row side B's schedule filed for it that carried a score is given the typed score
- * from that club's seat, or the next tidy stands that row up again and puts its old score back
- * beside this one. The record keeps the row, so the regroup still finds it; the club's next pull
- * brings its schedule's score back in, as it does for any game.
+ * Side B's report goes, and so does any mark that the score was another row's — the tidy takes such
+ * a score off with its row (`bareRow`), which took the typed score with it. The record of each row
+ * folded into the game that carried a score is given the typed score from its club's seat, or the
+ * next tidy stands that row up again with its old score — side B's beside this one, or side A's
+ * second listing as a second game, since it no longer gave the same result. The record keeps the
+ * row, so the regroup still finds it; the club's next pull brings its schedule's score back in, as
+ * it does for any game.
  */
 export const withScoreTyped = (
   game: ScoutGame,
   teamAScore: number,
   teamBScore: number
 ): ScoutGame => {
-  const { scoreFromB: _borrowed, ...rest } = withoutReportedByB(game);
+  const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...rest } = withoutReportedByB(game);
   const alsoRows = game.alsoRows?.map((record) =>
-    record.onSideB && record.ownScore !== undefined
-      ? { ...record, ownScore: teamBScore, opponentScore: teamAScore }
-      : record
+    record.ownScore === undefined
+      ? record
+      : record.onSideB
+        ? { ...record, ownScore: teamBScore, opponentScore: teamAScore }
+        : { ...record, ownScore: teamAScore, opponentScore: teamBScore }
   );
   return { ...rest, teamAScore, teamBScore, ...(alsoRows ? { alsoRows } : {}) };
 };

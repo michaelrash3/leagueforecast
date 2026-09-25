@@ -763,7 +763,7 @@ const poolKeyFor = (ageGroupId: string, index: GroupIndex): string => {
 export const recordOf = (holder: ScoutGame, row: ScoutGame): FoldedRow | undefined => {
   if (!row.source) return undefined;
   const onSideB = row.teamAId === holder.teamBId && holder.teamAId !== holder.teamBId;
-  const own = !row.scoreFromB && scoredGame(row);
+  const own = !row.scoreFromB && !row.scoreFromTwin && scoredGame(row);
   return {
     teamId: row.source.teamId,
     gameId: row.source.gameId,
@@ -800,17 +800,20 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
 
 /**
  * A result on the row being dropped fills a blank on the one kept; a result already there stands,
- * unless it was only borrowed from side B and the row dropped is side A's own word for it.
+ * unless it was only borrowed from side B and the row dropped is side A's own word for it. A fill
+ * is marked as the dropped row's (`scoreFromTwin`), or side B's where that is what the dropped row
+ * carried, so it goes with that row if the two turn out to be two games.
  */
 const filledFrom = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
   if (!scoredGame(drop)) return keep;
-  if (scoredGame(keep) && !(keep.scoreFromB && !drop.scoreFromB)) return keep;
-  const { scoreFromB: _borrowed, ...rest } = keep;
+  const dropOwn = !drop.scoreFromB && !drop.scoreFromTwin;
+  if (scoredGame(keep) && !(keep.scoreFromB && dropOwn)) return keep;
+  const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...rest } = keep;
   return {
     ...rest,
     teamAScore: scoreOf(drop, keep.teamAId),
     teamBScore: scoreOf(drop, keep.teamBId),
-    ...(drop.scoreFromB ? { scoreFromB: true } : {}),
+    ...(drop.scoreFromB ? { scoreFromB: true } : { scoreFromTwin: true }),
   };
 };
 
@@ -963,7 +966,9 @@ const foldedInto = (keep: ScoutGame, drop: ScoutGame): ScoutGame => {
     scoredGame(keep) &&
     scoredGame(drop) &&
     !keep.scoreFromB &&
+    !keep.scoreFromTwin &&
     !drop.scoreFromB &&
+    !drop.scoreFromTwin &&
     !sameResultAs(keep, drop)
   ) {
     const theirs = `${scoreOf(drop, keep.teamAId)}-${scoreOf(drop, keep.teamBId)}`;
@@ -996,18 +1001,36 @@ const PAIRING_WORTH: Record<number, number> = {
   [EVIDENCE.togetherScored]: 100,
   [EVIDENCE.sameStartUnplayed]: 80,
   [EVIDENCE.together]: 60,
-  [EVIDENCE.untimedOneResult]: 45,
+  [EVIDENCE.untimedOneResult]: 42,
   [EVIDENCE.untimedUnplayed]: 40,
   [EVIDENCE.scoredApart]: 10,
 };
 /**
  * One schedule's two rows within the hour with the same result, taken as that schedule listing the
- * game twice: worth less than either row pairing with a copy of its own off the other schedule, so
- * the other club's two rows at the two slots keep a doubleheader two games — two mercy-rule 10-0
- * wins an hour apart were one while this came first — and more than two rows left on their own, so
- * a schedule that lists one game twice against a club that lists it once, or not at all, is one game.
+ * game twice: worth less than any pairing of a row with a copy of its own off the other schedule,
+ * so where the other club lists a game for each row the doubleheader stays two games — two
+ * mercy-rule 10-0 wins an hour apart were one while this came first, and so was a doubleheader
+ * whose other copy of game 1 was all day and blank — and more than two rows left on their own, so a
+ * schedule that lists one game twice against a club that lists it once, or not at all, is one game.
  */
-const LISTED_TWICE_WORTH = 50;
+const LISTED_TWICE_WORTH = 30;
+/**
+ * Two scorekeepers who disagree at the very same start: one game, as nobody plays two at once —
+ * worth more than a copy with no start, which it lost to while it was worth only a dispute an hour
+ * apart, counting the one game twice.
+ */
+const SAME_START_DISPUTE_WORTH = 50;
+/**
+ * How far apart two scores can be and still read as two scorekeepers' accounts of one game. Of the
+ * 131 games two schedules scored differently in the pool of 24 September 2026, 94 were a single
+ * run apart and 117 within four. A wider dispute is still one game where nothing reads better —
+ * the rest of those were mostly one entry's slip, 13-6 written from the wrong seat as 6-13, or 20
+ * typed for 11 — but it is worth no more than the least of disputes, at the same start or not, and
+ * is no reason to keep a result off a blank game (`lendsTwice`). Read at full worth, a 4-4 at the
+ * same start as a 0-10 on a clock an hour out took the 0-10 from the game it was; read as the
+ * 4-4's game, a 0-10 an hour away left one club's 0-10, listed twice, counted twice.
+ */
+const CLOSE_DISPUTE_RUNS = 4;
 const DAY_MINUTES = 24 * 60;
 const nearness = (gap: number): number =>
   gap <= ONE_GAME_WINDOW_MINUTES
@@ -1051,9 +1074,15 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
   schedules.sort();
 
   type Copy = { rows: number[]; rep: number; start: number | undefined; legacy: Set<string> };
+  // By id rather than by place in the bucket, which is the order the rows were pulled in: a copy
+  // read through whichever row came first read the same day two ways.
+  const byId = (x: number, y: number) =>
+    bucket[x]!.id < bucket[y]!.id ? -1 : bucket[x]!.id > bucket[y]!.id ? 1 : 0;
   const copyOf = (rows: number[]): Copy => {
     const sorted = rows.slice().sort((x, y) => x - y);
-    const rep = sorted.find((row) => scoredGame(bucket[row]!)) ?? sorted[0]!;
+    const rep =
+      sorted.filter((row) => scoredGame(bucket[row]!)).sort(byId)[0] ??
+      sorted.slice().sort(byId)[0]!;
     const starts = sorted
       .map((row) => startMinuteOf(bucket[row]!.startTs))
       .filter((start): start is number => start !== undefined);
@@ -1139,19 +1168,7 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
     if (x.legacy.has(ySchedule) && y.legacy.has(xSchedule)) return false;
     return ![...x.legacy].some((schedule) => y.legacy.has(schedule));
   };
-  const worthOf = (x: Copy, y: Copy): number | undefined => {
-    const evidence = sameGameEvidence(bucket[x.rep]!, bucket[y.rep]!);
-    if (!evidence || !recordsAllow(x, y)) return undefined;
-    // Another copy off a schedule on record is the folded row coming back only if it agrees within
-    // the hour or starts at the very start, as `mayTakeRow` has it.
-    const [xSchedule, ySchedule] = [sourceOfRow(bucket[x.rep]!), sourceOfRow(bucket[y.rep]!)];
-    if (
-      (x.legacy.has(ySchedule) || y.legacy.has(xSchedule)) &&
-      !agreesWithinTheHour(evidence) &&
-      !sameStart(bucket[x.rep]!.startTs, bucket[y.rep]!.startTs)
-    ) {
-      return undefined;
-    }
+  const worthOfEvidence = (evidence: SameGameEvidence): number => {
     if (evidence.strength === EVIDENCE.sameResult) {
       return Number.isFinite(evidence.gap)
         ? Math.max(81, 100 - Math.round((evidence.gap - ONE_GAME_WINDOW_MINUTES) / 4))
@@ -1161,9 +1178,111 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
     if (evidence.strength === EVIDENCE.togetherScored || evidence.strength === EVIDENCE.together) {
       return base + nearness(evidence.gap);
     }
-    if (evidence.strength === EVIDENCE.scoredApart) return base + nearness(evidence.gap) / 2;
+    if (evidence.strength === EVIDENCE.scoredApart) {
+      return evidence.gap < 1 ? SAME_START_DISPUTE_WORTH : base + nearness(evidence.gap) / 2;
+    }
     return base;
   };
+  /** The rows a copy is read by: its scored ones, or all of them where none is scored. */
+  const readBy = (copy: Copy) => {
+    const scored = copy.rows.filter((row) => scoredGame(bucket[row]!));
+    return scored.length > 0 ? scored : copy.rows;
+  };
+  const scoredCopy = (copy: Copy) => copy.rows.some((row) => scoredGame(bucket[row]!));
+  /**
+   * What two copies say of each other: the best any row of one says of any row of the other — a
+   * game listed twice is as near the other club's copy as the nearer of its two rows. A copy is read
+   * by its scored rows (`readBy`), so one that contradicts a copy's result never pairs with it
+   * through a blank listing beside that result.
+   */
+  const between = (x: Copy, y: Copy): { evidence: SameGameEvidence; worth: number } | undefined => {
+    let best: { evidence: SameGameEvidence; worth: number } | undefined;
+    for (const xr of readBy(x)) {
+      for (const yr of readBy(y)) {
+        const evidence = sameGameEvidence(bucket[xr]!, bucket[yr]!);
+        if (!evidence) continue;
+        // A dispute far wider than scorekeepers' is one game only where nothing reads better.
+        const worth =
+          evidence.strength === EVIDENCE.scoredApart &&
+          runsApart(bucket[xr]!, bucket[yr]!) > CLOSE_DISPUTE_RUNS
+            ? PAIRING_WORTH[EVIDENCE.scoredApart]!
+            : worthOfEvidence(evidence);
+        if (
+          !best ||
+          worth > best.worth ||
+          (worth === best.worth && evidence.gap < best.evidence.gap)
+        ) {
+          best = { evidence, worth };
+        }
+      }
+    }
+    return best;
+  };
+  /** Whether a scored copy could be the same game as another: a result that agrees, or a close one. */
+  const couldBe = (x: Copy, y: Copy) =>
+    readBy(x).some((xr) =>
+      readBy(y).some((yr) => {
+        const evidence = sameGameEvidence(bucket[xr]!, bucket[yr]!);
+        return (
+          evidence !== undefined &&
+          (evidence.strength !== EVIDENCE.scoredApart ||
+            runsApart(bucket[xr]!, bucket[yr]!) <= CLOSE_DISPUTE_RUNS)
+        );
+      })
+    );
+  const gapOf = (x: Copy, y: Copy) =>
+    Math.min(
+      ...readBy(x).flatMap((xr) =>
+        readBy(y).map((yr) => minutesApart(bucket[xr]!.startTs, bucket[yr]!.startTs) ?? Infinity)
+      )
+    );
+  const worthOf = (x: Copy, y: Copy): number | undefined => {
+    const found = between(x, y);
+    if (!found || !recordsAllow(x, y)) return undefined;
+    // Another copy off a schedule on record is the folded row coming back only if it agrees within
+    // the hour or starts at the very start, as `mayTakeRow` has it.
+    const [xSchedule, ySchedule] = [sourceOfRow(bucket[x.rep]!), sourceOfRow(bucket[y.rep]!)];
+    if (
+      (x.legacy.has(ySchedule) || y.legacy.has(xSchedule)) &&
+      !agreesWithinTheHour(found.evidence) &&
+      !(x.start !== undefined && x.start === y.start)
+    ) {
+      return undefined;
+    }
+    return found.worth;
+  };
+
+  /*
+   * A result lent to a blank game while a scored game on that schedule, at least as near it and one
+   * it could be, is left with no copy of its own: the result counts twice, once as that game's and
+   * once lent. A dispute at one start, 4-4 against 5-4, went to an all-day blank on one club's
+   * schedule that way, and the one game stood as two. Where the nearer game has a copy of its own —
+   * a doubleheader whose clocks sit an hour apart — the result is the blank game's to take.
+   */
+  const lendsTwice = (
+    a: Copy[],
+    b: Copy[],
+    pairedWith: (number | undefined)[],
+    used: number
+  ): boolean =>
+    a.some((x, i) => {
+      const j = pairedWith[i];
+      if (j === undefined) return false;
+      const y = b[j]!;
+      if (scoredCopy(x) === scoredCopy(y)) return false;
+      const [scored, blank, blankSide, alone] = scoredCopy(x)
+        ? [x, y, b, (k: number) => !((used >> k) & 1)]
+        : [y, x, a, (k: number) => pairedWith[k] === undefined];
+      const reach = gapOf(blank, scored);
+      return blankSide.some(
+        (other, k) =>
+          other !== blank &&
+          alone(k) &&
+          scoredCopy(other) &&
+          couldBe(other, scored) &&
+          gapOf(other, scored) <= reach
+      );
+    });
 
   type Plan = { worth: number; pairs: number; spread: number; groups: number[][] };
   let best: Plan | undefined;
@@ -1207,6 +1326,7 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
         spread: number
       ) => {
         if (at === a.length) {
+          if (lendsTwice(a, b, pairedWith, used)) return;
           const groups = [
             ...a.map((copy, i) =>
               pairedWith[i] === undefined ? copy.rows : [...copy.rows, ...b[pairedWith[i]!]!.rows]
@@ -1226,7 +1346,7 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
           if (timed && j <= lastTimed) return;
           const value = worthOf(x, y);
           if (value === undefined) return;
-          const gap = minutesApart(bucket[x.rep]!.startTs, bucket[y.rep]!.startTs);
+          const gap = gapOf(x, y);
           pairedWith[at] = j;
           walk(
             at + 1,
@@ -1234,7 +1354,7 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
             timed ? j : lastTimed,
             worth + value,
             pairs + 1,
-            spread + Math.min(gap ?? DAY_MINUTES, DAY_MINUTES)
+            spread + Math.min(gap, DAY_MINUTES)
           );
           pairedWith[at] = undefined;
         });
@@ -1281,6 +1401,11 @@ const planDay = (bucket: ScoutGame[]): number[][] | undefined => {
 };
 
 const sourceOfRow = (row: ScoutGame): string => row.source?.teamId ?? "";
+
+/** How many runs two scored rows of one game are apart, both sides added. */
+const runsApart = (row: ScoutGame, other: ScoutGame): number =>
+  Math.abs(row.teamAScore! - scoreOf(other, row.teamAId)!) +
+  Math.abs(row.teamBScore! - scoreOf(other, row.teamBId)!);
 
 /**
  * The rows of one bucket — one pool, one pair of clubs, one day — grouped into games, each group
@@ -1483,7 +1608,8 @@ const sameGameGroups = (bucket: ScoutGame[]): number[][] => {
 /**
  * A standing game as the tidy regroups it: the rows folded into it taken off (they are put back
  * beside it as rows of their own), the schedules still on record without a row kept, and a score
- * borrowed from side B's schedule taken off with side B's own score, since both go with that row.
+ * borrowed from side B's schedule taken off with side B's own score, since both go with that row —
+ * as a score given by another listing on side A's schedule goes with that listing.
  */
 const bareRow = (game: ScoutGame): ScoutGame => {
   const named = new Set((game.alsoRows ?? []).map((record) => record.teamId));
@@ -1493,13 +1619,14 @@ const bareRow = (game: ScoutGame): ScoutGame => {
     alsoFrom: _from,
     reportedByB: _reported,
     scoreFromB,
+    scoreFromTwin,
     teamAScore,
     teamBScore,
     ...rest
   } = game;
   return {
     ...rest,
-    ...(scoreFromB || teamAScore === undefined || teamBScore === undefined
+    ...(scoreFromB || scoreFromTwin || teamAScore === undefined || teamBScore === undefined
       ? {}
       : { teamAScore, teamBScore }),
     ...(unnamed.length > 0 ? { alsoFrom: unnamed } : {}),
@@ -1512,6 +1639,7 @@ const foldedFields = (game: ScoutGame): string =>
     game.teamAScore,
     game.teamBScore,
     game.scoreFromB ?? false,
+    game.scoreFromTwin ?? false,
     game.reportedByB ?? null,
     game.startTs ?? null,
     game.note ?? null,
@@ -1583,7 +1711,10 @@ export const collapseSameGames = (
   buckets.forEach((bucket) => {
     // A lone game is looked at again only if something on it came from another row.
     const folded = (game: ScoutGame) =>
-      (game.alsoRows?.length ?? 0) > 0 || game.reportedByB !== undefined || game.scoreFromB;
+      (game.alsoRows?.length ?? 0) > 0 ||
+      game.reportedByB !== undefined ||
+      game.scoreFromB ||
+      game.scoreFromTwin;
     if (bucket.length < 2 && !bucket.some(folded)) return;
     const standing = new Map(bucket.map((game) => [game.id, game]));
     const rows = bucket.map(bareRow);

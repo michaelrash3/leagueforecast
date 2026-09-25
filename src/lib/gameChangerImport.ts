@@ -2165,72 +2165,46 @@ const importOne = (
       claimed.set(folded.id, candidate);
       const updated = withSchedulesOf(folded, candidate);
       /*
-       * This schedule's own game, where the row the game stands on says nothing of the result: the
-       * schedule deleted it and entered the game again under a new id, or lists it twice and has
-       * scored only the second. The other row is all the schedule says of the result, so its score
-       * is the game's — kept as a record only, a correction to it never reached the game: a 6-0
-       * re-entered and put right as 7-0 stayed 6-0, and so did a second listing's 5-3 corrected to
-       * 7-3. Where the first row is gone, its start goes with it, set or cleared: a re-entered game
-       * left at the deleted row's start was split from its own row by the next tidy and counted
-       * twice.
+       * This schedule's own game whose own row the schedule no longer lists — deleted, and entered
+       * again under a new id. The game stands on this row from now: its source is this row, which
+       * comes off the record, and its result and start are what this row says, set or cleared, the
+       * deleted row's going with it. Kept as a record beside a row nobody lists, a correction to it
+       * never reached the game — a 6-0 re-entered and put right as 7-0 stayed 6-0 — and one entered
+       * again all day was split from the row it replaced, counted twice. The id stays, so nothing
+       * filed against it moves; the index finds the game by this row's id. A second listing of a
+       * game whose own row is still listed gives the game its score through the tidy instead, marked
+       * as that listing's (`scoreFromTwin`), so it goes with the listing.
        */
       const ownSchedule = folded.source?.teamId === profile.id;
-      const ownRow = ownSchedule
-        ? listed.get(gcGameId(profile.id, folded.source!.gameId))
-        : undefined;
-      const orphaned = ownSchedule && ownRow === undefined;
-      const silent =
-        orphaned ||
-        (ownRow !== undefined &&
-          (ownRow.teamScore === undefined || ownRow.opponentScore === undefined));
-      const scores = scoresAsExisting(folded, candidate);
-      const rescore =
-        silent &&
-        isScored(candidate) &&
-        (folded.teamAScore !== scores.a ||
-          folded.teamBScore !== scores.b ||
-          folded.scoreFromB === true);
-      const restart =
-        orphaned &&
-        (folded.startTs === undefined
-          ? candidate.startTs !== undefined
-          : !sameStart(folded.startTs, candidate.startTs));
-      const rewritten =
-        rescore || restart
-          ? (() => {
-              const { scoreFromB: borrowed, startTs: start, ...rest } = updated;
-              const kept = restart ? candidate.startTs : start;
-              return {
-                ...rest,
-                ...(rescore
-                  ? { teamAScore: scores.a, teamBScore: scores.b }
-                  : borrowed
-                    ? { scoreFromB: borrowed }
-                    : {}),
-                ...(kept === undefined ? {} : { startTs: kept }),
-              };
-            })()
-          : updated;
-      /*
-       * Where the row the game stood on is gone, the game stands on this one from now: its source
-       * is this row, which comes off the record. Kept as a record beside a row nobody lists, the
-       * two were one schedule's two rows, and the tidy split them — two all-day rows off one
-       * schedule are two games — so a game deleted and entered again all day counted twice. The
-       * id stays, so nothing filed against it moves; the index finds the game by this row's id.
-       */
+      const orphaned = ownSchedule && !listed.has(gcGameId(profile.id, folded.source!.gameId));
       const reentered: ScoutGame = orphaned
         ? (() => {
-            const { alsoRows, ...rest } = rewritten;
+            const {
+              alsoRows,
+              scoreFromB,
+              scoreFromTwin: _twin,
+              startTs: _start,
+              teamAScore,
+              teamBScore,
+              ...rest
+            } = updated;
             const rows = (alsoRows ?? []).filter(
               (record) => gcRowId(record.teamId, record.gameId) !== candidate.id
             );
+            const scores = scoresAsExisting(updated, candidate);
             return {
               ...rest,
               source: candidate.source!,
+              ...(isScored(candidate)
+                ? { teamAScore: scores.a, teamBScore: scores.b }
+                : scoreFromB
+                  ? { teamAScore, teamBScore, scoreFromB }
+                  : {}),
+              ...(candidate.startTs ? { startTs: candidate.startTs } : {}),
               ...(rows.length > 0 ? { alsoRows: rows } : {}),
             };
           })()
-        : rewritten;
+        : updated;
       const next = withSideBReport(reentered, candidate) ?? reentered;
       const before = scoreSeenBy(folded, candidate.teamAId);
       const after = scoreSeenBy(next, candidate.teamAId);
@@ -2300,10 +2274,47 @@ const importOne = (
       continue;
     }
     /*
+     * This schedule's second listing of a game it already has: its score fills the game where the
+     * row the game stands on has none of its own, marked as the listing's (`scoreFromTwin`) so it
+     * goes with the listing, and is noted beside one it disagrees with — as the tidy has it
+     * (`collapseSameGames`). Written over the game's own score, the listing's was then read as the
+     * game's own row's, and neither a correction to the listing nor the listing proving to be a
+     * second game ever took it back.
+     */
+    if (existing !== known && existing.source?.teamId === profile.id) {
+      const own = isScored(existing) && !existing.scoreFromB && !existing.scoreFromTwin;
+      const scores = scoresAsExisting(existing, candidate);
+      const next: ScoutGame = !isScored(candidate)
+        ? recorded
+        : !own
+          ? (() => {
+              const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...rest } = recorded;
+              return { ...rest, teamAScore: scores.a, teamBScore: scores.b, scoreFromTwin: true };
+            })()
+          : existing.teamAScore !== scores.a || existing.teamBScore !== scores.b
+            ? {
+                ...recorded,
+                note: withNote(recorded.note, `Also reported ${scores.a}-${scores.b}.`),
+              }
+            : recorded;
+      const before = scoreSeenBy(existing, candidate.teamAId);
+      const after = scoreSeenBy(next, candidate.teamAId);
+      if (next !== existing) writeInPlace(existing, next);
+      if (before?.own !== after?.own || before?.opponent !== after?.opponent) {
+        outcome.gamesUpdated += 1;
+      } else {
+        outcome.gamesUnchanged += 1;
+      }
+      continue;
+    }
+    /*
      * Side A posting its own score over one borrowed from side B's schedule: the score is its own
      * now, even where it is the same one, and must not go with side B's row (`scoreFromB`).
      */
-    const ownAtLast = existing === known && isScored(candidate) && existing.scoreFromB === true;
+    const ownAtLast =
+      existing === known &&
+      isScored(candidate) &&
+      (existing.scoreFromB === true || existing.scoreFromTwin === true);
     if (!differs(existing, candidate) && !moved && !ownAtLast) {
       // The record is bookkeeping, not news: nothing the reader would call a change.
       if (recorded !== existing) writeInPlace(existing, recorded);
@@ -2328,15 +2339,15 @@ const importOne = (
      */
     const displaced =
       !existing.scoreFromB &&
+      !existing.scoreFromTwin &&
       isScored(candidate) &&
       isScored(existing) &&
       (existing.teamAScore !== scores.a || existing.teamBScore !== scores.b)
         ? `Also reported ${existing.teamAScore}-${existing.teamBScore}.`
         : undefined;
-    const { scoreFromB: borrowed, ...unborrowed } = recorded;
+    const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...unborrowed } = recorded;
     const merged: ScoutGame = {
       ...(ownAtLast ? unborrowed : recorded),
-      ...(borrowed && !ownAtLast ? { scoreFromB: borrowed } : {}),
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
@@ -2510,12 +2521,23 @@ export const resolveSlotGames = (
   if (namedByTeamDay.size === 0) return { state, resolved: 0 };
 
   const sourceOf = (game: ScoutGame) => game.source?.teamId;
-  /** Whether a game has a row off this schedule: its own, or one folded into it. */
-  const holdsSchedule = (game: ScoutGame, schedule: string | undefined) =>
-    schedule !== undefined &&
-    (sourceOf(game) === schedule ||
-      (game.alsoFrom ?? []).includes(schedule) ||
-      (game.alsoRows ?? []).some((record) => record.teamId === schedule));
+  /**
+   * Whether a game has a row off the slot row's schedule other than the slot row itself: its own,
+   * or one folded into it. The slot row's own record does not count — a refresh of one page files
+   * again a row the pool holds folded into a game on another page, and that copy settles back into
+   * the game that holds it.
+   */
+  const holdsSchedule = (game: ScoutGame, slotGame: ScoutGame) => {
+    const schedule = sourceOf(slotGame);
+    if (schedule === undefined) return false;
+    if (sourceOf(game) === schedule) return true;
+    const slotRow = gcRowId(schedule, slotGame.source!.gameId);
+    const records = (game.alsoRows ?? []).filter((record) => record.teamId === schedule);
+    if (records.length > 0) {
+      return records.some((record) => gcRowId(record.teamId, record.gameId) !== slotRow);
+    }
+    return (game.alsoFrom ?? []).includes(schedule);
+  };
   /** A named row already used to answer a slot cannot answer a second one. */
   const spoken = new Set<string>();
   /** Slot rows to drop, and the named row each one's scores were folded into. */
@@ -2569,7 +2591,7 @@ export const resolveSlotGames = (
          * that never played it (`collapseSameGames` keeps no stand-in on the record).
          */
         sourceOf(named) !== undefined &&
-        (!holdsSchedule(named, sourceOf(slotGame)) || sameTime(named)) &&
+        (!holdsSchedule(named, slotGame) || sameTime(named)) &&
         /*
          * Two results that contradict are two games, unless they are one game scored apart
          * (`scoredApart`). Folding the slot into the one named row of the day regardless was
@@ -4295,17 +4317,30 @@ export type TidyStep = {
 export type TidyWatcher = (step: TidyStep) => void;
 
 /**
- * The pool with one game per id. One GameChanger row is one game, and two games under one id are
- * that row filed twice — a refresh of one page that could not see the other page's copy. Every
- * pass after this one keys its work on the id, and folding one of the two away took both. The copy
- * kept is the one against a real club over a stand-in, then a scored one, then the later.
+ * The pool with one game per GameChanger row. One row is one game, and two games standing on one
+ * row — under one id, or a game that took over a re-entered row and a refresh's copy of that row
+ * under its own id — are that row filed twice: a refresh of one page that could not see the other
+ * page's copy. Every pass after this one keys its work on the id, and folding one of the two away
+ * took both.
+ *
+ * The copy kept is the one against two real clubs over one against a stand-in, then one holding the
+ * rows folded into it, then the earlier; the last copy with a score gives it that score and start,
+ * since a refresh's copy against a stand-in was often the only one carrying a result posted since
+ * — kept by the rank alone, the result was dropped on every refresh. Rows folded into a copy that
+ * goes are kept on the one that stays.
  */
 const withoutRepeatedIds = (state: GcImportState): { state: GcImportState; dropped: number } => {
-  const seen = new Set<string>();
+  const rowOf = (game: ScoutGame) =>
+    game.source ? gcRowId(game.source.teamId, game.source.gameId) : game.id;
+  const copies = new Map<string, number[]>();
   let repeated = false;
-  state.games.forEach((game) => {
-    if (seen.has(game.id)) repeated = true;
-    seen.add(game.id);
+  state.games.forEach((game, at) => {
+    const key = rowOf(game);
+    const list = copies.get(key);
+    if (list) {
+      list.push(at);
+      repeated = true;
+    } else copies.set(key, [at]);
   });
   if (!repeated) return { state, dropped: 0 };
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
@@ -4314,14 +4349,49 @@ const withoutRepeatedIds = (state: GcImportState): { state: GcImportState; dropp
       const team = teamById.get(id);
       return team !== undefined && !team.placeholder && !team.nameOnly;
     });
-  const rank = (game: ScoutGame) => (real(game) ? 2 : 0) + (isScored(game) ? 1 : 0);
-  const best = new Map<string, number>();
-  state.games.forEach((game, at) => {
-    const held = best.get(game.id);
-    if (held === undefined || rank(game) >= rank(state.games[held]!)) best.set(game.id, at);
+  const rank = (game: ScoutGame) =>
+    (real(game) ? 2 : 0) + ((game.alsoRows?.length ?? 0) > 0 ? 1 : 0);
+  const kept = new Map<number, ScoutGame>();
+  const gone = new Set<number>();
+  copies.forEach((at) => {
+    if (at.length < 2) return;
+    const games = at.map((i) => state.games[i]!);
+    let keepAt = 0;
+    games.forEach((game, i) => {
+      if (rank(game) > rank(games[keepAt]!)) keepAt = i;
+    });
+    let game = games[keepAt]!;
+    const latest = games
+      .slice()
+      .reverse()
+      .find((copy) => isScored(copy) && !copy.scoreFromB && !copy.scoreFromTwin);
+    if (latest && latest !== game && latest.teamAId === game.teamAId) {
+      const { scoreFromB: _borrowed, scoreFromTwin: _twin, startTs: _start, ...rest } = game;
+      game = {
+        ...rest,
+        teamAScore: latest.teamAScore!,
+        teamBScore: latest.teamBScore!,
+        ...(latest.startTs ? { startTs: latest.startTs } : {}),
+      };
+    }
+    const own = rowOf(game);
+    const rows = new Map(
+      games.flatMap((copy) =>
+        (copy.alsoRows ?? []).map(
+          (record) => [gcRowId(record.teamId, record.gameId), record] as const
+        )
+      )
+    );
+    rows.delete(own);
+    rows.delete(game.id);
+    if (rows.size > 0) game = { ...game, alsoRows: [...rows.values()] };
+    kept.set(at[keepAt]!, game);
+    at.forEach((i, n) => {
+      if (n !== keepAt) gone.add(i);
+    });
   });
-  const games = state.games.filter((game, at) => best.get(game.id) === at);
-  return { state: { ...state, games }, dropped: state.games.length - games.length };
+  const games = state.games.flatMap((game, at) => (gone.has(at) ? [] : [kept.get(at) ?? game]));
+  return { state: { ...state, games }, dropped: gone.size };
 };
 
 const tidyOnce = (

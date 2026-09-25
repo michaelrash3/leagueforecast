@@ -106,6 +106,8 @@ const str = (value: unknown): string | undefined =>
 const EXCLUDED = 1;
 /** `ScoutGame.scoreFromB`: the score is side B's, borrowed while side A has posted none. */
 const SCORE_FROM_B = 2;
+/** `ScoutGame.scoreFromTwin`: the score is another listing's of the game, on side A's schedule. */
+const SCORE_FROM_TWIN = 4;
 
 /**
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
@@ -173,7 +175,9 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       groups.index(game.ageGroupId) ?? -1,
       // A date this cannot read is kept as the text it was, not thrown away.
       encodeDate(game.date) ?? game.date ?? null,
-      (game.excluded ? EXCLUDED : 0) | (game.scoreFromB ? SCORE_FROM_B : 0),
+      (game.excluded ? EXCLUDED : 0) |
+        (game.scoreFromB ? SCORE_FROM_B : 0) |
+        (game.scoreFromTwin ? SCORE_FROM_TWIN : 0),
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
       seasons.index(game.season),
@@ -259,6 +263,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
   const flags = num(row[6]) ?? 0;
   if (flags & EXCLUDED) game.excluded = true;
   if (flags & SCORE_FROM_B) game.scoreFromB = true;
+  if (flags & SCORE_FROM_TWIN) game.scoreFromTwin = true;
 
   const levelA = num(row[7]);
   const levelB = num(row[8]);
@@ -703,6 +708,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(isString(entry.note) ? { note: entry.note } : {}),
         ...(entry.excluded === true ? { excluded: true } : {}),
         ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
+        ...(entry.scoreFromTwin === true ? { scoreFromTwin: true } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),

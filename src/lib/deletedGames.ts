@@ -17,6 +17,8 @@
  * is no schedule to bring it back.
  */
 
+import { gcRowId, type ScoutGame } from "./teamRankings/types";
+
 export type DeletedGames = ReadonlySet<string>;
 
 /** Whatever was stored, as a set. Anything that is not an id is dropped. */
@@ -38,6 +40,24 @@ export const isDeletedGame = (deleted: DeletedGames, gameId: string): boolean =>
 /** The list with these rows marked as thrown out. */
 export const forgetGames = (deleted: DeletedGames, ids: readonly string[]): Set<string> =>
   new Set([...deleted, ...ids]);
+
+/**
+ * The rows to remember for games being thrown out: each game's own id, and the row it stands on
+ * where that is not the one its id was made from — a game that took over a row entered again after
+ * the first was deleted, which the next pull finds by that row's id and would file again.
+ */
+export const rowsOfGames = (
+  games: readonly Pick<ScoutGame, "id" | "source">[],
+  ids: readonly string[]
+): string[] => {
+  const drop = new Set(ids);
+  const stoodOn = games.flatMap((game) =>
+    drop.has(game.id) && game.source && gcRowId(game.source.teamId, game.source.gameId) !== game.id
+      ? [gcRowId(game.source.teamId, game.source.gameId)]
+      : []
+  );
+  return [...ids, ...stoodOn];
+};
 
 /** The list with these rows allowed back, so the next pull may file them again. */
 export const restoreGames = (deleted: DeletedGames, ids: readonly string[]): Set<string> => {

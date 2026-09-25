@@ -22,7 +22,6 @@ import {
   seasonAtAge,
   seasonYearOptions,
   filterRankingsByState,
-  gcRowId,
   normalizeState,
   renameScoutTeam,
   statesInUse,
@@ -88,7 +87,13 @@ import {
   saveAgelessCleared,
   clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
-import { forgetClubs, forgetGames, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
+import {
+  forgetClubs,
+  forgetGames,
+  restoreClubs,
+  rowsOfGames,
+  type DeletedClubs,
+} from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
@@ -1085,15 +1090,7 @@ export function TeamRankingsView({
     });
     if (!confirmed) return false;
     const drop = new Set(ids);
-    // A game standing on a row entered again after its first was deleted is remembered by both.
-    const rows = wholePoolGames.flatMap((game) =>
-      drop.has(game.id) &&
-      game.source &&
-      gcRowId(game.source.teamId, game.source.gameId) !== game.id
-        ? [gcRowId(game.source.teamId, game.source.gameId)]
-        : []
-    );
-    saveDeletedGames(forgetGames(loadDeletedGames(), [...ids, ...rows]));
+    saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, ids)));
     const kept = wholePoolGames.filter((game) => !drop.has(game.id));
     if (kept.length !== wholePoolGames.length) persistAllGames(kept);
     showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {
@@ -1312,7 +1309,7 @@ export function TeamRankingsView({
     if (club.gcTeamIds.length > 0) {
       saveDroppedClubs(forgetClubs(loadDroppedClubs(), club.gcTeamIds));
     }
-    saveDeletedGames(forgetGames(loadDeletedGames(), club.gameIds));
+    saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, club.gameIds)));
     const drop = new Set(club.gameIds);
     persistAllGames(wholePoolGames.filter((game) => !drop.has(game.id)));
     persistTeams(scoutTeams.filter((team) => team.id !== club.teamId));

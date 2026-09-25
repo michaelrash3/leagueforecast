@@ -127,8 +127,11 @@ describe("one fixture listed twice on a club's own schedule", () => {
       ]),
       empty
     );
+    // The game keeps the result its own row gave, as the tidy does, and the second listing's
+    // different one stays on it as a note.
     expect(state.games).toHaveLength(1);
-    expect(state.games[0]?.note).toContain("13-21");
+    expect([state.games[0]?.teamAScore, state.games[0]?.teamBScore]).toEqual([13, 21]);
+    expect(state.games[0]?.note).toContain("5-4");
   });
 
   /*

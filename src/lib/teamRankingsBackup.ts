@@ -163,6 +163,8 @@ const GAME_HEADERS = [
   "Team B Reported",
   /** The score is Team B's, borrowed while Team A's schedule has posted none. */
   "Score From Team B",
+  /** The score is another listing's of the game on Team A's schedule, the row it stands on blank. */
+  "Score From Second Listing",
 ];
 
 /**
@@ -383,6 +385,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
         .join(" "),
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
       yesNo(game.scoreFromB),
+      yesNo(game.scoreFromTwin),
     ]
       .map(csvEscape)
       .join(",")
@@ -764,6 +767,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(note ? { note } : {}),
         ...(isYes(cell("Excluded")) ? { excluded: true as const } : {}),
         ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
+        ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),

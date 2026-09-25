@@ -216,6 +216,13 @@ export type ScoutGame = {
    * so they are side B's word rather than side A's, and go when side B's row does.
    */
   scoreFromB?: boolean;
+  /**
+   * `teamAScore`/`teamBScore` were filled from another row of side A's own — the same game listed
+   * twice — because the row the game stands on has posted nothing, so they go when that row does.
+   * Kept as the game's own, a score given by the second listing stayed behind when the two rows
+   * turned out to be two games, and the result counted twice.
+   */
+  scoreFromTwin?: boolean;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
   /**

@@ -6,8 +6,15 @@ import {
   isDatedAhead,
   isDeletedGame,
   restoreGames,
+  rowsOfGames,
 } from "../deletedGames";
-import { createGcImporter, importGcSchedules, type GcImportState } from "../gameChangerImport";
+import {
+  createGcImporter,
+  importGcSchedule,
+  importGcSchedules,
+  tidyPool,
+  type GcImportState,
+} from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
@@ -120,6 +127,41 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
     importer.add(schedule([ahead, behind]));
 
     expect(importer.state.games.map((game) => game.date)).toEqual(["2026-08-30"]);
+  });
+});
+
+describe("a game that took over a row entered again", () => {
+  /*
+   * The club deleted the row its game stood on and entered the game again; the game now stands on
+   * the new row under the old row's id. Thrown out, it is remembered by both, or the next pull finds
+   * the new row by its own id and files it again.
+   */
+  it("is remembered by the row it stands on as well as its id", () => {
+    const nitros = (games: GcTeamSchedule["games"]) => schedule(games);
+    const game = (id: string, startTs?: string, score?: [number, number]) => ({
+      id,
+      date: "2026-08-30",
+      ...(startTs ? { startTs } : {}),
+      opponentName: "Texas Twelve Gold Katy",
+      status: score ? ("completed" as const) : ("scheduled" as const),
+      ...(score ? { teamScore: score[0], opponentScore: score[1] } : {}),
+    });
+    const pull = (state: GcImportState, games: GcTeamSchedule["games"]) =>
+      tidyPool(importGcSchedule(nitros(games), state).state).state;
+    let state = pull(empty, [game("r1", "2026-08-30T18:30:00.000Z")]);
+    state = pull(state, [game("r2", "2026-08-30T18:30:00.000Z")]);
+    state = pull(state, [game("r2", undefined, [11, 0])]);
+    const [held] = state.games;
+    expect(held!.id).toBe("gc_WpYo8bR3Smwp_r1");
+    expect(held!.source?.gameId).toBe("r2");
+
+    const rows = rowsOfGames(state.games, [held!.id]);
+    expect(rows.sort()).toEqual(["gc_WpYo8bR3Smwp_r1", "gc_WpYo8bR3Smwp_r2"]);
+    const deleted = forgetGames(new Set<string>(), rows);
+    const again = importGcSchedule(nitros([game("r2", undefined, [11, 0])]), empty, {
+      deleted,
+    }).state;
+    expect(again.games).toEqual([]);
   });
 });
 
