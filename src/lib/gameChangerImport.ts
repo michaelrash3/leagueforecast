@@ -2368,6 +2368,19 @@ const importOne = (
       continue;
     }
 
+    /*
+     * A row the user has thrown out stays thrown out. Deleting one without this is deleting it
+     * until the next pull of the same schedule, which finds it and files it again — and the rows
+     * worth deleting are the ones a schedule keeps on offering: a score on a day that has not
+     * happened, which cannot be a result and which GameChanger will go on reporting. Before its
+     * opponent is looked for, too: a name nothing answered made a stand-in on every pull, for a
+     * row that was never filed, and nothing took the stand-ins out again.
+     */
+    if (isDeletedGame(deleted, gcGameId(profile.id, game.id))) {
+      outcome.gamesUnchanged += 1;
+      continue;
+    }
+
     let opponentId = knownOpponentId;
     if (opponentId === undefined) {
       const opponent = resolveOpponent(game, group.id, teams, index, own.teamId, profile.id);
@@ -2391,16 +2404,6 @@ const importOne = (
     const theirLevel =
       ageLevelFromName(game.opponentName) ??
       (theirYear === undefined ? undefined : ageFromGradYearInName(game.opponentName, theirYear));
-    /*
-     * A row the user has thrown out stays thrown out. Deleting one without this is deleting it
-     * until the next pull of the same schedule, which finds it and files it again — and the rows
-     * worth deleting are the ones a schedule keeps on offering: a score on a day that has not
-     * happened, which cannot be a result and which GameChanger will go on reporting.
-     */
-    if (isDeletedGame(deleted, gcGameId(profile.id, game.id))) {
-      outcome.gamesUnchanged += 1;
-      continue;
-    }
     const candidate: ScoutGame = {
       id: gcGameId(profile.id, game.id),
       teamAId: own.teamId,

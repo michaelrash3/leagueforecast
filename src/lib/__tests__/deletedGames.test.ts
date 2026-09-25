@@ -121,6 +121,17 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
     expect(outcomes[0]?.gamesAdded).toBe(1);
   });
 
+  it("makes nothing for the deleted row's opponent, however many times it is pulled", () => {
+    const deleted = forgetGames(new Set<string>(), ["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
+    const once = importGcSchedules([schedule([ahead, behind])], empty, { deleted }).state;
+    const thrice = [1, 2].reduce(
+      (state) => importGcSchedules([schedule([ahead, behind])], state, { deleted }).state,
+      once
+    );
+    expect(thrice.teams).toEqual(once.teams);
+    expect(thrice.teams.some((team) => team.name === "Texas Twelve Gold Katy")).toBe(false);
+  });
+
   it("holds the same line when the pull comes through the importer", () => {
     // The batch path a real pull uses, which threads its own state from schedule to schedule.
     const deleted = forgetGames(new Set<string>(), ["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
