@@ -453,6 +453,33 @@ describe("coerceScoutGames with levels, seasons and sources", () => {
       },
     ]);
   });
+
+  it("keeps the team a claimed row was filed against and its level, and nothing malformed", () => {
+    const claimed = { teamId: "gcR", gameId: "r1", filedAgainst: "S-SHAR", filedLevel: 10 };
+    expect(
+      coerceScoutGames([
+        {
+          ...base,
+          alsoRows: [
+            claimed,
+            { ...claimed, gameId: "r2", filedLevel: "10" },
+            { ...claimed, gameId: "r3", filedAgainst: "" },
+            { teamId: "gcR", gameId: "r4", filedLevel: 10 },
+          ],
+        },
+      ])
+    ).toEqual([
+      {
+        ...base,
+        alsoRows: [
+          claimed,
+          { teamId: "gcR", gameId: "r2", filedAgainst: "S-SHAR" },
+          { teamId: "gcR", gameId: "r3" },
+          { teamId: "gcR", gameId: "r4" },
+        ],
+      },
+    ]);
+  });
 });
 
 describe("healing a pool saved before placeholders were understood", () => {

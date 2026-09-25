@@ -384,7 +384,10 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
             (row.ownScore !== undefined && row.opponentScore !== undefined
               ? `=${row.ownScore}-${row.opponentScore}`
               : "") +
-            (row.onSideB ? "/B" : "")
+            (row.onSideB ? "/B" : "") +
+            (row.filedAgainst === undefined
+              ? ""
+              : `!${row.filedAgainst}` + (row.filedLevel === undefined ? "" : `^${row.filedLevel}`))
         )
         .join(" "),
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
@@ -733,17 +736,18 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const startTs = cell("Start");
     // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
     // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
-    // day after "#", which no id holds either.
+    // day after "#", which no id holds either, and a claimed row the team it was filed against after
+    // "!", with the level that name gave after "^".
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
       .flatMap((entry) => {
         // A score typed by hand can be any number the score cell takes, so not only whole ones.
         const parsed =
-          /^([^:@=/#]+):([^:@=/#]+)(?:#([^@=/]+))?(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
+          /^([^:@=/#!]+):([^:@=/#!]+)(?:#([^@=/!]+))?(?:@([^@=/!]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?(?:!([^\s!^]+)(?:\^(\d+))?)?$/.exec(
             entry
           );
         if (!parsed) return [];
-        const [, teamId, gameId, date, startTs, own, opponent, sideB] = parsed;
+        const [, teamId, gameId, date, startTs, own, opponent, sideB, filed, filedLevel] = parsed;
         // In `recordOf`'s order, which the tidy compares records in: read back in another, every
         // game with a dated row read as regrouped on the first tidy after a restore.
         return [
@@ -756,6 +760,9 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
               ? { ownScore: Number(own), opponentScore: Number(opponent) }
               : {}),
             ...(sideB ? { onSideB: true } : {}),
+            ...(filed
+              ? { filedAgainst: filed, ...(filedLevel ? { filedLevel: Number(filedLevel) } : {}) }
+              : {}),
           },
         ];
       });

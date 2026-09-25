@@ -114,6 +114,26 @@ describe("dropping the season from the live pool", () => {
     expect(next.dropped).toBe(3);
   });
 
+  it("keeps a team a claimed row of a game left behind was filed against", () => {
+    // The 2027 game holds a row filed against the Dodgers by name and claimed: the Dodgers are
+    // where that row goes back, though no game of theirs is left.
+    const { teams, games } = pool();
+    const claimed = games.map((game) =>
+      game.ageGroupId === "ag_9_2027"
+        ? { ...game, alsoRows: [{ teamId: "gcOTHER", gameId: "o1", filedAgainst: "T-D" }] }
+        : game
+    );
+    const next = withoutSeason("ag_9_2026", { ageGroups: groups, teams, games: claimed });
+    expect(next.teams.map((team) => team.id).sort()).toEqual(["T-B", "T-BOTH", "T-D"]);
+    const done = archiveSquadYear(
+      2026,
+      { teams, games: claimed },
+      { ageGroups: groups, teams, games: claimed },
+      "2026-09-17T00:00:00.000Z"
+    );
+    expect(done.state.teams.map((team) => team.id).sort()).toEqual(["T-B", "T-BOTH", "T-D"]);
+  });
+
   it("leaves a club that is still playing exactly where it was", () => {
     const { teams, games } = pool();
     const next = withoutSeason("ag_9_2026", { ageGroups: groups, teams, games });

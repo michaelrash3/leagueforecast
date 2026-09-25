@@ -162,6 +162,30 @@ describe("teamRankingsCsvSections", () => {
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
   });
 
+  it("round-trips the team a claimed row was filed against, in the order the tidy writes it", () => {
+    const rows = [
+      {
+        teamId: "zjvVkYnqLrf0",
+        gameId: "0b1e-77",
+        startTs: "2028-04-05T17:40:00.000Z",
+        ownScore: 4,
+        opponentScore: 6,
+        onSideB: true as const,
+        filedAgainst: "S-SHAR3",
+        filedLevel: 10,
+      },
+      { teamId: "zjvVkYnqLrf0", gameId: "0b1e-78", filedAgainst: "S-CANE" },
+    ];
+    const claimed: TeamRankingsBackup = {
+      ...backup,
+      teams: [...teams, { id: "S-SHAR3", name: "Sharks" }, { id: "S-CANE", name: "Canes" }],
+      games: [{ ...games[0]!, alsoFrom: ["zjvVkYnqLrf0"], alsoRows: rows }],
+    };
+    const back = parseTeamRankingsCsv(teamRankingsCsvSections(claimed));
+    expect(back).toEqual(claimed);
+    expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
+  });
+
   // A score typed by hand is any number the score cell takes, and it is written into side B's row.
   it("round-trips a folded row and the other club's score that are not whole numbers", () => {
     const typed: TeamRankingsBackup = {

@@ -128,6 +128,41 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
+  // A claimed row goes back to the team it was filed against when the claim stops fitting, and a
+  // stand-in holding no game of its own is only in the pool as that team.
+  it("keeps the team a claimed row was filed against, and the level its name gave", () => {
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gcBEARS01_b1",
+        teamAId: "S-BEAR",
+        teamBId: "S-ACES",
+        teamAScore: 3,
+        teamBScore: 7,
+        ageGroupId: "ag_1",
+        date: "2026-09-05",
+        startTs: "2026-09-05T18:45:00.000Z",
+        alsoFrom: ["gcACES01"],
+        alsoRows: [
+          {
+            teamId: "gcACES01",
+            gameId: "a1",
+            startTs: "2026-09-05T18:00:00.000Z",
+            ownScore: 7,
+            opponentScore: 3,
+            onSideB: true,
+            filedAgainst: "S-SHAR",
+            filedLevel: 10,
+          },
+          { teamId: "gcACES01", gameId: "a2", filedAgainst: "S-CANE" },
+        ],
+        scoreFromB: true,
+        reportedByB: { teamAScore: 3, teamBScore: 7 },
+        source: { kind: "gamechanger", teamId: "gcBEARS01", gameId: "b1" },
+      },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+  });
+
   // A scheduled game has no scores at all, and that is the difference between "not played" and
   // "nil-nil", so it must survive the trip as absence rather than as zero.
   it("keeps a scheduled game unscored", () => {

@@ -20,7 +20,7 @@
  * ranking for the year. The ids come back so the caller can say which seasons that is.
  */
 
-import { ageGroupYear, type AgeGroup } from "./teamRankings";
+import { ageGroupYear, filedTeamIds, type AgeGroup } from "./teamRankings";
 import type { ArchiveEntry, StoredPool } from "./teamRankingsArchive";
 
 export type SquadYearDeletion = {
@@ -68,7 +68,11 @@ export const deleteSquadYear = (
   const going = new Set(ofYear.map((group) => group.id));
 
   const games = stored.games.filter((game) => !going.has(game.ageGroupId));
-  const wanted = new Set(games.flatMap((game) => [game.teamAId, game.teamBId]));
+  // A team a claimed row was filed against is still where that row goes back (`filedTeamIds`).
+  const wanted = new Set([
+    ...games.flatMap((game) => [game.teamAId, game.teamBId]),
+    ...filedTeamIds(games),
+  ]);
   let unlinkedTeams = 0;
   const teams = stored.teams.flatMap((team) => {
     if (!wanted.has(team.id)) return [];

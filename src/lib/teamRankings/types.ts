@@ -188,6 +188,15 @@ export type FoldedRow = {
   opponentScore?: number;
   /** Its own club is the game's side B, not side A. */
   onSideB?: boolean;
+  /**
+   * The team its schedule filed it against by name — a stand-in, or a pulled club none of whose
+   * own schedules lists the game — where the club whose own schedule does list it claimed the row
+   * (`claimFiledRows`). A claim is read again on every tidy, and one the schedules no longer bear
+   * out stands the row back up against this team, not against the club that claimed it.
+   */
+  filedAgainst?: string;
+  /** The level the name gave that team, where it gave one. */
+  filedLevel?: number;
 };
 
 /** The id a GameChanger row is filed under: its schedule and its game id on that schedule. */

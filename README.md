@@ -606,11 +606,10 @@ score (`scoringRowsOf`): the row the game stands on where the score is its own, 
 folded row with a score of its own. Remembering only the row the game stood on let the other
 club's scored copy back on its next pull; remembering every row would keep the other club's
 real fixture, a game still to play, out for good. On the pool of 24 September 2026 the tidy
-folds 3,874 rows this way and settles 1,230 slots and stand-ins, leaving 243,239 games: 6 slots
-whose starts were a fraction of a second apart, a stand-in copy of a 3-2 win that had two games
-of that score to choose from until one was seen to hold the club's own row already, and 1,223
-rows against a stand-in beside a copy of the game the club's own schedules left out (**A
-stand-in beside a game the club never listed**, below). Legacy's page reads six games again.
+folds 3,866 rows this way, settles 9 slots and stand-ins into the named game beside them, and
+claims 2,997 rows filed by name for the other club's copy of the game (**A row filed by name
+beside a game the club never listed**, below), leaving 241,471 games. Legacy's page reads six
+games again.
 
 **Each club keeps its own score.** The Dragons' schedule says they beat the Hens 11-8;
 the Hens' says they lost 8-10; it is one game, listed on both at 10am. The game used to
@@ -659,15 +658,19 @@ give a start time they have to agree on it, which is what tells the halves of a
 doubleheader apart. A day with two clubs that could both be the answer is left
 alone.
 
-**A stand-in beside a game the club never listed.** Where another club's own schedule lists a
-game against a club that none of the club's own schedules gives a row, that game is on the club's
-schedule somewhere — under whatever its coach typed for the other club, a name GameChanger does
-not list. So a row of the club's own against a stand-in that day is read against that copy by the
-clock and the scores alone, whatever the stand-in is called: within the hour, as two schedules'
-copies of one game are (nobody plays two an hour apart), with a result still to come on one side
-or two within four runs of each other, or with the same result. On the pool of 24 September 2026,
-after a whole tidy, 1,542 of its 82,471 games against a stand-in sat beside such a copy that way.
-The stand-in's name shared a word with the club the other schedule named in 68% of those within
+**A row filed by name beside a game the club never listed.** Where another club's own schedule
+lists a game against a club that none of the club's own schedules gives a row, that game is on the
+club's schedule somewhere — under whatever its coach typed for the other club. The import files a
+row by the name it was given: against a club of that name, or a stand-in where GameChanger lists
+none. So a row of the club's own that day filed against a stand-in, or against a pulled club
+whose own schedules never list the game, is read against that copy, and where the two are one
+game the row is claimed into it (`claimFiledRows`), as the club's own row of it.
+
+Against a stand-in the clock and the scores decide, whatever it is called: within the hour, as two
+schedules' copies of one game are (nobody plays two an hour apart), with a result still to come on
+one side or two within four runs of each other, or with the same result. On the pool of 24 September
+2026, after a whole tidy, 1,542 of its 82,471 games against a stand-in sat beside such a copy that
+way. The stand-in's name shared a word with the club the other schedule named in 68% of those within
 the hour with a result to come and 67% of those scored close, against 3% to 10% of the pairs the
 same search makes a week either side, and most of the rest were a shorthand no word test sees —
 "R.E.B." for Rockland Elite Black, "KBC" for Kennedale Baseball Club. Scores further apart than
@@ -676,19 +679,64 @@ very same start — mostly a game of another club of the same name, filed agains
 — and so did copies more than an hour off, 18% of those with a result to come. A slot has no name
 to test and is held to the same clock and scores.
 
+A pulled club's name did say something, so against one only scores that agree outweigh it: the same
+result within the hour, or two within four runs at the very start or within the hour. Kentucky
+Athletics' 9-3 over "Dream Chasers Blue" was Hit Dogs Evansville's own 3-9 fifteen minutes on: the
+Hit Dogs played that weekend under the name of a GameChanger team with no games of its own, every
+opponent filed them under it, and each of those games stood twice. The same pool held 1,358 rows
+filed against a pulled club that never listed them beside another club's copy with the same result
+within the hour, and the two clubs' names shared a word in 81% of them; most are one club's two
+GameChanger teams — "Gem City Throwbacks - Wright" and "GC Throwbacks - Wright Fall", whose
+opponents filed seven games against the first and whose own schedule listed all seven as the
+second. A result still to come says nothing against a name GameChanger lists — blank rows at one
+start paired a "Rangers" typed with another club's copy — and waits until the scores are in.
+
 Every row and copy of the club's day is read at once: as many pairs as the day allows, then in
 both schedules' order, then the stronger links — the same result, the very same start, within the
-hour — and where two readings are as good as each other, only what they agree on is settled, so
-one game off two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is. The copies of
-a club the settling club has a row against of its own, that day or the day either side, that no row
-of theirs is paired with yet wait for the collapse to pair it: settled first, a stand-in row once
-took the copy that row was, and left it standing on its own, one game counted twice. And a stand-in
-the other club's own schedule has played is not that club — a 1-13 against "Natives Black" once
-went to Salty Stars, who play Natives Black in October — and nor is an age typed into its name more
-than two levels from the one that club played at. On that pool the tidy settles 1,223 rows this
-way, 945 against a name and 278 slots, and 66% of the names share a word with the club they go to;
-the audit's copies within the hour go from 862 to 35, those at the very same start with two scores
-from 447 to 68.
+hour. Where two readings are as good as each other, only what they agree on is settled, so one game
+off two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is, and a claim already
+made counts for nothing of its own, so the day reads the same whichever club was pulled first. The
+copies of a club the claiming club has a row against of its own, that day or the day either side,
+that no row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in
+row once took the copy that row was, and left it standing on its own, one game counted twice. A row the club it names answers for, by a copy
+of its own that fits, is that club's. A stand-in the other club's own schedule has played is not
+that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
+October — and a pulled club it has played gives way only to the same result: the NL Vandals' 15-3
+against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-15 at the very same
+start, though the Gold play the Blue, but where the other club had played the named one the two
+names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
+What a club has played is read off every row of its own schedules, whichever row a game stands on.
+Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
+one team on one day go to one club or none, and a row claimed away is no copy for another row to
+go into in the same pass.
+
+Nothing claimed is final. The claim keeps the team the row was filed against and the level its name
+gave (`FoldedRow.filedAgainst`), through every save, backup and merge, and every tidy reads each
+club's day again with its claims stood back up. A claim the schedules no longer bear out goes back
+to that team: the other club's copy withdrawn or moved more than an hour off, a result posted that
+says two games, the club's own schedule naming the other club after all, a copy that fits better
+pulled since, or the copy moved onto a namesake whose own schedule lists it. The regroup never moves
+a claim — which copy a claimed row is, is the claim's to say, and a row read as one more game against
+the club that claimed it went to a copy the claim had refused, five runs off at the same hour, and
+back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when the copy
+holding it moves, and a stand-in with no game left stays in the roster while a claimed row can go
+back to it. A game the user has thrown out keeps the claims it holds: released, a row would stand
+as a game of its own and count. Deleting a club that is not one stands the claims its games held
+back up, and keeps it as a name only where a claimed row elsewhere goes back to it; removing a team
+from a page keeps it in the roster for the same reason; and a claimed row filed against a team the
+tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
+it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that:
+restore a backup from before it to have those rows read again this way.
+
+On that pool the tidy claims 2,997 rows: 1,782 filed against a pulled club, 939 against a named
+stand-in and 276 slots, in three passes; a second tidy after a storage round trip changes nothing,
+no row is held twice, the tidy takes out only the 28 rows it took out before, and 883 stand-ins
+stay only as where a claimed row goes back. Among the claims against a pulled club
+the two names share a word in 83% of those at the very start with the same result, 92% of those
+scored within four runs there, and 78% of those within the hour with the same result. The Athletics'
+page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,484 of the 43,432 teams
+rated in 2027 have another record: a club loses a game it had counted twice, or the games its
+opponents filed against it by name that another of its GameChanger teams, or another club, played.
 
 Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in

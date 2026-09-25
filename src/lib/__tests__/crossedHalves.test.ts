@@ -290,6 +290,28 @@ describe("joinCrossedHalves", () => {
     expect(out.state.teams.filter((team) => team.nameOnly)).toEqual([]);
   });
 
+  it("keeps a stand-in it empties that a claimed row elsewhere goes back to", () => {
+    // Another game holds a row of some schedule's that was filed against the Stix's "Hurricanes"
+    // stand-in and claimed: the stand-in is where that row goes back, whatever the join takes.
+    const pool = halves(stixHalf, hurricanesHalf);
+    const standIn = pool.games[0]!.teamBId;
+    const holder = {
+      ...pool.games[1]!,
+      teamBId: pulled(pool, STIX).id,
+      id: "gc_OTHER_1",
+      date: "2026-09-27",
+      startTs: "2026-09-27T17:00:00.000Z",
+      source: { kind: "gamechanger" as const, teamId: "OTHER", gameId: "1" },
+      alsoFrom: ["ELSE"],
+      alsoRows: [{ teamId: "ELSE", gameId: "e1", filedAgainst: standIn }],
+    };
+    const out = joinCrossedHalves({ ...pool, games: [...pool.games, holder] });
+    expect(out.joined).toBe(1);
+    expect(out.state.teams.filter((team) => team.nameOnly).map((team) => team.id)).toEqual([
+      standIn,
+    ]);
+  });
+
   it("joins across a state line into a neighbouring state", () => {
     expect(joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, state: "KY" })).joined).toBe(1);
   });
