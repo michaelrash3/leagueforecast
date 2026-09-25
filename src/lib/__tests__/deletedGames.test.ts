@@ -6,8 +6,16 @@ import {
   isDatedAhead,
   isDeletedGame,
   restoreGames,
+  rowsOfGames,
+  scoringRowsOf,
 } from "../deletedGames";
-import { createGcImporter, importGcSchedules, type GcImportState } from "../gameChangerImport";
+import {
+  createGcImporter,
+  importGcSchedule,
+  importGcSchedules,
+  tidyPool,
+  type GcImportState,
+} from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
@@ -120,6 +128,124 @@ describe("a pull of a schedule holding a row that was thrown out", () => {
     importer.add(schedule([ahead, behind]));
 
     expect(importer.state.games.map((game) => game.date)).toEqual(["2026-08-30"]);
+  });
+});
+
+describe("a game that took over a row entered again", () => {
+  /*
+   * The club deleted the row its game stood on and entered the game again; the game now stands on
+   * the new row under the old row's id. Thrown out, it is remembered by both, or the next pull finds
+   * the new row by its own id and files it again.
+   */
+  it("is remembered by the row it stands on as well as its id", () => {
+    const nitros = (games: GcTeamSchedule["games"]) => schedule(games);
+    const game = (id: string, startTs?: string, score?: [number, number]) => ({
+      id,
+      date: "2026-08-30",
+      ...(startTs ? { startTs } : {}),
+      opponentName: "Texas Twelve Gold Katy",
+      status: score ? ("completed" as const) : ("scheduled" as const),
+      ...(score ? { teamScore: score[0], opponentScore: score[1] } : {}),
+    });
+    const pull = (state: GcImportState, games: GcTeamSchedule["games"]) =>
+      tidyPool(importGcSchedule(nitros(games), state).state).state;
+    let state = pull(empty, [game("r1", "2026-08-30T18:30:00.000Z")]);
+    state = pull(state, [game("r2", "2026-08-30T18:30:00.000Z")]);
+    state = pull(state, [game("r2", undefined, [11, 0])]);
+    const [held] = state.games;
+    expect(held!.id).toBe("gc_WpYo8bR3Smwp_r1");
+    expect(held!.source?.gameId).toBe("r2");
+
+    const rows = rowsOfGames(state.games, [held!.id]);
+    expect(rows.sort()).toEqual(["gc_WpYo8bR3Smwp_r1", "gc_WpYo8bR3Smwp_r2"]);
+    const deleted = forgetGames(new Set<string>(), rows);
+    const again = importGcSchedule(nitros([game("r2", undefined, [11, 0])]), empty, {
+      deleted,
+    }).state;
+    expect(again.games).toEqual([]);
+  });
+});
+
+describe("a game whose score dated ahead came from the other club's copy", () => {
+  /*
+   * The Nitros list a July fixture with no score; Katy's schedule lists the same game already won
+   * 11-0, the only copy with a score. Thrown out, it is Katy's row that is remembered: the Nitros'
+   * fixture comes back on their next pull as the game still to play it is, and Katy's score does
+   * not come back on theirs.
+   */
+  const katy = (games: GcTeamSchedule["games"]): GcTeamSchedule => ({
+    profile: {
+      id: "KatyGold0001",
+      name: "Texas Twelve Gold Katy",
+      ageLevel: 11,
+      season: { season: "winter", year: 2026 },
+      state: "TX",
+      city: "Katy",
+    },
+    games,
+    fetchedAt: "2026-09-20T03:35:17.077Z",
+  });
+  const fixture = {
+    ...ahead,
+    id: "n1",
+    status: "scheduled" as const,
+  } as GcTeamSchedule["games"][number];
+  delete fixture.teamScore;
+  delete fixture.opponentScore;
+  const scored = {
+    ...ahead,
+    id: "k1",
+    opponentName: "CF Nitros Black 11U",
+    teamScore: 0,
+    opponentScore: 11,
+  };
+  // A game already played beside it, or the whole schedule reads as invented and is refused.
+  const played = { ...behind, id: "k0", opponentName: "Somebody Else 11U" };
+  const pull = (state: GcImportState, next: GcTeamSchedule, deleted?: Set<string>) =>
+    tidyPool(importGcSchedule(next, state, deleted ? { deleted } : {}).state).state;
+
+  it("remembers the row that carried the score, not the fixture beside it", () => {
+    let state = pull(empty, schedule([fixture]));
+    state = pull(state, katy([scored, played]));
+    const game = state.games.find((entry) => entry.date === ahead.date)!;
+    expect(isDatedAhead(game, "2026-09-20")).toBe(true);
+    expect(game.scoreFromB).toBe(true);
+    const rows = scoringRowsOf(state.games, [game.id]);
+    expect(rows).toEqual(["gc_KatyGold0001_k1"]);
+
+    const deleted = forgetGames(new Set<string>(), rows);
+    state = { ...state, games: state.games.filter((entry) => entry.id !== game.id) };
+    state = pull(state, katy([scored, played]), deleted);
+    state = pull(state, schedule([fixture]), deleted);
+    const back = state.games.filter((entry) => entry.date === ahead.date);
+    expect(back).toHaveLength(1);
+    expect(back[0]!.id).toBe("gc_WpYo8bR3Smwp_n1");
+    expect(back[0]!.teamAScore).toBeUndefined();
+  });
+
+  // Joined before rows were kept: the other club's copy is on record by its schedule alone.
+  it("remembers the row the game stands on where the scoring row is not on record", () => {
+    const game = {
+      id: "gc_WpYo8bR3Smwp_n1",
+      teamAScore: 11,
+      teamBScore: 0,
+      scoreFromB: true as const,
+      source: { kind: "gamechanger" as const, teamId: "WpYo8bR3Smwp", gameId: "n1" },
+    };
+    expect(scoringRowsOf([game], [game.id])).toEqual(["gc_WpYo8bR3Smwp_n1"]);
+  });
+
+  it("remembers the row the game stands on when the score is that row's own", () => {
+    let state = pull(empty, schedule([ahead, behind]));
+    const game = state.games.find((entry) => entry.date === ahead.date)!;
+    expect(scoringRowsOf(state.games, [game.id])).toEqual(["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
+    state = pull(
+      state,
+      katy([{ ...fixture, id: "k1", opponentName: "CF Nitros Black 11U" }, played])
+    );
+    const held = state.games.find((entry) => entry.date === ahead.date)!;
+    // The other club's plain fixture is not remembered: it is a game still to play.
+    expect(scoringRowsOf(state.games, [held.id])).toEqual(["gc_WpYo8bR3Smwp_c3e665f9-e35"]);
   });
 });
 

@@ -26,6 +26,7 @@
 import {
   isPlaceholderName,
   type AgeGroup,
+  type FoldedRow,
   type GcTeamLink,
   type ScoutGame,
   type ScoutGameSource,
@@ -103,6 +104,12 @@ const str = (value: unknown): string | undefined =>
 
 /** The one flag a game carries that is neither a number nor a name. */
 const EXCLUDED = 1;
+/** `ScoutGame.scoreFromB`: the score is side B's, borrowed while side A has posted none. */
+const SCORE_FROM_B = 2;
+/** `ScoutGame.scoreFromTwin`: the score is another listing's of the game, on side A's schedule. */
+const SCORE_FROM_TWIN = 4;
+/** `ScoutGame.withdrawn`: side A's schedule no longer lists the row the game stands on. */
+const WITHDRAWN = 8;
 
 /**
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
@@ -120,7 +127,7 @@ const EXCLUDED = 1;
  * treats a missing position as the field being absent, so a pool written before a position existed
  * still reads.
  */
-type GameRow = (number | string | null | number[])[];
+type GameRow = (number | string | null | number[] | (number | string | null)[][])[];
 
 export type CompactPool = {
   v: number;
@@ -170,7 +177,10 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       groups.index(game.ageGroupId) ?? -1,
       // A date this cannot read is kept as the text it was, not thrown away.
       encodeDate(game.date) ?? game.date ?? null,
-      game.excluded ? EXCLUDED : 0,
+      (game.excluded ? EXCLUDED : 0) |
+        (game.scoreFromB ? SCORE_FROM_B : 0) |
+        (game.scoreFromTwin ? SCORE_FROM_TWIN : 0) |
+        (game.withdrawn ? WITHDRAWN : 0),
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
       seasons.index(game.season),
@@ -187,6 +197,29 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
             return index === null ? [] : [index];
           })
         : null,
+      // The same, row by row: each folded row whole — its schedule's index, its id, its start, its
+      // own score and whether its club is side B — so the tidy can judge it again.
+      game.alsoRows?.length
+        ? game.alsoRows.flatMap((row) => {
+            const index = sources.index(row.teamId);
+            return index === null
+              ? []
+              : [
+                  trimTrailing<number | string | null>([
+                    index,
+                    row.gameId,
+                    row.startTs ?? null,
+                    row.ownScore ?? null,
+                    row.opponentScore ?? null,
+                    row.onSideB ? 1 : null,
+                    // Its own day, where a schedule dated the game a day off the other's.
+                    row.date === undefined ? null : (encodeDate(row.date) ?? row.date),
+                  ]),
+                ];
+          })
+        : null,
+      // Side B's own schedule's score, A's runs then B's.
+      game.reportedByB ? [game.reportedByB.teamAScore, game.reportedByB.teamBScore] : null,
     ]);
   });
 
@@ -234,6 +267,9 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
 
   const flags = num(row[6]) ?? 0;
   if (flags & EXCLUDED) game.excluded = true;
+  if (flags & SCORE_FROM_B) game.scoreFromB = true;
+  if (flags & SCORE_FROM_TWIN) game.scoreFromTwin = true;
+  if (flags & WITHDRAWN) game.withdrawn = true;
 
   const levelA = num(row[7]);
   const levelB = num(row[8]);
@@ -258,6 +294,38 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
       })
     : [];
   if (alsoFrom.length > 0) game.alsoFrom = alsoFrom;
+  const alsoRows: FoldedRow[] = Array.isArray(row[17])
+    ? row[17].flatMap((entry): FoldedRow[] => {
+        if (!Array.isArray(entry)) return [];
+        const teamId = at(pool.c, entry[0]);
+        const gameId = str(entry[1]);
+        if (!teamId || !gameId) return [];
+        const startTs = str(entry[2]);
+        const ownScore = num(entry[3]);
+        const opponentScore = num(entry[4]);
+        const date = decodeDate(entry[6]);
+        return [
+          {
+            teamId,
+            gameId,
+            ...(startTs ? { startTs } : {}),
+            ...(date ? { date } : {}),
+            ...(ownScore !== undefined && opponentScore !== undefined
+              ? { ownScore, opponentScore }
+              : {}),
+            ...(entry[5] === 1 ? { onSideB: true } : {}),
+          },
+        ];
+      })
+    : [];
+  if (alsoRows.length > 0) game.alsoRows = alsoRows;
+  if (Array.isArray(row[18])) {
+    const reportA = num(row[18][0]);
+    const reportB = num(row[18][1]);
+    if (reportA !== undefined && reportB !== undefined) {
+      game.reportedByB = { teamAScore: reportA, teamBScore: reportB };
+    }
+  }
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -601,6 +669,27 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
     });
 };
 
+/** Folded rows read leniently: each needs both ids; a start or a score it cannot read is dropped. */
+const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
+  Array.isArray(raw)
+    ? raw.flatMap((entry): FoldedRow[] =>
+        isRecord(entry) && isFilledString(entry.teamId) && isFilledString(entry.gameId)
+          ? [
+              {
+                teamId: entry.teamId,
+                gameId: entry.gameId,
+                ...(isFilledString(entry.startTs) ? { startTs: entry.startTs } : {}),
+                ...(isFilledString(entry.date) ? { date: entry.date } : {}),
+                ...(isNumber(entry.ownScore) && isNumber(entry.opponentScore)
+                  ? { ownScore: entry.ownScore, opponentScore: entry.opponentScore }
+                  : {}),
+                ...(entry.onSideB === true ? { onSideB: true } : {}),
+              },
+            ]
+          : []
+      )
+    : [];
+
 export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -627,12 +716,28 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(isString(entry.event) ? { event: entry.event } : {}),
         ...(isString(entry.note) ? { note: entry.note } : {}),
         ...(entry.excluded === true ? { excluded: true } : {}),
+        ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
+        ...(entry.scoreFromTwin === true ? { scoreFromTwin: true } : {}),
+        ...(entry.withdrawn === true ? { withdrawn: true } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),
         ...(isString(entry.startTs) ? { startTs: entry.startTs } : {}),
         ...(Array.isArray(entry.alsoFrom) && entry.alsoFrom.some(isString)
           ? { alsoFrom: entry.alsoFrom.filter(isString) }
+          : {}),
+        ...(coerceFoldedRows(entry.alsoRows).length > 0
+          ? { alsoRows: coerceFoldedRows(entry.alsoRows) }
+          : {}),
+        ...(isRecord(entry.reportedByB) &&
+        isNumber(entry.reportedByB.teamAScore) &&
+        isNumber(entry.reportedByB.teamBScore)
+          ? {
+              reportedByB: {
+                teamAScore: entry.reportedByB.teamAScore,
+                teamBScore: entry.reportedByB.teamBScore,
+              },
+            }
           : {}),
         ...(source ? { source } : {}),
       };

@@ -6,6 +6,7 @@ import {
   gcSeasonLabel,
   isScoutGamePlayed,
   rankingPoolGroupIds,
+  scoreSeenBy,
   teamNameKey,
   teamRecordInPool,
   type AgeGroup,
@@ -53,10 +54,10 @@ export type MergeCandidate = ScoutTeam & { clubHint?: string };
 const scoreLine = (game: ScoutGame, own: string, nameOf: (id: string) => string) => {
   const isA = game.teamAId === own;
   const opponent = nameOf(isA ? game.teamBId : game.teamAId);
-  if (!isScoutGamePlayed(game))
-    return { opponent, result: null as null | string, detail: "Scheduled" };
-  const ownScore = isA ? game.teamAScore! : game.teamBScore!;
-  const oppScore = isA ? game.teamBScore! : game.teamAScore!;
+  const seen = isScoutGamePlayed(game) ? scoreSeenBy(game, own) : undefined;
+  if (!seen) return { opponent, result: null as null | string, detail: "Scheduled" };
+  // This club's own schedule's score, where the two clubs' schedules disagree.
+  const { own: ownScore, opponent: oppScore } = seen;
   const result = ownScore > oppScore ? "W" : ownScore < oppScore ? "L" : "T";
   return { opponent, result, detail: `${ownScore}–${oppScore}` };
 };

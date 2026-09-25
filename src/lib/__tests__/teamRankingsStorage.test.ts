@@ -433,6 +433,26 @@ describe("coerceScoutGames with levels, seasons and sources", () => {
       coerceScoutGames([{ ...base, ageLevelA: "9", ageLevelB: Number.NaN, season: 2026 }])
     ).toEqual([base]);
   });
+
+  // The flags and the rows folded in, as a pool saved as plain JSON holds them.
+  it("keeps a withdrawn game and a folded row's own day", () => {
+    const folded = {
+      teamId: "gcR",
+      gameId: "r1",
+      date: "2026-08-30",
+      ownScore: 3,
+      opponentScore: 5,
+    };
+    expect(
+      coerceScoutGames([{ ...base, withdrawn: true, alsoRows: [folded, { ...folded, date: 7 }] }])
+    ).toEqual([
+      {
+        ...base,
+        withdrawn: true,
+        alsoRows: [folded, { teamId: "gcR", gameId: "r1", ownScore: 3, opponentScore: 5 }],
+      },
+    ]);
+  });
 });
 
 describe("healing a pool saved before placeholders were understood", () => {

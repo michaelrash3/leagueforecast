@@ -34,13 +34,27 @@ const isPlayed = (game: ScoutGame): boolean =>
   game.teamAScore !== undefined && game.teamBScore !== undefined;
 
 /**
- * The sides of a game whose own schedule filed it: the club pulled under `source`, and any whose
- * schedule also listed it (`alsoFrom`). Both sides when the game names no source it can be traced
- * to — one typed in by hand, or a source whose club has since gone — because then nothing says
- * which of the two wrote it.
+ * The sides of a game whose own schedule filed its result: the club pulled under `source`, and any
+ * whose schedule also listed it with a score. Both sides when the game names no source it can be
+ * traced to — one typed in by hand, or a source whose club has since gone — because then nothing
+ * says which of the two wrote it.
+ *
+ * Only a schedule that scored the game. Every copy of it folded in is now on record, the other
+ * club's placeholder for the fixture included, and charging that club with a result dated ahead
+ * that it never posted puts the inventor's victim on the list beside it. So `source` counts unless
+ * its score was borrowed from side B (`scoreFromB`), a kept row (`alsoRows`) only where it carried a
+ * score of its own, and a schedule on record without its row (`alsoFrom` from before rows were
+ * kept) as it always has, since nothing says what it listed.
  */
 export const filedBy = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): string[] => {
-  const sources = [...(game.source ? [game.source.teamId] : []), ...(game.alsoFrom ?? [])];
+  const kept = new Set((game.alsoRows ?? []).map((record) => record.teamId));
+  const sources = [
+    ...(game.source && !game.scoreFromB ? [game.source.teamId] : []),
+    ...(game.alsoRows ?? [])
+      .filter((record) => record.ownScore !== undefined)
+      .map((record) => record.teamId),
+    ...(game.alsoFrom ?? []).filter((schedule) => !kept.has(schedule)),
+  ];
   const sides = [game.teamAId, game.teamBId].filter((teamId) =>
     sources.some((gcId) => clubOfGcId.get(gcId) === teamId)
   );

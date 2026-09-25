@@ -160,6 +160,39 @@ export type ScoutGameSource = {
   gameId: string;
 };
 
+/**
+ * One schedule's row folded into a game, kept whole enough to be judged again.
+ *
+ * A fold decided on one day's schedules has to stand up to the next day's: a start moves, a score
+ * is posted, a doubleheader that sat at one placeholder slot is spread over two. So the row is kept
+ * as the schedule last gave it — its start and its score from its own seat — and the tidy puts
+ * every folded row back beside the rows still standing and groups them all again
+ * (`collapseSameGames`), which moves a row to the game it now fits or stands it up as a game of its
+ * own.
+ */
+export type FoldedRow = {
+  /** The GameChanger team whose schedule listed it. */
+  teamId: string;
+  /** Its id on that schedule. */
+  gameId: string;
+  startTs?: string;
+  /**
+   * The day its schedule filed it on, where that is not the game's: one club's copy of a game dated
+   * a day off the other's, folded in on the same result or the same start a day apart. Kept so a
+   * copy stood back up is filed on its own day, not the game's.
+   */
+  date?: string;
+  /** Its own club's runs, as its schedule gave them. */
+  ownScore?: number;
+  /** The other club's runs, as its schedule gave them. */
+  opponentScore?: number;
+  /** Its own club is the game's side B, not side A. */
+  onSideB?: boolean;
+};
+
+/** The id a GameChanger row is filed under: its schedule and its game id on that schedule. */
+export const gcRowId = (teamId: string, gameId: string): string => `gc_${teamId}_${gameId}`;
+
 export type ScoutGame = {
   id: string;
   teamAId: string;
@@ -171,6 +204,40 @@ export type ScoutGame = {
    */
   teamAScore?: number;
   teamBScore?: number;
+  /**
+   * The score as side B's own schedule gave it, in this game's order: A's runs, then B's.
+   *
+   * Side A is always the club whose schedule the game came off (`source`) — true of every one of
+   * the 248,371 games in the pool of 24 September 2026 — and `teamAScore`/`teamBScore` are what
+   * that schedule says, or side B's where side A has posted nothing. When side B's own schedule
+   * lists the game, its score is kept here rather than written over side A's. Two schedules
+   * disagreed about 13,865 games in that pool, 563 of them about who won, and a single score let
+   * whichever schedule was pulled last speak for both clubs, flipping as the refresh went round.
+   * Each club's page and record read its own schedule's score (`scoreSeenBy`); the rating reads
+   * the game once, at the average of the two (`ratedMargin`).
+   */
+  reportedByB?: { teamAScore: number; teamBScore: number };
+  /**
+   * `teamAScore`/`teamBScore` were filled from side B's schedule because side A has posted nothing,
+   * so they are side B's word rather than side A's, and go when side B's row does.
+   */
+  scoreFromB?: boolean;
+  /**
+   * `teamAScore`/`teamBScore` were filled from another row of side A's own — the same game listed
+   * twice — because the row the game stands on has posted nothing, so they go when that row does.
+   * Kept as the game's own, a score given by the second listing stayed behind when the two rows
+   * turned out to be two games, and the result counted twice.
+   */
+  scoreFromTwin?: boolean;
+  /**
+   * The row this game stands on (`source`) is one its schedule no longer lists: deleted, cancelled
+   * or taken off the day. Set by the pull that finds it gone and cleared by one that lists it again;
+   * the tidy then takes the game away and stands up the rows folded into it, so what the other
+   * club's schedule and the club's own new entry say of the game is what is left. Kept, a game its
+   * club deleted and entered again all day stood beside the new entry holding the other club's
+   * copy, and the one game was counted twice.
+   */
+  withdrawn?: boolean;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
   /**
@@ -207,6 +274,18 @@ export type ScoutGame = {
    * meetings and leave both alone.
    */
   alsoFrom?: string[];
+  /**
+   * The GameChanger rows folded into this one, each kept whole (`FoldedRow`).
+   *
+   * `alsoFrom` says a schedule listed this game; this says which of its rows it was and what that
+   * row said. The schedule alone was not enough once a club meets another twice in a day: a game
+   * that had taken one of the other club's two rows still named that club's schedule, the other row
+   * read as the same one pulled again, and Next Level Prospects' two 10-2 losses to Bama Ballers on
+   * 12 September 2026 became one. With the row, a re-pull finds the game its copy went into, and
+   * with its start and score the tidy can put it back beside the other rows of the day and group
+   * them again (`collapseSameGames`), so a fold made on one day's schedules is never final.
+   */
+  alsoRows?: FoldedRow[];
   /** Season label from the source, as in "Fall 2026" — display and filtering only. */
   season?: string;
   /**

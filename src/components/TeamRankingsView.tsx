@@ -27,6 +27,7 @@ import {
   statesInUse,
   teamNameSuggestions,
   unlinkGcTeam,
+  withScoreTyped,
   type AgeGroup,
   type AgeGroupSeason,
   type LeagueSeasonSnapshot,
@@ -86,7 +87,14 @@ import {
   saveAgelessCleared,
   clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
-import { forgetClubs, forgetGames, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
+import {
+  forgetClubs,
+  forgetGames,
+  restoreClubs,
+  rowsOfGames,
+  scoringRowsOf,
+  type DeletedClubs,
+} from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
@@ -1078,12 +1086,12 @@ export function TeamRankingsView({
     const confirmed = await requestConfirmation({
       title: `Delete ${ids.length} game${ids.length === 1 ? "" : "s"}?`,
       message:
-        "Each one carries a score on a date still to come, so it cannot be a result. They are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
+        "Each one carries a score on a date still to come, so it cannot be a result. The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
-    saveDeletedGames(forgetGames(loadDeletedGames(), ids));
     const drop = new Set(ids);
+    saveDeletedGames(forgetGames(loadDeletedGames(), scoringRowsOf(wholePoolGames, ids)));
     const kept = wholePoolGames.filter((game) => !drop.has(game.id));
     if (kept.length !== wholePoolGames.length) persistAllGames(kept);
     showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {
@@ -1302,7 +1310,7 @@ export function TeamRankingsView({
     if (club.gcTeamIds.length > 0) {
       saveDroppedClubs(forgetClubs(loadDroppedClubs(), club.gcTeamIds));
     }
-    saveDeletedGames(forgetGames(loadDeletedGames(), club.gameIds));
+    saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, club.gameIds)));
     const drop = new Set(club.gameIds);
     persistAllGames(wholePoolGames.filter((game) => !drop.has(game.id)));
     persistTeams(scoutTeams.filter((team) => team.id !== club.teamId));
@@ -1528,7 +1536,8 @@ export function TeamRankingsView({
     }
     persistGames(
       scoutGames.map((game) =>
-        game.id === gameId ? { ...game, teamAScore: a, teamBScore: b } : game
+        // A score typed here is the answer for both clubs, so the other schedule's goes with it.
+        game.id === gameId ? withScoreTyped(game, a, b) : game
       )
     );
     setEditingGameId(null);

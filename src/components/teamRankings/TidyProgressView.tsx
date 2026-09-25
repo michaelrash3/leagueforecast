@@ -26,6 +26,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   },
   releveled: { short: "Level", full: "Age level worked out from the team's name" },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
+  withdrawn: {
+    short: "Withdrawn",
+    full: "Games whose own row their club's schedule no longer lists, taken out",
+  },
   named: { short: "Name", full: "Stand-ins the other side's schedule could name" },
   joined: {
     short: "Join",
@@ -40,6 +44,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   folded: { short: "Fold", full: "Clubs holding several GameChanger ids, folded into one" },
   paired: { short: "Pair", full: "A squad and the same squad's next season, joined" },
   collapsed: { short: "Collapse", full: "Rows that describe one game, made one game" },
+  regrouped: {
+    short: "Regroup",
+    full: "Games whose copies from the other club's schedule now fit another game, or none",
+  },
 };
 
 const count = (value: number) => value.toLocaleString();

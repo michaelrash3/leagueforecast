@@ -38,6 +38,7 @@ import {
   countsTowardRating,
   isScoutGamePlayed,
   mergeScoutTeams,
+  scoreSeenBy,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -1964,15 +1965,16 @@ describe("resolveSlotGames", () => {
       };
     };
 
-    it("keeps it once at one start time, the named row standing with the other result noted", () => {
+    it("keeps it once at one start time, each club keeping its own schedule's score", () => {
       const { state, resolved } = resolveSlotGames(day());
       expect(resolved).toBe(1);
       expect(state.games).toHaveLength(1);
       const row = state.games[0]!;
       expect(row.id).toBe("gc_gcB_b1");
       expect([row.teamAScore, row.teamBScore]).toEqual([3, 8]);
-      // In the row's own order, Bears first: the Aces had it 3-7.
-      expect(row.note).toBe("Other side reported 3-7.");
+      // In the row's own order, Bears first: the Aces had it 3-7, and read it so.
+      expect(row.reportedByB).toEqual({ teamAScore: 3, teamBScore: 7 });
+      expect(row.note).toBeUndefined();
       expect(state.teams.some((team) => team.id === "S-STAND")).toBe(false);
     });
 
@@ -2450,10 +2452,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r8|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r10|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r8|0|0|0|");
+    expect(poolSignature(empty)).toBe("r10|0|0|0|");
   });
 });
 
@@ -2962,7 +2964,11 @@ describe("a club met twice in one day", () => {
 
     const tidied = tidyPool(both).state;
     expect(tidied.games).toHaveLength(1);
-    expect(tidied.games[0]?.note).toMatch(/Other side reported/);
+    // Each club keeps its own schedule's score: the Aces won 6-4, the Badgers lost 5-6.
+    const aces = tidied.teams.find((team) => team.name === "Aces")!.id;
+    const badgers = tidied.teams.find((team) => team.name === "Badgers")!.id;
+    expect(scoreSeenBy(tidied.games[0]!, aces)).toEqual({ own: 6, opponent: 4 });
+    expect(scoreSeenBy(tidied.games[0]!, badgers)).toEqual({ own: 5, opponent: 6 });
   });
 });
 
@@ -4200,7 +4206,9 @@ describe("whether a tidy changed anything", () => {
     folded: 0,
     paired: 0,
     collapsed: 0,
+    regrouped: 0,
     pruned: 0,
+    withdrawn: 0,
     reclaimed: 0,
     resettled: 0,
     refiled: 0,

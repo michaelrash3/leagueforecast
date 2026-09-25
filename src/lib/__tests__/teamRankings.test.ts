@@ -60,6 +60,7 @@ import {
   countedInWindow,
   gcAgeLevels,
   teamRecordInPool,
+  withoutReportedByB,
   teamsInRankingPool,
   unlinkGcTeam,
   type AgeGroup,
@@ -67,6 +68,8 @@ import {
   type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutTeam,
+  gcRowId,
+  recordOf,
 } from "../teamRankings";
 
 const team = (id: string, name: string, isMine?: boolean): ScoutTeam => ({
@@ -2225,6 +2228,192 @@ describe("collapseSameGames", () => {
     const games = [row("A", "B", 5, 4, "u9", "gcA")];
     expect(collapseSameGames(games, [u9]).games).toBe(games);
   });
+
+  const timed = (game: ScoutGame, time: string, extra: Partial<ScoutGame> = {}): ScoutGame => ({
+    ...game,
+    startTs: `2026-09-11T${time}:00.000Z`,
+    ...extra,
+  });
+
+  it("puts the other schedule's row on record on the game that took it", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("A", "B", 5, 4, "u9", "gcA"), "17:00"),
+        timed(row("B", "A", 4, 5, "u9", "gcB"), "18:00"),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(1);
+    expect(out.games[0]?.alsoFrom).toEqual(["gcB"]);
+    // Kept whole, from its own seat, so the tidy can judge it again tomorrow.
+    expect(out.games[0]?.alsoRows).toEqual([
+      {
+        teamId: "gcB",
+        gameId: "1",
+        startTs: "2026-09-11T18:00:00.000Z",
+        ownScore: 4,
+        opponentScore: 5,
+        onSideB: true,
+      },
+    ]);
+  });
+
+  /*
+   * Records from before rows were named say only which schedule a folded row came off. The row
+   * pulled again, within the hour and agreeing, is taken back — 21 of the 23 results listed twice
+   * this way on the pool of 24 September 2026 — and a different result from that schedule is its
+   * second game of the day, which is what the record was kept to show.
+   */
+  it("takes back a row a schedule-only record is holding, and nothing that disagrees with it", () => {
+    const holding = timed(row("B", "A", 11, 1, "u9", "gcB"), "15:20", { alsoFrom: ["gcA"] });
+    const back = collapseSameGames(
+      [holding, timed(row("A", "B", 1, 11, "u9", "gcA"), "15:00")],
+      [u9]
+    );
+    expect(back.games).toHaveLength(1);
+
+    const second = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 8, "u9", "gcB"), "15:00", { alsoFrom: ["gcA"] }),
+        timed(row("A", "B", 6, 8, "u9", "gcA"), "16:00"),
+      ],
+      [u9]
+    );
+    expect(second.games).toHaveLength(2);
+  });
+
+  /*
+   * A day with a game typed in by hand is left to the links, which must not pair a copy with one
+   * row of a game listed twice when it contradicts the other: the Raptors' all-day 10-0 for Legacy
+   * is not Legacy's game listed at 09:00 as a 0-10 loss and again blank.
+   */
+  it("links no copy into a game whose score it contradicts, on a day typed in by hand", () => {
+    const ids = (id: string, source: string, gameId: string) => ({
+      id,
+      source: { kind: "gamechanger" as const, teamId: source, gameId },
+    });
+    const out = collapseSameGames(
+      [
+        timed({ ...row("A", "B", 0, 10, "u9", "gcA"), ...ids("gc_gcA_a0", "gcA", "a0") }, "09:00"),
+        timed(
+          {
+            ...row("A", "B", 0, 0, "u9", "gcA"),
+            teamAScore: undefined,
+            teamBScore: undefined,
+            ...ids("gc_gcA_a1", "gcA", "a1"),
+          },
+          "09:00"
+        ),
+        timed(
+          {
+            ...row("A", "B", 0, 0, "u9", "gcA"),
+            teamAScore: undefined,
+            teamBScore: undefined,
+            ...ids("gc_gcA_a2", "gcA", "a2"),
+          },
+          "11:00"
+        ),
+        { ...row("B", "A", 0, 10, "u9", "gcB"), ...ids("gc_gcB_r0", "gcB", "r0") },
+        { ...game("A", "B", 3, 3, "u9"), id: "typed", date: "2026-09-11" },
+      ],
+      [u9]
+    );
+    const holding = (id: string) =>
+      out.games.find(
+        (g) => g.id === id || (g.alsoRows ?? []).some((r) => gcRowId(r.teamId, r.gameId) === id)
+      )!;
+    expect(holding("gc_gcB_r0")).toBe(holding("gc_gcA_a2"));
+    expect(holding("gc_gcA_a0").reportedByB).toBeUndefined();
+  });
+
+  /*
+   * A day with three schedules is left to the links too. Two all-day blank copies tie for one
+   * all-day result, both with no gap to compare; the tie has to go the same way on every pass, or
+   * the two trade places for ever.
+   */
+  it("breaks a tie between links with no start the same way every time, on a day of three schedules", () => {
+    const blank = (id: string, source: string, a: string, b: string): ScoutGame => ({
+      ...game(a, b, 0, 0, "u9"),
+      teamAScore: undefined,
+      teamBScore: undefined,
+      id: `gc_${source}_${id}`,
+      date: "2026-09-11",
+      source: { kind: "gamechanger", teamId: source, gameId: id },
+    });
+    const day = [
+      {
+        ...row("A", "B", 10, 0, "u9", "gcA"),
+        id: "gc_gcA_a1",
+        source: { kind: "gamechanger" as const, teamId: "gcA", gameId: "a1" },
+      },
+      blank("b1", "gcB", "B", "A"),
+      blank("b2", "gcB", "B", "A"),
+      timed(blank("c1", "gcC", "A", "B"), "09:00"),
+    ];
+    const once = collapseSameGames(day, [u9]).games;
+    const twice = collapseSameGames(once, [u9]);
+    expect(twice.games).toBe(once);
+    // Whichever row holds each game, the rows go together the same way from either order.
+    const grouping = (games: ScoutGame[]) =>
+      games
+        .map((g) =>
+          [g.id, ...(g.alsoRows ?? []).map((r) => gcRowId(r.teamId, r.gameId))].sort().join(",")
+        )
+        .sort();
+    expect(grouping(collapseSameGames(day.slice().reverse(), [u9]).games)).toEqual(grouping(once));
+  });
+
+  // A score a row had only from another listing of its game is not its own, so it is not kept.
+  it("keeps no score on the record of a row whose score was another listing's", () => {
+    const holder = timed(row("B", "A", 3, 5, "u9", "gcB"), "09:00");
+    const lent = { ...timed(row("A", "B", 5, 3, "u9", "gcA"), "09:00"), scoreFromTwin: true };
+    expect(recordOf(holder, lent)).not.toHaveProperty("ownScore");
+    expect(recordOf(holder, { ...lent, scoreFromTwin: undefined })).toHaveProperty("ownScore", 5);
+  });
+
+  it("keeps two games apart when each holds a schedule-only record of the other's club", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 2, "u9", "gcB"), "21:30", { alsoFrom: ["gcA"] }),
+        timed(row("A", "B", 2, 10, "u9", "gcA"), "22:00", { alsoFrom: ["gcB"] }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
+
+  // Two of one club's ids, each holding a game that took one of the other club's rows: those were
+  // two rows of that club's schedule, so two games, however alike the two copies look.
+  it("keeps two games apart when both have taken a row off the same third schedule", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("A", "B", 2, 10, "u9", "gcA"), "21:30", { alsoFrom: ["gcB"] }),
+        timed({ ...row("A", "B", 2, 10, "u9", "gcA2"), id: "gc_gcA2_1" }, "22:00", {
+          alsoFrom: ["gcB"],
+        }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
+
+  it("keeps two games apart when each has already taken a row off both schedules", () => {
+    const out = collapseSameGames(
+      [
+        timed(row("B", "A", 10, 2, "u9", "gcB"), "14:00", {
+          alsoFrom: ["gcA"],
+          alsoRows: [{ teamId: "gcA", gameId: "slot" }],
+        }),
+        timed({ ...row("A", "B", 2, 10, "u9", "gcA"), id: "gc_gcA_2" }, "22:00", {
+          source: { kind: "gamechanger", teamId: "gcA", gameId: "2" },
+          alsoFrom: ["gcB"],
+          alsoRows: [{ teamId: "gcB", gameId: "late" }],
+        }),
+      ],
+      [u9]
+    );
+    expect(out.games).toHaveLength(2);
+  });
 });
 
 describe("mergeScoutTeams", () => {
@@ -2268,7 +2457,7 @@ describe("mergeScoutTeams", () => {
     // Fall id and Spring id each pulled their own schedule; both had the 3-2 over the Cubs.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
-      filed("C", "B", 2, 3, { teamId: "gcSpring", gameId: "s1" }),
+      filed("B", "C", 3, 2, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.games).toHaveLength(1);
@@ -2277,20 +2466,29 @@ describe("mergeScoutTeams", () => {
     expect(out.droppedGames).toBe(0);
   });
 
-  it("reads one game each with different scores as one game, two scorekeepers", () => {
-    // Each schedule lists one game against the Cubs that day; the results differ by a run.
+  it("keeps one game each on one club's two ids apart where the results differ", () => {
+    // Each of the club's two GameChanger teams lists one game against the Cubs that day, with no
+    // start, and the results differ. Two clubs each list every game they play each other, so one
+    // game a side is one game; one club's two teams need not list the same games, so this is not
+    // read as two scorekeepers, and neither result goes. A row's own club is always its side A, as
+    // every game pulled from GameChanger has it.
     const games = [
       filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
-      filed("C", "B", 3, 1, { teamId: "gcSpring", gameId: "s1" }),
+      filed("B", "C", 1, 3, { teamId: "gcSpring", gameId: "s1" }),
+    ];
+    const out = mergeScoutTeams("B", "A", teams, games, []);
+    expect(out.games.map((g) => g.id).sort()).toEqual(["gc_gcFall_f1", "gc_gcSpring_s1"]);
+    expect(out.collapsedGames).toBe(0);
+  });
+
+  it("still reads one game on one club's two ids as one where the results agree", () => {
+    const games = [
+      filed("A", "C", 3, 2, { teamId: "gcFall", gameId: "f1" }),
+      filed("B", "C", 3, 2, { teamId: "gcSpring", gameId: "s1" }),
     ];
     const out = mergeScoutTeams("B", "A", teams, games, []);
     expect(out.games).toHaveLength(1);
-    expect(out.games[0]).toMatchObject({
-      id: "gc_gcFall_f1",
-      teamAScore: 3,
-      teamBScore: 2,
-      note: "Other side reported 1-3.",
-    });
+    expect(out.games[0]).toMatchObject({ id: "gc_gcFall_f1", teamAScore: 3, teamBScore: 2 });
     expect(out.collapsedGames).toBe(1);
   });
 
@@ -2470,6 +2668,25 @@ describe("teamsInRankingPool / teamRecordInPool", () => {
         .map((t) => t.id)
         .sort()
     ).toEqual(["A", "B"]);
+  });
+
+  // Both clubs' schedules claim the win: each club's record is its own schedule's.
+  it("counts each side's record by its own schedule where the two disagree", () => {
+    const disputed = [
+      { ...game("A", "B", 5, 4, "u9"), reportedByB: { teamAScore: 4, teamBScore: 5 } },
+    ];
+    expect(teamRecordInPool("A", "u9", disputed, pool)).toMatchObject({ wins: 1, losses: 0 });
+    expect(teamRecordInPool("B", "u9", disputed, pool)).toMatchObject({ wins: 1, losses: 0 });
+  });
+
+  it("drops the other schedule's score when a score is typed in for both", () => {
+    const disputed = {
+      ...game("A", "B", 5, 4, "u9"),
+      reportedByB: { teamAScore: 4, teamBScore: 5 },
+    };
+    expect(withoutReportedByB(disputed)).not.toHaveProperty("reportedByB");
+    const plain = game("A", "B", 5, 4, "u9");
+    expect(withoutReportedByB(plain)).toBe(plain);
   });
 
   it("counts a team's record across the pool, cross-age games included", () => {

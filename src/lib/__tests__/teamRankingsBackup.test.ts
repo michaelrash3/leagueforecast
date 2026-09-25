@@ -103,6 +103,91 @@ describe("teamRankingsCsvSections", () => {
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(backup))).toEqual(backup);
   });
 
+  it("round-trips a game's start, the rows folded into it and the other club's score", () => {
+    const folded: TeamRankingsBackup = {
+      ...backup,
+      games: [
+        {
+          ...games[0]!,
+          startTs: "2028-04-05T17:00:00.000Z",
+          alsoFrom: ["zjvVkYnqLrf0"],
+          alsoRows: [
+            {
+              teamId: "zjvVkYnqLrf0",
+              gameId: "0b1e-77",
+              startTs: "2028-04-05T17:40:00.000Z",
+              ownScore: 4,
+              opponentScore: 6,
+              onSideB: true,
+            },
+            { teamId: "gsUthn4XoIxS", gameId: "twice" },
+            {
+              teamId: "q7Lk2mZpVw01",
+              gameId: "next-day",
+              date: "2028-04-06",
+              ownScore: 6,
+              opponentScore: 4,
+            },
+          ],
+          reportedByB: { teamAScore: 6, teamBScore: 4 },
+          scoreFromB: true,
+        },
+        { ...games[1]!, scoreFromTwin: true, withdrawn: true },
+      ],
+    };
+    expect(parseTeamRankingsCsv(teamRankingsCsvSections(folded))).toEqual(folded);
+  });
+
+  /*
+   * A folded row read back in the order `recordOf` writes one, which is how the tidy compares
+   * records: read back in another, every game holding a row dated a day off read as regrouped on
+   * the first tidy after a restore. A day that is not an ISO day is kept as the text it was, short
+   * of the marks the cell is written in; a folded row's day is GameChanger's, which is always ISO.
+   */
+  it("reads a folded row back in the order the tidy writes it, whatever its day", () => {
+    const rows = [
+      {
+        teamId: "zjvVkYnqLrf0",
+        gameId: "0b1e-77",
+        startTs: "2028-04-06T17:40:00.000Z",
+        date: "2028-04-06",
+        ownScore: 4,
+        opponentScore: 6,
+        onSideB: true as const,
+      },
+      { teamId: "gsUthn4XoIxS", gameId: "unpadded", date: "2028-4-6" },
+    ];
+    const dated: TeamRankingsBackup = { ...backup, games: [{ ...games[0]!, alsoRows: rows }] };
+    const back = parseTeamRankingsCsv(teamRankingsCsvSections(dated));
+    expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
+  });
+
+  // A score typed by hand is any number the score cell takes, and it is written into side B's row.
+  it("round-trips a folded row and the other club's score that are not whole numbers", () => {
+    const typed: TeamRankingsBackup = {
+      ...backup,
+      games: [
+        {
+          ...games[0]!,
+          teamAScore: 5.5,
+          teamBScore: 3,
+          alsoFrom: ["zjvVkYnqLrf0"],
+          alsoRows: [
+            {
+              teamId: "zjvVkYnqLrf0",
+              gameId: "0b1e-77",
+              ownScore: 3,
+              opponentScore: 5.5,
+              onSideB: true,
+            },
+          ],
+          reportedByB: { teamAScore: 5.5, teamBScore: 3 },
+        },
+      ],
+    };
+    expect(parseTeamRankingsCsv(teamRankingsCsvSections(typed))).toEqual(typed);
+  });
+
   it("round-trips the pool appended to a schedule export", () => {
     expect(parseTeamRankingsCsv(backupCsv)).toEqual(backup);
   });
@@ -174,12 +259,14 @@ describe("teamRankingsCsvSections", () => {
       [
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
-        "Also From",
+        "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
+        "Withdrawn",
       ].join(",")
     );
-    // The trailing empty cell is a game no stand-in was ever folded into, which is nearly all of them.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,$/);
-    expect(lines[2]).toMatch(/,,,,,,$/);
+    // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
+    // a game with no start, and one only its own club's schedule scored, and scored on its own row.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,,,,,$/);
   });
 });
 

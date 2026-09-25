@@ -17,6 +17,8 @@
  * is no schedule to bring it back.
  */
 
+import { gcRowId, type ScoutGame } from "./teamRankings/types";
+
 export type DeletedGames = ReadonlySet<string>;
 
 /** Whatever was stored, as a set. Anything that is not an id is dropped. */
@@ -38,6 +40,70 @@ export const isDeletedGame = (deleted: DeletedGames, gameId: string): boolean =>
 /** The list with these rows marked as thrown out. */
 export const forgetGames = (deleted: DeletedGames, ids: readonly string[]): Set<string> =>
   new Set([...deleted, ...ids]);
+
+/**
+ * The rows to remember for games being thrown out: each game's own id, and the row it stands on
+ * where that is not the one its id was made from — a game that took over a row entered again after
+ * the first was deleted, which the next pull finds by that row's id and would file again.
+ */
+export const rowsOfGames = (
+  games: readonly Pick<ScoutGame, "id" | "source">[],
+  ids: readonly string[]
+): string[] => {
+  const drop = new Set(ids);
+  const stoodOn = games.flatMap((game) =>
+    drop.has(game.id) && game.source && gcRowId(game.source.teamId, game.source.gameId) !== game.id
+      ? [gcRowId(game.source.teamId, game.source.gameId)]
+      : []
+  );
+  return [...ids, ...stoodOn];
+};
+
+/**
+ * The rows to remember for games thrown out for a score dated ahead: the rows that carried the
+ * score, and only those.
+ *
+ * A game holds a row off each club's schedule, and the score can be either one's: a club that
+ * files results ahead of time scores its copy, while the other club's copy of the same fixture is
+ * the plain schedule entry it always was. Remembering only the row the game stood on missed the
+ * scored copy when it was the other club's, folded in, and that club's next pull filed it, score
+ * and all, straight back. Remembering every row would keep the other club's real fixture out for
+ * good. So a row is remembered where it gave the game a score of its own: the row the game stands
+ * on (and the id it was made from) when the game's score is that row's, not one it borrowed
+ * (`scoreFromB`, `scoreFromTwin`), and every folded row whose record kept a score.
+ */
+export const scoringRowsOf = (
+  games: readonly Pick<
+    ScoutGame,
+    "id" | "source" | "teamAScore" | "teamBScore" | "scoreFromB" | "scoreFromTwin" | "alsoRows"
+  >[],
+  ids: readonly string[]
+): string[] => {
+  const drop = new Set(ids);
+  const rows = new Set<string>();
+  games.forEach((game) => {
+    if (!drop.has(game.id)) return;
+    const found = rows.size;
+    const ownScore =
+      game.teamAScore !== undefined &&
+      game.teamBScore !== undefined &&
+      !game.scoreFromB &&
+      !game.scoreFromTwin;
+    if (ownScore) {
+      rows.add(game.id);
+      if (game.source) rows.add(gcRowId(game.source.teamId, game.source.gameId));
+    }
+    (game.alsoRows ?? []).forEach((record) => {
+      if (record.ownScore !== undefined && record.opponentScore !== undefined) {
+        rows.add(gcRowId(record.teamId, record.gameId));
+      }
+    });
+    // A score whose row is on record by its schedule alone, from before rows were kept, is
+    // remembered by the rows the game stands on, as every deletion was before.
+    if (rows.size === found) rowsOfGames([game], [game.id]).forEach((row) => rows.add(row));
+  });
+  return [...rows];
+};
 
 /** The list with these rows allowed back, so the next pull may file them again. */
 export const restoreGames = (deleted: DeletedGames, ids: readonly string[]): Set<string> => {

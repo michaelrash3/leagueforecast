@@ -83,6 +83,51 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
+  it("keeps the start, every row folded into a game and the other club's score", () => {
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gcLEGACY01_l2",
+        teamAId: "S-LEGA",
+        teamBId: "S-RIVE",
+        teamAScore: 14,
+        teamBScore: 2,
+        ageGroupId: "ag_1",
+        date: "2026-08-29",
+        startTs: "2026-08-29T17:00:00.000Z",
+        alsoFrom: ["gcRAPTOR01"],
+        alsoRows: [
+          {
+            teamId: "gcRAPTOR01",
+            gameId: "r2",
+            startTs: "2026-08-29T18:00:00.000Z",
+            ownScore: 3,
+            opponentScore: 14,
+            onSideB: true,
+          },
+          { teamId: "gcLEGACY01", gameId: "l2-again", startTs: "2026-08-29T17:00:00.355Z" },
+          { teamId: "gcRAPTORS01", gameId: "r9", date: "2026-08-30" },
+        ],
+        scoreFromB: true,
+        reportedByB: { teamAScore: 14, teamBScore: 3 },
+        source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l2" },
+      },
+      {
+        id: "gc_gcLEGACY01_l3",
+        teamAId: "LEG",
+        teamBId: "RAP",
+        ageGroupId: "ag_1",
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2026-08-30",
+        alsoRows: [{ teamId: "gcLEGACY01", gameId: "l3b", ownScore: 5, opponentScore: 3 }],
+        scoreFromTwin: true,
+        withdrawn: true,
+        source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l3" },
+      },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+  });
+
   // A scheduled game has no scores at all, and that is the difference between "not played" and
   // "nil-nil", so it must survive the trip as absence rather than as zero.
   it("keeps a scheduled game unscored", () => {

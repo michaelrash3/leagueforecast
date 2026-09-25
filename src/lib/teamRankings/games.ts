@@ -48,6 +48,131 @@ export const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;
 
 /**
+ * The score one side's own schedule gave it — its runs, then its opponent's — or undefined for a
+ * game not played. Side B reads `reportedByB` where its schedule said something different, so
+ * neither club's page shows the other's version of its own game.
+ */
+export const scoreSeenBy = (
+  game: ScoutGame,
+  teamId: string
+): { own: number; opponent: number } | undefined => {
+  if (game.teamAScore === undefined || game.teamBScore === undefined) return undefined;
+  if (game.teamAId === teamId) return { own: game.teamAScore, opponent: game.teamBScore };
+  const seen = game.reportedByB ?? game;
+  return { own: seen.teamBScore!, opponent: seen.teamAScore! };
+};
+
+/** A game with side B's own report taken off, for a score that now answers for both clubs. */
+export const withoutReportedByB = (game: ScoutGame): ScoutGame => {
+  if (game.reportedByB === undefined) return game;
+  const { reportedByB: _dropped, ...rest } = game;
+  return rest;
+};
+
+/**
+ * A game with a score typed in by hand: the one answer for both clubs.
+ *
+ * Side B's report goes, and so does any mark that the score was another row's — the tidy takes such
+ * a score off with its row (`bareRow`), which took the typed score with it. The record of each row
+ * folded into the game is given the typed score from its club's seat, or the next tidy stands a
+ * scored row up again with its old score — side B's beside this one, or side A's second listing as
+ * a second game, since it no longer gave the same result — and a blank one would leave nothing of
+ * the typed score once the game's own row goes (`withdrawn`) and the rows folded into it stand in
+ * its place. The record keeps the row, so the regroup still finds it; the club's next pull brings
+ * its schedule's score back in, as it does for any game.
+ */
+export const withScoreTyped = (
+  game: ScoutGame,
+  teamAScore: number,
+  teamBScore: number
+): ScoutGame => {
+  const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...rest } = withoutReportedByB(game);
+  const alsoRows = game.alsoRows?.map((record) =>
+    record.onSideB
+      ? { ...record, ownScore: teamBScore, opponentScore: teamAScore }
+      : { ...record, ownScore: teamAScore, opponentScore: teamBScore }
+  );
+  return { ...rest, teamAScore, teamBScore, ...(alsoRows ? { alsoRows } : {}) };
+};
+
+/**
+ * Side A's margin as the rating reads it: the one score, or where the two clubs' schedules
+ * disagree, the average of the two — the game counts once, and neither schedule is taken at its
+ * word over the other. Undefined for a game not played.
+ */
+export const ratedMargin = (game: ScoutGame): number | undefined => {
+  if (game.teamAScore === undefined || game.teamBScore === undefined) return undefined;
+  const margin = game.teamAScore - game.teamBScore;
+  const other = game.reportedByB;
+  return other ? (margin + other.teamAScore - other.teamBScore) / 2 : margin;
+};
+
+const MINUTE_MS = 60_000;
+
+/** A start as an instant, or undefined when there is none or it is not a time. */
+const instantOf = (startTs: string | undefined): number | undefined => {
+  if (startTs === undefined) return undefined;
+  const at = Date.parse(startTs);
+  return Number.isFinite(at) ? at : undefined;
+};
+
+/** Minutes between two starts; undefined when either is missing or is not a time. */
+export const minutesApart = (a: string | undefined, b: string | undefined): number | undefined => {
+  const x = instantOf(a);
+  const y = instantOf(b);
+  return x === undefined || y === undefined ? undefined : Math.abs(x - y) / MINUTE_MS;
+};
+
+/** A start rounded to its minute, so an index can be keyed on what `sameStart` compares. */
+export const startMinuteOf = (startTs: string | undefined): number | undefined => {
+  const at = instantOf(startTs);
+  return at === undefined ? undefined : Math.round(at / MINUTE_MS);
+};
+
+/**
+ * Whether two rows give the same start: the same minute, to the nearest.
+ *
+ * Read as instants rather than as equal strings. The pool of 24 September 2026 stores every start
+ * in one spelling, but 1,013 of its rows start at an odd second or millisecond, and 54 pairs of rows
+ * between the same two clubs on the same day were under a minute apart — 12 of them off one
+ * schedule, which is one game listed twice however the strings compare. The nearest minute rather
+ * than "under a minute apart" so that an index keyed on `startMinuteOf` finds exactly the pairs this
+ * matches. A start that is not a time matches only its own spelling.
+ */
+export const sameStart = (a: string | undefined, b: string | undefined): boolean => {
+  if (a === undefined || b === undefined) return false;
+  const x = startMinuteOf(a);
+  const y = startMinuteOf(b);
+  return x === undefined || y === undefined ? a === b : x === y;
+};
+
+/**
+ * How far apart two clubs' schedules can put one game and still mean it.
+ *
+ * A start on a schedule is when the game was planned, not when it began: a tournament runs behind
+ * and nobody moves the placeholder, so the two coaches' copies of one game drift apart. On the pool
+ * of 24 September 2026, 1,213 pairs of rows off two schedules gave the same pair of clubs the same
+ * result on the same day at different starts, and 1,115 of them were an hour apart or less; the
+ * same search a week off, where no game is, found 7. A game runs longer than an hour, so two
+ * starts within one of each other on two schedules are one game — inclusive, because the pair that
+ * brought this to light, Legacy Baseball Club and River City Raptors, was exactly sixty minutes out.
+ *
+ * One club's own schedule is held to more. The same pool had 109 pairs of rows off one schedule,
+ * against one opponent, exactly an hour apart with two different results — 23-6 and 12-2 — which
+ * is a doubleheader written down at its slot times, so there the hour only counts where the two
+ * rows give the same result. Of 212 such scored pairs within the hour, 34 did (16%); of 6,044 two
+ * hours or more apart, which are doubleheaders, 81 did (1.3%). A repeated result that much more
+ * often than doubleheaders produce one is the same game listed twice.
+ */
+export const ONE_GAME_WINDOW_MINUTES = 60;
+
+export const startsWithinTheHour = (a: string | undefined, b: string | undefined): boolean => {
+  if (a === undefined || b === undefined) return false;
+  const gap = minutesApart(a, b);
+  return gap === undefined ? a === b : gap <= ONE_GAME_WINDOW_MINUTES;
+};
+
+/**
  * Finds an existing game that looks like the same game as `candidate` — same two teams (in either
  * order), same date, same score. That is the shape a double-entry takes, whether it came from
  * typing a game twice, importing a screenshot twice, or re-entering one the league schedule

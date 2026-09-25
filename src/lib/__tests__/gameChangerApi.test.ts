@@ -26,6 +26,7 @@ import {
   isGcFetchErrorReason,
   localDateInZone,
   normalizeGcGameStatus,
+  gcGameIdsFrom,
   normalizeGcGames,
   normalizeGcTeamProfile,
   parseGcAgeLevel,
@@ -798,6 +799,23 @@ describe("normalizeGcGames", () => {
     expect(withZone?.date).toBe("2026-09-12");
     expect(timed?.startTs).toBe("2026-09-12T14:15:00.000Z");
     expect(timed?.date).toBe("2026-09-12");
+  });
+
+  /*
+   * Every entry's id, the ones read as games or not: a pull tells a row its schedule dropped from
+   * one it listed in a shape this app cannot read, and only the first may take a game away.
+   */
+  it("lists the id of every entry, read as a game or not", () => {
+    const raw = [
+      { id: "g1", opponent_team: { name: "Read 9U" }, start_ts: "2026-10-03T18:00:00.000Z" },
+      { id: "g2", opponent_team: null, start_ts: "2026-10-04T18:00:00.000Z" },
+      { opponent_team: { name: "No Id 9U" } },
+      "not an entry",
+    ];
+    expect(normalizeGcGames(raw).map((game) => game.id)).toEqual(["g1"]);
+    expect(gcGameIdsFrom(raw)).toEqual(["g1", "g2"]);
+    expect(gcGameIdsFrom({ games: raw })).toEqual(["g1", "g2"]);
+    expect(gcGameIdsFrom(null)).toEqual([]);
   });
 
   it("reads scheduled games without scores and canceled ones", () => {

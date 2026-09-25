@@ -152,10 +152,14 @@ const readSchedule = (value: unknown): GcTeamSchedule | null => {
     return null;
   }
   if (!Array.isArray(games)) return null;
+  const rowIds = Array.isArray(value.rowIds)
+    ? value.rowIds.filter((id): id is string => typeof id === "string")
+    : undefined;
   return {
     profile: profile as GcTeamSchedule["profile"],
     games: games as GcTeamSchedule["games"],
     fetchedAt: typeof value.fetchedAt === "string" ? value.fetchedAt : new Date().toISOString(),
+    ...(rowIds ? { rowIds } : {}),
   };
 };
 

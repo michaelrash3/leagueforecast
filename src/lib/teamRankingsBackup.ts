@@ -149,6 +149,25 @@ const GAME_HEADERS = [
   "Source Game ID",
   /** Other GameChanger schedules that listed this game — what tells a doubleheader from a dispute. */
   "Also From",
+  /**
+   * When the game started, as the schedule gave it. Missing from the file until September 2026, so
+   * a restore lost every start, and the start is half of what says two rows are one game.
+   */
+  "Start",
+  /**
+   * The rows folded into this game, whole: `team:game`, then `#day` for a row its schedule dated a
+   * day off the game's, `@start`, `=own-opponent` and `/B` for a row whose club is side B, each
+   * where there is one.
+   */
+  "Also Rows",
+  /** The score as Team B's own schedule gave it, where that was kept: A's runs, a dash, B's. */
+  "Team B Reported",
+  /** The score is Team B's, borrowed while Team A's schedule has posted none. */
+  "Score From Team B",
+  /** The score is another listing's of the game on Team A's schedule, the row it stands on blank. */
+  "Score From Second Listing",
+  /** Team A's schedule no longer lists the row the game stands on; the next tidy takes it away. */
+  "Withdrawn",
 ];
 
 /**
@@ -355,6 +374,23 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.source?.teamId ?? "",
       game.source?.gameId ?? "",
       (game.alsoFrom ?? []).join(" "),
+      game.startTs ?? "",
+      (game.alsoRows ?? [])
+        .map(
+          (row) =>
+            `${row.teamId}:${row.gameId}` +
+            (row.date ? `#${row.date}` : "") +
+            (row.startTs ? `@${row.startTs}` : "") +
+            (row.ownScore !== undefined && row.opponentScore !== undefined
+              ? `=${row.ownScore}-${row.opponentScore}`
+              : "") +
+            (row.onSideB ? "/B" : "")
+        )
+        .join(" "),
+      game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
+      yesNo(game.scoreFromB),
+      yesNo(game.scoreFromTwin),
+      yesNo(game.withdrawn),
     ]
       .map(csvEscape)
       .join(",")
@@ -694,24 +730,62 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     // Space-separated, because a GameChanger team id never contains one and a comma would need
     // quoting in a cell this is only ever read back from.
     const alsoFrom = cell("Also From").split(/\s+/).filter(Boolean);
+    const startTs = cell("Start");
+    // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
+    // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
+    // day after "#", which no id holds either.
+    const alsoRows = cell("Also Rows")
+      .split(/\s+/)
+      .flatMap((entry) => {
+        // A score typed by hand can be any number the score cell takes, so not only whole ones.
+        const parsed =
+          /^([^:@=/#]+):([^:@=/#]+)(?:#([^@=/]+))?(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
+            entry
+          );
+        if (!parsed) return [];
+        const [, teamId, gameId, date, startTs, own, opponent, sideB] = parsed;
+        // In `recordOf`'s order, which the tidy compares records in: read back in another, every
+        // game with a dated row read as regrouped on the first tidy after a restore.
+        return [
+          {
+            teamId: teamId!,
+            gameId: gameId!,
+            ...(startTs ? { startTs } : {}),
+            ...(date ? { date } : {}),
+            ...(own !== undefined && opponent !== undefined
+              ? { ownScore: Number(own), opponentScore: Number(opponent) }
+              : {}),
+            ...(sideB ? { onSideB: true } : {}),
+          },
+        ];
+      });
+    const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
     return [
       {
         id,
         teamAId,
         teamBId,
         ageGroupId,
+        ...(reported
+          ? { reportedByB: { teamAScore: Number(reported[1]), teamBScore: Number(reported[2]) } }
+          : {}),
         ...(teamAScore === undefined ? {} : { teamAScore }),
         ...(teamBScore === undefined ? {} : { teamBScore }),
         ...(date ? { date } : {}),
         ...(event ? { event } : {}),
         ...(note ? { note } : {}),
         ...(isYes(cell("Excluded")) ? { excluded: true as const } : {}),
+        ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
+        ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
+        ...(isYes(cell("Withdrawn")) ? { withdrawn: true as const } : {}),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),
         // Lost on a restore, a settled stand-in looks like a disputed score again and a real
         // result gets deleted a second time — so it is carried in the file rather than rebuilt.
         ...(alsoFrom.length > 0 ? { alsoFrom } : {}),
+        ...(alsoRows.length > 0 ? { alsoRows } : {}),
+        ...(startTs ? { startTs } : {}),
         // Half a source names nothing a re-pull could match, so it takes both ids or neither.
         ...(sourceTeamId && sourceGameId
           ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }
