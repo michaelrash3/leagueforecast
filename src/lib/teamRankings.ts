@@ -808,6 +808,18 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
 export const filedRowOf = (holder: ScoutGame, record: FoldedRow): ScoutGame =>
   asFiled(rowOfRecord(holder, record), record);
 
+/**
+ * Whether `record` is a claim filed against the very team it faces in `holder`: a stand-in its row
+ * was filed against, merged since into the club whose copy claimed it (`withFiledRepointed`), by
+ * hand or with the club's other squad. The name is that club's now, so the row is where its name
+ * says, as a row filed against the club by name is. It stays a claim, so a re-pull does not read
+ * it as a fold with nothing to say where it was filed (`FoldedRow.filedAgainst`), but it is not a
+ * claim the schedules can take back: there is no other team for it to go back to.
+ */
+export const isSettledClaim = (holder: ScoutGame, record: FoldedRow): boolean =>
+  record.filedAgainst !== undefined &&
+  record.filedAgainst === (record.onSideB ? holder.teamAId : holder.teamBId);
+
 /** `row`, a claimed record stood up against its holder, put back against the team it named. */
 const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
   if (record.filedAgainst === undefined || record.filedAgainst === row.teamAId) return row;
@@ -1790,9 +1802,18 @@ const sameGameGroups = (bucket: ScoutGame[]): DayReading => {
  * beside it as rows of their own), the schedules still on record without a row kept, and a score
  * borrowed from side B's schedule taken off with side B's own score, since both go with that row —
  * as a score given by another listing on side A's schedule goes with that listing.
+ *
+ * A claim settled on the club it faces (`isSettledClaim`) stays with the game rather than being
+ * put back beside it, as every claim does, and its schedule stays on record: it is that club's own
+ * row of the game. Taken off the record, the game read as holding no row of that club, and the
+ * regroup gave it the club's other game against the same club that day, a 7-3 lost into a 2-4.
  */
 const bareRow = (game: ScoutGame): ScoutGame => {
-  const named = new Set((game.alsoRows ?? []).map((record) => record.teamId));
+  const named = new Set(
+    (game.alsoRows ?? [])
+      .filter((record) => !isSettledClaim(game, record))
+      .map((record) => record.teamId)
+  );
   const unnamed = (game.alsoFrom ?? []).filter((source) => !named.has(source));
   const {
     alsoRows: _rows,
@@ -3610,15 +3631,24 @@ export const claimInto = (
   filedLevel: number | undefined
 ): ScoutGame => {
   const asCopy: ScoutGame = { ...row, teamBId: copy.teamAId };
-  const recorded = withSchedulesOf(copy, asCopy);
+  const marked = withFiledMark(withSchedulesOf(copy, asCopy), row.id, filedAgainst, filedLevel);
+  return withSideBReport(marked, asCopy) ?? marked;
+};
+
+/** `game` with its record of the row `rowId` marked as filed against `filedAgainst` by name. */
+export const withFiledMark = (
+  game: ScoutGame,
+  rowId: string,
+  filedAgainst: string,
+  filedLevel: number | undefined
+): ScoutGame => {
   const claim = { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) };
-  const marked: ScoutGame = {
-    ...recorded,
-    alsoRows: (recorded.alsoRows ?? []).map((record) =>
-      gcRowId(record.teamId, record.gameId) === row.id ? { ...record, ...claim } : record
+  return {
+    ...game,
+    alsoRows: (game.alsoRows ?? []).map((record) =>
+      gcRowId(record.teamId, record.gameId) === rowId ? { ...record, ...claim } : record
     ),
   };
-  return withSideBReport(marked, asCopy) ?? marked;
 };
 
 /**
@@ -3791,10 +3821,49 @@ export const mergeScoutTeams = (
     teams: teams.flatMap((team) =>
       team.id === fromId ? [] : team.id === intoId ? [merged] : [team]
     ),
-    games: collapsed.games,
+    games: settledOnMerge(removed, intoId, games, collapsed.games),
     droppedGames,
     collapsedGames: collapsed.collapsed,
   };
+};
+
+/**
+ * `merged` with every row filed by name against the stand-in `removed`, which the merge folded into
+ * a copy of `intoId`'s, kept as a claim settled on `intoId` (`isSettledClaim`). Folded with no mark,
+ * the row read as one a schedule filed against nobody the pool knew, and the club's next pull made
+ * the merged-away name again and claimed the row from it (`filedMarkFor`), undoing the merge.
+ */
+const settledOnMerge = (
+  removed: ScoutTeam,
+  intoId: string,
+  before: ScoutGame[],
+  merged: ScoutGame[]
+): ScoutGame[] => {
+  if (!(removed.placeholder || removed.nameOnly) || removed.gcTeams?.length) return merged;
+  /** Each row filed against the stand-in, and the level its name gave. */
+  const named = new Map<string, number | undefined>();
+  before.forEach((game) => {
+    if (game.source && (game.teamAId === removed.id || game.teamBId === removed.id)) {
+      named.set(
+        gcRowId(game.source.teamId, game.source.gameId),
+        game.teamBId === removed.id ? game.ageLevelB : game.ageLevelA
+      );
+    }
+    game.alsoRows?.forEach((record) => {
+      if (record.filedAgainst !== undefined) return;
+      const row = rowOfRecord(game, record);
+      if (row.teamBId === removed.id) named.set(row.id, row.ageLevelB);
+    });
+  });
+  if (named.size === 0) return merged;
+  return merged.map((game) =>
+    (game.alsoRows ?? []).reduce((next, record) => {
+      const rowId = gcRowId(record.teamId, record.gameId);
+      const faces = record.onSideB ? game.teamAId : game.teamBId;
+      if (record.filedAgainst !== undefined || !named.has(rowId) || faces !== intoId) return next;
+      return withFiledMark(next, rowId, intoId, named.get(rowId));
+    }, game)
+  );
 };
 
 /**

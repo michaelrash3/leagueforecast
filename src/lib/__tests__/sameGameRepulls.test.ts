@@ -859,8 +859,7 @@ describe("a game joined before rows were kept, and the other club's copy hours o
   /*
    * The earlier join left Legacy's 4-3 win at 20:00 naming the Raptors' schedule and nothing of its
    * row. The Raptors' row comes back at 17:15 with the same result: the same game whatever the
-   * clocks say, as two schedules' copies of one game are. A different result that far off is the
-   * day's second meeting, which the record was kept to show.
+   * clocks say, as two schedules' copies of one game are.
    */
   const l = legacy([at("l1", RAPTORS, "20:00", 4, 3)]);
   const r = raptors([at("r1", LEGACY, "17:15", 3, 4)]);
@@ -885,11 +884,146 @@ describe("a game joined before rows were kept, and the other club's copy hours o
     expect(raptorsSee(state)).toEqual(["3-4"]);
   });
 
-  it("keeps a different result that far off as the second meeting", () => {
+  /*
+   * A different result that far off, the Raptors' one row against Legacy that day as Legacy's is
+   * its one row against them: one game, each club's own score, as where the row was kept. The
+   * record once read as a second Raptors row in the game, and the row came back as a second game.
+   */
+  it("reads a different result that far off as the game where the row was kept", () => {
     const other = raptors([at("r1", LEGACY, "17:15", 13, 12)]);
+    const kept = pull(joined, other);
+    expect(kept.games).toHaveLength(1);
+    expect(raptorsSee(kept)).toEqual(["13-12"]);
     const state = pull({ ...joined, games: [before] }, other);
+    expect(state.games).toHaveLength(1);
+    expect(raptorsSee(state)).toEqual(["13-12"]);
+    expect(legacySees(state)).toEqual(["4-3"]);
+  });
+});
+
+describe("a game joined before rows were kept, whose row comes back under another name", () => {
+  /*
+   * The Raptors' 3-13 was joined to Legacy's copy before rows were kept, which left the Raptors'
+   * schedule on record there and nothing of the row. It comes back against a name that finds
+   * nobody. The record answered for the Raptors' row that day, so the claim step took Legacy's
+   * copy as holding it already, and the row stood beside it: the game counted twice.
+   */
+  const l = legacy([at("l1", RAPTORS, "17:30", 13, 3)]);
+  const r = raptors([at("r1", LEGACY, "17:30", 3, 13)]);
+  const joined = [l, r].reduce(pull, empty);
+  const { alsoRows: _rows, reportedByB: _report, ...fields } = joined.games[0]!;
+  const before: ScoutGame = { ...fields, alsoFrom: ["gcRAPTORS001"] };
+
+  it("puts the row back on record there when it comes back within the hour", () => {
+    expect(joined.games).toHaveLength(1);
+    const renamed = raptors([at("r1", "Summer Stars 11U", "17:40", 3, 13)]);
+    const state = importGcSchedule(renamed, { ...joined, games: [before] }).state;
+    expect(state.games).toHaveLength(1);
+    const game = state.games[0]!;
+    expect(game.alsoFrom).toEqual(["gcRAPTORS001"]);
+    expect(game.alsoRows?.map((row) => row.gameId)).toEqual(["r1"]);
+    expect(state.teams.some((team) => team.name === "Summer Stars")).toBe(false);
+    expect(raptorsSee(tidyPool(state).state)).toEqual(["3-13"]);
+  });
+
+  it("takes the schedule off the record when its answer files no row into the game", () => {
+    // Two hours off: not the row the record stood for, but the claim step's, as the same result.
+    const renamed = raptors([at("r1", "Summer Stars 11U", "19:30", 3, 13)]);
+    const state = importGcSchedule(renamed, { ...joined, games: [before] }).state;
+    const game = state.games.find((entry) => entry.id === before.id)!;
+    expect(game.alsoFrom).toBeUndefined();
     expect(state.games).toHaveLength(2);
-    expect(raptorsSee(state)).toEqual(["13-12", "3-4"]);
+    const tidied = tidyPool(state).state;
+    expect(tidied.games).toHaveLength(1);
+    expect(raptorsSee(tidied)).toEqual(["3-13"]);
+    expect(legacySees(tidied)).toEqual(["13-3"]);
+  });
+
+  /** The record's copy after the Raptors' pull brings `rows`, and what it holds. */
+  const holderAfter = (state: GcImportState, ...rows: GcTeamSchedule["games"]) => {
+    const pulled = importGcSchedule(raptors(rows), state).state;
+    const game = pulled.games.find((entry) => entry.id === before.id)!;
+    return { pulled, rows: game.alsoRows?.map((row) => row.gameId) ?? [], from: game.alsoFrom };
+  };
+
+  it("does not put back a row scored further apart than scorekeepers are", () => {
+    const { rows, from } = holderAfter(
+      { ...joined, games: [before] },
+      at("r1", "Summer Stars 11U", "17:40", 12, 1)
+    );
+    expect(rows).toEqual([]);
+    expect(from).toBeUndefined();
+  });
+
+  it("does not put back a row whose name finds a club somebody pulled", () => {
+    const marlins = club("gcMARLINS001", "Marlins 11U", [at("m1", "Somebody 11U", "09:00", 1, 1)]);
+    const withMarlins = pull({ ...joined, games: [before] }, marlins);
+    const { pulled, rows } = holderAfter(withMarlins, at("r1", "Marlins 11U", "17:40", 3, 13));
+    expect(rows).toEqual([]);
+    const marlinsId = pulled.teams.find((team) => team.name === "Marlins")!.id;
+    expect(pulled.games.some((game) => game.teamBId === marlinsId && game.teamAScore === 3)).toBe(
+      true
+    );
+  });
+
+  it("does not put back a row two copies holding the schedule on record could be", () => {
+    const second: ScoutGame = {
+      ...before,
+      id: "gc_gcLEGACY0001_l2",
+      startTs: "2026-08-29T17:50:00.000Z",
+      source: { kind: "gamechanger", teamId: "gcLEGACY0001", gameId: "l2" },
+    };
+    const state = importGcSchedule(raptors([at("r1", "Summer Stars 11U", "17:40", 3, 13)]), {
+      ...joined,
+      games: [before, second],
+    }).state;
+    expect(state.games.flatMap((game) => game.alsoRows ?? [])).toEqual([]);
+  });
+
+  it("reads a row put back as any fold with nothing to say where it was filed", () => {
+    // A run apart, ten minutes off: the claim step's to claim, so marked in the same pull.
+    const { pulled } = holderAfter(
+      { ...joined, games: [before] },
+      at("r1", "Summer Stars 11U", "17:40", 3, 12)
+    );
+    const game = pulled.games.find((entry) => entry.id === before.id)!;
+    const summer = pulled.teams.find((team) => team.name === "Summer Stars")!;
+    expect(game.alsoRows?.map((row) => row.filedAgainst)).toEqual([summer.id]);
+  });
+
+  it("keeps it through an answer with no row to trust", () => {
+    const state = importGcSchedule(raptors([]), { ...joined, games: [before] }).state;
+    expect(state.games.find((entry) => entry.id === before.id)!.alsoFrom).toEqual(["gcRAPTORS001"]);
+  });
+
+  /*
+   * Legacy's 6-3 at ten holds the Raptors' schedule on record; the Raptors' 3-12 at two is a second
+   * meeting that only they list. Their row of the first game comes back against a name that finds
+   * nobody, ten minutes off and a run apart. Filed as a game of its own, the record came off, the
+   * claim step waited on the second meeting, and the regroup paired it with Legacy's copy by count:
+   * a 3-12 folded into a 6-3, Legacy's 12-3 win gone.
+   */
+  it("keeps the day's second meeting apart from the game the record was", () => {
+    const l2 = legacy([at("l1", RAPTORS, "10:00", 6, 3)]);
+    const r2 = raptors([at("r1", LEGACY, "10:00", 3, 6), at("r2", LEGACY, "14:00", 3, 12)]);
+    const both = [l2, r2].reduce(pull, empty);
+    const copy = both.games.find((game) => game.id === "gc_gcLEGACY0001_l1")!;
+    const { alsoRows: _held, reportedByB: _lent, ...kept } = copy;
+    const onRecord: GcImportState = {
+      ...both,
+      games: both.games.map((game) =>
+        game === copy ? { ...kept, alsoFrom: ["gcRAPTORS001"] } : game
+      ),
+    };
+    const back = raptors([
+      at("r1", "Gold Rush 11U", "10:10", 3, 7),
+      at("r2", LEGACY, "14:00", 3, 12),
+    ]);
+    const state = pull(onRecord, back);
+    expect(legacySees(state)).toEqual(["6-3", "12-3"]);
+    expect(
+      state.games.find((game) => game.id === copy.id)!.alsoRows?.map((row) => row.gameId)
+    ).toEqual(["r1"]);
   });
 });
 
