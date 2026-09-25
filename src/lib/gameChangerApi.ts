@@ -82,6 +82,12 @@ export type GcTeamSchedule = {
   games: GcGame[];
   fetchedAt: string;
   /**
+   * The id of every entry the schedule answered with, read or not (`gcGameIdsFrom`), so a pull can
+   * tell a row the schedule no longer lists from one it listed in a shape this app could not read
+   * — an entry with no opponent, say. Absent where the answer was not kept whole.
+   */
+  rowIds?: string[];
+  /**
    * What the user's own team list said about this team, when they pasted one that carried it.
    *
    * Kept apart from `profile` because the two have different authority: a field in there is
@@ -1381,6 +1387,13 @@ const normalizeGcGame = (raw: unknown): GcGame | null => {
  * holding it under `games`/`events`/`data`/`items`. Entries that cannot be read (no id, no
  * opponent) are skipped rather than failing the whole schedule.
  */
+/** The id of every entry in a schedule's answer, whether or not it reads as a game. */
+export const gcGameIdsFrom = (raw: unknown): string[] =>
+  (gcGameListFrom(raw) ?? []).flatMap((entry) => {
+    const id = isRecord(entry) ? asString(entry.id) : undefined;
+    return id ? [id] : [];
+  });
+
 export const normalizeGcGames = (raw: unknown): GcGame[] => {
   const list = gcGameListFrom(raw);
   if (!list) return [];

@@ -118,6 +118,10 @@ describe("GET /api/gc-team", () => {
       expect(body.schedule.games).toHaveLength(12);
       expect(body.schedule.games[0]?.date).toBe("2026-08-22");
       expect(Number.isNaN(Date.parse(body.schedule.fetchedAt))).toBe(false);
+      // Every entry the schedule answered with, read as a game or not.
+      expect(body.schedule.rowIds).toEqual(
+        (gamesFixture as { id: string }[]).map((entry) => entry.id)
+      );
     }
 
     expect(captured.map((call) => call.url)).toEqual([
@@ -186,6 +190,7 @@ describe("GET /api/gc-team", () => {
     expect(body.ok).toBe(true);
     if (body.ok) {
       expect(body.schedule.games).toEqual([]);
+      expect(body.schedule.rowIds).toEqual([]);
       expect(body.schedule.profile.name).toBe("NV Stars 9u Scout");
     }
   });

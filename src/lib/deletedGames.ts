@@ -83,6 +83,7 @@ export const scoringRowsOf = (
   const rows = new Set<string>();
   games.forEach((game) => {
     if (!drop.has(game.id)) return;
+    const found = rows.size;
     const ownScore =
       game.teamAScore !== undefined &&
       game.teamBScore !== undefined &&
@@ -97,6 +98,9 @@ export const scoringRowsOf = (
         rows.add(gcRowId(record.teamId, record.gameId));
       }
     });
+    // A score whose row is on record by its schedule alone, from before rows were kept, is
+    // remembered by the rows the game stands on, as every deletion was before.
+    if (rows.size === found) rowsOfGames([game], [game.id]).forEach((row) => rows.add(row));
   });
   return [...rows];
 };

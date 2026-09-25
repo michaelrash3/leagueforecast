@@ -223,6 +223,18 @@ describe("a game whose score dated ahead came from the other club's copy", () =>
     expect(back[0]!.teamAScore).toBeUndefined();
   });
 
+  // Joined before rows were kept: the other club's copy is on record by its schedule alone.
+  it("remembers the row the game stands on where the scoring row is not on record", () => {
+    const game = {
+      id: "gc_WpYo8bR3Smwp_n1",
+      teamAScore: 11,
+      teamBScore: 0,
+      scoreFromB: true as const,
+      source: { kind: "gamechanger" as const, teamId: "WpYo8bR3Smwp", gameId: "n1" },
+    };
+    expect(scoringRowsOf([game], [game.id])).toEqual(["gc_WpYo8bR3Smwp_n1"]);
+  });
+
   it("remembers the row the game stands on when the score is that row's own", () => {
     let state = pull(empty, schedule([ahead, behind]));
     const game = state.games.find((entry) => entry.date === ahead.date)!;

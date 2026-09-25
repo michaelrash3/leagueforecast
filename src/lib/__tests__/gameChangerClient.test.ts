@@ -131,6 +131,20 @@ describe("fetchGcTeam", () => {
     if (!result.ok) expect(result.message).toContain("500");
   });
 
+  // The id of every entry the schedule answered with rides along, so the import can tell a row it
+  // could not read from one the schedule dropped.
+  it("keeps the ids of every row the schedule answered with", async () => {
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse(200, { ok: true, schedule: { ...schedule, rowIds: ["a1", 7, "b2"] } })
+    );
+    const result = await fetchGcTeam(TEAM_ID, { fetchImpl });
+    expect(result.ok && result.schedule.rowIds).toEqual(["a1", "b2"]);
+    const plain = await fetchGcTeam(TEAM_ID, {
+      fetchImpl: fakeFetch(() => jsonResponse(200, okBody)),
+    });
+    expect(plain.ok && "rowIds" in plain.schedule).toBe(false);
+  });
+
   it("treats an ok body with no readable schedule as unrecognized", async () => {
     const fetchImpl = fakeFetch(() => jsonResponse(200, { ok: true, schedule: { games: [] } }));
     const result = await fetchGcTeam(TEAM_ID, { fetchImpl });

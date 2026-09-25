@@ -739,17 +739,19 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
       .flatMap((entry) => {
         // A score typed by hand can be any number the score cell takes, so not only whole ones.
         const parsed =
-          /^([^:@=/#]+):([^:@=/#]+)(?:#(\d{4}-\d{2}-\d{2}))?(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
+          /^([^:@=/#]+):([^:@=/#]+)(?:#([^@=/]+))?(?:@([^@=/]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?$/.exec(
             entry
           );
         if (!parsed) return [];
         const [, teamId, gameId, date, startTs, own, opponent, sideB] = parsed;
+        // In `recordOf`'s order, which the tidy compares records in: read back in another, every
+        // game with a dated row read as regrouped on the first tidy after a restore.
         return [
           {
             teamId: teamId!,
             gameId: gameId!,
-            ...(date ? { date } : {}),
             ...(startTs ? { startTs } : {}),
+            ...(date ? { date } : {}),
             ...(own !== undefined && opponent !== undefined
               ? { ownScore: Number(own), opponentScore: Number(opponent) }
               : {}),

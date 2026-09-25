@@ -138,6 +138,30 @@ describe("teamRankingsCsvSections", () => {
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(folded))).toEqual(folded);
   });
 
+  /*
+   * A folded row read back in the order `recordOf` writes one, which is how the tidy compares
+   * records: read back in another, every game holding a row dated a day off read as regrouped on
+   * the first tidy after a restore. A day that is not an ISO day is kept as the text it was, short
+   * of the marks the cell is written in; a folded row's day is GameChanger's, which is always ISO.
+   */
+  it("reads a folded row back in the order the tidy writes it, whatever its day", () => {
+    const rows = [
+      {
+        teamId: "zjvVkYnqLrf0",
+        gameId: "0b1e-77",
+        startTs: "2028-04-06T17:40:00.000Z",
+        date: "2028-04-06",
+        ownScore: 4,
+        opponentScore: 6,
+        onSideB: true as const,
+      },
+      { teamId: "gsUthn4XoIxS", gameId: "unpadded", date: "2028-4-6" },
+    ];
+    const dated: TeamRankingsBackup = { ...backup, games: [{ ...games[0]!, alsoRows: rows }] };
+    const back = parseTeamRankingsCsv(teamRankingsCsvSections(dated));
+    expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
+  });
+
   // A score typed by hand is any number the score cell takes, and it is written into side B's row.
   it("round-trips a folded row and the other club's score that are not whole numbers", () => {
     const typed: TeamRankingsBackup = {

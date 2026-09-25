@@ -2038,6 +2038,41 @@ const importOne = (
       if (at >= 0) sameBucket[at] = next;
     }
   };
+  /*
+   * The same, for a game its own schedule has moved to another day: what is keyed by the day moves
+   * with it. The rows folded into it that were filed on its old day move too, as the game their
+   * clubs' schedules described (`FoldedRow.date` is only for a row filed a day off its game).
+   */
+  const refileInPlace = (previous: ScoutGame, moved: ScoutGame) => {
+    const rows = (moved.alsoRows ?? []).map((record) => {
+      if (record.date !== moved.date) return record;
+      const { date: _same, ...rest } = record;
+      return rest;
+    });
+    const next: ScoutGame = rows.length > 0 ? { ...moved, alsoRows: rows } : moved;
+    const without = <K>(map: Map<K, ScoutGame[]>, key: K) => {
+      const list = map.get(key);
+      if (!list) return;
+      const kept = list.filter((entry) => entry.id !== previous.id);
+      if (kept.length > 0) map.set(key, kept);
+      else map.delete(key);
+    };
+    without(index.gamesByMatch, matchKeyOf(previous, index.poolKeyOf));
+    push(index.gamesByMatch, matchKeyOf(next, index.poolKeyOf), next);
+    if (previous.date) {
+      without(index.gamesByTeamDate, `${previous.teamAId}\u0000${previous.date}`);
+      without(index.gamesByTeamDate, `${previous.teamBId}\u0000${previous.date}`);
+    }
+    if (next.date) {
+      push(index.gamesByTeamDate, `${next.teamAId}\u0000${next.date}`, next);
+      push(index.gamesByTeamDate, `${next.teamBId}\u0000${next.date}`, next);
+    }
+    const position = index.gamePos.get(previous.id);
+    if (position !== undefined) games[position] = next;
+    index.gamesById.set(next.id, next);
+    indexFolded(index, next);
+    indexHalf(index, next);
+  };
   /** Every row this pull filed or matched, so a record of one it no longer lists can go. */
   const seen = new Set<string>();
   /** Every row this schedule lists now, by id, so a game whose own row it dropped can be told. */
@@ -2170,7 +2205,21 @@ const importOne = (
      */
     if (folded) {
       claimed.set(folded.id, candidate);
-      const updated = withSchedulesOf(folded, candidate);
+      /*
+       * A row filed on its game's day that its schedule has moved stays with the game: the game
+       * moves when its own row does (`refileInPlace`), and a record dated apart from it here stood
+       * up on the new day beside a game still on the old one — one rescheduled game counted twice.
+       * A row already filed a day off its game (`FoldedRow.date`) keeps its schedule's day.
+       */
+      const record = (folded.alsoRows ?? []).find(
+        (entry) => gcRowId(entry.teamId, entry.gameId) === candidate.id
+      );
+      const updated = withSchedulesOf(
+        folded,
+        record && record.date === undefined && folded.date !== undefined
+          ? { ...candidate, date: folded.date }
+          : candidate
+      );
       /*
        * This schedule's own game whose own row the schedule no longer lists — deleted, and entered
        * again under a new id. The game stands on this row from now: its source is this row, which
@@ -2208,6 +2257,7 @@ const importOne = (
                   ? { teamAScore, teamBScore, scoreFromB }
                   : {}),
               ...(candidate.startTs ? { startTs: candidate.startTs } : {}),
+              ...(candidate.date ? { date: candidate.date } : {}),
               ...(rows.length > 0 ? { alsoRows: rows } : {}),
             };
           })()
@@ -2215,7 +2265,8 @@ const importOne = (
       const next = withSideBReport(reentered, candidate) ?? reentered;
       const before = scoreSeenBy(folded, candidate.teamAId);
       const after = scoreSeenBy(next, candidate.teamAId);
-      if (next !== folded) writeInPlace(folded, next);
+      if (next.date !== folded.date) refileInPlace(folded, next);
+      else if (next !== folded) writeInPlace(folded, next);
       if (before?.own !== after?.own || before?.opponent !== after?.opponent) {
         outcome.gamesUpdated += 1;
       } else {
@@ -2257,6 +2308,12 @@ const importOne = (
       existing === known &&
       candidate.startTs !== undefined &&
       !sameStart(existing.startTs, candidate.startTs);
+    /*
+     * And a day it has since moved the game to, the same way: kept on the old day, the game stayed
+     * there while the other club's copy of it, moved too, stood up on the new one.
+     */
+    const redated =
+      existing === known && candidate.date !== undefined && candidate.date !== existing.date;
     /*
      * Another schedule's copy of a game leaves its schedule on record, which is how the tidy's
      * count knows this game already took this club's row for the day (`withSchedulesOf`).
@@ -2322,7 +2379,7 @@ const importOne = (
       existing === known &&
       isScored(candidate) &&
       (existing.scoreFromB === true || existing.scoreFromTwin === true);
-    if (!differs(existing, candidate) && !moved && !ownAtLast) {
+    if (!differs(existing, candidate) && !moved && !redated && !ownAtLast) {
       // The record is bookkeeping, not news: nothing the reader would call a change.
       if (recorded !== existing) writeInPlace(existing, recorded);
       outcome.gamesUnchanged += 1;
@@ -2359,26 +2416,47 @@ const importOne = (
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
       ...(moved ? { startTs: candidate.startTs } : {}),
+      ...(redated ? { date: candidate.date } : {}),
     };
-    writeInPlace(existing, merged);
+    if (redated) refileInPlace(existing, merged);
+    else writeInPlace(existing, merged);
     outcome.gamesUpdated += 1;
   }
+
+  /*
+   * What this answer can say is gone. Nothing, from an answer with no row it could file: every row
+   * undated, or cancelled, is as likely a field GameChanger renamed as a club that cancelled its
+   * season, and trusting it took a club's every game. And not a row the answer held in a shape this
+   * app could not read — an entry with no opponent (`rowIds`) — which is not a row it dropped.
+   */
+  const readable = new Set(schedule.games.map((game) => gcGameId(profile.id, game.id)));
+  const returned = schedule.rowIds
+    ? new Set(schedule.rowIds.map((id) => gcGameId(profile.id, id)))
+    : undefined;
+  const unread = (rowId: string) =>
+    returned !== undefined && returned.has(rowId) && !readable.has(rowId);
+  const trusted = listed.size > 0;
 
   /*
    * A game standing on a row this schedule no longer lists — deleted, cancelled, moved off the day
    * — is marked for the tidy to take away, and one standing on a row listed again is unmarked
    * (`ScoutGame.withdrawn`). Not a game holding another row of this schedule's that it still lists:
    * that is the game entered again, which its next pull stands on the new row under the old id (the
-   * folded row above). Not on a schedule that lists nothing at all, either: that is as likely an
-   * answer that came back empty as a club that deleted its whole season.
+   * folded row above). Nor a game that holds another club's copy only as a schedule on record
+   * (`alsoFrom`, from before rows were kept): with no row to stand up, that club's copy would go
+   * with it until its own next pull.
    */
-  if (schedule.games.length > 0) {
+  if (trusted) {
     const stillListed = (teamId: string, gameId: string) =>
-      teamId === profile.id && listed.has(gcGameId(teamId, gameId));
+      teamId === profile.id &&
+      (listed.has(gcGameId(teamId, gameId)) || unread(gcGameId(teamId, gameId)));
     (index.gamesBySchedule.get(profile.id) ?? new Set<string>()).forEach((gameId) => {
       const game = index.gamesById.get(gameId);
       if (!game?.source || game.source.teamId !== profile.id) return;
+      const named = new Set((game.alsoRows ?? []).map((record) => record.teamId));
+      const onRecordOnly = (game.alsoFrom ?? []).some((schedule) => !named.has(schedule));
       const gone =
+        !onRecordOnly &&
         !stillListed(game.source.teamId, game.source.gameId) &&
         !(game.alsoRows ?? []).some((record) => stillListed(record.teamId, record.gameId));
       if (gone === (game.withdrawn === true)) return;
@@ -2394,26 +2472,32 @@ const importOne = (
   /*
    * A record of a row this schedule no longer files — deleted, cancelled, moved off the day — goes,
    * so a game does not go on standing for a row that is not there, and the tidy does not stand up
-   * a row nobody lists.
+   * a row nobody lists. From the same answers only, and never a row the answer held unread: an
+   * empty answer took the other club's copy out of every game this club's rows were folded into.
    */
-  (index.recordsBySchedule.get(profile.id) ?? new Set<string>()).forEach((holderId) => {
-    const holder = index.gamesById.get(holderId);
-    if (!holder?.alsoRows) return;
-    const kept = holder.alsoRows.filter(
-      (row) => row.teamId !== profile.id || seen.has(gcRowId(row.teamId, row.gameId))
-    );
-    if (kept.length === holder.alsoRows.length) return;
-    const named = kept.some((row) => row.teamId === profile.id);
-    const alsoFrom = named
-      ? holder.alsoFrom
-      : (holder.alsoFrom ?? []).filter((source) => source !== profile.id);
-    const { alsoRows: _rows, alsoFrom: _from, ...rest } = holder;
-    writeInPlace(holder, {
-      ...rest,
-      ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
-      ...(kept.length > 0 ? { alsoRows: kept } : {}),
-    });
-  });
+  (trusted ? (index.recordsBySchedule.get(profile.id) ?? new Set<string>()) : []).forEach(
+    (holderId) => {
+      const holder = index.gamesById.get(holderId);
+      if (!holder?.alsoRows) return;
+      const kept = holder.alsoRows.filter(
+        (row) =>
+          row.teamId !== profile.id ||
+          seen.has(gcRowId(row.teamId, row.gameId)) ||
+          unread(gcRowId(row.teamId, row.gameId))
+      );
+      if (kept.length === holder.alsoRows.length) return;
+      const named = kept.some((row) => row.teamId === profile.id);
+      const alsoFrom = named
+        ? holder.alsoFrom
+        : (holder.alsoFrom ?? []).filter((source) => source !== profile.id);
+      const { alsoRows: _rows, alsoFrom: _from, ...rest } = holder;
+      writeInPlace(holder, {
+        ...rest,
+        ...(alsoFrom && alsoFrom.length > 0 ? { alsoFrom } : {}),
+        ...(kept.length > 0 ? { alsoRows: kept } : {}),
+      });
+    }
+  );
 
   return { state: { ageGroups, teams, games }, outcome };
 };

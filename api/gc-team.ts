@@ -25,6 +25,7 @@ import {
   gcGamesApiUrl,
   gcProfileApiUrl,
   gcGameListFrom,
+  gcGameIdsFrom,
   normalizeGcGames,
   normalizeGcTeamProfile,
   parseGcTeamId,
@@ -408,6 +409,7 @@ const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledT
 
   // A team with a profile but no schedule endpoint yet (nothing scheduled) is still a team.
   let games: GcGame[] = [];
+  let rowIds: string[] = [];
   if (gamesResult.status !== 404) {
     const gamesFailure = failureFor(gamesResult, "schedule");
     if (gamesFailure) {
@@ -421,11 +423,12 @@ const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledT
       return { teamId, result: unrecognized(gamesResult, "schedule") };
     }
     games = normalizeGcGames(gamesResult.json);
+    rowIds = gcGameIdsFrom(gamesResult.json);
   }
 
   return {
     teamId,
-    result: { ok: true, schedule: { profile, games, fetchedAt: new Date().toISOString() } },
+    result: { ok: true, schedule: { profile, games, rowIds, fetchedAt: new Date().toISOString() } },
   };
 };
 
