@@ -585,8 +585,19 @@ the fix left in memory. Records written before rows were kept say only the sched
 folded row coming back, which 21 of the 23 results listed twice that way in the same pool
 were — with the same result however far off the clocks, as any two schedules' copies of one
 game are, or at the game's very start whatever it says, which is how an earlier join left two
-coaches' different scores at one start. A different result hours off is the day's second
-meeting, which the record was kept to show.
+coaches' different scores at one start. A pull whose answer files no row into such a game
+takes its schedule off the record. Every row a pull files goes on record whole, so the row the
+record stood for is one the schedule no longer files there: deleted, or filed now against
+another name. Left on record, it answered for the club's row that day with no row to read. The
+claim step took the game as holding the club's row already, and the club's row filed against
+another name, the same game ten minutes off, stood beside it and counted twice. Which row the
+record stood for is not known, so a row the answer held unread does not keep it, and an answer
+with no row to trust takes nothing off. A different result hours off, the club's one row
+against the other club that day, now reads as the game where the row was kept does: one game,
+each club's own score. On the pool of 24 September 2026, 20,576 schedules were on record with
+no row kept. A tidy that let a club's own row through beside a record of its own schedule within
+the hour claimed 27 more rows and left 23 fewer games; the pulls decide which records have gone,
+so that is the size of it rather than a count.
 
 A start the schedule itself has since moved is taken on the next pull, and so is a day it has
 moved the game to, which the rows folded into the game on its old day move to with it: left on

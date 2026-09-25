@@ -111,7 +111,10 @@ type ImportIndex = {
    * of the schedule it came off finds its game rather than filing the row a second time.
    */
   foldedInto: Map<string, string>;
-  /** The games holding a folded row of each schedule, so a pull can clear the ones it dropped. */
+  /**
+   * The games holding a folded row of each schedule, or the schedule on record with no row kept
+   * (`alsoFrom` alone), so a pull can clear the ones it dropped.
+   */
   recordsBySchedule: Map<string, Set<string>>;
   /** The games standing on a row of each schedule, so a pull can tell the ones it no longer lists. */
   gamesBySchedule: Map<string, Set<string>>;
@@ -383,12 +386,16 @@ const indexFolded = (index: ImportIndex, game: ScoutGame): void => {
     if (standing) standing.add(game.id);
     else index.gamesBySchedule.set(game.source.teamId, new Set([game.id]));
   }
+  const holds = (schedule: string) => {
+    const holders = index.recordsBySchedule.get(schedule);
+    if (holders) holders.add(game.id);
+    else index.recordsBySchedule.set(schedule, new Set([game.id]));
+  };
   (game.alsoRows ?? []).forEach((row) => {
     index.foldedInto.set(gcRowId(row.teamId, row.gameId), game.id);
-    const holders = index.recordsBySchedule.get(row.teamId);
-    if (holders) holders.add(game.id);
-    else index.recordsBySchedule.set(row.teamId, new Set([game.id]));
+    holds(row.teamId);
   });
+  game.alsoFrom?.forEach(holds);
 };
 
 const indexGame = (index: ImportIndex, game: ScoutGame) => {
@@ -2503,18 +2510,30 @@ const importOne = (
    * so a game does not go on standing for a row that is not there, and the tidy does not stand up
    * a row nobody lists. From the same answers only, and never a row the answer held unread: an
    * empty answer took the other club's copy out of every game this club's rows were folded into.
+   *
+   * And this schedule on record in a game with no row of it kept (`alsoFrom` alone, from before
+   * rows were kept), where this answer filed no row into the game. Every row it files goes on
+   * record whole, so the one the game held on record is a row it no longer files there — deleted,
+   * or filed now against another name. Left on record, it answered for this club's row that day
+   * with no row to read: the claim step took the game as this club's already, and the row filed
+   * against another name, the same game, stood beside it and counted twice. Which row the record
+   * stood for is not known, so one the answer held unread cannot keep it.
    */
   (trusted ? (index.recordsBySchedule.get(profile.id) ?? new Set<string>()) : []).forEach(
     (holderId) => {
       const holder = index.gamesById.get(holderId);
-      if (!holder?.alsoRows) return;
-      const kept = holder.alsoRows.filter(
+      if (!holder) return;
+      const rows = holder.alsoRows ?? [];
+      const onRecordOnly =
+        (holder.alsoFrom ?? []).includes(profile.id) &&
+        !rows.some((row) => row.teamId === profile.id);
+      const kept = rows.filter(
         (row) =>
           row.teamId !== profile.id ||
           seen.has(gcRowId(row.teamId, row.gameId)) ||
           unread(gcRowId(row.teamId, row.gameId))
       );
-      if (kept.length === holder.alsoRows.length) return;
+      if (kept.length === rows.length && !onRecordOnly) return;
       const named = kept.some((row) => row.teamId === profile.id);
       const alsoFrom = named
         ? holder.alsoFrom
