@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collapseSameGames,
+  countsTowardRating,
   gcRowId,
   ratedMargin,
   rowOfRecord,
@@ -266,6 +267,48 @@ describe("a folded row its schedule no longer lists", () => {
       legacy([at("l0", RAPTORS, "12:00", 5, 5), at("l1", RAPTORS, "20:00", 14, 3)])
     );
     expect(legacySees(state)).toEqual(["5-5", "14-3"]);
+  });
+});
+
+describe("a game the other club still lists, which this club's schedule no longer does", () => {
+  /*
+   * Kentucky Athletics' 6-5 over Ironmen Prime-Isenburg is on the Ironmen's schedule and no longer
+   * on the Athletics'. A team does not always keep every game on GameChanger, so the game one
+   * club still lists counts, once, whichever club's row it stands on and however the other
+   * club's schedule once held it.
+   */
+  const counted = (state: GcImportState) =>
+    state.games.filter((game) => countsTowardRating(game, "2026-09-20"));
+
+  it("still counts once the other club's own row is all that holds it", () => {
+    for (const legacyFirst of [true, false]) {
+      const pulls = [
+        legacy([at("l1", RAPTORS, "12:00", 6, 5)]),
+        raptors([at("r1", LEGACY, "12:00", 5, 6)]),
+      ];
+      let state = tidyPool(
+        importGcSchedules(legacyFirst ? pulls : pulls.slice().reverse(), empty).state
+      ).state;
+      expect(counted(state)).toHaveLength(1);
+      state = tidyPool(pull(state, legacy([at("l9", "Somebody Else 11U", "09:00", 4, 4)]))).state;
+      expect(legacySees(state)).toEqual(["4-4", "6-5"]);
+      expect(raptorsSee(state)).toEqual(["5-6"]);
+      expect(counted(state)).toHaveLength(2);
+    }
+  });
+
+  it("still counts where this club's schedule is only on record, with no row of its own", () => {
+    // How the Athletics' game sits: the Ironmen's row, and the Athletics' schedule on record from
+    // before rows were kept.
+    let state = importGcSchedules([raptors([at("r1", LEGACY, "12:00", 5, 6)])], empty).state;
+    state = {
+      ...state,
+      games: state.games.map((game) => ({ ...game, alsoFrom: ["gcLEGACY0001"] })),
+    };
+    state = pull(state, legacy([at("l9", "Somebody Else 11U", "09:00", 4, 4)]));
+    state = tidyPool(state).state;
+    expect(legacySees(state)).toEqual(["4-4", "6-5"]);
+    expect(counted(state)).toHaveLength(2);
   });
 });
 
