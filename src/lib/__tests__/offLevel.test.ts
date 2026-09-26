@@ -172,6 +172,94 @@ describe("resettleOffLevel", () => {
     expect(landed?.name).toBe("Lookouts Baseball Club");
   });
 
+  describe("onto a stand-in of the name already here", () => {
+    /**
+     * The 15U row with no 15U Lookouts pulled, beside another 15U club's game against a stand-in
+     * of the name: the Trash Pandas' neighbours in `state`, or further off.
+     */
+    const withStandIn = (state: string): GcImportState => {
+      const before = misfiled();
+      return {
+        ...before,
+        teams: [
+          ...before.teams.filter((team) => team.id !== "S-LOOK15"),
+          {
+            id: "S-RIVALS",
+            name: "Rivals",
+            state,
+            gcTeams: [
+              { teamId: "gcRIVALS001", name: "Rivals 15U", ageGroupId: "ag15", ageLevel: 15 },
+            ],
+          },
+          { id: "S-LOOKNAME", name: "Lookouts Baseball Club", nameOnly: true },
+        ],
+        games: [
+          ...before.games,
+          {
+            id: "gc_gcRIVALS001_1",
+            teamAId: "S-RIVALS",
+            teamBId: "S-LOOKNAME",
+            teamAScore: 4,
+            teamBScore: 3,
+            ageGroupId: "ag15",
+            date: "2026-09-06",
+            source: { kind: "gamechanger", teamId: "gcRIVALS001", gameId: "1" },
+          },
+        ],
+      };
+    };
+
+    it("takes the one a club of the mover's state named, rather than making another", () => {
+      const before = withStandIn("KY");
+      const { state, resettled } = resettleOffLevel(before);
+      expect(resettled).toBe(1);
+      expect(state.games[0]?.teamBId).toBe("S-LOOKNAME");
+      expect(state.teams).toHaveLength(before.teams.length);
+    });
+
+    it("makes one where the name's stand-in was named from another state", () => {
+      const before = withStandIn("OH");
+      const { state } = resettleOffLevel(before);
+      const landed = state.teams.find((team) => team.id === state.games[0]?.teamBId);
+      expect(landed?.id).not.toBe("S-LOOKNAME");
+      expect(landed?.nameOnly).toBe(true);
+      expect(state.teams).toHaveLength(before.teams.length + 1);
+    });
+
+    it("makes one per state for rows it moves from two, and one for two from the same", () => {
+      const before = misfiled();
+      const alone = { ...before, teams: before.teams.filter((team) => team.id !== "S-LOOK15") };
+      const second = (clubState: string): GcImportState => ({
+        ...alone,
+        teams: [
+          ...alone.teams,
+          {
+            id: "S-RIVALS",
+            name: "Rivals",
+            state: clubState,
+            gcTeams: [
+              { teamId: "gcRIVALS001", name: "Rivals 15U", ageGroupId: "ag15", ageLevel: 15 },
+            ],
+          },
+        ],
+        games: [
+          ...alone.games,
+          {
+            ...alone.games[0]!,
+            id: "gc_gcRIVALS001_1",
+            teamAId: "S-RIVALS",
+            date: "2026-09-20",
+            source: { kind: "gamechanger", teamId: "gcRIVALS001", gameId: "1" },
+          },
+        ],
+      });
+      const apart = resettleOffLevel(second("OH")).state;
+      expect(apart.games[0]?.teamBId).not.toBe(apart.games[1]?.teamBId);
+      const together = resettleOffLevel(second("KY")).state;
+      expect(together.games[0]?.teamBId).toBe(together.games[1]?.teamBId);
+    });
+  });
+
   it("never moves the side whose own schedule filed the row", () => {
     /*
      * The same disagreement, seen from the other side: the 9U club's own schedule carries the row,

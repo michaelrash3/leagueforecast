@@ -5024,20 +5024,67 @@ export const resettleOffLevel = (
   const used = new Set(state.teams.map((team) => team.id));
   const added: ScoutTeam[] = [];
   /**
-   * One stand-in per name, level and squad year, rather than one per row. A club named on three
-   * schedules is one club, and three stand-ins for it would be three unknowns in the fit where
-   * there is one; a single stand-in across every level and year would be the opposite mistake,
-   * the knot that ties unrelated clubs together, which is why the level and the year are in the
-   * key.
+   * The stand-ins already here by squad year, level and name, and the states of the pulled clubs
+   * that named each: read only once a move needs one, since most passes move nothing.
+   */
+  let standing: { bySlot: Map<string, string[]>; namedFrom: Map<string, Set<string>> } | undefined;
+  const standingNow = () => {
+    if (standing) return standing;
+    const bySlot = new Map<string, string[]>();
+    const namedFrom = new Map<string, Set<string>>();
+    const note = (game: ScoutGame, side: string, other: string, typed: number | undefined) => {
+      const team = teamById.get(side);
+      if (!team?.nameOnly || team.placeholder || team.gcTeams?.length) return;
+      const at = typed ?? levelOf.get(game.ageGroupId);
+      const slot = `${poolKeyOf(game.ageGroupId)}\u0000${at ?? "?"}\u0000${teamNameKey(team.name)}`;
+      const bucket = bySlot.get(slot);
+      if (!bucket) bySlot.set(slot, [side]);
+      else if (!bucket.includes(side)) bucket.push(side);
+      const states = namedFrom.get(side) ?? new Set<string>();
+      const namer = teamById.get(other);
+      if (namer?.gcTeams?.length && namer.state) states.add(namer.state);
+      namedFrom.set(side, states);
+    };
+    state.games.forEach((game) => {
+      note(game, game.teamAId, game.teamBId, game.ageLevelA);
+      note(game, game.teamBId, game.teamAId, game.ageLevelB);
+    });
+    standing = { bySlot, namedFrom };
+    return standing;
+  };
+  /**
+   * One stand-in per name, level, squad year and state of the club that named it, rather than one
+   * per row. A club named on three schedules is one club, and three stand-ins for it would be three
+   * unknowns in the fit where there is one; a single stand-in across every level and year would be
+   * the opposite mistake, the knot that ties unrelated clubs together, which is why the level and
+   * the year are in the key — and the state, as the import keeps one stand-in per state
+   * (`planOpponent`): one "Pirates" named from Arizona and New Jersey is nobody's opponent.
+   *
+   * And one already here, of that name, level and year, named by a club of the mover's state
+   * (`stateFits`), before one is made, which is what the import reuses for a name it cannot place.
+   * Made afresh, the move stood a second "Pirates" beside the one the import had filed the same
+   * state's games against. With the rows it had moved on the backup of 24 September 2026 put back
+   * where the import filed them, the step made 64 stand-ins and put one row on a stand-in already
+   * here; reusing, it makes 44 and puts 34 rows on the import's, and the tidied pool holds 179
+   * stand-ins a pull would have reused another for, not 206.
    */
   const stand = new Map<string, string>();
-  const standInFor = (name: string, slot: string): string => {
-    const already = stand.get(slot);
+  const standInFor = (name: string, slot: string, moverState: string | undefined): string => {
+    const key = `${slot}\u0000${moverState ?? ""}`;
+    const already = stand.get(key);
     if (already !== undefined) return already;
+    const { bySlot, namedFrom } = standingNow();
+    const found = (bySlot.get(slot) ?? []).find((id) =>
+      stateFits(moverState, namedFrom.get(id) ?? new Set())
+    );
+    if (found !== undefined) {
+      stand.set(key, found);
+      return found;
+    }
     const team = buildScoutTeam(name, used, { nameOnly: true });
     used.add(team.id);
     added.push(team);
-    stand.set(slot, team.id);
+    stand.set(key, team.id);
     return team.id;
   };
 
@@ -5069,10 +5116,11 @@ export const resettleOffLevel = (
       const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
       return Boolean(inPool) && levelFits(levels.get(clubId), level);
     });
+    const mover = teamById.get(namedId === game.teamAId ? game.teamBId : game.teamAId);
     const to =
       homes.length === 1
         ? homes[0]!
-        : standInFor(named.name, `${pool}\u0000${level ?? "?"}\u0000${key}`);
+        : standInFor(named.name, `${pool}\u0000${level ?? "?"}\u0000${key}`, mover?.state);
     resettled += 1;
     return namedId === game.teamAId ? { ...game, teamAId: to } : { ...game, teamBId: to };
   });
