@@ -535,16 +535,40 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
     });
 
     it("a row of the Aces' own against the Bears the day before, that no row of theirs answers", () => {
-      const { bare } = folded();
+      // At the same clock, with a result the Bears' copy has none of its own to say two games
+      // against: the collapse could join the two across the night, and the claim step waits.
+      for (const score of [undefined, [2, 2] as [number, number]]) {
+        const { bare } = folded();
+        const state = pull(
+          bare,
+          aces(
+            row("a1", "Sharks", "18:00", [7, 3]),
+            row("a4", "Bears 9U", "18:30", score, "2026-09-04")
+          )
+        );
+        expect(recordOf(state)?.filedAgainst).toBeUndefined();
+      }
+    });
+  });
+
+  it("marks one past a row of the Aces' own against the Bears a day off that is another game", () => {
+    // At eleven the day before, nothing joins the two: the claim step does not wait on it. Nor on
+    // a 7-3 there, which is the score the Aces' row lent the Bears' copy, not the Bears' own word.
+    for (const score of [
+      [2, 2],
+      [7, 3],
+    ] as [number, number][]) {
+      const { claimed, bare } = folded();
       const state = pull(
         bare,
         aces(
           row("a1", "Sharks", "18:00", [7, 3]),
-          row("a4", "Bears 9U", "11:00", [2, 2], "2026-09-04")
+          row("a4", "Bears 9U", "11:00", score, "2026-09-04")
         )
       );
-      expect(recordOf(state)?.filedAgainst).toBeUndefined();
-    });
+      expect(recordOf(state)).toEqual(recordOf(claimed));
+      expect(tidyPool(state).claimed).toBe(0);
+    }
   });
 });
 

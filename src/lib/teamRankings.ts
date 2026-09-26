@@ -1904,6 +1904,24 @@ export const standUpWithdrawn = (
 const DAY_MS = DAY_MINUTES * 60_000;
 
 /**
+ * How strongly two rows of a game between the same two clubs, dated a day apart, read as one game:
+ * 2 for the same result; 1 for the same instant, or the same clock a day off where the results do
+ * not say two games; 0 for neither. What the collapse joins across a night (`dayApartPairs`), and
+ * so all that the claim step and a pull's mark wait on a day off (`couldStillBeCopy`).
+ */
+export const dayApartStrength = (x: ScoutGame, y: ScoutGame): 0 | 1 | 2 => {
+  if (sameResultAs(x, y)) return 2;
+  const [p, q] = [startMinuteOf(x.startTs), startMinuteOf(y.startTs)];
+  if (p === undefined || q === undefined) return 0;
+  const gap = Math.abs(q - p);
+  // The same instant dated two ways is one game whatever it says: a zone read differently.
+  if (gap === 0) return 1;
+  // The same start a day off, where the results do not say two games: one missing, or close.
+  const unsaid = !scoredGame(x) || !scoredGame(y) || runsApart(x, y) <= CLOSE_DISPUTE_RUNS;
+  return gap === DAY_MINUTES && unsaid ? 1 : 0;
+};
+
+/**
  * One club's copy of a game dated a day off the other club's: the games to join across two days
  * that follow each other, each a game one club's schedule lists that nothing of the other club's
  * accounts for on either day.
@@ -1946,18 +1964,10 @@ const dayApartPairs = (
     let best: { strength: number; offset: number } | undefined;
     readBy(x).forEach((xr) =>
       readBy(y).forEach((yr) => {
+        const strength = dayApartStrength(xr, yr);
+        if (strength === 0) return;
         const [p, q] = [startMinuteOf(xr.startTs), startMinuteOf(yr.startTs)];
         const gap = p !== undefined && q !== undefined ? Math.abs(q - p) : undefined;
-        // The same start a day off, where the results do not say two games: one missing, or close.
-        const unsaid =
-          !scoredGame(xr) || !scoredGame(yr) || runsApart(xr, yr) <= CLOSE_DISPUTE_RUNS;
-        // The same instant dated two ways is one game whatever it says: a zone read differently.
-        const strength = sameResultAs(xr, yr)
-          ? 2
-          : gap === 0 || (gap === DAY_MINUTES && unsaid)
-            ? 1
-            : 0;
-        if (strength === 0) return;
         const offset =
           gap === undefined ? DAY_MINUTES : gap === 0 ? 0 : Math.abs(gap - DAY_MINUTES);
         if (

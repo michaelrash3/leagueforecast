@@ -45,6 +45,7 @@ import {
   gcSeasonLabel,
   isRankedAgeLevel,
   collapseSameGames,
+  dayApartStrength,
   inSquadYear,
   matchExistingGame,
   MAX_AGE_LEVEL,
@@ -1690,8 +1691,9 @@ const teamOfPlan = (
  *   with a new stand-in, on every pull.
  * - The claim step's own rules for a stand-in: levels in reach, a stand-in the other club has not
  *   played, the clock, scores within four runs, and no row of the club's against the other club
- *   waiting that day or either side of it. Its rule for the whole day, one club for one name, is
- *   read over all of the pull's marks at once, where they are made.
+ *   waiting that day or either side of it that could yet be the copy (`couldStillBeCopy`). Its
+ *   rule for the whole day, one club for one name, is read over all of the pull's marks at once,
+ *   where they are made.
  *
  * A fold the fixture match or the slot settle made at the very start with results a run or so
  * apart is marked too, the first time its club is pulled after it: it is the claim the claim step
@@ -1791,7 +1793,8 @@ const filedMarkFor = (
   }
 
   // A row of this club's own against the other club, that day or either side, that no row of
-  // theirs answers: the claim step waits on it, and a mark made now would be stood back up.
+  // theirs answers and that could yet be the copy: the claim step waits on it, and a mark made now
+  // would be stood back up.
   const clubOwns = (other: ScoutGame, teamId: string) => {
     const of = (schedule: string | undefined) =>
       schedule !== undefined && index.teamByGcId.get(schedule)?.id === teamId;
@@ -1812,7 +1815,8 @@ const filedMarkFor = (
         sides.includes(clubId) &&
         sides.includes(ownTeamId) &&
         clubOwns(other, ownTeamId) &&
-        !clubOwns(other, clubId)
+        !clubOwns(other, clubId) &&
+        couldStillBeCopy(other, holder)
       );
     });
   });
@@ -2977,6 +2981,29 @@ const isoDayFrom = (date: string, days: number): string | undefined => {
 };
 
 /**
+ * Whether the collapse could yet read a club's own row against another club, that no row of the
+ * other club's is paired with, as that club's copy of a game: on the copy's own day, whose count
+ * settles it, or a day off where the two read as one game across the night (`dayApartStrength`).
+ * The claim step waits on such a row before it gives the copy to a row filed by name, and a pull's
+ * mark with it (`filedMarkFor`). A row a day off that no reading joins is a game of its own, and
+ * waiting on it waited for good. G3 - Bonanno's 3-9 against "CBU" on 19 September 2026 was CBU
+ * United Faber Navy's own 9-3 at the same start; the step waited on G3's 1-2 against CBU United at
+ * two the next afternoon, which no schedule of theirs lists, and the 3-9 counted twice. On the pool
+ * of 24 September 2026 waiting only where the collapse could join left 41 fewer games and moved 73
+ * clubs' records: 71 toward GameChanger's own, 46 of them onto it, none off it. On the pool of 26
+ * September, pulled since under the rules after it, it was 3 games and 6 records, all toward.
+ */
+const couldStillBeCopy = (row: ScoutGame, copy: ScoutGame): boolean => {
+  if (row.date === copy.date) return true;
+  // A score the copy borrowed from side B (`scoreFromB`) is the word of the club whose row this is,
+  // lent by a claim into the copy: read as the copy's, it matched the row a day off, the claim that
+  // lent it went back, and the pass after made the claim again.
+  if (!copy.scoreFromB) return dayApartStrength(row, copy) > 0;
+  const { teamAScore: _a, teamBScore: _b, ...unscored } = copy;
+  return dayApartStrength(row, unscored) > 0;
+};
+
+/**
  * Names the slots that another schedule already answered.
  *
  * A bracket posts "TBD" on one team's schedule and the real fixture on the other's, so the same
@@ -3293,11 +3320,12 @@ export const resolveSlotGames = (
  * in the first of two copies that fitted it as well, where the same clubs pulled in the other order
  * left it standing — so the day reads the same whichever club was pulled first.
  * And the day waits for whatever would answer it better: a club with a row of its own against the
- * other club, that day or the day either side, that no row of theirs is paired with yet is the
- * collapse's to pair first; a row the club it names answers for, by a copy of its own that fits, is
- * that club's; a team the other club's own schedule plays is not that club — a pulled one only
- * where the result is not the same — nor is an age typed into its name more than `PLAYS_UP_TO`
- * from the one that club played at; and rows naming one team on one day go to one club or none.
+ * other club, that day or the day either side, that no row of theirs is paired with yet and that
+ * could yet be the other club's copy is the collapse's to pair first (`couldStillBeCopy`); a row
+ * the club it names answers for, by a copy of its own that fits, is that club's; a team the other
+ * club's own schedule plays is not that club — a pulled one only where the result is not the same
+ * — nor is an age typed into its name more than `PLAYS_UP_TO` from the one that club played at;
+ * and rows naming one team on one day go to one club or none.
  */
 export const claimFiledRows = (input: GcImportState): { state: GcImportState; claimed: number } => {
   const orphans = releaseOrphanedClaims(input);
@@ -3458,19 +3486,22 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     );
     if (offered.length === 0 && filed.every((entry) => !entry.holder)) return;
     /*
-     * A club with a row of its own against that club, that day or the day either side, that no row
-     * of theirs is paired with waits: which of its copies that row is, the collapse says.
+     * A copy of a club's with a row of this club's own against that club, that day or the day
+     * either side, that no row of theirs is paired with and that could yet be the copy waits:
+     * which of its copies that row is, the collapse says (`couldStillBeCopy`).
      */
-    const waiting = new Set<string>();
+    const waiting = new Map<string, ScoutGame[]>();
     [-1, 0, 1].forEach((days) => {
       const day = days === 0 ? date : isoDayFrom(date, days);
       if (day === undefined) return;
       (byTeamDay.get(dayKey(club, day)) ?? []).forEach((game) => {
         const otherId = otherOf(game);
-        if (ownsRowIn(game, club) && !listedBy(game, otherId)) waiting.add(otherId);
+        if (ownsRowIn(game, club) && !listedBy(game, otherId)) push(waiting, otherId, game);
       });
     });
-    const copies = offered.filter((game) => !waiting.has(otherOf(game)));
+    const copies = offered.filter(
+      (copy) => !(waiting.get(otherOf(copy)) ?? []).some((row) => couldStillBeCopy(row, copy))
+    );
 
     // A copy's score borrowed from this club's own rows (`scoreFromB`) is this club's word, not the
     // copy's: read as its own, a claim agreed with itself and outweighed a better copy pulled since.
@@ -5696,8 +5727,10 @@ export const tidyPool = (
  *  12 — that settle read again on every tidy and put back where the schedules stop bearing it out,
  *       and made for a row filed against a pulled club whose schedules never list the game, on
  *       scores that agree
+ *  13 — that settle left alone for a row the named club answers with a row of its own claimed
+ *       elsewhere, and held back only for a row of the club's the collapse could still join
  */
-const TIDY_RULES_VERSION = 12;
+const TIDY_RULES_VERSION = 13;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

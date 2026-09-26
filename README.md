@@ -713,28 +713,37 @@ opponents filed seven games against the first and whose own schedule listed all 
 second. A result still to come says nothing against a name GameChanger lists — blank rows at one
 start paired a "Rangers" typed with another club's copy — and waits until the scores are in.
 
-Every row and copy of the club's day is read at once: as many pairs as the day allows, then in
-both schedules' order, then the stronger links — the same result, the very same start, within the
-hour. Where two readings are as good as each other, only what they agree on is settled, so one game
-off two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is, and a claim already
-made counts for nothing of its own, so the day reads the same whichever club was pulled first. The
-copies of a club the claiming club has a row against of its own, that day or the day either side,
-that no row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in
-row once took the copy that row was, and left it standing on its own, one game counted twice. A row the club it names answers for, by a copy
-of its own that fits, is that club's, whether that copy stands or is itself claimed into a third
-club's copy: read off the standing copies alone, two clubs that each had a second GameChanger team
-naming the other's first, Power Baseball 2028 Victus and JR7 Baseball on 11 September 2026, had
-each pass claim the row that stood and give back the one that was claimed, and every tidy of that
-pool ran to its limit. A stand-in the other club's own schedule has played is not
-that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
+Every row and copy of the club's day is read at once: as many pairs as the day allows, then in both
+schedules' order, then the stronger links — the same result, the very same start, within the hour.
+Where two readings are as good as each other, only what they agree on is settled, so one game off
+two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is, and a claim already made
+counts for nothing of its own, so the day reads the same whichever club was pulled first. The copies
+of a club the claiming club has a row against of its own, that day or the day either side, that no
+row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in row
+once took the copy that row was, and left it standing on its own, one game counted twice. They wait
+only where the collapse could still read that row as the copy: on its own day, or a day off with the
+same result, at the very same instant, or at the same clock with results no further apart than
+scorekeepers are, the one test the collapse joins a game across the night by (`dayApartStrength`),
+and a pull's mark waits by the same. Waiting on a row a day off that is plainly another game waited
+for good: G3 - Bonanno's 3-9 against "CBU" was CBU United Faber Navy's own 9-3 at the same start,
+and G3's 1-2 against CBU United the next afternoon held it back, so the 3-9 counted twice. On the
+pool of 24 September 2026 that was 41 games, and 73 clubs' records moved, 71 toward GameChanger's
+own, 46 onto it and none off it. A score a claim lent the copy is not the copy's to wait on: read as
+its own, the claim went back the next pass, and the pass after made it again. A row the club it
+names answers for, by a copy of its own that fits, is that club's, whether that copy stands or is
+itself claimed into a third club's copy: read off the standing copies alone, two clubs that each had
+a second GameChanger team naming the other's first, Power Baseball 2028 Victus and JR7 Baseball on
+11 September 2026, had each pass claim the row that stood and give back the one that was claimed,
+and every tidy of that pool ran to its limit. A stand-in the other club's own schedule has played is
+not that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
 October — and a pulled club it has played gives way only to the same result: the NL Vandals' 15-3
 against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-15 at the very same
 start, though the Gold play the Blue, but where the other club had played the named one the two
 names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
 What a club has played is read off every row of its own schedules, whichever row a game stands on.
 Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
-one team on one day go to one club or none, and a row claimed away is no copy for another row to
-go into in the same pass.
+one team on one day go to one club or none, and a row claimed away is no copy for another row to go
+into in the same pass.
 
 Nothing claimed is final. The claim keeps the team the row was filed against and the level its name
 gave (`FoldedRow.filedAgainst`), through every save, backup and merge, and every tidy reads each
@@ -753,13 +762,13 @@ from a page keeps it in the roster for the same reason; and a claimed row filed 
 tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
 it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that.
 
-The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name
-again and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is
-gone, the pull makes one for the name. It marks only what the claim step would have claimed. The
-row must be on the same day, on the other side of the other club's own copy, with no other row of
-the club in that copy. The claim step's rules for a stand-in must hold, and no row of the club
-against the other club may be waiting that day or either side of it. It leaves alone a fold whose
-name files it against the other club:
+The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name again
+and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is gone, the
+pull makes one for the name. It marks only what the claim step would have claimed. The row must be
+on the same day, on the other side of the other club's own copy, with no other row of the club in
+that copy. The claim step's rules for a stand-in must hold, and no row of the club against the other
+club may be waiting that day or either side of it that could still be the copy. It leaves alone a
+fold whose name files it against the other club:
 
 - the other club's name, a GameChanger listing's name, or its picture;
 - a shorthand for the other club's name at the very start, wherever the two clubs are, as the

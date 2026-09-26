@@ -2253,7 +2253,7 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
    * Built by hand, as the day above is. A row's score is the Aces' first; a copy's is its own
    * club's first, as that club's schedule has it.
    */
-  const at = (clock: string) => `2026-09-05T${clock}:00.000Z`;
+  const at = (clock: string, date = "2026-09-05") => `${date}T${clock}:00.000Z`;
   type Row = {
     id: string;
     clock?: string;
@@ -2280,6 +2280,8 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     source?: string | null;
     /** Another day than the rows'. */
     date?: string;
+    /** Its clock on that day, rather than on the rows' day: the same clock a day off. */
+    clockThatDay?: boolean;
     /** A team on the other side of this club's own row, where it is not the Aces. */
     against?: string;
   };
@@ -2347,7 +2349,9 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
             ageGroupId,
             date: copy.date ?? "2026-09-05",
             ...(copy.score ? { teamAScore: copy.score[0], teamBScore: copy.score[1] } : {}),
-            ...(copy.clock ? { startTs: at(copy.clock) } : {}),
+            ...(copy.clock
+              ? { startTs: at(copy.clock, copy.clockThatDay ? copy.date : undefined) }
+              : {}),
             ...(source === null
               ? {}
               : { source: { kind: "gamechanger" as const, teamId: source, gameId: copy.id } }),
@@ -2632,6 +2636,68 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
       )
     );
     expect(claimed).toBe(0);
+  });
+
+  /*
+   * G3 - Bonanno's 3-9 against "CBU" on 19 September 2026, a pulled club whose schedules never list
+   * it, was CBU United Faber Navy's own 9-3 at the same start. G3's own 1-2 against CBU United the
+   * next morning, which no schedule of theirs lists, is another game by its score and its clock,
+   * yet the claim step waited on it for the collapse to pair, and the 3-9 stood twice.
+   */
+  const g3 = (nextDay: Copy) =>
+    build(
+      [{ id: "a1", clock: "18:00", score: [3, 9], pulled: "gcC" }],
+      [{ id: "b1", clock: "18:00", score: [9, 3] }, nextDay]
+    );
+  const nextDay = (clock: string, score?: [number, number]): Copy => ({
+    id: "a9",
+    aces: true,
+    date: "2026-09-06",
+    clockThatDay: true,
+    clock,
+    ...(score ? { score } : {}),
+  });
+
+  it("takes the Bears' copy past the Aces' own row against them a day off that is another game", () => {
+    const { state, claimed } = claimFiledRows(g3(nextDay("14:00", [1, 2])));
+    expect(claimed).toBe(1);
+    expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+
+    const tidy = tidyPool(g3(nextDay("14:00", [1, 2])));
+    expect(rowsOf(tidy.state)).toEqual(["gc_gcA_a9", "gc_gcA_a1 + gc_gcB_b1"].sort());
+    expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+  });
+
+  it("waits on the Aces' own row against the Bears a day off that the collapse could join", () => {
+    // The same result at any clock; the same clock with a result to come or two within four runs.
+    for (const copy of [nextDay("14:00", [3, 9]), nextDay("18:00"), nextDay("18:00", [4, 7])]) {
+      expect(claimFiledRows(g3(copy)).claimed).toBe(0);
+    }
+    // The same clock, five runs off: two games.
+    expect(claimFiledRows(g3(nextDay("18:00", [1, 6]))).claimed).toBe(1);
+  });
+
+  it("does not read the score a claim lent the Bears' copy as the copy's own", () => {
+    // The Aces' 7-3 against "Sharks" goes into the Bears' copy, unscored, and lends it its score;
+    // the Aces' own 7-3 against the Bears the day before, at eleven, is another game all the same.
+    const day = build(
+      [{ id: "a1", clock: "18:00", score: [7, 3] }],
+      [
+        { id: "b1", clock: "18:30" },
+        {
+          id: "a9",
+          aces: true,
+          date: "2026-09-04",
+          clockThatDay: true,
+          clock: "11:00",
+          score: [7, 3],
+        },
+      ]
+    );
+    const tidy = tidyPool(day);
+    expect(tidy.claimed).toBe(1);
+    expect(heldRows(tidy.state)).toEqual({ gc_gcB_b1: ["a1"] });
+    expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
   });
 
   it("takes the Bears' copy the Aces' own rows against them leave, once those are paired", () => {
@@ -3750,10 +3816,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r12|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r13|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r12|0|0|0|");
+    expect(poolSignature(empty)).toBe("r13|0|0|0|");
   });
 });
 
