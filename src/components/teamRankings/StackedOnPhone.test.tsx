@@ -139,4 +139,21 @@ describe("the rankings table on a phone", () => {
       within(firstCard).getByRole("button", { name: /mark mine|my team/i })
     ).toBeInTheDocument();
   });
+
+  /*
+   * The name is a button, and to a CSS ellipsis a button is one box that fits whole or goes whole.
+   * A long name with the League tag after it did not fit a phone's line, so the card read
+   * "#84 #3874 …" and gave no way to tell which club it was. jsdom lays nothing out, so what is
+   * checked is the cause: nothing between the card and the name may clip it.
+   */
+  it("never swaps a team's name for an ellipsis", async () => {
+    atWidth(false);
+    await openFullTable();
+
+    const name = within(stackedCards()[0]!).getByRole("button", { name: "Rays" });
+    const card = name.closest("li")!;
+    for (let node: HTMLElement | null = name; node && node !== card; node = node.parentElement) {
+      expect(node.className).not.toMatch(/\b(truncate|text-ellipsis|overflow-hidden)\b/);
+    }
+  });
 });
