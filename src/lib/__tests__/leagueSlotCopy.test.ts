@@ -27,6 +27,7 @@ const teams: ScoutTeam[] = [
   { id: "S-TBD", name: "TBD- 09/25/26, 7:15 PM", placeholder: true },
   { id: "S-HORN-SI", name: "Hornets", nameOnly: true },
   { id: "S-DRAG-SI", name: "Dragons", nameOnly: true },
+  { id: "S-513-SI", name: "513 Force", nameOnly: true },
   pulled("S-OTHER", "Some Pulled Club", "gcOTHER"),
 ];
 const row = (
@@ -69,6 +70,13 @@ describe("a league game a club's schedule filed against nobody", () => {
     // The home side filed it: the Hornets' own row against a slot, 13-0 from their seat.
     const hornetsRow = row("gc_horn_1", "S-TBD", "S-HORN", "2026-09-25", 0, 13, "gcHORN");
     expect(collapse([league, hornetsRow])).toEqual([league]);
+  });
+
+  it("takes each club's own copy when both schedules filed it against nobody", () => {
+    // 513 Force's row against "TBD", and the Hornets' own row against a "513 Force" known by no
+    // other name: one copy from each side of the one league game, and both go.
+    const hornetsRow = row("gc_horn_3", "S-HORN", "S-513-SI", "2026-09-25", 13, 0, "gcHORN");
+    expect(collapse([league, againstTbd, hornetsRow])).toEqual([league]);
   });
 
   it("is also a club known only by a name that fits the opponent's", () => {

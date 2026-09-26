@@ -358,8 +358,13 @@ const dropCopiesFiledAgainstNobody = (
   });
   if (leagueByClubDay.size === 0) return;
 
-  /** League row index to the stored rows that fit it and nothing else. */
-  const rowsFor = new Map<number, number[]>();
+  /**
+   * A league row and one of its two clubs, to the stored rows of that club's that fit it and nothing
+   * else. Per club, because each club's own schedule holds its own copy of the game: the Hornets'
+   * row against "513 Force" and 513 Force's against "TBD" are both copies of one league game, where
+   * two rows of 513 Force's that fit it are two games of one score and neither is taken.
+   */
+  const rowsFor = new Map<string, number[]>();
   games.forEach((game, index) => {
     if (dropped.has(index) || game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
     // Read before the date, which is the costly part: nearly every row in a nationwide pool is
@@ -368,7 +373,7 @@ const dropCopiesFiledAgainstNobody = (
     if (!isScoutGamePlayed(game)) return;
     const day = normalizeDateInput(game.date ?? "");
     if (!day) return;
-    const fits: number[] = [];
+    const fits: string[] = [];
     (
       [
         [game.teamAId, game.teamBId],
@@ -385,7 +390,7 @@ const dropCopiesFiledAgainstNobody = (
         if (opponentId === sideId) return;
         const result = scoreSeenBy(league, clubId);
         if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
-        if (roster.standsInFor(sideId, opponentId)) fits.push(leagueIndex);
+        if (roster.standsInFor(sideId, opponentId)) fits.push(`${leagueIndex}|${clubId}`);
       });
     });
     if (fits.length !== 1) return;
