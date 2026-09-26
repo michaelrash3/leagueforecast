@@ -3524,13 +3524,25 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       if (same) return near ? 4 : 0;
       return close && !knownApart ? onClock : 0;
     };
-    /** A row the club it names answers for, by a copy of its own that fits, is that club's. */
+    /**
+     * A row the club it names answers for, by a copy of its own that fits, is that club's. Its
+     * own copy standing, or its own row claimed into somebody else's copy, read as if it stood as
+     * every claim is here. Read off the standing copies alone, the answer went back and forth: on
+     * the pool of 26 September 2026, Power Baseball 2028 Victus and JR7 Baseball each filed their
+     * 3-2 against the other, and each club had a second GameChanger team whose copy named the
+     * first. Each pass claimed the row that stood into the second team's copy and gave back the
+     * one that was claimed, since the standing row answered it, and every tidy ran to its limit.
+     */
     const answered = (entry: Filed) =>
       isClub(entry.against) &&
-      (byTeamDay.get(key) ?? []).some(
+      [
+        ...(byTeamDay.get(key) ?? []).filter((game) => mine(game.source?.teamId, entry.against)),
+        ...(filedByDay.get(dayKey(entry.against, date)) ?? []).flatMap((other) =>
+          other.holder && other.row.teamBId === club ? [other.row] : []
+        ),
+      ].some(
         (game) =>
           otherOf(game) === entry.against &&
-          mine(game.source?.teamId, entry.against) &&
           strength({ ...entry, against: `${entry.against}\u0000` }, game) > 0
       );
     const rows = filed.filter((entry) => !answered(entry));

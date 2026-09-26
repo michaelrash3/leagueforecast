@@ -721,7 +721,11 @@ made counts for nothing of its own, so the day reads the same whichever club was
 copies of a club the claiming club has a row against of its own, that day or the day either side,
 that no row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in
 row once took the copy that row was, and left it standing on its own, one game counted twice. A row the club it names answers for, by a copy
-of its own that fits, is that club's. A stand-in the other club's own schedule has played is not
+of its own that fits, is that club's, whether that copy stands or is itself claimed into a third
+club's copy: read off the standing copies alone, two clubs that each had a second GameChanger team
+naming the other's first, Power Baseball 2028 Victus and JR7 Baseball on 11 September 2026, had
+each pass claim the row that stood and give back the one that was claimed, and every tidy of that
+pool ran to its limit. A stand-in the other club's own schedule has played is not
 that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
 October — and a pulled club it has played gives way only to the same result: the NL Vandals' 15-3
 against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-15 at the very same
