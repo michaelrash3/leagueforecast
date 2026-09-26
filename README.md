@@ -831,6 +831,20 @@ page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,484
 rated in 2027 have another record: a club loses a game it had counted twice, or the games its
 opponents filed against it by name that another of its GameChanger teams, or another club, played.
 
+A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
+club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
+it, or to a stand-in. Two levels off is inside what a squad plays up or down, and still somebody
+else's where the age was typed into the name and nothing of the club's own says it plays there:
+every listing two off, none of its own rows within a level of it, no row of its own that day. On the
+pool of 24 September 2026 GameChanger's own record left out 82% of the games filed that way that it
+decided, against 14% at the club's own level. Those rows go to a stand-in and to no namesake, and
+the refile (`refileStandIns`) does not put one onto the club of that name at the typed age on the
+name alone where the name is a club's at another level in reach too and that club's own schedules
+list nothing that day: handed to the namesake at the typed age, 47 of the 49 clubs that took one on
+the pool of 26 September moved away from GameChanger's own record. On that pool the move takes 522
+rows off, and 178 clubs' records change: 164 toward GameChanger's own, 106 of them onto it, and 14
+away, 5 of those off it — a squad that did play up, or a namesake the game was matched to after.
+
 Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.

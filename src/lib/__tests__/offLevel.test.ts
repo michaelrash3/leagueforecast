@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { importGcSchedules, resettleOffLevel, type GcImportState } from "../gameChangerImport";
+import {
+  importGcSchedules,
+  refileStandIns,
+  resettleOffLevel,
+  type GcImportState,
+} from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import { decodePoolTeams } from "../teamRankingsCompact";
 import { isPlaceholderName } from "../teamRankings";
@@ -353,14 +358,141 @@ describe("resettleOffLevel", () => {
     expect(resettleOffLevel(typed).resettled).toBe(0);
   });
 
-  it("leaves a level that disagrees by a year or two alone", () => {
+  it("leaves a level that disagrees by a year alone", () => {
     const before = misfiled();
     const near = {
       ...before,
-      games: [{ ...before.games[0]!, ageGroupId: "ag9", ageLevelA: 11, ageLevelB: 11 }],
+      games: [{ ...before.games[0]!, ageGroupId: "ag9", ageLevelA: 10, ageLevelB: 10 }],
     };
 
     expect(resettleOffLevel(near).resettled).toBe(0);
+  });
+});
+
+/*
+ * Two levels off is inside `PLAYS_UP_TO`, and still somebody else's where the age was typed into
+ * the name and nothing of the club's own says it plays there. Here an 11U club, the Rivals, typed
+ * "Lookouts Baseball Club 11U", and the row sits on the 9U Lookouts.
+ */
+describe("a row typed two levels from every level a club plays", () => {
+  const groups: AgeGroup[] = [
+    { id: "ag9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 },
+    { id: "ag11", name: "11U 2027", seasonIds: [], ageLevel: 11, year: 2027 },
+  ];
+  const rivals: ScoutTeam = {
+    id: "S-RIVALS",
+    name: "Rivals",
+    state: "KY",
+    gcTeams: [{ teamId: "gcRIVALS011", name: "Rivals 11U", ageGroupId: "ag11", ageLevel: 11 }],
+  };
+  const lookouts9: ScoutTeam = {
+    id: "S-LOOK9",
+    name: "Lookouts Baseball Club",
+    state: "KY",
+    gcTeams: [
+      { teamId: "p8KJXdIzoYPR", name: "Lookouts Baseball Club 9U", ageGroupId: "ag9", ageLevel: 9 },
+    ],
+  };
+  const lookouts11: ScoutTeam = {
+    id: "S-LOOK11",
+    name: "Lookouts Baseball Club",
+    state: "KY",
+    gcTeams: [
+      {
+        teamId: "gcLOOKOUT11",
+        name: "Lookouts Baseball Club 11U",
+        ageGroupId: "ag11",
+        ageLevel: 11,
+      },
+    ],
+  };
+  const typedRow: ScoutGame = {
+    id: "gc_gcRIVALS011_1",
+    teamAId: "S-RIVALS",
+    teamBId: "S-LOOK9",
+    teamAScore: 7,
+    teamBScore: 2,
+    ageGroupId: "ag11",
+    ageLevelA: 11,
+    ageLevelB: 11,
+    date: "2026-09-13",
+    source: { kind: "gamechanger", teamId: "gcRIVALS011", gameId: "1" },
+  };
+  /** A row of a club's own schedule, on its own side A. */
+  const own = (club: ScoutTeam, date: string, level: number): ScoutGame => ({
+    id: `gc_${club.gcTeams![0]!.teamId}_${date}`,
+    teamAId: club.id,
+    teamBId: "S-RIVALS",
+    teamAScore: 3,
+    teamBScore: 3,
+    ageGroupId: level === 9 ? "ag9" : "ag11",
+    ageLevelA: level,
+    date,
+    source: { kind: "gamechanger", teamId: club.gcTeams![0]!.teamId, gameId: date },
+  });
+  const pool = (games: ScoutGame[], teams: ScoutTeam[] = [rivals, lookouts9]): GcImportState => ({
+    ageGroups: groups,
+    teams,
+    games,
+  });
+
+  it("takes it off the club, onto a stand-in rather than the namesake at the typed age", () => {
+    const before = pool([typedRow], [rivals, lookouts9, lookouts11]);
+    const { state, resettled } = resettleOffLevel(before);
+    expect(resettled).toBe(1);
+    const landed = state.teams.find((team) => team.id === state.games[0]?.teamBId);
+    expect(landed?.nameOnly).toBe(true);
+    expect(landed?.name).toBe("Lookouts Baseball Club");
+  });
+
+  it("leaves it where the age was the page's, not typed", () => {
+    const { ageLevelB: _typed, ...untyped } = typedRow;
+    expect(resettleOffLevel(pool([untyped])).resettled).toBe(0);
+  });
+
+  it("leaves it where the club's own rows play within a level of it", () => {
+    expect(resettleOffLevel(pool([typedRow, own(lookouts9, "2026-09-20", 10)])).resettled).toBe(0);
+  });
+
+  it("leaves it where the club's own schedule lists a game that day", () => {
+    expect(resettleOffLevel(pool([typedRow, own(lookouts9, "2026-09-13", 9)])).resettled).toBe(0);
+  });
+
+  it("leaves a club no level is known of", () => {
+    const unlisted: ScoutTeam = {
+      ...lookouts9,
+      gcTeams: [{ teamId: "p8KJXdIzoYPR", name: "Lookouts Baseball Club", ageGroupId: "agX" }],
+    };
+    expect(resettleOffLevel(pool([typedRow], [rivals, unlisted])).resettled).toBe(0);
+  });
+
+  /*
+   * And the stand-in it goes to is not filed back onto the namesake at the typed age on the name
+   * alone: the name is a club's at two levels in reach, and the 11U's own schedules list nothing
+   * that day, so nothing says which squad it was.
+   */
+  describe("the stand-in it goes to", () => {
+    const moved = (extra: ScoutGame[] = []) =>
+      resettleOffLevel(pool([typedRow, ...extra], [rivals, lookouts9, lookouts11])).state;
+
+    it("is not filed onto the namesake whose own schedules list nothing that day", () => {
+      expect(refileStandIns(moved()).refiled).toBe(0);
+    });
+
+    it("is filed onto it where its own schedule lists a game that day", () => {
+      const state = moved([own(lookouts11, "2026-09-13", 11)]);
+      const out = refileStandIns(state);
+      expect(out.refiled).toBe(1);
+      expect(out.state.games.find((game) => game.id === typedRow.id)?.teamBId).toBe("S-LOOK11");
+    });
+
+    it("is filed onto the one club of the name as before, where no other level is in reach", () => {
+      const state = moved();
+      const alone = { ...state, teams: state.teams.filter((team) => team.id !== "S-LOOK9") };
+      const out = refileStandIns(alone);
+      expect(out.refiled).toBe(1);
+      expect(out.state.games.find((game) => game.id === typedRow.id)?.teamBId).toBe("S-LOOK11");
+    });
   });
 });
 

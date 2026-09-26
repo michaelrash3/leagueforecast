@@ -4993,6 +4993,16 @@ export const reclaimMisfiled = (
  *
  * Only a row filed by name. A row a club put on its own GameChanger schedule says what level that
  * club played at, whatever its listing claims, and is never moved.
+ *
+ * Two levels off is inside `PLAYS_UP_TO`, and still somebody else's where the age was typed into
+ * the name and nothing of the club's own says it plays there: every listing it has two off, none of
+ * its own rows within a level of it, and no row of its own that day. On the pool of 24 September
+ * 2026, of the scored games filed on a pulled club two levels from its own, GameChanger's own record
+ * left out 82% of those it decided, against 14% at the club's own level. Those rows go to a
+ * stand-in and to no namesake, which only the game itself can pick: on the pool of 26 September
+ * the move took 522 rows off, 164 clubs' records moved toward GameChanger's own, 106 of them onto
+ * it, and 14 away, 5 of those off it — a squad that did play up, and a namesake the game was then
+ * matched to.
  */
 export const resettleOffLevel = (
   state: GcImportState
@@ -5020,6 +5030,58 @@ export const resettleOffLevel = (
 
   const isOwnRow = (game: ScoutGame, teamId: string): boolean =>
     game.source !== undefined && (ownIds.get(teamId)?.has(game.source.teamId) ?? false);
+  const within = (seen: ReadonlySet<number> | undefined, level: number, slack: number): boolean =>
+    [...(seen ?? [])].some((at) => Math.abs(at - level) <= slack);
+
+  /**
+   * What each pulled club's own schedules say of it: the levels its own rows were played at and the
+   * days they fall on, standing, folded into another club's copy, claimed, or on record. Read only
+   * once a row two levels off needs it.
+   */
+  let ownWord: { levels: Map<string, Set<number>>; days: Map<string, Set<string>> } | undefined;
+  const ownWordNow = () => {
+    if (ownWord) return ownWord;
+    const clubOfSchedule = new Map<string, string>();
+    ownIds.forEach((ids, clubId) => ids.forEach((id) => clubOfSchedule.set(id, clubId)));
+    const ownLevels = new Map<string, Set<number>>();
+    const days = new Map<string, Set<string>>();
+    const add = <T>(into: Map<string, Set<T>>, key: string, value: T) => {
+      const bucket = into.get(key);
+      if (bucket) bucket.add(value);
+      else into.set(key, new Set([value]));
+    };
+    state.games.forEach((game) => {
+      const clubs = new Set<string>();
+      const of = (schedule: string) => {
+        const club = clubOfSchedule.get(schedule);
+        if (club !== undefined) clubs.add(club);
+      };
+      if (game.source) of(game.source.teamId);
+      game.alsoRows?.forEach((record) => of(record.teamId));
+      game.alsoFrom?.forEach(of);
+      clubs.forEach((clubId) => {
+        if (game.date) add(days, clubId, game.date);
+        const side = clubId === game.teamAId ? "A" : clubId === game.teamBId ? "B" : undefined;
+        if (side === undefined) return;
+        const at = (side === "A" ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
+        if (at !== undefined) add(ownLevels, clubId, at);
+      });
+    });
+    ownWord = { levels: ownLevels, days };
+    return ownWord;
+  };
+  /**
+   * A club two levels from an age typed into the name it was filed under, where nothing of its own
+   * says it plays there: its listings all two off, none of its own rows within one of it, and no
+   * row of its own that day.
+   */
+  const twoOff = (clubId: string, typed: number | undefined, date: string | undefined): boolean => {
+    const listed = levels.get(clubId);
+    if (typed === undefined || !listed?.size || within(listed, typed, 1)) return false;
+    const own = ownWordNow();
+    if (within(own.levels.get(clubId), typed, 1)) return false;
+    return date === undefined || !own.days.get(clubId)?.has(date);
+  };
 
   const used = new Set(state.teams.map((team) => team.id));
   const added: ScoutTeam[] = [];
@@ -5104,19 +5166,28 @@ export const resettleOffLevel = (
     // club's schedule by its own word, as `reclaimMisfiled` reads it. Moved off, the club's own row
     // went with it into a game the club was not in, and the club's next pull filed that row again.
     if (filedInto(game, ownIds.get(namedId))) return game;
-    const level =
-      (namedId === game.teamAId ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
-    if (levelFits(levels.get(namedId), level)) return game;
+    const typed = namedId === game.teamAId ? game.ageLevelA : game.ageLevelB;
+    const level = typed ?? levelOf.get(game.ageGroupId);
+    const farOff = !levelFits(levels.get(namedId), level);
+    if (!farOff && !twoOff(namedId, typed, game.date)) return game;
 
     const pool = poolKeyOf(game.ageGroupId);
     const key = teamNameKey(named.name);
-    const homes = (namesakes.get(key) ?? []).filter((clubId) => {
+    const mover = teamById.get(namedId === game.teamAId ? game.teamBId : game.teamAId);
+    /*
+     * Two off, the row goes to a stand-in and to no namesake on the name alone: the club it was
+     * filed on did not play it, and nothing yet says which did. Handed to the namesake at or next to
+     * the typed age, the games mostly were not that club's either — on the pool of 26 September
+     * 2026, 47 of the 49 clubs that took one moved away from GameChanger's own record, and 30 that
+     * matched it stopped matching. A namesake whose own schedule holds the game is the claim step's
+     * and the reclaim's to find, on the game.
+     */
+    const homes = (farOff ? (namesakes.get(key) ?? []) : []).filter((clubId) => {
       if (clubId === namedId || clubId === game.teamAId || clubId === game.teamBId) return false;
       const club = teamById.get(clubId);
       const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
       return Boolean(inPool) && levelFits(levels.get(clubId), level);
     });
-    const mover = teamById.get(namedId === game.teamAId ? game.teamBId : game.teamAId);
     const to =
       homes.length === 1
         ? homes[0]!
@@ -5173,6 +5244,41 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
   });
   if (clubs.size === 0) return { state, refiled: 0 };
 
+  /** The levels each name's pulled clubs play at, by pool. */
+  const levelsByName = new Map<string, Set<number>>();
+  state.teams.forEach((team) => {
+    const key = teamNameKey(team.name);
+    team.gcTeams?.forEach((link) => {
+      if (link.ageLevel === undefined) return;
+      const at = `${poolKeyOf(link.ageGroupId)}\u0000${key}`;
+      const bucket = levelsByName.get(at);
+      if (bucket) bucket.add(link.ageLevel);
+      else levelsByName.set(at, new Set([link.ageLevel]));
+    });
+  });
+  /** Each pulled club's days with a row of its own schedules, read only once a refile asks. */
+  let ownDays: Set<string> | undefined;
+  const listsThatDay = (clubId: string, date: string | undefined): boolean => {
+    if (!ownDays) {
+      const clubOfSchedule = new Map<string, string>();
+      state.teams.forEach((team) =>
+        team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
+      );
+      const days = new Set<string>();
+      state.games.forEach((game) => {
+        const of = (schedule: string) => {
+          const club = clubOfSchedule.get(schedule);
+          if (club !== undefined && game.date) days.add(`${club}\u0000${game.date}`);
+        };
+        if (game.source) of(game.source.teamId);
+        game.alsoRows?.forEach((record) => of(record.teamId));
+        game.alsoFrom?.forEach(of);
+      });
+      ownDays = days;
+    }
+    return date !== undefined && ownDays.has(`${clubId}\u0000${date}`);
+  };
+
   let refiled = 0;
   const games = state.games.map((game) => {
     const a = teamById.get(game.teamAId);
@@ -5197,8 +5303,23 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
             : []
           : namesakes.filter((club) => club.state !== undefined && near.has(club.state));
     if (chosen.length !== 1) return game;
-    refiled += 1;
     const club = chosen[0]!;
+    /*
+     * Where the name is a club's at another level within reach too, the name does not say which
+     * squad it was, and a club whose own schedules list nothing that day is not told apart by the
+     * game either. Rows `resettleOffLevel` takes off a club two levels from the age typed are that
+     * shape: filed onto the namesake at the typed age, 38 of the 40 clubs that took one on the pool
+     * of 26 September 2026 moved away from GameChanger's own record, and on the 129 where the
+     * namesake listed nothing that day this leaves them standing against the name.
+     */
+    const levelsOfName = levelsByName.get(
+      `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}`
+    );
+    const otherLevelInReach = [...(levelsOfName ?? [])].some(
+      (at) => level !== undefined && at !== level && Math.abs(at - level) <= PLAYS_UP_TO
+    );
+    if (otherLevelInReach && !listsThatDay(club.id, game.date)) return game;
+    refiled += 1;
     return standIn === a ? { ...game, teamAId: club.id } : { ...game, teamBId: club.id };
   });
   if (refiled === 0) return { state, refiled: 0 };
@@ -5854,7 +5975,8 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       and made for a row filed against a pulled club whose schedules never list the game, on
  *       scores that agree
  *  13 — that settle left alone for a row the named club answers with a row of its own claimed
- *       elsewhere, and held back only for a row of the club's the collapse could still join
+ *       elsewhere, and held back only for a row of the club's the collapse could still join; a row
+ *       typed two levels from a club that nothing of its own plays at taken off it
  */
 const TIDY_RULES_VERSION = 13;
 
