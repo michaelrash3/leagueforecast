@@ -57,21 +57,58 @@ const pool = (): Pool => ({
   },
 });
 
+/*
+ * The same game filed by the club's own schedule against a slot: 513 Force - Bouley's 0-13 on 25
+ * September was "TBD- 09/25/26, 7:15 PM" on GameChanger and the Cincinnati Hornets in the league,
+ * and the Hornets' own schedule is not in the pool. The team panel listed two 0-13 losses that day.
+ */
+const againstASlot = (): Pool => ({
+  ageGroups: [ageGroup(9, 2027, { seasonIds: ["default"] })],
+  teams: [
+    team("S-513", "513 FORCE - BOULEY", {
+      city: "Cincinnati",
+      state: "OH",
+      gcTeams: [{ teamId: "gc513", name: "513 FORCE - BOULEY 9U", ageGroupId: "ag_9u_2027" }],
+    }),
+    team("S-HORN", "Cincinnati Hornets", { city: "Cincinnati", state: "OH" }),
+    team("S-TBD", "TBD- 09/25/26, 7:15 PM", { placeholder: true }),
+  ],
+  games: [
+    game("gc_513_1", "ag_9u_2027", "S-513", "S-TBD", 0, 13, {
+      date: "2026-09-25",
+      source: { kind: "gamechanger", teamId: "gc513", gameId: "g1" },
+    }),
+  ],
+  league: {
+    teams: [
+      { id: "L-513", name: "513 FORCE - BOULEY" },
+      { id: "L-HORN", name: "Cincinnati Hornets" },
+    ],
+    matchups: [{ id: "m1", date: "9/25", away: "L-513", home: "L-HORN" }],
+    logs: { m1: final(0, 13) },
+  },
+});
+
+/** Record and games off a team's row in the full table. */
+const recordOf = async (name: string) => {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
+  const row = within(screen.getByRole("table")).getByRole("button", { name }).closest("tr")!;
+  const cells = within(row)
+    .getAllByRole("cell")
+    .map((cell) => cell.textContent?.trim());
+  // Rank, Team, Record, Rating, Best guess, Games.
+  return { record: cells[2], games: cells[5] };
+};
+
 describe("a league game the pull also has", () => {
   it("counts once on the board", async () => {
-    const user = userEvent.setup();
     renderTeamRankings(pool());
-    await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
+    expect(await recordOf("Trash Pandas Baseball Club")).toEqual({ record: "0-1", games: "1" });
+  });
 
-    const table = screen.getByRole("table");
-    const row = within(table)
-      .getByRole("button", { name: "Trash Pandas Baseball Club" })
-      .closest("tr")!;
-    const cells = within(row)
-      .getAllByRole("cell")
-      .map((cell) => cell.textContent?.trim());
-    // Rank, Team, Record, Rating, Best guess, Games: one loss, one game.
-    expect(cells[2]).toBe("0-1");
-    expect(cells[5]).toBe("1");
+  it("counts once when the club's own schedule had it against TBD", async () => {
+    renderTeamRankings(againstASlot());
+    expect(await recordOf("513 FORCE - BOULEY")).toEqual({ record: "0-1", games: "1" });
   });
 });

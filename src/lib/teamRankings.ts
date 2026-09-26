@@ -38,6 +38,7 @@ import {
 import {
   countsTowardRating,
   LEAGUE_GAME_PREFIX,
+  type LeagueRowReader,
   minutesApart,
   ONE_GAME_WINDOW_MINUTES,
   pairKeyOf,
@@ -62,6 +63,7 @@ import {
 import {
   cleanTeamName,
   filterRankingsByState,
+  nameFitter,
   resolveOrCreateTeam,
   SCOUT_ID_PREFIX,
   teamNameKey,
@@ -2545,6 +2547,40 @@ export const clubIsPickable = (
  * the opponents who reported them.
  */
 export const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
+
+/**
+ * For `dedupeLeagueFixtures`, what the roster says about a stored row.
+ *
+ * Whether a side could be a league opponent under no name of its own: a slot names nobody, so it
+ * could be anyone; a club known only from somebody else's schedule could be the opponent when its
+ * name fits the opponent's, "Hornets" for "Cincinnati Hornets"; a pulled club is itself and never a
+ * stand-in for another. And whether the row is the club's own, pulled from one of its GameChanger
+ * schedules, rather than typed in by hand. The roster is read on the first question, so a pool with
+ * no league game to compare costs nothing.
+ */
+export const leagueStandIns = (teams: readonly ScoutTeam[]): LeagueRowReader => {
+  let byId: Map<string, ScoutTeam> | undefined;
+  const teamOf = (teamId: string) => {
+    byId ??= new Map(teams.map((team) => [team.id, team]));
+    return byId.get(teamId);
+  };
+  const fits = nameFitter();
+  return {
+    standsInFor: (sideId, opponentId) => {
+      const side = teamOf(sideId);
+      if (!side) return false;
+      if (side.placeholder) return true;
+      if (!side.nameOnly || hasGcLinks(side)) return false;
+      const opponent = teamOf(opponentId);
+      return opponent !== undefined && fits(side.name, opponent.name);
+    },
+    pulledBy: (game, clubId) => {
+      const schedule = game.source?.teamId;
+      if (!schedule) return false;
+      return teamOf(clubId)?.gcTeams?.some((link) => link.teamId === schedule) ?? false;
+    },
+  };
+};
 
 /**
  * The connected pieces of a schedule: which clubs can be compared to which at all.

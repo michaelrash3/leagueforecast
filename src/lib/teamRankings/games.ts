@@ -233,6 +233,17 @@ const fixtureKeyOf = (game: ScoutGame): string => {
 };
 
 /**
+ * What `dedupeLeagueFixtures` asks of the roster to pair a club's own row, filed against nobody the
+ * league names, with the league's copy of the game.
+ */
+export type LeagueRowReader = {
+  /** Whether a side could be the league's opponent under no name of its own. */
+  standsInFor: (sideId: string, opponentId: string) => boolean;
+  /** Whether a stored row is the club's own, pulled from one of its GameChanger schedules. */
+  pulledBy: (game: ScoutGame, clubId: string) => boolean;
+};
+
+/**
  * Collapses a league-derived game and the stored game that is the same real fixture down to one
  * row.
  *
@@ -256,7 +267,15 @@ const fixtureKeyOf = (game: ScoutGame): string => {
  * doubleheader that the league *does* carry is resolved by count rather than by guessing which
  * stored row pairs with which league row, because nothing in either source says.
  */
-export const dedupeLeagueFixtures = (games: ScoutGame[]): ScoutGame[] => {
+export const dedupeLeagueFixtures = (
+  games: ScoutGame[],
+  /**
+   * What the roster says about a stored row, for pairing a club's own row filed against nobody with
+   * the league's copy (`LeagueRowReader`). Given by the caller, which holds the roster this module
+   * does not. Without it only rows naming the same two clubs are compared, as before.
+   */
+  roster?: LeagueRowReader
+): ScoutGame[] => {
   // Indexed in a single pass rather than scanned per game: this runs on every render over a pool
   // that can hold tens of thousands of rows, and comparing each game against all the others would
   // not survive that.
@@ -289,8 +308,92 @@ export const dedupeLeagueFixtures = (games: ScoutGame[]): ScoutGame[] => {
     emptiestFirst.slice(0, stored.length).forEach((index) => dropped.add(index));
   });
 
+  if (roster) dropCopiesFiledAgainstNobody(games, roster, dropped);
+
   // The common case is a pool with nothing to collapse; hand back the same array so callers that
   // memoize on identity are not re-run for a list that did not change.
   if (dropped.size === 0) return games;
   return games.filter((_, index) => !dropped.has(index));
+};
+
+/**
+ * A club's own copy of a league game, filed against nobody the league names.
+ *
+ * A GameChanger schedule that was never told the opponent files the game against a slot — "TBD-
+ * 09/25/26, 7:15 PM" — or against a club known only by another spelling of the opponent's name. It
+ * never shares the league row's pair of clubs, so the pass by fixture cannot see it, and when the
+ * other club's own copy is not in the pool either, nothing else collapses it: 513 Force - Bouley's
+ * 0-13 against the Cincinnati Hornets on 25 September came out as two losses, one to the Hornets
+ * and one to "TBD".
+ *
+ * With no opponent to compare, the rest of the game decides it: the same club, the same page and
+ * day, and the same score from that club's side. Only the club's own row takes part, pulled from
+ * one of its GameChanger schedules: a game somebody typed in against "TBD" is a claim of its own,
+ * not a schedule that was never told the opponent. Only a scored league row takes part, since an
+ * unscored one counts for nothing and leaves nothing to count twice, and only a pairing that is the
+ * only one either way — one league game of the club's that day that fits, and one row that fits it
+ * — so a day with two games of one score is left as it is. The league row stays: it names the
+ * opponent the slot does not.
+ */
+const dropCopiesFiledAgainstNobody = (
+  games: readonly ScoutGame[],
+  roster: LeagueRowReader,
+  dropped: Set<number>
+): void => {
+  const clubDay = (ageGroupId: string, clubId: string, day: string) =>
+    `${ageGroupId}|${clubId}|${day}`;
+  const leagueByClubDay = new Map<string, number[]>();
+  const leagueClubs = new Set<string>();
+  games.forEach((game, index) => {
+    if (!game.id.startsWith(LEAGUE_GAME_PREFIX) || !isScoutGamePlayed(game)) return;
+    const day = normalizeDateInput(game.date ?? "");
+    if (!day) return;
+    [game.teamAId, game.teamBId].forEach((clubId) => {
+      leagueClubs.add(clubId);
+      const key = clubDay(game.ageGroupId, clubId, day);
+      const bucket = leagueByClubDay.get(key);
+      if (bucket) bucket.push(index);
+      else leagueByClubDay.set(key, [index]);
+    });
+  });
+  if (leagueByClubDay.size === 0) return;
+
+  /** League row index to the stored rows that fit it and nothing else. */
+  const rowsFor = new Map<number, number[]>();
+  games.forEach((game, index) => {
+    if (dropped.has(index) || game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    // Read before the date, which is the costly part: nearly every row in a nationwide pool is
+    // between clubs no league here has, and a nationwide pool is a quarter of a million rows.
+    if (!leagueClubs.has(game.teamAId) && !leagueClubs.has(game.teamBId)) return;
+    if (!isScoutGamePlayed(game)) return;
+    const day = normalizeDateInput(game.date ?? "");
+    if (!day) return;
+    const fits: number[] = [];
+    (
+      [
+        [game.teamAId, game.teamBId],
+        [game.teamBId, game.teamAId],
+      ] as const
+    ).forEach(([clubId, sideId]) => {
+      if (!roster.pulledBy(game, clubId)) return;
+      const seen = scoreSeenBy(game, clubId);
+      if (!seen) return;
+      (leagueByClubDay.get(clubDay(game.ageGroupId, clubId, day)) ?? []).forEach((leagueIndex) => {
+        const league = games[leagueIndex]!;
+        const opponentId = league.teamAId === clubId ? league.teamBId : league.teamAId;
+        // The same two clubs are the pass by fixture's to settle, not this one's.
+        if (opponentId === sideId) return;
+        const result = scoreSeenBy(league, clubId);
+        if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
+        if (roster.standsInFor(sideId, opponentId)) fits.push(leagueIndex);
+      });
+    });
+    if (fits.length !== 1) return;
+    const bucket = rowsFor.get(fits[0]!);
+    if (bucket) bucket.push(index);
+    else rowsFor.set(fits[0]!, [index]);
+  });
+  rowsFor.forEach((rows) => {
+    if (rows.length === 1) dropped.add(rows[0]!);
+  });
 };
