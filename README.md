@@ -1122,7 +1122,11 @@ list and a tap on any name to lay the two side by side: GameChanger's name for
 each, town, state, record, games held here, and every opponent, with the ones in
 common marked. A team's own panel lists the GameChanger ids it is known by,
 unlinks one that was paired wrongly, and folds this team into another for one
-that arrived twice.
+that arrived twice. Beside each id it gives GameChanger's own season record for
+it and when it was last pulled, so a record that looks off can be checked without
+leaving the page. It says no more than that: on the pool of 24 September 2026
+GameChanger's record disagreed with the team's own GameChanger schedule for about a
+quarter of clubs, so a difference is a reason to look, not a verdict.
 
 A run of a few thousand teams takes a while and saves as it goes: the pool is
 written every five hundred teams and the cursor only advances after the write,

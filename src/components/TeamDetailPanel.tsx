@@ -16,6 +16,7 @@ import {
   type SeasonSegment,
 } from "../lib/teamRankings";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
+import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
 
@@ -271,6 +272,20 @@ export function TeamDetailPanel({
                   {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
                   {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
                 </span>
+                {(link.record || link.importedAt) && (
+                  // GameChanger's own count beside the link, so checking it takes no trip there.
+                  // Its own reasons differ from this page's often enough that it is a note, not a
+                  // verdict on the record above.
+                  <span
+                    className="text-xs text-slate-500"
+                    title="GameChanger's own season record for this team, as of the last pull"
+                  >
+                    {link.record
+                      ? `GameChanger ${link.record.win}-${link.record.loss}${link.record.tie ? `-${link.record.tie}` : ""}`
+                      : "No GameChanger record"}
+                    {link.importedAt ? `, pulled ${agoLabel(link.importedAt)}` : ""}
+                  </span>
+                )}
                 {rosterStanding(link.playerCount) === "short" && (
                   <span className={pill("amber")} title={describeRoster(link.playerCount) ?? ""}>
                     {link.playerCount} players
