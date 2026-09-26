@@ -233,6 +233,17 @@ const fixtureKeyOf = (game: ScoutGame): string => {
 };
 
 /**
+ * What `dedupeLeagueFixtures` asks of the roster to pair a club's own row, filed against nobody the
+ * league names, with the league's copy of the game.
+ */
+export type LeagueRowReader = {
+  /** Whether a side could be the league's opponent under no name of its own. */
+  standsInFor: (sideId: string, opponentId: string) => boolean;
+  /** Whether a stored row is the club's own, pulled from one of its GameChanger schedules. */
+  pulledBy: (game: ScoutGame, clubId: string) => boolean;
+};
+
+/**
  * Collapses a league-derived game and the stored game that is the same real fixture down to one
  * row.
  *
@@ -259,12 +270,11 @@ const fixtureKeyOf = (game: ScoutGame): string => {
 export const dedupeLeagueFixtures = (
   games: ScoutGame[],
   /**
-   * Whether a stored row's side could be the league's opponent under no name of its own: a slot
-   * such as "TBD", or a club known only by a name that fits the opponent's. Given by the caller,
-   * which holds the roster this module does not. Without it only rows naming the same two clubs
-   * are compared, as before.
+   * What the roster says about a stored row, for pairing a club's own row filed against nobody with
+   * the league's copy (`LeagueRowReader`). Given by the caller, which holds the roster this module
+   * does not. Without it only rows naming the same two clubs are compared, as before.
    */
-  standsInFor?: (sideId: string, opponentId: string) => boolean
+  roster?: LeagueRowReader
 ): ScoutGame[] => {
   // Indexed in a single pass rather than scanned per game: this runs on every render over a pool
   // that can hold tens of thousands of rows, and comparing each game against all the others would
@@ -298,7 +308,7 @@ export const dedupeLeagueFixtures = (
     emptiestFirst.slice(0, stored.length).forEach((index) => dropped.add(index));
   });
 
-  if (standsInFor) dropCopiesFiledAgainstNobody(games, standsInFor, dropped);
+  if (roster) dropCopiesFiledAgainstNobody(games, roster, dropped);
 
   // The common case is a pool with nothing to collapse; hand back the same array so callers that
   // memoize on identity are not re-run for a list that did not change.
@@ -317,7 +327,9 @@ export const dedupeLeagueFixtures = (
  * and one to "TBD".
  *
  * With no opponent to compare, the rest of the game decides it: the same club, the same page and
- * day, and the same score from that club's side. Only a scored league row takes part, since an
+ * day, and the same score from that club's side. Only the club's own row takes part, pulled from
+ * one of its GameChanger schedules: a game somebody typed in against "TBD" is a claim of its own,
+ * not a schedule that was never told the opponent. Only a scored league row takes part, since an
  * unscored one counts for nothing and leaves nothing to count twice, and only a pairing that is the
  * only one either way — one league game of the club's that day that fits, and one row that fits it
  * — so a day with two games of one score is left as it is. The league row stays: it names the
@@ -325,7 +337,7 @@ export const dedupeLeagueFixtures = (
  */
 const dropCopiesFiledAgainstNobody = (
   games: readonly ScoutGame[],
-  standsInFor: (sideId: string, opponentId: string) => boolean,
+  roster: LeagueRowReader,
   dropped: Set<number>
 ): void => {
   const clubDay = (ageGroupId: string, clubId: string, day: string) =>
@@ -363,6 +375,7 @@ const dropCopiesFiledAgainstNobody = (
         [game.teamBId, game.teamAId],
       ] as const
     ).forEach(([clubId, sideId]) => {
+      if (!roster.pulledBy(game, clubId)) return;
       const seen = scoreSeenBy(game, clubId);
       if (!seen) return;
       (leagueByClubDay.get(clubDay(game.ageGroupId, clubId, day)) ?? []).forEach((leagueIndex) => {
@@ -372,7 +385,7 @@ const dropCopiesFiledAgainstNobody = (
         if (opponentId === sideId) return;
         const result = scoreSeenBy(league, clubId);
         if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
-        if (standsInFor(sideId, opponentId)) fits.push(leagueIndex);
+        if (roster.standsInFor(sideId, opponentId)) fits.push(leagueIndex);
       });
     });
     if (fits.length !== 1) return;

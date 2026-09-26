@@ -65,11 +65,20 @@ const pool = (): Pool => ({
 const againstASlot = (): Pool => ({
   ageGroups: [ageGroup(9, 2027, { seasonIds: ["default"] })],
   teams: [
-    team("S-513", "513 FORCE - BOULEY", { city: "Cincinnati", state: "OH" }),
+    team("S-513", "513 FORCE - BOULEY", {
+      city: "Cincinnati",
+      state: "OH",
+      gcTeams: [{ teamId: "gc513", name: "513 FORCE - BOULEY 9U", ageGroupId: "ag_9u_2027" }],
+    }),
     team("S-HORN", "Cincinnati Hornets", { city: "Cincinnati", state: "OH" }),
     team("S-TBD", "TBD- 09/25/26, 7:15 PM", { placeholder: true }),
   ],
-  games: [game("gc_513_1", "ag_9u_2027", "S-513", "S-TBD", 0, 13, { date: "2026-09-25" })],
+  games: [
+    game("gc_513_1", "ag_9u_2027", "S-513", "S-TBD", 0, 13, {
+      date: "2026-09-25",
+      source: { kind: "gamechanger", teamId: "gc513", gameId: "g1" },
+    }),
+  ],
   league: {
     teams: [
       { id: "L-513", name: "513 FORCE - BOULEY" },
