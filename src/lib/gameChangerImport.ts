@@ -5366,6 +5366,121 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
 };
 
 /**
+ * Makes one of the stand-ins that are one opponent filed twice.
+ *
+ * A name nobody pulled becomes a stand-in, one per name, level and squad year among the clubs of a
+ * state that named it (`planOpponent`). A lookup that missed made a second — a class year looked up
+ * at the page's age rather than the class's, a pull run before a rule — and the clubs that named
+ * the team found one entry or the other, so one team's games were split over entries of a game or
+ * two each and the clubs that played it were rated against strangers. On the pool of 26 September
+ * 2026, 173 stand-ins shared a name, a level, a squad year and a naming club's state with one
+ * earlier in the roster; ten were "Mojo Gold 2036", named by Oklahoma's 10U clubs.
+ *
+ * Two kinds are merged without asking: a name that carries a graduating class, and a name no more
+ * than one pulled club in the pool carries. A common name is as often two teams — two Arizona
+ * clubs' "Pirates" — and is left for the user. Nor are two merged whose games clash, one within
+ * the hour of the other against another opponent the same day, which one team cannot do: two
+ * "Padres" named by Texas clubs both played at eight on 19 September. The later entry goes into
+ * the earlier, its games and the claims filed against it with it. On that pool this merged 127 of
+ * the 173 — 50 by class, 77 by a rare name — and moved 226 clubs' ratings by more than a tenth of a
+ * run and no record: No Pressure Sports, whose one game against Mojo Gold 2036 had stood against an
+ * entry of its own, went from -1.10 to -0.03.
+ */
+export const mergeDuplicateStandIns = (
+  state: GcImportState
+): { state: GcImportState; merged: number } => {
+  const groupById = new Map(state.ageGroups.map((group) => [group.id, group]));
+  const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const isStandInTeam = (team: ScoutTeam | undefined): team is ScoutTeam =>
+    Boolean(team?.nameOnly) && !team?.placeholder && !team?.gcTeams?.length;
+  /** What a stand-in's games say of it: where it was filed, who named it, and when it played. */
+  type Seen = {
+    slots: Set<string>;
+    year: number | undefined;
+    namedFrom: Set<string>;
+    games: { date: string | undefined; startTs: string | undefined; other: string }[];
+  };
+  const seen = new Map<string, Seen>();
+  const note = (game: ScoutGame, side: string, other: string, typed: number | undefined) => {
+    const team = teamById.get(side);
+    if (!isStandInTeam(team)) return;
+    const group = groupById.get(game.ageGroupId);
+    const year = group ? ageGroupYear(group) : undefined;
+    const level = typed ?? (group ? ageGroupLevel(group) : undefined);
+    let entry = seen.get(side);
+    if (!entry) {
+      entry = { slots: new Set(), year, namedFrom: new Set(), games: [] };
+      seen.set(side, entry);
+    }
+    entry.slots.add(
+      `${year ?? `g:${game.ageGroupId}`}\u0000${level ?? "?"}\u0000${teamNameKey(team.name)}`
+    );
+    const namer = teamById.get(other);
+    if (namer?.gcTeams?.length && namer.state) entry.namedFrom.add(namer.state);
+    entry.games.push({ date: game.date, startTs: game.startTs, other });
+  };
+  state.games.forEach((game) => {
+    note(game, game.teamAId, game.teamBId, game.ageLevelA);
+    note(game, game.teamBId, game.teamAId, game.ageLevelB);
+  });
+
+  // In roster order, so the entry kept is the one the pool has held longest.
+  const bySlot = new Map<string, string[]>();
+  state.teams.forEach((team) => {
+    const entry = seen.get(team.id);
+    if (entry?.slots.size === 1) push(bySlot, [...entry.slots][0]!, team.id);
+  });
+  if (![...bySlot.values()].some((ids) => ids.length > 1)) return { state, merged: 0 };
+
+  const pulledOfName = new Map<string, number>();
+  state.teams.forEach((team) => {
+    if (!team.gcTeams?.length) return;
+    const key = teamNameKey(team.name);
+    pulledOfName.set(key, (pulledOfName.get(key) ?? 0) + 1);
+  });
+  const clash = (a: Seen["games"], b: Seen["games"]) =>
+    a.some((x) =>
+      b.some(
+        (y) =>
+          x.date !== undefined &&
+          x.date === y.date &&
+          x.other !== y.other &&
+          startsWithinTheHour(x.startTs, y.startTs)
+      )
+    );
+  const into = new Map<string, string>();
+  bySlot.forEach((ids) => {
+    if (ids.length < 2) return;
+    const keeper = ids[0]!;
+    const kept = seen.get(keeper)!;
+    const games = [...kept.games];
+    ids.slice(1).forEach((later) => {
+      const entry = seen.get(later)!;
+      const name = teamById.get(later)!.name;
+      if (![...entry.namedFrom].some((named) => kept.namedFrom.has(named))) return;
+      const byClass =
+        entry.year !== undefined && ageFromGradYearInName(name, entry.year) !== undefined;
+      const rare = (pulledOfName.get(teamNameKey(name)) ?? 0) <= 1;
+      if ((!byClass && !rare) || clash(games, entry.games)) return;
+      into.set(later, keeper);
+      games.push(...entry.games);
+    });
+  });
+  if (into.size === 0) return { state, merged: 0 };
+
+  const to = (teamId: string) => into.get(teamId) ?? teamId;
+  const games = state.games.map((game) => {
+    const a = to(game.teamAId);
+    const b = to(game.teamBId);
+    const moved =
+      a === game.teamAId && b === game.teamBId ? game : { ...game, teamAId: a, teamBId: b };
+    return withFiledRepointed(moved, to);
+  });
+  const teams = state.teams.filter((team) => !into.has(team.id));
+  return { state: { ...state, teams, games }, merged: into.size };
+};
+
+/**
  * Drops the games dated outside their page's squad year — last year's squad's results, which
  * GameChanger lists under this year's id often enough that a nationwide pull carried three
  * thousand of them. The import refuses them on arrival now; this is the same rule applied to a
@@ -5411,6 +5526,8 @@ export type PoolTidy = {
   resettled: number;
   /** Stand-in rows filed onto the one club of that name in the puller's state, or next door. */
   refiled: number;
+  /** Stand-ins that were one opponent filed twice, made one (`mergeDuplicateStandIns`). */
+  merged: number;
   /**
    * Rows a club's own schedule filed by name that another club's own copy of the game claimed, or
    * that went back to the team they named when the schedules stopped bearing a claim out.
@@ -5605,6 +5722,7 @@ export const TIDY_STEPS = [
   "reclaimed",
   "resettled",
   "refiled",
+  "merged",
   "claimed",
   "folded",
   "paired",
@@ -5803,11 +5921,16 @@ const tidyOnce = (
   starting("refiled", graded.state);
   const placed = refileStandIns(graded.state);
   finished("refiled", placed.refiled, placed.state);
+  // After the refile, which files a stand-in's rows onto a club where it can, so only the stand-ins
+  // that stay stand-ins are made one; and before the claims, which read the day against them.
+  starting("merged", placed.state);
+  const doubled = mergeDuplicateStandIns(placed.state);
+  finished("merged", doubled.merged, doubled.state);
   // After every step that settles who a row was played against by its name, so a claim is read
   // against what they left — a pair of halves joined, a row reclaimed by its namesake — and before
   // the collapse, which then regroups each claimed row with the copy it went into.
-  starting("claimed", placed.state);
-  const claims = claimFiledRows(placed.state);
+  starting("claimed", doubled.state);
+  const claims = claimFiledRows(doubled.state);
   finished("claimed", claims.claimed, claims.state);
   starting("folded", claims.state);
   const squads = mergeSameSquadIds(claims.state);
@@ -5857,6 +5980,7 @@ const tidyOnce = (
     reclaimed: moved.reclaimed,
     resettled: graded.resettled,
     refiled: placed.refiled,
+    merged: doubled.merged,
     claimed: claims.claimed,
     releveled: levels.releveled,
     notBaseball: kept.dropped,
@@ -5888,6 +6012,7 @@ export const tidyPool = (
     reclaimed: 0,
     resettled: 0,
     refiled: 0,
+    merged: 0,
     claimed: 0,
     releveled: 0,
     notBaseball: 0,
@@ -5910,6 +6035,7 @@ export const tidyPool = (
     total.reclaimed += step.reclaimed;
     total.resettled += step.resettled;
     total.refiled += step.refiled;
+    total.merged += step.merged;
     total.claimed += step.claimed;
     total.releveled += step.releveled;
     total.notBaseball += step.notBaseball;
@@ -5926,6 +6052,7 @@ export const tidyPool = (
       step.reclaimed +
       step.resettled +
       step.refiled +
+      step.merged +
       step.claimed +
       step.releveled +
       step.notBaseball +
@@ -6007,7 +6134,8 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       scores that agree
  *  13 — that settle left alone for a row the named club answers with a row of its own claimed
  *       elsewhere, and held back only for a row of the club's the collapse could still join; a row
- *       typed two levels from a club that nothing of its own plays at taken off it
+ *       typed two levels from a club that nothing of its own plays at taken off it; and a stand-in
+ *       filed twice under a class-year or rare name made one
  */
 const TIDY_RULES_VERSION = 13;
 
@@ -6087,6 +6215,9 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       ? [
           `${plural(tidy.refiled, "game", "games")} filed onto the one club of that name in the same state.`,
         ]
+      : []),
+    ...(tidy.merged > 0
+      ? [`${plural(tidy.merged, "opponent", "opponents")} entered twice under one name, made one.`]
       : []),
     ...(tidy.claimed > 0
       ? [

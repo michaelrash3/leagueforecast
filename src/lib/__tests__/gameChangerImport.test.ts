@@ -5631,6 +5631,7 @@ describe("whether a tidy changed anything", () => {
     reclaimed: 0,
     resettled: 0,
     refiled: 0,
+    merged: 0,
     claimed: 0,
     releveled: 0,
     notBaseball: 0,

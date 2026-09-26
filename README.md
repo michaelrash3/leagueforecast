@@ -845,6 +845,15 @@ the pool of 26 September moved away from GameChanger's own record. On that pool 
 rows off, and 178 clubs' records change: 164 toward GameChanger's own, 106 of them onto it, and 14
 away, 5 of those off it — a squad that did play up, or a namesake the game was matched to after.
 
+A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
+named it, and a lookup that missed made a second: a class year looked up at the page's age rather
+than the class's, a pull run before a rule. The tidy makes one of two such entries
+(`mergeDuplicateStandIns`) where the name carries a graduating class or no more than one pulled club
+in the pool carries it, a club of one state named both, and neither played another opponent within
+the hour of the other. A common name, two Arizona clubs' "Pirates", is as often two teams and is
+left. On the pool of 26 September 2026 that merged 127 of the 173 such entries, ten of them "Mojo
+Gold 2036", and moved 226 clubs' ratings by more than a tenth of a run and no club's record.
+
 Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.
