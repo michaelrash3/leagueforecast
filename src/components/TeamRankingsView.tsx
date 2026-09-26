@@ -618,10 +618,16 @@ export function TeamRankingsView({
    *
    * Teams already in the stored roster are matched by name and keep the ids they were saved with,
    * so widening this pass does not renumber anything already on disk.
+   *
+   * A league team Settings links to a club — picked, or the one club of its name on the season's
+   * pages — is carried onto that club instead, read off the games of the year on screen, which is
+   * the year every board here is built from. A season on a page of another year keeps its picks and
+   * goes by name for the rest, as it always has.
    */
   const allKnown = useMemo(() => {
     let teams = scoutTeams;
     const derivedGames: ScoutGame[] = [];
+    const stored = { games: scoutGames, ageGroups };
     ageGroups.forEach((group) => {
       const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
         seasonId,
@@ -630,7 +636,7 @@ export function TeamRankingsView({
         logs: loadLogsForSeason(seasonId),
       }));
       // The page's squad year supplies the year a League Standings date does not carry.
-      const derived = deriveLeagueScoutGames(group.id, seasons, teams, ageGroupYear(group));
+      const derived = deriveLeagueScoutGames(group.id, seasons, teams, ageGroupYear(group), stored);
       teams = derived.teams;
       derivedGames.push(...derived.games);
     });

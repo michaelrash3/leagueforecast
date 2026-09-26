@@ -382,6 +382,14 @@ date played outside league play, and that game stands on its own. Results
 carried back into the league's own forecasts skip its fixtures for the same
 reason.
 
+Both copies have to name the same two clubs for that to work, so a league team is
+carried in as the club **Which Team Rankings club is each team?** links it to — the
+pick, or the guess — and only a team with neither goes by its name. By name alone
+it went to whichever club of that name the roster listed first: a Cincinnati 9U
+league's "Cincinnati Angels- Red" landed on an 11U "Cincinnati Angels Red" pulled
+earlier, the Trash Pandas' own pull had the same game against the 9U club, and the
+board showed them 0-7 against GameChanger's 0-6.
+
 ### Placeholders
 
 "TBD", "Winner of Game 3", a blank cell on a bracket: a schedule says these when
