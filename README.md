@@ -1151,8 +1151,10 @@ GameChanger's record disagreed with the team's own GameChanger schedule for abou
 quarter of clubs, so a difference is a reason to look, not a verdict.
 
 A run of a few thousand teams takes a while and saves as it goes: the pool is
-written every five hundred teams and the cursor only advances after the write,
-so stopping, reloading or closing the tab costs at most those five hundred.
+written every five hundred teams while it is small, less often as it grows (each
+save writes the whole pool) but never less often than every two thousand, and the
+cursor only advances after the write, so stopping, reloading or closing the tab
+costs at most those two thousand.
 
 #### How much comes round at once
 
