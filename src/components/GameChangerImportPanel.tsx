@@ -223,19 +223,19 @@ const persistLog = (tracker: PullTracker, log: PullRunLog): void => {
  * as garbage each time. It is the reason such a pull slows to a crawl and buries the tab in
  * collection: not the fetching, the saving.
  *
- * So the interval grows with the pool. Some sixty saves instead of two hundred and thirty, a
- * quarter of the disk and a quarter of the garbage. What it costs is how much a crash can undo —
- * at the ceiling, two thousand teams, about a minute of fetching. It was five thousand, which
- * wrote a tenth rather than a quarter but could undo two or three minutes of a run; two thousand
- * keeps what a stop or a crash loses to a minute. The floor keeps small pulls saving as often as
- * they always did.
+ * So the interval grows with the pool. Twenty-odd saves instead of two hundred and thirty on a
+ * nationwide pull, a tenth of the disk and a tenth of the garbage. And it never drops below two
+ * thousand teams, because a save costs the whole pool however few teams came with it: a pull of
+ * five thousand into a small pool saves twice rather than ten times. What it costs is how much a
+ * stop or a crash can undo — two thousand teams at the least, about a minute of fetching, and at
+ * the ceiling five thousand, two or three minutes.
  */
-export const SAVE_EVERY_MIN = 500;
-export const SAVE_EVERY_MAX = 2000;
+export const SAVE_EVERY_MIN = 2000;
+export const SAVE_EVERY_MAX = 5000;
 export const saveEvery = (games: number): number => {
   /*
    * Guarded rather than trusted, because of what the arithmetic does with a number that is not
-   * one: `Math.max(500, NaN)` is NaN, and the caller's test is `unsaved.length >= interval`, which
+   * one: `Math.max(2000, NaN)` is NaN, and the caller's test is `unsaved.length >= interval`, which
    * is false for NaN every time — so a bad count here would not make the pull save badly, it would
    * make it never save at all, and lose the lot on the way out.
    */

@@ -9,24 +9,21 @@ import { SAVE_EVERY_MAX, SAVE_EVERY_MIN, saveEvery } from "./GameChangerImportPa
  * few hundred megabytes.
  */
 describe("how often a growing pool saves", () => {
-  it("saves as often as it always did while the pool is small", () => {
+  it("never saves sooner than every two thousand teams", () => {
+    // Asked for: a save costs the whole pool however few teams came with it.
+    expect(SAVE_EVERY_MIN).toBe(2_000);
     expect(saveEvery(0)).toBe(SAVE_EVERY_MIN);
     expect(saveEvery(1_000)).toBe(SAVE_EVERY_MIN);
     // The floor holds until the pool is big enough to be worth backing off for.
     expect(saveEvery(50_000)).toBe(SAVE_EVERY_MIN);
+    expect(saveEvery(200_000)).toBe(SAVE_EVERY_MIN);
   });
 
   it("backs off as the pool grows, and stops at the ceiling", () => {
-    expect(saveEvery(100_000)).toBe(1_000);
-    expect(saveEvery(150_000)).toBe(1_500);
-    expect(saveEvery(200_000)).toBe(SAVE_EVERY_MAX);
-    expect(saveEvery(300_000)).toBe(SAVE_EVERY_MAX);
+    expect(saveEvery(300_000)).toBe(3_000);
+    expect(saveEvery(500_000)).toBe(SAVE_EVERY_MAX);
     expect(saveEvery(2_000_000)).toBe(SAVE_EVERY_MAX);
-  });
-
-  it("never lets a stop or a crash undo more than two thousand teams", () => {
-    // The ceiling asked for: at five thousand, a stop or a crash could undo two or three minutes.
-    expect(SAVE_EVERY_MAX).toBe(2_000);
+    expect(SAVE_EVERY_MAX).toBe(5_000);
   });
 
   it("never asks for a save less often than the ceiling, whatever it is handed", () => {
@@ -39,17 +36,18 @@ describe("how often a growing pool saves", () => {
 
   /*
    * The whole point, as arithmetic. A hundred-thousand-team run into a pool of six hundred
-   * thousand games: the fixed interval wrote about fourteen gigabytes, the scaled one writes a
-   * quarter of that — fifty-eight saves against two hundred and thirty-three.
+   * thousand games: the fixed interval every pull used to save at wrote about fourteen gigabytes,
+   * the scaled one writes a tenth of that — twenty-three saves against two hundred and thirty-three.
    */
-  it("cuts what a nationwide run writes to a quarter", () => {
+  it("cuts what a nationwide run writes by an order of magnitude", () => {
     const BYTES_PER_ROW = 169;
+    const FIXED_INTERVAL = 500;
     const teams = 116_773;
     const games = 600_000;
     const written = (interval: number) =>
       (BYTES_PER_ROW * (teams + games) * Math.max(1, Math.floor(teams / interval))) / 2;
-    const before = written(SAVE_EVERY_MIN);
+    const before = written(FIXED_INTERVAL);
     const after = written(saveEvery(games));
-    expect(before / after).toBeGreaterThan(4);
+    expect(before / after).toBeGreaterThan(8);
   });
 });
