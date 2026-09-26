@@ -20,6 +20,7 @@ import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useScoutBridge } from "./hooks/useScoutBridge";
+import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ModelView } from "./components/league/ModelView";
@@ -478,15 +479,20 @@ export default function App() {
    * team names rather than ids, because Team Rankings keeps its own ids for the same clubs, and
    * the league's own date string, which it normalizes. Without it a GameChanger pull of a league
    * team's schedule would feed this season's own games back in as if they were outside results.
+   *
+   * With the runs of every final game, so a club's own row filed against "TBD" can be told for the
+   * league's game it is. Keyed on the final scores as a string, which changes only when a final
+   * result does: the bridge reads the pool from storage whenever this changes, and typing a score
+   * into a game still in progress must not make it.
    */
-  const seasonFixtures = useMemo(() => {
-    const nameById = new Map(teams.map((team) => [team.id, team.name]));
-    return matchups.map((game) => ({
-      away: nameById.get(game.away) ?? "",
-      home: nameById.get(game.home) ?? "",
-      date: game.date,
-    }));
-  }, [teams, matchups]);
+  const finalScores = useMemo(
+    () => finalScoresKey(matchups, deferredLogs),
+    [matchups, deferredLogs]
+  );
+  const seasonFixtures = useMemo(
+    () => leagueFixturesOf(teams, matchups, finalScores),
+    [teams, matchups, finalScores]
+  );
 
   /** Stores which Team Rankings club a league team is, or clears the answer. */
   const setScoutLink = useCallback(

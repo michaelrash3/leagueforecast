@@ -38,6 +38,7 @@ import {
 import {
   countsTowardRating,
   LEAGUE_GAME_PREFIX,
+  leagueCopiesFiledAgainstNobody,
   type LeagueRowReader,
   minutesApart,
   ONE_GAME_WINDOW_MINUTES,
@@ -3224,6 +3225,60 @@ export const NO_SCOUT_TEAM = "__none__";
 /** A league team as this side of the app needs it: its id, its name, and its answer if it has one. */
 export type LeagueTeamLink = { id: string; name: string; scoutTeamId?: string };
 
+/**
+ * One league fixture as the bridge reads it: the league's names for the two teams and its own date
+ * string, and, once the game is final, its runs. The runs are what let a club's own row filed
+ * against "TBD" be recognised as the league's game (`leagueCopiesFiledAgainstNobody`).
+ */
+export type LeagueFixture = {
+  away: string;
+  home: string;
+  date: string;
+  awayRuns?: number;
+  homeRuns?: number;
+};
+
+/**
+ * The final scores of a season's games as one string, for a memo to key on.
+ *
+ * The bridge reads the pool from storage each time its fixtures change, and a season's logs change
+ * with every keystroke in a score box. Keyed on this instead, it reads again when a final result
+ * changes and not when a game in progress is typed into, or a hit is added to a finished one.
+ */
+export const finalScoresKey = (matchups: Matchup[], logs: Record<string, GameLog>): string => {
+  const finals: [string, number, number][] = [];
+  matchups.forEach((matchup) => {
+    const log = logs[matchup.id];
+    if (!isFinal(log)) return;
+    const away = scoreFor(log, "away");
+    const home = scoreFor(log, "home");
+    if (Number.isFinite(away) && Number.isFinite(home)) finals.push([matchup.id, away, home]);
+  });
+  return JSON.stringify(finals);
+};
+
+/** A season's schedule as the bridge reads it, with the runs of each final game (`finalScoresKey`). */
+export const leagueFixturesOf = (
+  teams: TeamBase[],
+  matchups: Matchup[],
+  finalScores: string
+): LeagueFixture[] => {
+  const nameById = new Map(teams.map((team) => [team.id, team.name]));
+  const runs = new Map<string, [number, number]>();
+  (JSON.parse(finalScores) as [string, number, number][]).forEach(([id, away, home]) =>
+    runs.set(id, [away, home])
+  );
+  return matchups.map((matchup) => {
+    const final = runs.get(matchup.id);
+    return {
+      away: nameById.get(matchup.away) ?? "",
+      home: nameById.get(matchup.home) ?? "",
+      date: matchup.date,
+      ...(final ? { awayRuns: final[0], homeRuns: final[1] } : {}),
+    };
+  });
+};
+
 /** One outside result, in the shape `buildPredictionEngine` takes (`ExternalResult`). */
 export type ScoutBridgeResult = {
   home: string;
@@ -3312,7 +3367,7 @@ const linkLeagueTeams = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   leagueTeams: LeagueTeamLink[],
-  seasonFixtures: { away: string; home: string; date: string }[]
+  seasonFixtures: LeagueFixture[]
 ): LeagueTeamLinks => {
   const linked = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
@@ -3508,7 +3563,7 @@ export const leagueScoutBridge = (
    * stored game that is really one of these fixtures can be recognised. Required rather than
    * optional so a new caller has to answer the question instead of silently reopening the leak.
    */
-  seasonFixtures: { away: string; home: string; date: string }[]
+  seasonFixtures: LeagueFixture[]
 ): LeagueScoutBridge => {
   const { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName } = linkLeagueTeams(
     seasonId,
@@ -3564,7 +3619,69 @@ export const leagueScoutBridge = (
       })
       .filter((key) => key !== "")
   );
+  /*
+   * A league club's own pulled row filed against nobody the league names: "TBD- 09/25/26, 7:15 PM"
+   * for 513 Force - Bouley's 0-13 to the Hornets, or "513 Force" on the Angels' schedule. It shares
+   * no names with the fixture, so it read as a tournament result and the forecast counted the
+   * league's game twice. The same rule the rankings apply picks these out, read against the league's
+   * own final scores under the clubs the league teams are linked to: a team with no club behind it
+   * has no row of its own in the pool to be a copy.
+   */
+  const slotCopies = new Set<string>();
+  if (seasonLinked && seasonFixtures.some((fixture) => fixture.awayRuns !== undefined)) {
+    const clubOfLeague = new Map<string, string>();
+    rows.forEach((row) => {
+      if ((row.how === "picked" || row.how === "guessed") && row.scoutTeamId) {
+        clubOfLeague.set(row.leagueTeamId, row.scoutTeamId);
+      }
+    });
+    /*
+     * A league team with no club behind it stands in under its league name, so a row filed against
+     * "TBD" by the club it played still pairs, and a stand-in's name can still be read against it.
+     * It has no schedule in the pool, so no row is ever taken for its own.
+     */
+    const unlinked = new Map<string, ScoutTeam>();
+    const clubOf = (name: string): string | undefined => {
+      const leagueTeamId = leagueIdByKey.get(teamNameKey(name));
+      if (!leagueTeamId) return undefined;
+      const club = clubOfLeague.get(leagueTeamId);
+      if (club) return club;
+      const id = `${SCOUT_ID_PREFIX}league:${leagueTeamId}`;
+      if (!unlinked.has(id)) unlinked.set(id, { id, name, nameOnly: true });
+      return id;
+    };
+    const finals: ScoutGame[] = [];
+    seasonFixtures.forEach((fixture, index) => {
+      if (fixture.awayRuns === undefined || fixture.homeRuns === undefined) return;
+      const away = clubOf(fixture.away);
+      const home = clubOf(fixture.home);
+      if (!away || !home) return;
+      linked.forEach((ageGroupId) =>
+        finals.push({
+          id: `${LEAGUE_GAME_PREFIX}${seasonId}_fixture${index}_${ageGroupId}`,
+          ageGroupId,
+          teamAId: away,
+          teamBId: home,
+          teamAScore: fixture.awayRuns,
+          teamBScore: fixture.homeRuns,
+          date: fixture.date,
+        })
+      );
+    });
+    if (finals.length > 0) {
+      const rowsHere = games.filter(
+        (game) => linked.has(game.ageGroupId) && !game.id.startsWith(LEAGUE_GAME_PREFIX)
+      );
+      const both = [...finals, ...rowsHere];
+      leagueCopiesFiledAgainstNobody(
+        both,
+        leagueStandIns([...teams, ...unlinked.values()])
+      ).forEach((index) => slotCopies.add(both[index]!.id));
+    }
+  }
+
   const isSeasonFixture = (game: ScoutGame): boolean => {
+    if (slotCopies.has(game.id)) return true;
     if (fixtureKeys.size === 0) return false;
     const away = scoutById.get(game.teamAId)?.name;
     const home = scoutById.get(game.teamBId)?.name;
@@ -3680,7 +3797,7 @@ export const scoutLinkCandidates = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   /** This season's own schedule, as league names: who this team plays. */
-  seasonFixtures: { away: string; home: string; date: string }[]
+  seasonFixtures: LeagueFixture[]
 ): ScoutLinkCandidate[] => {
   const pages = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
@@ -3762,7 +3879,7 @@ export const externalResultsForSeason = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   leagueTeams: LeagueTeamLink[],
-  seasonFixtures: { away: string; home: string; date: string }[]
+  seasonFixtures: LeagueFixture[]
 ): ScoutBridgeResult[] =>
   leagueScoutBridge(seasonId, ageGroups, teams, games, leagueTeams, seasonFixtures).results;
 
