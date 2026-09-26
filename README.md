@@ -751,16 +751,19 @@ club's day again with its claims stood back up. A claim the schedules no longer 
 to that team: the other club's copy withdrawn or moved more than an hour off, a result posted that
 says two games, the club's own schedule naming the other club after all, a copy that fits better
 pulled since, or the copy moved onto a namesake whose own schedule lists it. The regroup never moves
-a claim — which copy a claimed row is, is the claim's to say, and a row read as one more game against
-the club that claimed it went to a copy the claim had refused, five runs off at the same hour, and
-back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when the copy
-holding it moves, and a stand-in with no game left stays in the roster while a claimed row can go
-back to it. A game the user has thrown out keeps the claims it holds: released, a row would stand
-as a game of its own and count. Deleting a club that is not one stands the claims its games held
-back up, and keeps it as a name only where a claimed row elsewhere goes back to it; removing a team
-from a page keeps it in the roster for the same reason; and a claimed row filed against a team the
-tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
-it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that.
+a claim — which copy a claimed row is, is the claim's to say, and a row read as one more game
+against the club that claimed it went to a copy the claim had refused, five runs off at the same
+hour, and back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when
+the copy holding it moves, and a stand-in with no game left stays in the roster while a claimed row
+can go back to it. One with neither, which a game or a club the user deleted leaves behind, the tidy
+takes out once its passes are done (`idleStandIns`), unless a page has it as its own team: pruned in
+each pass, the changed roster sent the tidy round once more to find nothing. A game the user has
+thrown out keeps the claims it holds: released, a row would stand as a game of its own and count.
+Deleting a club that is not one stands the claims its games held back up, and keeps it as a name
+only where a claimed row elsewhere goes back to it; removing a team from a page keeps it in the
+roster for the same reason; and a claimed row filed against a team the tidy takes out as not
+baseball, or as a high school, goes with it, as the import would not file it. Kept as a bare fold,
+as the first version of this did it, a claim outlived all of that.
 
 The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name again
 and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is gone, the

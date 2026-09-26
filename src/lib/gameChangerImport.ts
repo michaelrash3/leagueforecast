@@ -5222,6 +5222,11 @@ export type PoolTidy = {
   notBaseball: number;
   /** Teams deleted for playing a high school season, along with their results. */
   highSchool: number;
+  /**
+   * Stand-ins nothing stands on any more — in no game, with no claimed row to go back to them —
+   * taken out of the roster once the passes are done (`idleStandIns`).
+   */
+  idle: number;
   /** How many passes it took to find nothing more. */
   passes: number;
 };
@@ -5423,7 +5428,7 @@ export type TidyStepName = (typeof TIDY_STEPS)[number];
  * pool itself, which is why this asks the step list rather than every numeric field.
  */
 export const tidyChangedAnything = (tidy: PoolTidy): boolean =>
-  TIDY_STEPS.some((step) => tidy[step] > 0);
+  TIDY_STEPS.some((step) => tidy[step] > 0) || tidy.idle > 0;
 
 /**
  * One step of one pass, reported twice: once as it starts and once as it finishes.
@@ -5535,7 +5540,7 @@ const tidyOnce = (
   pass: number,
   watch?: TidyWatcher,
   apart?: KeptApart
-): Omit<PoolTidy, "passes"> => {
+): Omit<PoolTidy, "passes" | "idle"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
    * pool that knows nothing about being watched, and it should stay that way. A watcher that
@@ -5687,6 +5692,7 @@ export const tidyPool = (
     releveled: 0,
     notBaseball: 0,
     highSchool: 0,
+    idle: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
@@ -5726,7 +5732,49 @@ export const tidyPool = (
       step.highSchool;
     if (changed === 0) break;
   }
+  /*
+   * Once the passes are done rather than in each of them: a roster pruned in a pass is a pool that
+   * changed, and the tidy went round again to find nothing. On the pool of 24 September 2026 with
+   * its 76 put back, that took a tidy with nothing else to do from 11.3 s to 22.9 s.
+   */
+  const idle = idleStandIns(total.state);
+  if (idle.size > 0) {
+    total.state = {
+      ...total.state,
+      teams: total.state.teams.filter((team) => !idle.has(team.id)),
+    };
+    total.idle = idle.size;
+  }
   return total;
+};
+
+/**
+ * The stand-ins nothing stands on: in no game on either side, with no claimed row to go back to
+ * them (`filedTeamIds`), and no page's own team. A step that empties a stand-in takes it out as it
+ * goes, but a game or a club the user deletes, or a game dated ahead taken out, leaves its stand-in
+ * behind, and only a later step that happened to change something took it: the backup of 24
+ * September 2026 held 76, 19 of them bracket slots, each an opponent Pool Health counted.
+ */
+const idleStandIns = (state: GcImportState): Set<string> => {
+  const used = new Set<string>(filedTeamIds(state.games));
+  state.games.forEach((game) => {
+    used.add(game.teamAId);
+    used.add(game.teamBId);
+  });
+  state.ageGroups.forEach((group) => {
+    if (group.myTeamId) used.add(group.myTeamId);
+  });
+  return new Set(
+    state.teams
+      .filter(
+        (team) =>
+          (team.placeholder || team.nameOnly) &&
+          !team.gcTeams?.length &&
+          !team.isMine &&
+          !used.has(team.id)
+      )
+      .map((team) => team.id)
+  );
 };
 
 /**
@@ -5857,6 +5905,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.highSchool > 0
       ? [
           `${plural(tidy.highSchool, "high school squad", "high school squads")} deleted, and their results with them.`,
+        ]
+      : []),
+    ...(tidy.idle > 0
+      ? [
+          `${plural(tidy.idle, "opponent", "opponents")} no game names any more, taken off the list.`,
         ]
       : []),
     ...(tidy.folded > 0

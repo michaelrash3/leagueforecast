@@ -5599,6 +5599,7 @@ describe("whether a tidy changed anything", () => {
     releveled: 0,
     notBaseball: 0,
     highSchool: 0,
+    idle: 0,
     passes: 1,
   };
 
@@ -5622,6 +5623,15 @@ describe("whether a tidy changed anything", () => {
     TIDY_STEPS.forEach((step) => {
       expect(tidyChangedAnything({ ...nothing, [step]: 1 })).toBe(true);
     });
+  });
+
+  /*
+   * And the stand-ins taken out once the passes are done, which are no step's: a roster pruned and
+   * not saved is a stamp that reads a team count the stored pool does not have, and a tidy on
+   * every load after it.
+   */
+  it("is true for a roster the tidy took idle stand-ins out of", () => {
+    expect(tidyChangedAnything({ ...nothing, idle: 1 })).toBe(true);
   });
 });
 
