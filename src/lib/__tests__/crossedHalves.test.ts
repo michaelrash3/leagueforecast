@@ -312,6 +312,14 @@ describe("joinCrossedHalves", () => {
     ]);
   });
 
+  it("joins a stand-in whose name is longer than the club's, the word they share not its first", () => {
+    // "NKY Hurricanes" fits "Hurricanes", every word of the shorter in the longer; a lookup filed
+    // under the stand-in's first word alone looks for "nky" and finds no club.
+    const out = joinCrossedHalves(halves({ ...stixHalf, typed: "NKY Hurricanes" }, hurricanesHalf));
+    expect(out.joined).toBe(1);
+    expect(out.state.games).toHaveLength(1);
+  });
+
   it("joins across a state line into a neighbouring state", () => {
     expect(joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, state: "KY" })).joined).toBe(1);
   });

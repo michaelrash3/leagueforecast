@@ -50,6 +50,7 @@ import {
   matchExistingGame,
   MAX_AGE_LEVEL,
   nameFitter,
+  nameFitWords,
   sameGameEvidence,
   withNote,
   sameStart,
@@ -3881,11 +3882,40 @@ export const joinCrossedHalves = (
    * Two lookups rather than a scan of the day. A Saturday in a nationwide pool is thousands of
    * rows, and comparing each with each is millions of pairs a day; a scored row's partner can only
    * be in the bucket with the mirrored result, and an unscored row's only in the bucket at its
-   * start time.
+   * start time. Within a bucket each half is filed under the words of its club's name, and looked
+   * for under the words of the stand-in's: two names fit only where every word of the shorter is in
+   * the longer (`nameFitWords`), so a club sharing no word with the stand-in cannot be its club.
+   * On the tidied pool of 24 September 2026 a half looked up met 131 others in its buckets, 9.5
+   * million pairs over the pass, and joined none; filed by word it met 2.5, 180,000 pairs.
    */
   const halves: Half[] = [];
-  const byResult = new Map<string, Half[]>();
-  const byTime = new Map<string, Half[]>();
+  const byResult = new Map<string, Map<string, Half[]>>();
+  const byTime = new Map<string, Map<string, Half[]>>();
+  const wordsRead = new Map<string, ReadonlySet<string>>();
+  const wordsOf = (name: string): ReadonlySet<string> => {
+    const known = wordsRead.get(name);
+    if (known) return known;
+    const made = nameFitWords(name);
+    wordsRead.set(name, made);
+    return made;
+  };
+  const file = (lookup: Map<string, Map<string, Half[]>>, key: string, half: Half) => {
+    let byWord = lookup.get(key);
+    if (!byWord) {
+      byWord = new Map();
+      lookup.set(key, byWord);
+    }
+    const into = byWord;
+    wordsOf(half.club.name).forEach((word) => push(into, word, half));
+  };
+  /** The halves filed at `key` whose club's name shares a word with `x`'s stand-in's, once each. */
+  const under = (lookup: Map<string, Map<string, Half[]>>, key: string, x: Half): Half[] => {
+    const byWord = lookup.get(key);
+    if (!byWord) return [];
+    const found = new Set<Half>();
+    wordsOf(x.standIn.name).forEach((word) => byWord.get(word)?.forEach((y) => found.add(y)));
+    return [...found];
+  };
   const resultKey = (half: Half, mine: number | undefined, theirs: number | undefined) =>
     `${half.pool}\u0000${half.game.date}\u0000${mine}-${theirs}`;
   const timeKey = (half: Half) =>
@@ -3894,8 +3924,8 @@ export const joinCrossedHalves = (
     const half = halfOf(game);
     if (!half) return;
     halves.push(half);
-    if (scored(half)) push(byResult, resultKey(half, half.clubScore, half.standInScore), half);
-    if (startMinuteOf(half.game.startTs) !== undefined) push(byTime, timeKey(half), half);
+    if (scored(half)) file(byResult, resultKey(half, half.clubScore, half.standInScore), half);
+    if (startMinuteOf(half.game.startTs) !== undefined) file(byTime, timeKey(half), half);
   });
   if (halves.length < 2) return { state, joined: 0 };
 
@@ -3918,14 +3948,14 @@ export const joinCrossedHalves = (
     const found = new Set<Half>();
     if (scored(x)) {
       // The mirrored result, whatever the clocks say — and a row with no result yet at this time.
-      (byResult.get(resultKey(x, x.standInScore, x.clubScore)) ?? []).forEach((y) => found.add(y));
+      under(byResult, resultKey(x, x.standInScore, x.clubScore), x).forEach((y) => found.add(y));
       if (x.game.startTs) {
-        (byTime.get(timeKey(x)) ?? []).forEach((y) => {
+        under(byTime, timeKey(x), x).forEach((y) => {
           if (!scored(y)) found.add(y);
         });
       }
     } else if (x.game.startTs) {
-      (byTime.get(timeKey(x)) ?? []).forEach((y) => found.add(y));
+      under(byTime, timeKey(x), x).forEach((y) => found.add(y));
     }
     const fits = [...found].filter((y) => couldBeOtherEnd(x, y));
     // Where several fit, the clock picks between them or nothing is picked.
@@ -3939,7 +3969,7 @@ export const joinCrossedHalves = (
      */
     if (fits.length > 0) return undefined;
     // Everything at this instant that agrees was asked about above, so what fits here does not.
-    const disputed = (byTime.get(timeKey(x)) ?? []).filter((y) => couldBeOtherEnd(x, y));
+    const disputed = under(byTime, timeKey(x), x).filter((y) => couldBeOtherEnd(x, y));
     return disputed.length === 1 ? disputed[0] : undefined;
   };
 

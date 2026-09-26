@@ -189,6 +189,13 @@ const partsFit = (a: NameParts, b: NameParts): boolean => {
 export const nameFitsWithin = (a: string, b: string): boolean => partsFit(partsOf(a), partsOf(b));
 
 /**
+ * The words `nameFitsWithin` compares. Two names that fit share every word of the shorter, and a
+ * name with none fits nothing, so a lookup filed under these words finds every name that could fit
+ * a given one among those sharing a word with it.
+ */
+export const nameFitWords = (name: string): ReadonlySet<string> => nameWords(name);
+
+/**
  * `nameFitsWithin`, remembering what it has read of each name for as long as the fitter is kept.
  *
  * A tidy compares every half of a day against every other that could be its partner, and the same
