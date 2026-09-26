@@ -2266,6 +2266,8 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     typedLevel?: number;
     /** A pulled club the name was filed against, whose own schedules never list the game. */
     pulled?: "gcC";
+    /** A stand-in this row shares with others of the day's, by id, where it has not one its own. */
+    standIn?: string;
   };
   type Copy = {
     id: string;
@@ -2311,8 +2313,12 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         ...state.teams,
         ...rows
           .filter((row) => !row.pulled)
+          .filter(
+            (row, at, all) =>
+              !row.standIn || all.findIndex((other) => other.standIn === row.standIn) === at
+          )
           .map((row) => ({
-            id: `S-${row.id}`,
+            id: row.standIn ?? `S-${row.id}`,
             name: row.name ?? "Sharks",
             ...(row.slot ? { placeholder: true as const } : { nameOnly: true as const }),
           })),
@@ -2321,7 +2327,7 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         ...rows.map((row): ScoutGame => ({
           id: `gc_gcA_${row.id}`,
           teamAId: aces,
-          teamBId: row.pulled ? clubId(row.pulled) : `S-${row.id}`,
+          teamBId: row.pulled ? clubId(row.pulled) : (row.standIn ?? `S-${row.id}`),
           ageGroupId,
           date: "2026-09-05",
           ...(row.score ? { teamAScore: row.score[0], teamBScore: row.score[1] } : {}),
@@ -2596,6 +2602,36 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         ).claimed
       ).toBe(0);
     }
+  });
+
+  /*
+   * Rows naming one team on one day go to one club or none: a team is one team. Pinned as the rule
+   * the claim step documents, which on the pool of 24 September 2026 decided a single day, Boro
+   * Force's 12 September: two rows unscored against "Crash Outs", at nine and ten in the evening,
+   * beside Southern Reign's copy at half eight and T.A.G.'s at eleven. Nothing here says which of
+   * the two clubs, if either, Crash Outs was; the test pins what the rule does with the day.
+   */
+  it("gives rows naming one stand-in to one club or to none", () => {
+    const crashOuts = { name: "Crash Outs", standIn: "S-crash" };
+    const day = (secondClub: "gcB" | "gcC") =>
+      build(
+        [
+          { id: "a1", clock: "21:00", ...crashOuts },
+          { id: "a2", clock: "22:00", ...crashOuts },
+        ],
+        [
+          { id: "b1", clock: "20:30", score: [10, 4] },
+          { id: "c1", club: secondClub, clock: "23:00", score: [19, 9] },
+        ]
+      );
+    // Each row fits its own copy, a club apiece: neither is claimed.
+    const split = claimFiledRows(day("gcC"));
+    expect(split.claimed).toBe(0);
+    expect(split.state.games).toHaveLength(4);
+    // Both copies the Bears': one club, and both are.
+    const one = claimFiledRows(day("gcB"));
+    expect(one.claimed).toBe(2);
+    expect(heldRows(one.state)).toEqual({ gc_gcB_b1: ["a1"], gc_gcB_c1: ["a2"] });
   });
 
   it("leaves a day with more rows than it reads", () => {
