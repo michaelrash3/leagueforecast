@@ -184,10 +184,13 @@ type ImportIndex = {
    */
   poolKeys: Map<string, string>;
   levels: Map<string, number>;
+  years: Map<string, number>;
   /** Pool key of an age group: its season year, or the group itself when it has none. */
   poolKeyOf: (ageGroupId: string) => string;
   /** Age level of an age group: the level half of a name match, and a side's fallback level. */
   levelOf: (ageGroupId: string) => number | undefined;
+  /** Squad year of an age group, which a graduating class in a name is read against. */
+  yearOf: (ageGroupId: string) => number | undefined;
 };
 
 const pairKeyOf = (game: ScoutGame): string =>
@@ -211,6 +214,7 @@ const noteAgeGroup = (index: ImportIndex, group: AgeGroup): void => {
   // year is a pool of one.
   const year = ageGroupYear(group);
   index.poolKeys.set(group.id, year === undefined ? `g:${group.id}` : `y:${year}`);
+  if (year !== undefined) index.years.set(group.id, year);
   const level = ageGroupLevel(group);
   if (level !== undefined) index.levels.set(group.id, level);
 };
@@ -228,11 +232,14 @@ const buildPoolKeyOf = (ageGroups: AgeGroup[]): ((ageGroupId: string) => string)
 const buildIndex = (state: GcImportState): ImportIndex => {
   const poolKeys = new Map<string, string>();
   const levels = new Map<string, number>();
+  const years = new Map<string, number>();
   const index: ImportIndex = {
     poolKeys,
     levels,
+    years,
     poolKeyOf: (ageGroupId: string) => poolKeys.get(ageGroupId) ?? `g:${ageGroupId}`,
     levelOf: (ageGroupId: string) => levels.get(ageGroupId),
+    yearOf: (ageGroupId: string) => years.get(ageGroupId),
     gamesById: new Map(),
     foldedInto: new Map(),
     recordsBySchedule: new Map(),
@@ -1561,9 +1568,34 @@ const planOpponent = (
    * for the team that played it.
    */
   const key = teamNameKey(game.opponentName);
-  const theirLevel = ageLevelFromName(game.opponentName) ?? index.levelOf(ageGroupId);
-  const sameName =
-    index.teamIdsByGroupName.get(nameSlotKey(index.poolKeyOf(ageGroupId), key, theirLevel)) ?? [];
+  const pool = index.poolKeyOf(ageGroupId);
+  const typed = ageLevelFromName(game.opponentName);
+  const year = index.yearOf(ageGroupId);
+  /*
+   * A graduating class is an age as well, read against the page's squad year just as the row is
+   * filed at it: "Mojo Gold 2036" on a 10U page of 2027 is a 9U squad. Looked up at the page's own
+   * level it was filed at another, and never found again: Oklahoma's 10U clubs had made ten stand-ins
+   * of it by 24 September 2026, and 55 fewer of all such names would have been made at the class's.
+   */
+  const classLevel =
+    typed === undefined && year !== undefined
+      ? ageFromGradYearInName(game.opponentName, year)
+      : undefined;
+  const pageLevel = typed ?? index.levelOf(ageGroupId);
+  const theirLevel = classLevel ?? pageLevel;
+  const atLevel = index.teamIdsByGroupName.get(nameSlotKey(pool, key, theirLevel)) ?? [];
+  /*
+   * ...and a club pulled under that name and found at the page's level is still found there: "NWNC
+   * Elite 2034" lists itself at 10U though its class reads 11U, and five 10U clubs named it. Looked
+   * up at the class alone, 13 rows naming six such clubs went to stand-ins beside them.
+   */
+  const pulledAtPage =
+    theirLevel === pageLevel
+      ? []
+      : (index.teamIdsByGroupName.get(nameSlotKey(pool, key, pageLevel)) ?? []).filter(
+          (id) => index.teamsById.get(id)?.gcTeams?.length && !atLevel.includes(id)
+        );
+  const sameName = [...atLevel, ...pulledAtPage];
 
   if (isPlaceholderName(game.opponentName)) {
     /*
@@ -1583,8 +1615,7 @@ const planOpponent = (
    * worth asking and it beats every other test, because it is about this fixture rather than
    * about the name: it tells a club apart from its namesakes however many of them there are.
    */
-  const anyLevel =
-    index.teamIdsByPoolName.get(`${index.poolKeyOf(ageGroupId)}\u0000${key}`) ?? sameName;
+  const anyLevel = index.teamIdsByPoolName.get(`${pool}\u0000${key}`) ?? sameName;
   const holder = clubHoldingThisGame(index, ownTeamId, anyLevel, game);
   if (holder) return { teamId: holder, basis: "name" };
 
