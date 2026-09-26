@@ -607,8 +607,15 @@ things with a record like that:
 
 On the pool of 24 September 2026, 20,576 schedules were on record with no row kept. A tidy that
 let a club's own row through beside a record of its own schedule within the hour claimed 27 more
-rows and left 23 fewer games; the pulls decide which records have gone, so that is the size of it
-rather than a count.
+rows and left 23 fewer games, and the pulls were left to decide which records had gone. The pool of
+26 September said they had not: pulled on an older version, a club's own row stood 353 times
+beside a copy holding its schedule on record with the same result within the hour, the game
+counted twice. So the claim step no longer reads a record with no row kept as the club's row in
+the copy, and takes a row of the club's within the hour of it as it takes one into any other copy;
+further off, where the record may be another meeting that day, it leaves both. On that pool it
+claims 367 more rows and leaves 367 fewer games, and 357 single-link clubs' records move: 345
+toward GameChanger's own record, 242 of them onto it, and 12 away — clubs already short of
+GameChanger's count, whose double had hidden a game the pool does not hold.
 
 A start the schedule itself has since moved is taken on the next pull, and so is a day it has
 moved the game to, which the rows folded into the game on its old day move to with it: left on

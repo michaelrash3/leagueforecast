@@ -3400,6 +3400,22 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       (schedule) => mine(schedule, clubId) && !recorded.has(schedule)
     );
   };
+  /**
+   * The same, less a schedule on record with no row of it kept (`alsoFrom` alone): which row that
+   * was is not known, so it cannot say the club's row of the game is in it already. Since rows
+   * are kept whole, a pull files its row into such a copy and one that files none takes the record
+   * off; the record left beside a row of the club's standing against another name is one an older
+   * pull left, and the row is the one it stood for. On the pool of 26 September 2026 a club's own
+   * row stood so 353 times, the same result within the hour as the copy holding its schedule on
+   * record: a game counted twice. Further off than the hour the record may be another meeting that
+   * day, so there it still holds (`strength`).
+   */
+  const keepsRowIn = (game: ScoutGame, clubId: string): boolean =>
+    mine(game.source?.teamId, clubId) ||
+    (game.alsoRows ?? []).some(
+      (record) =>
+        mine(record.teamId, clubId) && (!record.filedAgainst || isSettledClaim(game, record))
+    );
   const dayKey = (teamId: string, date: string) => `${teamId}@${date}`;
 
   /** A row filed by name: standing, or claimed already and read here as if it stood. */
@@ -3514,7 +3530,8 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     // Another club's own copy of a game against this club, none of this club's own rows in it but
     // claims. Most days have none, and there is nothing to read.
     const offered = (byTeamDay.get(key) ?? []).filter(
-      (game) => !game.excluded && mine(game.source?.teamId, otherOf(game)) && !ownsRowIn(game, club)
+      (game) =>
+        !game.excluded && mine(game.source?.teamId, otherOf(game)) && !keepsRowIn(game, club)
     );
     if (offered.length === 0 && filed.every((entry) => !entry.holder)) return;
     /*
@@ -3573,6 +3590,9 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       const ours = seatOf(entry.row);
       const theirs = seatOf(copy);
       const near = startsWithinTheHour(entry.row.startTs, copy.startTs);
+      // A copy holding this club's schedule on record with no row kept takes a row within the hour
+      // only: further off, the record may stand for another meeting that day (`keepsRowIn`).
+      if (!near && ownsRowIn(copy, club)) return 0;
       const same = ours && theirs && ours[0] === theirs[0] && ours[1] === theirs[1];
       const close =
         ours !== undefined &&
@@ -6324,7 +6344,8 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       and made for a row filed against a pulled club whose schedules never list the game, on
  *       scores that agree
  *  13 — that settle left alone for a row the named club answers with a row of its own claimed
- *       elsewhere, and held back only for a row of the club's the collapse could still join; a row
+ *       elsewhere, held back only for a row of the club's the collapse could still join, and no
+ *       longer refused a copy that holds the club's schedule on record with no row kept; a row
  *       typed two levels from a club that nothing of its own plays at taken off it; and a stand-in
  *       filed twice under a class-year or rare name made one
  */

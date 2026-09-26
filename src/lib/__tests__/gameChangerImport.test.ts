@@ -2312,6 +2312,8 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     aces?: boolean;
     /** A copy that already holds a row off the Aces' schedule, folded in. */
     heldByAces?: boolean;
+    /** A copy the Aces' schedule is on record in with no row of it kept (`alsoFrom` alone). */
+    onRecordForAces?: boolean;
     /** The schedule behind the copy, where it is not its own club's; null for none at all. */
     source?: string | null;
     /** Another day than the rows'. */
@@ -2407,7 +2409,9 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
                   ],
                   alsoFrom: ["gcA"],
                 }
-              : {}),
+              : copy.onRecordForAces
+                ? { alsoFrom: ["gcA"] }
+                : {}),
           };
         }),
       ],
@@ -2508,6 +2512,30 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
       build([{ id: "a1", clock: "18:00" }], [{ id: "b1", clock: "18:30", heldByAces: true }])
     );
     expect(claimed).toBe(0);
+  });
+
+  it("takes a copy the Aces' schedule is only on record in, no row of it kept", () => {
+    // An older pull folded the Aces' row into the Bears' copy and kept only the schedule's name
+    // (`alsoFrom`). Pulled again, the row came back against "Sharks": it is the row the record
+    // stood for, 7-3 on both, and no row in the copy says otherwise.
+    const { state, claimed } = claimFiledRows(
+      build(
+        [{ id: "a1", clock: "18:00", score: [7, 3] }],
+        [{ id: "b1", clock: "18:15", score: [3, 7], onRecordForAces: true }]
+      )
+    );
+    expect(claimed).toBe(1);
+    expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+    expect(tidyChangedAnything(tidyPool(state))).toBe(false);
+  });
+
+  it("takes into such a copy only a row within the hour of it", () => {
+    // The same result two hours off is one game where nothing else is known; where the Aces'
+    // schedule is on record in the copy, the record may be another meeting that day.
+    const rows = [{ id: "a1", clock: "18:00", score: [7, 3] as [number, number] }];
+    const copy = { id: "b1", clock: "20:00", score: [3, 7] as [number, number] };
+    expect(claimFiledRows(build(rows, [copy])).claimed).toBe(1);
+    expect(claimFiledRows(build(rows, [{ ...copy, onRecordForAces: true }])).claimed).toBe(0);
   });
 
   it("leaves the Aces' own named row, which is a game they listed", () => {
