@@ -437,6 +437,23 @@ describe("buildTeamRankings", () => {
     ).toEqual(["A", "B", "N"]);
   });
 
+  /**
+   * A game a club lists against its own name is a scrimmage of its own squad, or a namesake the
+   * import could not tell from it. Either way it says nothing about the club against anyone else,
+   * and read from both seats one 6-4 was two wins and two games.
+   */
+  it("counts no game a club lists against itself", () => {
+    const teams = [team("A", "Aces"), team("B", "Bears")];
+    const games = [game("A", "B", 6, 2), game("A", "A", 6, 4)];
+    const aces = buildTeamRankings("ag1", teams, games).find((row) => row.teamId === "A")!;
+    expect(aces).toMatchObject({ record: "1-0", games: 1 });
+
+    const onPage = games.map((row) => ({ ...row, ageGroupId: "u9" }));
+    const pooled = buildTeamRankings("u9", teams, onPage, undefined, pool);
+    expect(pooled.find((row) => row.teamId === "A")).toMatchObject({ record: "1-0", games: 1 });
+    expect(teamRecordInPool("A", "u9", onPage, pool)).toMatchObject({ wins: 1, games: 1 });
+  });
+
   it("ignores scheduled games with no score yet", () => {
     const teams = [team("A", "Aces"), team("B", "Bears")];
     const games = [game("A", "B", undefined, undefined)];

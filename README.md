@@ -1866,6 +1866,16 @@ or below, and those results say nothing about how it stacks up inside its own.
 A team whose games here are all scheduled, or all set not to count, is not
 ranked at all rather than shown at 0-0 · +0.0.
 
+Nor does a game count that a club's schedule lists against the club's own name
+(`playsItself`): a scrimmage of its own squad, or a namesake the import could not
+tell from it. It says nothing about the club against anyone else, and counted,
+one 6-4 read as two wins and two games from the club's two seats. On the pool of
+26 September 2026, 55 such games were scored in the squad year on 37 clubs; of the
+35 with one GameChanger link and its record, the double count matched
+GameChanger's for none, counting once matched 9 and leaving out 14, and leaving
+out was the nearer for 21 clubs against 13. The team panel still lists the game,
+and says why it is not in the record.
+
 ## Postseason format
 
 Not every league has a playoff cut line, so the season's ending is a setting:

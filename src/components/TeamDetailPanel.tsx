@@ -5,6 +5,7 @@ import {
   gamesForTeam,
   gcSeasonLabel,
   isScoutGamePlayed,
+  playsItself,
   rankingPoolGroupIds,
   scoreSeenBy,
   teamNameKey,
@@ -140,7 +141,11 @@ export function TeamDetailPanel({
       new Set(here.filter((game) => countedInWindow(game, ageGroups, segment)).map((g) => g.id)),
     [here, ageGroups, segment]
   );
-  const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
+  // A game against its own name is said as that, not as one somebody set not to count.
+  const againstItself = here.filter((game) => isScoutGamePlayed(game) && playsItself(game));
+  const notCounted = here.filter(
+    (game) => isScoutGamePlayed(game) && !countsTowardRating(game) && !playsItself(game)
+  );
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -178,6 +183,9 @@ export function TeamDetailPanel({
               : ""}
             {notCounted.length > 0
               ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
+              : ""}
+            {againstItself.length > 0
+              ? ` ${againstItself.length} more ${againstItself.length === 1 ? "is" : "are"} against its own name — a scrimmage of its own squad, or a namesake it could not be told from — and not counted.`
               : ""}
             {elsewhere > 0
               ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
@@ -365,6 +373,10 @@ export function TeamDetailPanel({
                   {game.excluded ? (
                     <span className={pill("amber")} title="Kept, but not counted">
                       —
+                    </span>
+                  ) : line.result && playsItself(game) ? (
+                    <span className={pill("neutral")} title="Against its own name, not counted">
+                      {line.result}
                     </span>
                   ) : line.result && !inWindow.has(game.id) ? (
                     // Played, and kept, but outside the window the record above is counted over —
