@@ -62,6 +62,7 @@ import {
 import {
   cleanTeamName,
   filterRankingsByState,
+  nameFitter,
   resolveOrCreateTeam,
   SCOUT_ID_PREFIX,
   teamNameKey,
@@ -2545,6 +2546,29 @@ export const clubIsPickable = (
  * the opponents who reported them.
  */
 export const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.length);
+
+/**
+ * For `dedupeLeagueFixtures`: whether a stored row's side could be a league opponent under no name
+ * of its own. A slot names nobody, so it could be anyone; a club known only from somebody else's
+ * schedule could be the opponent when its name fits the opponent's, "Hornets" for "Cincinnati
+ * Hornets"; a pulled club is itself and never a stand-in for another. The roster is read on the
+ * first question, so a pool with no league game to compare costs nothing.
+ */
+export const leagueStandIns = (
+  teams: readonly ScoutTeam[]
+): ((sideId: string, opponentId: string) => boolean) => {
+  let byId: Map<string, ScoutTeam> | undefined;
+  const fits = nameFitter();
+  return (sideId, opponentId) => {
+    byId ??= new Map(teams.map((team) => [team.id, team]));
+    const side = byId.get(sideId);
+    if (!side) return false;
+    if (side.placeholder) return true;
+    if (!side.nameOnly || hasGcLinks(side)) return false;
+    const opponent = byId.get(opponentId);
+    return opponent !== undefined && fits(side.name, opponent.name);
+  };
+};
 
 /**
  * The connected pieces of a schedule: which clubs can be compared to which at all.

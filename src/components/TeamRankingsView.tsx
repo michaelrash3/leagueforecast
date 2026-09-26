@@ -9,6 +9,7 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   dedupeLeagueFixtures,
+  leagueStandIns,
   deriveLeagueScoutGames,
   filedTeamIds,
   findDuplicateGame,
@@ -646,7 +647,7 @@ export function TeamRankingsView({
     return {
       teams,
       derivedGames,
-      games: dedupeLeagueFixtures([...derivedGames, ...scoutGames]),
+      games: dedupeLeagueFixtures([...derivedGames, ...scoutGames], leagueStandIns(teams)),
     };
   }, [ageGroups, scoutGames, scoutTeams]);
 
@@ -1355,8 +1356,12 @@ export function TeamRankingsView({
    * when the index is built. Stable across renders so the index is rebuilt on a change, not a render.
    */
   const everyKnownGame = useCallback(
-    () => dedupeLeagueFixtures([...allKnown.derivedGames, ...loadScoutGames()]),
-    [allKnown.derivedGames]
+    () =>
+      dedupeLeagueFixtures(
+        [...allKnown.derivedGames, ...loadScoutGames()],
+        leagueStandIns(allKnown.teams)
+      ),
+    [allKnown.derivedGames, allKnown.teams]
   );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
@@ -1692,7 +1697,10 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     const everyGame = loadScoutGames();
     const shown = {
       teams: allKnown.teams,
-      games: dedupeLeagueFixtures([...allKnown.derivedGames, ...everyGame]),
+      games: dedupeLeagueFixtures(
+        [...allKnown.derivedGames, ...everyGame],
+        leagueStandIns(allKnown.teams)
+      ),
     };
     const stored = { ageGroups, teams: scoutTeams, games: everyGame };
     /*

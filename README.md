@@ -391,6 +391,16 @@ league's "Cincinnati Angels- Red" landed on an 11U "Cincinnati Angels Red" pulle
 earlier, the Trash Pandas' own pull had the same game against the 9U club, and the
 board showed them 0-7 against GameChanger's 0-6.
 
+A club's own schedule sometimes files the league game against nobody the league
+names — a slot such as "TBD- 09/25/26, 7:15 PM", or a one-off spelling of the
+opponent — and when the opponent's own schedule is not in the pool, nothing else
+pairs it. Such a row is the league game when the club, the day and the score
+from its side all agree, and only one league game of the club's that day fits;
+the league's copy stays, since it names the opponent. 513 Force - Bouley's 0-13
+to the Cincinnati Hornets on 25 September was two losses until this, and two
+more of that league's games were counted twice the same way, from the Angels'
+and Headlines Nagel's schedules against a "513 Force" known by no other name.
+
 ### Placeholders
 
 "TBD", "Winner of Game 3", a blank cell on a bracket: a schedule says these when
