@@ -3983,11 +3983,23 @@ export const joinCrossedHalves = (
   const sameTime = (x: Half, y: Half) => sameStart(x.game.startTs, y.game.startTs);
   const levelsAgree = (named: number | undefined, own: number | undefined) =>
     named === undefined || own === undefined || Math.abs(named - own) <= PLAYS_UP_TO;
+  /**
+   * The same result from opposite seats within the hour, each stand-in named for the other club:
+   * the game, wherever the two clubs are from. On the pool of 26 September 2026 the join left 100
+   * such pairs standing between states that share no border — Impact of Illinois and TC Toros of
+   * Georgia, 6-14 at five and 14-6 at half past, a tournament's travel — and the same search a week
+   * or a fortnight either side, where the game is not, found none. Let through, 93 more pairs were
+   * joined on that pool and 89 on the pool of 24 September. A weaker link, a result still to
+   * come or two that disagree, still has to be between neighbours. The age a coach typed holds
+   * whatever the result: two clubs' sibling squads at one event can mirror a score at one instant.
+   */
+  const certain = (x: Half, y: Half) =>
+    scored(x) && scored(y) && mirrored(x, y) && startsWithinTheHour(x.game.startTs, y.game.startTs);
   /** Whether `y` is, on everything but uniqueness, the other end of `x`'s game. */
   const couldBeOtherEnd = (x: Half, y: Half): boolean =>
     y.club.id !== x.club.id &&
     y.standIn.id !== x.standIn.id &&
-    inOneRegion(x.club.state, y.club.state) &&
+    (certain(x, y) || inOneRegion(x.club.state, y.club.state)) &&
     levelsAgree(x.standInLevel, y.clubLevel) &&
     levelsAgree(y.standInLevel, x.clubLevel) &&
     (x.standInNamedLevel === undefined || x.standInNamedLevel === y.clubLevel) &&
@@ -6346,8 +6358,9 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  13 — that settle left alone for a row the named club answers with a row of its own claimed
  *       elsewhere, held back only for a row of the club's the collapse could still join, and no
  *       longer refused a copy that holds the club's schedule on record with no row kept; a row
- *       typed two levels from a club that nothing of its own plays at taken off it; and a stand-in
- *       filed twice under a class-year or rare name made one
+ *       typed two levels from a club that nothing of its own plays at taken off it; a stand-in
+ *       filed twice under a class-year or rare name made one; and two halves whose results
+ *       mirror within the hour joined across any border
  */
 const TIDY_RULES_VERSION = 13;
 

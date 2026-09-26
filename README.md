@@ -1106,7 +1106,10 @@ since 104 of the 1,211 games this joined on a real pool were more than an hour a
 search a week off matched no more for ignoring the clock; each stand-in's name a shorthand
 for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach typed pointing at
 another squad and no two different squad numbers; the two clubs in one state or two that share a
-border; and no other pair that fits as well); a game sitting by name on
+border, unless the two results mirror within the hour, as a tournament's travel has them — 93
+games on the pool of 26 September 2026, where the same search a week off finds none; and no other
+pair that fits as well); a
+game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
 puller down in shorthand or scored the game differently at the same start time; a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
