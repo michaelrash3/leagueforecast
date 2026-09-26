@@ -4097,6 +4097,193 @@ export const joinCrossedHalves = (
   return { state: { ...state, teams, games }, joined: replaced.size };
 };
 
+/** A game two pulled clubs each hold a copy of: one opponent, one start, one result. */
+export type GcTwinGame = {
+  date: string;
+  startTs: string;
+  opponentName: string;
+  /** From the clubs' seat, which is the same on both copies. */
+  ownScore: number;
+  opponentScore: number;
+};
+
+/** One squad on GameChanger twice, offered for the user to fold or keep apart. */
+export type GcTwinSquad = {
+  /** Offered as the one folded away: the club with fewer games of its own schedule. */
+  fromTeamId: string;
+  fromTeamName: string;
+  toTeamId: string;
+  toTeamName: string;
+  /** A GameChanger id of each, which a "not the same" is recorded against (`keptApart.ts`). */
+  fromGcId: string;
+  toGcId: string;
+  /** What GameChanger says each has played, and how many players it lists, where known. */
+  fromRecord?: { win: number; loss: number; tie: number };
+  toRecord?: { win: number; loss: number; tie: number };
+  fromPlayers?: number;
+  toPlayers?: number;
+  /** The games both clubs hold, oldest first. */
+  shared: GcTwinGame[];
+};
+
+/**
+ * Two pulled clubs that are one squad on GameChanger twice: a tournament desk's copy, a parent's,
+ * a coach's second setup under another name. Both post the same games, so every opponent is
+ * credited with each of those games twice and the rating counts them twice; and the season pairing
+ * above never offers them, since the names need not match at all.
+ *
+ * The games say it where the names do not. A pair is offered where the two clubs hold at least two
+ * games against the same opponent at the same minute with the same result, have never been
+ * scheduled against each other, and never had a game within the hour of each other against
+ * different opponents, which one squad cannot do. On the pool of 24 September 2026 that was 55
+ * pairs, holding 145 of the 283 games two pulled clubs held twice. One game in common is not
+ * enough: the same search run with one club's games moved a week, where no such game is, found 68
+ * pairs sharing one against 125 on the real dates, and none sharing two a week or a fortnight
+ * either way. A pair that played each other is two squads whatever else they share, so is never
+ * offered.
+ *
+ * Offered, never applied: folding keeps one club's name and drops the other, and only the user can
+ * say which is the squad's own. "Not the same" is remembered against the GameChanger ids.
+ */
+export const proposeTwinSquads = (
+  teams: readonly ScoutTeam[],
+  games: readonly ScoutGame[],
+  apart: KeptApart = new Set<string>()
+): GcTwinSquad[] => {
+  const byId = new Map(teams.map((team) => [team.id, team]));
+  const isPulled = (teamId: string) => Boolean(byId.get(teamId)?.gcTeams?.length);
+  const gamesOf = new Map<string, ScoutGame[]>();
+  /** Each pulled club's side of each timed, scored game, keyed by opponent, minute and result. */
+  const sides = new Map<string, { club: string; game: ScoutGame }[]>();
+  const keyOf = (opponent: string, minute: number, own: number, theirs: number) =>
+    `${opponent}\u0000${minute}\u0000${own}-${theirs}`;
+  games.forEach((game) => {
+    push(gamesOf, game.teamAId, game);
+    push(gamesOf, game.teamBId, game);
+    const minute = startMinuteOf(game.startTs);
+    if (minute === undefined || game.excluded) return;
+    [game.teamAId, game.teamBId].forEach((club) => {
+      if (!isPulled(club)) return;
+      const seen = scoreSeenBy(game, club);
+      if (!seen) return;
+      const opponent = club === game.teamAId ? game.teamBId : game.teamAId;
+      push(sides, keyOf(opponent, minute, seen.own, seen.opponent), { club, game });
+    });
+  });
+  /** Every pair of clubs sharing a game, with the copies each holds: one game each, once. */
+  const pairs = new Map<string, { a: string; b: string; copies: [ScoutGame, ScoutGame][] }>();
+  sides.forEach((bucket) => {
+    bucket.forEach((x, i) =>
+      bucket.slice(i + 1).forEach((y) => {
+        if (x.club === y.club || x.game === y.game) return;
+        const [a, b] = x.club < y.club ? [x, y] : [y, x];
+        const key = `${a.club}\u0000${b.club}`;
+        let pair = pairs.get(key);
+        if (!pair) {
+          pair = { a: a.club, b: b.club, copies: [] };
+          pairs.set(key, pair);
+        }
+        pair.copies.push([a.game, b.game]);
+      })
+    );
+  });
+
+  const fits = nameFitter();
+  const offers: GcTwinSquad[] = [];
+  pairs.forEach(({ a, b, copies }) => {
+    const usedA = new Set<ScoutGame>();
+    const usedB = new Set<ScoutGame>();
+    const shared = copies
+      .slice()
+      .sort((p, q) => (p[0].startTs ?? "").localeCompare(q[0].startTs ?? ""))
+      .filter(([x, y]) => {
+        if (usedA.has(x) || usedB.has(y)) return false;
+        usedA.add(x);
+        usedB.add(y);
+        return true;
+      });
+    if (shared.length < 2) return;
+    const teamA = byId.get(a)!;
+    const teamB = byId.get(b)!;
+    const linksA = teamA.gcTeams ?? [];
+    const linksB = teamB.gcTeams ?? [];
+    if (linksA.some((x) => linksB.some((y) => isKeptApart(apart, x.teamId, y.teamId)))) return;
+    const gamesA = gamesOf.get(a) ?? [];
+    const gamesB = gamesOf.get(b) ?? [];
+    if (gamesA.some((game) => game.teamAId === b || game.teamBId === b)) return;
+    /*
+     * One squad is in one game at a time: two games within the hour on one day are two squads. Two
+     * games, though, and not one game each schedule named its own way — "No Chance Wildthings" and
+     * "No Chance Wild Things", 2-6 on both at a quarter past six. So the results have to say two
+     * games; unplayed, only two different pulled clubs do. Read off names alone, 17 of the 61 pairs
+     * sharing two games on the pool of 24 September 2026 were refused for a clash, most of them
+     * over one game typed two ways; read off the results, 6. One result against two pulled clubs is
+     * one game too: "Music City Saints - Thompson" and "Music City Saints - Walsh", 3-8 on both at
+     * one start, are two squads of one club of which one schedule named the wrong one. Three of
+     * the 76 offers on the pool of 26 September 2026 rest on such a game.
+     */
+    const otherOf = (game: ScoutGame, club: string) =>
+      game.teamAId === club ? game.teamBId : game.teamAId;
+    const clash = gamesA.some((x) => {
+      if (usedA.has(x) || !x.date) return false;
+      const ox = byId.get(otherOf(x, a));
+      if (!ox || ox.placeholder) return false;
+      const seenX = scoreSeenBy(x, a);
+      return gamesB.some((y) => {
+        if (usedB.has(y) || y.date !== x.date || !startsWithinTheHour(x.startTs, y.startTs)) {
+          return false;
+        }
+        const oy = byId.get(otherOf(y, b));
+        if (!oy || oy.placeholder || oy.id === ox.id || fits(ox.name, oy.name)) return false;
+        const seenY = scoreSeenBy(y, b);
+        if (seenX && seenY) return seenX.own !== seenY.own || seenX.opponent !== seenY.opponent;
+        return Boolean(ox.gcTeams?.length) && Boolean(oy.gcTeams?.length);
+      });
+    });
+    if (clash) return;
+    const own = (club: ScoutTeam) => {
+      const ids = new Set((club.gcTeams ?? []).map((link) => link.teamId));
+      return (gamesOf.get(club.id) ?? []).filter(
+        (game) => game.source && ids.has(game.source.teamId)
+      ).length;
+    };
+    const [from, to] =
+      own(teamA) < own(teamB) || (own(teamA) === own(teamB) && teamA.id > teamB.id)
+        ? [teamA, teamB]
+        : [teamB, teamA];
+    const fromLink = from.gcTeams![0]!;
+    const toLink = to.gcTeams![0]!;
+    offers.push({
+      fromTeamId: from.id,
+      fromTeamName: from.name,
+      toTeamId: to.id,
+      toTeamName: to.name,
+      fromGcId: fromLink.teamId,
+      toGcId: toLink.teamId,
+      ...(fromLink.record ? { fromRecord: fromLink.record } : {}),
+      ...(toLink.record ? { toRecord: toLink.record } : {}),
+      ...(fromLink.playerCount === undefined ? {} : { fromPlayers: fromLink.playerCount }),
+      ...(toLink.playerCount === undefined ? {} : { toPlayers: toLink.playerCount }),
+      shared: shared.map(([x]) => {
+        const seen = scoreSeenBy(x, a)!;
+        return {
+          date: x.date ?? "",
+          startTs: x.startTs ?? "",
+          opponentName: byId.get(otherOf(x, a))?.name ?? "",
+          ownScore: seen.own,
+          opponentScore: seen.opponent,
+        };
+      }),
+    });
+  });
+  return offers.sort(
+    (p, q) =>
+      q.shared.length - p.shared.length ||
+      p.fromTeamName.localeCompare(q.fromTeamName) ||
+      p.fromTeamId.localeCompare(q.fromTeamId)
+  );
+};
+
 /**
  * Clubs that look like one club listed twice. Offered, never applied: only the user can say that
  * two rosters are the same team, and merging two clubs that merely share a name would quietly ruin

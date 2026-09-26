@@ -898,6 +898,25 @@ GameChanger. **Download the list** writes the lot as a CSV, because a few
 hundred rows is spreadsheet work rather than something to scroll on a phone —
 the panel draws the first two hundred and the file has them all.
 
+**One squad on GameChanger twice.** **Check the pool** in Pool health also lists pairs of pulled
+clubs that post the same games: at least two against the same opponent at the same minute with the
+same result, with no game ever against each other and no two different games within the hour of each
+other (`proposeTwinSquads`). Most are one squad set up twice under two names — a coach's own team
+and a parent's, a tournament desk's copy, "BUCS DB" and "DB Bucs" — and each such game counts twice
+for every club that played it. Two different games is read off the results, not the names: one game
+each schedule typed its own way, "No Chance Wildthings" and "No Chance Wild Things" at one start
+with one result, is one game. On the pool of 24 September 2026 the list held 55 pairs and 145 of the
+283 games two pulled clubs held twice. One game in common is not enough: the same search with one
+club's games moved a week found 68 pairs sharing one, against 125 on the real dates, and none
+sharing two, a week or a fortnight either way. On the pool of 26 September it holds 76; folding each
+takes 285 doubled games out, and the tidy after it 65 more, and moves 175 clubs' records, 172 toward
+GameChanger's own, 121 of them onto it, and 1 away. Nothing is folded for you: **Keep** folds the
+other team into the one you pick, with its games and its GameChanger link, and **Not the same** is
+remembered against the two GameChanger ids. Where the two schedules named an opponent two ways —
+"Thunderwolves" and "Thunderwolves Scout", or a club itself on GameChanger twice — the pool holds
+two opponents, and the fold cannot make the two copies one game: after the 76 folds, 28 minutes on
+the kept clubs still held two games against two opponents, most of them one game named two ways.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
