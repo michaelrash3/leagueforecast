@@ -1417,6 +1417,16 @@ describe("renameScoutTeam", () => {
     expect(out.games[0]?.teamAId).toBe("A");
   });
 
+  it("leaves a game some other team already played against itself", () => {
+    // An intrasquad scrimmage a schedule listed under the club's own name: not the merge's to take,
+    // nor a game "between the two" for the confirmation to warn about.
+    const scrimmage = game("B", "B", 21, 6, "ag1");
+    const games = [game("T", "A", 4, 9, "ag1"), scrimmage];
+    const out = renameScoutTeam("T", "Aces", teams, games, []);
+    expect(out.droppedGames).toBe(1);
+    expect(out.games).toContain(scrimmage);
+  });
+
   it("refuses a name that is empty once the age label comes off", () => {
     const out = renameScoutTeam("A", "   ", teams, [], []);
     expect(out.teams).toBe(teams);

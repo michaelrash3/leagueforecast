@@ -3792,7 +3792,13 @@ export const mergeScoutTeams = (
   games.forEach((game) => {
     const teamAId = game.teamAId === fromId ? intoId : game.teamAId;
     const teamBId = game.teamBId === fromId ? intoId : game.teamBId;
-    if (teamAId === teamBId) {
+    /*
+     * Only a game between the two: a game a team already played against itself — an intrasquad
+     * scrimmage a schedule lists under its own name, 160 of them in the pool of 26 September 2026 —
+     * is not this merge's to take, and dropping it here told the user every fold would lose 160
+     * games "between the two".
+     */
+    if (teamAId === teamBId && game.teamAId !== game.teamBId) {
       droppedGames += 1;
       return;
     }
