@@ -380,7 +380,8 @@ league's own record where the league has scored it, so a rating never counts a
 game twice. The day is what decides this — the same two clubs meeting on another
 date played outside league play, and that game stands on its own. Results
 carried back into the league's own forecasts skip its fixtures for the same
-reason.
+reason, whether a club's names match on both sides or it is linked to its league
+team under another.
 
 Both copies have to name the same two clubs for that to work, so a league team is
 carried in as the club **Which Team Rankings club is each team?** links it to — the

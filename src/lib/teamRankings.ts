@@ -3448,7 +3448,7 @@ const linkLeagueTeams = (
  * league" covers two shapes: a row `deriveLeagueScoutGames` built carries the `league_` prefix, and
  * a row a GameChanger pull stored for a league fixture does not — it looks exactly like a tournament
  * result — so it is matched against `seasonFixtures` the way `dedupeLeagueFixtures` matches one:
- * same two clubs by name, same calendar day.
+ * same two clubs, by name or by the league teams they are linked to, same calendar day.
  *
  * The linking half used to be a name match and nothing else, and it failed silently: the league
  * roster says "Trash Pandas" where GameChanger says "Trash Pandas Baseball Club", so that club's
@@ -3504,13 +3504,44 @@ export const leagueScoutBridge = (
       .map(({ away, home, date }) => nameFixtureKey(away, home, date))
       .filter((key) => key !== "")
   );
+  /*
+   * The same fixtures as pairs of league teams, for a club linked under a name of its own: a
+   * roster's "Trash Pandas" picked as GameChanger's "Trash Pandas Baseball Club". By names alone
+   * the pull's copy of a league game read as a tournament result, and the forecast counted the
+   * league's own game twice — which is the leak this whole check exists to close.
+   */
+  const leagueIdByKey = new Map<string, string>();
+  leagueTeams.forEach((team) => {
+    const key = teamNameKey(team.name);
+    if (!leagueIdByKey.has(key)) leagueIdByKey.set(key, team.id);
+  });
+  const teamsFixtureKey = (a: string, b: string, date: string): string => {
+    const day = normalizeDateInput(date ?? "");
+    return day ? `${[a, b].sort().join("|")}|${day}` : "";
+  };
+  const fixtureTeamKeys = new Set(
+    seasonFixtures
+      .map(({ away, home, date }) => {
+        const awayId = leagueIdByKey.get(teamNameKey(away));
+        const homeId = leagueIdByKey.get(teamNameKey(home));
+        return awayId && homeId ? teamsFixtureKey(awayId, homeId, date) : "";
+      })
+      .filter((key) => key !== "")
+  );
   const isSeasonFixture = (game: ScoutGame): boolean => {
     if (fixtureKeys.size === 0) return false;
     const away = scoutById.get(game.teamAId)?.name;
     const home = scoutById.get(game.teamBId)?.name;
     if (!away || !home) return false;
     const key = nameFixtureKey(away, home, game.date ?? "");
-    return key !== "" && fixtureKeys.has(key);
+    if (key !== "" && fixtureKeys.has(key)) return true;
+    // A club with no league team behind it keeps an id of its own, which no fixture carries.
+    const teamsKey = teamsFixtureKey(
+      ratingId(game.teamAId),
+      ratingId(game.teamBId),
+      game.date ?? ""
+    );
+    return teamsKey !== "" && fixtureTeamKeys.has(teamsKey);
   };
 
   /** Whether a pool club is one of this league's teams, rather than a stranger on the same page. */

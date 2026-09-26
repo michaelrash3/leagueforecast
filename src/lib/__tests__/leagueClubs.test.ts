@@ -139,3 +139,52 @@ describe("the club a league team is carried onto", () => {
     expect(derived.teams).toHaveLength(roster.length);
   });
 });
+
+describe("the league's own game, pulled under another name", () => {
+  it("is not handed back to the league's forecast as an outside result", () => {
+    // The roster says "Trash Pandas" and a person picked the club GameChanger calls "Trash Pandas
+    // Baseball Club". The pull's copy of the league game names the club the long way, so by names
+    // alone it read as a tournament result, and the forecast counted the league's game twice.
+    const leagueTeams = [
+      { id: "L-TP", name: "Trash Pandas", scoutTeamId: "S-TP" },
+      { id: "L-ANG", name: "Cincinnati Angels- Red" },
+    ];
+    const fixtures = [{ away: "Trash Pandas", home: "Cincinnati Angels- Red", date: "9/18" }];
+    const { results, rows } = leagueScoutBridge(
+      "fall",
+      ageGroups,
+      roster,
+      stored,
+      leagueTeams,
+      fixtures
+    );
+
+    expect(rows.map((row) => [row.how, row.scoutTeamId])).toEqual([
+      ["picked", "S-TP"],
+      ["guessed", "S-ANG9"],
+    ]);
+    expect(results).toEqual([]);
+  });
+
+  it("still hands over the same two clubs' game on another day", () => {
+    // Clubs that meet again in a tournament played a game the league did not.
+    const leagueTeams = [
+      { id: "L-TP", name: "Trash Pandas", scoutTeamId: "S-TP" },
+      { id: "L-ANG", name: "Cincinnati Angels- Red" },
+    ];
+    const fixtures = [{ away: "Trash Pandas", home: "Cincinnati Angels- Red", date: "9/18" }];
+    const tournament = played("gc_tp_2", "ag_9", "S-TP", "S-ANG9", 4, 6, "2026-09-06");
+    const { results } = leagueScoutBridge(
+      "fall",
+      ageGroups,
+      roster,
+      [...stored, tournament],
+      leagueTeams,
+      fixtures
+    );
+
+    expect(results).toEqual([
+      { home: "L-TP", away: "L-ANG", homeMargin: -2, date: "2026-09-06", neutral: true },
+    ]);
+  });
+});
