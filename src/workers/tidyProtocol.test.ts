@@ -140,6 +140,8 @@ describe("what the tidy says while it runs", () => {
       "reclaimed",
       "resettled",
       "refiled",
+      // After the refile, so only the stand-ins that stay stand-ins are made one.
+      "merged",
       // After every step that names a row's opponent, before the collapse that regroups the claims.
       "claimed",
       "folded",

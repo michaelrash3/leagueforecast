@@ -61,6 +61,8 @@ type SetupSectionProps = {
     onDropGames: (ids: readonly string[]) => Promise<boolean>;
     /** Throws a club out: the team, its rows, and its GameChanger ids. */
     onDropClub: (club: UnrealClub) => Promise<boolean>;
+    /** Opens a club's own panel from a list the card shows. */
+    onOpenTeam: (teamId: string) => void;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -210,6 +212,7 @@ export function SetupSection({
         onMergeTeams={poolHealth.onMergeTeams}
         onDropGames={poolHealth.onDropGames}
         onDropClub={poolHealth.onDropClub}
+        onOpenTeam={poolHealth.onOpenTeam}
       />
 
       <ModelCheckCard

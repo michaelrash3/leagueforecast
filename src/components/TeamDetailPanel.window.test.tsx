@@ -86,3 +86,25 @@ describe("the record in the panel against the record in the row", () => {
     expect(within(panel).getByText(/0-1 in 12U 2027, from 1 game[,.]/)).toBeInTheDocument();
   });
 });
+
+/**
+ * A game a club's schedule lists against the club's own name: a scrimmage of its own squad, or a
+ * namesake the import could not tell from it. Counted, it read as two wins from both seats.
+ */
+describe("a game against the club's own name", () => {
+  it("is listed and said, and counted in neither record", async () => {
+    const user = userEvent.setup();
+    const base = pool();
+    renderTeamRankings({
+      ...base,
+      games: [...base.games, game("x1", "ag_12u_2027", "S-A", "S-A", 6, 4, { date: "2026-09-19" })],
+    });
+    await openHalf(user, /^Fall 2026/);
+    const { panel, row } = await openAces(user);
+
+    expect(row).toHaveTextContent("2-0");
+    expect(within(panel).getByText(/2-0 in 12U 2027, from 2 games/)).toBeInTheDocument();
+    expect(within(panel).getByText(/1 more is against its own name/)).toBeInTheDocument();
+    expect(within(panel).getByTitle("Against its own name, not counted")).toHaveTextContent("W");
+  });
+});

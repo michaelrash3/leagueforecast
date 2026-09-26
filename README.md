@@ -607,8 +607,15 @@ things with a record like that:
 
 On the pool of 24 September 2026, 20,576 schedules were on record with no row kept. A tidy that
 let a club's own row through beside a record of its own schedule within the hour claimed 27 more
-rows and left 23 fewer games; the pulls decide which records have gone, so that is the size of it
-rather than a count.
+rows and left 23 fewer games, and the pulls were left to decide which records had gone. The pool of
+26 September said they had not: pulled on an older version, a club's own row stood 353 times
+beside a copy holding its schedule on record with the same result within the hour, the game
+counted twice. So the claim step no longer reads a record with no row kept as the club's row in
+the copy, and takes a row of the club's within the hour of it as it takes one into any other copy;
+further off, where the record may be another meeting that day, it leaves both. On that pool it
+claims 367 more rows and leaves 367 fewer games, and 357 single-link clubs' records move: 345
+toward GameChanger's own record, 242 of them onto it, and 12 away — clubs already short of
+GameChanger's count, whose double had hidden a game the pool does not hold.
 
 A start the schedule itself has since moved is taken on the next pull, and so is a day it has
 moved the game to, which the rows folded into the game on its old day move to with it: left on
@@ -713,24 +720,37 @@ opponents filed seven games against the first and whose own schedule listed all 
 second. A result still to come says nothing against a name GameChanger lists — blank rows at one
 start paired a "Rangers" typed with another club's copy — and waits until the scores are in.
 
-Every row and copy of the club's day is read at once: as many pairs as the day allows, then in
-both schedules' order, then the stronger links — the same result, the very same start, within the
-hour. Where two readings are as good as each other, only what they agree on is settled, so one game
-off two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is, and a claim already
-made counts for nothing of its own, so the day reads the same whichever club was pulled first. The
-copies of a club the claiming club has a row against of its own, that day or the day either side,
-that no row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in
-row once took the copy that row was, and left it standing on its own, one game counted twice. A row the club it names answers for, by a copy
-of its own that fits, is that club's. A stand-in the other club's own schedule has played is not
-that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
+Every row and copy of the club's day is read at once: as many pairs as the day allows, then in both
+schedules' order, then the stronger links — the same result, the very same start, within the hour.
+Where two readings are as good as each other, only what they agree on is settled, so one game off
+two GameChanger teams of one club, 5-1 at 9:30 on both, is left as it is, and a claim already made
+counts for nothing of its own, so the day reads the same whichever club was pulled first. The copies
+of a club the claiming club has a row against of its own, that day or the day either side, that no
+row of theirs is paired with yet wait for the collapse to pair it: claimed first, a stand-in row
+once took the copy that row was, and left it standing on its own, one game counted twice. They wait
+only where the collapse could still read that row as the copy: on its own day, or a day off with the
+same result, at the very same instant, or at the same clock with results no further apart than
+scorekeepers are, the one test the collapse joins a game across the night by (`dayApartStrength`),
+and a pull's mark waits by the same. Waiting on a row a day off that is plainly another game waited
+for good: G3 - Bonanno's 3-9 against "CBU" was CBU United Faber Navy's own 9-3 at the same start,
+and G3's 1-2 against CBU United the next afternoon held it back, so the 3-9 counted twice. On the
+pool of 24 September 2026 that was 41 games, and 73 clubs' records moved, 71 toward GameChanger's
+own, 46 onto it and none off it. A score a claim lent the copy is not the copy's to wait on: read as
+its own, the claim went back the next pass, and the pass after made it again. A row the club it
+names answers for, by a copy of its own that fits, is that club's, whether that copy stands or is
+itself claimed into a third club's copy: read off the standing copies alone, two clubs that each had
+a second GameChanger team naming the other's first, Power Baseball 2028 Victus and JR7 Baseball on
+11 September 2026, had each pass claim the row that stood and give back the one that was claimed,
+and every tidy of that pool ran to its limit. A stand-in the other club's own schedule has played is
+not that club — a 1-13 against "Natives Black" once went to Salty Stars, who play Natives Black in
 October — and a pulled club it has played gives way only to the same result: the NL Vandals' 15-3
 against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-15 at the very same
 start, though the Gold play the Blue, but where the other club had played the named one the two
 names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
 What a club has played is read off every row of its own schedules, whichever row a game stands on.
 Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
-one team on one day go to one club or none, and a row claimed away is no copy for another row to
-go into in the same pass.
+one team on one day go to one club or none, and a row claimed away is no copy for another row to go
+into in the same pass.
 
 Nothing claimed is final. The claim keeps the team the row was filed against and the level its name
 gave (`FoldedRow.filedAgainst`), through every save, backup and merge, and every tidy reads each
@@ -738,24 +758,27 @@ club's day again with its claims stood back up. A claim the schedules no longer 
 to that team: the other club's copy withdrawn or moved more than an hour off, a result posted that
 says two games, the club's own schedule naming the other club after all, a copy that fits better
 pulled since, or the copy moved onto a namesake whose own schedule lists it. The regroup never moves
-a claim — which copy a claimed row is, is the claim's to say, and a row read as one more game against
-the club that claimed it went to a copy the claim had refused, five runs off at the same hour, and
-back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when the copy
-holding it moves, and a stand-in with no game left stays in the roster while a claimed row can go
-back to it. A game the user has thrown out keeps the claims it holds: released, a row would stand
-as a game of its own and count. Deleting a club that is not one stands the claims its games held
-back up, and keeps it as a name only where a claimed row elsewhere goes back to it; removing a team
-from a page keeps it in the roster for the same reason; and a claimed row filed against a team the
-tidy takes out as not baseball, or as a high school, goes with it, as the import would not file
-it. Kept as a bare fold, as the first version of this did it, a claim outlived all of that.
+a claim — which copy a claimed row is, is the claim's to say, and a row read as one more game
+against the club that claimed it went to a copy the claim had refused, five runs off at the same
+hour, and back, every pass until the tidy stopped. A claimed row keeps its own schedule's day when
+the copy holding it moves, and a stand-in with no game left stays in the roster while a claimed row
+can go back to it. One with neither, which a game or a club the user deleted leaves behind, the tidy
+takes out once its passes are done (`idleStandIns`), unless a page has it as its own team: pruned in
+each pass, the changed roster sent the tidy round once more to find nothing. A game the user has
+thrown out keeps the claims it holds: released, a row would stand as a game of its own and count.
+Deleting a club that is not one stands the claims its games held back up, and keeps it as a name
+only where a claimed row elsewhere goes back to it; removing a team from a page keeps it in the
+roster for the same reason; and a claimed row filed against a team the tidy takes out as not
+baseball, or as a high school, goes with it, as the import would not file it. Kept as a bare fold,
+as the first version of this did it, a claim outlived all of that.
 
-The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name
-again and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is
-gone, the pull makes one for the name. It marks only what the claim step would have claimed. The
-row must be on the same day, on the other side of the other club's own copy, with no other row of
-the club in that copy. The claim step's rules for a stand-in must hold, and no row of the club
-against the other club may be waiting that day or either side of it. It leaves alone a fold whose
-name files it against the other club:
+The pool does not keep a row's name, so the next pull of such a fold's schedule reads the name again
+and marks the fold as the claim it is (`filedMarkFor`). Where the stand-in the row had is gone, the
+pull makes one for the name. It marks only what the claim step would have claimed. The row must be
+on the same day, on the other side of the other club's own copy, with no other row of the club in
+that copy. The claim step's rules for a stand-in must hold, and no row of the club against the other
+club may be waiting that day or either side of it that could still be the copy. It leaves alone a
+fold whose name files it against the other club:
 
 - the other club's name, a GameChanger listing's name, or its picture;
 - a shorthand for the other club's name at the very start, wherever the two clubs are, as the
@@ -815,6 +838,29 @@ page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,484
 rated in 2027 have another record: a club loses a game it had counted twice, or the games its
 opponents filed against it by name that another of its GameChanger teams, or another club, played.
 
+A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
+club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
+it, or to a stand-in. Two levels off is inside what a squad plays up or down, and still somebody
+else's where the age was typed into the name and nothing of the club's own says it plays there:
+every listing two off, none of its own rows within a level of it, no row of its own that day. On the
+pool of 24 September 2026 GameChanger's own record left out 82% of the games filed that way that it
+decided, against 14% at the club's own level. Those rows go to a stand-in and to no namesake, and
+the refile (`refileStandIns`) does not put one onto the club of that name at the typed age on the
+name alone where the name is a club's at another level in reach too and that club's own schedules
+list nothing that day: handed to the namesake at the typed age, 47 of the 49 clubs that took one on
+the pool of 26 September moved away from GameChanger's own record. On that pool the move takes 522
+rows off, and 178 clubs' records change: 164 toward GameChanger's own, 106 of them onto it, and 14
+away, 5 of those off it — a squad that did play up, or a namesake the game was matched to after.
+
+A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
+named it, and a lookup that missed made a second: a class year looked up at the page's age rather
+than the class's, a pull run before a rule. The tidy makes one of two such entries
+(`mergeDuplicateStandIns`) where the name carries a graduating class or no more than one pulled club
+in the pool carries it, a club of one state named both, and neither played another opponent within
+the hour of the other. A common name, two Arizona clubs' "Pirates", is as often two teams and is
+left. On the pool of 26 September 2026 that merged 127 of the 173 such entries, ten of them "Mojo
+Gold 2036", and moved 226 clubs' ratings by more than a tenth of a run and no club's record.
+
 Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
 the pool.
@@ -858,6 +904,35 @@ few words, the sentence the failing layer wrote, and a link to the team on
 GameChanger. **Download the list** writes the lot as a CSV, because a few
 hundred rows is spreadsheet work rather than something to scroll on a phone —
 the panel draws the first two hundred and the file has them all.
+
+**One squad on GameChanger twice.** **Check the pool** in Pool health also lists pairs of pulled
+clubs that post the same games: at least two against the same opponent at the same minute with the
+same result, with no game ever against each other and no two different games within the hour of each
+other (`proposeTwinSquads`). Most are one squad set up twice under two names — a coach's own team
+and a parent's, a tournament desk's copy, "BUCS DB" and "DB Bucs" — and each such game counts twice
+for every club that played it. Two different games is read off the results, not the names: one game
+each schedule typed its own way, "No Chance Wildthings" and "No Chance Wild Things" at one start
+with one result, is one game. On the pool of 24 September 2026 the list held 55 pairs and 145 of the
+283 games two pulled clubs held twice. One game in common is not enough: the same search with one
+club's games moved a week found 68 pairs sharing one, against 125 on the real dates, and none
+sharing two, a week or a fortnight either way. On the pool of 26 September it holds 76; folding each
+takes 285 doubled games out, and the tidy after it 65 more, and moves 175 clubs' records, 172 toward
+GameChanger's own, 121 of them onto it, and 1 away. Nothing is folded for you: **Keep** folds the
+other team into the one you pick, with its games and its GameChanger link, and **Not the same** is
+remembered against the two GameChanger ids. Where the two schedules named an opponent two ways —
+"Thunderwolves" and "Thunderwolves Scout", or a club itself on GameChanger twice — the pool holds
+two opponents, and the fold cannot make the two copies one game: after the 76 folds, 28 minutes on
+the kept clubs still held two games against two opponents, most of them one game named two ways.
+
+**Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
+holds two counted games on one day that start within the hour of each other with the same result
+(`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
+against two entries for one opponent: a club on GameChanger twice, a name spelled two ways, or a
+stand-in beside the club it stands for. On the pool of 26 September 2026, tidied, pulled clubs held
+3,771 pairs of counted games within the hour of each other on one day, 627 of them with the same
+result, where two different results match about 0.38% of the time: about 12 by chance. The list
+holds 591 groups at 547 clubs. Nothing is changed for you: each club opens from the list with both
+games in its panel, and **Download the list** writes every group with both opponents and starts.
 
 ### Names
 
@@ -980,12 +1055,12 @@ day AWS WAF starts challenging server traffic.
 
 **Identity is asymmetric, on purpose.**
 
-|                                   |                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A team pulled by id               | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                                                                                                                                                                                          |
-| An opponent                       | has no id — GameChanger never gives one, and its picture is different on every listing, so it identifies nobody. The game itself is matched first: a club whose own schedule holds this fixture is the club. Failing that, the name — at that level, in that season year, and in the puller's own state, since nine opponents in ten are; a sole namesake in another state waits as a stand-in. |
-| A stand-in                        | is a name a schedule wrote down and nobody has pulled. One per name, level and state: a "Red Sox" named by clubs in ten states is ten stand-ins, not one club they all played.                                                                                                                                                                                                                  |
-| A club already here as a stand-in | is adopted rather than duplicated when its own turn comes: the stand-in its own schedule confirms, else the one at its level whose namers are in its state. In a full pull nearly every team appears as somebody's opponent first.                                                                                                                                                              |
+|                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A team pulled by id               | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                                                                                                                                                                                                                                                                                       |
+| An opponent                       | has no id — GameChanger never gives one, and its picture is different on every listing, so it identifies nobody. The game itself is matched first: a club whose own schedule holds this fixture is the club, by the same result or the same start time, though not two results more than four runs apart. Failing that, the name — at that level, in that season year, and in the puller's own state, since nine opponents in ten are; a sole namesake in another state waits as a stand-in. |
+| A stand-in                        | is a name a schedule wrote down and nobody has pulled. One per name, level and state: a "Red Sox" named by clubs in ten states is ten stand-ins, not one club they all played.                                                                                                                                                                                                                                                                                                               |
+| A club already here as a stand-in | is adopted rather than duplicated when its own turn comes: the stand-in its own schedule confirms, else the one at its level whose namers are in its state. In a full pull nearly every team appears as somebody's opponent first.                                                                                                                                                                                                                                                           |
 
 The same game is on both teams' schedules and a re-pull brings back a schedule
 almost entirely unchanged; both are matched rather than filed again (**One game on
@@ -1031,7 +1106,10 @@ since 104 of the 1,211 games this joined on a real pool were more than an hour a
 search a week off matched no more for ignoring the clock; each stand-in's name a shorthand
 for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach typed pointing at
 another squad and no two different squad numbers; the two clubs in one state or two that share a
-border; and no other pair that fits as well); a game sitting by name on
+border, unless the two results mirror within the hour, as a tournament's travel has them — 93
+games on the pool of 26 September 2026, where the same search a week off finds none; and no other
+pair that fits as well); a
+game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
 puller down in shorthand or scored the game differently at the same start time; a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
@@ -1057,7 +1135,11 @@ list and a tap on any name to lay the two side by side: GameChanger's name for
 each, town, state, record, games held here, and every opponent, with the ones in
 common marked. A team's own panel lists the GameChanger ids it is known by,
 unlinks one that was paired wrongly, and folds this team into another for one
-that arrived twice.
+that arrived twice. Beside each id it gives GameChanger's own season record for
+it and when it was last pulled, so a record that looks off can be checked without
+leaving the page. It says no more than that: on the pool of 24 September 2026
+GameChanger's record disagreed with the team's own GameChanger schedule for about a
+quarter of clubs, so a difference is a reason to look, not a verdict.
 
 A run of a few thousand teams takes a while and saves as it goes: the pool is
 written every five hundred teams and the cursor only advances after the write,
@@ -1807,6 +1889,16 @@ logged game. Fall tournaments routinely pair a team against the age group above
 or below, and those results say nothing about how it stacks up inside its own.
 A team whose games here are all scheduled, or all set not to count, is not
 ranked at all rather than shown at 0-0 · +0.0.
+
+Nor does a game count that a club's schedule lists against the club's own name
+(`playsItself`): a scrimmage of its own squad, or a namesake the import could not
+tell from it. It says nothing about the club against anyone else, and counted,
+one 6-4 read as two wins and two games from the club's two seats. On the pool of
+26 September 2026, 55 such games were scored in the squad year on 37 clubs; of the
+35 with one GameChanger link and its record, the double count matched
+GameChanger's for none, counting once matched 9 and leaving out 14, and leaving
+out was the nearer for 21 clubs against 13. The team panel still lists the game,
+and says why it is not in the record.
 
 ## Postseason format
 

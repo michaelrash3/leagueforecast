@@ -1,10 +1,11 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { isPullLive, watchPull } from "../../lib/pullSession";
 import { useState } from "react";
-import type { GcImportState, GcSeasonPairing } from "../../lib/gameChangerImport";
+import type { GcImportState, GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
 import {
   describeTidy,
   proposeSeasonPairings,
+  proposeTwinSquads,
   GC_PAIRING_EVIDENCE_LABEL,
 } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
@@ -20,6 +21,12 @@ import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv"
 import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/standInFixturesCsv";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
+import {
+  countedTwice,
+  countedTwiceCsv,
+  countedTwiceCsvFilename,
+  type CountedTwice,
+} from "../../lib/countedTwice";
 import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -43,11 +50,17 @@ type PoolHealthCardProps = {
    * its schedule rather than rebuilding it. See `deletedGames.ts`.
    */
   onDropClub: (club: UnrealClub) => Promise<boolean>;
+  /** Opens a club's own panel, for a list that names clubs to look at. */
+  onOpenTeam?: (teamId: string) => void;
 };
 
 const count = (value: number) => value.toLocaleString();
 
 const plural = (value: number, noun: string) => `${count(value)} ${noun}${value === 1 ? "" : "s"}`;
+
+/** A GameChanger record as a person reads one: wins, losses, and ties where there were any. */
+const recordLabel = (record: { win: number; loss: number; tie: number } | undefined) =>
+  record ? `${record.win}-${record.loss}${record.tie ? `-${record.tie}` : ""}` : "no record";
 
 /** A page with no date belongs to no squad year; it still has to be called something. */
 const yearLabel = (year: number | undefined) => (year === undefined ? "No year" : String(year));
@@ -77,6 +90,7 @@ export function PoolHealthCard({
   onMergeTeams,
   onDropGames,
   onDropClub,
+  onOpenTeam,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -113,6 +127,13 @@ export function PoolHealthCard({
    * separately, each holding part of the same season's games.
    */
   const [duplicates, setDuplicates] = useState<GcSeasonPairing[] | null>(null);
+  /**
+   * One squad on GameChanger twice under two names: two clubs posting the same games. Found the
+   * same way, when the button is pressed, since it walks every timed game once.
+   */
+  const [twins, setTwins] = useState<GcTwinSquad[] | null>(null);
+  /** Clubs holding one game twice: two counted games within the hour with one result. */
+  const [twice, setTwice] = useState<CountedTwice[] | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
 
@@ -180,6 +201,8 @@ export function PoolHealthCard({
     setLastTidy(null);
     setToPull(unpulledClubs(pool));
     setDuplicates(sameSeasonPairs(pool));
+    setTwins(proposeTwinSquads(pool.teams, pool.games, loadKeptApart()));
+    setTwice(countedTwice(pool.teams, pool.games));
   };
 
   const run = async () => {
@@ -195,6 +218,8 @@ export function PoolHealthCard({
     setSettleable(found.settleable);
     setToPull(unpulledClubs(outcome.state));
     setDuplicates(sameSeasonPairs(outcome.state));
+    setTwins(proposeTwinSquads(outcome.state.teams, outcome.state.games, loadKeptApart()));
+    setTwice(countedTwice(outcome.state.teams, outcome.state.games));
   };
 
   /**
@@ -256,10 +281,48 @@ export function PoolHealthCard({
     }
   };
 
+  /** The two as two clubs, for good: remembered against the GameChanger ids, as above. */
+  const keepTwinsApart = (offer: GcTwinSquad) => {
+    saveKeptApart(apartAfter(loadKeptApart(), offer.fromGcId, offer.toGcId));
+    setTwins((current) =>
+      (current ?? []).filter(
+        (entry) => entry.fromGcId !== offer.fromGcId || entry.toGcId !== offer.toGcId
+      )
+    );
+  };
+
+  /**
+   * Folds one of the two into the other, keeping the one the user picked. A fold changes which
+   * games each club holds, so an offer that named the club folded away is taken off the list too:
+   * Check the pool again works the rest out afresh.
+   */
+  const foldTwin = async (offer: GcTwinSquad, keep: "from" | "to") => {
+    const [goneId, keptId] =
+      keep === "to" ? [offer.fromTeamId, offer.toTeamId] : [offer.toTeamId, offer.fromTeamId];
+    const key = `${offer.fromTeamId}>${offer.toTeamId}`;
+    setMerging(key);
+    try {
+      const done = await onMergeTeams(goneId, keptId);
+      if (!done) return;
+      setTwins((current) =>
+        (current ?? []).filter(
+          (entry) => entry !== offer && entry.fromTeamId !== goneId && entry.toTeamId !== goneId
+        )
+      );
+    } finally {
+      setMerging(null);
+    }
+  };
+
   /**
    * The list as a file. A to-do rather than an import format: GameChanger has no id for any of
    * these — that is why they are on the list — so it carries what it takes to find them.
    */
+  const downloadTwice = () => {
+    if (!twice || twice.length === 0) return;
+    downloadCsv(countedTwiceCsvFilename(fileDay()), countedTwiceCsv(twice));
+  };
+
   const downloadToPull = () => {
     if (!toPull || toPull.length === 0) return;
     downloadCsv("Clubs_To_Pull.csv", unpulledClubsCsv(toPull));
@@ -640,6 +703,144 @@ export function PoolHealthCard({
             state and two coaches in common is what puts a pair on this list, and you say whether it
             is right. <strong>Not the same</strong> is remembered against the two GameChanger ids,
             so the pair is never offered again — not after the next pull, and not after a reset.
+          </p>
+        </div>
+      )}
+
+      {twins && twins.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            One squad on GameChanger twice
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(twins.length)}</strong>{" "}
+            {twins.length === 1 ? "pair of teams posts" : "pairs of teams post"} the same games: at
+            least two against the same opponent at the same minute with the same result, and never a
+            game against each other. Most are one squad set up twice — a coach&apos;s own team and a
+            parent&apos;s, or a tournament desk&apos;s copy — and each of those games counts twice
+            for every club that played it.
+          </p>
+          <ul className="mt-2 space-y-3">
+            {twins.slice(0, 10).map((offer) => {
+              const key = `${offer.fromTeamId}>${offer.toTeamId}`;
+              return (
+                <li key={key} className="text-xs">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {offer.fromTeamName}
+                  </span>{" "}
+                  <span className="text-slate-500">and</span>{" "}
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {offer.toTeamName}
+                  </span>{" "}
+                  <span className={pill("amber")}>
+                    {plural(offer.shared.length, "game")} in common
+                  </span>
+                  <p className="mt-1 text-slate-500">
+                    GameChanger: {offer.fromTeamName} {recordLabel(offer.fromRecord)}
+                    {offer.fromPlayers === undefined
+                      ? ""
+                      : `, ${plural(offer.fromPlayers, "player")}`}
+                    {" · "}
+                    {offer.toTeamName} {recordLabel(offer.toRecord)}
+                    {offer.toPlayers === undefined ? "" : `, ${plural(offer.toPlayers, "player")}`}
+                  </p>
+                  <ul className="mt-1 text-slate-500">
+                    {offer.shared.slice(0, 3).map((game) => (
+                      <li key={`${game.date}|${game.startTs}|${game.opponentName}`}>
+                        {game.date} v {game.opponentName}, {game.ownScore}-{game.opponentScore}
+                      </li>
+                    ))}
+                    {offer.shared.length > 3 && <li>and {count(offer.shared.length - 3)} more</li>}
+                  </ul>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void foldTwin(offer, "to")}
+                      disabled={merging !== null || pullLive}
+                      className={`${button.ghost} text-xs`}
+                    >
+                      {merging === key ? "Folding…" : `Keep ${offer.toTeamName}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void foldTwin(offer, "from")}
+                      disabled={merging !== null || pullLive}
+                      className={`${button.ghost} text-xs`}
+                    >
+                      {`Keep ${offer.fromTeamName}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => keepTwinsApart(offer)}
+                      disabled={merging !== null || pullLive}
+                      className={`${button.ghost} text-xs`}
+                    >
+                      Not the same
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {twins.length > 10 && (
+            <p className="mt-2 text-xs text-slate-500">
+              Drawing 10 of {count(twins.length)}. Check the pool again after these for the rest.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-500">
+            Never done for you. <strong>Keep</strong> folds the other team into the one you keep,
+            with its games and its GameChanger link, so pick the name the squad goes by. Two squads
+            of one club can share a tournament&apos;s opponents too, which is why a pair that ever
+            played each other, or had two games within the hour, is never offered.{" "}
+            <strong>Not the same</strong> is remembered against the two GameChanger ids, so the pair
+            is not offered again.
+          </p>
+        </div>
+      )}
+
+      {twice && twice.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Clubs credited twice with one game
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(twice.length)}</strong> times a club holds two counted games on one day
+            that start within the hour of each other, with the same result. A club plays one game at
+            a time, so that is one game entered twice — nearly always against two entries for one
+            opponent: a club on GameChanger twice, a name spelled two ways, or a stand-in beside the
+            club it stands for.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+            {twice.slice(0, 10).map((group) => (
+              <li key={`${group.teamId}|${group.games[0]?.gameId ?? group.date}`}>
+                {onOpenTeam ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTeam(group.teamId)}
+                    className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {group.teamName}
+                  </button>
+                ) : (
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {group.teamName}
+                  </span>
+                )}
+                {` — ${group.date}, ${group.own}-${group.opponent} v `}
+                {group.games.map((game) => game.opponentName).join(" and v ")}
+                {group.minutesApart === 0
+                  ? ", at the same start"
+                  : `, ${plural(group.minutesApart, "minute")} apart`}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={downloadTwice} className={`${button.ghost} mt-3 text-sm`}>
+            Download the list ({count(twice.length)})
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Nothing is changed for you. Open a club to see both games. Where the opponent is one
+            squad set up twice on GameChanger, the list of those above offers to fold the two once
+            they post the same games; the file names both entries of every one.
           </p>
         </div>
       )}

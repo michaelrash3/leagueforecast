@@ -312,15 +312,47 @@ describe("joinCrossedHalves", () => {
     ]);
   });
 
+  it("joins a stand-in whose name is longer than the club's, the word they share not its first", () => {
+    // "NKY Hurricanes" fits "Hurricanes", every word of the shorter in the longer; a lookup filed
+    // under the stand-in's first word alone looks for "nky" and finds no club.
+    const out = joinCrossedHalves(halves({ ...stixHalf, typed: "NKY Hurricanes" }, hurricanesHalf));
+    expect(out.joined).toBe(1);
+    expect(out.state.games).toHaveLength(1);
+  });
+
   it("joins across a state line into a neighbouring state", () => {
     expect(joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, state: "KY" })).joined).toBe(1);
   });
 
-  it("does not join two clubs a country apart, whatever their names", () => {
-    const pool = halves(stixHalf, { ...hurricanesHalf, state: "FL" });
-    const out = joinCrossedHalves(pool);
+  it("joins two clubs a country apart only on a mirrored result within the hour", () => {
+    // Travel ball crosses the country: the same result from opposite seats half an hour apart,
+    // each end named for the other club, is the game. Anything weaker has to be neighbours.
+    expect(joinCrossedHalves(halves(stixHalf, { ...hurricanesHalf, state: "FL" })).joined).toBe(1);
+    const unscored = halves(
+      { ...stixHalf, score: undefined, startTs: hurricanesHalf.startTs },
+      { ...hurricanesHalf, state: "FL" }
+    );
+    const out = joinCrossedHalves(unscored);
     expect(out.joined).toBe(0);
-    expect(out.state).toBe(pool);
+    expect(out.state).toBe(unscored);
+    const hoursApart = halves(
+      { ...stixHalf, startTs: "2026-09-20T21:00:00.000Z" },
+      { ...hurricanesHalf, state: "FL" }
+    );
+    expect(joinCrossedHalves(hoursApart).joined).toBe(0);
+  });
+
+  it("keeps to an age a coach typed, even on a mirrored result within the hour", () => {
+    // "Hurricanes 10U" typed for a 9U club is its 10U squad, whatever the score: two clubs'
+    // sibling squads at one event can mirror one at one instant.
+    const typed10 = (pool: GcImportState): GcImportState => ({
+      ...pool,
+      games: pool.games.map((game) =>
+        game.source?.teamId === STIX ? { ...game, ageLevelB: 10 } : game
+      ),
+    });
+    expect(joinCrossedHalves(halves(stixHalf, hurricanesHalf)).joined).toBe(1);
+    expect(joinCrossedHalves(typed10(halves(stixHalf, hurricanesHalf))).joined).toBe(0);
   });
 
   it("does not join two results that do not mirror at two different times", () => {

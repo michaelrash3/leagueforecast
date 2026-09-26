@@ -41,6 +41,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
     full: "Games taken off a club that plays nowhere near the age they were played at",
   },
   refiled: { short: "Refile", full: "Stand-in rows filed onto the club that turned out to be it" },
+  merged: {
+    short: "Merge",
+    full: "One opponent entered twice under one name, age and year by one state's clubs, made one",
+  },
   claimed: {
     short: "Claim",
     full: "Rows filed by name that the other club's own copy of the game claims, or gives back",

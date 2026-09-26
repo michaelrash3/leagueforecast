@@ -5,6 +5,7 @@ import {
   gamesForTeam,
   gcSeasonLabel,
   isScoutGamePlayed,
+  playsItself,
   rankingPoolGroupIds,
   scoreSeenBy,
   teamNameKey,
@@ -15,8 +16,12 @@ import {
   type SeasonSegment,
 } from "../lib/teamRankings";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
+import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
+
+/** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
+export const TEAM_PANEL_ID = "team-detail-panel";
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
@@ -140,7 +145,11 @@ export function TeamDetailPanel({
       new Set(here.filter((game) => countedInWindow(game, ageGroups, segment)).map((g) => g.id)),
     [here, ageGroups, segment]
   );
-  const notCounted = here.filter((game) => isScoutGamePlayed(game) && !countsTowardRating(game));
+  // A game against its own name is said as that, not as one somebody set not to count.
+  const againstItself = here.filter((game) => isScoutGamePlayed(game) && playsItself(game));
+  const notCounted = here.filter(
+    (game) => isScoutGamePlayed(game) && !countsTowardRating(game) && !playsItself(game)
+  );
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -155,7 +164,7 @@ export function TeamDetailPanel({
   return (
     // A region rather than a plain box: this opens in answer to a click somewhere else on the
     // page, and naming it after the team is what tells a screen-reader user which team arrived.
-    <section aria-labelledby={headingId} className={`${card} p-5`}>
+    <section id={TEAM_PANEL_ID} aria-labelledby={headingId} className={`${card} p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 id={headingId} className="text-sm font-black uppercase tracking-wide text-slate-500">
@@ -178,6 +187,9 @@ export function TeamDetailPanel({
               : ""}
             {notCounted.length > 0
               ? ` ${notCounted.length} more played here ${notCounted.length === 1 ? "is" : "are"} set not to count.`
+              : ""}
+            {againstItself.length > 0
+              ? ` ${againstItself.length} more ${againstItself.length === 1 ? "is" : "are"} against its own name — a scrimmage of its own squad, or a namesake it could not be told from — and not counted.`
               : ""}
             {elsewhere > 0
               ? ` ${elsewhere} more game${elsewhere === 1 ? "" : "s"} in another season, not counted here.`
@@ -263,6 +275,20 @@ export function TeamDetailPanel({
                   {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
                   {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
                 </span>
+                {(link.record || link.importedAt) && (
+                  // GameChanger's own count beside the link, so checking it takes no trip there.
+                  // Its own reasons differ from this page's often enough that it is a note, not a
+                  // verdict on the record above.
+                  <span
+                    className="text-xs text-slate-500"
+                    title="GameChanger's own season record for this team, as of the last pull"
+                  >
+                    {link.record
+                      ? `GameChanger ${link.record.win}-${link.record.loss}${link.record.tie ? `-${link.record.tie}` : ""}`
+                      : "No GameChanger record"}
+                    {link.importedAt ? `, pulled ${agoLabel(link.importedAt)}` : ""}
+                  </span>
+                )}
                 {rosterStanding(link.playerCount) === "short" && (
                   <span className={pill("amber")} title={describeRoster(link.playerCount) ?? ""}>
                     {link.playerCount} players
@@ -365,6 +391,10 @@ export function TeamDetailPanel({
                   {game.excluded ? (
                     <span className={pill("amber")} title="Kept, but not counted">
                       —
+                    </span>
+                  ) : line.result && playsItself(game) ? (
+                    <span className={pill("neutral")} title="Against its own name, not counted">
+                      {line.result}
                     </span>
                   ) : line.result && !inWindow.has(game.id) ? (
                     // Played, and kept, but outside the window the record above is counted over —
