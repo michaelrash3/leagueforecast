@@ -131,7 +131,7 @@ import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
-import { TeamDetailPanel } from "./TeamDetailPanel";
+import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
 import {
   NATIONAL_TOP,
@@ -1382,6 +1382,30 @@ export function TeamRankingsView({
     setOpenTeamId(teamId);
   };
 
+  /**
+   * The same, from a list further up the page, Pool health's: the panel opens below everything,
+   * out of sight of the list, so it is brought into view once it is there.
+   */
+  const openListedTeam = (teamId: string) => {
+    /*
+     * The search's page index is not built in Setup, where these lists are, so the page is the one
+     * a GameChanger id of the club's own is filed under, the latest year's: opened on another page,
+     * the panel showed none of the games the list had named.
+     */
+    const page =
+      pageOf(teamId)?.ageGroupId ??
+      allKnown.teams
+        .find((known) => known.id === teamId)
+        ?.gcTeams?.map((link) => ageGroups.find((group) => group.id === link.ageGroupId))
+        .filter((group): group is AgeGroup => group !== undefined)
+        .sort((a, b) => (ageGroupYear(b) ?? 0) - (ageGroupYear(a) ?? 0))[0]?.id;
+    if (page) openPage(page);
+    setOpenTeamId(teamId);
+    window.requestAnimationFrame(() =>
+      document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
+    );
+  };
+
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
 
   /**
@@ -2107,6 +2131,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onMergeTeams: mergeInto,
                 onDropGames: dropGames,
                 onDropClub: dropClub,
+                onOpenTeam: openListedTeam,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so

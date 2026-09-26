@@ -924,6 +924,16 @@ remembered against the two GameChanger ids. Where the two schedules named an opp
 two opponents, and the fold cannot make the two copies one game: after the 76 folds, 28 minutes on
 the kept clubs still held two games against two opponents, most of them one game named two ways.
 
+**Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
+holds two counted games on one day that start within the hour of each other with the same result
+(`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
+against two entries for one opponent: a club on GameChanger twice, a name spelled two ways, or a
+stand-in beside the club it stands for. On the pool of 26 September 2026, tidied, pulled clubs held
+3,771 pairs of counted games within the hour of each other on one day, 627 of them with the same
+result, where two different results match about 0.38% of the time: about 12 by chance. The list
+holds 591 groups at 547 clubs. Nothing is changed for you: each club opens from the list with both
+games in its panel, and **Download the list** writes every group with both opponents and starts.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South

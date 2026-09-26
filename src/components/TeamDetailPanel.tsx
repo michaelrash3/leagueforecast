@@ -20,6 +20,9 @@ import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
 
+/** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
+export const TEAM_PANEL_ID = "team-detail-panel";
+
 type TeamDetailPanelProps = {
   team: ScoutTeam;
   /** Every game in the roster's world, so games outside this season can be counted too. */
@@ -161,7 +164,7 @@ export function TeamDetailPanel({
   return (
     // A region rather than a plain box: this opens in answer to a click somewhere else on the
     // page, and naming it after the team is what tells a screen-reader user which team arrived.
-    <section aria-labelledby={headingId} className={`${card} p-5`}>
+    <section id={TEAM_PANEL_ID} aria-labelledby={headingId} className={`${card} p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 id={headingId} className="text-sm font-black uppercase tracking-wide text-slate-500">

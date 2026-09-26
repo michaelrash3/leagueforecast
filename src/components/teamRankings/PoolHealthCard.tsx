@@ -21,6 +21,12 @@ import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv"
 import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/standInFixturesCsv";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
+import {
+  countedTwice,
+  countedTwiceCsv,
+  countedTwiceCsvFilename,
+  type CountedTwice,
+} from "../../lib/countedTwice";
 import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -44,6 +50,8 @@ type PoolHealthCardProps = {
    * its schedule rather than rebuilding it. See `deletedGames.ts`.
    */
   onDropClub: (club: UnrealClub) => Promise<boolean>;
+  /** Opens a club's own panel, for a list that names clubs to look at. */
+  onOpenTeam?: (teamId: string) => void;
 };
 
 const count = (value: number) => value.toLocaleString();
@@ -82,6 +90,7 @@ export function PoolHealthCard({
   onMergeTeams,
   onDropGames,
   onDropClub,
+  onOpenTeam,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -123,6 +132,8 @@ export function PoolHealthCard({
    * same way, when the button is pressed, since it walks every timed game once.
    */
   const [twins, setTwins] = useState<GcTwinSquad[] | null>(null);
+  /** Clubs holding one game twice: two counted games within the hour with one result. */
+  const [twice, setTwice] = useState<CountedTwice[] | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
 
@@ -191,6 +202,7 @@ export function PoolHealthCard({
     setToPull(unpulledClubs(pool));
     setDuplicates(sameSeasonPairs(pool));
     setTwins(proposeTwinSquads(pool.teams, pool.games, loadKeptApart()));
+    setTwice(countedTwice(pool.teams, pool.games));
   };
 
   const run = async () => {
@@ -207,6 +219,7 @@ export function PoolHealthCard({
     setToPull(unpulledClubs(outcome.state));
     setDuplicates(sameSeasonPairs(outcome.state));
     setTwins(proposeTwinSquads(outcome.state.teams, outcome.state.games, loadKeptApart()));
+    setTwice(countedTwice(outcome.state.teams, outcome.state.games));
   };
 
   /**
@@ -305,6 +318,11 @@ export function PoolHealthCard({
    * The list as a file. A to-do rather than an import format: GameChanger has no id for any of
    * these — that is why they are on the list — so it carries what it takes to find them.
    */
+  const downloadTwice = () => {
+    if (!twice || twice.length === 0) return;
+    downloadCsv(countedTwiceCsvFilename(fileDay()), countedTwiceCsv(twice));
+  };
+
   const downloadToPull = () => {
     if (!toPull || toPull.length === 0) return;
     downloadCsv("Clubs_To_Pull.csv", unpulledClubsCsv(toPull));
@@ -776,6 +794,53 @@ export function PoolHealthCard({
             played each other, or had two games within the hour, is never offered.{" "}
             <strong>Not the same</strong> is remembered against the two GameChanger ids, so the pair
             is not offered again.
+          </p>
+        </div>
+      )}
+
+      {twice && twice.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+            Clubs credited twice with one game
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(twice.length)}</strong> times a club holds two counted games on one day
+            that start within the hour of each other, with the same result. A club plays one game at
+            a time, so that is one game entered twice — nearly always against two entries for one
+            opponent: a club on GameChanger twice, a name spelled two ways, or a stand-in beside the
+            club it stands for.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+            {twice.slice(0, 10).map((group) => (
+              <li key={`${group.teamId}|${group.games[0]?.gameId ?? group.date}`}>
+                {onOpenTeam ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTeam(group.teamId)}
+                    className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {group.teamName}
+                  </button>
+                ) : (
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {group.teamName}
+                  </span>
+                )}
+                {` — ${group.date}, ${group.own}-${group.opponent} v `}
+                {group.games.map((game) => game.opponentName).join(" and v ")}
+                {group.minutesApart === 0
+                  ? ", at the same start"
+                  : `, ${plural(group.minutesApart, "minute")} apart`}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={downloadTwice} className={`${button.ghost} mt-3 text-sm`}>
+            Download the list ({count(twice.length)})
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Nothing is changed for you. Open a club to see both games. Where the opponent is one
+            squad set up twice on GameChanger, the list of those above offers to fold the two once
+            they post the same games; the file names both entries of every one.
           </p>
         </div>
       )}
