@@ -401,6 +401,10 @@ copy stays, since it names the opponent. 513 Force - Bouley's 0-13
 to the Cincinnati Hornets on 25 September was two losses until this, and two
 more of that league's games were counted twice the same way, from the Angels'
 and Headlines Nagel's schedules against a "513 Force" known by no other name.
+Each club's own copy is read on its own, so when both schedules filed the game
+against nobody, both copies go. The league's forecast leaves the same rows out
+of the results it reads from Team Rankings once the league has the game's final
+score, so they are not counted twice there either.
 
 ### Placeholders
 

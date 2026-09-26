@@ -6,14 +6,15 @@ import {
   levelsForSeason,
   yearsForSeason,
   scoutLinkCandidates,
+  type LeagueFixture,
   type LeagueScoutBridge,
   type LeagueTeamLink,
   type ScoutTeam,
 } from "../lib/teamRankings";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
 
-/** A fixture as the bridge reads it: league names and the league's own date string. */
-export type SeasonFixture = { away: string; home: string; date: string };
+/** A fixture as the bridge reads it: league names, the league's own date string, and final runs. */
+export type SeasonFixture = LeagueFixture;
 
 export type ScoutBridgeOptions = {
   /** The season being looked at, or empty when there is none. */

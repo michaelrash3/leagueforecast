@@ -308,7 +308,9 @@ export const dedupeLeagueFixtures = (
     emptiestFirst.slice(0, stored.length).forEach((index) => dropped.add(index));
   });
 
-  if (roster) dropCopiesFiledAgainstNobody(games, roster, dropped);
+  if (roster) {
+    leagueCopiesFiledAgainstNobody(games, roster, dropped).forEach((index) => dropped.add(index));
+  }
 
   // The common case is a pool with nothing to collapse; hand back the same array so callers that
   // memoize on identity are not re-run for a list that did not change.
@@ -334,12 +336,17 @@ export const dedupeLeagueFixtures = (
  * only one either way — one league game of the club's that day that fits, and one row that fits it
  * — so a day with two games of one score is left as it is. The league row stays: it names the
  * opponent the slot does not.
+ *
+ * Returns the stored rows it pairs, by index, and reads none of the ones in `skip`. Exported for the
+ * league's own forecast, which leaves the same rows out of the outside results it reads
+ * (`leagueScoutBridge`), so the two halves of the app pair the same rows.
  */
-const dropCopiesFiledAgainstNobody = (
+export const leagueCopiesFiledAgainstNobody = (
   games: readonly ScoutGame[],
   roster: LeagueRowReader,
-  dropped: Set<number>
-): void => {
+  skip: ReadonlySet<number> = new Set()
+): Set<number> => {
+  const paired = new Set<number>();
   const clubDay = (ageGroupId: string, clubId: string, day: string) =>
     `${ageGroupId}|${clubId}|${day}`;
   const leagueByClubDay = new Map<string, number[]>();
@@ -356,7 +363,7 @@ const dropCopiesFiledAgainstNobody = (
       else leagueByClubDay.set(key, [index]);
     });
   });
-  if (leagueByClubDay.size === 0) return;
+  if (leagueByClubDay.size === 0) return paired;
 
   /**
    * A league row and one of its two clubs, to the stored rows of that club's that fit it and nothing
@@ -366,7 +373,7 @@ const dropCopiesFiledAgainstNobody = (
    */
   const rowsFor = new Map<string, number[]>();
   games.forEach((game, index) => {
-    if (dropped.has(index) || game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    if (skip.has(index) || game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
     // Read before the date, which is the costly part: nearly every row in a nationwide pool is
     // between clubs no league here has, and a nationwide pool is a quarter of a million rows.
     if (!leagueClubs.has(game.teamAId) && !leagueClubs.has(game.teamBId)) return;
@@ -399,6 +406,7 @@ const dropCopiesFiledAgainstNobody = (
     else rowsFor.set(fits[0]!, [index]);
   });
   rowsFor.forEach((rows) => {
-    if (rows.length === 1) dropped.add(rows[0]!);
+    if (rows.length === 1) paired.add(rows[0]!);
   });
+  return paired;
 };
