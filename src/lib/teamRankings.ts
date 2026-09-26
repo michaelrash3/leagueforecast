@@ -193,10 +193,11 @@ export type LeagueSeasonSnapshot = {
 
 /**
  * Convert every League Standings season in an age group's *entire schedule* — not just completed
- * games — into scout-style games tagged with that age group, resolving each league team name into
- * the given global scout pool (creating entries the first time a league team name is seen — a team
- * that plays across two seasons in the same age group, e.g. Fall and Spring, resolves to the same
- * scout team both times). A not-yet-final league game comes across as a scheduled entry (no score,
+ * games — into scout-style games tagged with that age group, resolving each league team into the
+ * given global scout pool: onto the club Settings links it to where there is one (see `pool`), and
+ * otherwise by name (creating entries the first time a league team name is seen — a team that
+ * plays across two seasons in the same age group, e.g. Fall and Spring, resolves to the same scout
+ * team both times). A not-yet-final league game comes across as a scheduled entry (no score,
  * same as a manually-logged future game), so its opponent already shows up in the age group ahead
  * of time; a completed one carries its score. Since this runs fresh from live League Standings data
  * on every call, a game that gets finalized there is picked up here as a real result automatically
@@ -213,7 +214,19 @@ export const deriveLeagueScoutGames = (
    * League Standings date does not carry. Without it every row here reads as dated outside its
    * own season — see `dateInSquadYear`.
    */
-  squadYear?: number
+  squadYear?: number,
+  /**
+   * The stored games and the pages, so each league team is carried onto the club Settings links it
+   * to — a person's pick, or the one club of its name on this season's pages (`linkLeagueTeams`) —
+   * rather than onto whichever club of that name comes first in a nationwide roster.
+   *
+   * The name alone was not enough, and it cost a game: a Cincinnati 9U league's "Cincinnati Angels
+   * Red" went to an 11U club of that name, first in the roster, while the Trash Pandas' pull had
+   * the same game against the 9U club. Two pairs of ids, so `dedupeLeagueFixtures` could not see
+   * one fixture, and the Trash Pandas were 0-7 against GameChanger's 0-6. A team neither answer
+   * reaches still goes by its name, as before.
+   */
+  pool?: { games: ScoutGame[]; ageGroups: AgeGroup[] }
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
   let teams = scoutTeams;
   const games: ScoutGame[] = [];
@@ -221,10 +234,28 @@ export const deriveLeagueScoutGames = (
   seasons.forEach(
     ({ seasonId, teams: leagueTeams, matchups: leagueMatchups, logs: leagueLogs }) => {
       const leagueNameById = new Map(leagueTeams.map((team) => [team.id, team.name]));
+      const clubByLeagueId = new Map<string, string>();
+      if (pool && leagueTeams.length > 0) {
+        const fixtures = leagueMatchups.map((matchup) => ({
+          away: leagueNameById.get(matchup.away) ?? "",
+          home: leagueNameById.get(matchup.home) ?? "",
+          date: matchup.date,
+        }));
+        linkLeagueTeams(seasonId, pool.ageGroups, teams, pool.games, leagueTeams, fixtures)
+          .rows.filter((row) => row.how === "picked" || row.how === "guessed")
+          .forEach((row) => {
+            if (row.scoutTeamId) clubByLeagueId.set(row.leagueTeamId, row.scoutTeamId);
+          });
+      }
       const resolvedIdByLeagueId = new Map<string, string>();
       const resolveLeagueTeam = (leagueId: string): string | null => {
         const cached = resolvedIdByLeagueId.get(leagueId);
         if (cached) return cached;
+        const club = clubByLeagueId.get(leagueId);
+        if (club) {
+          resolvedIdByLeagueId.set(leagueId, club);
+          return club;
+        }
         const name = leagueNameById.get(leagueId);
         if (!name) return null;
         const result = resolveOrCreateTeam(name, teams);
@@ -3218,45 +3249,38 @@ export type LeagueScoutBridge = {
   countedResults: number;
 };
 
+/** Who each league team is, as `linkLeagueTeams` settles it, and the lookups built on the way. */
+type LeagueTeamLinks = {
+  /** The pages that claim this season. */
+  linked: Set<string>;
+  scoutById: Map<string, ScoutTeam>;
+  /** One row per league team, in roster order. */
+  rows: ScoutLinkRow[];
+  /** The league team a person picked each club for. */
+  leagueIdByScoutId: Map<string, string>;
+  /** The league team each guessed name key went to. */
+  leagueIdByName: Map<string, string>;
+};
+
 /**
- * Which Team Rankings club each league team is, and the outside results that follow from it.
- *
- * The results half is what the league's ratings read: games logged in Team Rankings for an age
- * group that includes this season, minus the ones that came *from* the league schedule in the first
- * place. Counting those twice would quietly double the weight of every league game. "Came from the
- * league" covers two shapes: a row `deriveLeagueScoutGames` built carries the `league_` prefix, and
- * a row a GameChanger pull stored for a league fixture does not — it looks exactly like a tournament
- * result — so it is matched against `seasonFixtures` the way `dedupeLeagueFixtures` matches one:
- * same two clubs by name, same calendar day.
- *
- * The linking half used to be a name match and nothing else, and it failed silently: the league
- * roster says "Trash Pandas" where GameChanger says "Trash Pandas Baseball Club", so that club's
- * results were filed under an opponent of its own and sharpened nothing, with no message anywhere.
- * A person's answer (`TeamBase.scoutTeamId`) now decides it; the name match survives as the
- * suggestion, and every row says which of the two it was — which is the point of returning `rows`
- * rather than only the results.
- *
- * An opponent with no league counterpart still keeps an id of its own, so the rating model can
- * estimate how good it was instead of assuming — that is the whole value of the bridge: a shared
- * tournament opponent is what lets two league teams that never met be compared.
+ * Which pool club each league team is: the club a person picked (`TeamBase.scoutTeamId`), and
+ * otherwise the one club of its name with a game on this season's pages, told apart from a
+ * namesake there by who it has played. Its own function because both directions across the bridge
+ * read it — the league's forecast (`leagueScoutBridge`) and the league's games carried into Team
+ * Rankings (`deriveLeagueScoutGames`) — and two answers to "who is this team" are how one game
+ * comes to be counted twice.
  */
-export const leagueScoutBridge = (
+const linkLeagueTeams = (
   seasonId: string,
   ageGroups: AgeGroup[],
   teams: ScoutTeam[],
   games: ScoutGame[],
   leagueTeams: LeagueTeamLink[],
-  /**
-   * This season's own schedule — league team *names* and the league's own date string — so a
-   * stored game that is really one of these fixtures can be recognised. Required rather than
-   * optional so a new caller has to answer the question instead of silently reopening the leak.
-   */
   seasonFixtures: { away: string; home: string; date: string }[]
-): LeagueScoutBridge => {
+): LeagueTeamLinks => {
   const linked = new Set(
     ageGroups.filter((group) => group.seasonIds.includes(seasonId)).map((group) => group.id)
   );
-  const seasonLinked = linked.size > 0;
   const scoutById = new Map(teams.map((team) => [team.id, team]));
 
   // Only clubs with a game on one of this season's pages can ever reach it, so only those are
@@ -3412,6 +3436,54 @@ export const leagueScoutBridge = (
     row.suggestedName = scoutById.get(only)?.name;
   });
 
+  return { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName };
+};
+
+/**
+ * Which Team Rankings club each league team is, and the outside results that follow from it.
+ *
+ * The results half is what the league's ratings read: games logged in Team Rankings for an age
+ * group that includes this season, minus the ones that came *from* the league schedule in the first
+ * place. Counting those twice would quietly double the weight of every league game. "Came from the
+ * league" covers two shapes: a row `deriveLeagueScoutGames` built carries the `league_` prefix, and
+ * a row a GameChanger pull stored for a league fixture does not — it looks exactly like a tournament
+ * result — so it is matched against `seasonFixtures` the way `dedupeLeagueFixtures` matches one:
+ * same two clubs, by name or by the league teams they are linked to, same calendar day.
+ *
+ * The linking half used to be a name match and nothing else, and it failed silently: the league
+ * roster says "Trash Pandas" where GameChanger says "Trash Pandas Baseball Club", so that club's
+ * results were filed under an opponent of its own and sharpened nothing, with no message anywhere.
+ * A person's answer (`TeamBase.scoutTeamId`) now decides it; the name match survives as the
+ * suggestion, and every row says which of the two it was — which is the point of returning `rows`
+ * rather than only the results.
+ *
+ * An opponent with no league counterpart still keeps an id of its own, so the rating model can
+ * estimate how good it was instead of assuming — that is the whole value of the bridge: a shared
+ * tournament opponent is what lets two league teams that never met be compared.
+ */
+export const leagueScoutBridge = (
+  seasonId: string,
+  ageGroups: AgeGroup[],
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  leagueTeams: LeagueTeamLink[],
+  /**
+   * This season's own schedule — league team *names* and the league's own date string — so a
+   * stored game that is really one of these fixtures can be recognised. Required rather than
+   * optional so a new caller has to answer the question instead of silently reopening the leak.
+   */
+  seasonFixtures: { away: string; home: string; date: string }[]
+): LeagueScoutBridge => {
+  const { linked, scoutById, rows, leagueIdByScoutId, leagueIdByName } = linkLeagueTeams(
+    seasonId,
+    ageGroups,
+    teams,
+    games,
+    leagueTeams,
+    seasonFixtures
+  );
+  const seasonLinked = linked.size > 0;
+
   /** A league team's own id where one is behind this club; otherwise an id of this club's own. */
   const ratingId = (scoutTeamId: string): string => {
     const explicit = leagueIdByScoutId.get(scoutTeamId);
@@ -3432,13 +3504,44 @@ export const leagueScoutBridge = (
       .map(({ away, home, date }) => nameFixtureKey(away, home, date))
       .filter((key) => key !== "")
   );
+  /*
+   * The same fixtures as pairs of league teams, for a club linked under a name of its own: a
+   * roster's "Trash Pandas" picked as GameChanger's "Trash Pandas Baseball Club". By names alone
+   * the pull's copy of a league game read as a tournament result, and the forecast counted the
+   * league's own game twice — which is the leak this whole check exists to close.
+   */
+  const leagueIdByKey = new Map<string, string>();
+  leagueTeams.forEach((team) => {
+    const key = teamNameKey(team.name);
+    if (!leagueIdByKey.has(key)) leagueIdByKey.set(key, team.id);
+  });
+  const teamsFixtureKey = (a: string, b: string, date: string): string => {
+    const day = normalizeDateInput(date ?? "");
+    return day ? `${[a, b].sort().join("|")}|${day}` : "";
+  };
+  const fixtureTeamKeys = new Set(
+    seasonFixtures
+      .map(({ away, home, date }) => {
+        const awayId = leagueIdByKey.get(teamNameKey(away));
+        const homeId = leagueIdByKey.get(teamNameKey(home));
+        return awayId && homeId ? teamsFixtureKey(awayId, homeId, date) : "";
+      })
+      .filter((key) => key !== "")
+  );
   const isSeasonFixture = (game: ScoutGame): boolean => {
     if (fixtureKeys.size === 0) return false;
     const away = scoutById.get(game.teamAId)?.name;
     const home = scoutById.get(game.teamBId)?.name;
     if (!away || !home) return false;
     const key = nameFixtureKey(away, home, game.date ?? "");
-    return key !== "" && fixtureKeys.has(key);
+    if (key !== "" && fixtureKeys.has(key)) return true;
+    // A club with no league team behind it keeps an id of its own, which no fixture carries.
+    const teamsKey = teamsFixtureKey(
+      ratingId(game.teamAId),
+      ratingId(game.teamBId),
+      game.date ?? ""
+    );
+    return teamsKey !== "" && fixtureTeamKeys.has(teamsKey);
   };
 
   /** Whether a pool club is one of this league's teams, rather than a stranger on the same page. */

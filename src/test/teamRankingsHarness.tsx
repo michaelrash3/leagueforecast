@@ -11,8 +11,9 @@ import {
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import { poolSignature } from "../lib/gameChangerImport";
-import type { SeasonMeta } from "../lib/storage";
+import { saveLogs, saveMatchups, saveTeams, type SeasonMeta } from "../lib/storage";
 import type { AgeUnknownList } from "../lib/ageUnknown";
+import type { GameLog, Matchup, TeamBase } from "../lib/types";
 
 /**
  * Renders Team Rankings over a pool you describe, the way a browser would find it.
@@ -37,6 +38,11 @@ export type Pool = {
   untidied?: boolean;
   /** Teams nobody could age, for the review card on Setup. */
   ageless?: AgeUnknownList;
+  /**
+   * A League Standings season, written as the one a fresh browser opens on — "default" — so a page
+   * claims it with `seasonIds: ["default"]`. The view reads it on its first render.
+   */
+  league?: { teams: TeamBase[]; matchups: Matchup[]; logs: Record<string, GameLog> };
 };
 
 export type Harness = RenderResult & {
@@ -112,6 +118,11 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   saveScoutTeams(pool.teams);
   saveScoutGames(pool.games);
   if (pool.ageless) saveAgeUnknown(pool.ageless);
+  if (pool.league) {
+    saveTeams(pool.league.teams);
+    saveMatchups(pool.league.matchups);
+    saveLogs(pool.league.logs);
+  }
   if (!pool.untidied) {
     saveTidyStamp(
       poolSignature({ ageGroups: pool.ageGroups, teams: pool.teams, games: pool.games })

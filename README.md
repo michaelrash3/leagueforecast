@@ -380,7 +380,16 @@ league's own record where the league has scored it, so a rating never counts a
 game twice. The day is what decides this — the same two clubs meeting on another
 date played outside league play, and that game stands on its own. Results
 carried back into the league's own forecasts skip its fixtures for the same
-reason.
+reason, whether a club's names match on both sides or it is linked to its league
+team under another.
+
+Both copies have to name the same two clubs for that to work, so a league team is
+carried in as the club **Which Team Rankings club is each team?** links it to — the
+pick, or the guess — and only a team with neither goes by its name. By name alone
+it went to whichever club of that name the roster listed first: a Cincinnati 9U
+league's "Cincinnati Angels- Red" landed on an 11U "Cincinnati Angels Red" pulled
+earlier, the Trash Pandas' own pull had the same game against the 9U club, and the
+board showed them 0-7 against GameChanger's 0-6.
 
 ### Placeholders
 
@@ -1142,8 +1151,10 @@ GameChanger's record disagreed with the team's own GameChanger schedule for abou
 quarter of clubs, so a difference is a reason to look, not a verdict.
 
 A run of a few thousand teams takes a while and saves as it goes: the pool is
-written every five hundred teams and the cursor only advances after the write,
-so stopping, reloading or closing the tab costs at most those five hundred.
+written every five hundred teams while it is small, less often as it grows (each
+save writes the whole pool) but never less often than every two thousand, and the
+cursor only advances after the write, so stopping, reloading or closing the tab
+costs at most those two thousand.
 
 #### How much comes round at once
 

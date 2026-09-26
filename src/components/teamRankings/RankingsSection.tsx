@@ -289,7 +289,14 @@ export function RankingsSection({
                       className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
                     >
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="min-w-0 truncate text-sm font-black">
+                        {/*
+                         * Wrapped, never truncated. The name is a button, and to an ellipsis a
+                         * button is one box that fits whole or goes whole: a long name with the
+                         * League tag after it did not fit a phone's line, and the card read
+                         * "#84 #3874 …" with nothing to say which club it was. A second line is
+                         * the smaller cost.
+                         */}
+                        <span className="min-w-0 text-sm font-black wrap-break-word">
                           #{row.rank}
                           {row.overallRank !== undefined && row.overallRank !== row.rank && (
                             <span className="ml-1 text-xs font-bold text-slate-400">

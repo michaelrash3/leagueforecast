@@ -223,13 +223,15 @@ const persistLog = (tracker: PullTracker, log: PullRunLog): void => {
  * as garbage each time. It is the reason such a pull slows to a crawl and buries the tab in
  * collection: not the fetching, the saving.
  *
- * So the interval grows with the pool. Twenty-odd saves instead of two hundred and thirty, a tenth
- * of the disk and a tenth of the garbage. What it costs is how much a crash can undo — at the
- * ceiling, five thousand teams, which is two or three minutes of fetching. Worth it against an
- * hour of thrashing, and the floor keeps small pulls saving as often as they always did.
+ * So the interval grows with the pool. Some sixty saves instead of two hundred and thirty, a
+ * quarter of the disk and a quarter of the garbage. What it costs is how much a crash can undo —
+ * at the ceiling, two thousand teams, about a minute of fetching. It was five thousand, which
+ * wrote a tenth rather than a quarter but could undo two or three minutes of a run; two thousand
+ * keeps what a stop or a crash loses to a minute. The floor keeps small pulls saving as often as
+ * they always did.
  */
 export const SAVE_EVERY_MIN = 500;
-export const SAVE_EVERY_MAX = 5000;
+export const SAVE_EVERY_MAX = 2000;
 export const saveEvery = (games: number): number => {
   /*
    * Guarded rather than trusted, because of what the arithmetic does with a number that is not
