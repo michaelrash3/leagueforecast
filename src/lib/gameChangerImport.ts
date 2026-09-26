@@ -1509,8 +1509,22 @@ const opponentFromSameFixture = (
       theirScore !== undefined &&
       ourScore === game.teamScore &&
       theirScore === game.opponentScore;
-    // Either the result matches, or the day and the start time pin it on their own.
-    const timeAgrees = sameStart(game.startTs, existing.startTs);
+    /*
+     * Either the result matches, or the day and the start time pin it on their own — but not two
+     * results further apart than two scorekeepers are (`CLOSE_DISPUTE_RUNS`), which the claim step
+     * reads as two games. Taken on the clock alone, the reading hung on which club was pulled first:
+     * on the pool of 26 September 2026 the claim step left 69 rows at the very start of another
+     * club's copy with results more than four runs apart, 20 against a slot and 49 against a name
+     * none of which fitted that club, where 13 of the 27 with the same result did.
+     */
+    const scoredApart =
+      ourScore !== undefined &&
+      theirScore !== undefined &&
+      game.teamScore !== undefined &&
+      game.opponentScore !== undefined &&
+      Math.abs(ourScore - game.teamScore) + Math.abs(theirScore - game.opponentScore) >
+        CLOSE_DISPUTE_RUNS;
+    const timeAgrees = sameStart(game.startTs, existing.startTs) && !scoredApart;
     return scoresAgree || timeAgrees;
   });
 
