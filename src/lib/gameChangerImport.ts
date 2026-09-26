@@ -4494,7 +4494,9 @@ export const pairSettledSquads = (
   const games = state.games.flatMap((game) => {
     const teamAId = movedTo.get(game.teamAId) ?? game.teamAId;
     const teamBId = movedTo.get(game.teamBId) ?? game.teamBId;
-    if (teamAId === teamBId) return [];
+    // A game the pairing made one squad's against itself; one some team already had against itself
+    // is not the pairing's to take (`mergeScoutTeams`).
+    if (teamAId === teamBId && game.teamAId !== game.teamBId) return [];
     const moved =
       teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
     // A row claimed from a squad paired away was filed against the squad it pairs into.
@@ -4831,8 +4833,10 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
   state.games.forEach((game) => {
     const teamAId = finalOf(game.teamAId);
     const teamBId = finalOf(game.teamBId);
-    // Both sides of the game turned out to be the same club: it was never two teams playing.
-    if (teamAId === teamBId) return;
+    // Both sides of the game turned out to be the same club: it was never two teams playing. A game
+    // some team already had against itself is not the fold's to take (`mergeScoutTeams`): taken
+    // here, every scrimmage in the pool went whenever any two squads folded.
+    if (teamAId === teamBId && game.teamAId !== game.teamBId) return;
     const moved =
       teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
     // A row claimed from a squad folded away was filed against the squad it folded into.

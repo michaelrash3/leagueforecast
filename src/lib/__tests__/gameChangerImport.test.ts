@@ -1056,6 +1056,40 @@ describe("one squad holding several GameChanger ids", () => {
     ]);
   });
 
+  it("leaves a game some other club played against itself", () => {
+    let pool = importGcSchedule(
+      sched(
+        "gcYEAGFALL00",
+        "Yeager Davis 11U",
+        [played("f1", "Raptors 11U", "2026-09-11", 8, 2)],
+        fall
+      ),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched(
+        "gcYEAGSPRG00",
+        "Yeager Davis 11U",
+        [played("s1", "Raptors 11U", "2026-09-11", 8, 2)],
+        spring
+      ),
+      pool
+    ).state;
+    const raptors = pool.teams.find((team) => team.name === "Raptors")!;
+    const scrimmage: ScoutGame = {
+      id: "gc_gcRAPTORS000_x1",
+      teamAId: raptors.id,
+      teamBId: raptors.id,
+      ageGroupId: pool.games[0]!.ageGroupId,
+      date: "2026-09-12",
+      teamAScore: 6,
+      teamBScore: 4,
+    };
+    const settled = mergeSameSquadIds({ ...pool, games: [...pool.games, scrimmage] });
+    expect(settled.merged).toBe(1);
+    expect(settled.state.games).toContainEqual(scrimmage);
+  });
+
   it("takes a row claimed from an id folded away along to the squad it folds into", () => {
     let pool = importGcSchedule(
       sched(
@@ -3616,6 +3650,21 @@ describe("settled pairings", () => {
     // offered: every rec league in Ohio has a Mustangs.
     expect(proposeSeasonPairings(out.state.teams)).toEqual([]);
     expect(out.state.teams.filter((team) => team.name === "Mustangs")).toHaveLength(2);
+  });
+
+  it("leaves a game some other club played against itself", () => {
+    // An intrasquad scrimmage listed under the Mustangs' own name is not the pairing's to take:
+    // taken here, every scrimmage in the pool went whenever any two squads paired.
+    const where = { city: "Butler", state: "PA" };
+    const teams = [
+      squad("bf", "Butler Baseball", "fall", 2026, where),
+      squad("bs", "Butler Baseball", "spring", 2027, where),
+      squad("mf", "Mustangs", "fall", 2026, { state: "OH" }),
+    ];
+    const scrimmage = played("x1", "mf", "mf", "2026-09-12", 6, 4, "gc-mf");
+    const out = pairSettledSquads(state(teams, [scrimmage]));
+    expect(out.paired).toBe(1);
+    expect(out.state.games).toEqual([scrimmage]);
   });
 
   it("follows a chain, so Fall, Winter and Spring end as one team whatever the order", () => {
