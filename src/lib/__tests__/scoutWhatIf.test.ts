@@ -148,7 +148,7 @@ describe("the what-if curve", () => {
     expect(curve.winRecord).toBe("7-5");
     expect(curve.lossRecord).toBe("6-6");
     expect(curve.rankedCount).toBe(120);
-    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(0.1992, 4);
+    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(0.1997, 4);
   });
 
   /*
@@ -163,6 +163,21 @@ describe("the what-if curve", () => {
       const truth = reallyPlayed(margin);
       expect(point.rank).toBe(truth.rank);
       expect(point.rating).toBeCloseTo(truth.rating, 2);
+    }
+  });
+
+  /*
+   * Exact, not near: the fitted ratings are affine in the margin, and the discount is the residual
+   * scale times a number fixed per club, the scale's square a parabola pinned by a third fit at a
+   * tie. A straight line between the ends missed a real re-fit's rank 2 times in 160 synthetic
+   * cases with stand-ins; this misses none.
+   */
+  it("is a real re-fit at every margin, discount and all", () => {
+    const curve = curveFor(fixture())!;
+    for (const point of curve.points) {
+      const truth = reallyPlayed(point.margin);
+      expect(point.rank).toBe(truth.rank);
+      expect(point.rating).toBeCloseTo(truth.rating, 6);
     }
   });
 
