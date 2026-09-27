@@ -143,10 +143,38 @@ describe("games round-trip", () => {
         namedByAvatar: "FRISCO",
         source: { kind: "gamechanger", teamId: "gcTIDES", gameId: "t1" },
       },
+      // And a row folded into the other club's copy keeps it on its record, which a claim can hold
+      // too, in the order the tidy writes records in and compares them.
+      {
+        id: "gc_gcFRISCO_f1",
+        teamAId: "FRISCO",
+        teamBId: "TIDES",
+        teamAScore: 5,
+        teamBScore: 3,
+        ageGroupId: "ag_1",
+        date: "2026-09-19",
+        alsoFrom: ["gcTIDES"],
+        alsoRows: [
+          {
+            teamId: "gcTIDES",
+            gameId: "t2",
+            ownScore: 3,
+            opponentScore: 5,
+            onSideB: true,
+            namedByAvatar: "FRISCO",
+          },
+          { teamId: "gcTIDES", gameId: "t3", namedByAvatar: "FRISCO", filedAgainst: "S-RANG" },
+        ],
+        source: { kind: "gamechanger", teamId: "gcFRISCO", gameId: "f1" },
+      },
     ];
-    expect(roundTripGames(games)).toEqual(games);
+    const back = roundTripGames(games);
+    expect(back).toEqual(games);
+    expect(JSON.stringify(back[1]?.alsoRows)).toBe(JSON.stringify(games[1]!.alsoRows));
     // And from a pool stored as the objects themselves.
-    expect(decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames)).toEqual(games);
+    const stored = decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames);
+    expect(stored).toEqual(games);
+    expect(JSON.stringify(stored[1]?.alsoRows)).toBe(JSON.stringify(games[1]!.alsoRows));
   });
 
   // A claimed row goes back to the team it was filed against when the claim stops fitting, and a

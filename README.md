@@ -1015,7 +1015,12 @@ same club on two schedules, so a Florida row naming a Texas club by it played th
 rule that reads a name — the region, the age, the misfile check, the claim step — moves it off.
 The import records the club on a row it files by the picture and on a later pull of a row already
 filed against the club its picture names; a row the region rule moved before the picture was kept
-stays where the rule put it until the other club's own schedule lists the game.
+stays where the rule put it until the other club's own schedule lists the game. A later pull whose
+picture names another pulled club takes the club off the row, and the rules that read names read it
+again; a pull with no picture, which GameChanger often sends, leaves it. A row folded into the
+other club's copy of the game keeps the club on its record there (`FoldedRow.namedByAvatar`), so a
+correction that stands it back up stands up the same row, and the stored pool, the JSON backup and
+the CSV a season export carries all keep it.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather

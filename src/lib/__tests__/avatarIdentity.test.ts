@@ -6,7 +6,13 @@ import {
   type GcImportState,
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
-import { gcRowId, withFiledRepointed, type ScoutGame, type ScoutTeam } from "../teamRankings";
+import {
+  gcRowId,
+  rowOfRecord,
+  withFiledRepointed,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
 
 /*
  * A row's opponent named by its GameChanger picture is an identity where a name is a guess
@@ -47,6 +53,13 @@ const texas = importGcSchedule(
 const clubOf = (state: GcImportState, gcId: string) =>
   state.teams.find((team) => team.gcTeams?.some((link) => link.teamId === gcId))!.id;
 const tides = schedule({}, [row({ opponentAvatarKey: "av-frisco" })]);
+/** The same pool with a second Texas club pulled, with a picture of its own. */
+const withDallas = importGcSchedule(
+  schedule({ id: "gcDALLAS0001", name: "Dallas Rangers 10U", state: "TX", avatarKey: "av-dallas" }),
+  texas
+).state;
+const tidesRow = (state: GcImportState) =>
+  state.games.find((game) => game.source?.teamId === "gcTIDES00001")!;
 const withoutIdentity = (state: GcImportState): GcImportState => ({
   ...state,
   games: state.games.map(({ namedByAvatar: _named, ...game }) => game),
@@ -74,6 +87,69 @@ describe("a row that named its opponent by the club's picture", () => {
   it("is not carried by a row that named its opponent by name", () => {
     const { state } = importGcSchedule(schedule({}, [row({ opponentName: "Bears" })]), texas);
     expect(state.games.every((game) => game.namedByAvatar === undefined)).toBe(true);
+  });
+
+  it("is kept through a pull with no picture, and taken off by one naming another pulled club", () => {
+    const { state } = importGcSchedule(tides, withDallas);
+    const frisco = clubOf(state, "gcFRISCO0001");
+    expect(tidesRow(state).namedByAvatar).toBe(frisco);
+
+    // GameChanger often sends a row with no picture, which says nothing of whom it named.
+    const bare = importGcSchedule(schedule({}, [row()]), state).state;
+    expect(tidesRow(bare).namedByAvatar).toBe(frisco);
+
+    // A row whose picture now names the Dallas club no longer names Frisco. It stays where it was
+    // filed, as a pull keeps a stored opponent, and the rules reading names read it again.
+    const other = importGcSchedule(
+      schedule({}, [row({ opponentAvatarKey: "av-dallas" })]),
+      state
+    ).state;
+    expect(tidesRow(other).namedByAvatar).toBeUndefined();
+    expect([tidesRow(other).teamAId, tidesRow(other).teamBId]).toContain(frisco);
+    expect(resettleOffLevel(other).resettled).toBe(1);
+  });
+});
+
+describe("a row folded into the other club's copy of its game", () => {
+  // The Tides pulled with their picture, then Frisco, whose copy names them by it; the Tides' own
+  // row, naming Frisco by its picture, then folds into that copy (`withSchedulesOf`).
+  const friscoFirst = importGcSchedule(
+    schedule(
+      { id: "gcFRISCO0001", name: "Frisco Rangers 10U", state: "TX", avatarKey: "av-frisco" },
+      [
+        row({
+          id: "f1",
+          opponentName: "Tampa Tides 10U",
+          opponentAvatarKey: "av-tides",
+          teamScore: 5,
+          opponentScore: 3,
+        }),
+      ]
+    ),
+    importGcSchedule(schedule({ avatarKey: "av-tides" }), withDallas).state
+  ).state;
+  const pulled = (games: GcTeamSchedule["games"], state: GcImportState) =>
+    importGcSchedule(schedule({ avatarKey: "av-tides" }, games), state).state;
+  const friscoCopy = (state: GcImportState) =>
+    state.games.find((game) => game.source?.teamId === "gcFRISCO0001")!;
+  const recordIn = (state: GcImportState) =>
+    friscoCopy(state).alsoRows?.find((record) => record.teamId === "gcTIDES00001");
+
+  it("keeps the club its picture named on its record, and stands back up carrying it", () => {
+    const state = pulled([row({ opponentAvatarKey: "av-frisco" })], friscoFirst);
+    const frisco = clubOf(state, "gcFRISCO0001");
+    const record = recordIn(state)!;
+    expect(record.namedByAvatar).toBe(frisco);
+    // Stood back up, as the tidy does when a correction splits the two, it is still that row.
+    expect(rowOfRecord(friscoCopy(state), record).namedByAvatar).toBe(frisco);
+  });
+
+  it("keeps it through a pull with no picture, and not past one naming another pulled club", () => {
+    const state = pulled([row({ opponentAvatarKey: "av-frisco" })], friscoFirst);
+    const frisco = clubOf(state, "gcFRISCO0001");
+    expect(recordIn(pulled([row()], state))!.namedByAvatar).toBe(frisco);
+    const other = recordIn(pulled([row({ opponentAvatarKey: "av-dallas" })], state))!;
+    expect(other.namedByAvatar).toBeUndefined();
   });
 });
 
@@ -137,5 +213,18 @@ describe("a club folded into another", () => {
     expect(moved.namedByAvatar).toBe("NEW");
     // And a game with nothing to move is the same game.
     expect(withFiledRepointed(game, (id) => id)).toBe(game);
+  });
+
+  it("takes the rows folded into a game that its picture named along too", () => {
+    const holder: ScoutGame = {
+      id: "gc_gcOLD_1",
+      teamAId: "OLD",
+      teamBId: "A",
+      ageGroupId: "ag",
+      alsoRows: [{ teamId: "gcA", gameId: "1", onSideB: true, namedByAvatar: "OLD" }],
+    };
+    const moved = withFiledRepointed(holder, (id) => (id === "OLD" ? "NEW" : id));
+    expect(moved.alsoRows?.[0]?.namedByAvatar).toBe("NEW");
+    expect(withFiledRepointed(holder, (id) => id)).toBe(holder);
   });
 });

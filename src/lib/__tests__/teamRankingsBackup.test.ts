@@ -186,6 +186,43 @@ describe("teamRankingsCsvSections", () => {
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
   });
 
+  it("round-trips the club a row's picture named, on the game and on the rows folded into it", () => {
+    const rows = [
+      {
+        teamId: "zjvVkYnqLrf0",
+        gameId: "0b1e-77",
+        startTs: "2028-04-05T17:40:00.000Z",
+        ownScore: 4,
+        opponentScore: 6,
+        onSideB: true as const,
+        namedByAvatar: "S-ICEC",
+      },
+      // Beside a day of its own, and beside a claim, whose marks it must not run into.
+      { teamId: "q7Lk2mZpVw01", gameId: "next-day", date: "2028-04-06", namedByAvatar: "S-ICEC" },
+      {
+        teamId: "zjvVkYnqLrf0",
+        gameId: "0b1e-78",
+        namedByAvatar: "S-ICEC",
+        filedAgainst: "S-CANE",
+      },
+    ];
+    const pictured: TeamRankingsBackup = {
+      ...backup,
+      teams: [...teams, { id: "S-CANE", name: "Canes" }],
+      games: [
+        {
+          ...games[0]!,
+          namedByAvatar: "S-ROCK",
+          alsoFrom: ["zjvVkYnqLrf0", "q7Lk2mZpVw01"],
+          alsoRows: rows,
+        },
+      ],
+    };
+    const back = parseTeamRankingsCsv(teamRankingsCsvSections(pictured));
+    expect(back).toEqual(pictured);
+    expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
+  });
+
   // A score typed by hand is any number the score cell takes, and it is written into side B's row.
   it("round-trips a folded row and the other club's score that are not whole numbers", () => {
     const typed: TeamRankingsBackup = {
@@ -284,13 +321,14 @@ describe("teamRankingsCsvSections", () => {
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
-        "Withdrawn",
+        "Withdrawn,Named By Picture",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
-    // a game with no start, and one only its own club's schedule scored, and scored on its own row.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,$/);
-    expect(lines[2]).toMatch(/,,,,,,,,,,,,$/);
+    // a game with no start, and one only its own club's schedule scored, and scored on its own row,
+    // whose opponent was not named by its picture.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,,,,,,$/);
   });
 });
 

@@ -1701,13 +1701,34 @@ const planOpponent = (
 };
 
 /**
- * `existing`, a row this schedule filed before, carrying the club this pull's picture names
- * (`ScoutGame.namedByAvatar`) where that is the club the row is filed against. The same object
- * when there is nothing to add; a picture that no longer names it takes nothing away.
+ * The club a row's picture names after this pull (`ScoutGame.namedByAvatar`), given the one it
+ * named before: the club the row is filed against, where this pull's picture names that club
+ * (`candidate.namedByAvatar`); none, where the picture names another pulled club (`pictured`), since
+ * what it named before it names no longer; and the one before, where the picture names no pulled
+ * club at all, as GameChanger often sends a row with no picture.
  */
-const withPictureOf = (existing: ScoutGame, candidate: ScoutGame): ScoutGame => {
-  const named = candidate.namedByAvatar;
-  if (named === undefined || existing.namedByAvatar === named) return existing;
+const pictureNow = (
+  before: string | undefined,
+  candidate: ScoutGame,
+  pictured: string | undefined
+): string | undefined => candidate.namedByAvatar ?? (pictured === undefined ? before : undefined);
+
+/**
+ * `existing`, a row this schedule filed before, carrying the club its picture names after this pull
+ * (`pictureNow`) where that is a club the row is filed against. The same object when nothing
+ * changes.
+ */
+const withPictureOf = (
+  existing: ScoutGame,
+  candidate: ScoutGame,
+  pictured: string | undefined
+): ScoutGame => {
+  const named = pictureNow(existing.namedByAvatar, candidate, pictured);
+  if (named === existing.namedByAvatar) return existing;
+  if (named === undefined) {
+    const { namedByAvatar: _before, ...rest } = existing;
+    return rest;
+  }
   if (existing.teamAId !== named && existing.teamBId !== named) return existing;
   return { ...existing, namedByAvatar: named };
 };
@@ -2514,12 +2535,11 @@ const importOne = (
       game.opponentAvatarKey === undefined
         ? undefined
         : index.teamsByAvatar.get(game.opponentAvatarKey);
+    /** The pulled club the picture names, where it names exactly one. */
+    const pictured =
+      byPicture?.length === 1 && byPicture[0]!.gcTeams?.length ? byPicture[0]!.id : undefined;
     const namedByAvatar =
-      byPicture?.length === 1 &&
-      byPicture[0]!.id === opponentId &&
-      Boolean(byPicture[0]!.gcTeams?.length)
-        ? opponentId
-        : undefined;
+      pictured !== undefined && pictured === opponentId ? opponentId : undefined;
 
     /*
      * Their level is only ever a guess from the name; ours is what GameChanger said.
@@ -2573,14 +2593,19 @@ const importOne = (
       const record = (folded.alsoRows ?? []).find(
         (entry) => gcRowId(entry.teamId, entry.gameId) === candidate.id
       );
+      // The record keeps the club the row's picture named as a row filed on its own does
+      // (`withPictureOf`): through a pull with no picture, and not past one naming another club.
+      const named = pictureNow(record?.namedByAvatar, candidate, pictured);
+      const pictureKept =
+        named === candidate.namedByAvatar ? candidate : { ...candidate, namedByAvatar: named };
       const updated = withSchedulesOf(
         folded,
         record &&
           record.date === undefined &&
           record.filedAgainst === undefined &&
           folded.date !== undefined
-          ? { ...candidate, date: folded.date }
-          : candidate
+          ? { ...pictureKept, date: folded.date }
+          : pictureKept
       );
       /*
        * This schedule's own game whose own row the schedule no longer lists — deleted, and entered
@@ -2689,7 +2714,7 @@ const importOne = (
      */
     const recorded =
       existing === known
-        ? withPictureOf(existing, candidate)
+        ? withPictureOf(existing, candidate, pictured)
         : withSchedulesOf(existing, candidate);
     /*
      * The other club's own copy of the game: its score goes beside this one's rather than over it

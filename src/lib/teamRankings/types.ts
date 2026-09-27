@@ -189,6 +189,11 @@ export type FoldedRow = {
   /** Its own club is the game's side B, not side A. */
   onSideB?: boolean;
   /**
+   * The club the row's picture named (`ScoutGame.namedByAvatar`), kept so that a row stood back up
+   * is still the row that named that club, which a tidy rule moving rows on a name leaves alone.
+   */
+  namedByAvatar?: string;
+  /**
    * The team its schedule filed it against by name — a stand-in, or a pulled club none of whose
    * own schedules lists the game — where the club whose own schedule does list it claimed the row
    * (`claimFiledRows`). A claim is read again on every tidy, and one the schedules no longer bear
@@ -251,10 +256,12 @@ export type ScoutGame = {
    * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
    * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
    * the row that way, and by a later pull of a row already here whose picture names the club it is
-   * filed against. A tidy rule that moves a row off a club on its name
-   * alone leaves it on this one — a club across the country is a club a travelling team plays, when
-   * GameChanger says so. Only while the row still names this club: a club merged into another takes
-   * it along (`withFiledRepointed`), and a row that names another club no longer carries it.
+   * filed against. A tidy rule that moves a row off a club on its name alone leaves it on this one
+   * — a club across the country is a club a travelling team plays, when GameChanger says so. Only
+   * while the row still names this club: a club merged into another takes it along
+   * (`withFiledRepointed`), a pull whose picture names another pulled club takes it off, and a pull
+   * with no picture, which GameChanger often sends, leaves it. A row folded into another copy of
+   * the game keeps it on its record there (`FoldedRow.namedByAvatar`).
    */
   namedByAvatar?: string;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
