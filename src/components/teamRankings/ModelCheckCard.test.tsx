@@ -1,8 +1,9 @@
-import { screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { ModelCheckCard } from "./ModelCheckCard";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
-import { RUN_CAPS_TO_TRY } from "../../lib/scoutBacktest";
+import { checkTheModel, RUN_CAPS_TO_TRY, type ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -107,14 +108,15 @@ describe("checking the model on the real pool", () => {
     ).toBeInTheDocument();
   });
 
-  it("names the cap that predicted these games best", async () => {
+  it("names no cap on too few held-back games to tell the caps apart", async () => {
     const user = userEvent.setup();
     renderTeamRankings(ladder(8));
     await openSetup(user);
 
     await user.click(screen.getByRole("button", { name: "Check the model" }));
 
-    expect(screen.getByText(/predicted these games best/i)).toBeInTheDocument();
+    expect(screen.getByText(/too few to tell the caps apart/i)).toBeInTheDocument();
+    expect(screen.queryByText(/predicted these games better/i)).toBeNull();
   });
 
   it("can be run again", async () => {
@@ -124,5 +126,105 @@ describe("checking the model on the real pool", () => {
 
     await user.click(screen.getByRole("button", { name: "Check the model" }));
     expect(screen.getByRole("button", { name: "Run it again" })).toBeInTheDocument();
+  });
+});
+
+/*
+ * What the card names. A setting other than the one in use is named only when the check found it
+ * clearly better, game by game (`betterGap`, `betterCap`), with how much and how sure; otherwise
+ * the card says the one in use stands, and why.
+ */
+describe("naming a better setting", () => {
+  const pool = ladder(8);
+  const groupId = pool.ageGroups[0]!.id;
+  const plain = checkTheModel(groupId, pool.teams, pool.games, pool.ageGroups);
+  /** The ladder's answer with cross-age games and enough held back to compare on. */
+  const answer = (changes: Partial<ModelCheckAnswer>, ratedSamples = 400): ModelCheckAnswer => ({
+    ...plain,
+    result: { ...plain.result, crossAgeSamples: 12, ratedSamples },
+    caps: plain.caps.map((row) => ({ ...row, sampleSize: 400 })),
+    ...changes,
+  });
+  const show = async (shown: ModelCheckAnswer) => {
+    const user = userEvent.setup();
+    render(
+      <ModelCheckCard
+        ageGroupId={groupId}
+        groupName="10U 2027"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={pool.ageGroups}
+        check={() => Promise.resolve(shown)}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "Check the model" }));
+    await screen.findByText(/games predicted/i);
+  };
+
+  it("names a held age gap that clearly did better, and by how much", async () => {
+    await show(
+      answer({ betterGap: { value: 2.5, by: 0.012, standardError: 0.004, samples: 400 } })
+    );
+
+    expect(
+      screen.getByText(
+        /Held at 2\.5 instead, the ratings predicted the 400 held-back games between two rated clubs better: 0\.012 runs a game lower, give or take 0\.004\./
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says no held value did better beyond chance when none did", async () => {
+    await show(answer({ betterGap: null }));
+
+    expect(
+      screen.getByText(
+        /No other value held predicted the 400 held-back games .* by more than chance/
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/instead/)).toBeNull();
+  });
+
+  it("says too few games were between rated clubs to tell", async () => {
+    await show(answer({ betterGap: null }, 12));
+
+    expect(
+      screen.getByText(/Only 12 held-back games were between two rated clubs, too few/)
+    ).toBeInTheDocument();
+  });
+
+  it("names a cap that clearly did better, and marks its row", async () => {
+    await show(
+      answer({ betterCap: { value: Infinity, by: 0.02, standardError: 0.005, samples: 400 } })
+    );
+
+    expect(
+      screen.getByText(
+        new RegExp(
+          `^Leaving margins uncapped predicted these games better than the ${RATING_CAP} in use .* 0\\.020 runs a game lower, give or take 0\\.005\\.$`
+        )
+      )
+    ).toBeInTheDocument();
+    const sweep = screen.getByRole("table", { name: "Run cap sweep" });
+    const bold = within(sweep)
+      .getAllByRole("cell")
+      .filter((cell) => cell.className.includes("font-bold"));
+    expect(bold).toHaveLength(1);
+    expect(bold[0]!.closest("tr")).toHaveTextContent(/^No cap/);
+  });
+
+  it("keeps the cap in use when no other did better beyond chance", async () => {
+    await show(answer({ betterCap: null }));
+
+    expect(
+      screen.getByText(
+        `No other cap predicted these games better than the ${RATING_CAP} in use by more than chance, so it stands.`
+      )
+    ).toBeInTheDocument();
+    const sweep = screen.getByRole("table", { name: "Run cap sweep" });
+    const bold = within(sweep)
+      .getAllByRole("cell")
+      .filter((cell) => cell.className.includes("font-bold"));
+    expect(bold).toHaveLength(1);
+    expect(bold[0]!.closest("tr")).toHaveTextContent(new RegExp(`^${RATING_CAP} runs`));
   });
 });

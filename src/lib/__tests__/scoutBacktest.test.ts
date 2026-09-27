@@ -9,7 +9,12 @@ import {
   compareRecencySchemes,
   compareRunCaps,
   describeDecayCurve,
+  MODEL_CHECK_RUNS,
+  modelCheckAnswer,
+  pairedImprovement,
   RUN_CAPS_TO_TRY,
+  type ScoutBacktestOptions,
+  type ScoutBacktestResult,
 } from "../scoutBacktest";
 import { byGamesSince, noDecay, RECENCY_SCHEMES } from "../ratingRecency";
 import { RATING_CAP } from "../teamRankings";
@@ -787,10 +792,16 @@ describe("the model check in one pass", () => {
   const pool = syntheticPool({ teamCount: 14, gamesPerPair: 2, ageGapRuns: 1.5, olderCount: 4 });
 
   it("is exactly the plain run and the two sweeps", () => {
-    expect(checkTheModel("ag_9", pool.teams, pool.games, groups)).toEqual({
+    const { result, gaps, caps } = checkTheModel("ag_9", pool.teams, pool.games, groups);
+    expect({ result, gaps, caps }).toEqual({
       result: backtestScoutRatings("ag_9", pool.teams, pool.games, groups),
       gaps: compareAgeGaps("ag_9", pool.teams, pool.games, groups),
       caps: compareRunCaps("ag_9", pool.teams, pool.games, groups),
+    });
+    // The per-game errors the comparison needed stay behind: the card has no use for them.
+    [result, ...gaps, ...caps].forEach((run) => {
+      expect(run.errors).toBeUndefined();
+      expect(run.ratedFlags).toBeUndefined();
     });
   });
 
@@ -808,5 +819,163 @@ describe("the model check in one pass", () => {
     expect(AGE_GAPS_TO_TRY).toContain(
       checkTheModel("ag_9", pool.teams, pool.games, groups).result.ageGapPrior
     );
+  });
+});
+
+/*
+ * A better setting is named only when it wins clearly, game by game against the one in use. The
+ * lowest average alone named a year of age held at 1.5 best on the 9U pool of 27 September 2026,
+ * 0.0011 runs a game better than the 2 in use over 21,986 games between rated clubs, with a paired
+ * standard error of 0.00095: the card was reading noise out as an answer.
+ */
+describe("naming a better setting only when it clearly wins", () => {
+  it("names a held age gap that predicts the held-back games clearly better", () => {
+    // Held at three, this pool's 55 games between rated clubs read 0.073 runs a game better
+    // than at two, paired, with a standard error of 0.012.
+    const { teams, games } = syntheticPool({
+      teamCount: 14,
+      gamesPerPair: 2,
+      ageGapRuns: 3,
+      olderCount: 5,
+    });
+    const answer = checkTheModel("ag_9", teams, games, groups);
+
+    expect(answer.betterGap?.value).toBe(3);
+    expect(answer.betterGap!.by).toBeGreaterThan(2 * answer.betterGap!.standardError);
+    expect(answer.betterGap!.samples).toBe(answer.result.ratedSamples);
+  });
+
+  it("names none when the lowest average is within the noise", () => {
+    // Held at three this pool reads 0.0015 runs a game better than at two on the averages, with
+    // a paired standard error of 0.0057: the card used to name three best all the same.
+    const { teams, games } = syntheticPool({
+      teamCount: 16,
+      gamesPerPair: 3,
+      ageGapRuns: 3,
+      olderCount: 6,
+    });
+    const answer = checkTheModel("ag_9", teams, games, groups);
+
+    expect(answer.gaps[0]!.ageGapPrior).toBe(3);
+    expect(answer.result.ratedSamples).toBeGreaterThanOrEqual(30);
+    expect(answer.betterGap).toBeNull();
+  });
+
+  /** One run dressed with per-game errors made to order, as `MODEL_CHECK_RUNS` would return it. */
+  const base = syntheticPool({ teamCount: 14, gamesPerPair: 2 });
+  const plain = backtestScoutRatings("ag_9", base.teams, base.games, groups);
+  const run = (
+    options: ScoutBacktestOptions,
+    errors: readonly number[],
+    rated: readonly number[]
+  ): ScoutBacktestResult => {
+    const mean = (values: number[]) =>
+      values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+    const ratedErrors = errors.filter((_, at) => rated[at] === 1);
+    return {
+      ...plain,
+      ageGapPrior: options.ageGapPrior ?? plain.ageGapPrior,
+      cap: options.cap ?? plain.cap,
+      meanAbsoluteError: mean([...errors]),
+      ratedError: mean(ratedErrors),
+      ratedSamples: ratedErrors.length,
+      errors: Float32Array.from(errors),
+      ratedFlags: Uint8Array.from(rated),
+    };
+  };
+  /** Every run at `reference` except those given, in the order the check makes them. */
+  const answerFrom = (
+    reference: readonly number[],
+    rated: readonly number[],
+    changed: { gaps?: Map<number, number[]>; caps?: Map<number, number[]> }
+  ) =>
+    modelCheckAnswer(
+      MODEL_CHECK_RUNS.map((options) => {
+        const errors =
+          (options.cap === undefined
+            ? changed.gaps?.get(options.ageGapPrior!)
+            : changed.caps?.get(options.cap)) ?? reference;
+        return run(options, errors, rated);
+      })
+    );
+  // Two hundred held-back games with errors between two and four runs, every other one rated.
+  const reference = Array.from({ length: 200 }, (_, at) => 2 + ((at * 37) % 11) / 5);
+  const everyOther = reference.map((_, at) => (at % 2 === 0 ? 1 : 0));
+
+  it("names a setting that is lower on nearly every game", () => {
+    const lower = reference.map((error, at) => error - 0.2 + (((at * 13) % 5) - 2) * 0.01);
+    const answer = answerFrom(reference, everyOther, {
+      gaps: new Map([[3, lower]]),
+      caps: new Map([[12, lower]]),
+    });
+
+    expect(answer.betterGap).toMatchObject({ value: 3, samples: 100 });
+    expect(answer.betterGap!.by).toBeCloseTo(0.2, 2);
+    expect(answer.betterCap).toMatchObject({ value: 12, samples: 200 });
+  });
+
+  it("names nothing when the lower average is within the noise of the one in use", () => {
+    // A hundredth of a run lower on average, half a run either way game by game.
+    const noisy = reference.map((error, at) => error - 0.01 + (at % 4 < 2 ? 0.5 : -0.5));
+    const answer = answerFrom(reference, everyOther, {
+      gaps: new Map([[1.5, noisy]]),
+      caps: new Map([[Infinity, noisy]]),
+    });
+
+    // Best on the averages, which is what the card used to name.
+    expect(answer.gaps[0]!.ageGapPrior).toBe(1.5);
+    expect(answer.caps[0]!.cap).toBe(Infinity);
+    expect(answer.betterGap).toBeNull();
+    expect(answer.betterCap).toBeNull();
+  });
+
+  it("names a clear runner-up when the lowest average is only noise", () => {
+    const noisy = reference.map((error, at) => error - 0.1 + (at % 4 < 2 ? 1.5 : -1.5));
+    const lower = reference.map((error, at) => error - 0.05 + (((at * 13) % 5) - 2) * 0.01);
+    const answer = answerFrom(reference, everyOther, {
+      caps: new Map([
+        [Infinity, noisy],
+        [10, lower],
+      ]),
+    });
+
+    expect(answer.caps[0]!.cap).toBe(Infinity);
+    expect(answer.betterCap?.value).toBe(10);
+  });
+
+  it("judges a held age gap on the games between rated clubs alone", () => {
+    // A full run better on every game with an unrated side, identical on the rest.
+    const unratedOnly = reference.map((error, at) => (everyOther[at] === 1 ? error : error - 1));
+    const answer = answerFrom(reference, everyOther, { gaps: new Map([[1, unratedOnly]]) });
+
+    expect(answer.betterGap).toBeNull();
+    // The cap sweep reads every game, so the same errors there are a clear answer.
+    const asCap = answerFrom(reference, everyOther, { caps: new Map([[6, unratedOnly]]) });
+    expect(asCap.betterCap?.value).toBe(6);
+  });
+
+  it("names nothing on too few games to tell", () => {
+    const few = reference.slice(0, 20);
+    const allRated = few.map(() => 1);
+    const lower = few.map((error) => error - 0.3);
+    const answer = answerFrom(few, allRated, {
+      gaps: new Map([[3, lower]]),
+      caps: new Map([[12, lower]]),
+    });
+
+    expect(answer.betterGap).toBeNull();
+    expect(answer.betterCap).toBeNull();
+  });
+
+  it("pairs two runs game by game", () => {
+    const worse = run({}, [3, 4, 5], [1, 1, 0]);
+    const better = run({}, [2, 4, 3], [1, 1, 0]);
+
+    const paired = pairedImprovement(better, worse, false);
+    // Lower by 1, 0 and 2 runs: a mean of one, a sample deviation of one.
+    expect(paired).toMatchObject({ by: 1, samples: 3 });
+    expect(paired!.standardError).toBeCloseTo(1 / Math.sqrt(3), 12);
+    expect(pairedImprovement(better, worse, true)).toMatchObject({ by: 0.5, samples: 2 });
+    expect(pairedImprovement(better, { ...worse, errors: undefined }, false)).toBeNull();
   });
 });
