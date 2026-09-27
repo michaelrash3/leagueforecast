@@ -1702,16 +1702,18 @@ const planOpponent = (
 
 /**
  * The club a row's picture names after this pull (`ScoutGame.namedByAvatar`), given the one it
- * named before: the club the row is filed against, where this pull's picture names that club
- * (`candidate.namedByAvatar`); none, where the picture names another pulled club (`pictured`), since
- * what it named before it names no longer; and the one before, where the picture names no pulled
- * club at all, as GameChanger often sends a row with no picture.
+ * named before. `pictured` is the pulled club this pull's picture names, where it names one: the
+ * row's club where the row is filed against it (`filedAgainst`, the club it faces and, for a
+ * claimed row, the team it goes back to); none where it is another club, since what the row named
+ * before it names no longer; and the one before where the picture names no pulled club at all, as
+ * GameChanger often sends a row with no picture.
  */
 const pictureNow = (
   before: string | undefined,
-  candidate: ScoutGame,
-  pictured: string | undefined
-): string | undefined => candidate.namedByAvatar ?? (pictured === undefined ? before : undefined);
+  pictured: string | undefined,
+  filedAgainst: ReadonlyArray<string | undefined>
+): string | undefined =>
+  pictured === undefined ? before : filedAgainst.includes(pictured) ? pictured : undefined;
 
 /**
  * `existing`, a row this schedule filed before, carrying the club its picture names after this pull
@@ -1723,7 +1725,7 @@ const withPictureOf = (
   candidate: ScoutGame,
   pictured: string | undefined
 ): ScoutGame => {
-  const named = pictureNow(existing.namedByAvatar, candidate, pictured);
+  const named = pictureNow(existing.namedByAvatar, pictured, [candidate.teamBId]);
   if (named === existing.namedByAvatar) return existing;
   if (named === undefined) {
     const { namedByAvatar: _before, ...rest } = existing;
@@ -2595,7 +2597,12 @@ const importOne = (
       );
       // The record keeps the club the row's picture named as a row filed on its own does
       // (`withPictureOf`): through a pull with no picture, and not past one naming another club.
-      const named = pictureNow(record?.namedByAvatar, candidate, pictured);
+      // A claimed row's club is the team it goes back to as well (`FoldedRow.filedAgainst`), so a
+      // row stood back up there is still the row that named it.
+      const named = pictureNow(record?.namedByAvatar, pictured, [
+        candidate.teamBId,
+        record?.filedAgainst,
+      ]);
       const pictureKept =
         named === candidate.namedByAvatar ? candidate : { ...candidate, namedByAvatar: named };
       const updated = withSchedulesOf(

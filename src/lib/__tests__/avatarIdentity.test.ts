@@ -7,6 +7,7 @@ import {
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import {
+  filedRowOf,
   gcRowId,
   rowOfRecord,
   withFiledRepointed,
@@ -150,6 +151,90 @@ describe("a row folded into the other club's copy of its game", () => {
     expect(recordIn(pulled([row()], state))!.namedByAvatar).toBe(frisco);
     const other = recordIn(pulled([row({ opponentAvatarKey: "av-dallas" })], state))!;
     expect(other.namedByAvatar).toBeUndefined();
+  });
+});
+
+describe("a claimed row, folded into the copy of the club whose own schedule lists the game", () => {
+  /*
+   * The Tides' row named "Rangers" and went to Frisco by the name, and Clearwater's copy of the
+   * game claimed it (`FoldedRow.filedAgainst`) before any picture was kept. The claim goes back to
+   * Frisco if the schedules stop bearing it out, so a picture naming Frisco names the row's club.
+   */
+  const clearwater = importGcSchedule(
+    schedule(
+      { id: "gcCLEAR00001", name: "Clearwater Rangers 10U", state: "FL", avatarKey: "av-clear" },
+      [
+        row({
+          id: "c1",
+          opponentName: "Tampa Tides 10U",
+          opponentAvatarKey: "av-tides",
+          teamScore: 5,
+          opponentScore: 3,
+        }),
+      ]
+    ),
+    importGcSchedule(schedule({ avatarKey: "av-tides" }), texas).state
+  ).state;
+  const frisco = clubOf(clearwater, "gcFRISCO0001");
+  const claimed: GcImportState = {
+    ...clearwater,
+    games: clearwater.games.map((game) =>
+      game.source?.teamId === "gcCLEAR00001"
+        ? {
+            ...game,
+            alsoFrom: ["gcTIDES00001"],
+            alsoRows: [
+              {
+                teamId: "gcTIDES00001",
+                gameId: "g1",
+                ownScore: 3,
+                opponentScore: 5,
+                onSideB: true,
+                filedAgainst: frisco,
+                filedLevel: 10,
+              },
+            ],
+          }
+        : game
+    ),
+  };
+  const holderIn = (state: GcImportState) =>
+    state.games.find((game) => game.source?.teamId === "gcCLEAR00001")!;
+  const recordIn = (state: GcImportState) =>
+    holderIn(state).alsoRows?.find((record) => record.teamId === "gcTIDES00001");
+  const pullNaming = (avatar: string, state: GcImportState) =>
+    importGcSchedule(
+      schedule({ avatarKey: "av-tides" }, [row({ opponentAvatarKey: avatar })]),
+      state
+    ).state;
+
+  it("takes a picture naming the team it goes back to, and stands back up there carrying it", () => {
+    const state = pullNaming("av-frisco", claimed);
+    const record = recordIn(state)!;
+    expect(record.filedAgainst).toBe(frisco);
+    expect(record.namedByAvatar).toBe(frisco);
+    const released = filedRowOf(holderIn(state), record);
+    expect(released.teamBId).toBe(frisco);
+    expect(released.namedByAvatar).toBe(frisco);
+    // Kept by the next pull that names Frisco again, and by one with no picture.
+    expect(recordIn(pullNaming("av-frisco", state))!.namedByAvatar).toBe(frisco);
+    const bare = importGcSchedule(schedule({ avatarKey: "av-tides" }, [row()]), state).state;
+    expect(recordIn(bare)!.namedByAvatar).toBe(frisco);
+  });
+
+  it("takes a picture naming the club that claimed it, and nothing from a third club's", () => {
+    const state = pullNaming("av-clear", claimed);
+    expect(recordIn(state)!.namedByAvatar).toBe(clubOf(state, "gcCLEAR00001"));
+    const dallas = importGcSchedule(
+      schedule({
+        id: "gcDALLAS0001",
+        name: "Dallas Rangers 10U",
+        state: "TX",
+        avatarKey: "av-dallas",
+      }),
+      pullNaming("av-frisco", claimed)
+    ).state;
+    expect(recordIn(pullNaming("av-dallas", dallas))!.namedByAvatar).toBeUndefined();
   });
 });
 
