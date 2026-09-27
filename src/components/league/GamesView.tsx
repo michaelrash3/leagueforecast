@@ -338,7 +338,7 @@ export function GamesView({
   scoreFillPlan: LeagueFillPlan | null;
   openScoreFill: () => void;
   closeScoreFill: () => void;
-  applyScoreFill: (matchupIds: string[]) => void;
+  applyScoreFill: (matchupIds: string[], otherVersion: string[]) => void;
   seasonLabel: string;
 }) {
   const dateId = useId();
