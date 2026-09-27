@@ -136,6 +136,30 @@ describe("a row standing as a game and folded into another", () => {
     expect(recordOf(after, "COWS")).toBe("0-1-0");
   });
 
+  it("is left as the user left it where one of its copies is thrown out", () => {
+    // The Hawks' refreshed copy against the stand-in, marked not to count.
+    const teams = [
+      club("HAWKS", "San Diego Hawks", "ag9"),
+      club("COWS", "SD Cowboys Select", "ag8"),
+      standIn("S-COWS", "SD Cowboys Select"),
+    ];
+    const cowboys = holding(
+      own("COWS", "c1", "HAWKS", "ag8", "17:00", [10, 17]),
+      record("HAWKS", "h1", "17:00", [17, 10])
+    );
+    const refiled = {
+      ...own("HAWKS", "h1", "S-COWS", "ag9", "17:30", [15, 10]),
+      excluded: true,
+    };
+    const before: GcImportState = { ageGroups, teams, games: [cowboys, refiled] };
+    expect(recordOf(before, "HAWKS")).toBe("1-0-0");
+
+    const after = settled(before);
+    expect(after.games.find((game) => game.id === refiled.id)?.excluded).toBe(true);
+    expect(holdersOf(after, gcRowId("gcHAWKS", "h1"))).toHaveLength(2);
+    expect(recordOf(after, "HAWKS")).toBe("1-0-0");
+  });
+
   it("stays where it stands against another club's own row, and leaves the stale claim", () => {
     // Mattoon's 1-0 over Effingham holds Effingham's own 0-1; the same Mattoon row is also claimed
     // into Oblong's copy, filed against a stand-in, and that claim is the stale one.

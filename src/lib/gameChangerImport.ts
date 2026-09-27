@@ -6293,6 +6293,17 @@ const oneRowOnePlace = (state: GcImportState): { state: GcImportState; settled: 
   heldAt.forEach((holders, key) => {
     const standing = standingAt.get(key);
     if (standing === undefined && holders.length < 2) return;
+    /*
+     * A copy the user has thrown out is left as the user left it, and so is every other copy of its
+     * row: it does not count, so the row is not counted twice, and resolved anyway, a thrown-out
+     * standing copy went and the copy it had been kept out beside counted in its place.
+     */
+    if (
+      (standing !== undefined && state.games[standing]!.excluded) ||
+      holders.some((at) => state.games[at]!.excluded)
+    ) {
+      return;
+    }
     settled += 1;
     const ranked = holders.sort(
       (x, y) =>
