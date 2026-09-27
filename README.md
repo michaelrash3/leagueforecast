@@ -1053,6 +1053,17 @@ result, where two different results match about 0.38% of the time: about 12 by c
 holds 591 groups at 547 clubs. Nothing is changed for you: each club opens from the list with both
 games in its panel, and **Download the list** writes every group with both opponents and starts.
 
+What the hour leaves over is read again out to three hours, where one of the two games is not on the
+club's own schedule: a club set up twice on GameChanger often lists the one game at two clocks — the
+Oilers' own 17-6 over "Top Guns" at 14:30 was Topguns' own copy at 16:00. Two games both on the
+club's own schedule are its schedule saying two, a doubleheader with one score twice, and never
+share a group past the hour. The hour's groups are read first and kept whole: on the pool of 26
+September 2026 as main tidies it, all 509 stay and 127 are added (16 of them two clubs' own copies
+of one game against the same opponent). The same search with the club's games moved a week, two or
+three matched 0.41% of candidate pairs, so roughly one added row in eight to fourteen is two games
+after all; they are marked **past the hour** in the card and the file, to be checked on GameChanger,
+and one may be a copy to leave out rather than two entries to fold.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South

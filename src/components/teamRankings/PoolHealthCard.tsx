@@ -814,7 +814,11 @@ export function PoolHealthCard({
             that start within the hour of each other, with the same result. A club plays one game at
             a time, so that is one game entered twice — nearly always against two entries for one
             opponent: a club on GameChanger twice, a name spelled two ways, or a stand-in beside the
-            club it stands for.
+            club it stands for. Up to three hours apart counts too where one of the two is not on
+            the club&rsquo;s own schedule — a club set up twice on GameChanger often lists a game at
+            two clocks — and those are marked <strong>past the hour</strong>: a doubleheader fits
+            them as well, so check them on GameChanger, and one may be a copy to leave out rather
+            than two entries to fold.
           </p>
           <ul className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
             {twice.slice(0, 10).map((group) => (
@@ -837,6 +841,12 @@ export function PoolHealthCard({
                 {group.minutesApart === 0
                   ? ", at the same start"
                   : `, ${plural(group.minutesApart, "minute")} apart`}
+                {group.wide && (
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {" "}
+                    — past the hour, check on GameChanger
+                  </span>
+                )}
               </li>
             ))}
           </ul>
