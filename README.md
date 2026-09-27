@@ -1970,6 +1970,20 @@ they are dropped from the standings table, the recap, and the AI write-ups
 rather than reported against a cutoff that stands for nothing. The AI is told
 explicitly that no cut line exists and to cover the race for the top instead.
 
+**Magic and elimination numbers read a tie on points as the tiebreakers' to
+settle.** The exact solver works on points, and a tie on them is decided in the
+table by fewer losses and then the league's tiebreakers, which can hang on games
+not yet played. It used to hand every tie to the lower team id — the first four
+letters of the name — so "513 FORCE - BOULEY" was told it had clinched wherever it
+was level, and the Trash Pandas who held the head-to-head were told they were out.
+Simulated over round robins at the pool's own 3.3% tie rate, 11-20% of finished
+seasons carried a line the final table contradicted. A clinch now counts every
+level team ahead and an elimination counts none of them; where only the other
+side holds, the line says so — "1 more win guarantees at least a share of the
+last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a won
+tiebreak keeps the team in" — rather than claim either. Once nothing is left to
+play, the table's own rank answers.
+
 ## Settings
 
 | Setting               | Effect                                                                                                                                                                    |

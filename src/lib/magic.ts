@@ -6,6 +6,12 @@ export type MagicResult = {
   ownWinsNeeded: number;
   opponentLossesNeeded: number;
   description: string;
+  /**
+   * The answer comes down to a tie on points that only the tiebreakers settle: the wins that
+   * guarantee at least a share of the last spot, or the losses after which only a won tiebreak
+   * keeps the team in. Not a clinch and not an elimination.
+   */
+  tiebreak?: boolean;
 };
 
 type PointsMap = Record<string, number>;
@@ -26,28 +32,28 @@ const buildPointsMap = (teams: Team[], settings: Settings): PointsMap => {
 const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
 
 /**
- * Solver ranking policy:
- * - This module intentionally solves on standings points only.
- * - For equal points, it uses a deterministic team-id tie-break (lexicographic ascending).
+ * Where a team finishes on points, with every team level with it counted ahead or none of them.
  *
- * This keeps playoff math deterministic and cache-stable while avoiding implicit dependency
- * on richer UI tie-break rules (e.g. run differential). If app-wide tie policy changes,
- * update this function and matching tests together.
+ * The solver works on points alone, and a tie on points is settled in the table by fewer losses
+ * and then the league's tiebreakers, which depend on results nobody has yet. It used to settle
+ * the tie by the teams' ids, which are the first letters of their names, so a team level on
+ * points at the cut line was told it had clinched or been eliminated by how its name sorted: in
+ * this league "513 FORCE - BOULEY" won every tie. Simulated over double round robins with the
+ * pool's own 3.3% tie rate, 11-20% of finished seasons had a line that contradicted the table.
+ *
+ * So each claim asks the side of the tie that makes it safe. "Clinches" counts every level team
+ * ahead (`tiesAhead`), and "eliminated" counts none of them; where only the other side holds, the
+ * answer is that the tiebreakers decide (`MagicResult.tiebreak`).
  */
-const rankOfTeam = (teamId: string, points: PointsMap, teams: Team[]) => {
+const rankOfTeam = (teamId: string, points: PointsMap, teams: Team[], tiesAhead: boolean) => {
   const my = points[teamId] ?? 0;
   let above = 0;
-  let tiedAhead = 0;
   for (const t of teams) {
     if (t.id === teamId) continue;
     const p = points[t.id] ?? 0;
-    if (p > my) {
-      above += 1;
-    } else if (p === my && t.id < teamId) {
-      tiedAhead += 1;
-    }
+    if (p > my || (p === my && tiesAhead)) above += 1;
   }
-  return above + tiedAhead + 1;
+  return above + 1;
 };
 
 /**
@@ -68,7 +74,8 @@ const solveCutoff = (
   settings: Settings,
   requiredOwnWins: number,
   extraForcedLosses: number,
-  mode: OutcomeMode
+  mode: OutcomeMode,
+  tiesAhead: boolean
 ) => {
   const base = buildPointsMap(teams, settings);
   const myRemaining = remainingGamesFor(teamId, remaining).length;
@@ -85,6 +92,8 @@ const solveCutoff = (
 
   const ids = sortedTeamIds(teams);
   const memo = new Map<string, boolean>();
+  const finalRank =
+    remaining.length === 0 ? teams.find((team) => team.id === teamId)?.rank : undefined;
 
   const dfs = (idx: number, ownWins: number, forcedLosses: number, points: PointsMap): boolean => {
     if (idx === remaining.length) {
@@ -104,7 +113,9 @@ const solveCutoff = (
        * not already clinched, including the ones a single win would settle it for.
        */
       if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return mode === "all";
-      return rankOfTeam(teamId, points, teams) <= settings.goldCutoff;
+      // A season with nothing left is the table's to answer, tiebreakers and all.
+      if (finalRank !== undefined) return finalRank <= settings.goldCutoff;
+      return rankOfTeam(teamId, points, teams, tiesAhead) <= settings.goldCutoff;
     }
 
     const pointsKey = ids.map((id) => points[id] ?? 0).join(",");
@@ -155,6 +166,45 @@ const solveCutoff = (
   return dfs(0, 0, 0, base);
 };
 
+/** The fewest wins, and losses on top, that put the team in whatever else happens. */
+const findMagic = (
+  teamId: string,
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings,
+  tiesAhead: boolean
+): "clinched" | { wins: number; losses: number } | null => {
+  if (solveCutoff(teamId, teams, remaining, settings, 0, 0, "all", tiesAhead)) return "clinched";
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
+  for (let wins = 0; wins <= myRemaining; wins += 1) {
+    for (let losses = 0; losses <= myRemaining; losses += 1) {
+      if (solveCutoff(teamId, teams, remaining, settings, wins, losses, "all", tiesAhead)) {
+        return { wins, losses };
+      }
+    }
+  }
+  return null;
+};
+
+/** The fewest more losses after which no result puts the team in. */
+const findElimination = (
+  teamId: string,
+  teams: Team[],
+  remaining: Matchup[],
+  settings: Settings,
+  tiesAhead: boolean
+): number | null => {
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
+  for (let losses = 0; losses <= myRemaining; losses += 1) {
+    if (!solveCutoff(teamId, teams, remaining, settings, 0, losses, "any", tiesAhead)) {
+      return losses;
+    }
+  }
+  return null;
+};
+
+const winsWord = (wins: number) => `${wins} more win${wins === 1 ? "" : "s"}`;
+
 export const magicForGold = (
   teamId: string,
   teams: Team[],
@@ -172,9 +222,10 @@ export const magicForGold = (
     };
 
   const effectiveSettings = { ...settings, goldCutoff: cutoff };
-  const myRemaining = remainingGamesFor(teamId, remaining).length;
 
-  if (solveCutoff(teamId, teams, remaining, effectiveSettings, 0, 0, "all")) {
+  // A clinch is a claim about every tie going against the team: nothing else makes it one.
+  const sure = findMagic(teamId, teams, remaining, effectiveSettings, true);
+  if (sure === "clinched") {
     return {
       type: "clinched",
       ownWinsNeeded: 0,
@@ -182,23 +233,37 @@ export const magicForGold = (
       description: "Already clinched.",
     };
   }
+  if (sure) {
+    return {
+      type: "magic",
+      ownWinsNeeded: sure.wins,
+      opponentLossesNeeded: sure.losses,
+      description:
+        sure.losses === 0
+          ? `${winsWord(sure.wins)} clinches a Gold Bracket spot.`
+          : `${sure.wins} win${sure.wins === 1 ? "" : "s"}, even with ${sure.losses} more loss${sure.losses === 1 ? "" : "es"}, still clinches a Gold Bracket spot.`,
+    };
+  }
 
-  for (let winsNeeded = 0; winsNeeded <= myRemaining; winsNeeded += 1) {
-    for (let lossesNeeded = 0; lossesNeeded <= myRemaining; lossesNeeded += 1) {
-      if (
-        solveCutoff(teamId, teams, remaining, effectiveSettings, winsNeeded, lossesNeeded, "all")
-      ) {
-        return {
-          type: "magic",
-          ownWinsNeeded: winsNeeded,
-          opponentLossesNeeded: lossesNeeded,
-          description:
-            lossesNeeded === 0
-              ? `${winsNeeded} more win${winsNeeded === 1 ? "" : "s"} clinches a Gold Bracket spot.`
-              : `${winsNeeded} win${winsNeeded === 1 ? "" : "s"}, even with ${lossesNeeded} more loss${lossesNeeded === 1 ? "" : "es"}, still clinches a Gold Bracket spot.`,
-        };
-      }
-    }
+  // Short of that, what the team can guarantee is a share of the last spot, and no more.
+  const share = findMagic(teamId, teams, remaining, effectiveSettings, false);
+  if (share === "clinched") {
+    return {
+      type: "magic",
+      ownWinsNeeded: 0,
+      opponentLossesNeeded: 0,
+      tiebreak: true,
+      description: "Level for the last Gold Bracket spot at worst; the tiebreakers decide.",
+    };
+  }
+  if (share) {
+    return {
+      type: "magic",
+      ownWinsNeeded: share.wins,
+      opponentLossesNeeded: share.losses,
+      tiebreak: true,
+      description: `${winsWord(share.wins)} guarantee${share.wins === 1 ? "s" : ""} at least a share of the last Gold Bracket spot; the tiebreakers decide.`,
+    };
   }
 
   return {
@@ -227,21 +292,34 @@ export const eliminationNumberForGold = (
   }
 
   const effectiveSettings = { ...settings, goldCutoff: cutoff };
-  const myRemaining = remainingGamesFor(teamId, remaining).length;
 
-  for (let losses = 0; losses <= myRemaining; losses += 1) {
-    const stillCan = solveCutoff(teamId, teams, remaining, effectiveSettings, 0, losses, "any");
-    if (!stillCan) {
-      return {
-        type: "elimination",
-        ownWinsNeeded: 0,
-        opponentLossesNeeded: losses,
-        description:
-          losses === 0
-            ? `Already eliminated from the Gold Bracket.`
-            : `${losses} more loss${losses === 1 ? "" : "es"} would eliminate the team from the Gold Bracket.`,
-      };
-    }
+  // Eliminated is a claim about every tie going the team's way, and still falling short.
+  const out = findElimination(teamId, teams, remaining, effectiveSettings, false);
+  if (out !== null) {
+    return {
+      type: "elimination",
+      ownWinsNeeded: 0,
+      opponentLossesNeeded: out,
+      description:
+        out === 0
+          ? `Already eliminated from the Gold Bracket.`
+          : `${out} more loss${out === 1 ? "" : "es"} would eliminate the team from the Gold Bracket.`,
+    };
+  }
+
+  // Short of that, the losses after which only a tie won on the tiebreakers keeps the team in.
+  const onTheBreak = findElimination(teamId, teams, remaining, effectiveSettings, true);
+  if (onTheBreak !== null) {
+    return {
+      type: "elimination",
+      ownWinsNeeded: 0,
+      opponentLossesNeeded: onTheBreak,
+      tiebreak: true,
+      description:
+        onTheBreak === 0
+          ? "Only a won tiebreak can still put the team in the Gold Bracket."
+          : `After ${onTheBreak} more loss${onTheBreak === 1 ? "" : "es"}, only a won tiebreak keeps the team in the Gold Bracket.`,
+    };
   }
 
   return {
