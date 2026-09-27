@@ -52,6 +52,18 @@ export const buildTrendStates = (
    */
   const before = completedGames.length - drawn.length;
 
+  /*
+   * The latest day the season has reached by each point: its own game's, or, for a game logged
+   * with no date, the last day before it that has one. Read as its own date, an undated game is
+   * the end of time (`parseDateValue`), and a point in the middle of the chart took every outside
+   * result the season will ever hold, the ones played after it included.
+   */
+  let through = Number.NEGATIVE_INFINITY;
+  completedGames.slice(0, before).forEach((game) => {
+    const at = parseDateValue(game.date ?? "");
+    if (Number.isFinite(at)) through = Math.max(through, at);
+  });
+
   const built: TrendState[] = [];
   for (let index = 1; index <= drawn.length; index += 1) {
     const allowed = new Set(completedGames.slice(0, before + index).map((game) => game.id));
@@ -61,7 +73,8 @@ export const buildTrendStates = (
       if (allowed.has(game.id) && log) stateLogs[game.id] = log;
     });
     const asOf = calculateTeams(teams, matchups, stateLogs, options.settings);
-    const through = parseDateValue(completedGames[before + index - 1]?.date ?? "");
+    const at = parseDateValue(completedGames[before + index - 1]?.date ?? "");
+    if (Number.isFinite(at)) through = Math.max(through, at);
     const played =
       index === drawn.length
         ? outside

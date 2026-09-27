@@ -166,9 +166,11 @@ export function ModelCheckCard({
                   what a year is worth, and a fit read it low. The held-back set has{" "}
                   {result.crossAgeSamples} cross-age game
                   {result.crossAgeSamples === 1 ? "" : "s"}.
-                  {bestGap && bestGap.ageGapPrior !== result.ageGapPrior
-                    ? ` Held at ${bestGap.ageGapPrior} instead, the ratings predicted the ${bestGap.ratedSamples} held-back games between two rated clubs best.`
-                    : " No other value held predicted the held-back games between two rated clubs better."}
+                  {!bestGap || bestGap.ratedError === null
+                    ? " None of the held-back games was between two clubs rated before it, so the values held cannot be compared here."
+                    : bestGap.ageGapPrior !== result.ageGapPrior
+                      ? ` Held at ${bestGap.ageGapPrior} instead, the ratings predicted the ${bestGap.ratedSamples} held-back games between two rated clubs best.`
+                      : " No other value held predicted the held-back games between two rated clubs better."}
                 </p>
               )}
               <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

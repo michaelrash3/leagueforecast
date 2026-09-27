@@ -88,6 +88,26 @@ describe("the model check while it is worked out", () => {
     expect(screen.getByText(/games predicted/i)).toBeInTheDocument();
   });
 
+  it("names no best age gap when no held-back game was between two rated clubs", async () => {
+    // Cross-age games held back, every one with a side the fit never saw: nothing to compare on.
+    const unrated: ModelCheckAnswer = {
+      ...answer,
+      result: { ...answer.result, crossAgeSamples: 3 },
+      gaps: [1, 1.5, 2, 2.5, 3].map((ageGapPrior) => ({
+        ...answer.result,
+        ageGapPrior,
+        ratedError: null,
+        ratedSamples: 0,
+      })),
+    };
+    const user = userEvent.setup();
+    render(card("u9", () => Promise.resolve(unrated)));
+    await user.click(screen.getByRole("button", { name: "Check the model" }));
+
+    expect(await screen.findByText(/cannot be compared here/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Held at 1 instead/i)).toBeNull();
+  });
+
   it("says to run it again when the pool changed before it was done", async () => {
     const user = userEvent.setup();
     const { check, settle } = deferred();
