@@ -121,6 +121,21 @@ const ratedClubIds = (rated: readonly RatedScoutGame[]): Set<string> => {
 };
 
 /**
+ * The clubs the board counts a game for, over the whole pool: what a what-if's opponent is checked
+ * against. The same for every club and every page of a year, so a caller that holds a year can work
+ * it out once and hand it to `whatIfDeclines` rather than have each call select the year again.
+ */
+export const ratedClubsOf = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  segment: SeasonSegment | undefined,
+  today: string
+): ReadonlySet<string> =>
+  ratedClubIds(scoutRatingGames(ageGroupId, teams, games, ageGroups, segment, today));
+
+/**
  * Everything that can be refused without running the selection.
  *
  * The half-of-the-year test is here, on the fixture's OWN date, and that placement is the whole
@@ -190,7 +205,9 @@ export const whatIfDeclines = (
   games: ScoutGame[],
   ageGroups: AgeGroup[],
   segment: SeasonSegment | undefined,
-  today: string
+  today: string,
+  /** `ratedClubsOf` for this pool, half and day, when the caller already holds it. */
+  ratedClubs?: ReadonlySet<string>
 ): Map<string, WhatIfDeclined | null> => {
   const out = new Map<string, WhatIfDeclined | null>();
   const asking: ScoutGame[] = [];
@@ -201,20 +218,14 @@ export const whatIfDeclines = (
   });
   if (asking.length === 0) return out;
 
-  const rated = scoutRatingGames(
-    ageGroupId,
-    teams,
-    [...games, ...asking],
-    ageGroups,
-    segment,
-    today
-  );
-  const hypothetical = new Set(asking.map((game) => game.id));
+  // The selection judges each game on its own, so the copies can be put through it by themselves.
   const admitted = new Set(
-    rated.filter(({ game }) => hypothetical.has(game.id)).map(({ game }) => game.id)
+    scoutRatingGames(ageGroupId, teams, asking, ageGroups, segment, today).map(
+      ({ game }) => game.id
+    )
   );
   // The pool as it stands, so no hypothetical can vouch for an opponent — including another row's.
-  const already = ratedClubIds(rated.filter(({ game }) => !hypothetical.has(game.id)));
+  const already = ratedClubs ?? ratedClubsOf(ageGroupId, teams, games, ageGroups, segment, today);
 
   fixtures.forEach((fixture) => {
     if (out.get(fixture.id) !== null) return;

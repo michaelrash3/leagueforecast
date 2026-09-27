@@ -141,7 +141,7 @@ import {
 } from "./teamRankings/RankingsSection";
 import { ScoutingSection } from "./teamRankings/ScoutingSection";
 import { todayIsoDay } from "../lib/date";
-import { whatIfDeclines } from "../lib/scoutWhatIf";
+import { ratedClubsOf, whatIfDeclines } from "../lib/scoutWhatIf";
 import { RankingsHeader } from "./teamRankings/RankingsHeader";
 import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
@@ -681,10 +681,22 @@ export function TeamRankingsView({
    * group's season year. `buildTeamRankings` filters to the pool itself, but it can only rate what
    * it is handed, so the wider list is passed rather than the page-scoped one.
    */
+  const poolIds = useMemo(
+    () => JSON.stringify(rankingPoolGroupIds(selectedAgeGroupId, ageGroups)),
+    [selectedAgeGroupId, ageGroups]
+  );
+  /*
+   * Followed by the pool's pages rather than by the page on screen, and the list itself when the
+   * pool keeps every game, so a switch from 9U to 10U hands the rankings worker the array it
+   * already holds. The worker is sent the year again whenever the array is a new one, and a new
+   * one was built on every switch for the same games: on the 18:40 pool that was about a second
+   * of encoding and copying on the main thread, and a refit in the worker, for nothing.
+   */
   const poolGames = useMemo(() => {
-    const pool = new Set(rankingPoolGroupIds(selectedAgeGroupId, ageGroups));
-    return allKnown.games.filter((game) => pool.has(game.ageGroupId));
-  }, [allKnown.games, selectedAgeGroupId, ageGroups]);
+    const pool = new Set(JSON.parse(poolIds) as string[]);
+    const kept = allKnown.games.filter((game) => pool.has(game.ageGroupId));
+    return kept.length === allKnown.games.length ? allKnown.games : kept;
+  }, [allKnown.games, poolIds]);
 
   /**
    * How many counted games each half of this year holds.
@@ -793,14 +805,17 @@ export function TeamRankingsView({
    * "Prosper, TX" — where a club is from, which is what tells five Rangers apart in a list. The
    * town comes from GameChanger for a pulled club; a stand-in has neither and shows nothing.
    */
-  const placeOf = useCallback(
-    (teamId: string) => {
-      const team = rankedTeams.find((candidate) => candidate.id === teamId);
-      if (!team) return undefined;
-      return [team.city, team.state].filter(Boolean).join(", ") || undefined;
-    },
-    [rankedTeams]
-  );
+  const placeById = useMemo(() => {
+    const places = new Map<string, string | undefined>();
+    rankedTeams.forEach((team) => {
+      if (!places.has(team.id))
+        places.set(team.id, [team.city, team.state].filter(Boolean).join(", ") || undefined);
+    });
+    return places;
+  }, [rankedTeams]);
+  // A lookup rather than a search of the page's clubs per call: the Scouting picker asks it of
+  // every row, and on a four-thousand-club page that was 288 ms of searching against about 5.
+  const placeOf = useCallback((teamId: string) => placeById.get(teamId), [placeById]);
 
   const stateTopRows = useMemo(
     () =>
@@ -870,11 +885,34 @@ export function TeamRankingsView({
    * The expensive part is choosing the games the fit would read, and that is the same choice for
    * every row, so asking per row would pay for it once a row instead of once a board.
    */
+  const asksWhatIf = Boolean(reportForId) && upcomingRows.length > 0;
+  /*
+   * The half of that check that reads the whole year: which clubs the board counts a game for,
+   * which an opponent is checked against. It is the same for every club and every page of a year,
+   * so it follows the pool rather than the page, and a switch between pages no longer pays for it
+   * (about 350 ms on the 18:40 pool). Only worked out while there is a fixture to ask about.
+   */
+  const ratedClubs = useMemo(() => {
+    if (!asksWhatIf) return null;
+    // Any page of the pool names the same pool; the list always holds at least the one on screen.
+    const anyPageOfThePool = (JSON.parse(poolIds) as string[])[0] ?? "";
+    return ratedClubsOf(
+      anyPageOfThePool,
+      allKnown.teams,
+      poolGames,
+      ageGroups,
+      routeSegment,
+      today
+    );
+  }, [asksWhatIf, poolIds, allKnown.teams, poolGames, ageGroups, routeSegment, today]);
+  const poolGameById = useMemo(
+    () => (asksWhatIf ? new Map(poolGames.map((game) => [game.id, game])) : null),
+    [asksWhatIf, poolGames]
+  );
   const whatIfDeclineMap = useMemo(() => {
-    if (!reportForId || upcomingRows.length === 0) return new Map<string, null>();
-    const byId = new Map(poolGames.map((game) => [game.id, game]));
+    if (!reportForId || !ratedClubs || !poolGameById) return new Map<string, null>();
     const fixtures = upcomingRows
-      .map((row) => byId.get(row.gameId))
+      .map((row) => poolGameById.get(row.gameId))
       .filter((game): game is (typeof poolGames)[number] => game !== undefined);
     return whatIfDeclines(
       fixtures,
@@ -884,10 +922,13 @@ export function TeamRankingsView({
       poolGames,
       ageGroups,
       routeSegment,
-      today
+      today,
+      ratedClubs
     );
   }, [
     reportForId,
+    ratedClubs,
+    poolGameById,
     upcomingRows,
     poolGames,
     selectedAgeGroupId,

@@ -6,7 +6,13 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../teamRankings";
-import { holdsFrom, whatIfCurve, whatIfDecline } from "../scoutWhatIf";
+import {
+  holdsFrom,
+  ratedClubsOf,
+  whatIfCurve,
+  whatIfDecline,
+  whatIfDeclines,
+} from "../scoutWhatIf";
 
 /**
  * A day inside the autumn of baseball year 2027, which is where this file's clock sits. Every
@@ -243,6 +249,84 @@ describe("the fixtures a what-if will not answer for", () => {
   it("allows an ordinary upcoming fixture", () => {
     expect(declineFor(fixture())).toBeNull();
     expect(declineFor(fixture(), "fall")).toBeNull();
+  });
+});
+
+describe("a whole schedule's fixtures at once", () => {
+  const withStranger = {
+    teams: [...POOL.teams, { id: "T-NEW", name: "Nobody has played them" }],
+    games: POOL.games,
+  };
+  /** One of every answer: allowed, other half, no date, unrated opponent, played, not counted. */
+  const schedule = [
+    fixture({ id: "f-ok" }),
+    fixture({ id: "f-spring", date: SPRING_DAY }),
+    fixture({ id: "f-undated", date: undefined }),
+    fixture({ id: "f-stranger", teamBId: "T-NEW" }),
+    fixture({ id: "f-played", teamAScore: 6, teamBScore: 2 }),
+    fixture({ id: "f-off-roster", teamBId: "T-NOT-IN-THE-ROSTER" }),
+    fixture({ id: "f-ok-2", teamBId: "T45" }),
+  ];
+  const oneAtATime = (segment?: "fall") =>
+    new Map(
+      schedule.map((game) => [
+        game.id,
+        whatIfDecline(game, ME, AG, withStranger.teams, withStranger.games, GROUPS, segment, TODAY),
+      ])
+    );
+
+  it("answers each the way it would be answered on its own", () => {
+    ([undefined, "fall"] as const).forEach((segment) => {
+      const all = whatIfDeclines(
+        schedule,
+        ME,
+        AG,
+        withStranger.teams,
+        withStranger.games,
+        GROUPS,
+        segment,
+        TODAY
+      );
+      expect(all).toEqual(oneAtATime(segment));
+    });
+    expect([...oneAtATime("fall").values()]).toEqual([
+      null,
+      "other-half",
+      "no-date",
+      "unrated-opponent",
+      "played",
+      "not-counted",
+      null,
+    ]);
+  });
+
+  it("gives the same answers from the year's rated clubs worked out once", () => {
+    const rated = ratedClubsOf(AG, withStranger.teams, withStranger.games, GROUPS, "fall", TODAY);
+    const all = whatIfDeclines(
+      schedule,
+      ME,
+      AG,
+      withStranger.teams,
+      withStranger.games,
+      GROUPS,
+      "fall",
+      TODAY,
+      rated
+    );
+    expect(all).toEqual(oneAtATime("fall"));
+    // The set is what the opponent is checked against, not a formality.
+    const none = whatIfDeclines(
+      schedule,
+      ME,
+      AG,
+      withStranger.teams,
+      withStranger.games,
+      GROUPS,
+      "fall",
+      TODAY,
+      new Set()
+    );
+    expect(none.get("f-ok")).toBe("unrated-opponent");
   });
 });
 
