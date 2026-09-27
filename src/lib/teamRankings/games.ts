@@ -215,8 +215,12 @@ export const findDuplicateGame = (candidate: ScoutGame, games: ScoutGame[]): Sco
   return found ?? null;
 };
 
+/** Each page its own pool: how the league's rows were matched before the squad year was. */
+const samePage = (ageGroupId: string): string => ageGroupId;
+
 /**
- * One fixture's identity: the age group, the two sides in either order, and the calendar day.
+ * One fixture's identity: the rating pool (`poolOf` the game's page, the page itself unless the
+ * caller says), the two sides in either order, and the calendar day.
  *
  * The day is what decides it. Two clubs that meet again in October are not playing the same game
  * over — that is a tournament meeting outside league play, and it has to stay a game of its own.
@@ -227,9 +231,12 @@ export const findDuplicateGame = (candidate: ScoutGame, games: ScoutGame[]): Sco
  * Returns "" for a game with no readable date, which callers read as "this one cannot be matched"
  * — better to leave a dateless game alone than to fold it into a fixture it may not belong to.
  */
-const fixtureKeyOf = (game: ScoutGame): string => {
+const fixtureKeyOf = (
+  game: ScoutGame,
+  poolOf: (ageGroupId: string) => string = samePage
+): string => {
   const day = normalizeDateInput(game.date ?? "");
-  return day ? `${game.ageGroupId}|${pairKeyOf(game)}|${day}` : "";
+  return day ? `${poolOf(game.ageGroupId)}|${pairKeyOf(game)}|${day}` : "";
 };
 
 /**
@@ -241,6 +248,14 @@ export type LeagueRowReader = {
   standsInFor: (sideId: string, opponentId: string) => boolean;
   /** Whether a stored row is the club's own, pulled from one of its GameChanger schedules. */
   pulledBy: (game: ScoutGame, clubId: string) => boolean;
+  /**
+   * The rating pool a page is in, its squad year, where a league game and a club's own copy of it
+   * are looked for. The rating is fitted over the whole year, and a club GameChanger lists at
+   * another age files its copy on that age's page: the Cincinnati Hornets' fall team is listed at
+   * 8U, and its rows of the league's 9U games sat on the 8U page, never matched. The page itself
+   * where it is not given.
+   */
+  poolOf?: (ageGroupId: string) => string;
 };
 
 /**
@@ -294,10 +309,11 @@ export const dedupeLeagueFixtures = (
   // Indexed in a single pass rather than scanned per game: this runs on every render over a pool
   // that can hold tens of thousands of rows, and comparing each game against all the others would
   // not survive that.
+  const poolOf = roster?.poolOf ?? samePage;
   const byFixture = new Map<string, { league: number[]; stored: number[] }>();
   games.forEach((game, index) => {
     if (!leagueClubs.has(game.teamAId) || !leagueClubs.has(game.teamBId)) return;
-    const key = fixtureKeyOf(game);
+    const key = fixtureKeyOf(game, poolOf);
     if (!key) return;
     let bucket = byFixture.get(key);
     if (!bucket) {
@@ -363,8 +379,9 @@ export const leagueCopiesFiledAgainstNobody = (
   skip: ReadonlySet<number> = new Set()
 ): Set<number> => {
   const paired = new Set<number>();
+  const poolOf = roster.poolOf ?? samePage;
   const clubDay = (ageGroupId: string, clubId: string, day: string) =>
-    `${ageGroupId}|${clubId}|${day}`;
+    `${poolOf(ageGroupId)}|${clubId}|${day}`;
   const leagueByClubDay = new Map<string, number[]>();
   const leagueClubs = new Set<string>();
   games.forEach((game, index) => {
@@ -396,7 +413,9 @@ export const leagueCopiesFiledAgainstNobody = (
     if (!isScoutGamePlayed(game)) return;
     const day = normalizeDateInput(game.date ?? "");
     if (!day) return;
-    const fits: string[] = [];
+    // By the league row's id, which a fixture keeps on every page that claims its season: one
+    // game read off two pages of a year is still the one fit.
+    const fits = new Set<string>();
     (
       [
         [game.teamAId, game.teamBId],
@@ -413,13 +432,14 @@ export const leagueCopiesFiledAgainstNobody = (
         if (opponentId === sideId) return;
         const result = scoreSeenBy(league, clubId);
         if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
-        if (roster.standsInFor(sideId, opponentId)) fits.push(`${leagueIndex}|${clubId}`);
+        if (roster.standsInFor(sideId, opponentId)) fits.add(`${league.id}|${clubId}`);
       });
     });
-    if (fits.length !== 1) return;
-    const bucket = rowsFor.get(fits[0]!);
+    if (fits.size !== 1) return;
+    const [fit] = fits;
+    const bucket = rowsFor.get(fit!);
     if (bucket) bucket.push(index);
-    else rowsFor.set(fits[0]!, [index]);
+    else rowsFor.set(fit!, [index]);
   });
   rowsFor.forEach((rows) => {
     if (rows.length === 1) paired.add(rows[0]!);

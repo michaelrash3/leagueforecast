@@ -2559,14 +2559,36 @@ export const hasGcLinks = (team: ScoutTeam): boolean => Boolean(team.gcTeams?.le
  * schedules, rather than typed in by hand. The roster is read on the first question, so a pool with
  * no league game to compare costs nothing.
  */
-export const leagueStandIns = (teams: readonly ScoutTeam[]): LeagueRowReader => {
+/** Each page's squad year as a pool key, or the page itself for one with no year. */
+const squadYearOf = (ageGroups: readonly AgeGroup[]): ((ageGroupId: string) => string) => {
+  const pools = new Map(
+    ageGroups.map((group) => {
+      const year = ageGroupYear(group);
+      return [group.id, year === undefined ? `page:${group.id}` : `year:${year}`] as const;
+    })
+  );
+  return (ageGroupId) => pools.get(ageGroupId) ?? `page:${ageGroupId}`;
+};
+
+export const leagueStandIns = (
+  teams: readonly ScoutTeam[],
+  /**
+   * The pages, so a league game and a club's own copy of it are looked for across the squad year
+   * the rating is fitted over (`LeagueRowReader.poolOf`) rather than on one page. Left out, each
+   * page is its own, as the League Standings forecast reads it: it only reads the pages that claim
+   * the league.
+   */
+  ageGroups?: readonly AgeGroup[]
+): LeagueRowReader => {
   let byId: Map<string, ScoutTeam> | undefined;
   const teamOf = (teamId: string) => {
     byId ??= new Map(teams.map((team) => [team.id, team]));
     return byId.get(teamId);
   };
   const fits = nameFitter();
+  const poolOf = ageGroups ? squadYearOf(ageGroups) : undefined;
   return {
+    ...(poolOf ? { poolOf } : {}),
     standsInFor: (sideId, opponentId) => {
       const side = teamOf(sideId);
       if (!side) return false;
