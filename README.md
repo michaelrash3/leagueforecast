@@ -1019,8 +1019,10 @@ stays where the rule put it until the other club's own schedule lists the game. 
 picture names another pulled club takes the club off the row, and the rules that read names read it
 again; a pull with no picture, which GameChanger often sends, leaves it. A row folded into the
 other club's copy of the game keeps the club on its record there (`FoldedRow.namedByAvatar`), so a
-correction that stands it back up stands up the same row, and the stored pool, the JSON backup and
-the CSV a season export carries all keep it.
+correction that stands it back up stands up the same row; a claimed row's record takes a picture
+naming the team it goes back to as well as one naming the club that claimed it, so a row whose
+claim the schedules release goes back to that team still carrying it. The stored pool, the JSON
+backup and the CSV a season export carries all keep it.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
