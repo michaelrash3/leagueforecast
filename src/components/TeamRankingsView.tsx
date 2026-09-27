@@ -975,6 +975,30 @@ export function TeamRankingsView({
     );
   };
 
+  /**
+   * Puts back every team the games an Undo writes name, or had a row filed against, that the roster
+   * no longer has, from the roster as it stood when Remove was pressed.
+   *
+   * Two things take a team away between Remove and Undo. Remove team deletes the club itself when
+   * nothing else holds it, and the Undo tested the roster captured at Remove, which still had the
+   * club, so it was never written back: its games came back naming an id nobody held, rated for
+   * no one, and neither a tidy nor a re-pull repaired them (a re-pull minted the club a new id).
+   * And the tidy a removal sets off prunes a stand-in nothing stands on any more, so undoing a
+   * game against one brought the game back and not its opponent. The roster is read now, not from
+   * the render that showed the toast, so whatever else the tidy did is kept.
+   */
+  const restoreRosterFor = (games: readonly ScoutGame[], before: readonly ScoutTeam[]) => {
+    const roster = loadScoutTeams();
+    const held = new Set(roster.map((team) => team.id));
+    const named = filedTeamIds(games);
+    games.forEach((game) => {
+      named.add(game.teamAId);
+      named.add(game.teamBId);
+    });
+    const gone = before.filter((team) => named.has(team.id) && !held.has(team.id));
+    if (gone.length > 0) persistTeams([...roster, ...gone]);
+  };
+
   const removeGame = async (game: ScoutGame) => {
     const played = isScoutGamePlayed(game);
     const confirmed = await requestConfirmation({
@@ -994,7 +1018,10 @@ export function TeamRankingsView({
       actionLabel: "Undo",
       onAction: () => {
         const restored = lastDeletedGameRef.current;
-        if (restored) persistGames([...scoutGames.filter((g) => g.id !== restored.id), restored]);
+        if (!restored) return;
+        const games = [...scoutGames.filter((g) => g.id !== restored.id), restored];
+        restoreRosterFor(games, scoutTeams);
+        persistGames(games);
       },
     });
   };
@@ -1052,10 +1079,17 @@ export function TeamRankingsView({
       onAction: () => {
         const restored = lastDeletedTeamRef.current;
         if (!restored) return;
-        if (!scoutTeams.some((t) => t.id === restored.team.id)) {
-          persistTeams([...scoutTeams, restored.team]);
+        const games = [...scoutGames.filter((game) => !isHere(game)), ...restored.games];
+        restoreRosterFor(games, scoutTeams);
+        persistGames(games);
+        // Remove took the ★ off this page when it was this club; Undo puts it back.
+        if (myTeamId === restored.team.id) {
+          persistAgeGroups(
+            loadAgeGroups().map((group) =>
+              group.id === selectedAgeGroupId ? { ...group, myTeamId: restored.team.id } : group
+            )
+          );
         }
-        persistGames([...scoutGames.filter((game) => !isHere(game)), ...restored.games]);
       },
     });
   };
