@@ -1657,10 +1657,16 @@ export default function App() {
     );
   };
 
-  const applyScoreFill = (matchupIds: string[]) => {
+  const applyScoreFill = (matchupIds: string[], otherVersion: string[]) => {
     const plan = scoreFillPlan;
     if (!plan) return;
-    const result = applyLeagueScoreFill(plan, matchupIds, logs, settings.defaultGameInnings);
+    const result = applyLeagueScoreFill(
+      plan,
+      matchupIds,
+      logs,
+      settings.defaultGameInnings,
+      otherVersion
+    );
     setScoreFillPlan(null);
     if (result.filled === 0) {
       showToast("Nothing was filled in.", { tone: "info" });

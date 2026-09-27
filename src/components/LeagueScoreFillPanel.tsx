@@ -13,13 +13,16 @@ type LeagueScoreFillPanelProps = {
   plan: LeagueFillPlan;
   /** The season being filled, named the way the header names it. */
   seasonLabel: string;
-  onApply: (matchupIds: string[]) => void;
+  /** The rows to fill, and those of them to fill with the other club's version of the score. */
+  onApply: (matchupIds: string[], otherVersion: string[]) => void;
   onClose: () => void;
 };
 
 const ACTION_TONE: Record<LeagueFillAction, "emerald" | "blue" | "amber" | "neutral" | "red"> = {
   fill: "emerald",
   suggested: "blue",
+  slot: "blue",
+  disputed: "amber",
   overwrite: "amber",
   unchanged: "neutral",
   ambiguous: "red",
@@ -28,6 +31,8 @@ const ACTION_TONE: Record<LeagueFillAction, "emerald" | "blue" | "amber" | "neut
 const ACTION_LABEL: Record<LeagueFillAction, string> = {
   fill: "Fill",
   suggested: "Check name",
+  slot: "Check opponent",
+  disputed: "Check score",
   overwrite: "Disagrees",
   unchanged: "Already in",
   ambiguous: "Can't tell",
@@ -50,11 +55,15 @@ export function LeagueScoreFillPanel({
   onClose,
 }: LeagueScoreFillPanelProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultFillSelection(plan)));
+  /** Rows to fill with the other club's version of the score, where the two schedules differ. */
+  const [otherVersion, setOtherVersion] = useState<Set<string>>(() => new Set());
 
   const counts = useMemo(() => {
     const totals: Record<LeagueFillAction, number> = {
       fill: 0,
       suggested: 0,
+      slot: 0,
+      disputed: 0,
       overwrite: 0,
       unchanged: 0,
       ambiguous: 0,
@@ -74,6 +83,14 @@ export function LeagueScoreFillPanel({
     });
 
   const selectable = (row: LeagueFillRow) => row.action !== "ambiguous";
+
+  const chooseVersion = (matchupId: string, other: boolean) =>
+    setOtherVersion((prev) => {
+      const next = new Set(prev);
+      if (other) next.add(matchupId);
+      else next.delete(matchupId);
+      return next;
+    });
 
   return (
     <div className={`${card} p-5`}>
@@ -111,7 +128,10 @@ export function LeagueScoreFillPanel({
             Hits and strikeouts are never guessed, and a game that already has a score keeps it
             unless you say otherwise. A row marked <strong>Check name</strong> is a club the two
             halves spell differently; tick it once you have read the name, or correct the name in
-            Team Rankings and it will match on its own from then on.
+            Team Rankings and it will match on its own from then on. <strong>Check opponent</strong>{" "}
+            is a club&rsquo;s own game against a slot such as “TBD”, on the day of its only league
+            game; <strong>Check score</strong> is a game the two clubs&rsquo; own schedules give
+            different winners. Where the two schedules differ, pick whose score to fill.
           </p>
 
           <div className="mt-3 overflow-x-auto">
@@ -173,7 +193,39 @@ export function LeagueScoreFillPanel({
                         )}
                       </td>
                       <td className="py-2 whitespace-nowrap font-black text-slate-950 dark:text-white">
-                        {row.action === "ambiguous" ? "—" : `${row.awayRuns}–${row.homeRuns}`}
+                        {row.action === "ambiguous" ? (
+                          "—"
+                        ) : row.alternative && canPick && row.action !== "unchanged" ? (
+                          <fieldset>
+                            <legend className="sr-only">
+                              Whose score for {displayName(row.awayName)} at{" "}
+                              {displayName(row.homeName)}
+                            </legend>
+                            {[
+                              { other: false, runs: row, by: row.reportedBy ?? "" },
+                              {
+                                other: true,
+                                runs: row.alternative,
+                                by: row.alternative.reportedBy,
+                              },
+                            ].map((version) => (
+                              <label key={String(version.other)} className="block">
+                                <input
+                                  type="radio"
+                                  name={`version-${row.matchupId}`}
+                                  checked={otherVersion.has(row.matchupId) === version.other}
+                                  onChange={() => chooseVersion(row.matchupId, version.other)}
+                                />{" "}
+                                {version.runs.awayRuns}–{version.runs.homeRuns}{" "}
+                                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                  {displayName(version.by)}
+                                </span>
+                              </label>
+                            ))}
+                          </fieldset>
+                        ) : (
+                          `${row.awayRuns}–${row.homeRuns}`
+                        )}
                       </td>
                       <td className="py-2">
                         <span className={pill(ACTION_TONE[row.action])}>
@@ -188,8 +240,9 @@ export function LeagueScoreFillPanel({
           </div>
 
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            {counts.fill} to fill · {counts.suggested} to check · {counts.unchanged} already in ·{" "}
-            {counts.overwrite} disagree · {counts.ambiguous} cannot be told apart
+            {counts.fill} to fill · {counts.suggested + counts.slot} to check · {counts.disputed}{" "}
+            the clubs dispute · {counts.unchanged} already in · {counts.overwrite} disagree ·{" "}
+            {counts.ambiguous} cannot be told apart
             {plan.unmatched > 0 ? ` · ${plan.unmatched} with no result yet` : ""}
             {plan.unusedResults > 0
               ? ` · ${plural(plan.unusedResults, "pool result")} not on this schedule`
@@ -200,7 +253,12 @@ export function LeagueScoreFillPanel({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => onApply([...selected])}
+              onClick={() =>
+                onApply(
+                  [...selected],
+                  [...otherVersion].filter((matchupId) => selected.has(matchupId))
+                )
+              }
               disabled={selected.size === 0}
               className={button.primary}
             >

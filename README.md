@@ -365,6 +365,8 @@ out of a table nobody can check:
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | The league game is blank             | Filled, and marked final. Ticked by default.                                                               |
 | The two spell a club differently     | Offered as **Check name**, with both spellings shown. Never applied unasked.                               |
+| The club's own row names only a slot | Offered as **Check opponent** — its only league game that day, against "TBD". Never applied unasked.       |
+| The two clubs' schedules differ      | Both scores shown and either can be filled. Ticked only when they agree on the winner (**Check score**).   |
 | A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
 | A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
 
@@ -377,6 +379,27 @@ anything that lines up is offered rather than applied. Correcting the name in
 Team Rankings makes it match on its own from then on. Two clubs close enough to
 be confused with each other on the same day are reported instead: "South
 Lexington Red" and "…Blue" are four characters apart and are two real teams.
+
+A league team linked to a club in Settings is that club whatever either half
+calls it, so it fills as plainly as a name that matches, and its games are read on
+every page of the squad year rather than only the pages claiming the season: the
+Cincinnati Hornets' fall team is listed at 8U, and its copy of the league's 25
+September game sat on the 8U page. Unlinked, another page's club of the same name
+is as likely the same organisation's older squad, so it is left alone.
+
+A club's own schedule that was never told the opponent files the game against a
+slot, "TBD- 09/25/26, 7:15 PM", and when the other club's schedule is not in the
+pool nothing names the game at all. So a league game neither pass can see gets a
+last look: the same club, off its own schedule, against a slot on the day of its
+only league game, and its only such row. It is offered as **Check opponent**,
+never ticked. Stand-ins are not taken, only slots: hiding each real game on the
+9U page in turn, taking stand-ins as well offered a different game in its place
+9.1% of the time, slots alone 1.5%.
+
+The two clubs' own schedules disagree about one two-sided game in ten on the 9U
+page, mostly by a run. Both versions are shown and either can be filled; where
+they agree on the winner the fill stays ticked, and where one has a different
+winner or a tie it waits as **Check score**.
 
 Games the league itself put into the pool are excluded on the way back, so a
 season can never confirm its own scores. Anything already typed into a game —
@@ -2488,6 +2511,11 @@ the deterministic story is shown. To exercise the AI path locally, run
   six-column table in a card's width left the win chance and outlook past the edge
   of every row. The search boxes have a visible edge, and on a phone the picker's
   question sits whole above its box, where "fare?" used to print over the name.
+- Below `sm` the Forecast bracket stacks its rounds, one under another, each game
+  card the width of the screen. Side by side, a round's column was as wide as its
+  longest line, so at 360px every card was 421 to 438px in a 286px scroller and all
+  18 of the demo's run boxes and Set Final buttons sat past the edge. From `sm` up
+  the rounds run left to right as before; `e2e/phone.spec.ts` holds both.
 
 ## Platform baseline
 
