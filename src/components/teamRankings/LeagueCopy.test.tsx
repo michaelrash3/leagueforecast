@@ -89,6 +89,49 @@ const againstASlot = (): Pool => ({
   },
 });
 
+/*
+ * The league team a person linked in Settings to a club GameChanger lists a level down: the
+ * Cincinnati Hornets' fall team is "Cincinnati Hornets *Fall Ball*" at 8U, so its own copy of the
+ * league's 9U game is filed on the 8U page. The rating is fitted over the whole squad year, and the
+ * copy counted beside the league's row.
+ */
+const onAnotherPage = (): Pool => ({
+  ageGroups: [ageGroup(9, 2027, { seasonIds: ["default"] }), ageGroup(8, 2027)],
+  teams: [
+    team("S-YEAG", "Yeager Dreyer", {
+      city: "Cincinnati",
+      state: "OH",
+      gcTeams: [{ teamId: "gcYEAG", name: "Yeager Dreyer", ageGroupId: "ag_9u_2027", ageLevel: 9 }],
+    }),
+    team("S-FALL", "Cincinnati Hornets *Fall Ball*", {
+      city: "Cincinnati",
+      state: "OH",
+      gcTeams: [
+        {
+          teamId: "gcFALL",
+          name: "Cincinnati Hornets *Fall Ball*",
+          ageGroupId: "ag_8u_2027",
+          ageLevel: 8,
+        },
+      ],
+    }),
+  ],
+  games: [
+    game("gc_fall_1", "ag_8u_2027", "S-FALL", "S-YEAG", 3, 5, {
+      date: "2026-09-24",
+      source: { kind: "gamechanger", teamId: "gcFALL", gameId: "g1" },
+    }),
+  ],
+  league: {
+    teams: [
+      { id: "L-YEAG", name: "Yeager Dreyer" },
+      { id: "L-HORN", name: "Cincinnati Hornets", scoutTeamId: "S-FALL" },
+    ],
+    matchups: [{ id: "m1", date: "9/24", away: "L-YEAG", home: "L-HORN" }],
+    logs: { m1: final(5, 3) },
+  },
+});
+
 /** Record and games off a team's row in the full table. */
 const recordOf = async (name: string) => {
   const user = userEvent.setup();
@@ -110,5 +153,10 @@ describe("a league game the pull also has", () => {
   it("counts once when the club's own schedule had it against TBD", async () => {
     renderTeamRankings(againstASlot());
     expect(await recordOf("513 FORCE - BOULEY")).toEqual({ record: "0-1", games: "1" });
+  });
+
+  it("counts once when the linked club's copy is on another level's page", async () => {
+    renderTeamRankings(onAnotherPage());
+    expect(await recordOf("Yeager Dreyer")).toEqual({ record: "1-0", games: "1" });
   });
 });

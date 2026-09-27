@@ -415,6 +415,19 @@ against nobody, both copies go. The league's forecast leaves the same rows out
 of the results it reads from Team Rankings once the league has the game's final
 score, so they are not counted twice there either.
 
+Both passes look across the squad year, not only the page that claims the
+league, because the rating is fitted over the year and a club GameChanger lists
+at another age files its own copy on that age's page. The Cincinnati Hornets'
+fall team is "Cincinnati Hornets \*Fall Ball\*", listed at 8U, and its rows of the
+league's 9U games sat on the 8U page, never matched. The name guess cannot find
+that club — its name is not the league's and it has no game on the 9U page — so
+the league's Hornets have to be linked to it in Settings, with the wide search.
+Linked, the pool of 27 September with the three October games played counts
+every league game once (Yeager Dreyer 2-0, Headlines Nagel 3-0, Trash Pandas
+0-7); unlinked or linked to the 9U listing, four were counted twice either way.
+The forecast still reads page by page, since it reads only the pages that claim
+the league.
+
 ### Placeholders
 
 "TBD", "Winner of Game 3", a blank cell on a bracket: a schedule says these when

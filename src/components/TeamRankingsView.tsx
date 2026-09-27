@@ -647,7 +647,10 @@ export function TeamRankingsView({
     return {
       teams,
       derivedGames,
-      games: dedupeLeagueFixtures([...derivedGames, ...scoutGames], leagueStandIns(teams)),
+      games: dedupeLeagueFixtures(
+        [...derivedGames, ...scoutGames],
+        leagueStandIns(teams, ageGroups)
+      ),
     };
   }, [ageGroups, scoutGames, scoutTeams]);
 
@@ -1438,9 +1441,9 @@ export function TeamRankingsView({
     () =>
       dedupeLeagueFixtures(
         [...allKnown.derivedGames, ...loadScoutGames()],
-        leagueStandIns(allKnown.teams)
+        leagueStandIns(allKnown.teams, ageGroups)
       ),
-    [allKnown.derivedGames, allKnown.teams]
+    [allKnown.derivedGames, allKnown.teams, ageGroups]
   );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
@@ -1778,7 +1781,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       teams: allKnown.teams,
       games: dedupeLeagueFixtures(
         [...allKnown.derivedGames, ...everyGame],
-        leagueStandIns(allKnown.teams)
+        leagueStandIns(allKnown.teams, ageGroups)
       ),
     };
     const stored = { ageGroups, teams: scoutTeams, games: everyGame };
