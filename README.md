@@ -781,7 +781,17 @@ against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-1
 start, though the Gold play the Blue, but where the other club had played the named one the two
 names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
 What a club has played is read off every row of its own schedules, whichever row a game stands on.
-Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
+Nor is an age typed into a name more than two levels from the one that club played at. Nor, across
+regions, is the clock alone: with no result on one side or the other, a claim joins two clubs only
+in one state or two that border (`inOneRegion`), and the slot settle holds to the same, whatever
+the stand-in is called. A copy names a club because its coach typed a name the import found in the
+pool, and a common name is found in many places: a 9U club in North Liberty, Iowa, that played
+"Cubs" was filed against the 11U Cubs of Frisco, Texas, one of 75 teams of that name, and the Texas
+club's own 11-6 over the Diamondbacks at the same 15:45 went into the Iowa club's blank copy as its
+loss. Of the 3,714 claims on the pool of 26 September 2026, 7 joined clubs of two regions, 6 of
+them on scores that agree or nearly do; the seventh, a Connecticut club's blank row naming a New
+York team in an Indiana club's blank copy, goes back. It is a refusal once the day is read, not a
+weight in reading it, so a region never picks between two copies the clock could not. Rows naming
 one team on one day go to one club or none, and a row claimed away is no copy for another row to go
 into in the same pass.
 

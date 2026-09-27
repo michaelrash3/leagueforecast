@@ -3220,6 +3220,20 @@ export const resolveSlotGames = (
     if (shortlist.length !== 1) return;
 
     const named = shortlist[0]!;
+    /*
+     * Across regions, the clock alone is not a game (`claimFiledRows` says why): a row with no
+     * result on either side settles nowhere there, whatever the stand-in is called. "Blue" is in
+     * "Marucci Prospects New York Blue", and an Indiana club of that name is not the team a
+     * Connecticut club typed. A refusal and not a filter, so the region never picks between two
+     * games the clock could not.
+     */
+    const otherSide = teamById.get(named.teamAId === knownId ? named.teamBId : named.teamAId);
+    if (
+      (!isScored(slotGame) || !isScored(named)) &&
+      !inOneRegion(teamById.get(knownId)?.state, otherSide?.state)
+    ) {
+      return;
+    }
     spoken.add(named.id);
     merges.set(slotGame.id, named);
   };
@@ -3713,6 +3727,26 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
         .filter((link) => best.every((reading) => reading.links.includes(link)))
         .forEach((link) => chosen.set(rows[link.row]!, copies[link.copy]!));
     }
+    /*
+     * The clock alone, across regions, is not a game. The copy names this club because its coach
+     * typed a name the import found here, and a common name is found in many places: a 9U club in
+     * Iowa that played "Cubs" was filed against the 11U Cubs of Frisco, Texas, one of 75 teams of
+     * that name, and the Texas club's 11-6 over the Diamondbacks at the same 15:45 went into the
+     * Iowa club's blank copy as its loss. Of the 3,714 claims in the pool of 26 September 2026, 7
+     * joined clubs of two regions, 6 of them on scores that agree or nearly do; the seventh was a
+     * blank row naming a New York team claimed into an Indiana club's blank copy. Refused once the
+     * day is read rather than weighed in it, so the region never picks between two copies the
+     * clock could not.
+     */
+    chosen.forEach((copy, entry) => {
+      if (
+        isStandIn(entry.against) &&
+        (!seatOf(entry.row) || !seatOf(copy)) &&
+        !inOneRegion(teamById.get(club)?.state, teamById.get(otherOf(copy))?.state)
+      ) {
+        chosen.delete(entry);
+      }
+    });
     // Rows naming one team on one day go to one club or none: a team is one team.
     const clubsFor = new Map<string, Set<string>>();
     chosen.forEach((copy, entry) => {
@@ -6375,8 +6409,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       typed two levels from a club that nothing of its own plays at taken off it; a stand-in
  *       filed twice under a class-year or rare name made one; and two halves whose results
  *       mirror within the hour joined across any border
+ *  14 — across regions, a row with no result on either side neither settled nor claimed into a
+ *       copy on the clock alone
  */
-const TIDY_RULES_VERSION = 13;
+const TIDY_RULES_VERSION = 14;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
