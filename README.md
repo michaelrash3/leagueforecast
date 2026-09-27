@@ -262,7 +262,13 @@ team on the page, which is the question to ask before entering a tournament.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
-a coin flip.
+a coin flip. The curve's spread rises with age, 2.95 runs at 8U and 0.09 more a
+year, because a margin says less about who wins as players get older. It was 2.8
+at every level, and on the pool of 26 September, fitted up to three different
+days and scored on the games after each, that was overconfident: favourites it
+called at about 75% won 69 to 71% of the time, and at about 85% won 82 to 83%.
+With the rising spread they won 72 to 75% and 85 to 86%. Only the odds move; the
+order of the table does not.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
