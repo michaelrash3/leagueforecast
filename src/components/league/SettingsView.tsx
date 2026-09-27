@@ -476,7 +476,7 @@ export function SettingsView({
           </p>
         </div>
 
-        <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
+        <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
             Data
           </h3>
@@ -494,7 +494,7 @@ export function SettingsView({
             </span>
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800">
+            <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
               Import CSV
               <input
                 type="file"
