@@ -3391,6 +3391,7 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
   const orphans = releaseOrphanedClaims(input);
   const state = orphans.state;
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
+  const fits = nameFitter();
   const clubOfSchedule = new Map<string, string>();
   state.teams.forEach((team) =>
     team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
@@ -3556,10 +3557,12 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     const date = firstRow.date!;
     const otherOf = (game: ScoutGame) => (game.teamAId === club ? game.teamBId : game.teamAId);
     // Another club's own copy of a game against this club, none of this club's own rows in it but
-    // claims. Most days have none, and there is nothing to read.
-    const offered = (byTeamDay.get(key) ?? []).filter(
-      (game) =>
-        !game.excluded && mine(game.source?.teamId, otherOf(game)) && !keepsRowIn(game, club)
+    // claims: that day, and the day either side for a stand-in row with the same result
+    // (`strength`). Most days have none, and there is nothing to read.
+    const offerable = (game: ScoutGame) =>
+      !game.excluded && mine(game.source?.teamId, otherOf(game)) && !keepsRowIn(game, club);
+    const offered = [date, isoDayFrom(date, -1), isoDayFrom(date, 1)].flatMap((day) =>
+      day === undefined ? [] : (byTeamDay.get(dayKey(club, day)) ?? []).filter(offerable)
     );
     if (offered.length === 0 && filed.every((entry) => !entry.holder)) return;
     /*
@@ -3618,10 +3621,33 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       const ours = seatOf(entry.row);
       const theirs = seatOf(copy);
       const near = startsWithinTheHour(entry.row.startTs, copy.startTs);
+      const same = ours && theirs && ours[0] === theirs[0] && ours[1] === theirs[1];
+      /*
+       * The very same result against a slot, or a stand-in whose name fits the copy's club, is the
+       * copy's game whatever the clock says: "Chicos Augusta" at 16:30 is Chicos Augusta's own
+       * 17:35 copy, 10-1 both. On the tidy of the 26 September 2026 backup that joined 44 rows to a
+       * copy holding the club's schedule on record more than an hour off, moving 44 records toward
+       * the club's own schedule and 43 toward GameChanger's. Any stand-in's name would have joined
+       * 15 more on the result alone, where a name for nobody on the copy's side, hours off, may be
+       * another meeting that day; a name that fits is the bar.
+       */
+      const standIn = teamById.get(entry.against);
+      const standsForCopy =
+        isStandIn(entry.against) &&
+        Boolean(same) &&
+        standIn !== undefined &&
+        (standIn.placeholder === true || fits(standIn.name, teamById.get(otherId)?.name ?? ""));
       // A copy holding this club's schedule on record with no row kept takes a row within the hour
       // only: further off, the record may stand for another meeting that day (`keepsRowIn`).
-      if (!near && ownsRowIn(copy, club)) return 0;
-      const same = ours && theirs && ours[0] === theirs[0] && ours[1] === theirs[1];
+      if (!near && ownsRowIn(copy, club) && !standsForCopy) return 0;
+      /*
+       * A day apart, the same result against a name that fits or a slot, and only into a copy not
+       * holding the club on record: a schedule dated a day off, as two clubs' own copies are read
+       * (`dayApartStrength`). Catoosa Mudcats' 9-16 against "Frost Falcons" on the 12th was Frost
+       * Falcons' own copy at the same 13:00 on the 13th. 47 rows on that pool, 45 records toward
+       * GameChanger's; a week off, the same search found 2.
+       */
+      if (copy.date !== entry.row.date) return standsForCopy && !ownsRowIn(copy, club) ? 1 : 0;
       const close =
         ours !== undefined &&
         theirs !== undefined &&
@@ -3659,12 +3685,17 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     const rows = filed.filter((entry) => !answered(entry));
 
     type Link = { row: number; copy: number; strength: number };
-    const links: Link[] = rows.flatMap((entry, r) =>
+    const everyLink: Link[] = rows.flatMap((entry, r) =>
       copies.flatMap((copy, c) => {
         const found = strength(entry, copy);
         return found > 0 ? [{ row: r, copy: c, strength: found }] : [];
       })
     );
+    // A row with a copy of its own day is read on that day alone: the day either side is only for
+    // a row the day itself has nothing for.
+    const sameDay = (link: Link) => copies[link.copy]!.date === rows[link.row]!.row.date;
+    const linkedOnItsDay = new Set(everyLink.filter(sameDay).map((link) => link.row));
+    const links = everyLink.filter((link) => sameDay(link) || !linkedOnItsDay.has(link.row));
     const byRow = new Map<number, Link[]>();
     links.forEach((link) => push(byRow, link.row, link));
     const chosen = new Map<Filed, ScoutGame>();
@@ -3769,6 +3800,23 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
    * and the Aces' row was in the pool nowhere. What went to it waits a pass, and is read again
    * against the day as the claim away leaves it.
    */
+  /*
+   * A copy offered to the days either side of its own can be chosen from two of them. It goes to
+   * the row on its own day, or where there is not exactly one, to none: two days' rows wanting one
+   * copy is no reading of either.
+   */
+  const byCopy = new Map<string, (typeof decisions)[number][]>();
+  decisions.forEach((decision) => {
+    if (decision.copy) push(byCopy, decision.copy.id, decision);
+  });
+  byCopy.forEach((wanting) => {
+    if (wanting.length < 2) return;
+    const onItsDay = wanting.filter((decision) => decision.entry.row.date === decision.copy!.date);
+    wanting.forEach((decision) => {
+      if (onItsDay.length === 1 && decision === onItsDay[0]) return;
+      decision.copy = undefined;
+    });
+  });
   const goingAway = new Set(
     decisions.flatMap(({ entry, copy }) => (copy && !entry.holder ? [entry.row.id] : []))
   );
@@ -6661,8 +6709,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  16 — a copy moved to the club whose own schedule has it at its very start, the result mirrored,
  *       against a slot, any stand-in, or a club of the puller's name, a namesake or a name that
  *       fits in one region; never onto the puller
+ *  17 — a row against a slot or a stand-in whose name fits, with the very same result, claimed at
+ *       any clock into a copy holding the club on record, and from the day either side into a
+ *       copy that does not
  */
-const TIDY_RULES_VERSION = 16;
+const TIDY_RULES_VERSION = 17;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

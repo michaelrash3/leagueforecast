@@ -804,6 +804,19 @@ very same start — mostly a game of another club of the same name, filed agains
 — and so did copies more than an hour off, 18% of those with a result to come. A slot has no name
 to test and is held to the same clock and scores.
 
+Two readings go further, both on the very same result against a slot or a stand-in whose name
+fits the copy's club. The first reaches a copy holding the club's schedule on record at any clock:
+"Chicos Augusta" at 16:30 was Chicos Augusta's own 17:35 copy, 10-1 both, and Coastal Kangaroos
+Vincent read 3-2 against GameChanger's 2-2. The second reaches the day either side, into a copy
+that holds nothing of the club's, for a row whose own day has no copy for it: Catoosa Mudcats'
+9-16 against "Frost Falcons" on the 12th was Frost Falcons' own copy at the same 13:00 on the
+13th. A copy two days' rows both want goes to the row on its own day, or to neither. On the
+tidy of the 26 September backup the two claim 44 and 47 rows, and 89 single-link clubs' records
+move: all 89 toward their own schedule (68 onto it), 88 toward GameChanger's (50 onto it), and one
+away, a club whose GameChanger record covers another span. A second tidy changes nothing, and in
+two shuffled orders the pool ends with the same games and claims, differing from the stored order
+in exactly the kept ids main's own shuffled tidies differ in.
+
 A pulled club's name did say something, so against one only scores that agree outweigh it: the same
 result within the hour, or two within four runs at the very start or within the hour. Kentucky
 Athletics' 9-3 over "Dream Chasers Blue" was Hit Dogs Evansville's own 3-9 fifteen minutes on: the
