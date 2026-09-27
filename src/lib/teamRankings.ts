@@ -4163,20 +4163,27 @@ export const ownPageFor = (ageGroups: AgeGroup[]): ((row: ScoutGame) => ScoutGam
   ownPageOf(ageGroups, indexGroups(ageGroups));
 
 /**
- * `game` with every claim it holds (`FoldedRow.filedAgainst`) filed against `to(team)` instead: a
- * team folded into another takes the rows claimed from it along. The same game when nothing moves.
+ * `game` with every claim it holds (`FoldedRow.filedAgainst`) filed against `to(team)` instead, and
+ * the club its row's picture named (`namedByAvatar`) too: a team folded into another takes the rows
+ * claimed from it along, and what named it. The same game when nothing moves.
  */
 export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => string): ScoutGame => {
-  if (!game.alsoRows?.some((record) => record.filedAgainst !== undefined)) return game;
+  // The club the row's picture named goes where the club goes (`ScoutGame.namedByAvatar`).
+  const avatar = game.namedByAvatar === undefined ? undefined : to(game.namedByAvatar);
+  const withAvatar =
+    avatar === game.namedByAvatar
+      ? game
+      : { ...game, ...(avatar ? { namedByAvatar: avatar } : {}) };
+  if (!withAvatar.alsoRows?.some((record) => record.filedAgainst !== undefined)) return withAvatar;
   let changed = false;
-  const alsoRows = game.alsoRows.map((record) => {
+  const alsoRows = withAvatar.alsoRows.map((record) => {
     if (record.filedAgainst === undefined) return record;
     const next = to(record.filedAgainst);
     if (next === record.filedAgainst) return record;
     changed = true;
     return { ...record, filedAgainst: next };
   });
-  return changed ? { ...game, alsoRows } : game;
+  return changed ? { ...withAvatar, alsoRows } : withAvatar;
 };
 
 /**

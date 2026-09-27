@@ -128,6 +128,27 @@ describe("games round-trip", () => {
     expect(roundTripGames(games)).toEqual(games);
   });
 
+  // What makes a row's opponent an identity rather than a name (`namedByAvatar`), which a tidy rule
+  // moving rows on a name reads: lost on a save, the next tidy moved the row it had kept.
+  it("keeps the club a row's picture named", () => {
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gcTIDES_t1",
+        teamAId: "TIDES",
+        teamBId: "FRISCO",
+        teamAScore: 3,
+        teamBScore: 5,
+        ageGroupId: "ag_1",
+        date: "2026-09-12",
+        namedByAvatar: "FRISCO",
+        source: { kind: "gamechanger", teamId: "gcTIDES", gameId: "t1" },
+      },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+    // And from a pool stored as the objects themselves.
+    expect(decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames)).toEqual(games);
+  });
+
   // A claimed row goes back to the team it was filed against when the claim stops fitting, and a
   // stand-in holding no game of its own is only in the pool as that team.
   it("keeps the team a claimed row was filed against, and the level its name gave", () => {

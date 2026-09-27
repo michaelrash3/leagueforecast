@@ -224,6 +224,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
         : null,
       // Side B's own schedule's score, A's runs then B's.
       game.reportedByB ? [game.reportedByB.teamAScore, game.reportedByB.teamBScore] : null,
+      // The club the row's GameChanger picture named, which a tidy rule moving rows on a name leaves.
+      game.namedByAvatar === undefined ? null : teams.index(game.namedByAvatar),
     ]);
   });
 
@@ -335,6 +337,8 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
       game.reportedByB = { teamAScore: reportA, teamBScore: reportB };
     }
   }
+  const namedByAvatar = at(pool.t, row[19]);
+  if (namedByAvatar) game.namedByAvatar = namedByAvatar;
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -734,6 +738,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
         ...(entry.scoreFromTwin === true ? { scoreFromTwin: true } : {}),
         ...(entry.withdrawn === true ? { withdrawn: true } : {}),
+        ...(isString(entry.namedByAvatar) ? { namedByAvatar: entry.namedByAvatar } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),
