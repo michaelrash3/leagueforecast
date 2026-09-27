@@ -8,6 +8,7 @@ import {
   retryFailures,
   retryableIds,
   settleTeam,
+  settleWithoutAsking,
   startPull,
   type GcPullProgress,
 } from "../gameChangerPull";
@@ -98,6 +99,22 @@ describe("settleTeam", () => {
     expect(progress.failures).toEqual([
       { teamId: ids[0], reason: "not-found", message: "GameChanger has no team with that id." },
     ]);
+  });
+});
+
+describe("settling teams nobody asked about", () => {
+  it("settles each once, after what was already settled, and leaves the rest to fetch", () => {
+    const started = settleTeam(startPull(ids, NOW), ids[1]!, NOW);
+    const progress = settleWithoutAsking(started, [ids[2]!, ids[1]!, ids[2]!], LATER);
+    expect(progress.settled).toEqual([ids[1], ids[2]]);
+    expect(progress.updatedAt).toBe(LATER);
+    expect(remainingIds(progress)).toEqual([ids[0]]);
+  });
+
+  it("hands back the same run when there is nothing new to settle", () => {
+    const started = settleTeam(startPull(ids, NOW), ids[1]!, NOW);
+    expect(settleWithoutAsking(started, [ids[1]!], LATER)).toBe(started);
+    expect(settleWithoutAsking(started, [], LATER)).toBe(started);
   });
 });
 
