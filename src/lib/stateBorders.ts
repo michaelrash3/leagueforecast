@@ -149,3 +149,16 @@ export const borderingStates = (state: string): ReadonlySet<string> =>
  */
 export const inOneRegion = (a: string | undefined, b: string | undefined): boolean =>
   !a || !b || a === b || (NEIGHBOURS.get(a)?.has(b) ?? false);
+
+/**
+ * Whether two clubs are too far apart for a name alone to put them in one game: both states on this
+ * map, and neither the same nor sharing a border. A state the map does not hold — a Canadian
+ * province, Puerto Rico, Alaska or Hawaii — says nothing about distance, so it is a no here where
+ * `inOneRegion` is a yes for the same reason; Alberta's clubs play British Columbia's.
+ */
+export const farApart = (a: string | undefined, b: string | undefined): boolean =>
+  a !== undefined &&
+  b !== undefined &&
+  NEIGHBOURS.has(a) &&
+  NEIGHBOURS.has(b) &&
+  !inOneRegion(a, b);

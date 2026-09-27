@@ -94,7 +94,7 @@ import {
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
 import { todayIsoDay } from "./date";
-import { borderingStates, inOneRegion } from "./stateBorders";
+import { borderingStates, farApart, inOneRegion } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
 
 /**
@@ -5423,6 +5423,18 @@ export const reclaimMisfiled = (
  * the move took 522 rows off, 164 clubs' records moved toward GameChanger's own, 106 of them onto
  * it, and 14 away, 5 of those off it — a squad that did play up, and a namesake the game was then
  * matched to.
+ *
+ * And a row filed by name onto a pulled club in a region its filer does not play in — two states on
+ * the border map that neither match nor meet (`farApart`) — where nothing of the two clubs' own
+ * backs it: no game both their schedules have a row in, and no pulled club each has met in a game
+ * both sides' schedules have. Two Texas clubs' games against "Braves" sat on a Florida Braves as
+ * two wins its own schedules do not have, 2-4 on its page against 0-4 on its own rows. They go to
+ * a stand-in, which the refile then files onto the one club of the name in the filer's state, or
+ * next door. On the pool of 26 September 2026 at 18:40 the tidy took 121 rows off and 31 clubs'
+ * records changed: 30 toward GameChanger's own, 13 of them onto it, and one away — a loss its
+ * club's schedule has not scored yet, whose row the move let join the club's own copy of the game.
+ * Met on either club's own schedules alone, where one misfile can vouch for another, five of those
+ * records stayed further from their own schedules'.
  */
 export const resettleOffLevel = (
   state: GcImportState
@@ -5458,13 +5470,26 @@ export const resettleOffLevel = (
    * days they fall on, standing, folded into another club's copy, claimed, or on record. Read only
    * once a row two levels off needs it.
    */
-  let ownWord: { levels: Map<string, Set<number>>; days: Map<string, Set<string>> } | undefined;
+  let ownWord:
+    | {
+        levels: Map<string, Set<number>>;
+        days: Map<string, Set<string>>;
+        /**
+         * The pulled clubs it has met in a game both clubs' own schedules have a row in. A row only
+         * one side's schedules hold may be the very misfile being asked about: a Tennessee "White
+         * Sox" that named "Cardinals" onto Illinois's, and Illinois's Cardinals that named "White
+         * Sox" onto Tennessee's, each read as the other's opponent.
+         */
+        opponents: Map<string, Set<string>>;
+      }
+    | undefined;
   const ownWordNow = () => {
     if (ownWord) return ownWord;
     const clubOfSchedule = new Map<string, string>();
     ownIds.forEach((ids, clubId) => ids.forEach((id) => clubOfSchedule.set(id, clubId)));
     const ownLevels = new Map<string, Set<number>>();
     const days = new Map<string, Set<string>>();
+    const opponents = new Map<string, Set<string>>();
     const add = <T>(into: Map<string, Set<T>>, key: string, value: T) => {
       const bucket = into.get(key);
       if (bucket) bucket.add(value);
@@ -5486,8 +5511,12 @@ export const resettleOffLevel = (
         const at = (side === "A" ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
         if (at !== undefined) add(ownLevels, clubId, at);
       });
+      if (clubs.has(game.teamAId) && clubs.has(game.teamBId)) {
+        add(opponents, game.teamAId, game.teamBId);
+        add(opponents, game.teamBId, game.teamAId);
+      }
     });
-    ownWord = { levels: ownLevels, days };
+    ownWord = { levels: ownLevels, days, opponents };
     return ownWord;
   };
   /**
@@ -5501,6 +5530,24 @@ export const resettleOffLevel = (
     const own = ownWordNow();
     if (within(own.levels.get(clubId), typed, 1)) return false;
     return date === undefined || !own.days.get(clubId)?.has(date);
+  };
+
+  /**
+   * A row filed by name onto a pulled club in a region the club that filed it does not play in
+   * (`farApart`), which nothing of the two clubs' own backs: no game both their schedules have a
+   * row in, this or another, and no pulled club each has met in a game both sides' schedules have.
+   * A slot's name is left alone, as the import files one onto the one pulled club that carries it.
+   */
+  const unvouched = (namedId: string, moverId: string): boolean => {
+    const named = teamById.get(namedId);
+    if (!named || !farApart(teamById.get(moverId)?.state, named.state)) return false;
+    if (isPlaceholderName(named.name)) return false;
+    const { opponents } = ownWordNow();
+    const theirs = opponents.get(namedId);
+    if (!theirs) return true;
+    if (theirs.has(moverId)) return false;
+    const ours = opponents.get(moverId);
+    return ![...theirs].some((clubId) => clubId !== namedId && ours?.has(clubId));
   };
 
   const used = new Set(state.teams.map((team) => team.id));
@@ -5588,12 +5635,15 @@ export const resettleOffLevel = (
     if (filedInto(game, ownIds.get(namedId))) return game;
     const typed = namedId === game.teamAId ? game.ageLevelA : game.ageLevelB;
     const level = typed ?? levelOf.get(game.ageGroupId);
+    const moverId = namedId === game.teamAId ? game.teamBId : game.teamAId;
     const farOff = !levelFits(levels.get(namedId), level);
-    if (!farOff && !twoOff(namedId, typed, game.date)) return game;
+    if (!farOff && !twoOff(namedId, typed, game.date) && !unvouched(namedId, moverId)) {
+      return game;
+    }
 
     const pool = poolKeyOf(game.ageGroupId);
     const key = teamNameKey(named.name);
-    const mover = teamById.get(namedId === game.teamAId ? game.teamBId : game.teamAId);
+    const mover = teamById.get(moverId);
     /*
      * Two off, the row goes to a stand-in and to no namesake on the name alone: the club it was
      * filed on did not play it, and nothing yet says which did. Handed to the namesake at or next to
@@ -5840,19 +5890,36 @@ export const mergeDuplicateStandIns = (
   const into = new Map<string, string>();
   bySlot.forEach((ids) => {
     if (ids.length < 2) return;
-    const keeper = ids[0]!;
-    const kept = seen.get(keeper)!;
-    const games = [...kept.games];
-    ids.slice(1).forEach((later) => {
-      const entry = seen.get(later)!;
-      const name = teamById.get(later)!.name;
-      if (![...entry.namedFrom].some((named) => kept.namedFrom.has(named))) return;
+    /*
+     * Each entry is held up against every earlier one it was not merged into, not only the slot's
+     * first. Held up against the first alone, two entries named from one state stayed two whenever
+     * the roster listed an entry named from another state ahead of them: five on the pool of 26
+     * September 2026, "Canes National 2031" named from Florida ahead of two named from Virginia
+     * among them, which another order of the same roster made one. A merged entry's naming states
+     * join its keeper's, as its games do, which is what the next tidy would read off them.
+     */
+    const keepers: { id: string; namedFrom: Set<string>; games: Seen["games"] }[] = [];
+    ids.forEach((id) => {
+      const entry = seen.get(id)!;
+      const name = teamById.get(id)!.name;
       const byClass =
         entry.year !== undefined && ageFromGradYearInName(name, entry.year) !== undefined;
       const rare = (pulledOfName.get(teamNameKey(name)) ?? 0) <= 1;
-      if ((!byClass && !rare) || clash(games, entry.games)) return;
-      into.set(later, keeper);
-      games.push(...entry.games);
+      const keeper =
+        byClass || rare
+          ? keepers.find(
+              (kept) =>
+                [...entry.namedFrom].some((named) => kept.namedFrom.has(named)) &&
+                !clash(kept.games, entry.games)
+            )
+          : undefined;
+      if (!keeper) {
+        keepers.push({ id, namedFrom: new Set(entry.namedFrom), games: [...entry.games] });
+        return;
+      }
+      into.set(id, keeper.id);
+      keeper.games.push(...entry.games);
+      entry.namedFrom.forEach((named) => keeper.namedFrom.add(named));
     });
   });
   if (into.size === 0) return { state, merged: 0 };
@@ -5911,7 +5978,10 @@ export type PoolTidy = {
   withdrawn: number;
   /** Rows moved to the namesake whose own schedule holds the game. */
   reclaimed: number;
-  /** Rows taken off a club that plays nowhere near the age they were played at. */
+  /**
+   * Rows taken off a club that plays nowhere near the age they were played at, or in a region
+   * nowhere near the club that filed them.
+   */
   resettled: number;
   /** Stand-in rows filed onto the one club of that name in the puller's state, or next door. */
   refiled: number;
@@ -6712,8 +6782,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  17 — a row against a slot or a stand-in whose name fits, with the very same result, claimed at
  *       any clock into a copy holding the club on record, and from the day either side into a
  *       copy that does not
+ *  18 — a stand-in merged into any earlier entry of its name it shares a naming state with, not
+ *       the first alone; and a row filed by name onto a pulled club regions away, which nothing of
+ *       that club's own backs, taken off it
  */
-const TIDY_RULES_VERSION = 17;
+const TIDY_RULES_VERSION = 18;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -6784,7 +6857,7 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       : []),
     ...(tidy.resettled > 0
       ? [
-          `${plural(tidy.resettled, "game", "games")} taken off a club that plays nowhere near that age.`,
+          `${plural(tidy.resettled, "game", "games")} taken off a club that plays nowhere near that age, or nowhere near the club that filed it.`,
         ]
       : []),
     ...(tidy.refiled > 0

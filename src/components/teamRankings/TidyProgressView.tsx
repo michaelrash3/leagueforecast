@@ -37,8 +37,8 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   },
   reclaimed: { short: "Reclaim", full: "Games moved to the namesake whose schedule holds them" },
   resettled: {
-    short: "Off age",
-    full: "Games taken off a club that plays nowhere near the age they were played at",
+    short: "Far off",
+    full: "Games taken off a club that plays nowhere near the age they were played at, or nowhere near the club that filed them",
   },
   refiled: { short: "Refile", full: "Stand-in rows filed onto the club that turned out to be it" },
   merged: {

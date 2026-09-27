@@ -114,6 +114,58 @@ describe("a stand-in filed twice", () => {
     expect(state.games[2]?.alsoRows?.[0]?.filedAgainst).toBe("S-MOJO1");
   });
 
+  it("is made one whichever entry of its name the roster lists first", () => {
+    // An entry named from Texas ahead of two named from Oklahoma. Held up against the slot's first
+    // entry alone, the two Oklahoma entries stayed two in this order and were one in the other.
+    const games = [
+      row("PLANO", "S-MOJO1", "2026-09-06", "15:00", 9),
+      row("PIRATES", "S-MOJO2", "2026-09-13", "15:00", 9),
+      row("RYAL", "S-MOJO3", "2026-08-30", "16:00", 9),
+    ];
+    const mojo = (id: string) => standIn(id, "Mojo Gold 2036");
+    const texasFirst = mergeDuplicateStandIns(
+      pool([pirates, ryal, plano, mojo("S-MOJO1"), mojo("S-MOJO2"), mojo("S-MOJO3")], games)
+    );
+    const oklahomaFirst = mergeDuplicateStandIns(
+      pool([pirates, ryal, plano, mojo("S-MOJO2"), mojo("S-MOJO1"), mojo("S-MOJO3")], games)
+    );
+    expect(texasFirst.merged).toBe(1);
+    expect(oklahomaFirst.merged).toBe(1);
+    // The Oklahoma clubs' rows on one entry, the older; the Texas club's on its own.
+    expect(against(texasFirst.state)).toEqual(["S-MOJO1", "S-MOJO2", "S-MOJO2"]);
+    expect(against(oklahomaFirst.state)).toEqual(["S-MOJO1", "S-MOJO2", "S-MOJO2"]);
+  });
+
+  it("takes in, in one pass, an entry that shares a state only with one merged into it", () => {
+    // The second entry is named from Oklahoma and Texas, the third from Texas alone: once the
+    // second is the first's, so is Texas, as the next tidy would read it off the games.
+    const frisco = club("FRISCO", "Frisco Flash", "TX");
+    const before = pool(
+      [
+        pirates,
+        ryal,
+        plano,
+        frisco,
+        standIn("S-MOJO1", "Mojo Gold 2036"),
+        standIn("S-MOJO2", "Mojo Gold 2036"),
+        standIn("S-MOJO3", "Mojo Gold 2036"),
+      ],
+      [
+        row("PIRATES", "S-MOJO1", "2026-09-13", "15:00", 9),
+        row("RYAL", "S-MOJO2", "2026-08-30", "16:00", 9),
+        row("PLANO", "S-MOJO2", "2026-09-06", "15:00", 9),
+        row("FRISCO", "S-MOJO3", "2026-09-20", "15:00", 9),
+      ]
+    );
+    const { state, merged } = mergeDuplicateStandIns(before);
+    expect(merged).toBe(2);
+    expect(new Set(against(state))).toEqual(new Set(["S-MOJO1"]));
+    // So the tidy's second pass is the one that finds nothing more to do, not a third.
+    const tidy = tidyPool(before);
+    expect(tidy.merged).toBe(2);
+    expect(tidy.passes).toBe(2);
+  });
+
   describe("is left as two", () => {
     it("under a name several pulled clubs carry", () => {
       const tigers = [club("TIGERS1", "Tigers", "NJ"), club("TIGERS2", "Tigers", "TN")];
