@@ -2380,6 +2380,17 @@ the deterministic story is shown. To exercise the AI path locally, run
 - Tabs support keyboard navigation.
 - Inputs are programmatically labeled.
 - Standings rows support Enter/Space.
+- A club's name is never cut to "…". On a 360px phone a name had 112 to 134px, and
+  most real club names need more: five of eight Standings names, 21 Schedule cells
+  and 15 of the National Top 25 were cut, and clubs of one organisation were cut to
+  the same label. Names wrap onto a second line instead, on every League tab, the
+  bracket and Team Rankings' top lists. League Stats keeps its ellipsis from `xl`,
+  where its six-column grid would otherwise split names mid-word.
+- Below `sm` the Scouting report is cards, one per fixture and one per opponent,
+  rendered in place of the tables (`useWideViewport`) rather than beside them: a
+  six-column table in a card's width left the win chance and outlook past the edge
+  of every row. The search boxes have a visible edge, and on a phone the picker's
+  question sits whole above its box, where "fare?" used to print over the name.
 
 ## Platform baseline
 

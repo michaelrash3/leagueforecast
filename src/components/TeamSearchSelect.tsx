@@ -53,6 +53,15 @@ export const matchTeamOptions = (
   return { shown: matches.slice(0, limit), total: matches.length };
 };
 
+/**
+ * How the box looks wherever it is used: a field with an edge. Three of the five places it is used
+ * gave it no style at all, so on Scouting and on Find a team it was a bare line of text, and on a
+ * phone the "fare?" beside Scouting's was printed over the name picked in it. A caller adds a
+ * width. The text is left at the browser's 16px, below which iOS zooms the page on focus.
+ */
+const FIELD =
+  "rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900";
+
 type TeamSearchSelectProps = {
   id: string;
   /** The selected option's id, or "" for none chosen. */
@@ -169,7 +178,7 @@ export function TeamSearchSelect({
             }
           }
         }}
-        className={className}
+        className={`${FIELD} ${className ?? "w-full"}`}
       />
       {open && (
         <ul

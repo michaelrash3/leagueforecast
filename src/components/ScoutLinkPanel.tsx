@@ -221,7 +221,7 @@ function ScoutLinkPanelInner({
                             ? `Guessing: ${row.suggestedName}`
                             : "Type a club name…"
                         }
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+                        className="w-full text-sm"
                       />
                       <button
                         type="button"
