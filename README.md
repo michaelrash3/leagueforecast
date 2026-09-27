@@ -1247,6 +1247,15 @@ deletions under four thousand toddlers would make that list unreadable. A GameCh
 id is minted per team per season, so this can never hold a club down as it ages up —
 next year is a different id.
 
+A club somebody **threw out** is skipped the same way, before a request: the paste
+drops it with an "N you threw out, skipped" pill, and every run settles one it still
+carries — a run saved before the club went, or a rota or roster run's list — without
+asking GameChanger. The importer refused it anyway, but only after fetching its profile
+and games, and each refusal was then a row under "Worth a look". Re-pasting the
+seasoned list was 53,385 requests of which 20,146 were clubs already thrown out; the
+retry the re-paste exists for now spends its requests on the rows that never made it
+in.
+
 Only that team's own schedule can answer the question about it. `ageFromOpponentNames`
 reads the opponent names off the schedule just fetched, and neither the pool nor the
 index is on that path — so pulling other clubs never settles an age, however many of

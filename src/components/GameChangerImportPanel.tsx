@@ -15,7 +15,7 @@ import {
   withOrgAges,
   type OrgMembership,
 } from "../lib/orgMembership";
-import { inventedFromOutcomes, type DeletedClubs } from "../lib/deletedGames";
+import { inventedFromOutcomes, isDeletedClub, type DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
   holdingNow,
@@ -63,6 +63,7 @@ import {
   retryFailures,
   retryableIds,
   settleTeam,
+  settleWithoutAsking,
   startPull,
   type GcPullProgress,
   type GcPullView,
@@ -476,15 +477,24 @@ export function GameChangerImportPanel({
     // terms again — refused before a request, counted apart — because a list of men's-league
     // teams vanishing silently is indistinguishable from a list that failed to parse.
     const youth = club.filter((entry) => !entry.notYouth);
-    const entries = youth.filter(
+    const oldEnough = youth.filter(
       (entry) =>
         !isTooYoungClub(tooYoung, entry.teamId) &&
         (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
     );
+    /*
+     * And a club somebody threw out. The importer refuses it whatever list names it, but only once
+     * its profile and games have been fetched, and each refusal was then a row under "Worth a
+     * look". Re-pasting a list is how the rows that never made it in are retried, and on the
+     * seasoned list 20,146 of the 53,385 rows a re-paste sent were clubs already thrown out: 38% of
+     * the requests, spent on answers already given, and the refusals buried the real reasons.
+     */
+    const entries = oldEnough.filter((entry) => !isDeletedClub(droppedClubs, entry.teamId));
     return {
       ...read,
       entries,
-      tooYoung: youth.length - entries.length,
+      tooYoung: youth.length - oldEnough.length,
+      thrownOut: oldEnough.length - entries.length,
       notBaseball: read.entries.length - baseball.length,
       highSchool: baseball.length - club.length,
       notYouth: club.length - youth.length,
@@ -492,7 +502,7 @@ export function GameChangerImportPanel({
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
     };
-  }, [text, tooYoung]);
+  }, [text, tooYoung, droppedClubs]);
 
   /**
    * The seasons a pull files: the one being played, unless somebody ticks another.
@@ -897,6 +907,7 @@ export function GameChangerImportPanel({
               parsed.notBaseball +
               parsed.highSchool +
               parsed.notYouth +
+              parsed.thrownOut +
               parsed.otherSeason,
             alreadyHere: split.seen,
             asked: askedInRun,
@@ -1312,7 +1323,19 @@ export function GameChangerImportPanel({
    * end-of-run tidy runs over the whole pool and collapses them, so it is a state the pool passes
    * through rather than one it is left in.
    */
-  const runSectioned = async (ids: string[], progress: GcPullProgress): Promise<void> => {
+  const runSectioned = async (asked: string[], started: GcPullProgress): Promise<void> => {
+    /*
+     * A club thrown out is settled here, without a request, whichever way it arrived: in a run
+     * saved before it was thrown out, in a rota or roster run's list, or pasted while the panel
+     * held an older list of thrown-out clubs than storage does. Read from storage for that last
+     * reason, as the importer below does.
+     */
+    const dropped = loadDroppedClubs();
+    const thrownOut = asked.filter((teamId) => isDeletedClub(dropped, teamId));
+    const ids =
+      thrownOut.length > 0 ? asked.filter((teamId) => !isDeletedClub(dropped, teamId)) : asked;
+    const progress = settleWithoutAsking(started, thrownOut, nowIso());
+    if (progress !== started) onSaveProgress(progress);
     const sections = pullSections(ids, pool.teams, pool.ageGroups);
     /*
      * One section is the run. Sectioning a single page would hold exactly what an unsectioned run
@@ -1972,6 +1995,14 @@ export function GameChangerImportPanel({
                 {parsed.otherSeason > 0 && (
                   <span className={pill("neutral")}>
                     {parsed.otherSeason} from other seasons, skipped
+                  </span>
+                )}
+                {parsed.thrownOut > 0 && (
+                  <span
+                    className={pill("neutral")}
+                    title="A club you threw out is refused whatever list names it. One thrown out from Teams waiting on an age can be taken back from that card's Find a team."
+                  >
+                    {parsed.thrownOut} you threw out, skipped
                   </span>
                 )}
                 {split.fresh.length > 200 && (

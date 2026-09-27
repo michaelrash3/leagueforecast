@@ -1393,7 +1393,10 @@ export function TeamRankingsView({
     });
     if (!confirmed) return false;
     if (club.gcTeamIds.length > 0) {
-      saveDroppedClubs(forgetClubs(loadDroppedClubs(), club.gcTeamIds));
+      // Into the view's state as well as storage, so a list pasted in this session skips it too.
+      const next = forgetClubs(loadDroppedClubs(), club.gcTeamIds);
+      setDroppedClubs(next);
+      saveDroppedClubs(next);
     }
     saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, club.gameIds)));
     // Another club's row one of its games held as a claim stands back up rather than go with it.

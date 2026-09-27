@@ -109,6 +109,23 @@ export const settleTeam = (
   };
 };
 
+/**
+ * Records teams as dealt with that were never asked for: their answer was already known, so a
+ * request would only fetch it again. A club somebody threw out is the case, which the importer
+ * refuses after its profile and games have been fetched. One set rather than `settleTeam` per id,
+ * because a list can carry tens of thousands of them and `settleTeam` scans the settled list.
+ */
+export const settleWithoutAsking = (
+  progress: GcPullProgress,
+  teamIds: readonly string[],
+  now: string
+): GcPullProgress => {
+  const settled = new Set(progress.settled);
+  const adding = [...new Set(teamIds)].filter((teamId) => !settled.has(teamId));
+  if (adding.length === 0) return progress;
+  return { ...progress, settled: [...progress.settled, ...adding], updatedAt: now };
+};
+
 /** Whether every id has been dealt with one way or another. */
 export const isPullComplete = (progress: GcPullProgress): boolean =>
   progress.ids.length > 0 && progress.settled.length >= progress.ids.length;
