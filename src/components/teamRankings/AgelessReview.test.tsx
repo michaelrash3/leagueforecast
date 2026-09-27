@@ -129,6 +129,30 @@ describe("the review card for teams waiting on an age", () => {
     ).toBeInTheDocument();
     expect(within(rows()[2]!).getByText("An Honest Club")).toBeInTheDocument();
     expect(within(rows()[2]!).queryByText(/Up (first|next)/)).toBeNull();
+    // And the card says the order it is in, not the one it had.
+    expect(
+      screen.getByText(/the least likely to be a real team first, then the ones that look like/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/likeliest real first/)).toBeNull();
+  });
+
+  it("gives no place in the queue to a team a search finds off it", async () => {
+    // A thrown-out "Test team" is on no queue, so "Up first" beside "You threw this one out" was
+    // a place it does not have.
+    const user = userEvent.setup();
+    show(
+      [
+        ...twelve(),
+        team("fake", "Test team", {
+          evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+        }),
+      ],
+      { dropped: forgetClubs(new Set(), ["fake"]) }
+    );
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Test team");
+    expect(rows()).toHaveLength(1);
+    expect(screen.getByText(/You threw this one out/)).toBeInTheDocument();
+    expect(screen.queryByText(/Up (first|next)/)).toBeNull();
   });
 
   /*
