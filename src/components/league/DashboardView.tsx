@@ -66,11 +66,11 @@ function PredictionCard({
           </p>
           <p className="mt-1 flex flex-col gap-0.5 text-sm font-black">
             <span className="flex justify-between gap-2">
-              <span className="truncate font-semibold">{displayName(a)}</span>
+              <span className="min-w-0 font-semibold wrap-break-word">{displayName(a)}</span>
               {aPct}%
             </span>
             <span className="flex justify-between gap-2">
-              <span className="truncate font-semibold">{displayName(b)}</span>
+              <span className="min-w-0 font-semibold wrap-break-word">{displayName(b)}</span>
               {bPct}%
             </span>
           </p>

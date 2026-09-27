@@ -16,7 +16,7 @@ export function HeaderStatCard({
       <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
         {label}
       </div>
-      <div className="mt-0.5 truncate text-lg font-black leading-tight tracking-tight text-slate-950 dark:text-white">
+      <div className="mt-0.5 text-lg wrap-break-word font-black leading-tight tracking-tight text-slate-950 dark:text-white">
         {value}
       </div>
     </div>

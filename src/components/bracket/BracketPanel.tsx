@@ -65,7 +65,7 @@ function BracketTeamLine({
           <span className="rounded-lg bg-slate-950 px-2 py-1 text-[10px] font-semibold text-white">
             {slot.seed ? `#${slot.seed}` : "—"}
           </span>
-          <span className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
+          <span className="min-w-0 text-sm font-bold wrap-break-word text-slate-950 dark:text-slate-100">
             {team ? displayName(team.name) : slot.sourceGameId ? "Awaiting previous game" : "Bye"}
           </span>
         </div>

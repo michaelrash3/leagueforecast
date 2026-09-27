@@ -35,7 +35,7 @@ export function RankingList({
               <button
                 type="button"
                 onClick={() => onOpen(row.teamId)}
-                className="truncate text-left font-bold text-slate-950 hover:underline dark:text-white"
+                className="text-left font-bold wrap-break-word text-slate-950 hover:underline dark:text-white"
               >
                 {row.teamName}
                 {row.isMine ? " ★" : ""}

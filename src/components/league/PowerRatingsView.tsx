@@ -75,7 +75,7 @@ export function PowerRatingsView({
                 className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-black">
+                  <span className="min-w-0 text-sm font-black wrap-break-word">
                     #{r.rank} {r.teamName}
                   </span>
                   <span className="shrink-0 text-sm font-black">{signedRuns(r.rating)}</span>

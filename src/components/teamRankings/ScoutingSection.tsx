@@ -14,6 +14,7 @@ import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { TeamSearchSelect } from "../TeamSearchSelect";
+import { useWideViewport } from "../../hooks/useWideViewport";
 import { card, pill } from "../../styles/tokens";
 
 const tierTone = (tier: MatchupTier) =>
@@ -35,7 +36,9 @@ const tierTone = (tier: MatchupTier) =>
 function NoSharedOpponents() {
   return (
     <span
-      className="ml-2 whitespace-nowrap text-xs font-bold text-amber-700 dark:text-amber-400"
+      // A line of its own under the margin: beside it, unbroken, it made the margin column 205px
+      // wide and pushed the win chance and the outlook off a 640px screen.
+      className="block text-xs font-bold text-amber-700 dark:text-amber-400"
       title="Nothing in the games pulled so far links these two — not even through opponents of opponents — so their ratings were worked out against different sets of teams and this projection is a guess. Usually it means the club that connects them has not been pulled yet; Setup lists which clubs those are."
     >
       no shared opponents yet
@@ -155,6 +158,8 @@ export function ScoutingSection({
   );
 
   /** The same options, minus the team the report is about — it cannot be its own opponent. */
+  // One shape rendered, the way the rankings table does it: see `useWideViewport`.
+  const wide = useWideViewport();
   const opponentOptions = useMemo(
     () => teamOptions.filter((option) => option.id !== reportForId),
     [teamOptions, reportForId]
@@ -165,12 +170,16 @@ export function ScoutingSection({
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Scouting report
       </h2>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {/*
+        On a phone the question is asked whole above a box of its own: squeezed into one line
+        beside "How would", a 224px box printed "fare?" over the name picked in it.
+      */}
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-team"
         >
-          How would
+          How would<span className="sm:hidden"> this team fare?</span>
         </label>
         {/*
           A dropdown, until this page held a nationwide pool. Picking one club out of several
@@ -183,9 +192,9 @@ export function ScoutingSection({
           onChange={onReportTeamChange}
           options={teamOptions}
           placeholder="Search for a team"
-          className="min-w-56 max-w-xs"
+          className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:inline dark:text-slate-400">
           fare?
         </span>
       </div>
@@ -214,7 +223,7 @@ export function ScoutingSection({
           No unplayed games on this team&apos;s schedule. A GameChanger pull brings future fixtures
           in with no score, so they appear here as soon as the schedule has them.
         </p>
-      ) : (
+      ) : wide ? (
         <div className="mt-2 overflow-x-auto">
           <table className="min-w-full text-sm" aria-label="Next up">
             <thead>
@@ -298,6 +307,77 @@ export function ScoutingSection({
             </tbody>
           </table>
         </div>
+      ) : (
+        /*
+         * A card per fixture on a phone. Six columns in a card's width left the win chance and the
+         * outlook, the two the table exists for, past the right edge of every row.
+         */
+        <ul className="mt-2 space-y-3" aria-label="Next up">
+          {upcomingRows.map((row) => (
+            <li
+              key={row.gameId}
+              className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {formatDay(row.date)}
+                {row.event && <span className="block font-normal">{row.event}</span>}
+              </div>
+              <div className="mt-1 font-bold wrap-break-word text-slate-950 dark:text-white">
+                {row.opponentName}
+              </div>
+              {placeOf(row.opponentId) && (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {placeOf(row.opponentId)}
+                </div>
+              )}
+              {row.tier === undefined ? (
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  Not rated here yet
+                </p>
+              ) : (
+                <>
+                  <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Win chance</dt>
+                      <dd className="font-bold">{formatPct(row.winProb ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Margin</dt>
+                      <dd className="font-bold">{formatMargin(row.projectedMargin ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
+                      <dd className="font-bold">#{row.opponentRank}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className={pill(tierTone(row.tier))}>{row.tier}</span>
+                    {row.unconnected && <NoSharedOpponents />}
+                  </div>
+                </>
+              )}
+              <WhatIfTrigger
+                gameId={row.gameId}
+                opponentName={row.opponentName}
+                decline={whatIfDeclineFor(row.gameId)}
+                open={whatIfGameId === row.gameId}
+                onToggle={onToggleWhatIf}
+              />
+              {whatIfGameId === row.gameId && reportRow && (
+                <div className="mt-3" id={`what-if-${row.gameId}`}>
+                  <WhatIfPanel
+                    state={whatIf}
+                    gameId={row.gameId}
+                    standing={reportRow}
+                    opponentName={row.opponentName}
+                    projectedMargin={row.projectedMargin}
+                    unconnected={row.unconnected === true}
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       <MatchupTable
         heading={`Against the top ${SCOUT_REPORT_NATIONAL_TOP}`}
@@ -326,7 +406,7 @@ export function ScoutingSection({
       <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Against anyone else
       </h3>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-opponent"
@@ -339,7 +419,7 @@ export function ScoutingSection({
           onChange={onPickOpponent}
           options={opponentOptions}
           placeholder="Search for an opponent"
-          className="min-w-56 max-w-xs"
+          className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {report.opponentCount === 0
@@ -388,6 +468,7 @@ function MatchupTable({
   onDrop?: (teamId: string) => void;
   empty: string;
 }) {
+  const wide = useWideViewport();
   return (
     <>
       {heading && (
@@ -396,61 +477,114 @@ function MatchupTable({
         </h3>
       )}
       {note && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note}</p>}
-      <div className="mt-3 overflow-x-auto">
-        <table className="min-w-full text-sm" aria-label={label ?? heading}>
-          <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              <th className="py-2">Opponent</th>
-              <th>Opponent rank</th>
-              <th>Projected margin</th>
-              <th>Win probability</th>
-              <th>Outlook</th>
-              {onDrop && <th className="sr-only">Remove</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((preview) => (
-              <tr
-                key={preview.opponentId}
-                className="border-t border-slate-100 dark:border-slate-800"
-              >
-                <td className="py-3 font-bold text-slate-950 dark:text-white">
-                  {preview.opponentName}
-                  {placeOf(preview.opponentId) && (
-                    <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
-                      {placeOf(preview.opponentId)}
-                    </span>
-                  )}
-                </td>
-                <td>#{preview.opponentRank}</td>
-                <td>
-                  {formatMargin(preview.projectedMargin)}
-                  {preview.unconnected && <NoSharedOpponents />}
-                </td>
-                <td>{formatPct(preview.winProb)}</td>
-                <td>
-                  <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
-                </td>
-                {onDrop && (
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() => onDrop(preview.opponentId)}
-                      aria-label={`Remove ${preview.opponentName} from the report`}
-                      className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                )}
+      {wide ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm" aria-label={label ?? heading}>
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className="py-2">Opponent</th>
+                <th>Opponent rank</th>
+                <th>Projected margin</th>
+                <th>Win probability</th>
+                <th>Outlook</th>
+                {onDrop && <th className="sr-only">Remove</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && empty && (
-          <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">{empty}</p>
-        )}
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((preview) => (
+                <tr
+                  key={preview.opponentId}
+                  className="border-t border-slate-100 dark:border-slate-800"
+                >
+                  <td className="py-3 font-bold text-slate-950 dark:text-white">
+                    {preview.opponentName}
+                    {placeOf(preview.opponentId) && (
+                      <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
+                        {placeOf(preview.opponentId)}
+                      </span>
+                    )}
+                  </td>
+                  <td>#{preview.opponentRank}</td>
+                  <td>
+                    {formatMargin(preview.projectedMargin)}
+                    {preview.unconnected && <NoSharedOpponents />}
+                  </td>
+                  <td>{formatPct(preview.winProb)}</td>
+                  <td>
+                    <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
+                  </td>
+                  {onDrop && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => onDrop(preview.opponentId)}
+                        aria-label={`Remove ${preview.opponentName} from the report`}
+                        className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        // A card per opponent on a phone, for the reason the Next up list gives.
+        <ul className="mt-3 space-y-3" aria-label={label ?? heading}>
+          {rows.map((preview) => (
+            <li
+              key={preview.opponentId}
+              className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold wrap-break-word text-slate-950 dark:text-white">
+                    {preview.opponentName}
+                  </div>
+                  {placeOf(preview.opponentId) && (
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {placeOf(preview.opponentId)}
+                    </div>
+                  )}
+                </div>
+                {onDrop && (
+                  <button
+                    type="button"
+                    onClick={() => onDrop(preview.opponentId)}
+                    aria-label={`Remove ${preview.opponentName} from the report`}
+                    className="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Win chance</dt>
+                  <dd className="font-bold">{formatPct(preview.winProb)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Margin</dt>
+                  <dd className="font-bold">{formatMargin(preview.projectedMargin)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
+                  <dd className="font-bold">#{preview.opponentRank}</dd>
+                </div>
+              </dl>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
+                {preview.unconnected && <NoSharedOpponents />}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rows.length === 0 && empty && (
+        <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">{empty}</p>
+      )}
     </>
   );
 }
@@ -585,9 +719,14 @@ function WhatIfPanel({
         >
           <thead>
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              <th className="py-1">By</th>
-              <th>If we win ({curve.winRecord})</th>
-              <th>If we lose ({curve.lossRecord})</th>
+              {/* Padded apart: wrapped on a phone, two unpadded headers ran into one line. */}
+              <th className="py-1 pr-3">By</th>
+              <th className="pr-3">
+                If we win <span className="whitespace-nowrap">({curve.winRecord})</span>
+              </th>
+              <th>
+                If we lose <span className="whitespace-nowrap">({curve.lossRecord})</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -596,7 +735,7 @@ function WhatIfPanel({
               const runs = win.margin;
               return (
                 <tr key={runs} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="whitespace-nowrap py-2 font-semibold text-slate-700 dark:text-slate-200">
+                  <td className="py-2 pr-3 font-semibold text-slate-700 sm:whitespace-nowrap dark:text-slate-200">
                     {runsLabel(runs)}
                     {expected === runs && (
                       <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
@@ -604,17 +743,18 @@ function WhatIfPanel({
                       </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap">
+                  {/* Unbroken only where there is room: on a phone the note goes under the place. */}
+                  <td className="pr-3 sm:whitespace-nowrap">
                     #{win.rank}{" "}
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                       {placesMoved(standing.rank, win.rank)}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap">
+                  <td className="sm:whitespace-nowrap">
                     {loss ? (
                       <>
                         #{loss.rank}{" "}
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                        <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
                           {placesMoved(standing.rank, loss.rank)}
                         </span>
                       </>
