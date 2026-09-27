@@ -363,6 +363,14 @@ A pick is stored on the league team, so it rides that season's backup, duplicate
 and undo. Share links deliberately leave it out: a pool id is minted in the
 browser that made it and means nothing in anyone else's.
 
+A pick is by id, so a club the league reaches only through picks can be renamed on
+Team Rankings and keeps the league's games. A club any season reaches by its name
+(a guess, the roster's club of that name, or two picks that clash) has its name
+locked, because renaming it would move the league's copy of a game off the club
+while the pull's copy stayed, and the game would count twice. Renaming a picked
+club to another club's name merges the two and removes the club the pick pointed
+to, and the panel says that pick must be made again in Settings.
+
 **Team Rankings → League scores, on request.** Once a club pulls its own
 GameChanger team, every result of its league season is already in the pool, and
 typing those scores a second time into the league schedule is work the app can
