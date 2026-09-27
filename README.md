@@ -620,6 +620,33 @@ were — with the same result however far off the clocks, as any two schedules' 
 game are, or at the game's very start whatever it says, which is how an earlier join left two
 coaches' different scores at one start.
 
+**One row, one place.** A row folded into one game can also stand as a game of its own, or sit
+folded in a second. A refresh of a club's own page cannot see a cross-age copy of its game on the
+other club's page (`pullSections`), and filed the row again, against a stand-in where the name
+found nobody at that level. The regroup compares the rows of one pair on one day and never saw
+both, so the club counted the game twice: on the pool of 18:40, 26 September 2026, 246 rows stood
+as a game and sat folded in another, 10 more sat folded in two, and 155 counted twice for their own
+club. The tidy now keeps each row in one place (`oneRowOnePlace`). A row folded into two stays in
+the one ranked higher, as a repeated id is ranked, then the one whose own result agrees with it,
+then the one at its start: 5 Star Coastal Gold's 6-13 sat in CBU Georgia's own 13-6 and in the WA
+Bulldogs' blank copy, and there gave the Bulldogs a win GameChanger does not. A row standing as a
+game between two real clubs, or holding another schedule's row, stays standing and comes out of the
+other game. Otherwise the standing copy is the refresh's and goes, and its start, day and score, the
+newest word on the row, go onto the record in the other game for the regroup to read again. Unless
+the standing copy says the other game is another game: its own result has the club winning where
+the other game's own row has it losing or level, or the other game's only score is the one this row
+lent it. Written in regardless, Western Reserve's 5-6 loss to "Western 2" read as Milan winning 6-5
+a game Milan's own row lost 3-16, and a 9U club's only result, a tie lent by a row since scored
+11-6 against the Diamondbacks, became an 11-6 loss.
+
+On that pool the first tidy takes 2 passes and a second finds nothing. 230 games go; 155
+single-link records move, every one toward the club's own rows (124 onto them), and 146 toward
+GameChanger's own count (91 onto it). The 9 that move away from GameChanger's land on the club's own
+rows: the pool is missing games GameChanger has. No row is in two games after it, and none counts
+twice for its club. A club can still count twice where the other game stands on the other club's
+own row naming it, since which club that schedule meant is not the tidy's to say; Pool Health lists
+those, 512 of them where there were 647.
+
 Such a record answered for the club's row that day with no row to read. When the row came back
 filed against another name, the claim step took the game as holding the club's row already, and
 the row stood beside it, the same game ten minutes off, counted twice. So a pull now does two
@@ -781,7 +808,17 @@ against "Downingtown West Wolfpack Blue" was Downingtown Wolfpack Gold's own 3-1
 start, though the Gold play the Blue, but where the other club had played the named one the two
 names shared a word in 13% of the 30 pairs scored apart within the hour, about what chance gives.
 What a club has played is read off every row of its own schedules, whichever row a game stands on.
-Nor is an age typed into a name more than two levels from the one that club played at. Rows naming
+Nor is an age typed into a name more than two levels from the one that club played at. Nor, across
+regions, is the clock alone: with no result on one side or the other, a claim joins two clubs only
+in one state or two that border (`inOneRegion`), and the slot settle holds to the same, whatever
+the stand-in is called. A copy names a club because its coach typed a name the import found in the
+pool, and a common name is found in many places: a 9U club in North Liberty, Iowa, that played
+"Cubs" was filed against the 11U Cubs of Frisco, Texas, one of 75 teams of that name, and the Texas
+club's own 11-6 over the Diamondbacks at the same 15:45 went into the Iowa club's blank copy as its
+loss. Of the 3,714 claims on the pool of 26 September 2026, 7 joined clubs of two regions, 6 of
+them on scores that agree or nearly do; the seventh, a Connecticut club's blank row naming a New
+York team in an Indiana club's blank copy, goes back. It is a refusal once the day is read, not a
+weight in reading it, so a region never picks between two copies the clock could not. Rows naming
 one team on one day go to one club or none, and a row claimed away is no copy for another row to go
 into in the same pass.
 
@@ -1144,7 +1181,14 @@ games on the pool of 26 September 2026, where the same search a week off finds n
 pair that fits as well); a
 game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
-puller down in shorthand or scored the game differently at the same start time; a stand-in's rows
+puller down in shorthand or scored the game differently at the same start time, and where it has the
+game at its very start with the result mirrored against a slot, any stand-in, or a club of the
+puller's name whose own schedules never list it — then also to a club whose name fits the one the
+row names, in one region, and never onto the puller itself (the Padres and Marlins of one Texas rec
+league were filed crossed, each club's own row on the other's namesake; on the pool of 26 September
+2026 the first tidy moved 479 rows and left 404 fewer games, and 403 single-link records changed,
+400 toward the club's own rows and 262 onto them, found through an index of each club's own rows by
+start and score, since a lookup by name cost 6 s a pass); a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
 the one in the puller's own town; none in the state: the one in a bordering state, if exactly one
 is — on the stand-in fixtures export of 22 September 2026 that was the club the game itself named
