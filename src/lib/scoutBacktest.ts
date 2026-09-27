@@ -148,6 +148,11 @@ export type ScoutBacktestResult = {
    */
   errors?: Float32Array;
   ratedFlags?: Uint8Array;
+  /**
+   * The two sides of every held-out game, by an index of the run's own, in the same order: which
+   * games share a club, which is what makes their errors move together (`pairedImprovement`).
+   */
+  sides?: Uint32Array;
 };
 
 /** One held-out game as it was actually scored. The raw material for a paired comparison. */
@@ -501,6 +506,14 @@ export const backtestScoutRatings = (
   const residuals: ScoutResidual[] = [];
   const errors = options.keepErrors ? new Float32Array(test.length) : undefined;
   const ratedFlags = options.keepErrors ? new Uint8Array(test.length) : undefined;
+  const sides = options.keepErrors ? new Uint32Array(test.length * 2) : undefined;
+  const sideIndex = new Map<string, number>();
+  const sideOf = (teamId: string) => {
+    const known = sideIndex.get(teamId);
+    if (known !== undefined) return known;
+    sideIndex.set(teamId, sideIndex.size);
+    return sideIndex.size - 1;
+  };
 
   /** One accumulator per bucket, filled as the hold-out is scored. */
   const buckets = BUCKET_EDGES_DAYS.slice(0, -1).map((fromDays, at) => ({
@@ -532,9 +545,11 @@ export const backtestScoutRatings = (
       ratedErrorSum += error;
       ratedSamples += 1;
     }
-    if (errors && ratedFlags) {
+    if (errors && ratedFlags && sides) {
       errors[at] = error;
       ratedFlags[at] = seenBoth ? 1 : 0;
+      sides[at * 2] = sideOf(game.teamAId);
+      sides[at * 2 + 1] = sideOf(game.teamBId);
     }
     // What a model that knows nothing about either side would say: it will be close.
     baselineSum += Math.abs(actual);
@@ -591,7 +606,7 @@ export const backtestScoutRatings = (
     unratedSides,
     ratedError: ratedSamples === 0 ? null : ratedErrorSum / ratedSamples,
     ratedSamples,
-    ...(errors && ratedFlags ? { errors, ratedFlags } : {}),
+    ...(errors && ratedFlags && sides ? { errors, ratedFlags, sides } : {}),
     splitSamples,
     trainComponents: componentSizes.size,
     largestComponent: Math.max(0, ...componentSizes.values()),
@@ -800,8 +815,52 @@ export type ModelCheckAnswer = {
 
 /** Paired games below which no difference between two settings is called one. */
 export const MIN_PAIRED_GAMES = 30;
-/** Standard errors a difference must clear to be called better rather than chance. */
+/** Standard errors a difference must clear to be called better rather than chance, one rival. */
 const CLEARLY_BETTER = 2;
+
+/** The standard normal's upper tail, P(Z > z), to about seven places (Numerical Recipes' erfc). */
+const upperTail = (z: number): number => {
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.5 * x);
+  const erfc =
+    t *
+    Math.exp(
+      -x * x -
+        1.26551223 +
+        t *
+          (1.00002368 +
+            t *
+              (0.37409196 +
+                t *
+                  (0.09678418 +
+                    t *
+                      (-0.18628806 +
+                        t *
+                          (0.27886807 +
+                            t *
+                              (-1.13520398 +
+                                t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))
+    );
+  return z >= 0 ? erfc / 2 : 1 - erfc / 2;
+};
+
+/**
+ * The bar each of `rivals` settings tried against the one in use must clear: the chance the one
+ * rival's bar leaves, split between them (Bonferroni). Tried against one bar each, four or five
+ * rivals gave chance four or five goes at naming one of them better — 2 standard errors for one,
+ * about 2.53 for the four age gaps and 2.61 for the five caps.
+ */
+export const clearlyBetterBar = (rivals: number): number => {
+  const tail = upperTail(CLEARLY_BETTER) / Math.max(1, rivals);
+  let low = 0;
+  let high = 10;
+  for (let step = 0; step < 60; step += 1) {
+    const middle = (low + high) / 2;
+    if (upperTail(middle) > tail) low = middle;
+    else high = middle;
+  }
+  return high;
+};
 
 /**
  * How much lower `candidate`'s error is than `reference`'s over the same held-out games, game by
@@ -811,9 +870,11 @@ const CLEARLY_BETTER = 2;
  * move together far more than any two games do, so the differences spread far less than either
  * error does and the standard error says how far a gap in the averages can be trusted. On the 9U
  * 2027 pool of 27 September 2026 a year of age held at 1.5 read 0.0011 runs a game better than the
- * 2 in use over 21,986 games between rated clubs, and the card named it best; paired, that is 1.2
- * standard errors (0.00095), inside the noise. The same pool's cap of 12 read 0.050 runs a game
- * better than the 8 in use, 9.8 standard errors (0.0051), which is an answer.
+ * 2 in use over 21,986 games between rated clubs, and the card named it best; paired, that is 1.1
+ * standard errors (0.00099), inside the noise. The same pool's cap of 12 read 0.050 runs a game
+ * better than the 8 in use, 9.2 standard errors (0.0054), which is an answer. Counted by club, those
+ * errors are 4% and 6% wider than read as independent games, which held out games spread over
+ * thousands of clubs keep small; a handful of clubs' games would not.
  */
 export const pairedImprovement = (
   candidate: ScoutBacktestResult,
@@ -837,7 +898,40 @@ export const pairedImprovement = (
   if (samples < 2) return null;
   const by = sum / samples;
   const variance = Math.max(0, (squares - samples * by * by) / (samples - 1));
-  return { by, standardError: Math.sqrt(variance / samples), samples };
+  const independent = variance / samples;
+  const sides = reference.sides;
+  if (!sides || sides.length !== ours.length * 2) {
+    return { by, standardError: Math.sqrt(independent), samples };
+  }
+  /*
+   * Games are not independent draws: every game of a club leans on the one rating the fit gave it,
+   * so a setting that misreads a club misreads all its games alike. So each game's difference from
+   * the mean is summed within each of its two clubs and squared, which is the variance of the mean
+   * when games that share a club move together (dyadic clustering, Fafchamps and Gubert 2007). A
+   * game is in both its clubs' sums, which counts it, and any rematch of the same two, twice, so
+   * each pair of clubs' own sum, squared, is taken back once. The error given is never less than
+   * the independent reading.
+   */
+  const byClub = new Map<number, number>();
+  const byPair = new Map<number, number>();
+  const span = 2 ** 26;
+  for (let at = 0; at < ours.length; at += 1) {
+    if (ratedOnly && !rated?.[at]) continue;
+    const spread = theirs[at]! - ours[at]! - by;
+    const a = sides[at * 2]!;
+    const b = sides[at * 2 + 1]!;
+    byClub.set(a, (byClub.get(a) ?? 0) + spread);
+    // A club on both sides: the game is in that one club's sum, with nothing to take back.
+    if (b === a) continue;
+    byClub.set(b, (byClub.get(b) ?? 0) + spread);
+    const pair = Math.min(a, b) * span + Math.max(a, b);
+    byPair.set(pair, (byPair.get(pair) ?? 0) + spread);
+  }
+  let shared = 0;
+  byClub.forEach((total) => (shared += total * total));
+  byPair.forEach((total) => (shared -= total * total));
+  const clustered = shared / (samples * samples);
+  return { by, standardError: Math.sqrt(Math.max(independent, clustered)), samples };
 };
 
 /**
@@ -851,6 +945,7 @@ const clearlyBetter = (
   value: (result: ScoutBacktestResult) => number,
   ratedOnly: boolean
 ): ModelCheckImprovement | null => {
+  const bar = clearlyBetterBar(sorted.filter((rival) => rival !== reference).length);
   for (const rival of sorted) {
     if (rival === reference) continue;
     const paired = pairedImprovement(rival, reference, ratedOnly);
@@ -858,7 +953,7 @@ const clearlyBetter = (
       paired &&
       paired.samples >= MIN_PAIRED_GAMES &&
       paired.by > 0 &&
-      paired.by > CLEARLY_BETTER * paired.standardError
+      paired.by > bar * paired.standardError
     ) {
       return { value: value(rival), ...paired };
     }
@@ -868,7 +963,7 @@ const clearlyBetter = (
 
 /** A result without the per-game arrays the comparison needed, which the card has no use for. */
 const withoutErrors = (result: ScoutBacktestResult): ScoutBacktestResult => {
-  const { errors: _errors, ratedFlags: _rated, ...rest } = result;
+  const { errors: _errors, ratedFlags: _rated, sides: _sides, ...rest } = result;
   return rest;
 };
 

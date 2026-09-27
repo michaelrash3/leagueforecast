@@ -2015,13 +2015,18 @@ being a measurement.
 
 The card names another cap only when it predicted the held-back games clearly
 better than the one in use: paired game by game, since every row faces the same
-games, lower on average by more than twice the standard error of the
-differences, over thirty games or more (`pairedImprovement`). The lowest
-average alone is not enough — two settings' errors on one game move together,
-so a gap in the averages is only an answer once the pairing says how far it can
-be trusted. On the 9U 2027 pool of 27 September a cap of 12 read 0.050 runs a
-game better than eight over 31,581 held-back games, 9.8 standard errors, and ten
-read 0.034, 11.6; no cap at all read 0.032 worse, well inside its own spread.
+games, lower on average by more than the bar its rivals share, over thirty games
+or more (`pairedImprovement`). The lowest average alone is not enough — two
+settings' errors on one game move together, so a gap in the averages is only an
+answer once the pairing says how far it can be trusted. The standard error is
+counted by club, since every game of a club leans on the one rating the fit gave
+it, and never less than the games read as independent. The bar is two standard
+errors for one rival and rises with the rivals tried, the chance that two leaves
+split between them: 2.53 for the four age gaps and 2.61 for the five caps, as
+four or five tries at one bar of two would give chance that many goes at naming
+one. On the 9U 2027 pool of 27 September a cap of 12 read 0.050 runs a game
+better than eight over 31,581 held-back games, 9.2 standard errors, and ten read
+0.034, 10.9; no cap at all read 0.032 worse, well inside its own spread.
 
 #### Recent form
 
@@ -2103,7 +2108,7 @@ the one-year step read directly is smaller (0.34 ± 0.41 runs from 17U to 18U, o
 pool at 1, 1.5, 2, 2.5 and 3 and names another value only when it predicted the
 games between two rated clubs clearly better than two, by the same paired rule as
 the caps. On the pool of 27 September 1.5 read 0.0011 runs a game better over
-21,986 such games, 1.2 standard errors, and the card had named it best on that
+21,986 such games, 1.1 standard errors, and the card had named it best on that
 alone; 2.5 and 3 read clearly worse.
 
 **Pooling the fit is not pooling the tables.** Each level lists only its own

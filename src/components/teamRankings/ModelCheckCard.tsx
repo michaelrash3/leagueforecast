@@ -99,7 +99,7 @@ export function ModelCheckCard({
   const capRows = caps ? [...caps].sort((a, b) => a.cap - b.cap) : null;
   /*
    * Named only when it wins clearly, paired game by game against the value in use: the lowest
-   * average alone named a held age gap of 1.5 best on the 9U pool, 1.2 standard errors better than
+   * average alone named a held age gap of 1.5 best on the 9U pool, 1.1 standard errors better than
    * the 2 in use, which is noise (`pairedImprovement`).
    */
   const betterGap = shown?.betterGap ?? null;
