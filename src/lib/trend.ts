@@ -1,4 +1,6 @@
-import { calculateTeams, simulationSeed } from "./sim";
+import { attachAdjustedRatings, calculateTeams, simulationSeed } from "./sim";
+import { buildPredictionEngine, type ExternalResult } from "./predictionEngine";
+import { parseDateValue } from "./date";
 import { isFinal } from "./util";
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 
@@ -19,6 +21,14 @@ export type TrendState = { teams: Team[]; remaining: Matchup[]; seedText: string
  * right-hand end of the chart put the runaway leader on 2.4% while the season it is drawn beside
  * had them on 100%, and a team already eliminated on 28.2%. That end of the line is the one a
  * reader takes for where things stand.
+ *
+ * Each point also carries the opponent-adjusted rating the Gold % beside it is simulated with.
+ * The points were the league's records alone, while the column is simulated from teams carrying
+ * the rating (`attachAdjustedRatings`), so the line ended away from the number it stands beside:
+ * measured on a rebuilt league, The Generals at 69% in the column and 59% at the end of the line,
+ * and 7 points apart with no Team Rankings results at all. A point is rated from its own finals and
+ * the outside results played by its last game; the last point takes every outside result, so it is
+ * rated exactly as the column is. Past points move with this, which is the fix, not a side effect.
  */
 export const buildTrendStates = (
   teams: TeamBase[],
@@ -26,8 +36,15 @@ export const buildTrendStates = (
   logs: Record<string, GameLog>,
   /** Every game with a result, oldest first. */
   completedGames: Matchup[],
-  options: { states: number; goldCutoff: number; settings: Settings }
+  options: {
+    states: number;
+    goldCutoff: number;
+    settings: Settings;
+    /** Team Rankings results, as the forecast reads them (`buildPredictionEngine`). */
+    externalResults?: ExternalResult[];
+  }
 ): TrendState[] => {
+  const outside = options.externalResults ?? [];
   const drawn = completedGames.slice(-options.states);
   /*
    * Where the drawn window starts in the whole season. Everything before it happened and counts
@@ -43,8 +60,15 @@ export const buildTrendStates = (
       const log = logs[game.id];
       if (allowed.has(game.id) && log) stateLogs[game.id] = log;
     });
+    const asOf = calculateTeams(teams, matchups, stateLogs, options.settings);
+    const through = parseDateValue(completedGames[before + index - 1]?.date ?? "");
+    const played =
+      index === drawn.length
+        ? outside
+        : outside.filter((result) => parseDateValue(result.date ?? "") <= through);
+    const engine = buildPredictionEngine(asOf, matchups, stateLogs, options.settings, played);
     built.push({
-      teams: calculateTeams(teams, matchups, stateLogs, options.settings),
+      teams: attachAdjustedRatings(asOf, engine.ratings),
       remaining: matchups.filter((game) => !isFinal(stateLogs[game.id])),
       seedText: simulationSeed(
         matchups,

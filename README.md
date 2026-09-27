@@ -2336,7 +2336,13 @@ the deterministic story is shown. To exercise the AI path locally, run
   once every team's odds are known to two points by the same Wilson interval
   shown beside them, with a ceiling of 4,000 seasons, and the ± on screen is
   computed from the seasons actually played.
-- Hooks debounce updates and cancel in-flight runs.
+- Hooks debounce updates and cancel in-flight runs. A run is keyed on the counts,
+  the seed (every final score), the settings and each team's opponent-adjusted
+  rating as a value, so linking a club or a pull in Team Rankings re-simulates the
+  Gold %, champion odds and bracket, while typing into a game still in progress
+  does not. Each point of Gold Odds Over Recent Games carries the rating as of its
+  own last game, with the outside results played by then, and the last point is
+  rated exactly as the Gold % column is, so the line ends where the column stands.
 - Render lookups and scenario computations are memoized.
 - Simulation/projection apply evolving in-iteration team state for deterministic, non-stale forecasts.
 - Worker + inline fallback paths emit lightweight runtime timing debug logs (`[sim-worker]` / `[sim-inline]`).
