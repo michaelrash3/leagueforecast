@@ -146,6 +146,30 @@ describe("the seasons behind the Gold-odds trend", () => {
     expect(ratingOfF(last.teams)).toBeGreaterThan(ratingOfF(built[built.length - 1]!.teams)!);
   });
 
+  it("gives a point whose game has no date the outside results up to the last date it knows", () => {
+    // The last two finals were logged with no date, and F won a tournament game in December.
+    const undated = completed.map((game, at) =>
+      at >= completed.length - 2 ? { ...game, date: "" } : game
+    );
+    const outside: ExternalResult[] = [
+      { home: "F", away: "OUT-2", homeMargin: 8, date: "2026-12-20", neutral: true },
+    ];
+    const options = { states: 8, goldCutoff: 2, settings };
+    const rated = buildTrendStates(bases, matchups, logs, undated, {
+      ...options,
+      externalResults: outside,
+    });
+    const plain = buildTrendStates(bases, matchups, logs, undated, options);
+    // The point before the last knows the season to the day of its last dated game, before December.
+    expect(rated[rated.length - 2]!.teams).toEqual(plain[plain.length - 2]!.teams);
+    // The last point takes every result there is.
+    const ratingOfF = (teams: (typeof rated)[number]["teams"]) =>
+      teams.find((team) => team.id === "F")?.adjustedRating;
+    expect(ratingOfF(rated[rated.length - 1]!.teams)).toBeGreaterThan(
+      ratingOfF(plain[plain.length - 1]!.teams)!
+    );
+  });
+
   it("grows one game at a time, oldest point first", () => {
     const played = built.map((state) => state.teams.reduce((sum, team) => sum + team.games, 0) / 2);
 
