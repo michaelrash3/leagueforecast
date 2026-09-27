@@ -141,6 +141,13 @@ export type ScoutBacktestResult = {
    * Check card wants one number, not a few hundred rows.
    */
   residuals: ScoutResidual[];
+  /**
+   * Every held-out game's error, in hold-out order, when the caller asks (`keepErrors`), and which
+   * of them were between two sides the fit saw. Every run over one cut holds out the same games in
+   * the same order, so two runs' arrays line up game by game: what `pairedImprovement` compares.
+   */
+  errors?: Float32Array;
+  ratedFlags?: Uint8Array;
 };
 
 /** One held-out game as it was actually scored. The raw material for a paired comparison. */
@@ -216,6 +223,12 @@ export type ScoutBacktestOptions = {
   gapDays?: number;
   /** Keep every held-out game's own numbers. Off by default; a sweep needs them, a card does not. */
   keepResiduals?: boolean;
+  /**
+   * Keep every held-out game's error as a compact array (`ScoutBacktestResult.errors`): what the
+   * model check compares two settings on. Far lighter than `keepResiduals`, so it can cross from
+   * the rankings worker for every run of the check.
+   */
+  keepErrors?: boolean;
   /**
    * Cut on this day ("YYYY-MM-DD") instead of at a share of the rows. Takes precedence.
    *
@@ -486,6 +499,8 @@ export const backtestScoutRatings = (
   const componentSizes = new Map<string, number>();
   component.forEach((root) => componentSizes.set(root, (componentSizes.get(root) ?? 0) + 1));
   const residuals: ScoutResidual[] = [];
+  const errors = options.keepErrors ? new Float32Array(test.length) : undefined;
+  const ratedFlags = options.keepErrors ? new Uint8Array(test.length) : undefined;
 
   /** One accumulator per bucket, filled as the hold-out is scored. */
   const buckets = BUCKET_EDGES_DAYS.slice(0, -1).map((fromDays, at) => ({
@@ -498,7 +513,7 @@ export const backtestScoutRatings = (
     calledRight: 0,
   }));
 
-  test.forEach((entry) => {
+  test.forEach((entry, at) => {
     const { game, ageGap } = entry;
     const actual = clamp(ratedMargin(game)!, -scoreCap, scoreCap);
     const predicted =
@@ -516,6 +531,10 @@ export const backtestScoutRatings = (
     if (seenBoth) {
       ratedErrorSum += error;
       ratedSamples += 1;
+    }
+    if (errors && ratedFlags) {
+      errors[at] = error;
+      ratedFlags[at] = seenBoth ? 1 : 0;
     }
     // What a model that knows nothing about either side would say: it will be close.
     baselineSum += Math.abs(actual);
@@ -572,6 +591,7 @@ export const backtestScoutRatings = (
     unratedSides,
     ratedError: ratedSamples === 0 ? null : ratedErrorSum / ratedSamples,
     ratedSamples,
+    ...(errors && ratedFlags ? { errors, ratedFlags } : {}),
     splitSamples,
     trainComponents: componentSizes.size,
     largestComponent: Math.max(0, ...componentSizes.values()),
@@ -753,15 +773,103 @@ export const beatsTheBaseline = (result: ScoutBacktestResult): boolean | null =>
  * year, rather than for all eleven.
  */
 export const MODEL_CHECK_RUNS: readonly ScoutBacktestOptions[] = [
-  ...AGE_GAPS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior })),
-  ...RUN_CAPS_TO_TRY.map((cap) => ({ cap, scoreCap: Infinity })),
+  ...AGE_GAPS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior, keepErrors: true })),
+  ...RUN_CAPS_TO_TRY.map((cap) => ({ cap, scoreCap: Infinity, keepErrors: true })),
 ];
+
+/** A setting that predicted the held-back games better than the one in use, and by how much. */
+export type ModelCheckImprovement = {
+  /** The held age gap or the cap. */
+  value: number;
+  /** Runs a game by which its error is lower, paired game by game. */
+  by: number;
+  standardError: number;
+  samples: number;
+};
 
 /** What the Model check card shows. */
 export type ModelCheckAnswer = {
   result: ScoutBacktestResult;
   gaps: ScoutBacktestResult[];
   caps: ScoutBacktestResult[];
+  /** The held age gap that predicted the games between rated clubs clearly better, if one did. */
+  betterGap: ModelCheckImprovement | null;
+  /** The cap that predicted the held-back games clearly better than the one in use, if one did. */
+  betterCap: ModelCheckImprovement | null;
+};
+
+/** Paired games below which no difference between two settings is called one. */
+export const MIN_PAIRED_GAMES = 30;
+/** Standard errors a difference must clear to be called better rather than chance. */
+const CLEARLY_BETTER = 2;
+
+/**
+ * How much lower `candidate`'s error is than `reference`'s over the same held-out games, game by
+ * game, and the standard error of that: null where the two were not kept or do not line up.
+ *
+ * Paired because every setting faces the identical games, and two settings' errors on one game
+ * move together far more than any two games do, so the differences spread far less than either
+ * error does and the standard error says how far a gap in the averages can be trusted. On the 9U
+ * 2027 pool of 27 September 2026 a year of age held at 1.5 read 0.0011 runs a game better than the
+ * 2 in use over 21,986 games between rated clubs, and the card named it best; paired, that is 1.2
+ * standard errors (0.00095), inside the noise. The same pool's cap of 12 read 0.050 runs a game
+ * better than the 8 in use, 9.8 standard errors (0.0051), which is an answer.
+ */
+export const pairedImprovement = (
+  candidate: ScoutBacktestResult,
+  reference: ScoutBacktestResult,
+  ratedOnly: boolean
+): { by: number; standardError: number; samples: number } | null => {
+  const ours = candidate.errors;
+  const theirs = reference.errors;
+  const rated = reference.ratedFlags;
+  if (!ours || !theirs || ours.length !== theirs.length) return null;
+  let samples = 0;
+  let sum = 0;
+  let squares = 0;
+  for (let at = 0; at < ours.length; at += 1) {
+    if (ratedOnly && !rated?.[at]) continue;
+    const lower = theirs[at]! - ours[at]!;
+    samples += 1;
+    sum += lower;
+    squares += lower * lower;
+  }
+  if (samples < 2) return null;
+  const by = sum / samples;
+  const variance = Math.max(0, (squares - samples * by * by) / (samples - 1));
+  return { by, standardError: Math.sqrt(variance / samples), samples };
+};
+
+/**
+ * The best of `sorted` (best first) that beats `reference` clearly, or null. Down the list rather
+ * than only its head, since the lowest average can carry the widest spread and a runner-up with a
+ * tighter one can be the only clear answer.
+ */
+const clearlyBetter = (
+  sorted: readonly ScoutBacktestResult[],
+  reference: ScoutBacktestResult,
+  value: (result: ScoutBacktestResult) => number,
+  ratedOnly: boolean
+): ModelCheckImprovement | null => {
+  for (const rival of sorted) {
+    if (rival === reference) continue;
+    const paired = pairedImprovement(rival, reference, ratedOnly);
+    if (
+      paired &&
+      paired.samples >= MIN_PAIRED_GAMES &&
+      paired.by > 0 &&
+      paired.by > CLEARLY_BETTER * paired.standardError
+    ) {
+      return { value: value(rival), ...paired };
+    }
+  }
+  return null;
+};
+
+/** A result without the per-game arrays the comparison needed, which the card has no use for. */
+const withoutErrors = (result: ScoutBacktestResult): ScoutBacktestResult => {
+  const { errors: _errors, ratedFlags: _rated, ...rest } = result;
+  return rest;
 };
 
 const bestFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
@@ -773,7 +881,16 @@ export const modelCheckAnswer = (results: readonly ScoutBacktestResult[]): Model
   const caps = results.slice(AGE_GAPS_TO_TRY.length);
   const plain = gaps[AGE_GAPS_TO_TRY.indexOf(AGE_GAP_RUNS_PER_YEAR)];
   if (!plain) throw new Error("The gaps tried must include the default one.");
-  return { result: plain, gaps: [...gaps].sort(bestRatedFirst), caps: [...caps].sort(bestFirst) };
+  const gapsBest = [...gaps].sort(bestRatedFirst);
+  const capsBest = [...caps].sort(bestFirst);
+  const inUse = caps.find((result) => result.cap === RATING_CAP);
+  return {
+    result: withoutErrors(plain),
+    gaps: gapsBest.map(withoutErrors),
+    caps: capsBest.map(withoutErrors),
+    betterGap: clearlyBetter(gapsBest, plain, (result) => result.ageGapPrior, true),
+    betterCap: inUse ? clearlyBetter(capsBest, inUse, (result) => result.cap, false) : null,
+  };
 };
 
 /** The whole check in one call, for a pool small enough to be worked out on the page. */

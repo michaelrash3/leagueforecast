@@ -93,6 +93,7 @@ describe("the model check while it is worked out", () => {
     const unrated: ModelCheckAnswer = {
       ...answer,
       result: { ...answer.result, crossAgeSamples: 3 },
+      betterGap: null,
       gaps: [1, 1.5, 2, 2.5, 3].map((ageGapPrior) => ({
         ...answer.result,
         ageGapPrior,

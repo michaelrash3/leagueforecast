@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { beatsTheBaseline, checkTheModel, type ModelCheckAnswer } from "../../lib/scoutBacktest";
+import {
+  beatsTheBaseline,
+  checkTheModel,
+  MIN_PAIRED_GAMES,
+  type ModelCheckAnswer,
+  type ModelCheckImprovement,
+} from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR } from "../../lib/powerRating";
@@ -25,6 +31,14 @@ const percent = (value: number | null): string =>
 
 /** The sweep's open end is `Infinity`, which has to read as a sentence rather than as a number. */
 const capName = (cap: number): string => (Number.isFinite(cap) ? `${cap} runs` : "No cap");
+
+/** A cap as the subject of a sentence, where "No cap predicted…" would read as its opposite. */
+const capSubject = (cap: number): string =>
+  Number.isFinite(cap) ? `A cap of ${cap} runs` : "Leaving margins uncapped";
+
+/** How much better, and how sure: the paired margin and its standard error, in words. */
+const byHowMuch = (better: ModelCheckImprovement): string =>
+  `${better.by.toFixed(3)} runs a game lower, give or take ${better.standardError.toFixed(3)}`;
 
 /**
  * Whether the ratings on this page predict anything.
@@ -83,7 +97,14 @@ export function ModelCheckCard({
   const bestGap = gaps?.[0];
   /** In the order they were tried, not best first, so the curve can be read down the column. */
   const capRows = caps ? [...caps].sort((a, b) => a.cap - b.cap) : null;
-  const bestCap = caps?.[0];
+  /*
+   * Named only when it wins clearly, paired game by game against the value in use: the lowest
+   * average alone named a held age gap of 1.5 best on the 9U pool, 1.2 standard errors better than
+   * the 2 in use, which is noise (`pairedImprovement`).
+   */
+  const betterGap = shown?.betterGap ?? null;
+  const betterCap = shown?.betterCap ?? null;
+  const boldCap = betterCap?.value ?? RATING_CAP;
 
   return (
     <div className={`${card} p-5`}>
@@ -168,9 +189,11 @@ export function ModelCheckCard({
                   {result.crossAgeSamples === 1 ? "" : "s"}.
                   {!bestGap || bestGap.ratedError === null
                     ? " None of the held-back games was between two clubs rated before it, so the values held cannot be compared here."
-                    : bestGap.ageGapPrior !== result.ageGapPrior
-                      ? ` Held at ${bestGap.ageGapPrior} instead, the ratings predicted the ${bestGap.ratedSamples} held-back games between two rated clubs best.`
-                      : " No other value held predicted the held-back games between two rated clubs better."}
+                    : betterGap
+                      ? ` Held at ${betterGap.value} instead, the ratings predicted the ${betterGap.samples} held-back games between two rated clubs better: ${byHowMuch(betterGap)}.`
+                      : result.ratedSamples < MIN_PAIRED_GAMES
+                        ? ` Only ${result.ratedSamples} held-back game${result.ratedSamples === 1 ? " was" : "s were"} between two rated clubs, too few to tell the values held apart.`
+                        : ` No other value held predicted the ${result.ratedSamples} held-back games between two rated clubs better by more than chance.`}
                 </p>
               )}
               <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -213,7 +236,7 @@ export function ModelCheckCard({
                               </span>
                             )}
                           </td>
-                          <td className={row.cap === bestCap?.cap ? "font-bold" : ""}>
+                          <td className={row.cap === boldCap ? "font-bold" : ""}>
                             {runs(row.meanAbsoluteError)}
                           </td>
                           <td>{percent(row.winnerAccuracy)}</td>
@@ -221,13 +244,13 @@ export function ModelCheckCard({
                       ))}
                     </tbody>
                   </table>
-                  {bestCap && (
-                    <p className="mt-2 text-slate-700 dark:text-slate-200">
-                      {bestCap.cap === RATING_CAP
-                        ? `${RATING_CAP} predicted these games best, so the number in use is the one this pool wants.`
-                        : `${capName(bestCap.cap)} predicted these games best — ${runs(bestCap.meanAbsoluteError)} against ${runs(capRows.find((row) => row.cap === RATING_CAP)?.meanAbsoluteError ?? null)} at the ${RATING_CAP} in use.`}
-                    </p>
-                  )}
+                  <p className="mt-2 text-slate-700 dark:text-slate-200">
+                    {betterCap
+                      ? `${capSubject(betterCap.value)} predicted these games better than the ${RATING_CAP} in use — ${runs(capRows.find((row) => row.cap === betterCap.value)?.meanAbsoluteError ?? null)} against ${runs(capRows.find((row) => row.cap === RATING_CAP)?.meanAbsoluteError ?? null)}, ${byHowMuch(betterCap)}.`
+                      : capRows[0]!.sampleSize < MIN_PAIRED_GAMES
+                        ? `Only ${capRows[0]!.sampleSize} held-back game${capRows[0]!.sampleSize === 1 ? "" : "s"}, too few to tell the caps apart, so the ${RATING_CAP} in use stands.`
+                        : `No other cap predicted these games better than the ${RATING_CAP} in use by more than chance, so it stands.`}
+                  </p>
                 </div>
               ) : (
                 <p className="mt-1 text-slate-500 dark:text-slate-400">
