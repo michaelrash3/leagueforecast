@@ -79,9 +79,10 @@ function Evidence({ row }: { row: AgelessRow }) {
  * the two things somebody needs to go and look the team up — with a link straight to its page, and
  * whatever was kept about it at the moment it was refused.
  *
- * Nothing here is coloured by how invented a team looks. That number orders the queue and does
- * nothing else: an empty schedule is a club somebody made this morning as often as it is a
- * fiction, and a roster of six in September is twelve in October.
+ * Nothing here is coloured by how unlikely a team looks. That orders the queue — the least likely
+ * to be real first, then the high school sides, as the user asked — and a row sorted up says why
+ * in a line of plain text, and that is all: an empty schedule is a club somebody made this morning
+ * as often as it is a fiction, and a roster of six in September is twelve in October.
  */
 /** What stands between a team somebody found and the queue, said plainly. */
 const ASIDE_NOTE: Record<AgelessAside, string> = {
@@ -149,6 +150,14 @@ function Row({
       {aside && (
         <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
           {ASIDE_NOTE[aside]}
+        </p>
+      )}
+      {row.standing && (
+        <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          {row.standing.group === "unlikely"
+            ? "Up first, as unlikely to be a real team: "
+            : "Up next, as probably a high school side: "}
+          {row.standing.because}.
         </p>
       )}
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{row.why}</p>

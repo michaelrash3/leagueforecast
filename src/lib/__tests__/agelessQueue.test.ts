@@ -46,25 +46,102 @@ describe("the queue of teams waiting on an answer", () => {
   });
 
   /**
-   * Ten rows is a sitting whether they are junk or not, so the ones that decide something come
-   * first and the pages that look made up sink. A fiction is quick to throw out from anywhere in
-   * the list; a real club can only be aged from the front of it.
+   * The user's order, from 27 September 2026: the teams least likely to be real first, then the
+   * high school sides, then everyone else, least likely real first throughout. Working the list is
+   * clearing it, and the junk clears fastest.
    */
-  it("puts the likeliest real teams first and the made-up-looking ones last", () => {
+  it("puts the teams least likely to be real first", () => {
     const list: AgeUnknownList = [
+      team("honest", { evidence: evidence(), lastTried: daysBefore(11) }),
+      // Half its games on days that have not happened: less likely than honest, not past the cut.
+      team("iffy", { evidence: evidence({ aheadOfToday: 2 }) }),
       // Every game scored on a day that has not happened, all of them shutout blowouts.
       team("invented", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
       }),
-      team("honest", { evidence: evidence(), lastTried: daysBefore(11) }),
-      // Half its games on days that have not happened: worse than honest, better than invented.
-      team("iffy", { evidence: evidence({ aheadOfToday: 2 }) }),
     ];
-    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual([
-      "honest",
-      "iffy",
-      "invented",
-    ]);
+    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
+    expect(batchIds(waiting)).toEqual(["invented", "iffy", "honest"]);
+    expect(waiting[0]!.standing).toEqual({
+      group: "unlikely",
+      because: "you cannot score a game early",
+    });
+    expect(waiting[1]!.standing).toBeUndefined();
+  });
+
+  it("puts a name nobody gives a team that plays first, and says so", () => {
+    const list: AgeUnknownList = [
+      team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
+      team("test", { name: "Test", evidence: evidence({ games: 0, scored: 0 }) }),
+      team("practice", { name: "Practice GC", evidence: evidence() }),
+      team("default", { name: "Team 1", evidence: evidence() }),
+      team("digits", { name: "12345", evidence: evidence() }),
+      team("delete", { name: "Delete Me!!", evidence: evidence() }),
+      // Letters of any script: a club in Taipei is a club.
+      team("taipei", { name: "統一獅隊 2025", evidence: evidence() }),
+    ];
+    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
+    const unlikely = waiting.filter((row) => row.standing?.group === "unlikely");
+
+    expect(unlikely.map((row) => row.entry.teamId).sort()).toEqual(
+      ["default", "delete", "digits", "practice", "test"].sort()
+    );
+    expect(batchIds(waiting).slice(-2).sort()).toEqual(["real", "taipei"]);
+    expect(waiting.find((row) => row.entry.teamId === "practice")!.standing!.because).toBe(
+      "the name reads as a test, practice or placeholder account"
+    );
+  });
+
+  it("puts the high school sides next, before everyone else", () => {
+    const list: AgeUnknownList = [
+      team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
+      team("initials", {
+        name: "LCHS Fall Ball 2026",
+        evidence: evidence({ ageLabel: "Between 13 - 18" }),
+      }),
+      team("hyphen", { name: "Tigers High-school", evidence: evidence() }),
+      team("freshman", { name: "Waunakee Freshman Fall Ball", evidence: evidence() }),
+      team("plays", {
+        name: "Hendrickson Fall Ball",
+        evidence: evidence({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
+      }),
+      team("test", { name: "Test", evidence: evidence() }),
+    ];
+    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
+
+    expect(batchIds(waiting)[0]).toBe("test");
+    expect(batchIds(waiting).slice(1, 5).sort()).toEqual(
+      ["freshman", "hyphen", "initials", "plays"].sort()
+    );
+    expect(batchIds(waiting)[5]).toBe("real");
+    expect(waiting.find((row) => row.entry.teamId === "plays")!.standing).toEqual({
+      group: "school",
+      because: "it plays varsity and JV sides",
+    });
+  });
+
+  it("does not call a side GameChanger bands under thirteen a high school one", () => {
+    const list: AgeUnknownList = [
+      team("young", { name: "DHS Trailblazers", evidence: evidence({ ageLabel: "Under 13" }) }),
+    ];
+    expect(agelessWaiting(list, new Map(), new Set(), NOW)[0]!.standing).toBeUndefined();
+  });
+
+  it("keeps the groups in order whatever the evidence says within them", () => {
+    const list: AgeUnknownList = [
+      // More against it than the school side, but not enough to be sorted with the junk.
+      team("iffy", { name: "Mears 1 - 2026", evidence: evidence({ aheadOfToday: 3 }) }),
+      team("school", { name: "Tigers High-school", evidence: evidence() }),
+    ];
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["school", "iffy"]);
+  });
+
+  it("puts an empty schedule ahead of a team with games, other things equal", () => {
+    const list: AgeUnknownList = [
+      team("played", { name: "Mears 1 - 2026", evidence: evidence() }),
+      team("empty", { name: "Mears 2 - 2026", evidence: evidence({ games: 0, scored: 0 }) }),
+    ];
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["empty", "played"]);
   });
 
   it("stops asking a person about a team whose name says a high school squad", () => {
