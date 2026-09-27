@@ -39,8 +39,12 @@ type TeamDetailPanelProps = {
    */
   segment?: SeasonSegment;
   teamNameById: Map<string, string>;
-  /** League-derived teams are named by League Standings, so their name is not ours to change. */
-  fromLeague: boolean;
+  /**
+   * How League Standings reaches this club on the page, if it does. By `"name"` — its roster's
+   * name, a guess, or picks that clash — the name is the link, so it is not ours to change. By
+   * `"pick"` alone the link is the club's id, which a new name keeps.
+   */
+  leagueLink?: "name" | "pick";
   onRename: (nextName: string) => void;
   /** Two letters, or empty to clear it. */
   onSetState: (state: string) => void;
@@ -82,7 +86,7 @@ export function TeamDetailPanel({
   ageGroups,
   segment,
   teamNameById,
-  fromLeague,
+  leagueLink,
   onRename,
   onSetState,
   onUnlinkGc,
@@ -220,20 +224,20 @@ export function TeamDetailPanel({
             id="scout-team-rename"
             type="text"
             value={draftName}
-            disabled={fromLeague}
+            disabled={leagueLink === "name"}
             onChange={(event) => setDraftName(event.target.value)}
             className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
           />
           <button
             type="button"
-            disabled={fromLeague || !renamed}
+            disabled={leagueLink === "name" || !renamed}
             onClick={() => onRename(trimmed)}
             className={button.ghost}
           >
             {wouldMerge ? "Merge" : "Rename"}
           </button>
         </div>
-        {fromLeague ? (
+        {leagueLink === "name" ? (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             This team comes from a League Standings season, so its name is set there.
           </p>
@@ -241,6 +245,13 @@ export function TeamDetailPanel({
           <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
             A team is already called that. Saving moves every game from this one over to it and
             removes this one — which is how a placeholder gets routed to the real team.
+            {leagueLink === "pick" &&
+              " League Standings' pick of this club is left pointing at nothing, so pick the club again in Settings."}
+          </p>
+        ) : leagueLink === "pick" ? (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            A League Standings team is linked to this club by your pick in Settings, which a new
+            name here keeps.
           </p>
         ) : team.placeholder ? (
           <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">

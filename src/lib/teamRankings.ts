@@ -262,14 +262,27 @@ export const deriveLeagueScoutGames = (
    * reaches still goes by its name, as before.
    */
   pool?: { games: ScoutGame[]; ageGroups: AgeGroup[] }
-): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+): {
+  teams: ScoutTeam[];
+  games: ScoutGame[];
+  /** The clubs a league game was carried onto because a person picked the club in Settings. */
+  pickedClubIds: Set<string>;
+  /**
+   * The clubs one was carried onto by a name: a guess, or the roster's club of the league team's
+   * name. Renaming one of these moves the league's games off it, where a pick holds by id.
+   */
+  namedClubIds: Set<string>;
+} => {
   let teams = scoutTeams;
   const games: ScoutGame[] = [];
+  const pickedClubIds = new Set<string>();
+  const namedClubIds = new Set<string>();
 
   seasons.forEach(
     ({ seasonId, teams: leagueTeams, matchups: leagueMatchups, logs: leagueLogs }) => {
       const leagueNameById = new Map(leagueTeams.map((team) => [team.id, team.name]));
       const clubByLeagueId = new Map<string, string>();
+      const pickedLeagueIds = new Set<string>();
       if (pool && leagueTeams.length > 0) {
         const fixtures = leagueMatchups.map((matchup) => ({
           away: leagueNameById.get(matchup.away) ?? "",
@@ -279,7 +292,9 @@ export const deriveLeagueScoutGames = (
         linkLeagueTeams(seasonId, pool.ageGroups, teams, pool.games, leagueTeams, fixtures)
           .rows.filter((row) => row.how === "picked" || row.how === "guessed")
           .forEach((row) => {
-            if (row.scoutTeamId) clubByLeagueId.set(row.leagueTeamId, row.scoutTeamId);
+            if (!row.scoutTeamId) return;
+            clubByLeagueId.set(row.leagueTeamId, row.scoutTeamId);
+            if (row.how === "picked") pickedLeagueIds.add(row.leagueTeamId);
           });
       }
       const resolvedIdByLeagueId = new Map<string, string>();
@@ -298,11 +313,15 @@ export const deriveLeagueScoutGames = (
         resolvedIdByLeagueId.set(leagueId, result.teamId);
         return result.teamId;
       };
+      const noteHow = (leagueId: string, clubId: string) =>
+        (pickedLeagueIds.has(leagueId) ? pickedClubIds : namedClubIds).add(clubId);
 
       leagueMatchups.forEach((matchup) => {
         const teamAId = resolveLeagueTeam(matchup.away);
         const teamBId = resolveLeagueTeam(matchup.home);
         if (!teamAId || !teamBId) return;
+        noteHow(matchup.away, teamAId);
+        noteHow(matchup.home, teamBId);
 
         const log = leagueLogs[matchup.id];
         const awayScore = scoreFor(log, "away");
@@ -321,7 +340,7 @@ export const deriveLeagueScoutGames = (
     }
   );
 
-  return { teams, games };
+  return { teams, games, pickedClubIds, namedClubIds };
 };
 
 /**

@@ -628,6 +628,8 @@ export function TeamRankingsView({
   const allKnown = useMemo(() => {
     let teams = scoutTeams;
     const derivedGames: ScoutGame[] = [];
+    const picked = new Set<string>();
+    const named = new Set<string>();
     const stored = { games: scoutGames, ageGroups };
     ageGroups.forEach((group) => {
       const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
@@ -640,6 +642,8 @@ export function TeamRankingsView({
       const derived = deriveLeagueScoutGames(group.id, seasons, teams, ageGroupYear(group), stored);
       teams = derived.teams;
       derivedGames.push(...derived.games);
+      derived.pickedClubIds.forEach((id) => picked.add(id));
+      derived.namedClubIds.forEach((id) => named.add(id));
     });
     // `derivedGames` stays whole — `leagueGameTeamIds` reads it to decide which teams arrived from
     // the league — while the pool every rating, record and page is built from gets one row per
@@ -647,6 +651,13 @@ export function TeamRankingsView({
     return {
       teams,
       derivedGames,
+      /*
+       * The clubs League Standings reaches only through a person's pick, on every page. A pick
+       * holds by id, so a new name keeps the league's games where they are; a club any season
+       * reaches by its name, a guess or two teams' clashing picks included, loses them to the
+       * rename, and stays locked.
+       */
+      pickedOnly: new Set([...picked].filter((id) => !named.has(id))),
       games: dedupeLeagueFixtures(
         [...derivedGames, ...scoutGames],
         leagueStandIns(teams, ageGroups)
@@ -2270,7 +2281,13 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           {...(selectedSegment === undefined ? {} : { segment: selectedSegment })}
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}
-          fromLeague={leagueGameTeamIds.has(openTeam.id)}
+          leagueLink={
+            leagueGameTeamIds.has(openTeam.id)
+              ? allKnown.pickedOnly.has(openTeam.id)
+                ? "pick"
+                : "name"
+              : undefined
+          }
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
           onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}
           onMergeInto={(intoTeamId) => void mergeInto(openTeam.id, intoTeamId)}

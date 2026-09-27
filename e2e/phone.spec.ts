@@ -70,3 +70,51 @@ test("on a phone every bracket score box sits on screen and the title odds read 
     .boundingBox();
   expect(bar!.width).toBeGreaterThan(100);
 });
+
+/*
+ * The header on a phone. The theme toggle sat at the end of the controls, and fell to a row of its
+ * own under the season picker whenever the season's name was long — the demo's is — and on Team
+ * Rankings always, pushing the page 54px down the first screen: measured from the title, the demo's
+ * Standings started at 435.5px and Team Rankings at 151px, against 381.5px and 97px with the toggle
+ * in the title row, the logo's size, where it costs nothing.
+ */
+test.describe("the header on a phone", () => {
+  test.use({ viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });
+
+  /**
+   * Where the toggle and the page start, measured from the title rather than the screen: the tab
+   * switch keeps Settings' scroll, so the screen's top is wherever Load Demo was.
+   */
+  const header = async (page: Page) => {
+    const title = (await page.getByRole("heading", { level: 1 }).boundingBox())!;
+    const toggle = (await page
+      .getByRole("button", { name: /Switch to (dark|light) mode/ })
+      .filter({ visible: true })
+      .boundingBox())!;
+    const main = (await page.locator("main").first().boundingBox())!;
+    return {
+      toggleMiddle: toggle.y + toggle.height / 2 - title.y,
+      titleHeight: title.height,
+      mainBelowTitle: main.y - title.y,
+    };
+  };
+
+  test("keeps the theme toggle in the title row and the page high", async ({ page }) => {
+    await page.goto("/");
+    await tab(page, "Settings").click();
+    await page.getByRole("button", { name: "Load Demo" }).click();
+    const confirm = page.getByRole("button", { name: "Load demo" });
+    if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+    await tab(page, "Standings").click();
+
+    const league = await header(page);
+    // On the title's line: its middle within the title's box.
+    expect(league.toggleMiddle).toBeGreaterThan(0);
+    expect(league.toggleMiddle).toBeLessThan(league.titleHeight);
+    expect(league.mainBelowTitle).toBeLessThanOrEqual(400);
+
+    await tab(page, "Team Rankings").click();
+    const rankings = await header(page);
+    expect(rankings.mainBelowTitle).toBeLessThanOrEqual(120);
+  });
+});

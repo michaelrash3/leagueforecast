@@ -2285,6 +2285,19 @@ export default function App() {
     group: s.group,
   }));
 
+  /** The light/dark switch, placed by the caller: in the title row on a phone, with the controls from `lg`. */
+  const themeToggle = (placement: string) => (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      className={`${placement} items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-800 shadow-xs hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800`}
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {theme === "dark" ? "☀" : "☾"}
+    </button>
+  );
+
   return (
     <>
       {/*
@@ -2317,6 +2330,12 @@ export default function App() {
                 <h1 className="text-2xl font-black tracking-[-0.04em] text-slate-950 dark:text-white">
                   League Forecast
                 </h1>
+                {/*
+                 * Below `lg` the theme toggle sits in the title row, the logo's size. At the end of
+                 * the controls it fell to a row of its own on a phone whenever the season's name was
+                 * long, and on Team Rankings always: 54px of the first screen for one button.
+                 */}
+                {themeToggle("ml-auto inline-flex h-10 w-10 shrink-0 lg:hidden")}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div
@@ -2385,15 +2404,7 @@ export default function App() {
                     Reload update
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-sm font-bold text-slate-800 shadow-xs hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  {theme === "dark" ? "☀" : "☾"}
-                </button>
+                {themeToggle("hidden p-3 lg:inline-flex")}
               </div>
             </div>
 
