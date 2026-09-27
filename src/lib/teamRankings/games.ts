@@ -414,7 +414,9 @@ export const leagueCopiesFiledAgainstNobody = (
     const day = normalizeDateInput(game.date ?? "");
     if (!day) return;
     // By the league row's id, which a fixture keeps on every page that claims its season: one
-    // game read off two pages of a year is still the one fit.
+    // game read off two pages of a year is still the one fit. And by the year: a season pages of two
+    // years claim is dated into each, and one year's copy and the other's in one bucket paired
+    // neither.
     const fits = new Set<string>();
     (
       [
@@ -432,7 +434,9 @@ export const leagueCopiesFiledAgainstNobody = (
         if (opponentId === sideId) return;
         const result = scoreSeenBy(league, clubId);
         if (!result || result.own !== seen.own || result.opponent !== seen.opponent) return;
-        if (roster.standsInFor(sideId, opponentId)) fits.add(`${league.id}|${clubId}`);
+        if (roster.standsInFor(sideId, opponentId)) {
+          fits.add(`${poolOf(league.ageGroupId)}|${league.id}|${clubId}`);
+        }
       });
     });
     if (fits.size !== 1) return;
