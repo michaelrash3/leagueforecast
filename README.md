@@ -1181,7 +1181,14 @@ games on the pool of 26 September 2026, where the same search a week off finds n
 pair that fits as well); a
 game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
-puller down in shorthand or scored the game differently at the same start time; a stand-in's rows
+puller down in shorthand or scored the game differently at the same start time, and where it has the
+game at its very start with the result mirrored against a slot, any stand-in, or a club of the
+puller's name whose own schedules never list it — then also to a club whose name fits the one the
+row names, in one region, and never onto the puller itself (the Padres and Marlins of one Texas rec
+league were filed crossed, each club's own row on the other's namesake; on the pool of 26 September
+2026 the first tidy moved 479 rows and left 404 fewer games, and 403 single-link records changed,
+400 toward the club's own rows and 262 onto them, found through an index of each club's own rows by
+start and score, since a lookup by name cost 6 s a pass); a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
 the one in the puller's own town; none in the state: the one in a bordering state, if exactly one
 is — on the stand-in fixtures export of 22 September 2026 that was the club the game itself named

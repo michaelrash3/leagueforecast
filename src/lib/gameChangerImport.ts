@@ -5231,6 +5231,56 @@ export const reclaimMisfiled = (
     });
   };
 
+  /*
+   * Each pulled club's own scored rows, by start minute and the result from the club's own seat:
+   * where a club's own row of a game is, found by the game rather than by the club's name. Looking
+   * each namesake up by name instead cost about 6 s a pass on the pool of 26 September 2026.
+   */
+  const ownAtStart = new Map<string, { clubId: string; own: ScoutGame }[]>();
+  const atStartKey = (minute: number, club: number, other: number) => `${minute}|${club}-${other}`;
+  state.games.forEach((game) => {
+    if (!isScored(game) || game.scoreFromB || game.scoreFromTwin) return;
+    const minute = startMinuteOf(game.startTs);
+    if (minute === undefined || !isOwnRow(game, game.teamAId)) return;
+    push(ownAtStart, atStartKey(minute, game.teamAScore!, game.teamBScore!), {
+      clubId: game.teamAId,
+      own: game,
+    });
+  });
+  /**
+   * The clubs whose own schedule has `row` at its very start with the result mirrored, against the
+   * puller or against a team that could be the puller by another name: a slot, any stand-in, or a
+   * pulled club named like the puller whose own schedules never list the game. What `holds` asks of
+   * one club, asked of the game, and without the name: a coach who typed the puller as "TBD", or as
+   * a name another club of the puller's name was pulled under, still wrote this game down, at this
+   * start, with this score. The puller's own row is among them where the game was a tie against a
+   * club of its own name, and is never a holder (below).
+   */
+  const atTheStart = (row: ScoutGame, pullerId: string): Set<string> => {
+    const minute = startMinuteOf(row.startTs);
+    const rowClub = score(row, row.teamAId === pullerId ? row.teamBId : row.teamAId);
+    const rowPuller = score(row, pullerId);
+    const puller = teamById.get(pullerId);
+    if (minute === undefined || rowClub === undefined || rowPuller === undefined || !puller) {
+      return new Set();
+    }
+    const found = new Set<string>();
+    (ownAtStart.get(atStartKey(minute, rowClub, rowPuller)) ?? []).forEach(({ clubId, own }) => {
+      const other = own.teamBId;
+      const vs = teamById.get(other);
+      const standsFor =
+        other === pullerId ||
+        vs?.placeholder === true ||
+        vs?.nameOnly === true ||
+        (vs !== undefined &&
+          Boolean(vs.gcTeams?.length) &&
+          (teamNameKey(vs.name) === teamNameKey(puller.name) || fits(vs.name, puller.name)) &&
+          !filedInto(own, ownIds.get(other)));
+      if (standsFor) found.add(clubId);
+    });
+    return found;
+  };
+
   let reclaimed = 0;
   const games = state.games.map((game) => {
     if (!game.date || !game.source) return game;
@@ -5251,26 +5301,46 @@ export const reclaimMisfiled = (
     // very tidy that joined it.
     const alsoFiled = filedInto(game, ownIds.get(namedId));
     if (isOwnRow(game, namedId) || alsoFiled || holds(namedId, pullerId, game)) return game;
+    const atStart = atTheStart(game, pullerId);
+    if (atStart.has(namedId)) return game;
     const pool = poolKeyOf(game.ageGroupId);
     const level =
       (namedId === game.teamAId ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
-    const holders = (namesakes.get(teamNameKey(named.name)) ?? []).filter((clubId) => {
-      if (clubId === namedId) return false;
+    /*
+     * Only a namesake at a level the row could be played at — the test `resettleOffLevel` holds a
+     * row to. Without it a "Hurricanes 12U" with a mirrored result against a "Stix" that day took
+     * the 9U Stix's game, the next step handed it back for being three levels off, and the two did
+     * it again every pass until the tidy gave up at its limit. And never the puller: a tie between
+     * two squads of one club mirrors itself, and moved onto its puller the 9U Texas Takeover played
+     * itself.
+     */
+    const placed = (clubId: string) =>
+      clubId !== namedId &&
+      clubId !== pullerId &&
+      Boolean(teamById.get(clubId)?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool)) &&
+      levelFits(levels.get(clubId), level);
+    const holders = new Set(
+      (namesakes.get(teamNameKey(named.name)) ?? []).filter(
+        (clubId) => placed(clubId) && holds(clubId, pullerId, game)
+      )
+    );
+    /*
+     * And a club whose own schedule has the game at its very start, the result mirrored (`atTheStart`),
+     * named as the row names it or with a name that fits it in one region. The Padres and Marlins of
+     * one Texas rec league, pulled several of each, were filed crossed: each club's own row of one
+     * 5-9 went to the other club's namesake, and neither namesake's schedule listed the game.
+     */
+    atStart.forEach((clubId) => {
       const club = teamById.get(clubId);
-      const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
-      /*
-       * Only a namesake at a level the row could be played at — the test `resettleOffLevel` holds
-       * a row to. Without it a "Hurricanes 12U" with a mirrored result against a "Stix" that day
-       * took the 9U Stix's game, the next step handed it back for being three levels off, and
-       * the two did it again every pass until the tidy gave up at its limit.
-       */
-      return (
-        Boolean(inPool) && levelFits(levels.get(clubId), level) && holds(clubId, pullerId, game)
-      );
+      if (!club || !placed(clubId)) return;
+      const sameName = teamNameKey(club.name) === teamNameKey(named.name);
+      if (sameName || (fits(club.name, named.name) && inOneRegion(club.state, named.state))) {
+        holders.add(clubId);
+      }
     });
-    if (holders.length !== 1) return game;
+    if (holders.size !== 1) return game;
     reclaimed += 1;
-    const holder = holders[0]!;
+    const [holder] = [...holders] as [string];
     return game.teamAId === namedId ? { ...game, teamAId: holder } : { ...game, teamBId: holder };
   });
   return reclaimed === 0 ? { state, reclaimed: 0 } : { state: { ...state, games }, reclaimed };
@@ -6579,8 +6649,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  14 — across regions, a row with no result on either side neither settled nor claimed into a
  *       copy on the clock alone
  *  15 — a row standing as a game and folded into another, or folded into two, kept in one
+ *  16 — a copy moved to the club whose own schedule has it at its very start, the result mirrored,
+ *       against a slot, any stand-in, or a club of the puller's name, a namesake or a name that
+ *       fits in one region; never onto the puller
  */
-const TIDY_RULES_VERSION = 15;
+const TIDY_RULES_VERSION = 16;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
