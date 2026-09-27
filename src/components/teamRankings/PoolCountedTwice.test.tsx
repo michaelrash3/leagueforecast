@@ -67,9 +67,35 @@ describe("clubs credited twice with one game", () => {
     ).toBeInTheDocument();
     expect(within(section).getByText(/at the same start/)).toBeInTheDocument();
 
+    expect(
+      within(section)
+        .getByText(/at the same start/)
+        .closest("li")
+    ).not.toHaveTextContent(/past the hour/);
+
     await user.click(within(section).getByRole("button", { name: "Kentucky Athletics" }));
     const panel = await screen.findByRole("region", { name: "Kentucky Athletics" });
     // On the club's own page, with both games: the record the list is about.
     expect(within(panel).getByText(/2-0 in 10U 2027, from 2 games/)).toBeInTheDocument();
+  });
+
+  it("mark a copy past the hour for a look on GameChanger", async () => {
+    // The "Hit Dogs" copy an hour and a half after the Athletics' own 9-3.
+    const later = `${day}T15:30:00.000Z`;
+    const user = userEvent.setup();
+    renderTeamRankings({
+      ...pool,
+      games: pool.games.map((entry) => (entry.id === "g2" ? { ...entry, startTs: later } : entry)),
+    });
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(await screen.findByRole("button", { name: /check the pool/i }));
+
+    const heading = await screen.findByText(/clubs credited twice with one game/i);
+    const section = heading.closest("div")!;
+    expect(
+      within(section)
+        .getByText(/90 minutes apart/)
+        .closest("li")
+    ).toHaveTextContent(/past the hour, check on GameChanger/);
   });
 });
