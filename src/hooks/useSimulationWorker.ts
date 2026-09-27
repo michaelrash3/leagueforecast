@@ -54,6 +54,20 @@ const EMPTY_BRACKET: BracketOddsResult = {
   iterations: 0,
 };
 
+/**
+ * The opponent-adjusted rating each team carries into the simulation, as values.
+ *
+ * The keys below were made of counts, the seed and the settings, and the seed is built from the
+ * league's final scores. A rating moves without any of those moving: a league team linked to its
+ * club in Settings, a pull or a tidy in Team Rankings. The odds on screen then stayed the ones
+ * simulated from the old ratings while the game picks beside them used the new ones — measured on
+ * a rebuilt league, 9.8 points of Gold % after a preseason first pull. Values rather than the
+ * teams' identity, because the teams are rebuilt on every keystroke in a game still in progress,
+ * and a four-thousand-season run on each of those is the cost the seed was chosen to avoid.
+ */
+const ratingsKey = (teams: readonly Team[]) =>
+  teams.map((team) => [team.id, team.adjustedRating ?? null, team.ratedGames ?? 0]);
+
 /** The odds, and the number of seasons they were counted over. */
 type OddsResult = { odds: Record<string, number>; iterations: number };
 
@@ -72,9 +86,10 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         input.seedText,
         input.cutoff,
         input.settings,
+        ratingsKey(input.teams),
       ]),
     [
-      input.teams.length,
+      input.teams,
       input.remaining.length,
       input.iterations,
       input.seedText,
@@ -147,7 +162,8 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     () =>
       JSON.stringify([
         input.teamIds,
-        input.states.map((s) => s.seedText),
+        // Each point's ratings too, for the reason `ratingsKey` gives: a pull moves them and no seed.
+        input.states.map((s) => [s.seedText, ratingsKey(s.teams)]),
         input.iterations,
         input.cutoff,
         input.settings,
@@ -226,10 +242,11 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         input.seedText,
         input.cutoff,
         input.settings,
+        ratingsKey(input.teams),
       ]),
     [
       input.enabled,
-      input.teams.length,
+      input.teams,
       input.remaining.length,
       input.iterations,
       input.seedText,
