@@ -76,11 +76,11 @@ export function ModelCheckCard({
   const shown = answered?.ageGroupId === ageGroupId ? answered.answer : null;
   const ran = shown !== null;
   const result = shown?.result ?? null;
-  const priors = shown?.priors ?? null;
+  const gaps = shown?.gaps ?? null;
   const caps = shown?.caps ?? null;
 
   const beat = result ? beatsTheBaseline(result) : null;
-  const bestPrior = priors?.[0];
+  const bestGap = gaps?.[0];
   /** In the order they were tried, not best first, so the curve can be read down the column. */
   const capRows = caps ? [...caps].sort((a, b) => a.cap - b.cap) : null;
   const bestCap = caps?.[0];
@@ -156,18 +156,19 @@ export function ModelCheckCard({
               </h3>
               {result.crossAgeSamples === 0 ? (
                 <p className="mt-1 text-slate-500 dark:text-slate-400">
-                  Nothing in this pool crosses an age level, so it cannot say. The model is using
-                  the rule of thumb, {AGE_GAP_RUNS_PER_YEAR} runs a year.
+                  Nothing in this pool crosses an age level, so it cannot say. The model holds a
+                  year of age at the rule of thumb, {AGE_GAP_RUNS_PER_YEAR} runs.
                 </p>
               ) : (
                 <p className="mt-1 text-slate-700 dark:text-slate-200">
-                  Fitted at <strong>{result.fittedAgeGapRuns.toFixed(2)} runs a year</strong> from{" "}
+                  Held at <strong>{result.ageGapPrior} runs a year</strong>, the rule of thumb,
+                  rather than fitted: nearly every club plays at one level, so the games cannot say
+                  what a year is worth, and a fit read it low. The held-back set has{" "}
                   {result.crossAgeSamples} cross-age game
-                  {result.crossAgeSamples === 1 ? "" : "s"} in the held-back set, starting from the{" "}
-                  {result.ageGapPrior}-run rule of thumb.
-                  {bestPrior && bestPrior.ageGapPrior !== result.ageGapPrior
-                    ? ` Starting from ${bestPrior.ageGapPrior} instead predicted these games best.`
-                    : " No other starting point predicted them better."}
+                  {result.crossAgeSamples === 1 ? "" : "s"}.
+                  {bestGap && bestGap.ageGapPrior !== result.ageGapPrior
+                    ? ` Held at ${bestGap.ageGapPrior} instead, the ratings predicted the ${bestGap.ratedSamples} held-back games between two rated clubs best.`
+                    : " No other value held predicted the held-back games between two rated clubs better."}
                 </p>
               )}
               <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

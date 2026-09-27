@@ -1943,10 +1943,36 @@ before weighting existed.
 Fall tournaments routinely pair a team against the level above or below. Every
 age group sharing a **season year** is therefore fitted as one pool, with each
 game carrying the gap between the two sides: the older side is expected to win by
-about two runs per year of age, a prior the data then refines. An 8U losing by
-about that much to a 9U comes out even rather than punished. Strength of schedule
-is read from each team's own seat, so it weighs heavier for the team playing up
-and lighter for the one playing down.
+two runs per year of age. An 8U losing by about that much to a 9U comes out even
+rather than punished. Strength of schedule is read from each team's own seat, so it
+weighs heavier for the team playing up and lighter for the one playing down.
+
+**A year of age is held, not fitted.** Until 27 September 2026 the fit started
+from two runs and let the data correct it, and it read 0.85, 0.92, 0.97 and 1.02
+as the 2027 season filled. That figure was the fit's, not the game's. Nearly every
+club plays at one level (only 1,153 of 76,787 in the pool of 26 September appear
+at a second), so moving every level's ratings by a steady amount and the gap by
+the opposite fits the results just as well. The games cannot set the gap, and the
+ridge pulling every rating toward average set it instead, low. Simulated on that
+season's own schedule, the fit reads 0.81 to 1.05 when the truth is 1.75. Read
+directly instead — each club rated on its same-level games alone, then each
+one-year cross-age game between clubs with eight or more of those — a year is
+worth 2.00 ± 0.24 runs.
+
+Held at two, the ratings predict the games after a cut better at 7, 13 and 20
+September. The app's own backtest scores the games between two clubs the fit had
+rated 0.0075, 0.0078 and 0.0042 runs better. On every game it scores slightly
+worse (at most 0.005): a game with a side the fit never saw is predicted by the
+gap alone, a real 9U-10U game is closer than a year of age says because the young
+clubs that play up are mostly strong ones, and the page never shows such a
+prediction. On the 9U 2027 board of 26 September three of the top 25 change: The
+Pack - Greene, Ct Cannons and HTX Wildcatters, who spent the fall playing 10Us,
+come in, and three that padded against their own level or younger go out. Every
+level's board moves some; 18U most (the largest top-100 move is 136 places), where
+the one-year step read directly is smaller (0.34 ± 0.41 runs from 17U to 18U, on
+278 games) and was not shown to be harmed or helped. Setup's model check holds the
+pool at 1, 1.5, 2, 2.5 and 3 and says which predicted the games between two rated
+clubs best; on that pool 1.5, 2 and 1 came within 0.002 runs of each other.
 
 **Pooling the fit is not pooling the tables.** Each level lists only its own
 teams — a 9U that beats an 11U in a tournament stays on the 9U page, and the 11U

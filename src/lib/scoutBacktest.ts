@@ -30,9 +30,9 @@ import { dayInstant, RECENCY_SCHEMES, type RecencyScheme } from "./ratingRecency
  * the question anybody reading a ranking is really asking.
  *
  * It also answers a question the rankings themselves cannot: what a year of age is worth. The
- * model starts from a coach's rule of thumb, two runs a year, and lets the data correct it. Fitting
- * the same pool from several different starting points and seeing which predicts best is how that
- * rule of thumb stops being an assumption.
+ * model holds it at a coach's rule of thumb, two runs a year, because a fit reads it low. Holding
+ * the same pool at several values and seeing which predicts best is how that rule of thumb stops
+ * being an assumption.
  */
 
 export type ScoutBacktestResult = {
@@ -88,6 +88,16 @@ export type ScoutBacktestResult = {
    * "nothing separates them" when the truth is that nothing was asked.
    */
   unratedSides: number;
+  /**
+   * The margin error on the held-out games whose two sides the fit saw, and how many there were.
+   *
+   * What a held age gap is judged on (`compareAgeGaps`). A game with a side the fit never saw is
+   * predicted by the gap alone, and a real game between a 9U and a 10U is closer than a year of age
+   * says, because the young clubs that play up are mostly strong ones: scored on those, a lower gap
+   * always looked better, and the app never shows such a prediction anyway ("not rated here yet").
+   */
+  ratedError: number | null;
+  ratedSamples: number;
   /**
    * Mean size of the predicted margins, in runs. The tell for a scheme that won by shrinking.
    *
@@ -288,6 +298,8 @@ const emptyResult = (
   span: null,
   trainSize: 0,
   unratedSides: 0,
+  ratedError: null,
+  ratedSamples: 0,
   meanAbsolutePrediction: null,
   trainComponents: 0,
   largestComponent: 0,
@@ -466,6 +478,8 @@ export const backtestScoutRatings = (
   let decisive = 0;
   let calledRight = 0;
   let unratedSides = 0;
+  let ratedErrorSum = 0;
+  let ratedSamples = 0;
   let splitSamples = 0;
   let predictionSum = 0;
   const component = componentsOf(train);
@@ -499,6 +513,10 @@ export const backtestScoutRatings = (
     predictionSum += Math.abs(predicted);
     const error = Math.abs(predicted - actual);
     errorSum += error;
+    if (seenBoth) {
+      ratedErrorSum += error;
+      ratedSamples += 1;
+    }
     // What a model that knows nothing about either side would say: it will be close.
     baselineSum += Math.abs(actual);
     if (ageGap !== 0) {
@@ -552,6 +570,8 @@ export const backtestScoutRatings = (
     cap,
     trainSize: train.length,
     unratedSides,
+    ratedError: ratedSamples === 0 ? null : ratedErrorSum / ratedSamples,
+    ratedSamples,
     splitSamples,
     trainComponents: componentSizes.size,
     largestComponent: Math.max(0, ...componentSizes.values()),
@@ -577,29 +597,39 @@ export const backtestScoutRatings = (
   };
 };
 
-/** The priors worth trying when asking what a year of age is actually worth in a pool. */
-export const AGE_GAP_PRIORS_TO_TRY = [0, 1, 2, 3, 4];
+/**
+ * The values a year of age is held at to ask what it is worth in a pool: the rule of thumb and two
+ * either side of it, half a run apart.
+ */
+export const AGE_GAPS_TO_TRY = [1, 1.5, 2, 2.5, 3];
+
+/** Best first by the error on held-out games between two rated sides (`ratedError`). */
+const bestRatedFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
+  (a.ratedError ?? Infinity) - (b.ratedError ?? Infinity);
 
 /**
- * The same backtest from several starting points, so the rule of thumb can be checked rather than
- * assumed. Best first — the one whose held-out margin error is lowest.
+ * The same backtest with a year of age held at each of several values, so the rule of thumb is
+ * checked rather than assumed. Best first — the one whose held-out margin error, on games between
+ * two sides the fit saw, is lowest.
  *
- * With no cross-age games in the pool every prior gives the identical answer, which is correct and
- * worth reading as it stands: this pool has nothing to say about what a year of age is worth.
+ * Held rather than fitted from each as a starting point, as the ratings themselves hold it
+ * (`DEFAULT_AGE_GAP_SHRINKAGE`): a fit reads a year low whatever it starts from. With no cross-age
+ * games in the pool every value gives the identical answer, which is correct and worth reading as
+ * it stands: this pool has nothing to say about what a year of age is worth.
  */
-export const compareAgeGapPriors = (
+export const compareAgeGaps = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
   ageGroups: AgeGroup[],
-  priors: number[] = AGE_GAP_PRIORS_TO_TRY,
+  gaps: number[] = AGE_GAPS_TO_TRY,
   options: Omit<ScoutBacktestOptions, "ageGapPrior"> = {}
 ): ScoutBacktestResult[] =>
-  priors
+  gaps
     .map((ageGapPrior) =>
       backtestScoutRatings(ageGroupId, teams, games, ageGroups, { ...options, ageGapPrior })
     )
-    .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
+    .sort(bestRatedFirst);
 
 /**
  * The caps worth trying, and no cap at all.
@@ -714,23 +744,23 @@ export const beatsTheBaseline = (result: ScoutBacktestResult): boolean | null =>
     : result.meanAbsoluteError < result.baselineError;
 
 /**
- * Every run the Model check card makes, in order: each age-gap prior (`compareAgeGapPriors`), then
- * each run cap graded on the margin as played (`compareRunCaps`). The plain backtest is the run at
- * the default prior, which is one of the priors, so it is not fitted a second time.
+ * Every run the Model check card makes, in order: each held age gap (`compareAgeGaps`), then each
+ * run cap graded on the margin as played (`compareRunCaps`). The plain backtest is the run at the
+ * default gap, which is one of those held, so it is not fitted a second time.
  *
  * Listed rather than run in one go so the rankings worker can take them one request at a time: a
  * board refit asked for in the middle then waits for one run, about two seconds on a nationwide
  * year, rather than for all eleven.
  */
 export const MODEL_CHECK_RUNS: readonly ScoutBacktestOptions[] = [
-  ...AGE_GAP_PRIORS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior })),
+  ...AGE_GAPS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior })),
   ...RUN_CAPS_TO_TRY.map((cap) => ({ cap, scoreCap: Infinity })),
 ];
 
 /** What the Model check card shows. */
 export type ModelCheckAnswer = {
   result: ScoutBacktestResult;
-  priors: ScoutBacktestResult[];
+  gaps: ScoutBacktestResult[];
   caps: ScoutBacktestResult[];
 };
 
@@ -739,11 +769,11 @@ const bestFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
 
 /** The card's answer from the results of `MODEL_CHECK_RUNS`, in the same order. */
 export const modelCheckAnswer = (results: readonly ScoutBacktestResult[]): ModelCheckAnswer => {
-  const priors = results.slice(0, AGE_GAP_PRIORS_TO_TRY.length);
-  const caps = results.slice(AGE_GAP_PRIORS_TO_TRY.length);
-  const plain = priors[AGE_GAP_PRIORS_TO_TRY.indexOf(AGE_GAP_RUNS_PER_YEAR)];
-  if (!plain) throw new Error("The priors tried must include the default one.");
-  return { result: plain, priors: [...priors].sort(bestFirst), caps: [...caps].sort(bestFirst) };
+  const gaps = results.slice(0, AGE_GAPS_TO_TRY.length);
+  const caps = results.slice(AGE_GAPS_TO_TRY.length);
+  const plain = gaps[AGE_GAPS_TO_TRY.indexOf(AGE_GAP_RUNS_PER_YEAR)];
+  if (!plain) throw new Error("The gaps tried must include the default one.");
+  return { result: plain, gaps: [...gaps].sort(bestRatedFirst), caps: [...caps].sort(bestFirst) };
 };
 
 /** The whole check in one call, for a pool small enough to be worked out on the page. */

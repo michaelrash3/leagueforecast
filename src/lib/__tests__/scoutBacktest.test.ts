@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGE_GAP_PRIORS_TO_TRY,
+  AGE_GAPS_TO_TRY,
   backtestGames,
   backtestScoutRatings,
   beatsTheBaseline,
   checkTheModel,
-  compareAgeGapPriors,
+  compareAgeGaps,
   compareRecencySchemes,
   compareRunCaps,
   describeDecayCurve,
@@ -139,8 +139,8 @@ describe("holding games back and predicting them", () => {
 });
 
 describe("what a year of age is actually worth", () => {
-  it("recovers a gap the data was built with", () => {
-    // Built so that the older side wins by three runs a year, not the two the model assumes.
+  it("holds a year of age at the rule of thumb, whatever the data was built with", () => {
+    // Built so that the older side wins by three runs a year, not the two the model holds.
     const { teams, games } = syntheticPool({
       teamCount: 14,
       gamesPerPair: 2,
@@ -150,37 +150,79 @@ describe("what a year of age is actually worth", () => {
     const result = backtestScoutRatings("ag_9", teams, games, groups);
 
     expect(result.crossAgeSamples).toBeGreaterThan(0);
-    // The prior is pulled toward the truth by the data rather than held at 2.
-    expect(result.fittedAgeGapRuns).toBeGreaterThan(2.3);
+    expect(result.fittedAgeGapRuns).toBe(2);
+    // What the data says is the comparison's to tell: held at three, the same games read better.
+    const [best] = compareAgeGaps("ag_9", teams, games, groups);
+    expect(best?.ageGapPrior).toBe(3);
   });
 
   it("says nothing new when a pool has no cross-age games at all", () => {
     const { teams, games } = syntheticPool({ teamCount: 10, olderCount: 0 });
-    const results = compareAgeGapPriors("ag_9", teams, games, groups);
+    const results = compareAgeGaps("ag_9", teams, games, groups);
 
     // Every prior gives the same answer, which is the honest one: this pool cannot tell you.
     const errors = new Set(results.map((result) => result.meanAbsoluteError?.toFixed(6)));
-    expect(results).toHaveLength(AGE_GAP_PRIORS_TO_TRY.length);
+    expect(results).toHaveLength(AGE_GAPS_TO_TRY.length);
     expect(errors.size).toBe(1);
     expect(results.every((result) => result.crossAgeSamples === 0)).toBe(true);
   });
 
-  it("puts the prior closest to the truth first", () => {
+  it("puts the held value closest to the truth first", () => {
     const { teams, games } = syntheticPool({
       teamCount: 14,
       gamesPerPair: 2,
       ageGapRuns: 4,
       olderCount: 5,
     });
-    const [best] = compareAgeGapPriors("ag_9", teams, games, groups);
+    const [best] = compareAgeGaps("ag_9", teams, games, groups);
 
-    // Sorted by held-out error, so the winner is the starting point the data actually supports.
-    expect(best?.ageGapPrior).toBeGreaterThanOrEqual(3);
+    // Sorted by held-out error, so the winner is the value the data actually supports.
+    expect(best?.ageGapPrior).toBe(3);
+  });
+
+  it("judges a held year on the games between clubs the fit had seen", () => {
+    // Built at two runs a year. Then eight newcomers, seen only after the cut, each play up and
+    // hold every 11U to an even game: predicted by the gap alone, they argue for a year worth less.
+    const { teams, games } = syntheticPool({
+      teamCount: 12,
+      gamesPerPair: 2,
+      ageGapRuns: 2,
+      olderCount: 4,
+    });
+    const newcomers: ScoutTeam[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `NEW-${i}`,
+      name: `Newcomer ${i}`,
+    }));
+    const even: ScoutGame[] = newcomers.flatMap((team, i) =>
+      [8, 9, 10, 11].map((older) => ({
+        id: `n-${i}-${older}`,
+        ageGroupId: "ag_9",
+        teamAId: team.id,
+        teamBId: `S-${older}`,
+        teamAScore: 5,
+        teamBScore: 5,
+        date: dayOf(299),
+        ageLevelA: 9,
+        ageLevelB: 11,
+      }))
+    );
+    const results = compareAgeGaps("ag_9", [...teams, ...newcomers], [...games, ...even], groups);
+    const onEveryGame = [...results].sort(
+      (a, b) => (a.meanAbsoluteError ?? 0) - (b.meanAbsoluteError ?? 0)
+    );
+    expect(onEveryGame[0]!.ageGapPrior).toBe(1);
+    // Ranked on the games between two clubs rated before them, where the newcomers have no say.
+    const rated = results.map((result) => result.ratedError!);
+    expect(rated).toEqual([...rated].sort((a, b) => a - b));
+    const [best] = results;
+    expect(best!.ageGapPrior).toBeGreaterThanOrEqual(2);
+    expect(best!.unratedSides).toBe(even.length);
+    expect(best!.ratedSamples).toBe(best!.sampleSize - even.length);
   });
 
   it("reports the prior each run started from", () => {
     const { teams, games } = syntheticPool({ teamCount: 10, olderCount: 3, ageGapRuns: 2 });
-    const results = compareAgeGapPriors("ag_9", teams, games, groups, [0, 2]);
+    const results = compareAgeGaps("ag_9", teams, games, groups, [0, 2]);
 
     expect(results.map((result) => result.ageGapPrior).sort()).toEqual([0, 2]);
   });
@@ -747,7 +789,7 @@ describe("the model check in one pass", () => {
   it("is exactly the plain run and the two sweeps", () => {
     expect(checkTheModel("ag_9", pool.teams, pool.games, groups)).toEqual({
       result: backtestScoutRatings("ag_9", pool.teams, pool.games, groups),
-      priors: compareAgeGapPriors("ag_9", pool.teams, pool.games, groups),
+      gaps: compareAgeGaps("ag_9", pool.teams, pool.games, groups),
       caps: compareRunCaps("ag_9", pool.teams, pool.games, groups),
     });
   });
@@ -763,7 +805,7 @@ describe("the model check in one pass", () => {
   });
 
   it("tries the default prior among the others, which is what makes it the plain run", () => {
-    expect(AGE_GAP_PRIORS_TO_TRY).toContain(
+    expect(AGE_GAPS_TO_TRY).toContain(
       checkTheModel("ag_9", pool.teams, pool.games, groups).result.ageGapPrior
     );
   });
