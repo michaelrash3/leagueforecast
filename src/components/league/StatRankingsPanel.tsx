@@ -74,7 +74,7 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                         {entry.rank}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-bold text-slate-950 dark:text-slate-100">
+                        <div className="text-sm font-bold wrap-break-word xl:truncate text-slate-950 dark:text-slate-100">
                           {displayName(entry.teamName)}
                         </div>
                         <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">

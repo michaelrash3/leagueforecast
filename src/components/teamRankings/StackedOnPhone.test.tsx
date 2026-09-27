@@ -146,6 +146,22 @@ describe("the rankings table on a phone", () => {
    * "#84 #3874 …" and gave no way to tell which club it was. jsdom lays nothing out, so what is
    * checked is the cause: nothing between the card and the name may clip it.
    */
+  it("writes a team's name out whole in the national and state top lists", () => {
+    // The lists above the table, which #274 did not reach: 15 of the National Top 25 were cut to
+    // "…" on a 360px phone on the 18:40 pool.
+    atWidth(false);
+    renderTeamRankings(pool());
+    const names = screen.getAllByRole("button", { name: "Rays" });
+    const inLists = names.filter((name) => name.closest("ol") !== null);
+    expect(inLists.length).toBeGreaterThan(0);
+    inLists.forEach((name) => {
+      const row = name.closest("li")!;
+      for (let node: HTMLElement | null = name; node && node !== row; node = node.parentElement) {
+        expect(node.classList.contains("truncate")).toBe(false);
+      }
+    });
+  });
+
   it("never swaps a team's name for an ellipsis", async () => {
     atWidth(false);
     await openFullTable();

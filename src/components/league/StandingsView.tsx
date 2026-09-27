@@ -416,7 +416,7 @@ export function StandingsView({
                           {teamAbbr(team.name)}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-bold text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
+                          <span className="block text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
                             {displayName(team.name)}
                           </span>
                           <span className="mt-0.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400">

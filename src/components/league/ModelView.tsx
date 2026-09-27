@@ -426,7 +426,7 @@ export function ModelView(props: {
                           event.preventDefault();
                           onSelectTeam(team.id);
                         }}
-                        className={`block truncate rounded-lg text-left text-sm font-bold text-blue-700 underline decoration-blue-300 underline-offset-4 ${focusRing} dark:text-blue-300 dark:decoration-blue-700`}
+                        className={`block rounded-lg text-left text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 ${focusRing} dark:text-blue-300 dark:decoration-blue-700`}
                         aria-label={`View stats for ${displayName(team.name)}`}
                       >
                         {displayName(team.name)}
