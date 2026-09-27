@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  backtestScoutRatings,
-  beatsTheBaseline,
-  compareAgeGapPriors,
-  compareRunCaps,
-  type ScoutBacktestResult,
-} from "../../lib/scoutBacktest";
+import { beatsTheBaseline, checkTheModel, type ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR } from "../../lib/powerRating";
@@ -17,6 +11,11 @@ type ModelCheckCardProps = {
   teams: ScoutTeam[];
   games: ScoutGame[];
   ageGroups: AgeGroup[];
+  /**
+   * Runs the check off the page's thread (`useRankingsWorker`'s `checkModel`), resolving to null if
+   * the pool changed before it was done. Without it the check is worked out on the page.
+   */
+  check?: () => Promise<ModelCheckAnswer | null>;
 };
 
 const runs = (value: number | null): string => (value === null ? "—" : `${value.toFixed(2)} runs`);
@@ -44,18 +43,41 @@ export function ModelCheckCard({
   teams,
   games,
   ageGroups,
+  check,
 }: ModelCheckCardProps) {
-  const [result, setResult] = useState<ScoutBacktestResult | null>(null);
-  const [priors, setPriors] = useState<ScoutBacktestResult[] | null>(null);
-  const [caps, setCaps] = useState<ScoutBacktestResult[] | null>(null);
-  const [ran, setRan] = useState(false);
+  /** The answer, and the page it was worked out for: one for 9U is not one for 10U. */
+  const [answered, setAnswered] = useState<{ ageGroupId: string; answer: ModelCheckAnswer } | null>(
+    null
+  );
+  const [working, setWorking] = useState(false);
+  const [interrupted, setInterrupted] = useState(false);
 
+  /*
+   * Never in the click handler. The check is eleven fits of the page's year, and run there it froze
+   * the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press paints "Working it
+   * out" first, and the fits run in the rankings worker when there is one.
+   */
   const run = () => {
-    setResult(backtestScoutRatings(ageGroupId, teams, games, ageGroups));
-    setPriors(compareAgeGapPriors(ageGroupId, teams, games, ageGroups));
-    setCaps(compareRunCaps(ageGroupId, teams, games, ageGroups));
-    setRan(true);
+    const forGroup = ageGroupId;
+    setWorking(true);
+    setInterrupted(false);
+    const answering: Promise<ModelCheckAnswer | null> = check
+      ? check()
+      : new Promise((resolve) =>
+          window.setTimeout(() => resolve(checkTheModel(forGroup, teams, games, ageGroups)), 0)
+        );
+    void answering.then((answer) => {
+      setWorking(false);
+      if (answer) setAnswered({ ageGroupId: forGroup, answer });
+      else setInterrupted(true);
+    });
   };
+
+  const shown = answered?.ageGroupId === ageGroupId ? answered.answer : null;
+  const ran = shown !== null;
+  const result = shown?.result ?? null;
+  const priors = shown?.priors ?? null;
+  const caps = shown?.caps ?? null;
 
   const beat = result ? beatsTheBaseline(result) : null;
   const bestPrior = priors?.[0];
@@ -75,9 +97,20 @@ export function ModelCheckCard({
       </p>
 
       <div className="mt-3">
-        <button type="button" onClick={run} disabled={!ageGroupId} className={button.ghost}>
-          {ran ? "Run it again" : "Check the model"}
+        <button
+          type="button"
+          onClick={run}
+          disabled={!ageGroupId || working}
+          className={button.ghost}
+        >
+          {working ? "Working it out…" : ran ? "Run it again" : "Check the model"}
         </button>
+        {interrupted && !working && (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" role="status">
+            The pool changed while this ran, so its answer would be about games that are not there
+            any more. Run it again.
+          </p>
+        )}
       </div>
 
       {ran && result && (

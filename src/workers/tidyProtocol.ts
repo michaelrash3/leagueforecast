@@ -1,10 +1,16 @@
 import {
+  proposeSeasonPairings,
+  proposeTwinSquads,
   tidyPool,
   type GcImportState,
+  type GcSeasonPairing,
+  type GcTwinSquad,
   type PoolTidy,
   type TidyStep,
 } from "../lib/gameChangerImport";
-import { coerceKeptApart } from "../lib/keptApart";
+import { coerceKeptApart, type KeptApart } from "../lib/keptApart";
+import { countedTwice, type CountedTwice } from "../lib/countedTwice";
+import { unpulledClubs, type UnpulledClub } from "../lib/unpulledClubs";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import type { AgeGroup } from "../lib/teamRankings";
 import {
@@ -52,6 +58,8 @@ export type InspectRequest = {
   stamp: string;
   /** Today as the page sees it, so "dated after today" is judged by one clock and testable. */
   today: string;
+  /** The pairs the user has said are two clubs, which the lists must not offer again. */
+  apart?: string[];
 };
 export type WorkerRequest = TidyRequest | InspectRequest;
 
@@ -86,7 +94,32 @@ export type InspectResponse = {
   id: number;
   health: PoolHealth;
   settleable: number;
+  lists: PoolLists;
 };
+
+/**
+ * The four lists Pool health shows under its numbers: the clubs worth pulling, one club twice in a
+ * season, one squad on GameChanger twice, and a club holding one game twice.
+ *
+ * Worked out in the worker, beside the numbers. Each walks the whole pool, and the page did all
+ * four after the worker's answer arrived, on the pool the worker had just unpacked and thrown away:
+ * on the 18:40 pool a second long task of 2.4 s after each press, 12 to 13 s at a phone's speed.
+ */
+export type PoolLists = {
+  toPull: UnpulledClub[];
+  duplicates: GcSeasonPairing[];
+  twins: GcTwinSquad[];
+  twice: CountedTwice[];
+};
+
+export const poolLists = (state: GcImportState, apart: KeptApart, today: string): PoolLists => ({
+  toPull: unpulledClubs(state),
+  duplicates: proposeSeasonPairings(state.teams, state.games, apart).filter(
+    (pairing) => pairing.kind === "same-season"
+  ),
+  twins: proposeTwinSquads(state.teams, state.games, apart),
+  twice: countedTwice(state.teams, state.games, today),
+});
 export type WorkerResponse = TidyResponse | InspectResponse | TidyProgressResponse;
 
 export const packPool = (state: GcImportState): PoolWire => ({
@@ -128,6 +161,7 @@ export const createTidyHandler =
         health,
         // Only worth asking when something could be settled; on a tidy pool it is zero and cheap.
         settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+        lists: poolLists(state, coerceKeptApart(request.apart), request.today),
       });
       return;
     }

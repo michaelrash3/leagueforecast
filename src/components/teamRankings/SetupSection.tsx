@@ -6,6 +6,7 @@ import {
 } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
+import type { ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { PoolHealthCard } from "./PoolHealthCard";
 import { AgelessReviewCard } from "./AgelessReviewCard";
@@ -78,6 +79,8 @@ type SetupSectionProps = {
     groupName: string;
     teams: ScoutTeam[];
     games: ScoutGame[];
+    /** The check in the rankings worker; see `ModelCheckCard`. */
+    check?: () => Promise<ModelCheckAnswer | null>;
   };
 };
 
@@ -223,6 +226,7 @@ export function SetupSection({
         teams={modelCheck.teams}
         games={modelCheck.games}
         ageGroups={ageGroups}
+        {...(modelCheck.check ? { check: modelCheck.check } : {})}
       />
 
       <DiagnosticsCard />

@@ -297,6 +297,9 @@ const emptyResult = (
 
 type DatedGame = { game: ScoutGame; ageGap: number; at: number };
 
+/** A page's rated games in the order they were played, as every backtest here starts from. */
+export type BacktestGames = readonly DatedGame[];
+
 /**
  * The rated games in the order they were played.
  *
@@ -314,6 +317,15 @@ type DatedGame = { game: ScoutGame; ageGap: number; at: number };
  * game with no date at all gets; `weightsForGames` keeps one instead, because a ranking has to
  * show every game it holds.
  */
+
+/** The rated games a backtest of this page reads, in the order they were played. */
+export const backtestGames = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): BacktestGames =>
+  inTimeOrder(scoutRatingGames(ageGroupId, teams, games, ageGroups, undefined, EVERY_DAY));
 
 /** The day back out of an instant, for reporting the span the run actually covered. */
 const dayOfInstant = (at: number): string => new Date(at).toISOString().slice(0, 10);
@@ -376,7 +388,13 @@ export const backtestScoutRatings = (
   teams: ScoutTeam[],
   games: ScoutGame[],
   ageGroups: AgeGroup[],
-  options: ScoutBacktestOptions = {}
+  options: ScoutBacktestOptions = {},
+  /**
+   * `backtestGames` for this page, when the caller already holds it. The selection and the sort
+   * are the same for every run of a sweep, about 0.6 s of each on a nationwide year, so a sweep
+   * that works them out once and hands them to each run spends that once.
+   */
+  ordered: BacktestGames = backtestGames(ageGroupId, teams, games, ageGroups)
 ): ScoutBacktestResult => {
   const ageGapPrior = options.ageGapPrior ?? AGE_GAP_RUNS_PER_YEAR;
   const cap = options.cap ?? RATING_CAP;
@@ -385,9 +403,6 @@ export const backtestScoutRatings = (
   const recency = options.recency;
   const gapDays = Math.max(0, options.gapDays ?? 0);
 
-  const ordered = inTimeOrder(
-    scoutRatingGames(ageGroupId, teams, games, ageGroups, undefined, EVERY_DAY)
-  );
   const cut = Math.floor(ordered.length * trainShare);
   /*
    * The cut is a day, not a row. A row index picks the day; the day then takes all of its own
@@ -697,3 +712,51 @@ export const beatsTheBaseline = (result: ScoutBacktestResult): boolean | null =>
   result.meanAbsoluteError === null || result.baselineError === null
     ? null
     : result.meanAbsoluteError < result.baselineError;
+
+/**
+ * Every run the Model check card makes, in order: each age-gap prior (`compareAgeGapPriors`), then
+ * each run cap graded on the margin as played (`compareRunCaps`). The plain backtest is the run at
+ * the default prior, which is one of the priors, so it is not fitted a second time.
+ *
+ * Listed rather than run in one go so the rankings worker can take them one request at a time: a
+ * board refit asked for in the middle then waits for one run, about two seconds on a nationwide
+ * year, rather than for all eleven.
+ */
+export const MODEL_CHECK_RUNS: readonly ScoutBacktestOptions[] = [
+  ...AGE_GAP_PRIORS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior })),
+  ...RUN_CAPS_TO_TRY.map((cap) => ({ cap, scoreCap: Infinity })),
+];
+
+/** What the Model check card shows. */
+export type ModelCheckAnswer = {
+  result: ScoutBacktestResult;
+  priors: ScoutBacktestResult[];
+  caps: ScoutBacktestResult[];
+};
+
+const bestFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
+  (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity);
+
+/** The card's answer from the results of `MODEL_CHECK_RUNS`, in the same order. */
+export const modelCheckAnswer = (results: readonly ScoutBacktestResult[]): ModelCheckAnswer => {
+  const priors = results.slice(0, AGE_GAP_PRIORS_TO_TRY.length);
+  const caps = results.slice(AGE_GAP_PRIORS_TO_TRY.length);
+  const plain = priors[AGE_GAP_PRIORS_TO_TRY.indexOf(AGE_GAP_RUNS_PER_YEAR)];
+  if (!plain) throw new Error("The priors tried must include the default one.");
+  return { result: plain, priors: [...priors].sort(bestFirst), caps: [...caps].sort(bestFirst) };
+};
+
+/** The whole check in one call, for a pool small enough to be worked out on the page. */
+export const checkTheModel = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): ModelCheckAnswer => {
+  const ordered = backtestGames(ageGroupId, teams, games, ageGroups);
+  return modelCheckAnswer(
+    MODEL_CHECK_RUNS.map((options) =>
+      backtestScoutRatings(ageGroupId, teams, games, ageGroups, options, ordered)
+    )
+  );
+};

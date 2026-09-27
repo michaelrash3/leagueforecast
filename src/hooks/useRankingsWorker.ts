@@ -9,6 +9,14 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
+import {
+  checkTheModel,
+  MODEL_CHECK_RUNS,
+  modelCheckAnswer,
+  type ModelCheckAnswer,
+  type ScoutBacktestOptions,
+  type ScoutBacktestResult,
+} from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
 import { createWorker } from "./createWorker";
 
@@ -81,6 +89,11 @@ export function useRankingsWorker(input: RankingsInput): {
   whatIf: WhatIfState;
   /** Stable across renders. `null` puts the answer away. */
   askWhatIf: (ask: WhatIfAsk | null) => void;
+  /**
+   * Setup's model check for the page and pool on screen. Null when the pool changed before it was
+   * done, because the answer would describe a pool that is no longer there.
+   */
+  checkModel: () => Promise<ModelCheckAnswer | null>;
 } {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
   const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
@@ -431,7 +444,96 @@ export function useRankingsWorker(input: RankingsInput): {
     };
   }, [ask, idle, small, snapshot, settledSnapshot, poolFor]);
 
-  if (idle) return { rows: NO_ROWS, stale: false, whatIf, askWhatIf };
-  if (inlineRows) return { rows: inlineRows, stale: false, whatIf, askWhatIf };
-  return { rows, stale: settledSnapshot !== snapshot, whatIf, askWhatIf };
+  /** The snapshot on screen now, for a check that outlives the render that started it. */
+  const currentSnapshotRef = useRef(snapshot);
+  useEffect(() => {
+    currentSnapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  /**
+   * Setup's "Does the model predict anything?", off the page's thread.
+   *
+   * It ran in the button's click handler: eleven fits of the year, which on the 18:40 pool froze
+   * the tab for 18 s unthrottled and 89 s at a phone's speed. The worker holds the same pool the
+   * board was fitted from, so the check is sent there a run at a time (`ModelCheckRequest`), with
+   * the pool shipped only if the worker has lost it, as a what-if does. A small pool, or no worker,
+   * is worked out here on the next turn, so the press still paints before the work starts.
+   */
+  const checkModel = useCallback((): Promise<ModelCheckAnswer | null> => {
+    const started = snapshot;
+    const inline = () =>
+      new Promise<ModelCheckAnswer>((resolve) =>
+        window.setTimeout(
+          () =>
+            resolve(
+              checkTheModel(started.ageGroupId, started.teams, started.games, started.ageGroups)
+            ),
+          0
+        )
+      );
+    if (idle || small) return inline();
+    if (!workerRef.current)
+      workerRef.current = createWorker(
+        () =>
+          new Worker(new URL("../workers/rankings.worker.ts", import.meta.url), {
+            type: "module",
+          }),
+        "Rankings"
+      );
+    const worker = workerRef.current;
+    if (!worker) return inline();
+
+    /** One run in the worker; null if the worker failed on the way. */
+    const runOne = (run: ScoutBacktestOptions) =>
+      new Promise<ScoutBacktestResult | null>((resolve) => {
+        const id = nextIdRef.current + 1;
+        nextIdRef.current = id;
+        const request = (pool: PoolShipment): WorkerRequest => ({
+          kind: "model-check",
+          id,
+          ageGroupId: started.ageGroupId,
+          ageGroups: started.ageGroups,
+          run,
+          pool,
+        });
+        const onMessage = (event: MessageEvent<WorkerResponse>) => {
+          if (event.data.kind === "pool-needed" && event.data.id === id) {
+            shippedRef.current = null;
+            worker.postMessage(request(poolFor(worker)));
+            return;
+          }
+          if (event.data.kind !== "model-check" || event.data.id !== id) return;
+          detach();
+          resolve(event.data.result);
+        };
+        const onError = () => {
+          detach();
+          resolve(null);
+        };
+        const detach = () => {
+          worker.removeEventListener("message", onMessage);
+          worker.removeEventListener("error", onError);
+        };
+        worker.addEventListener("message", onMessage);
+        worker.addEventListener("error", onError);
+        worker.postMessage(request(poolFor(worker)));
+      });
+
+    return (async () => {
+      const results: ScoutBacktestResult[] = [];
+      for (const run of MODEL_CHECK_RUNS) {
+        // Between runs, not only at the end: shipping this pool to the worker again after the
+        // page has moved on would put the old pool back under the board's feet.
+        if (currentSnapshotRef.current !== started) return null;
+        const result = await runOne(run);
+        if (!result) return inline();
+        results.push(result);
+      }
+      return currentSnapshotRef.current === started ? modelCheckAnswer(results) : null;
+    })();
+  }, [snapshot, idle, small, poolFor]);
+
+  if (idle) return { rows: NO_ROWS, stale: false, whatIf, askWhatIf, checkModel };
+  if (inlineRows) return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel };
+  return { rows, stale: settledSnapshot !== snapshot, whatIf, askWhatIf, checkModel };
 }

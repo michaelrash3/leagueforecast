@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AGE_GAP_PRIORS_TO_TRY,
+  backtestGames,
   backtestScoutRatings,
   beatsTheBaseline,
+  checkTheModel,
   compareAgeGapPriors,
   compareRecencySchemes,
   compareRunCaps,
@@ -731,5 +733,38 @@ describe("what the run cap is costing", () => {
     expect(asShipped.cap).toBe(RATING_CAP);
     expect(asShipped.meanAbsoluteError).toBe(spelledOut.meanAbsoluteError);
     expect(asShipped.meanAbsolutePrediction).toBe(spelledOut.meanAbsolutePrediction);
+  });
+});
+
+/*
+ * Setup's model check, as one call and as the rankings worker asks for it: run by run, from one
+ * ordering of the page's games. It must be exactly what the card showed when it called the three
+ * sweeps itself, fit for fit, since the card's numbers are the same claim either way.
+ */
+describe("the model check in one pass", () => {
+  const pool = syntheticPool({ teamCount: 14, gamesPerPair: 2, ageGapRuns: 1.5, olderCount: 4 });
+
+  it("is exactly the plain run and the two sweeps", () => {
+    expect(checkTheModel("ag_9", pool.teams, pool.games, groups)).toEqual({
+      result: backtestScoutRatings("ag_9", pool.teams, pool.games, groups),
+      priors: compareAgeGapPriors("ag_9", pool.teams, pool.games, groups),
+      caps: compareRunCaps("ag_9", pool.teams, pool.games, groups),
+    });
+  });
+
+  it("gives the same run from the games put in order once", () => {
+    const ordered = backtestGames("ag_9", pool.teams, pool.games, groups);
+    expect(ordered.length).toBeGreaterThan(0);
+    [{}, { ageGapPrior: 0 }, { cap: 4, scoreCap: Infinity }].forEach((options) => {
+      expect(
+        backtestScoutRatings("ag_9", pool.teams, pool.games, groups, options, ordered)
+      ).toEqual(backtestScoutRatings("ag_9", pool.teams, pool.games, groups, options));
+    });
+  });
+
+  it("tries the default prior among the others, which is what makes it the plain run", () => {
+    expect(AGE_GAP_PRIORS_TO_TRY).toContain(
+      checkTheModel("ag_9", pool.teams, pool.games, groups).result.ageGapPrior
+    );
   });
 });

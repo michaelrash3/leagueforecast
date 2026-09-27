@@ -740,6 +740,7 @@ export function TeamRankingsView({
     stale: rankingsStale,
     whatIf,
     askWhatIf,
+    checkModel,
   } = useRankingsWorker({
     ageGroupId: selectedAgeGroupId,
     teams: allKnown.teams,
@@ -2235,6 +2236,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 groupName: selectedGroupName,
                 teams: allKnown.teams,
                 games: allKnownGames,
+                // The same answer from the pool the worker already holds: the check selects the
+                // year's games, which is exactly what that pool is.
+                check: checkModel,
               }}
               onReset={() => void resetEverything()}
               archive={{

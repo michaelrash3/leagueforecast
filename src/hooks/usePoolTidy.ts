@@ -18,6 +18,8 @@ import {
   packPool,
   type WorkerRequest,
   type WorkerResponse,
+  poolLists,
+  type PoolLists,
 } from "../workers/tidyProtocol";
 import { createWorker } from "./createWorker";
 
@@ -45,7 +47,7 @@ import { createWorker } from "./createWorker";
  */
 export type TidyReach = { workerOnly?: boolean };
 
-export type PoolInspection = { health: PoolHealth; settleable: number };
+export type PoolInspection = { health: PoolHealth; settleable: number; lists: PoolLists };
 export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
 
 /** Nothing tidying. One object, so the store's server snapshot is stable. */
@@ -151,19 +153,35 @@ export function usePoolTidy() {
   );
 
   const inspect = useCallback(
-    (state: GcImportState, stamp: string): Promise<PoolInspection | null> =>
-      ask<PoolInspection>(
+    (state: GcImportState, stamp: string): Promise<PoolInspection | null> => {
+      // Read once, as the tidy does: the worker has no storage, and the inline path must be handed
+      // the same answers.
+      const apart = loadKeptApart();
+      const today = todayIsoDay();
+      return ask<PoolInspection>(
         "inspect",
-        (id) => ({ kind: "inspect", id, state: packPool(state), stamp, today: todayIsoDay() }),
+        (id) => ({
+          kind: "inspect",
+          id,
+          state: packPool(state),
+          stamp,
+          today,
+          apart: keptApartList(apart),
+        }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
-            ? { health: response.health, settleable: response.settleable }
+            ? { health: response.health, settleable: response.settleable, lists: response.lists }
             : null,
         () => {
-          const health = poolHealth(state, stamp, todayIsoDay());
-          return { health, settleable: health.standInPlayed === 0 ? 0 : settleableNow(state) };
+          const health = poolHealth(state, stamp, today);
+          return {
+            health,
+            settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+            lists: poolLists(state, apart, today),
+          };
         }
-      ),
+      );
+    },
     [ask]
   );
 
