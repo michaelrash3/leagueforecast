@@ -44,10 +44,10 @@ export function LeagueSeasonsCard({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Your league seasons
       </h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         What age does each of your League Standings seasons play? That season&apos;s whole schedule
         then counts on that age&apos;s table — upcoming games show their opponent right away, and
         scored ones count as results. The age pages themselves are made for you by the GameChanger
@@ -75,13 +75,13 @@ export function LeagueSeasonsCard({
             <li key={season.id} className="flex flex-wrap items-end gap-3 py-3 text-sm">
               <span className="flex min-w-[8rem] flex-col">
                 <span className="font-bold text-slate-950 dark:text-white">{season.name}</span>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   {holder ? `On ${holder.name}` : "Not on Team Rankings yet"}
                 </span>
               </span>
               <span className="flex flex-col gap-1">
                 <label
-                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
                   htmlFor={`season-age-${season.id}`}
                 >
                   Age
@@ -101,7 +101,7 @@ export function LeagueSeasonsCard({
               </span>
               <span className="flex flex-col gap-1">
                 <label
-                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
                   htmlFor={`season-year-${season.id}`}
                 >
                   Year

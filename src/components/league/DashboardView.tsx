@@ -36,13 +36,13 @@ function PredictionCard({
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
             Upcoming prediction
           </p>
           <h3 className="mt-2 text-xl font-black tracking-tight text-slate-950 dark:text-white">
             {a} vs {b}
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500">
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
             {game?.date ? formatGameDate(game.date) : "Date TBD"}
           </p>
         </div>
@@ -52,7 +52,7 @@ function PredictionCard({
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Projected Winner
           </p>
           <p className="mt-1 text-lg font-black">
@@ -61,7 +61,7 @@ function PredictionCard({
           </p>
         </div>
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Win Probability
           </p>
           <p className="mt-1 flex flex-col gap-0.5 text-sm font-black">
@@ -76,7 +76,7 @@ function PredictionCard({
           </p>
         </div>
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Expected Score
           </p>
           <p className="mt-1 text-lg font-black">
@@ -87,7 +87,9 @@ function PredictionCard({
         </div>
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model Read</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Model Read
+        </p>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
           {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
         </p>
@@ -138,7 +140,9 @@ export function DashboardView({
             key={label}
             className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900"
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {label}
+            </p>
             <p className="mt-2 text-2xl font-black">{value}</p>
           </div>
         ))}
@@ -193,7 +197,9 @@ function DataQualityNotes({ notes }: { notes: string[] }) {
 function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
   return (
     <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data Quality</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Data Quality
+      </p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
       <DataQualityNotes
         notes={[...engine.dataQuality.warnings, ...engine.dataQuality.recommendedActions]}

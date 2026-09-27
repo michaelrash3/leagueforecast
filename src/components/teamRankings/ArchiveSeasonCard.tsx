@@ -45,35 +45,35 @@ export function ArchiveSeasonCard({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Archive or delete a season
       </h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         Keeps the final tables — national and state, rank, rating, record and strength of schedule —
         and deletes every game behind them, including the ones your league contributed. The tables
         become read-only and live under Archive. Nothing else depends on them afterwards, and
         nothing recomputes them: change how ratings are worked out later and every live page moves
         while an archived table keeps the numbers it finished with.
       </p>
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
         Or delete the year with nothing kept: its pages, its games, the clubs that played in no
         other year, the GameChanger ids its squads were pulled as, and any tables already archived
         from it.
       </p>
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
         Either way a whole baseball year goes at once — every age on it. They are rated together, so
         taking one age and leaving the rest would quietly change the tables of the ones left behind.
       </p>
 
       {years.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
           No season to archive yet. Pull a team list from GameChanger, or log some games, and the
           years show up here.
         </p>
       ) : (
         <>
           <label
-            className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+            className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
             htmlFor="archive-year"
           >
             Baseball year
@@ -97,7 +97,7 @@ export function ArchiveSeasonCard({
 
           {chosen && (
             <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900">
-              <p className="text-slate-500">
+              <p className="text-slate-500 dark:text-slate-400">
                 <strong className="text-slate-950 dark:text-white">{chosen.year}</strong> holds{" "}
                 {plural(chosen.pages, "page")}, {plural(chosen.games, "game")} and{" "}
                 {plural(chosen.teams, "team")}
@@ -131,7 +131,7 @@ export function ArchiveSeasonCard({
               Delete this year
             </button>
           </div>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Take a backup from the card below first if you may want the games again — neither can be
             undone. Archiving keeps the tables; deleting keeps nothing.
           </p>

@@ -18,7 +18,7 @@ function TrendCell({ trend }: { trend: "Up" | "Down" | "Stable" | "New" }) {
     return <span className="font-bold text-red-600 dark:text-red-400">↓ Down</span>;
   }
   return (
-    <span className="text-slate-400 dark:text-slate-500">
+    <span className="text-slate-500 dark:text-slate-400">
       {trend === "New" ? "New" : "– Stable"}
     </span>
   );
@@ -54,7 +54,7 @@ export function PowerRatingsView({
             an undefeated team that beat weak opponents can rank below a strong-schedule team.
           </HelpTip>
         </h2>
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Opponent-adjusted
         </span>
       </div>
@@ -105,7 +105,7 @@ export function PowerRatingsView({
           </ul>
           <table className="hidden min-w-full text-sm sm:table">
             <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <th className="py-2">Rank</th>
                 <th>Team</th>
                 <th>Rating</th>

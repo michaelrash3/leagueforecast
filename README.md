@@ -315,7 +315,10 @@ _opponent-adjusted power ratings_, the matchup analysis built on them, and —
 through those ratings — the Forecast board's game picks, the simulated season,
 playoff odds and the bracket. See the `useScoutResults` setting. They help most where a
 schedule is thin: two teams who never met become comparable through an opponent
-they both played elsewhere. Records, standings, elo, recent form and strength of
+they both played elsewhere. The Power Ratings' recent form and trend count them
+too, since a tournament last weekend is how a team is playing now; form walks league
+and tournament games together in the order they were played, by the day and not by
+the text of the date. Records, standings, elo and the standings' strength of
 schedule stay league-only. Games carried in from the league are excluded on the
 way back, so nothing is counted twice.
 

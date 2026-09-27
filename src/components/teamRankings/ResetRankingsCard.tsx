@@ -40,7 +40,7 @@ export function ResetRankingsCard({
       <h2 className="text-sm font-black uppercase tracking-wide text-red-600 dark:text-red-400">
         Start from scratch
       </h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         Deletes everything this app keeps in this browser and starts it again as if it had never
         been opened:{" "}
         {empty ? (
@@ -58,7 +58,7 @@ export function ResetRankingsCard({
         along the way — the clubs and games thrown out, the ages named by hand, the teams waiting on
         an age, the Organizations file — along with your settings.
       </p>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         This cannot be undone. Take a backup first if there is any chance you will want any of it
         again: Backup JSON, under League Standings → Settings, saves everything in this browser; the
         button here saves Team Rankings alone.

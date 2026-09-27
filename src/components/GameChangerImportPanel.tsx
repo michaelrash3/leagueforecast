@@ -1647,10 +1647,10 @@ export function GameChangerImportPanel({
     <div className={`${card} mt-4 p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Pull from GameChanger
           </h2>
-          <p className="mt-1 max-w-2xl text-xs text-slate-500">
+          <p className="mt-1 max-w-2xl text-xs text-slate-500 dark:text-slate-400">
             Paste team ids, team page links, or a whole spreadsheet export. Each team&apos;s
             schedule is read and filed under its own age group and squad year — the pages are
             created as needed. A pull of a few thousand teams takes a while; it saves as it goes, so
@@ -1720,12 +1720,12 @@ export function GameChangerImportPanel({
                 </button>
               )}
             </div>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {describeCadence(cadence)} Nothing happens on its own — a browser cannot run while it
               is closed — so this is here whenever you next open it.
             </p>
             <fieldset className="mt-3">
-              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 How much comes round at once
               </legend>
               <div className="mt-1 flex flex-wrap gap-3">
@@ -1749,7 +1749,7 @@ export function GameChangerImportPanel({
               </div>
             </fieldset>
             {cadence === "rotation" && showWeek && (
-              <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+              <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                 {describeRotation().map((line) => (
                   <li key={line}>{line}</li>
                 ))}
@@ -1762,7 +1762,7 @@ export function GameChangerImportPanel({
                     ? `Refresh all ${due.teamIds.length.toLocaleString()} teams`
                     : `Refresh today's ${due.ageLevels.map((level) => `${level}U`).join(" and ")}`}
                 </button>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   About {estimatedMinutes(due.teamIds.length)} minute(s) of requests, and the whole
                   pool is written back several times along the way, which is the slower half.
                 </p>
@@ -1773,7 +1773,7 @@ export function GameChangerImportPanel({
                 <button type="button" onClick={runEverything} className={`${button.ghost} mt-3`}>
                   Refresh all {forcedCount.toLocaleString()} teams again
                 </button>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Today is already marked done. Run it again if something has changed since — a
                   fixed link, a tournament that finished this afternoon.
                 </p>
@@ -1802,7 +1802,7 @@ export function GameChangerImportPanel({
                     up.
                   </p>
                 )}
-                <p className="mt-1 text-xs text-slate-500" id="gc-ageless-why">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400" id="gc-ageless-why">
                   {agelessLine} They are on no page, so a refresh by age level never reaches them,
                   and the fetch worked, so nothing retries them either. Asking again is the only
                   thing that can answer it — GameChanger may have filled the field in since, the
@@ -1822,7 +1822,7 @@ export function GameChangerImportPanel({
               <p className="font-bold text-slate-950 dark:text-white">
                 {rosterWatch.length} page{rosterWatch.length === 1 ? "" : "s"} may not be a team yet
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 It takes {MIN_REAL_ROSTER} players to field a side, and{" "}
                 {rosterWatch.length === 1 ? "this one has" : "these have"} fewer — a page somebody
                 made and did not finish, or a squad still being assembled. Nothing is thrown away: a
@@ -1840,7 +1840,7 @@ export function GameChangerImportPanel({
                   again
                 </button>
               ) : (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   All counted recently. They come round again in a fortnight.
                 </p>
               )}
@@ -1875,7 +1875,7 @@ export function GameChangerImportPanel({
           )}
 
           <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
             htmlFor="gc-import-text"
           >
             Teams
@@ -1883,7 +1883,7 @@ export function GameChangerImportPanel({
           {loaded ? (
             <div className="mt-1 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900">
               <span className="font-mono font-bold">{loaded.name}</span>
-              <span className="text-slate-500">
+              <span className="text-slate-500 dark:text-slate-400">
                 {(loaded.size / 1_000_000).toFixed(1)} MB, {parsed.lines.toLocaleString()} lines
               </span>
               <button type="button" className={button.ghost} onClick={() => setLoaded(null)}>
@@ -1929,13 +1929,13 @@ export function GameChangerImportPanel({
                 }}
               />
             </label>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
               The export from GameChanger, headers and all — or paste a few ids above. A file of any
               size is fine; the rota is there so they need not all be pulled at once.
             </span>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
             {text.trim() === "" ? (
               <span>Nothing chosen or pasted yet.</span>
             ) : (
@@ -1983,7 +1983,7 @@ export function GameChangerImportPanel({
 
           {text.trim() !== "" && (
             <fieldset className="mt-3">
-              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Seasons to pull
               </legend>
               <div className="mt-1 flex flex-wrap gap-3">
@@ -2001,7 +2001,7 @@ export function GameChangerImportPanel({
                       {/* A space for the label's accessible name; flex layout drops it. */}
                       {count > 0 && " "}
                       {count > 0 && (
-                        <span className="font-normal text-slate-500">
+                        <span className="font-normal text-slate-500 dark:text-slate-400">
                           ({count.toLocaleString()} team{count === 1 ? "" : "s"})
                         </span>
                       )}
@@ -2009,7 +2009,10 @@ export function GameChangerImportPanel({
                   );
                 })}
               </div>
-              <p className="mt-1 text-xs text-slate-500" data-testid="gc-season-note">
+              <p
+                className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                data-testid="gc-season-note"
+              >
                 {seasonYears.length === 0
                   ? "Tick a season to pull."
                   : parsed.noSeason > 0
@@ -2042,7 +2045,10 @@ export function GameChangerImportPanel({
                 }}
               />
             </label>
-            <span className="text-xs text-slate-500" data-testid="gc-org-membership">
+            <span
+              className="text-xs text-slate-500 dark:text-slate-400"
+              data-testid="gc-org-membership"
+            >
               {membership.orgs.length === 0
                 ? "The Organizations export with its Team IDs column. A team GameChanger gives no age takes the age its organization's name states, and a file read later adds to this one."
                 : `${membership.orgs.length.toLocaleString()} organizations kept, ${linkedTeams.toLocaleString()} teams under them. ${orgAges.size.toLocaleString()} can take an age from an organization's name, ${waitingOrgAged.toLocaleString()} of them waiting on one.`}
@@ -2087,7 +2093,7 @@ export function GameChangerImportPanel({
               </button>
             )}
             {split.fresh.length === 0 && split.seen > 0 && (
-              <span className="self-center text-xs text-slate-500">
+              <span className="self-center text-xs text-slate-500 dark:text-slate-400">
                 {split.refresh.length > 0
                   ? "Already here — pulling again reads today's schedule."
                   : "Every team in that list is already here."}
@@ -2110,13 +2116,13 @@ export function GameChangerImportPanel({
             {stats.failed ? `, ${stats.failed} failed` : ""}.
           </p>
           {section && (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Age group {section.index} of {section.of}: <strong>{section.label}</strong>. A run
               this size is done a page at a time so the tab is never holding the whole pool — the
               count above is the whole run, and it carries on across them.
             </p>
           )}
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Saved every {SAVE_EVERY_MIN}–{SAVE_EVERY_MAX} teams, less often as the pool grows. You
             can stop, close this, or leave the tab — it picks up where it left off.
           </p>
@@ -2124,17 +2130,21 @@ export function GameChangerImportPanel({
           {live && (
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
               <div>
-                <dt className="uppercase tracking-wide text-slate-500">Teams a minute</dt>
+                <dt className="uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Teams a minute
+                </dt>
                 <dd className="font-bold text-slate-950 dark:text-white">
                   {live.perMinute?.toLocaleString() ?? "—"}
                 </dd>
               </div>
               <div>
-                <dt className="uppercase tracking-wide text-slate-500">Held</dt>
+                <dt className="uppercase tracking-wide text-slate-500 dark:text-slate-400">Held</dt>
                 <dd className="font-bold text-slate-950 dark:text-white">{live.heldSeconds}s</dd>
               </div>
               <div>
-                <dt className="uppercase tracking-wide text-slate-500">Refused</dt>
+                <dt className="uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Refused
+                </dt>
                 <dd
                   className={
                     live.blocked > 0
@@ -2146,7 +2156,9 @@ export function GameChangerImportPanel({
                 </dd>
               </div>
               <div>
-                <dt className="uppercase tracking-wide text-slate-500">Saves</dt>
+                <dt className="uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Saves
+                </dt>
                 <dd className="font-bold text-slate-950 dark:text-white">
                   {live.saves}
                   {live.lastSaveMs === undefined ? "" : ` · ${live.lastSaveMs}ms`}
@@ -2183,7 +2195,7 @@ export function GameChangerImportPanel({
           </ul>
 
           <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               What this run did
             </p>
             <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -2218,7 +2230,7 @@ export function GameChangerImportPanel({
           {result.problems.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Worth a look ({result.problems.length})
                 </p>
                 <button
@@ -2229,7 +2241,7 @@ export function GameChangerImportPanel({
                   Download the list
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 {describeGcProblems(result.problems)}. A team not reached is often worth another
                 try; one that could not be filed needs its age group or season fixed on GameChanger,
                 or is a level this app does not rank. One to check did import — its id simply
@@ -2265,12 +2277,14 @@ export function GameChangerImportPanel({
                         {problem.reason}
                       </span>
                     </span>
-                    <span className="block text-slate-500">{problem.detail}</span>
+                    <span className="block text-slate-500 dark:text-slate-400">
+                      {problem.detail}
+                    </span>
                   </li>
                 ))}
               </ul>
               {result.problems.length > PROBLEMS_SHOWN && (
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Showing the first {PROBLEMS_SHOWN}. The download has all {result.problems.length}.
                 </p>
               )}
@@ -2284,10 +2298,10 @@ export function GameChangerImportPanel({
 
           {pairings.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Same squad, a season on?
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 GameChanger gives a club a new id every season, so these arrived as separate teams.
                 Pairs with the same name, town and state have been combined already. These share
                 less than that, so they are yours to call — tap a name to see the two side by side.
@@ -2376,7 +2390,7 @@ export function GameChangerImportPanel({
                             {pairing.fromTeamName}
                           </button>{" "}
                           <label htmlFor={`pair-${key}`}>
-                            <span className="text-slate-500">
+                            <span className="text-slate-500 dark:text-slate-400">
                               {/* One season on both cards reads as nonsense with an arrow through
                                   it, and the arrow is not what happened: nothing carried on. */}
                               {pairing.kind === "same-season"
@@ -2409,7 +2423,7 @@ export function GameChangerImportPanel({
                 })}
               </ul>
               {shown.length < matching.length && (
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                   <span>
                     Drawing {shown.length} of {matching.length}
                     {pairSearch.trim() ? ` that match, out of ${pairings.length}` : ""}.
@@ -2424,12 +2438,12 @@ export function GameChangerImportPanel({
                 </div>
               )}
               {matching.length === 0 && (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   None of the {pairings.length} match that. Clear the search to see them all.
                 </p>
               )}
               {approved.size > 0 && (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   {approved.size} ticked
                   {approved.size > shown.length ? ", including some not drawn here" : ""}.
                 </p>
@@ -2454,7 +2468,7 @@ function ParsedPreview({ entries }: { entries: GcTeamListEntry[] }) {
   return (
     <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
       <table className="w-full text-left text-xs">
-        <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900">
+        <thead className="bg-slate-50 text-slate-500 dark:text-slate-400 dark:bg-slate-900">
           <tr>
             <th className="px-2 py-1">Id</th>
             <th className="px-2 py-1">Name</th>
@@ -2480,7 +2494,7 @@ function ParsedPreview({ entries }: { entries: GcTeamListEntry[] }) {
         </tbody>
       </table>
       {entries.length > sample.length && (
-        <p className="px-2 py-1 text-xs text-slate-500">
+        <p className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400">
           …and {entries.length - sample.length} more.
         </p>
       )}
@@ -2507,7 +2521,7 @@ function PairingComparison({ comparison }: { comparison: GcPairingComparison }) 
   ];
   const opponents = (side: GcPairingSide) =>
     side.opponents.length === 0 ? (
-      <span className="text-slate-500">none yet</span>
+      <span className="text-slate-500 dark:text-slate-400">none yet</span>
     ) : (
       <ul className="space-y-0.5">
         {side.opponents.map((name) => (
@@ -2524,7 +2538,7 @@ function PairingComparison({ comparison }: { comparison: GcPairingComparison }) 
     <div className="ml-6 mt-2 overflow-x-auto rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800">
       <table className="w-full">
         <thead>
-          <tr className="text-left text-slate-500">
+          <tr className="text-left text-slate-500 dark:text-slate-400">
             <th className="pb-1 pr-3 font-semibold" />
             <th className="pb-1 pr-3 font-semibold">{from.season}</th>
             <th className="pb-1 font-semibold">{to.season}</th>
@@ -2533,13 +2547,13 @@ function PairingComparison({ comparison }: { comparison: GcPairingComparison }) 
         <tbody className="align-top">
           {rows.map(([label, a, b]) => (
             <tr key={label}>
-              <td className="py-0.5 pr-3 text-slate-500">{label}</td>
+              <td className="py-0.5 pr-3 text-slate-500 dark:text-slate-400">{label}</td>
               <td className="py-0.5 pr-3 text-slate-950 dark:text-white">{a}</td>
               <td className="py-0.5 text-slate-950 dark:text-white">{b}</td>
             </tr>
           ))}
           <tr>
-            <td className="py-0.5 pr-3 text-slate-500">
+            <td className="py-0.5 pr-3 text-slate-500 dark:text-slate-400">
               Opponents
               {sharedOpponents.length > 0 && (
                 <span className="block text-emerald-700 dark:text-emerald-300">

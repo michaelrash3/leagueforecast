@@ -151,7 +151,7 @@ export function SeedOddsPanel({
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] font-bold text-slate-400 dark:text-slate-500">
+        <p className="mt-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
           Cells show the chance of each final seed. The red column marks the Gold cut line (top{" "}
           {cutoff}).
         </p>

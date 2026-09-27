@@ -150,7 +150,7 @@ const ScoreRow = React.memo(function ScoreRow({
         {fields.map((field, index) => (
           <label
             key={field.key}
-            className="text-center text-[10px] font-semibold uppercase text-slate-500"
+            className="text-center text-[10px] font-semibold uppercase text-slate-500 dark:text-slate-400"
           >
             {field.label}
             <input
@@ -241,7 +241,7 @@ function FinalGameRow({
       id={id}
       className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-xs dark:border-slate-700 dark:bg-slate-900"
     >
-      <span className="w-14 shrink-0 text-xs font-semibold text-slate-400 dark:text-slate-500">
+      <span className="w-14 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
         {formatGameDate(date)}
       </span>
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -494,7 +494,7 @@ export function GamesView({
             >
               Fill scores from Team Rankings
             </button>
-            <span className="ml-2 text-xs text-slate-500">
+            <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
               Reads results already in the pool — a GameChanger pull, usually — and offers them for
               this schedule. Nothing is written until you have looked.
             </span>
@@ -652,9 +652,9 @@ export function GamesView({
 
                 <div className="space-y-4 p-4">
                   {!final && prediction ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold dark:border-slate-700 dark:bg-slate-800/50">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-xs ring-1 ring-slate-200">
+                        <span className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                           Spread: {prediction.spread}
                         </span>
                         {prediction.scenarioBadges.map((badge) => (
@@ -666,7 +666,7 @@ export function GamesView({
                           </span>
                         ))}
                       </div>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         Pick: {prediction.pickName} · {Math.round(prediction.pickPct * 100)}%
                       </span>
                     </div>

@@ -118,7 +118,7 @@ export function RankingsSection({
       {searchOptions.length > 0 && (
         <div className={`${card} p-4`}>
           <label
-            className="block text-xs font-semibold uppercase tracking-wide text-slate-500"
+            className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
             htmlFor="scout-team-search"
           >
             Find a team
@@ -137,10 +137,10 @@ export function RankingsSection({
 
       {rankings.length === 0 ? (
         <div className={`${card} p-5`}>
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {groupName ? `${groupName}${segment ? ` · ${segment.name}` : ""}` : "Rankings"}
           </h2>
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             {unrankedLevelNote
               ? unrankedLevelNote
               : !hasAgeGroups
@@ -155,11 +155,11 @@ export function RankingsSection({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className={`${card} p-5`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   National top {NATIONAL_TOP}
                   {segment ? ` · ${segment.name}` : ""}
                 </h2>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
                 </span>
               </div>
@@ -168,7 +168,7 @@ export function RankingsSection({
 
             <div className={`${card} p-5`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   State top {STATE_TOP}
                 </h2>
                 {availableStates.length > 0 && (
@@ -187,7 +187,7 @@ export function RankingsSection({
                 )}
               </div>
               {stateTopRows.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
                   {availableStates.length === 0
                     ? "No team here has a state yet. Add one from a team's panel, or pull from GameChanger, which brings the state with it."
                     : `No ranked teams in ${shownState} yet.`}
@@ -202,7 +202,7 @@ export function RankingsSection({
 
       <div className={`${card} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Full rankings
             <RankingMethodButton
               open={methodOpen}
@@ -225,7 +225,7 @@ export function RankingsSection({
           {showAll && (availableStates.length > 0 || unknownStateCount > 0) && (
             <span className="flex items-center gap-2">
               <label
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
                 htmlFor="scout-state-filter"
               >
                 State
@@ -253,7 +253,7 @@ export function RankingsSection({
           <RankingMethodPanel id={methodPanelId} onClose={() => setMethodOpen(false)} />
         )}
         {showAll && stateFilter && (
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             {rankingsStale ? "Refitting the ratings… " : ""}Showing {visibleRankings.length} of{" "}
             {rankings.length} teams. Ratings still come from every game — filtering changes who is
             listed, not how anyone is rated, so the <strong>#</strong> here is the position within
@@ -319,7 +319,9 @@ export function RankingsSection({
                           {formatRating(row.rating)}
                         </span>
                       </div>
-                      {place && <p className="mt-0.5 text-xs text-slate-500">{place}</p>}
+                      {place && (
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{place}</p>
+                      )}
                       <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
                         <div className="flex justify-between gap-2">
                           <dt className="text-slate-500 dark:text-slate-400">Record</dt>
@@ -366,7 +368,7 @@ export function RankingsSection({
             {wide && (
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <th className="py-2">Rank</th>
                     <th>Team</th>
                     <th>Record</th>
@@ -408,14 +410,16 @@ export function RankingsSection({
                             <span className={`ml-2 ${pill("blue")}`}>League</span>
                           )}
                           {place && (
-                            <span className="block text-xs font-normal text-slate-500">
+                            <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                               {place}
                             </span>
                           )}
                         </td>
                         <td>{row.record}</td>
                         <td>{formatRating(row.rating)}</td>
-                        <td className="text-slate-500">{formatRating(row.pointRating)}</td>
+                        <td className="text-slate-500 dark:text-slate-400">
+                          {formatRating(row.pointRating)}
+                        </td>
                         <td>{row.games}</td>
                         <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
                         <td className="space-x-2 text-right">
@@ -445,7 +449,7 @@ export function RankingsSection({
               </table>
             )}
             {hiddenRows > 0 && (
-              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                 <span>
                   Showing {visibleSlice.length} of {visibleRankings.length}
                 </span>
@@ -461,13 +465,13 @@ export function RankingsSection({
               </div>
             )}
             {rankings.length === 0 && (
-              <p className="py-6 text-center text-sm text-slate-500">
+              <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                 {unrankedLevelNote ?? "No teams yet for this age group."}
               </p>
             )}
           </div>
         )}
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
           Ratings only become meaningful once teams&apos; schedules connect, directly or through
           common opponents — a team with no shared opponents will show a plain, less certain rating.
           This model always uses a flat run-margin cap, independent of any one season&apos;s own

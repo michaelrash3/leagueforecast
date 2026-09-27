@@ -123,10 +123,10 @@ export function SetupSection({
   return (
     <>
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           What Team Rankings is
         </h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Separate from League Standings: log any team&apos;s scores as they come up in a tournament
           or another league, and see how everyone stacks up. An age group&apos;s whole League
           Standings schedule (every season you assign to it — Fall, Spring, whatever your club runs)
@@ -148,18 +148,20 @@ export function SetupSection({
       />
 
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Age groups</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Age groups
+        </h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           GameChanger makes these, and owns them: a 9U schedule lands on the 9U page, and answering
           the question above puts your league season on one. There is nothing to manage here — a
           page exists exactly when something is filed on it.
         </p>
         {ageGroups.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             None yet. Pull a team list from GameChanger and the pages make themselves.
           </p>
         ) : worthListing.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             {ageGroups.length} page{ageGroups.length === 1 ? "" : "s"}, none with a league season on
             it. Answer the question above to put one somewhere.
           </p>
@@ -168,7 +170,7 @@ export function SetupSection({
             {worthListing.map((group) => (
               <li key={group.id} className="flex flex-wrap items-baseline gap-2 py-2 text-sm">
                 <span className="font-bold text-slate-950 dark:text-white">{group.name}</span>
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {group.seasonIds.length
                     ? group.seasonIds
                         .map((id) => seasons.find((s) => s.id === id)?.name ?? id)
@@ -186,7 +188,7 @@ export function SetupSection({
           </ul>
         )}
         {worthListing.length > 0 && worthListing.length < ageGroups.length && (
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             and {ageGroups.length - worthListing.length} more with no league season and nothing
             carried forward. They are still pages — this card only has something to say about the
             ones above.

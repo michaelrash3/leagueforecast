@@ -65,7 +65,7 @@ export function ModelCheckCard({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Does the model predict anything?
       </h2>
       <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -83,7 +83,7 @@ export function ModelCheckCard({
       {ran && result && (
         <div className="mt-4 text-sm">
           {result.sampleSize === 0 ? (
-            <p className="text-slate-500">
+            <p className="text-slate-500 dark:text-slate-400">
               Not enough dated games here to hold any back. The check needs games with dates on both
               sides of a cut — a pull brings dates with it.
             </p>
@@ -97,30 +97,32 @@ export function ModelCheckCard({
                 )}
               </p>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Games predicted</dt>
+                <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Games predicted
+                </dt>
                 <dd className="font-bold">{result.sampleSize}</dd>
 
-                <dt className="text-xs uppercase tracking-wide text-slate-500">
+                <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Off by, on average
                 </dt>
                 <dd className="font-bold">{runs(result.meanAbsoluteError)}</dd>
 
-                <dt className="text-xs uppercase tracking-wide text-slate-500">
+                <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Calling every game even
                 </dt>
                 <dd className="font-bold">{runs(result.baselineError)}</dd>
 
-                <dt className="text-xs uppercase tracking-wide text-slate-500">
+                <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Winner called right
                 </dt>
                 <dd className="font-bold">{percent(result.winnerAccuracy)}</dd>
               </dl>
 
-              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500">
+              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 What a year of age is worth here
               </h3>
               {result.crossAgeSamples === 0 ? (
-                <p className="mt-1 text-slate-500">
+                <p className="mt-1 text-slate-500 dark:text-slate-400">
                   Nothing in this pool crosses an age level, so it cannot say. The model is using
                   the rule of thumb, {AGE_GAP_RUNS_PER_YEAR} runs a year.
                 </p>
@@ -135,16 +137,16 @@ export function ModelCheckCard({
                     : " No other starting point predicted them better."}
                 </p>
               )}
-              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500">
+              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 What the run cap is costing
               </h3>
-              <p className="mt-1 text-slate-500">
+              <p className="mt-1 text-slate-500 dark:text-slate-400">
                 The most one game may swing a rating. {RATING_CAP} is what it is set to, and unlike
                 the League Standings cap — which is a rule of your league — nothing measured put it
                 there. The last row caps nothing at all, which is the row that asks whether having a
                 cap is earning anything rather than which cap is best.
               </p>
-              <p className="mt-1 text-slate-500">
+              <p className="mt-1 text-slate-500 dark:text-slate-400">
                 Every row is fitted at its own cap and then scored against the same target: the
                 margin as played, uncapped, so a row allowed to predict past {RATING_CAP} is not
                 marked down for doing it. That makes these figures read higher than the{" "}
@@ -155,7 +157,7 @@ export function ModelCheckCard({
                 <div className="mt-2 overflow-x-auto">
                   <table className="min-w-full text-sm" aria-label="Run cap sweep">
                     <thead>
-                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         <th className="py-1">Cap</th>
                         <th>Off by</th>
                         <th>Called right</th>
@@ -170,7 +172,7 @@ export function ModelCheckCard({
                           <td className="py-1 font-semibold">
                             {capName(row.cap)}{" "}
                             {row.cap === RATING_CAP && (
-                              <span className="ml-2 text-xs font-normal text-slate-500">
+                              <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">
                                 in use
                               </span>
                             )}
@@ -192,7 +194,7 @@ export function ModelCheckCard({
                   )}
                 </div>
               ) : (
-                <p className="mt-1 text-slate-500">
+                <p className="mt-1 text-slate-500 dark:text-slate-400">
                   Not enough held-back games here to tell the caps apart.
                 </p>
               )}
