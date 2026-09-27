@@ -96,6 +96,13 @@ export const countedTwice = (
         own: seen.own,
         opponent: seen.opponent,
         minute,
+        /*
+         * Not a schedule on record with no row kept (`alsoFrom` alone, from before rows were kept):
+         * that record is the club's row folded in once, which can stand again as a game of its
+         * own. On the pool of 26 September 2026 at 18:40, 8 of the 9 groups it would have kept off
+         * this list read as one game counted twice — the club's own row against a shortening of
+         * the other club's name, "Rou" for ROUGAROU, beside that club's copy holding the record.
+         */
         ownRow: ours(game.source?.teamId) || (game.alsoRows ?? []).some((row) => ours(row.teamId)),
       };
       const list = byClubDay.get(key);

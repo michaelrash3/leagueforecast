@@ -79,6 +79,26 @@ describe("a league game's copy on another page of the year", () => {
     ]);
   });
 
+  it("is one fit a year when pages of two years claim the league's season", () => {
+    // Carried onto a page of each year under one id, the league's game is dated into each; each
+    // year's slot copy fits its own year's once. Read by the id alone, the two copies were two fits
+    // of one league game, and neither was paired.
+    const twoYears: AgeGroup[] = [
+      ...groups,
+      { id: "ag9next", name: "9U 2028", seasonIds: ["default"], ageLevel: 9, year: 2028 },
+      { id: "ag8next", name: "8U 2028", seasonIds: [], ageLevel: 8, year: 2028 },
+    ];
+    const nextYear = { ...league, ageGroupId: "ag9next", date: "2027-10-02" };
+    const slotNow = row("gc_fall_2", "ag8", "S-FALL", "S-TBD", 3, 5, "gcFALL");
+    const slotNext = {
+      ...row("gc_fall_3", "ag8next", "S-FALL", "S-TBD", 3, 5, "gcFALL"),
+      date: "2027-10-02",
+    };
+    expect(
+      dedupeLeagueFixtures([league, nextYear, slotNow, slotNext], leagueStandIns(teams, twoYears))
+    ).toEqual([league, nextYear]);
+  });
+
   it("is one fit when the league's season is on two pages of the year", () => {
     // A season two pages claim is carried onto both under one id; the slot copy fits it once.
     const onTen = { ...league, ageGroupId: "ag10" };

@@ -247,6 +247,16 @@ export type ScoutGame = {
    * copy, and the one game was counted twice.
    */
   withdrawn?: boolean;
+  /**
+   * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
+   * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
+   * the row that way, and by a later pull of a row already here whose picture names the club it is
+   * filed against. A tidy rule that moves a row off a club on its name
+   * alone leaves it on this one — a club across the country is a club a travelling team plays, when
+   * GameChanger says so. Only while the row still names this club: a club merged into another takes
+   * it along (`withFiledRepointed`), and a row that names another club no longer carries it.
+   */
+  namedByAvatar?: string;
   /** References an `AgeGroup.id` — the age level this result belongs to. */
   ageGroupId: string;
   /**

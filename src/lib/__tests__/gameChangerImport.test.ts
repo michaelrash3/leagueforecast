@@ -2623,6 +2623,25 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
       expect(heldRows(state)).toEqual({ gc_gcB_b2: ["a2"] });
     });
 
+    it("is left where a row of the copy's own day could be it and went into neither of two", () => {
+      // A 7-3 against a slot on the 6th fits the Bears' copy of the 6th and the Cubs' alike, and
+      // goes into neither; the Bears' copy is still one it could be, so the 5th's 7-3 against
+      // "Bears" does not take it as a day off.
+      const built = build(
+        [fitting, { id: "a6", clock: "18:00", score: [7, 3], name: "TBD", slot: true }],
+        [dayOff(), dayOff({ id: "c1", club: "gcC" })]
+      );
+      const sixth = {
+        ...built,
+        games: built.games.map((game) =>
+          game.id === "gc_gcA_a6"
+            ? { ...game, date: "2026-09-06", startTs: at("18:00", "2026-09-06") }
+            : game
+        ),
+      };
+      expect(claimFiledRows(sixth).claimed).toBe(0);
+    });
+
     it("gives a copy wanted by rows of the days either side to neither", () => {
       // The Aces' 7-3 against "Bears" on the 5th and again on the 7th, and one Bears copy between.
       const day = build([fitting, { ...fitting, id: "a2" }], [dayOff()]);
@@ -2864,6 +2883,18 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     const tidy = tidyPool(g3(nextDay("14:00", [1, 2])));
     expect(rowsOf(tidy.state)).toEqual(["gc_gcA_a9", "gc_gcA_a1 + gc_gcB_b1"].sort());
     expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
+  });
+
+  it("leaves a row that named the pulled club by its picture (`namedByAvatar`)", () => {
+    const built = g3(nextDay("14:00", [1, 2]));
+    const cubs = built.teams.find((team) => team.gcTeams?.some((link) => link.teamId === "gcC"))!;
+    const named = {
+      ...built,
+      games: built.games.map((game) =>
+        game.id === "gc_gcA_a1" ? { ...game, namedByAvatar: cubs.id } : game
+      ),
+    };
+    expect(claimFiledRows(named).claimed).toBe(0);
   });
 
   it("waits on the Aces' own row against the Bears a day off that the collapse could join", () => {
@@ -4029,10 +4060,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r18|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r19|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r18|0|0|0|");
+    expect(poolSignature(empty)).toBe("r19|0|0|0|");
   });
 });
 

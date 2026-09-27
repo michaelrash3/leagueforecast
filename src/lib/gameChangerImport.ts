@@ -1700,6 +1700,18 @@ const planOpponent = (
   return { create: { nameOnly: true }, basis: "created" };
 };
 
+/**
+ * `existing`, a row this schedule filed before, carrying the club this pull's picture names
+ * (`ScoutGame.namedByAvatar`) where that is the club the row is filed against. The same object
+ * when there is nothing to add; a picture that no longer names it takes nothing away.
+ */
+const withPictureOf = (existing: ScoutGame, candidate: ScoutGame): ScoutGame => {
+  const named = candidate.namedByAvatar;
+  if (named === undefined || existing.namedByAvatar === named) return existing;
+  if (existing.teamAId !== named && existing.teamBId !== named) return existing;
+  return { ...existing, namedByAvatar: named };
+};
+
 /** The team `plan` asks for, made where it asks for one and added to the roster. */
 const teamOfPlan = (
   plan: OpponentPlan,
@@ -2492,6 +2504,22 @@ const importOne = (
         else outcome.opponentsMatchedByName += 1;
       }
     }
+    /*
+     * A pulled club this row names by its picture is that club whoever else carries its name
+     * (`ScoutGame.namedByAvatar`): so on arrival, and on a later pull of a row already filed against
+     * the club its picture names, which is how a row filed before the picture was kept comes to
+     * carry it.
+     */
+    const byPicture =
+      game.opponentAvatarKey === undefined
+        ? undefined
+        : index.teamsByAvatar.get(game.opponentAvatarKey);
+    const namedByAvatar =
+      byPicture?.length === 1 &&
+      byPicture[0]!.id === opponentId &&
+      Boolean(byPicture[0]!.gcTeams?.length)
+        ? opponentId
+        : undefined;
 
     /*
      * Their level is only ever a guess from the name; ours is what GameChanger said.
@@ -2519,6 +2547,7 @@ const importOne = (
       ...(theirLevel === undefined ? {} : { ageLevelB: theirLevel }),
       ...(profile.season ? { season: formatGcSeason(profile.season) } : {}),
       ...(game.startTs ? { startTs: game.startTs } : {}),
+      ...(namedByAvatar === undefined ? {} : { namedByAvatar }),
       source: { kind: "gamechanger", teamId: profile.id, gameId: game.id },
     };
 
@@ -2658,7 +2687,10 @@ const importOne = (
      * Another schedule's copy of a game leaves its schedule on record, which is how the tidy's
      * count knows this game already took this club's row for the day (`withSchedulesOf`).
      */
-    const recorded = existing === known ? existing : withSchedulesOf(existing, candidate);
+    const recorded =
+      existing === known
+        ? withPictureOf(existing, candidate)
+        : withSchedulesOf(existing, candidate);
     /*
      * The other club's own copy of the game: its score goes beside this one's rather than over it
      * (`withSideBReport`), so neither club's schedule speaks for the other's and the score no longer
@@ -3531,7 +3563,11 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
     }
     const against = game.teamBId;
     if (against === club) return;
-    if (isStandIn(against) || (isClub(against) && !listedBy(game, against))) {
+    // A club the row named by its picture is not a name to be claimed away from.
+    if (
+      isStandIn(against) ||
+      (isClub(against) && !listedBy(game, against) && game.namedByAvatar !== against)
+    ) {
       push(filedByDay, dayKey(club, game.date), {
         row: game,
         club,
@@ -3551,6 +3587,8 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
   let claimed = 0;
   /** What each day decided for each of its rows: the copy it goes into, or none. */
   const decisions: { entry: Filed; copy: ScoutGame | undefined }[] = [];
+  /** Copies a row of their own day could be and went into none: no day either side's to take. */
+  const wantedOnTheirDay = new Set<string>();
 
   filedByDay.forEach((filed, key) => {
     const { club, row: firstRow } = filed[0]!;
@@ -3789,6 +3827,19 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
       if ((clubsFor.get(entry.against)?.size ?? 0) > 1) chosen.delete(entry);
     });
 
+    /*
+     * A row of the copy's own day that could be it and went into nothing — two copies it could not
+     * choose between — wants it as surely as one that did. Read off the decisions alone, the day
+     * before took the copy: a 5-3 against a stand-in on the 6th that fits both the Bears' and the
+     * Cubs' copies of the 6th went into neither, and the same result on the 5th went into the
+     * Bears' as a day-off row.
+     */
+    rows.forEach((entry, at) => {
+      if (chosen.has(entry)) return;
+      everyLink.forEach((link) => {
+        if (link.row === at && sameDay(link)) wantedOnTheirDay.add(copies[link.copy]!.id);
+      });
+    });
     filed.forEach((entry) => decisions.push({ entry, copy: chosen.get(entry) }));
   });
 
@@ -3805,6 +3856,12 @@ export const claimFiledRows = (input: GcImportState): { state: GcImportState; cl
    * the row on its own day, or where there is not exactly one, to none: two days' rows wanting one
    * copy is no reading of either.
    */
+  decisions.forEach((decision) => {
+    const copy = decision.copy;
+    if (copy && copy.date !== decision.entry.row.date && wantedOnTheirDay.has(copy.id)) {
+      decision.copy = undefined;
+    }
+  });
   const byCopy = new Map<string, (typeof decisions)[number][]>();
   decisions.forEach((decision) => {
     if (decision.copy) push(byCopy, decision.copy.id, decision);
@@ -5342,6 +5399,8 @@ export const reclaimMisfiled = (
     const namedId = pullerId === game.teamAId ? game.teamBId : game.teamAId;
     const named = teamById.get(namedId);
     if (!named?.gcTeams?.length) return game;
+    // Named by its picture, not attached by name (`ScoutGame.namedByAvatar`).
+    if (game.namedByAvatar === namedId) return game;
     // Attached by name only: the club it sits on did not file it, and its own schedule does not
     // hold a row that could be it. A row a join or a slot fold made one of two keeps the other
     // club's schedule in `alsoFrom`, and that club filed it as surely as the puller did: reading
@@ -5629,6 +5688,9 @@ export const resettleOffLevel = (
     if (namedId === undefined) return game;
     const named = teamById.get(namedId);
     if (!named?.gcTeams?.length) return game;
+    // A club the row named by its picture is that club whatever its listings or its state say:
+    // nothing here reads more than a name (`ScoutGame.namedByAvatar`).
+    if (game.namedByAvatar === namedId) return game;
     // A game the named club's own schedule gave a row too, folded in or settled into it, is on that
     // club's schedule by its own word, as `reclaimMisfiled` reads it. Moved off, the club's own row
     // went with it into a game the club was not in, and the club's next pull filed that row again.
@@ -6785,8 +6847,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  18 — a stand-in merged into any earlier entry of its name it shares a naming state with, not
  *       the first alone; and a row filed by name onto a pulled club regions away, which nothing of
  *       that club's own backs, taken off it
+ *  19 — a copy a row of its own day could be and went into none of left to no row a day off; and
+ *       a row that named its opponent by the club's picture never moved off it on a name
  */
-const TIDY_RULES_VERSION = 18;
+const TIDY_RULES_VERSION = 19;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

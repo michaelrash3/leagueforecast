@@ -833,7 +833,9 @@ fits the copy's club. The first reaches a copy holding the club's schedule on re
 Vincent read 3-2 against GameChanger's 2-2. The second reaches the day either side, into a copy
 that holds nothing of the club's, for a row whose own day has no copy for it: Catoosa Mudcats'
 9-16 against "Frost Falcons" on the 12th was Frost Falcons' own copy at the same 13:00 on the
-13th. A copy two days' rows both want goes to the row on its own day, or to neither. On the
+13th. A copy two days' rows both want goes to the row on its own day, or to neither, and a row of
+its own day that could be it counts as wanting it though it went into nothing, two copies it could
+not choose between: read off the choices alone, a row a day off took the copy it might be. On the
 tidy of the 26 September backup the two claim 44 and 47 rows, and 89 single-link clubs' records
 move: all 89 toward their own schedule (68 onto it), 88 toward GameChanger's (50 onto it), and one
 away, a club whose GameChanger record covers another span. A second tidy changes nothing, and in
@@ -1006,6 +1008,14 @@ about distance, and a slot's name stays on the one pulled club that carries it, 
 files it. On the pool of 26 September 2026 at 18:40 the tidy takes 121 rows off, and 31 clubs'
 records change: 30 toward GameChanger's own, 13 of them onto it, and one away, a loss its club's
 schedule has not scored yet, whose row the move let join the club's own copy of the game.
+
+A row that named its opponent by the club's GameChanger picture is kept apart from all of that
+(`ScoutGame.namedByAvatar`). The picture is the one identifier GameChanger gives that means the
+same club on two schedules, so a Florida row naming a Texas club by it played that club, and no
+rule that reads a name — the region, the age, the misfile check, the claim step — moves it off.
+The import records the club on a row it files by the picture and on a later pull of a row already
+filed against the club its picture names; a row the region rule moved before the picture was kept
+stays where the rule put it until the other club's own schedule lists the game.
 
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
