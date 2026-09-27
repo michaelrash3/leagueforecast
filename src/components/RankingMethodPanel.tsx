@@ -106,8 +106,11 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           is ranked and shown is the estimate less one standard error: not what a team might be, but
           what it is confidently worth, measured against how much an average team in this pool has
           played. A 4-0 team therefore sits behind an 11-1 team that has proved as much over nearly
-          three times the schedule. The full table shows the undiscounted estimate beside it, so you
-          can see exactly what a record is and is not carrying.
+          three times the schedule. Each game counts by how much its opponent has played, too: a win
+          over a team seen once mostly tells us about that team, so a record built on one-game
+          opponents supports less than the same record against clubs with seasons of their own. The
+          full table shows the undiscounted estimate beside it, so you can see exactly what a record
+          is and is not carrying.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A

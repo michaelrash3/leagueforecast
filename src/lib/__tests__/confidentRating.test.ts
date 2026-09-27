@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTeamRankings,
+  effectiveGames,
   evidenceDiscount,
   EVIDENCE_STANDARD_ERRORS,
   ratingSpread,
@@ -83,6 +84,19 @@ describe("discounting a rating for how little is behind it", () => {
     const tight = evidenceDiscount(fit(1.5, { a: 6, b: 40 }));
     const loose = evidenceDiscount(fit(5, { a: 6, b: 40 }));
     expect(5 - tight(5, 6)).toBeLessThan(5 - loose(5, 6));
+  });
+
+  it("weighs each game by how much its opponent has played", () => {
+    // A one-game stand-in leaves the club 0.6 of a game, what the ridge leaves it; a twenty-game
+    // club 1 - 1/21.5. A game against a side the fit never read is not counted.
+    const counted = effectiveGames(fit(4, { a: 2, s: 1, big: 20 }), [
+      ["a", "s"],
+      ["a", "big"],
+      ["a", "gone"],
+    ]);
+    expect(counted.get("a")).toBeCloseTo(0.6 + (1 - 1 / 21.5), 9);
+    expect(counted.get("s")).toBeCloseTo(1 - 1 / 3.5, 9);
+    expect(counted.has("gone")).toBe(false);
   });
 
   it("leaves a rating alone rather than returning nonsense for an empty fit", () => {
@@ -199,11 +213,67 @@ describe("a 3-0 club and an 11-1 club", () => {
       { cap: RATING_CAP }
     );
     expect(thin.pointRating).toBeCloseTo(refit.ratings.get("T-THIN")!, 9);
-    expect(thin.rating).toBeCloseTo(evidenceDiscount(refit)(thin.pointRating, 3), 9);
+    // Off its games weighed by its opponents' (`effectiveGames`), not the raw three.
+    const effective = effectiveGames(
+      refit,
+      games.map((game) => [game.teamAId, game.teamBId] as const)
+    );
+    expect(thin.rating).toBeCloseTo(
+      evidenceDiscount({ games: effective, residualScale: refit.residualScale })(
+        thin.pointRating,
+        effective.get("T-THIN")!
+      ),
+      9
+    );
     // Three games against a pool that mostly plays twenty: a real discount, not a rounding.
     expect(thin.pointRating - thin.rating).toBeGreaterThan(0.5);
     // And the pool's noise is the size a real one's is, not the size a scripted fixture's would be.
     expect(refit.residualScale).toBeGreaterThan(3);
+  });
+
+  /*
+   * Five wins over five stand-ins seen once each say less than five over clubs with seasons of
+   * their own: each thin opponent takes most of its one game's margin for itself.
+   */
+  it("discounts five games against one-game stand-ins more than five against real seasons", () => {
+    const { teams, games } = built();
+    const rest = [...teams, { id: "T-A", name: "Stand-in schedule" }];
+    const against = [...games];
+    for (let i = 0; i < 5; i += 1) {
+      rest.push({ id: `S-${i}`, name: `Stand-in ${i}`, nameOnly: true });
+      against.push({
+        id: `sa${i}`,
+        ageGroupId: "u9",
+        teamAId: "T-A",
+        teamBId: `S-${i}`,
+        teamAScore: 8,
+        teamBScore: 5,
+        date: "2026-09-05",
+      });
+    }
+    rest.push({ id: "T-B", name: "Season schedule" });
+    for (let i = 0; i < 5; i += 1) {
+      against.push({
+        id: `sb${i}`,
+        ageGroupId: "u9",
+        teamAId: "T-B",
+        teamBId: `T-${i}`,
+        teamAScore: 8,
+        teamBScore: 5,
+        date: "2026-09-05",
+      });
+    }
+    // The pooled board and the one-page board both.
+    for (const rows of [
+      buildTeamRankings("u9", rest, against, undefined, pool),
+      buildTeamRankings("u9", rest, against),
+    ]) {
+      const a = rows.find((row) => row.teamId === "T-A")!;
+      const b = rows.find((row) => row.teamId === "T-B")!;
+      expect(a.games).toBe(5);
+      expect(b.games).toBe(5);
+      expect(a.pointRating - a.rating).toBeGreaterThan(b.pointRating - b.rating + 0.1);
+    }
   });
 
   it("does not reorder clubs that have played the same amount", () => {

@@ -184,6 +184,38 @@ export const evidenceDiscount = (
   };
 };
 
+/**
+ * Each team's games weighed by what each can say about it: `1 - 1 / (shrinkage + the opponent's
+ * games)`, over the games the fit read. The count `ratingSpread` is given.
+ *
+ * A game against a club seen twenty times pins this team's rating against a known one; a game
+ * against a stand-in seen once mostly pins the stand-in, which has nothing else to go on, and the
+ * ridge leaves this team about `shrinkage / (1 + shrinkage)` of it — 0.6 at the default, which is
+ * the weight here. So a record of eight wins over one-game stand-ins is thinner evidence than eight
+ * over clubs with seasons of their own, and discounted for it. Measured with the app's own fit and
+ * discount on the 2027 year of 26 September 2026, over eight cut days: the Brier score of the next
+ * week's same-level games improved at every cut, -0.00010 ± 0.00002 pooled over 73,614 games, and
+ * margin error by 0.0016 runs; scaling every count down by the pool's average ratio instead, or
+ * shuffling which opponent a game was against, gained nothing, so it is the opponents that help.
+ *
+ * A game whose side the fit did not read is not counted: there is no opponent count to weigh it by.
+ */
+export const effectiveGames = (
+  adjusted: Pick<OpponentAdjustedRatings, "games">,
+  pairs: Iterable<readonly [string, string]>,
+  shrinkage: number = DEFAULT_SHRINKAGE
+): Map<string, number> => {
+  const effective = new Map<string, number>();
+  for (const [a, b] of pairs) {
+    const gamesA = adjusted.games.get(a);
+    const gamesB = adjusted.games.get(b);
+    if (!gamesA || !gamesB) continue;
+    effective.set(a, (effective.get(a) ?? 0) + 1 - 1 / (shrinkage + gamesB));
+    effective.set(b, (effective.get(b) ?? 0) + 1 - 1 / (shrinkage + gamesA));
+  }
+  return effective;
+};
+
 const scoreFor = (log: GameLog | undefined, side: "away" | "home") =>
   parseNumber(side === "away" ? (log?.awayRuns ?? "") : (log?.homeRuns ?? ""), Number.NaN);
 
@@ -2774,8 +2806,12 @@ export const buildTeamRankings = (
     playedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
   );
   const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
-  const confident = evidenceDiscount(
+  const effective = effectiveGames(
     adjusted,
+    playedGames.map((game) => [game.teamAId, game.teamBId] as const)
+  );
+  const confident = evidenceDiscount(
+    { games: effective, residualScale: adjusted.residualScale },
     teams.filter(isClub).map((team) => team.id)
   );
   const rows = teams
@@ -2793,7 +2829,7 @@ export const buildTeamRankings = (
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
@@ -2897,15 +2933,29 @@ export const rankScoutPool = (
   rated: readonly RatedScoutGame[],
   myTeamId: string | undefined,
   ageGroups: AgeGroup[]
-): ScoutRankingRow[] => {
+): ScoutRankingRow[] =>
+  rankScoutPoolWithScale(ageGroupId, teams, games, rated, myTeamId, ageGroups).rows;
+
+/**
+ * `rankScoutPool`'s board, and the residual scale its fit read off (`residualScale`): the one part
+ * of a shown rating that is not linear in a game's margin, which the what-if curve needs to draw
+ * the discount exactly at every margin rather than on a straight line between two (`whatIfCurve`).
+ */
+export const rankScoutPoolWithScale = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  rated: readonly RatedScoutGame[],
+  myTeamId: string | undefined,
+  ageGroups: AgeGroup[]
+): { rows: ScoutRankingRow[]; residualScale: number } => {
   const index = indexGroups(ageGroups);
-  if (!isRankedAgeLevel(index.level(ageGroupId))) return [];
-  return rowsOfYearFit(
-    fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups),
-    ageGroupId,
-    myTeamId,
-    ageGroups
-  );
+  if (!isRankedAgeLevel(index.level(ageGroupId))) return { rows: [], residualScale: 0 };
+  const fit = fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups);
+  return {
+    rows: rowsOfYearFit(fit, ageGroupId, myTeamId, ageGroups),
+    residualScale: fit.adjusted.residualScale,
+  };
 };
 
 /**
@@ -2923,6 +2973,8 @@ export type ScoutYearFit = {
   /** The teams each page has a rated game filed on, by page. */
   filedByPage: Map<string, Set<string>>;
   adjusted: OpponentAdjustedRatings;
+  /** Each team's games weighed by its opponents' (`effectiveGames`): what the discount reads. */
+  effective: Map<string, number>;
   homeLevels: Map<string, number | undefined>;
   records: Map<string, WinLoss>;
   /** How many of each team's games crossed a level. */
@@ -2990,8 +3042,12 @@ export const fitScoutYear = (
    * shown rating is the same number wherever it is listed, and an 8U that played up is still on
    * the same scale as the 9Us it played.
    */
-  const confident = evidenceDiscount(
+  const effective = effectiveGames(
     adjusted,
+    rated.map(({ game }) => [game.teamAId, game.teamBId] as const)
+  );
+  const confident = evidenceDiscount(
+    { games: effective, residualScale: adjusted.residualScale },
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
   );
   /*
@@ -3004,7 +3060,17 @@ export const fitScoutYear = (
     nodes.map((team) => team.id),
     ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
   );
-  return { nodes, filedByPage, adjusted, homeLevels, records, crossAgeCounts, confident, pieces };
+  return {
+    nodes,
+    filedByPage,
+    adjusted,
+    effective,
+    homeLevels,
+    records,
+    crossAgeCounts,
+    confident,
+    pieces,
+  };
 };
 
 /**
@@ -3036,7 +3102,8 @@ export const rowsOfYearFit = (
 ): ScoutRankingRow[] => {
   const level = indexGroups(ageGroups).level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
-  const { nodes, adjusted, homeLevels, records, crossAgeCounts, confident, pieces } = fit;
+  const { nodes, adjusted, effective, homeLevels, records, crossAgeCounts, confident, pieces } =
+    fit;
   const filedHere = fit.filedByPage.get(ageGroupId) ?? NO_TEAMS;
   // A page with no readable level (a legacy group) lists whoever played there, as it always has.
   const belongsHere = (teamId: string): boolean => {
@@ -3062,7 +3129,7 @@ export const rowsOfYearFit = (
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: confident(adjusted.ratings.get(team.id) ?? 0, gamesPlayed),
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,

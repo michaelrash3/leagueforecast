@@ -10,18 +10,19 @@
  * Two things make that affordable and one makes it honest.
  *
  * The fit is least squares and `RATING_CAP` clamps a margin before it reaches the fit, so within
- * ±8 runs every club's fitted rating is an affine function of the margin assumed. The shown
- * rating is that less an evidence discount, and the discount's only margin-sensitive term is the
- * pool's residual scale, which one game out of thousands moves by a rounding error. So fitting the
- * two ends and drawing a straight line between them gives every whole margin in between. Measured
- * across pools of 12, 40, 120, 600, 1,500, 3,000 and 6,000 clubs, sweeping all sixteen margins
- * against a real re-fit at each: the rank was right in every case, and the worst rating error was
- * 7.4e-3 runs on the 12-club pool, falling to 1.9e-5 at 6,000. The error grows as the pool shrinks
- * — which is what the residual-scale reasoning predicts — and stays three orders below the tenth
- * of a run a table shows.
+ * ±8 runs every club's fitted rating is an affine function of the margin assumed, and two fits,
+ * the two ends, give it at every margin between. The shown rating is that less an evidence
+ * discount, which is the pool's residual scale times a number fixed for each club — its games
+ * weighed by its opponents', which no margin changes — and the residual scale is not linear: its
+ * square is the weighted mean of squared residuals, each affine in the margin, so it is a quadratic
+ * in the margin, pinned exactly by a third fit, at a tie. A straight line between the two ends
+ * missed a real re-fit's rank 2 times in 160 synthetic cases with stand-ins, and 8 once the
+ * discount weighed opponents, which spreads the clubs' discounts further; drawn exactly there are
+ * none.
  *
- * Selecting the games once and fitting twice, rather than calling `buildTeamRankings` twice and
- * selecting twice, is measured at 41ms against 65ms over 16,000 clubs and 96,000 games.
+ * Selecting the games once and fitting three times, rather than calling `buildTeamRankings` for
+ * each and selecting each time: the two fits measured 41ms against 65ms over 16,000 clubs and
+ * 96,000 games, and a third fit is a third more.
  *
  * And the hypothetical is dated today rather than on the day the fixture is actually played. That
  * is a deliberate small falsehood and the alternative is worse: old games count for less, so a
@@ -32,12 +33,11 @@
 
 import {
   RATING_CAP,
-  rankScoutPool,
+  rankScoutPoolWithScale,
   scoutRatingGames,
   type AgeGroup,
   type RatedScoutGame,
   type ScoutGame,
-  type ScoutRankingRow,
   type ScoutTeam,
 } from "./teamRankings";
 import { isScoutGamePlayed } from "./teamRankings/types";
@@ -255,9 +255,6 @@ const atMargin = (
   return next;
 };
 
-const ratingsOf = (rows: ScoutRankingRow[]): Map<string, number> =>
-  new Map(rows.map((row) => [row.teamId, row.rating]));
-
 /**
  * Where every whole margin from a defeat by `RATING_CAP` to a win by it would leave the club.
  *
@@ -290,8 +287,8 @@ export const whatIfCurve = (
   const at = rated.findIndex(({ game }) => game.id === fixture.id);
   if (at < 0) return null;
 
-  const board = (margin: number): ScoutRankingRow[] =>
-    rankScoutPool(
+  const board = (margin: number) =>
+    rankScoutPoolWithScale(
       ageGroupId,
       teams,
       games,
@@ -300,19 +297,40 @@ export const whatIfCurve = (
       ageGroups
     );
 
-  const lost = board(-RATING_CAP);
-  const won = board(RATING_CAP);
-  const lostBy = ratingsOf(lost);
-  const wonBy = ratingsOf(won);
+  const lostBoard = board(-RATING_CAP);
+  const tiedBoard = board(0);
+  const wonBoard = board(RATING_CAP);
+  const lost = lostBoard.rows;
+  const won = wonBoard.rows;
+  /** The squared residual scale at a margin: the parabola through the three fits. */
+  const squaredScaleAt = (margin: number): number => {
+    const [low, tie, high] = [lostBoard, tiedBoard, wonBoard].map(
+      ({ residualScale }) => residualScale ** 2
+    ) as [number, number, number];
+    const x = margin / RATING_CAP;
+    return tie + ((high - low) / 2) * x + ((high + low) / 2 - tie) * x * x;
+  };
+  // Each club's discount per run of residual scale, off whichever end has the larger scale to divide.
+  const reference = wonBoard.residualScale >= lostBoard.residualScale ? wonBoard : lostBoard;
+  const perScale = new Map(
+    reference.rows.map((row) => [
+      row.teamId,
+      reference.residualScale > 0 ? (row.pointRating - row.rating) / reference.residualScale : 0,
+    ])
+  );
+  const lowPoint = new Map(lost.map((row) => [row.teamId, row.pointRating]));
+  const highPoint = new Map(won.map((row) => [row.teamId, row.pointRating]));
 
   const points: WhatIfPoint[] = [];
   for (let margin = -RATING_CAP; margin <= RATING_CAP; margin += 1) {
     if (margin === 0) continue;
     const share = (margin + RATING_CAP) / (2 * RATING_CAP);
+    const scale = Math.sqrt(Math.max(0, squaredScaleAt(margin)));
     const between = (teamId: string): number => {
-      const low = lostBy.get(teamId);
-      const high = wonBy.get(teamId);
-      return low === undefined || high === undefined ? 0 : low + (high - low) * share;
+      const low = lowPoint.get(teamId);
+      const high = highPoint.get(teamId);
+      if (low === undefined || high === undefined) return 0;
+      return low + (high - low) * share - scale * (perScale.get(teamId) ?? 0);
     };
     const mine = between(forTeamId);
     // Counting who is above is what a rank is. Strictly above, so a club level with this one on

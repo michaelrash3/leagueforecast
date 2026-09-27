@@ -282,13 +282,28 @@ the answer: winning by one against winning by eight moves a club further than wi
 against losing at the projected margin. Eight is the top rung because `RATING_CAP` is
 eight, so a 9-1 and a 20-0 are the same evidence.
 
-Two fits are enough for all sixteen rungs. The fit is least squares and the cap is
-applied before it, so within ±8 runs every fitted rating is affine in the margin
-assumed; the shown rating is that less an evidence discount whose only
-margin-sensitive term is the pool's residual scale, which one game out of thousands
-moves by a rounding error. Swept against a real re-fit at every margin over pools of
-12 to 6,000 clubs, the rank was right in every case and the worst rating error was
-7.4e-3 runs, on the smallest pool.
+Three fits are enough for all sixteen rungs, exactly. The fit is least squares and the
+cap is applied before it, so within ±8 runs every fitted rating is affine in the margin
+assumed, and the two ends give it at every margin between. The shown rating is that less
+an evidence discount: the pool's residual scale times a number fixed for each club, its
+games weighed by its opponents', which no margin changes. The scale is not linear, but its
+square is the mean of squared residuals, each affine in the margin, so it is a parabola,
+and a third fit at a tie pins it. A straight line between the two ends missed a real
+re-fit's rank 2 times in 160 synthetic cases with stand-ins; drawn this way there are none,
+and the worst rating error is 1.6e-10 runs.
+
+The discount weighs each game by what it can say about the club: `1 - 1/(1.5 + the
+opponent's games)`. A win over a stand-in seen once mostly pins the stand-in, which has
+nothing else to go on, and leaves the club 0.6 of a game, what the ridge leaves it; a win
+over a club with twenty games leaves 0.95. So eight wins over one-game stand-ins are
+discounted more than eight over clubs with seasons of their own, and the Games column
+still counts every game. On the 2027 year of 26 September, fitted as the app fits it and
+scored on the next week's same-level games at eight cut days, the Brier score improved at
+every cut, −0.00010 ± 0.00002 over 73,614 games; thinning every count by the pool's average
+ratio, or shuffling which opponent a game was against, gained nothing, so it is the
+opponents that help. The shown win chance moves a median 0.14 points. On the 14U 2027 board
+of the same pool, "Florida", 19-2 with all 21 games against stand-ins or slots, goes from #22
+to #24, and Texas Edge Black, 5-0 against clubs, from #24 to #23.
 
 Nothing in the panel is coloured by outcome. Winning is not always good news and
 losing is not always bad: a narrow loss to a much stronger club can lift a thinly
