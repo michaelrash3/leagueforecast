@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eliminationNumberForGold, magicForGold } from "../magic";
-import { calculateTeams } from "../sim";
+import { calculateTeams, rankOptionsFromSettings, rankTeams } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
 const teams: TeamBase[] = [
@@ -38,40 +38,64 @@ describe("magicForGold", () => {
    * the new output.
    */
   it("names the one win that settles a top-two place", () => {
-    // A has beaten B; g3 is its last game. Win it and A has 2. B and C can reach 1 each, D can
-    // reach 2 — and a tie with D goes to A on id, so A is second at worst.
+    // A has beaten B; g3 is its last game. Win it and A has 2, with no losses. B and C can reach 1
+    // each, and D can reach 2 only by winning both its games — so at most one club can be level
+    // with A, and two places go to the top two whatever the tie.
     const live = calculateTeams(teams, matchups, {
       g1: finalLog(5, 1),
     });
-    const result = magicForGold("A", live, matchups, 2, settings);
+    const result = magicForGold("A", live, matchups.slice(1), 2, settings);
     expect(result.type).toBe("magic");
     expect(result.ownWinsNeeded).toBe(1);
     expect(result.opponentLossesNeeded).toBe(0);
+    expect(result.tiebreak).toBeUndefined();
   });
 
   it("clinched when nobody can pass", () => {
+    // A 2-0; B beat D. C and D have one game left between them, so neither can reach 2.
+    const live = calculateTeams(teams, matchups, {
+      g1: finalLog(5, 0),
+      g3: finalLog(5, 0),
+      g4: finalLog(4, 2),
+    });
+    const result = magicForGold("A", live, [matchups[1]!], 1, settings);
+    expect(result.type).toBe("clinched");
+  });
+
+  it("does not call a clinch that a tie on points could still take away", () => {
+    // A 2-0 with nothing left; D can win both its games and draw level. Level on points and on
+    // losses, it comes down to run differential in games not yet played. This used to be "Already
+    // clinched", because the tie went to A on its id.
     const live = calculateTeams(teams, matchups, {
       g1: finalLog(5, 0),
       g3: finalLog(5, 0),
     });
-    const result = magicForGold("A", live, matchups, 1, settings);
-    expect(result.type).toBe("clinched");
+    const result = magicForGold("A", live, [matchups[1]!, matchups[3]!], 1, settings);
+    expect(result.type).toBe("magic");
+    expect(result.tiebreak).toBe(true);
+    expect(result.description).toBe(
+      "Level for the last Gold Bracket spot at worst; the tiebreakers decide."
+    );
   });
 
-  it("uses deterministic team-id ordering in tie-heavy schedules", () => {
+  it("leaves a tie with nothing left to play to the table, whatever the teams are called", () => {
+    // Three clubs, nothing played and nothing left. The ids used to settle it: A clinched, C out.
     const tinyTeams: TeamBase[] = [
       { id: "A", name: "A" },
       { id: "B", name: "B" },
       { id: "C", name: "C" },
     ];
-    const noGamesLeft: Matchup[] = [];
+    const live = calculateTeams(tinyTeams, [], {});
+    expect(magicForGold("A", live, [], 1, settings).tiebreak).toBe(true);
+    expect(magicForGold("C", live, [], 1, settings).tiebreak).toBe(true);
 
-    const live = calculateTeams(tinyTeams, noGamesLeft, {});
-    const aResult = magicForGold("A", live, noGamesLeft, 1, settings);
-    const cResult = magicForGold("C", live, noGamesLeft, 1, settings);
-
-    expect(aResult.type).toBe("clinched");
-    expect(cResult.type).toBe("impossible");
+    // With the table's own ranks, as the app passes them, the season is simply over.
+    const table = rankTeams(live, rankOptionsFromSettings(settings));
+    const first = table.find((team) => team.rank === 1)!;
+    const last = table.find((team) => team.rank === 3)!;
+    expect(magicForGold(first.id, table, [], 1, settings).type).toBe("clinched");
+    expect(magicForGold(last.id, table, [], 1, settings).type).toBe("impossible");
+    expect(eliminationNumberForGold(last.id, table, [], 1, settings).opponentLossesNeeded).toBe(0);
   });
 
   it("supports edge cutoff values of 1 and n-1 in symmetric schedules", () => {
@@ -134,14 +158,14 @@ describe("magicForGold", () => {
     const result = magicForGold("A", live, tinyMatchups, 1, settings);
 
     /*
-     * A plays both of the others and they never play each other, so one win puts A level with
-     * whoever beat it and ahead of the club it beat — and a tie goes to A on id. The old comment
-     * here said "even winning out cannot guarantee first because B/C can also finish ahead on
-     * points", which is not true of this schedule: B and C have no game to pass each other in.
+     * A plays both of the others and they never play each other. One win puts A level on points
+     * with whoever beat it, 1-1 against 1-0, and the table puts the club with fewer losses first:
+     * this said one win on the strength of A's id. Two wins, and nobody can reach A.
      */
     expect(result.type).toBe("magic");
-    expect(result.ownWinsNeeded).toBe(1);
+    expect(result.ownWinsNeeded).toBe(2);
     expect(result.opponentLossesNeeded).toBe(0);
+    expect(result.tiebreak).toBeUndefined();
   });
 
   it("still says impossible when a win cannot put the team in", () => {
@@ -180,16 +204,20 @@ describe("magicForGold", () => {
   });
 
   it("returns impossible for mathematically impossible clinch cases", () => {
+    // B and C have beaten A, and nothing is left: A cannot reach either, tie or no tie.
     const tinyTeams: TeamBase[] = [
       { id: "A", name: "A" },
       { id: "B", name: "B" },
       { id: "C", name: "C" },
     ];
-    const noGamesLeft: Matchup[] = [];
-    const live = calculateTeams(tinyTeams, noGamesLeft, {});
+    const played: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "B" },
+      { id: "p2", date: "5/2", away: "A", home: "C" },
+    ];
+    const live = calculateTeams(tinyTeams, played, { p1: finalLog(0, 9), p2: finalLog(0, 9) });
 
-    expect(magicForGold("A", live, noGamesLeft, 1, settings).type).toBe("clinched");
-    expect(magicForGold("C", live, noGamesLeft, 1, settings).type).toBe("impossible");
+    expect(magicForGold("A", live, [], 2, settings).type).toBe("impossible");
+    expect(magicForGold("A", live, [], 2, settings).tiebreak).toBeUndefined();
   });
 });
 
@@ -214,9 +242,14 @@ describe("eliminationNumberForGold", () => {
     const live = calculateTeams(tinyTeams, tinyMatchups, {});
     const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
 
-    // A is eliminated once it accrues two losses in this 2-game schedule.
+    /*
+     * Two losses and A is out on points. One loss already puts it behind on fewer losses — 1-1
+     * against the 1-0 club that beat it — but the solver reads points and leaves a tie on them to
+     * the tiebreakers rather than guess, so it says two, which is true if not the least.
+     */
     expect(result.type).toBe("elimination");
     expect(result.opponentLossesNeeded).toBe(2);
+    expect(result.tiebreak).toBeUndefined();
   });
 
   it("considers ties as legal outcomes when tiePoints > 0", () => {
