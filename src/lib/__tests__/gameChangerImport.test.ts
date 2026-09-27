@@ -2538,6 +2538,106 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
     expect(claimFiledRows(build(rows, [{ ...copy, onRecordForAces: true }])).claimed).toBe(0);
   });
 
+  /*
+   * The very same result against a slot, or a stand-in whose name fits the copy's club, is the
+   * copy's game at any clock, record or not: "Chicos Augusta" at 16:30 was Chicos Augusta's own
+   * 17:35 copy, 10-1 both, the Coastal Kangaroos' schedule on record in it with no row kept.
+   */
+  it("takes the very same result into such a copy at any clock from a name that fits or a slot", () => {
+    const copy = {
+      id: "b1",
+      clock: "20:00",
+      score: [3, 7] as [number, number],
+      onRecordForAces: true,
+    };
+    for (const row of [
+      { id: "a1", clock: "18:00", score: [7, 3] as [number, number], name: "Bears" },
+      { id: "a1", clock: "18:00", score: [7, 3] as [number, number], name: "TBD", slot: true },
+    ]) {
+      const { state, claimed } = claimFiledRows(build([row], [copy]));
+      expect(claimed).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+      expect(tidyChangedAnything(tidyPool(state))).toBe(false);
+    }
+    // A run off is not the very same result, and the record may be another meeting that day.
+    const close = { id: "a1", clock: "18:00", score: [7, 4] as [number, number], name: "Bears" };
+    expect(claimFiledRows(build([close], [copy])).claimed).toBe(0);
+  });
+
+  /*
+   * A schedule dated a day off: Catoosa Mudcats' 9-16 against "Frost Falcons" on the 12th was
+   * Frost Falcons' own copy at the same 13:00 on the 13th. The very same result, against a slot or
+   * a name that fits, into a copy with nothing of the Aces' in it.
+   */
+  describe("a row whose copy is dated a day off", () => {
+    const dayOff = (over: Partial<Copy> = {}): Copy => ({
+      id: "b1",
+      clock: "18:00",
+      score: [3, 7],
+      date: "2026-09-06",
+      clockThatDay: true,
+      ...over,
+    });
+    const fitting = { id: "a1", clock: "18:00", score: [7, 3] as [number, number], name: "Bears" };
+
+    it("is claimed from the day either side, against a name that fits or a slot", () => {
+      for (const row of [fitting, { ...fitting, name: "TBD", slot: true }]) {
+        for (const date of ["2026-09-06", "2026-09-04"]) {
+          const { state, claimed } = claimFiledRows(build([row], [dayOff({ date })]));
+          expect(claimed).toBe(1);
+          expect(heldRows(state)).toEqual({ gc_gcB_b1: ["a1"] });
+          expect(tidyChangedAnything(tidyPool(state))).toBe(false);
+        }
+      }
+    });
+
+    it("is left against a name that does not fit, a result a run off, or a week off", () => {
+      expect(claimFiledRows(build([{ ...fitting, name: "Sharks" }], [dayOff()])).claimed).toBe(0);
+      expect(claimFiledRows(build([{ ...fitting, score: [7, 4] }], [dayOff()])).claimed).toBe(0);
+      expect(claimFiledRows(build([fitting], [dayOff({ date: "2026-09-12" })])).claimed).toBe(0);
+    });
+
+    it("is left for a copy holding the Aces' schedule on record", () => {
+      expect(claimFiledRows(build([fitting], [dayOff({ onRecordForAces: true })])).claimed).toBe(0);
+    });
+
+    it("goes to a copy of its own day before one a day off", () => {
+      const { state, claimed } = claimFiledRows(
+        build([fitting], [{ id: "b2", clock: "18:00", score: [3, 7] }, dayOff()])
+      );
+      expect(claimed).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b2: ["a1"] });
+    });
+
+    it("never reaches a day off for a row its own day has a copy for", () => {
+      // Two 7-3s against "Bears" at six and eight, one Bears copy at eight and one a day later:
+      // the eight o'clock row takes its own day's copy, and the six o'clock row, which that copy
+      // also fitted, is not moved to the next day's to make up a pair.
+      const { state, claimed } = claimFiledRows(
+        build(
+          [fitting, { ...fitting, id: "a2", clock: "20:00" }],
+          [{ id: "b2", clock: "20:00", score: [3, 7] }, dayOff()]
+        )
+      );
+      expect(claimed).toBe(1);
+      expect(heldRows(state)).toEqual({ gc_gcB_b2: ["a2"] });
+    });
+
+    it("gives a copy wanted by rows of the days either side to neither", () => {
+      // The Aces' 7-3 against "Bears" on the 5th and again on the 7th, and one Bears copy between.
+      const day = build([fitting, { ...fitting, id: "a2" }], [dayOff()]);
+      const later = {
+        ...day,
+        games: day.games.map((game) =>
+          game.id === "gc_gcA_a2"
+            ? { ...game, date: "2026-09-07", startTs: at("18:00", "2026-09-07") }
+            : game
+        ),
+      };
+      expect(claimFiledRows(later).claimed).toBe(0);
+    });
+  });
+
   it("leaves the Aces' own named row, which is a game they listed", () => {
     const { claimed } = claimFiledRows(
       build([{ id: "a1", clock: "18:00" }], [{ id: "a9", clock: "18:30", aces: true }])
@@ -3929,10 +4029,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r16|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r17|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r16|0|0|0|");
+    expect(poolSignature(empty)).toBe("r17|0|0|0|");
   });
 });
 
