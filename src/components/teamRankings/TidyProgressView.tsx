@@ -69,7 +69,9 @@ type TidyProgressViewProps = {
 export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
   const { steps, now } = watch;
   if (steps.length === 0 && !now) {
-    return running ? <p className="mt-3 text-xs text-slate-500">Starting the first pass…</p> : null;
+    return running ? (
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Starting the first pass…</p>
+    ) : null;
   }
 
   /*
@@ -102,7 +104,7 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           {running
             ? `Pass ${last.pass} · ${STEP_LABEL[last.step].short.toLowerCase()}${
                 now?.total === undefined
@@ -113,7 +115,7 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
               }`
             : "What the tidy did"}
         </p>
-        <p className="text-xs text-slate-500 tabular-nums">
+        <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
           {count(total)} changed · {count(steps.length)} of {passes.length * TIDY_STEPS.length}{" "}
           steps · {count(last.games)} games, {count(last.teams)} teams
         </p>
@@ -127,7 +129,10 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
           </caption>
           <thead>
             <tr>
-              <th scope="col" className="px-1 text-left font-bold text-slate-500">
+              <th
+                scope="col"
+                className="px-1 text-left font-bold text-slate-500 dark:text-slate-400"
+              >
                 Pass
               </th>
               {TIDY_STEPS.map((name) => (
@@ -135,7 +140,7 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
                   key={name}
                   scope="col"
                   title={STEP_LABEL[name].full}
-                  className="px-1 text-center font-bold text-slate-500"
+                  className="px-1 text-center font-bold text-slate-500 dark:text-slate-400"
                 >
                   {STEP_LABEL[name].short}
                 </th>
@@ -189,7 +194,10 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
           </tbody>
           <tfoot>
             <tr>
-              <th scope="row" className="px-1 text-left font-bold text-slate-500">
+              <th
+                scope="row"
+                className="px-1 text-left font-bold text-slate-500 dark:text-slate-400"
+              >
                 All
               </th>
               {TIDY_STEPS.map((name) => (
@@ -205,7 +213,7 @@ export function TidyProgressView({ watch, running }: TidyProgressViewProps) {
         </table>
       </div>
 
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         {running
           ? "Each pass finds less than the one before — a stand-in settled in one pass is the row that lets another settle in the next. It stops when a pass finds nothing."
           : `${passes.length} pass${passes.length === 1 ? "" : "es"}; the last found nothing, which is how it knew to stop.`}

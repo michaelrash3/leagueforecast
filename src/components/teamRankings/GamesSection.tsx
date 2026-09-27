@@ -116,7 +116,9 @@ export function GamesSection({
     <>
       <div className={`${card} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Add a game</h2>
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Add a game
+          </h2>
           {ageGroupId && !importOpen && (
             <button
               type="button"
@@ -134,7 +136,7 @@ export function GamesSection({
             Pull from GameChanger
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           {!hasAgeGroups
             ? "Pulling from GameChanger creates the pages it needs. To log a game by hand instead, set up an age group in Setup first — every game needs one to know which ranking it belongs to."
             : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
@@ -228,10 +230,10 @@ export function GamesSection({
       )}
 
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Logged games{groupName ? ` (${groupName})` : ""}
         </h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Only games you&apos;ve entered here — this age group&apos;s League Standings schedule
           (played and upcoming) appears in the rankings and scouting report automatically but
           isn&apos;t listed here.
@@ -269,7 +271,9 @@ export function GamesSection({
                       Not counted
                     </span>
                   )}
-                  {game.event && <span className="ml-2 text-slate-500">{game.event}</span>}
+                  {game.event && (
+                    <span className="ml-2 text-slate-500 dark:text-slate-400">{game.event}</span>
+                  )}
                   {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
                 </span>
                 <span className="flex items-center gap-2">
@@ -337,7 +341,7 @@ export function GamesSection({
           })}
         </ul>
         {hiddenGames > 0 && (
-          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
             <span>
               Showing {shownGames.length} of {loggedGames.length}
             </span>
@@ -351,7 +355,9 @@ export function GamesSection({
           </div>
         )}
         {loggedGames.length === 0 && (
-          <p className="py-6 text-center text-sm text-slate-500">No games logged yet.</p>
+          <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+            No games logged yet.
+          </p>
         )}
       </div>
     </>

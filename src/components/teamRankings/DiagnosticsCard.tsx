@@ -40,7 +40,7 @@ export function DiagnosticsCard() {
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         What has gone wrong here
       </h2>
       <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -50,7 +50,7 @@ export function DiagnosticsCard() {
       </p>
 
       {entries.length > 0 && (
-        <ul className="mt-3 space-y-1 text-xs text-slate-500">
+        <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
           {entries.slice(0, 5).map((entry) => (
             <li key={`${entry.at}-${entry.where}`}>
               <span className="font-bold text-slate-700 dark:text-slate-200">

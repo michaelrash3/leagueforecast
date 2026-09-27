@@ -78,7 +78,7 @@ export function LeagueScoreFillPanel({
   return (
     <div className={`${card} p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Fill scores from Team Rankings
         </h2>
         <button
@@ -106,7 +106,7 @@ export function LeagueScoreFillPanel({
         </p>
       ) : (
         <>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Runs only — which is all the standings, the records and every projection are built from.
             Hits and strikeouts are never guessed, and a game that already has a score keeps it
             unless you say otherwise. A row marked <strong>Check name</strong> is a club the two
@@ -117,7 +117,7 @@ export function LeagueScoreFillPanel({
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   <th className="py-2">Fill</th>
                   <th>Date</th>
                   <th>Game</th>
@@ -142,19 +142,19 @@ export function LeagueScoreFillPanel({
                           onChange={() => toggle(row.matchupId)}
                         />
                       </td>
-                      <td className="py-2 whitespace-nowrap text-slate-500">
+                      <td className="py-2 whitespace-nowrap text-slate-500 dark:text-slate-400">
                         {formatGameDate(row.date)}
                       </td>
                       <td className="py-2">
                         <span className="font-bold text-slate-950 dark:text-white">
                           {displayName(row.awayName)}
                         </span>
-                        <span className="text-slate-500"> at </span>
+                        <span className="text-slate-500 dark:text-slate-400"> at </span>
                         <span className="font-bold text-slate-950 dark:text-white">
                           {displayName(row.homeName)}
                         </span>
                         {(row.poolAwayName || row.poolHomeName) && (
-                          <span className="block text-[11px] text-slate-500">
+                          <span className="block text-[11px] text-slate-500 dark:text-slate-400">
                             In the pool:{" "}
                             {[row.poolAwayName ?? row.awayName, row.poolHomeName ?? row.homeName]
                               .map(displayName)
@@ -162,7 +162,9 @@ export function LeagueScoreFillPanel({
                           </span>
                         )}
                         {row.event && (
-                          <span className="ml-2 text-xs text-slate-500">{row.event}</span>
+                          <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                            {row.event}
+                          </span>
                         )}
                         {row.detail && (
                           <span className="block text-[11px] font-semibold text-amber-700 dark:text-amber-500">
@@ -185,7 +187,7 @@ export function LeagueScoreFillPanel({
             </table>
           </div>
 
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
             {counts.fill} to fill · {counts.suggested} to check · {counts.unchanged} already in ·{" "}
             {counts.overwrite} disagree · {counts.ambiguous} cannot be told apart
             {plan.unmatched > 0 ? ` · ${plan.unmatched} with no result yet` : ""}

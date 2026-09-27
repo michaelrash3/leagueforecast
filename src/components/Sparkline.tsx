@@ -3,7 +3,7 @@ import { clamp } from "../lib/util";
 
 /** A season's shape in a hundred pixels: where a team has been, not where it is going. */
 export const Sparkline = React.memo(function Sparkline({ values }: { values: number[] }) {
-  if (!values.length) return <span className="text-slate-500">—</span>;
+  if (!values.length) return <span className="text-slate-500 dark:text-slate-400">—</span>;
   const width = 108;
   const height = 30;
   const seed = values[0] ?? 0;

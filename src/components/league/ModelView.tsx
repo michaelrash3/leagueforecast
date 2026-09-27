@@ -652,7 +652,7 @@ export function ModelView(props: {
           </span>
         </div>
         {gameForecasts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500">
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500 dark:text-slate-400">
             No remaining games to project.
           </div>
         ) : (

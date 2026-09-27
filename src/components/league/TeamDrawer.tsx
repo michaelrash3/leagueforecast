@@ -137,7 +137,7 @@ function TeamStatTrendSparkline({
   values: number[];
   lowerIsBetter: boolean;
 }) {
-  if (!values.length) return <span className="text-slate-500">—</span>;
+  if (!values.length) return <span className="text-slate-500 dark:text-slate-400">—</span>;
 
   const width = 130;
   const height = 34;

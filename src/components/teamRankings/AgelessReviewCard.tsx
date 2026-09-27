@@ -57,7 +57,7 @@ function Evidence({ row }: { row: AgelessRow }) {
   const place = [evidence.city, evidence.state].filter(Boolean).join(", ");
   if (place) notes.push(place);
   return (
-    <p className="mt-1 text-xs text-slate-500">
+    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
       {notes.join(" · ")}
       {evidence.sampleOpponents && evidence.sampleOpponents.length > 0 && (
         <span className="block">Played: {evidence.sampleOpponents.join(", ")}</span>
@@ -134,7 +134,7 @@ function Row({
       <p className="font-bold text-slate-950 dark:text-white">
         {row.entry.name ?? "Name not recorded"}
       </p>
-      <p className="mt-0.5 text-xs text-slate-500">
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
         {/* Selectable, because the whole point is looking it up somewhere else. */}
         <code className="select-all font-mono">{row.entry.teamId}</code>{" "}
         <a
@@ -151,7 +151,7 @@ function Row({
           {ASIDE_NOTE[aside]}
         </p>
       )}
-      <p className="mt-1 text-xs text-slate-500">{row.why}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{row.why}</p>
       {row.hint && (
         <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{row.hint}</p>
       )}
@@ -159,7 +159,7 @@ function Row({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {answerable && (
           <>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               <span className="sr-only">Age for {label}</span>
               It is
             </label>
@@ -322,21 +322,21 @@ export function AgelessReviewCard({
   return (
     <div className={`${card} mt-4 p-5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h3 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Teams waiting on an age
         </h3>
         <button type="button" className={`${button.ghost} text-xs`} onClick={download}>
           Download the list
         </button>
       </div>
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         {waiting.length.toLocaleString()} team{waiting.length === 1 ? "" : "s"} nobody could age.
         GameChanger gave no age group, the name does not say one, and too few of their opponents
         write one in theirs. Nothing automatic will settle these — the club has to fix its own page,
         or the team has to play somebody who names an age — so they are here, {AGELESS_BATCH} at a
         time, likeliest real first. The next {AGELESS_BATCH} come up once these are done.
       </p>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         {waiting.length.toLocaleString()} of them is not a queue anybody works {AGELESS_BATCH} at a
         time, so the whole list downloads as a spreadsheet — every row with the evidence behind it
         and a blank <span className="font-semibold">Answer</span> column to fill in. It sorts, it
@@ -344,7 +344,7 @@ export function AgelessReviewCard({
       </p>
       {groups.length > 0 && (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Settled by rule
           </h4>
           <ul className="mt-2 space-y-2">
@@ -360,7 +360,7 @@ export function AgelessReviewCard({
                   <span>
                     <span className="font-semibold">{rows.length.toLocaleString()}</span>{" "}
                     {rule.label}
-                    <span className="block text-xs text-slate-500">
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
                       {rule.because}. For example:{" "}
                       {rows
                         .slice(0, 3)
@@ -380,7 +380,7 @@ export function AgelessReviewCard({
           >
             {clearing ? "Clearing…" : `Clear the ${chosen.length.toLocaleString()} ticked`}
           </button>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Each of these is a call already made about what the team is: GameChanger&rsquo;s own age
             field, a name saying void or do not use, tee ball and younger, or a rec league where
             nobody writes an age — which nothing will ever age from its opponents or join to travel
@@ -390,7 +390,7 @@ export function AgelessReviewCard({
         </div>
       )}
       <label className="mt-3 block">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Find a team
         </span>
         <input
@@ -402,7 +402,7 @@ export function AgelessReviewCard({
         />
       </label>
       {searching && (
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           {found.total === 0
             ? "No team on this list answers to that. It may have been filed already, or never pulled at all."
             : `${found.total.toLocaleString()} match${found.total === 1 ? "" : "es"}${
@@ -440,7 +440,7 @@ export function AgelessReviewCard({
             ))}
       </ul>
       {!searching && (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
           Showing {showing} of {waiting.length.toLocaleString()}
           {rest > 0 ? `; ${rest.toLocaleString()} behind these` : ""}. Naming an age files the club
           on the next refresh — there is nothing stored to file it from now, because a team nobody

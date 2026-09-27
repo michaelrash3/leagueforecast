@@ -83,7 +83,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           Something went wrong while drawing this. Nothing has been deleted — your seasons, teams
           and games are still saved in this browser exactly as they were.
         </p>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           Try again first. If it keeps happening, reload the page, and if it still happens the
           details below are what to send on.
         </p>
@@ -98,13 +98,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {this.state.copied ? "Copied" : "Copy diagnostics"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           The copy is this browser&apos;s last few failures and nothing else — no scores, no team
           names beyond whatever is in the message below. It is not sent anywhere; it goes on your
           clipboard for you to paste wherever you like.
         </p>
         <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             What went wrong
           </summary>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">

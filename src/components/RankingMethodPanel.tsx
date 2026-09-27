@@ -56,7 +56,7 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
       className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm normal-case leading-6 tracking-normal text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300"
     >
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+        <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           How the ranking is decided
         </h3>
         <button

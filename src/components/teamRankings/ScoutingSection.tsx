@@ -162,10 +162,12 @@ export function ScoutingSection({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Scouting report</h2>
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Scouting report
+      </h2>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-team"
         >
           How would
@@ -183,7 +185,9 @@ export function ScoutingSection({
           placeholder="Search for a team"
           className="min-w-56 max-w-xs"
         />
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">fare?</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          fare?
+        </span>
       </div>
       {reportRow && (
         <div className="mt-3">
@@ -202,11 +206,11 @@ export function ScoutingSection({
           />
         </div>
       )}
-      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500">
+      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Next up — games still to play
       </h3>
       {upcomingRows.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
           No unplayed games on this team&apos;s schedule. A GameChanger pull brings future fixtures
           in with no score, so they appear here as soon as the schedule has them.
         </p>
@@ -214,7 +218,7 @@ export function ScoutingSection({
         <div className="mt-2 overflow-x-auto">
           <table className="min-w-full text-sm" aria-label="Next up">
             <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <th className="py-2">Date</th>
                 <th>Opponent</th>
                 <th>Opponent rank</th>
@@ -230,7 +234,7 @@ export function ScoutingSection({
                     <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
                       {formatDay(row.date)}
                       {row.event && (
-                        <span className="block text-xs font-normal text-slate-500">
+                        <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                           {row.event}
                         </span>
                       )}
@@ -238,7 +242,7 @@ export function ScoutingSection({
                     <td className="font-bold text-slate-950 dark:text-white">
                       {row.opponentName}
                       {placeOf(row.opponentId) && (
-                        <span className="block text-xs font-normal text-slate-500">
+                        <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                           {placeOf(row.opponentId)}
                         </span>
                       )}
@@ -258,7 +262,7 @@ export function ScoutingSection({
                     {/* An opponent nobody has pulled has no rating, and a made-up one would be
                       worse than none: the row says so and stops there. */}
                     {row.tier === undefined ? (
-                      <td className="text-slate-500" colSpan={4}>
+                      <td className="text-slate-500 dark:text-slate-400" colSpan={4}>
                         Not rated here yet
                       </td>
                     ) : (
@@ -319,12 +323,12 @@ export function ScoutingSection({
         used to be a row per ranked team, which on a nationwide pool is thousands in rank order:
         a list nobody reads and nobody can find a particular club in. A name is faster.
       */}
-      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500">
+      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Against anyone else
       </h3>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-report-opponent"
         >
           Check a team
@@ -337,7 +341,7 @@ export function ScoutingSection({
           placeholder="Search for an opponent"
           className="min-w-56 max-w-xs"
         />
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
           {report.opponentCount === 0
             ? "Nobody else is ranked on this page yet."
             : `${report.opponentCount.toLocaleString()} ranked ${
@@ -387,15 +391,15 @@ function MatchupTable({
   return (
     <>
       {heading && (
-        <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500">
+        <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           {heading}
         </h3>
       )}
-      {note && <p className="mt-1 text-xs text-slate-500">{note}</p>}
+      {note && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note}</p>}
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-sm" aria-label={label ?? heading}>
           <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               <th className="py-2">Opponent</th>
               <th>Opponent rank</th>
               <th>Projected margin</th>
@@ -413,7 +417,7 @@ function MatchupTable({
                 <td className="py-3 font-bold text-slate-950 dark:text-white">
                   {preview.opponentName}
                   {placeOf(preview.opponentId) && (
-                    <span className="block text-xs font-normal text-slate-500">
+                    <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
                       {placeOf(preview.opponentId)}
                     </span>
                   )}
@@ -433,7 +437,7 @@ function MatchupTable({
                       type="button"
                       onClick={() => onDrop(preview.opponentId)}
                       aria-label={`Remove ${preview.opponentName} from the report`}
-                      className="text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:hover:text-white"
+                      className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
                     >
                       Remove
                     </button>
@@ -444,7 +448,7 @@ function MatchupTable({
           </tbody>
         </table>
         {rows.length === 0 && empty && (
-          <p className="py-6 text-center text-sm text-slate-500">{empty}</p>
+          <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">{empty}</p>
         )}
       </div>
     </>
@@ -484,7 +488,9 @@ function WhatIfTrigger({
   if (decline !== null) {
     const note = declineNote(decline);
     return note ? (
-      <span className="mt-1 block text-xs font-normal text-slate-500">{note}</span>
+      <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+        {note}
+      </span>
     ) : null;
   }
   return (
@@ -493,7 +499,7 @@ function WhatIfTrigger({
       onClick={() => onToggle(gameId)}
       aria-expanded={open}
       aria-controls={`what-if-${gameId}`}
-      className="mt-1 block text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:hover:text-white"
+      className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
     >
       {open ? "Hide" : "What if?"}
       <span className="sr-only">
@@ -535,14 +541,14 @@ function WhatIfPanel({
   const mine = state.status !== "idle" && state.ask.gameId === gameId;
   if (!mine || state.status === "working") {
     return (
-      <p className="text-sm text-slate-500" role="status" aria-live="polite">
+      <p className="text-sm text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
         Working it out — the whole table is fitted again, twice.
       </p>
     );
   }
   if (state.status === "failed") {
     return (
-      <p className="text-sm text-slate-500" role="status" aria-live="polite">
+      <p className="text-sm text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
         That could not be worked out. Nothing here changed — the table above is still what the pool
         says today.
       </p>
@@ -568,7 +574,7 @@ function WhatIfPanel({
       >
         {headline}
       </p>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         Now #{standing.rank} of {curve.rankedCount.toLocaleString()}, at{" "}
         {standing.rating.toFixed(1)}.
       </p>
@@ -578,7 +584,7 @@ function WhatIfPanel({
           aria-label={`What a win or a loss against ${opponentName} would do`}
         >
           <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               <th className="py-1">By</th>
               <th>If we win ({curve.winRecord})</th>
               <th>If we lose ({curve.lossRecord})</th>
@@ -593,12 +599,14 @@ function WhatIfPanel({
                   <td className="whitespace-nowrap py-2 font-semibold text-slate-700 dark:text-slate-200">
                     {runsLabel(runs)}
                     {expected === runs && (
-                      <span className="ml-1 text-xs font-normal text-slate-500">projected</span>
+                      <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                        projected
+                      </span>
                     )}
                   </td>
                   <td className="whitespace-nowrap">
                     #{win.rank}{" "}
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
                       {placesMoved(standing.rank, win.rank)}
                     </span>
                   </td>
@@ -606,7 +614,7 @@ function WhatIfPanel({
                     {loss ? (
                       <>
                         #{loss.rank}{" "}
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
                           {placesMoved(standing.rank, loss.rank)}
                         </span>
                       </>
@@ -620,13 +628,13 @@ function WhatIfPanel({
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         {RATING_CAP} runs is as much as one game can carry, so the last row is every bigger win at
         once: a {RATING_CAP + 1}-1 and a 20-0 move the table by exactly the same amount. A narrow
         loss to a stronger club can still lift you — the table rates who you played, not only who
         you beat, and one more game is one more thing your rating stands on.
       </p>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         Every rating is worked out again from scratch with this one result added, so a few other
         clubs shift places too. Nobody else&apos;s next game is played here. It is fitted as if the
         game were played today, because recent games count for more and a result dated weeks ahead

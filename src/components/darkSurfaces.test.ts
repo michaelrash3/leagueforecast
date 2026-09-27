@@ -18,12 +18,15 @@ const sources = import.meta.glob<string>(["/src/**/*.tsx", "!/src/**/*.test.tsx"
 
 /** An opaque light surface: `bg-white` or `bg-slate-50`, not a variant of one or a tint of white. */
 const LIGHT_SURFACE = /(?<![\w:/-])bg-(?:white|slate-50)(?![\w/-])/;
+/** Secondary text in its light-mode grey, not a variant of it. */
+const SECONDARY_TEXT = /(?<![\w:/-])text-slate-500(?![\w/-])/;
 const LITERAL = /"[^"\n]*"|`[^`]*`/g;
 
-const whiteInDark = () =>
+/** Every class string that matches `painted` without naming its own dark `variant`, by line. */
+const missingDark = (painted: RegExp, variant: string) =>
   Object.entries(sources).flatMap(([file, source]) =>
     [...source.matchAll(LITERAL)]
-      .filter(([literal]) => LIGHT_SURFACE.test(literal) && !literal.includes("dark:bg-"))
+      .filter(([literal]) => painted.test(literal) && !literal.includes(variant))
       .map((match) => `${file}:${source.slice(0, match.index).split("\n").length}`)
   );
 
@@ -33,6 +36,18 @@ describe("light surfaces", () => {
   });
 
   it("each carry a dark background", () => {
-    expect(whiteInDark()).toEqual([]);
+    expect(missingDark(LIGHT_SURFACE, "dark:bg-")).toEqual([]);
+  });
+});
+
+/*
+ * Secondary text names its dark colour too. Slate-500 is the light theme's grey for a label, and
+ * left to itself on the dark cards it measured 3.74:1 on slate-900 and 4.23:1 on slate-950, under
+ * the 4.5:1 a label needs: "Games forecasted", "Schedules last pulled today.", a club's record.
+ * Most of the app already paired it with dark:text-slate-400, about 7:1; 271 strings did not.
+ */
+describe("secondary text", () => {
+  it("carries a dark colour", () => {
+    expect(missingDark(SECONDARY_TEXT, "dark:text-")).toEqual([]);
   });
 });

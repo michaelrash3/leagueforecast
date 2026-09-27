@@ -294,7 +294,7 @@ export function ScheduleImportPanel({
   return (
     <div className={`${card} p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Import games{ageGroupName ? ` → ${ageGroupName}` : ""}
         </h2>
         <button
@@ -308,7 +308,7 @@ export function ScheduleImportPanel({
 
       {stage !== "review" && (
         <>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Paste your games below, one per line, or pick a CSV file. Every game is shown for review
             before anything is saved.
           </p>
@@ -348,7 +348,7 @@ export function ScheduleImportPanel({
               />
             </label>
           </div>
-          <details className="mt-2 text-xs text-slate-500">
+          <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             <summary className="cursor-pointer font-semibold">What can I paste?</summary>
             <p className="mt-1">
               A CSV with headers in any order (<code>date</code>, <code>opponent</code>,{" "}
@@ -369,7 +369,7 @@ export function ScheduleImportPanel({
             <>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <label
-                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
                   htmlFor="scout-import-subject"
                 >
                   Whose schedule is this?
@@ -395,7 +395,7 @@ export function ScheduleImportPanel({
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   <th className="py-2">Add</th>
                   <th>Date</th>
                   <th>Team</th>
@@ -515,7 +515,7 @@ export function ScheduleImportPanel({
             </p>
           )}
 
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Check the scores against what you pasted before adding. Leave both scores blank for a
             game that hasn&apos;t been played yet.
             {duplicateKeys.size > 0 &&

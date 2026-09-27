@@ -41,11 +41,13 @@ export function RankingList({
                 {row.isMine ? " ★" : ""}
               </button>
               {placeOf(row.teamId) && (
-                <span className="truncate text-xs text-slate-500">{placeOf(row.teamId)}</span>
+                <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {placeOf(row.teamId)}
+                </span>
               )}
             </span>
           </span>
-          <span className="shrink-0 text-slate-500">
+          <span className="shrink-0 text-slate-500 dark:text-slate-400">
             {row.record} · {formatRating(row.rating)}
           </span>
         </li>

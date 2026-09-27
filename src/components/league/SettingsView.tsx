@@ -405,7 +405,7 @@ export function SettingsView({
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
               {[0, 1, 2, 3].map((index) => (
                 <label key={index} className="block">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Tie-break {index + 1}
                   </span>
                   <select

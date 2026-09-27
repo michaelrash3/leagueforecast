@@ -10,7 +10,7 @@ import { card } from "../styles/tokens";
 export function LoadingPanel({ area }: { area: string }) {
   return (
     <div className={`${card} p-5`} role="status" aria-live="polite">
-      <p className="text-sm font-bold text-slate-500">Loading {area}…</p>
+      <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Loading {area}…</p>
     </div>
   );
 }

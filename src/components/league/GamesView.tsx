@@ -150,7 +150,7 @@ const ScoreRow = React.memo(function ScoreRow({
         {fields.map((field, index) => (
           <label
             key={field.key}
-            className="text-center text-[10px] font-semibold uppercase text-slate-500"
+            className="text-center text-[10px] font-semibold uppercase text-slate-500 dark:text-slate-400"
           >
             {field.label}
             <input
@@ -241,7 +241,7 @@ function FinalGameRow({
       id={id}
       className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-xs dark:border-slate-700 dark:bg-slate-900"
     >
-      <span className="w-14 shrink-0 text-xs font-semibold text-slate-400 dark:text-slate-500">
+      <span className="w-14 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
         {formatGameDate(date)}
       </span>
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -494,7 +494,7 @@ export function GamesView({
             >
               Fill scores from Team Rankings
             </button>
-            <span className="ml-2 text-xs text-slate-500">
+            <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
               Reads results already in the pool — a GameChanger pull, usually — and offers them for
               this schedule. Nothing is written until you have looked.
             </span>

@@ -149,7 +149,7 @@ function ScoutLinkPanelInner({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Which Team Rankings club is each team?
       </h2>
 
@@ -171,7 +171,7 @@ function ScoutLinkPanelInner({
             has its tournament games filed under an opponent of their own, where they sharpen
             nothing.
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             The two halves keep separate ids for the same club and rarely agree on how long a name
             is. Clubs are offered with the opponents you both play, because that is what tells one
             Trash Pandas from another. Only clubs GameChanger knows are offered, and only at this
@@ -179,7 +179,7 @@ function ScoutLinkPanelInner({
             the 9U clubs that play up. A row marked <strong>Guess</strong> has not been confirmed.
           </p>
 
-          <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
               checked={wide}
@@ -240,7 +240,11 @@ function ScoutLinkPanelInner({
                         </button>
                       )}
                     </div>
-                    {note && <span className="text-xs text-slate-500">{note.body}</span>}
+                    {note && (
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {note.body}
+                      </span>
+                    )}
                   </span>
                 </li>
               );

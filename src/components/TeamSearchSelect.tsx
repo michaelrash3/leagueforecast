@@ -178,7 +178,9 @@ export function TeamSearchSelect({
           className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-800 dark:bg-slate-900"
         >
           {shown.length === 0 && (
-            <li className="px-3 py-1.5 text-slate-500">No team matches that.</li>
+            <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
+              No team matches that.
+            </li>
           )}
           {shown.map((option, index) => (
             <li
@@ -201,13 +203,15 @@ export function TeamSearchSelect({
               >
                 <span className="font-semibold text-slate-950 dark:text-white">{option.label}</span>
                 {option.detail && (
-                  <span className="ml-2 text-xs text-slate-500">{option.detail}</span>
+                  <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                    {option.detail}
+                  </span>
                 )}
               </button>
             </li>
           ))}
           {total > shown.length && (
-            <li className="px-3 py-1.5 text-xs text-slate-500">
+            <li className="px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400">
               {total - shown.length} more — keep typing to narrow it.
             </li>
           )}

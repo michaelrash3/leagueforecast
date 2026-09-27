@@ -72,16 +72,16 @@ export function ArchiveSection({ entries }: { entries: ArchiveEntry[] }) {
   return (
     <>
       <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Finished seasons
         </h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           A season that is over is kept as its final table rather than its games. These are
           read-only: the ratings are the ones the season finished with and nothing recomputes them,
           so a change to how ratings are worked out moves every live page and leaves these alone.
         </p>
         {listed.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             Nothing archived yet. Finish a season and archive it from Setup.
           </p>
         ) : (
@@ -96,7 +96,7 @@ export function ArchiveSection({ entries }: { entries: ArchiveEntry[] }) {
                 >
                   {entry.name}
                 </button>
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {entry.teams.toLocaleString()} ranked from {entry.fromGames.toLocaleString()} game
                   {entry.fromGames === 1 ? "" : "s"}
                   {entry.archivedAt ? ` · frozen ${entry.archivedAt.slice(0, 10)}` : ""}
@@ -109,7 +109,7 @@ export function ArchiveSection({ entries }: { entries: ArchiveEntry[] }) {
 
       {status === "loading" && (
         <div className={`${card} p-5`}>
-          <p className="text-sm text-slate-500">Loading the table…</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading the table…</p>
         </div>
       )}
 
@@ -144,19 +144,19 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
     <>
       <div className={`${card} p-5`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {season.name}
           </h2>
           <span className={pill("amber")}>Final</span>
         </div>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {season.rows.length.toLocaleString()} teams ranked from{" "}
           {season.fromGames.toLocaleString()} game{season.fromGames === 1 ? "" : "s"} between{" "}
           {season.fromTeams.toLocaleString()} sides
           {season.archivedAt ? `, frozen ${season.archivedAt.slice(0, 10)}` : ""}.
         </p>
         <label
-          className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor={searchId}
         >
           Find a team in this season
@@ -171,7 +171,7 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
         />
         {query.trim() !== "" && (
           <>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {found.length === 0
                 ? "No team in this season has that in its name."
                 : `${found.length} match${found.length === 1 ? "" : "es"}.`}
@@ -184,10 +184,10 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className={`${card} p-5`}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               National top {NATIONAL_TOP}
             </h2>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
               of {season.rows.length.toLocaleString()} ranked
             </span>
           </div>
@@ -196,7 +196,7 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
 
         <div className={`${card} p-5`}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
               State top {STATE_TOP}
             </h2>
             {states.length > 0 && (
@@ -215,7 +215,7 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
             )}
           </div>
           {stateRows.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
               No team in this season had a state recorded, so there is no state board to show.
             </p>
           ) : (
@@ -226,7 +226,7 @@ function ArchivedSeasonBoards({ season }: { season: ArchivedSeason }) {
 
       <div className={`${card} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Full final table
           </h2>
           <button
@@ -261,10 +261,14 @@ function ArchivedList({ rows }: { rows: Array<ArchivedRankingRow & { nationalRan
               <span className="truncate font-bold text-slate-950 dark:text-white">
                 {row.teamName}
               </span>
-              {row.state && <span className="truncate text-xs text-slate-500">{row.state}</span>}
+              {row.state && (
+                <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {row.state}
+                </span>
+              )}
             </span>
           </span>
-          <span className="shrink-0 text-slate-500">
+          <span className="shrink-0 text-slate-500 dark:text-slate-400">
             {row.record} · {formatRating(row.rating)}
           </span>
         </li>
@@ -278,7 +282,7 @@ function ArchivedTable({ rows }: { rows: ArchivedRankingRow[] }) {
     <div className="mt-3 overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <th className="py-2">Rank</th>
             <th>Team</th>
             <th>State</th>
@@ -296,7 +300,7 @@ function ArchivedTable({ rows }: { rows: ArchivedRankingRow[] }) {
             >
               <td className="py-3 font-black">#{row.rank}</td>
               <td className="font-bold text-slate-950 dark:text-white">{row.teamName}</td>
-              <td className="text-slate-500">{row.state ?? "—"}</td>
+              <td className="text-slate-500 dark:text-slate-400">{row.state ?? "—"}</td>
               <td>{row.record}</td>
               <td>{formatRating(row.rating)}</td>
               <td>{row.games}</td>

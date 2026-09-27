@@ -103,7 +103,7 @@ export function AiStoryPanel({
         >
           Write this up with AI
         </button>
-        <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
           One request each. Turn them on for everything in Settings.
         </p>
       </div>

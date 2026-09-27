@@ -67,10 +67,12 @@ const yearLabel = (year: number | undefined) => (year === undefined ? "No year" 
 
 const Row = ({ label, value, note }: { label: string; value: string; note?: string }) => (
   <>
-    <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+    <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</dt>
     <dd className="font-bold text-slate-950 dark:text-white">
       {value}
-      {note ? <span className="ml-2 text-xs font-normal text-slate-500">{note}</span> : null}
+      {note ? (
+        <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{note}</span>
+      ) : null}
     </dd>
   </>
 );
@@ -370,7 +372,9 @@ export function PoolHealthCard({
 
   return (
     <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Pool health</h2>
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Pool health
+      </h2>
       <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
         What the pool is made of, and what the tidy could still settle. A result filed against a
         stand-in counts for nobody — the club that played it is sitting on the other side&apos;s
@@ -425,7 +429,7 @@ export function PoolHealthCard({
       {(busy === "tidy" || progress.steps.length > 0 || progress.now) && (
         <>
           {busy === "tidy" && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Walking every game, several times over. On a nationwide pool this takes a while — the
               page stays usable while it runs.
             </p>
@@ -501,10 +505,10 @@ export function PoolHealthCard({
 
       {holdings.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             What each squad year holds
           </h3>
-          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             {holdings.map((holding) => (
               <li key={String(holding.year)}>
                 <span
@@ -527,7 +531,7 @@ export function PoolHealthCard({
 
       {datedAhead.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Scored on a day that has not happened
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -537,7 +541,7 @@ export function PoolHealthCard({
             one — so each of these is a wrong date or an invention, and every one of them is
             counting in a record and a rating right now.
           </p>
-          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             {aheadWorstFirst.slice(0, 6).map(({ game, filer, gcId }) => (
               <li key={game.id}>
                 <span className="font-bold text-slate-700 dark:text-slate-200">{game.date}</span>
@@ -561,7 +565,7 @@ export function PoolHealthCard({
             ))}
           </ul>
           {datedAhead.length > 6 && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Drawing 6 of {count(datedAhead.length)}, the worst club&rsquo;s first.
             </p>
           )}
@@ -576,10 +580,10 @@ export function PoolHealthCard({
 
           {unreal.length > 0 && (
             <>
-              <h4 className="mt-4 text-xs font-black uppercase tracking-wide text-slate-500">
+              <h4 className="mt-4 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 The clubs they belong to
               </h4>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Deleting the rows while the club that files them is still in the pull list only
                 lasts until the next run. A club that is all impossible games is not a club:
                 deleting one takes its whole schedule with it and refuses its GameChanger id from
@@ -597,12 +601,12 @@ export function PoolHealthCard({
                         href={gcTeamPageUrl(gcId)}
                         target="_blank"
                         rel="noreferrer"
-                        className="mr-1 text-slate-500 underline hover:text-slate-950 dark:hover:text-white"
+                        className="mr-1 text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
                       >
                         {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
                       </a>
                     ))}
-                    <span className="text-slate-500">
+                    <span className="text-slate-500 dark:text-slate-400">
                       {[club.city, club.state].filter(Boolean).join(", ")}
                     </span>{" "}
                     <span className={pill(club.ahead === club.played ? "amber" : "emerald")}>
@@ -620,7 +624,7 @@ export function PoolHealthCard({
                 ))}
               </ul>
               {unreal.length > 12 && (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   {allClubs
                     ? `All ${count(unreal.length)}, worst first. `
                     : `Drawing 12 of ${count(unreal.length)}, worst first. `}
@@ -635,7 +639,7 @@ export function PoolHealthCard({
               )}
             </>
           )}
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Deleted for good: each one is remembered by its GameChanger id, so the next pull of that
             schedule does not file it again. A date corrected on GameChanger does not bring it back
             either — if one of these turns out to be a real game, add it by hand.
@@ -645,7 +649,7 @@ export function PoolHealthCard({
 
       {duplicates && duplicates.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             One club, listed twice
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -663,7 +667,9 @@ export function PoolHealthCard({
                   <span className="font-bold text-slate-700 dark:text-slate-200">
                     {pairing.fromTeamName}
                   </span>{" "}
-                  <span className="text-slate-500">into {pairing.toTeamName}</span>{" "}
+                  <span className="text-slate-500 dark:text-slate-400">
+                    into {pairing.toTeamName}
+                  </span>{" "}
                   <span className={pill(pairing.confidence === "strong" ? "emerald" : "amber")}>
                     {[
                       ...(pairing.sameName ? ["same name"] : []),
@@ -691,12 +697,12 @@ export function PoolHealthCard({
             })}
           </ul>
           {duplicates.length > 10 && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Drawing 10 of {count(duplicates.length)}. Check the pool again after folding these in
               for the rest.
             </p>
           )}
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Never done for you, however certain it looks. A club running an A and a B squad at one
             age names them the same thing in the same town, and folding those two together costs the
             club half its history — so the same name exactly, the same age, the same town, the same
@@ -709,7 +715,7 @@ export function PoolHealthCard({
 
       {twins && twins.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             One squad on GameChanger twice
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -728,14 +734,14 @@ export function PoolHealthCard({
                   <span className="font-bold text-slate-700 dark:text-slate-200">
                     {offer.fromTeamName}
                   </span>{" "}
-                  <span className="text-slate-500">and</span>{" "}
+                  <span className="text-slate-500 dark:text-slate-400">and</span>{" "}
                   <span className="font-bold text-slate-700 dark:text-slate-200">
                     {offer.toTeamName}
                   </span>{" "}
                   <span className={pill("amber")}>
                     {plural(offer.shared.length, "game")} in common
                   </span>
-                  <p className="mt-1 text-slate-500">
+                  <p className="mt-1 text-slate-500 dark:text-slate-400">
                     GameChanger: {offer.fromTeamName} {recordLabel(offer.fromRecord)}
                     {offer.fromPlayers === undefined
                       ? ""
@@ -744,7 +750,7 @@ export function PoolHealthCard({
                     {offer.toTeamName} {recordLabel(offer.toRecord)}
                     {offer.toPlayers === undefined ? "" : `, ${plural(offer.toPlayers, "player")}`}
                   </p>
-                  <ul className="mt-1 text-slate-500">
+                  <ul className="mt-1 text-slate-500 dark:text-slate-400">
                     {offer.shared.slice(0, 3).map((game) => (
                       <li key={`${game.date}|${game.startTs}|${game.opponentName}`}>
                         {game.date} v {game.opponentName}, {game.ownScore}-{game.opponentScore}
@@ -783,11 +789,11 @@ export function PoolHealthCard({
             })}
           </ul>
           {twins.length > 10 && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Drawing 10 of {count(twins.length)}. Check the pool again after these for the rest.
             </p>
           )}
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Never done for you. <strong>Keep</strong> folds the other team into the one you keep,
             with its games and its GameChanger link, so pick the name the squad goes by. Two squads
             of one club can share a tournament&apos;s opponents too, which is why a pair that ever
@@ -800,7 +806,7 @@ export function PoolHealthCard({
 
       {twice && twice.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Clubs credited twice with one game
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -810,7 +816,7 @@ export function PoolHealthCard({
             opponent: a club on GameChanger twice, a name spelled two ways, or a stand-in beside the
             club it stands for.
           </p>
-          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+          <ul className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
             {twice.slice(0, 10).map((group) => (
               <li key={`${group.teamId}|${group.games[0]?.gameId ?? group.date}`}>
                 {onOpenTeam ? (
@@ -837,7 +843,7 @@ export function PoolHealthCard({
           <button type="button" onClick={downloadTwice} className={`${button.ghost} mt-3 text-sm`}>
             Download the list ({count(twice.length)})
           </button>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Nothing is changed for you. Open a club to see both games. Where the opponent is one
             squad set up twice on GameChanger, the list of those above offers to fold the two once
             they post the same games; the file names both entries of every one.
@@ -847,7 +853,7 @@ export function PoolHealthCard({
 
       {toPull && toPull.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Clubs worth pulling next
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
@@ -855,7 +861,7 @@ export function PoolHealthCard({
             have no schedule of their own here. Nothing in the pool can identify them — only pulling
             them can. Each one you add turns its games into a real result on both sides.
           </p>
-          <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             {toPull.slice(0, 5).map((club) => (
               <li key={club.teamId}>
                 <span className="font-bold text-slate-700 dark:text-slate-200">{club.name}</span>
@@ -871,7 +877,7 @@ export function PoolHealthCard({
           <button type="button" onClick={downloadToPull} className={`${button.ghost} mt-3 text-sm`}>
             Download the list ({count(toPull.length)})
           </button>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Ordered by how much each is holding up. The file carries the name, where the clubs that
             named it are from, the age level and season, and who played it — enough to find the team
             on GameChanger and paste its id into the next pull.
@@ -880,7 +886,7 @@ export function PoolHealthCard({
       )}
 
       {lastTidy && (
-        <ul className="mt-3 space-y-0.5 text-xs text-slate-500">
+        <ul className="mt-3 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
           {lastTidy.length === 0 ? (
             <li>Nothing left to do.</li>
           ) : (
@@ -894,7 +900,7 @@ export function PoolHealthCard({
           <button type="button" onClick={downloadPoolNames} className={`${button.ghost} text-sm`}>
             Download the pool names ({count(pool.teams.length)})
           </button>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             For measuring a rule against the teams it must not break. Ids, names and the age each
             team is already filed under — no games, so it is a few megabytes rather than the
             hundreds a whole-browser backup runs to. Nothing in the app reads it: it is the file the
@@ -911,7 +917,7 @@ export function PoolHealthCard({
               ? "Download the stand-in fixtures"
               : `Searching the stand-in rows… ${fixturesProgress}%`}
           </button>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Every result filed against a stand-in or a TBD, and beside it any other club&apos;s row
             at the same start time, or the same day, that could be the other half of the same game —
             spelling slips and all — with the same searches run a week either side as a check on

@@ -167,7 +167,10 @@ export function TeamDetailPanel({
     <section id={TEAM_PANEL_ID} aria-labelledby={headingId} className={`${card} p-5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 id={headingId} className="text-sm font-black uppercase tracking-wide text-slate-500">
+          <h2
+            id={headingId}
+            className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400"
+          >
             {team.name}
           </h2>
           {(team.city || team.state) && (
@@ -175,7 +178,7 @@ export function TeamDetailPanel({
               {[team.city, team.state].filter(Boolean).join(", ")}
             </p>
           )}
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {record.games === 0
               ? `No completed games in ${ageGroupName || "this age group"}${segment ? " this half" : ""} yet.`
               : `${wins}-${losses}${ties ? `-${ties}` : ""} in ${ageGroupName || "this age group"}, from ${record.games} game${record.games === 1 ? "" : "s"}.`}
@@ -207,7 +210,7 @@ export function TeamDetailPanel({
 
       <div className="mt-4">
         <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-team-rename"
         >
           Team name
@@ -231,7 +234,7 @@ export function TeamDetailPanel({
           </button>
         </div>
         {fromLeague ? (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             This team comes from a League Standings season, so its name is set there.
           </p>
         ) : wouldMerge ? (
@@ -247,7 +250,7 @@ export function TeamDetailPanel({
             already here, saving merges the two.
           </p>
         ) : (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
             &ldquo;Aces&rdquo;.
           </p>
@@ -256,7 +259,7 @@ export function TeamDetailPanel({
 
       {(team.gcTeams?.length ?? 0) > 0 && (
         <div className="mt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Known on GameChanger as
           </p>
           <ul className="mt-1 space-y-1">
@@ -270,7 +273,7 @@ export function TeamDetailPanel({
                 >
                   {link.name}
                 </a>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   {gcSeasonLabel(link) || "season unknown"}
                   {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
                   {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
@@ -280,7 +283,7 @@ export function TeamDetailPanel({
                   // Its own reasons differ from this page's often enough that it is a note, not a
                   // verdict on the record above.
                   <span
-                    className="text-xs text-slate-500"
+                    className="text-xs text-slate-500 dark:text-slate-400"
                     title="GameChanger's own season record for this team, as of the last pull"
                   >
                     {link.record
@@ -304,7 +307,7 @@ export function TeamDetailPanel({
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             GameChanger mints a new id every season, so a club pulled across two seasons is known by
             two. Unlinking takes one off and leaves its games here — that id can then be pulled onto
             a team of its own, which is how a wrong pairing is taken apart.
@@ -315,7 +318,7 @@ export function TeamDetailPanel({
       {mergeCandidates.length > 0 && (
         <div className="mt-4">
           <label
-            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
             htmlFor="scout-team-merge"
           >
             Same team as
@@ -342,7 +345,7 @@ export function TeamDetailPanel({
               Fold into it
             </button>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Moves every game from this team over to that one and removes this entry, keeping both
             GameChanger ids. For a club that arrived twice — once pulled by id, once as somebody
             else&apos;s opponent.
@@ -352,7 +355,7 @@ export function TeamDetailPanel({
 
       <div className="mt-4">
         <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-team-state"
         >
           State
@@ -367,17 +370,17 @@ export function TeamDetailPanel({
             onChange={(event) => onSetState(event.target.value)}
             className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
           />
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             Optional. Two letters, and only used to filter the rankings — it never changes a rating.
           </span>
         </div>
       </div>
 
-      <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500">
+      <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Games in {ageGroupName || "this age group"}
       </h3>
       {here.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">Nothing logged here yet.</p>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Nothing logged here yet.</p>
       ) : (
         <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
           {here.map((game) => {
@@ -420,7 +423,7 @@ export function TeamDetailPanel({
                   )}
                   <span className="font-bold text-slate-950 dark:text-white">{line.opponent}</span>
                 </span>
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {line.detail}
                   {game.date ? ` · ${game.date}` : ""}
                   {game.event ? ` · ${game.event}` : ""}

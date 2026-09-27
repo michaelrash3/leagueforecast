@@ -56,14 +56,17 @@ export function RankingsHeader({
         Team Rankings
       </h1>
       {/* The one fact about freshness the pool has always stored and never shown. */}
-      <p className="mt-1 text-xs text-slate-500" data-testid="rankings-freshness">
+      <p
+        className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+        data-testid="rankings-freshness"
+      >
         {pulledAt === null
           ? "No GameChanger schedules pulled yet."
           : `Schedules last pulled ${agoLabel(pulledAt)}.`}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           htmlFor="scout-season-year"
         >
           Season
@@ -102,7 +105,7 @@ export function RankingsHeader({
       {ageGroups.length === 0 && section !== "setup" && section !== "import" && (
         <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
           <p className="text-sm font-bold text-slate-950 dark:text-white">Nothing ranked yet.</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Pull a team list from GameChanger and the pages make themselves: every team says which
             age level and season it belongs to, and each one is filed under the page for that squad
             year — created if it is not there yet. Setting a page up by hand is for a league you are
