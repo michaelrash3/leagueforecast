@@ -2488,6 +2488,11 @@ the deterministic story is shown. To exercise the AI path locally, run
   six-column table in a card's width left the win chance and outlook past the edge
   of every row. The search boxes have a visible edge, and on a phone the picker's
   question sits whole above its box, where "fare?" used to print over the name.
+- Below `sm` the Forecast bracket stacks its rounds, one under another, each game
+  card the width of the screen. Side by side, a round's column was as wide as its
+  longest line, so at 360px every card was 421 to 438px in a 286px scroller and all
+  18 of the demo's run boxes and Set Final buttons sat past the edge. From `sm` up
+  the rounds run left to right as before; `e2e/phone.spec.ts` holds both.
 
 ## Platform baseline
 

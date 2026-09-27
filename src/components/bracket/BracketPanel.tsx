@@ -6,6 +6,7 @@
  * it liftable — and what made it worth lifting, since none of it has any business being on screen
  * while somebody is trying to follow how the season's state is put together.
  */
+import type { CSSProperties } from "react";
 import { buildBracketProjection, type BracketGameProjection } from "../../lib/bracket";
 import { displayName } from "../../lib/format";
 import { RUN_SCORE_CAP, type GameLog } from "../../lib/types";
@@ -119,7 +120,7 @@ function BracketGameCard({
   const hasPlayableTeams = !!game.top.team && !!game.bottom.team;
 
   return (
-    <article className="min-w-[260px] rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-xs dark:border-slate-700 dark:bg-slate-800">
+    <article className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-xs sm:min-w-[260px] dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -237,11 +238,15 @@ export function BracketPredictionPanel({
             </div>
           </div>
           <div className="overflow-x-auto pb-2">
+            {/*
+             * Rounds side by side from `sm` up, one under another on a phone. Side by side, each
+             * column is at least 280px and as wide as its longest line, so on a 360px screen every
+             * card was wider than the scroller and every run box and Set Final sat past its edge.
+             * `grid-cols-1` is minmax(0, 1fr): an auto track would still grow to a long name.
+             */}
             <div
-              className="grid min-w-max gap-4"
-              style={{
-                gridTemplateColumns: `repeat(${projection.rounds.length}, minmax(280px, 1fr))`,
-              }}
+              className="grid grid-cols-1 gap-4 sm:min-w-max sm:grid-cols-[repeat(var(--rounds),minmax(280px,1fr))]"
+              style={{ "--rounds": projection.rounds.length } as CSSProperties}
             >
               {projection.rounds.map((round) => (
                 <div key={round[0]?.roundName ?? "round"} className="space-y-4">
