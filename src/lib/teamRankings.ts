@@ -2877,25 +2877,63 @@ export const rankScoutPool = (
   ageGroups: AgeGroup[]
 ): ScoutRankingRow[] => {
   const index = indexGroups(ageGroups);
-  const level = index.level(ageGroupId);
-  if (!isRankedAgeLevel(level)) return [];
-  const year = index.year(ageGroupId);
+  if (!isRankedAgeLevel(index.level(ageGroupId))) return [];
+  return rowsOfYearFit(
+    fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups),
+    ageGroupId,
+    myTeamId,
+    ageGroups
+  );
+};
 
+/**
+ * A squad year's fit, before any page is cut from it.
+ *
+ * Nothing in here reads the page. Every page of a year is fitted over the same games — the year's,
+ * whichever page is asked for — so the ratings, the records, the clubs' home levels and the pieces
+ * of the schedule are the same whichever page is being built, and a page is a cut of this: the
+ * clubs at home on it, ranked among themselves. Fitting it once and cutting each page from it is
+ * what lets the rankings worker switch pages without refitting the year (`createRankingsHandler`).
+ */
+export type ScoutYearFit = {
+  /** Every team a rated game names: the fit's unknowns, in roster order. */
+  nodes: ScoutTeam[];
+  /** The teams each page has a rated game filed on, by page. */
+  filedByPage: Map<string, Set<string>>;
+  adjusted: OpponentAdjustedRatings;
+  homeLevels: Map<string, number | undefined>;
+  records: Map<string, WinLoss>;
+  /** How many of each team's games crossed a level. */
+  crossAgeCounts: Map<string, number>;
+  confident: (rating: number, games: number) => number;
+  pieces: ReturnType<typeof scheduleComponents>;
+};
+
+export const fitScoutYear = (
+  year: number | undefined,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  rated: readonly RatedScoutGame[],
+  ageGroups: AgeGroup[]
+): ScoutYearFit => {
   const ratedGames = rated.map(({ game }) => game);
 
   const active = new Set<string>();
-  const filedHere = new Set<string>();
+  const filedByPage = new Map<string, Set<string>>();
   ratedGames.forEach((game) => {
     active.add(game.teamAId);
     active.add(game.teamBId);
-    if (game.ageGroupId === ageGroupId) {
-      filedHere.add(game.teamAId);
-      filedHere.add(game.teamBId);
+    let filed = filedByPage.get(game.ageGroupId);
+    if (!filed) {
+      filed = new Set<string>();
+      filedByPage.set(game.ageGroupId, filed);
     }
+    filed.add(game.teamAId);
+    filed.add(game.teamBId);
   });
   const nodes = teams.filter((team) => active.has(team.id));
 
-  const weights = recencyWeightsFor(rated.map(({ game }) => game));
+  const weights = recencyWeightsFor(ratedGames);
   const adjusted = buildOpponentAdjustedRatings(
     nodes.map((team) => team.id),
     rated.map(({ game, ageGap }, at) => ({
@@ -2916,12 +2954,6 @@ export const rankScoutPool = (
    * must not move to the 10U board in the spring because of which games fell where.
    */
   const homeLevels = homeLevelsForYear(year, nodes, games, ageGroups);
-  // A page with no readable level (a legacy group) lists whoever played there, as it always has.
-  const belongsHere = (teamId: string): boolean => {
-    if (level === undefined) return filedHere.has(teamId);
-    const home = homeLevels.get(teamId);
-    return home === level || (home === undefined && filedHere.has(teamId));
-  };
 
   const records = recordsFor(ratedGames);
   // Likewise counted once: how many of each team's games crossed a level.
@@ -2950,6 +2982,47 @@ export const rankScoutPool = (
     nodes.map((team) => team.id),
     ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
   );
+  return { nodes, filedByPage, adjusted, homeLevels, records, crossAgeCounts, confident, pieces };
+};
+
+/**
+ * The year fit a page is cut from: the year's rated games (`scoutRatingGames`) fitted once. Null
+ * for a page with no table of its own, a level too young to rank, so nothing is fitted for it.
+ */
+export const fitScoutYearFor = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  segment?: SeasonSegment,
+  today: string = todayIsoDay()
+): ScoutYearFit | null => {
+  const index = indexGroups(ageGroups);
+  if (!isRankedAgeLevel(index.level(ageGroupId))) return null;
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups, segment, today);
+  return fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups);
+};
+
+const NO_TEAMS: ReadonlySet<string> = new Set();
+
+/** One page's table, cut from its year's fit: the clubs at home on the page, ranked. */
+export const rowsOfYearFit = (
+  fit: ScoutYearFit,
+  ageGroupId: string,
+  myTeamId: string | undefined,
+  ageGroups: AgeGroup[]
+): ScoutRankingRow[] => {
+  const level = indexGroups(ageGroups).level(ageGroupId);
+  if (!isRankedAgeLevel(level)) return [];
+  const { nodes, adjusted, homeLevels, records, crossAgeCounts, confident, pieces } = fit;
+  const filedHere = fit.filedByPage.get(ageGroupId) ?? NO_TEAMS;
+  // A page with no readable level (a legacy group) lists whoever played there, as it always has.
+  const belongsHere = (teamId: string): boolean => {
+    if (level === undefined) return filedHere.has(teamId);
+    const home = homeLevels.get(teamId);
+    return home === level || (home === undefined && filedHere.has(teamId));
+  };
+
   const rows = nodes
     /*
      * Both kinds of non-club are in the fit as opponents and out of the table: a slot, which names

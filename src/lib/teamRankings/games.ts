@@ -276,11 +276,27 @@ export const dedupeLeagueFixtures = (
    */
   roster?: LeagueRowReader
 ): ScoutGame[] => {
+  /*
+   * Only a stored row between two clubs a league row names can share a fixture with one, so only
+   * those are keyed. Keying reads the date, and every row of the pool used to be keyed, twice on
+   * every open: a quarter of a million rows on the 18:40 pool, for a league of a few dozen games.
+   * Measured there, the pass went from about 800 ms to 140 ms and dropped the same rows.
+   */
+  const leagueClubs = new Set<string>();
+  games.forEach((game) => {
+    if (!game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    leagueClubs.add(game.teamAId);
+    leagueClubs.add(game.teamBId);
+  });
+  // No league row, nothing to collapse into: the pass below pairs only with a league row too.
+  if (leagueClubs.size === 0) return games;
+
   // Indexed in a single pass rather than scanned per game: this runs on every render over a pool
   // that can hold tens of thousands of rows, and comparing each game against all the others would
   // not survive that.
   const byFixture = new Map<string, { league: number[]; stored: number[] }>();
   games.forEach((game, index) => {
+    if (!leagueClubs.has(game.teamAId) || !leagueClubs.has(game.teamBId)) return;
     const key = fixtureKeyOf(game);
     if (!key) return;
     let bucket = byFixture.get(key);

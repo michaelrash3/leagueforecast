@@ -241,6 +241,30 @@ const solveSparseSystem = (rows: SparseRow[], vector: number[]): number[] => {
     inverseDiagonal[i] = diagonal > 0 ? 1 / diagonal : 1;
   });
 
+  /*
+   * The rows copied once into flat arrays (compressed sparse rows), each row's entries in its own
+   * Map's order. The product below is the whole cost of an iteration, and walking a Map through a
+   * closure per entry made it about 25 ms an iteration on a nationwide year (76,794 unknowns,
+   * 364,274 non-zeros); over flat arrays it is about 4 ms, and the solve inside one table fit went
+   * from about 1,050 ms to 190 ms. The order is what keeps the answer the same to the last bit: a
+   * floating-point sum depends on the order it is added in, and sorting each row's columns instead
+   * moved half the numbers of that fit in the twelfth place.
+   */
+  const rowStart = new Int32Array(size + 1);
+  rows.forEach((row, i) => {
+    rowStart[i + 1] = rowStart[i]! + row.size;
+  });
+  const columns = new Int32Array(rowStart[size]!);
+  const values = new Float64Array(rowStart[size]!);
+  rows.forEach((row, i) => {
+    let at = rowStart[i]!;
+    row.forEach((value, j) => {
+      columns[at] = j;
+      values[at] = value;
+      at += 1;
+    });
+  });
+
   const preconditioned = new Float64Array(size);
   const direction = new Float64Array(size);
   const product = new Float64Array(size);
@@ -257,9 +281,9 @@ const solveSparseSystem = (rows: SparseRow[], vector: number[]): number[] => {
 
     for (let i = 0; i < size; i += 1) {
       let sum = 0;
-      rows[i]!.forEach((value, j) => {
-        sum += value * direction[j]!;
-      });
+      for (let at = rowStart[i]!; at < rowStart[i + 1]!; at += 1) {
+        sum += values[at]! * direction[columns[at]!]!;
+      }
       product[i] = sum;
     }
     const curvature = dot(direction, product);

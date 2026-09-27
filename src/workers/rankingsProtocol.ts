@@ -1,11 +1,15 @@
 import {
-  buildTeamRankings,
+  fitScoutYearFor,
+  rankingPoolGroupIds,
+  rowsOfYearFit,
   type AgeGroup,
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type ScoutYearFit,
   type SeasonSegment,
 } from "../lib/teamRankings";
+import { todayIsoDay } from "../lib/date";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
 
@@ -107,6 +111,21 @@ export type WorkerResponse = RankingsResponse | WhatIfResponse | PoolNeededRespo
 type HeldPool = { revision: number; teams: ScoutTeam[]; games: ScoutGame[] };
 
 /**
+ * What a year's fit reads, as one string: the pool, the pages it spans, the half, the day and the
+ * age groups, whose levels and years decide every age gap and home level in it. Not whose team is
+ * "mine", which only marks a row once the page is cut, so starring a club does not refit a year.
+ * Compared whole rather than digested, so no two different inputs can share a key.
+ */
+const yearFitKey = (request: RankingsRequest, revision: number, today: string): string =>
+  JSON.stringify([
+    revision,
+    rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
+    request.segment ?? "",
+    today,
+    request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
+  ]);
+
+/**
  * The worker's side of the conversation, as a function of each message it receives.
  *
  * `post` is how it answers; `now` is the clock for the timing it reports, replaceable so a test
@@ -118,6 +137,35 @@ export const createRankingsHandler = (
 ): ((request: WorkerRequest) => void) => {
   const canceled = new Set<number>();
   let held: HeldPool | null = null;
+  /**
+   * The last year fitted, and what it was fitted from.
+   *
+   * Every page of a squad year is fitted over the same games — the year's — so a switch from 9U to
+   * 10U used to refit the whole year to cut a different page from it: on the 18:40 pool about 3 s
+   * a switch, for rows the fit already held. One fit is kept and each page is cut from it, in
+   * about 30 ms. It costs the memory of one fit (about 44 MB on that pool, 76,792 unknowns), which
+   * the next fit replaces rather than adds to.
+   */
+  let yearFit: { key: string; fit: ScoutYearFit } | null = null;
+  const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
+    const today = todayIsoDay();
+    const key = yearFitKey(request, pool.revision, today);
+    if (yearFit?.key !== key) {
+      // Let the old fit go before the new one is built, so the two are never held at once.
+      yearFit = null;
+      const fit = fitScoutYearFor(
+        request.ageGroupId,
+        pool.teams,
+        pool.games,
+        request.ageGroups,
+        request.segment,
+        today
+      );
+      if (!fit) return [];
+      yearFit = { key, fit };
+    }
+    return rowsOfYearFit(yearFit.fit, request.ageGroupId, request.myTeamId, request.ageGroups);
+  };
 
   return (request: WorkerRequest): void => {
     if (request.kind === "cancel") {
@@ -175,14 +223,7 @@ export const createRankingsHandler = (
       return;
     }
 
-    const rows = buildTeamRankings(
-      request.ageGroupId,
-      held.teams,
-      held.games,
-      request.myTeamId,
-      request.ageGroups,
-      request.segment
-    );
+    const rows = pageRows(request, held);
     // A fit that finished after the page stopped wanting it is thrown away rather than posted: the
     // answer is for a pool that has already changed.
     if (!canceled.has(request.id)) {

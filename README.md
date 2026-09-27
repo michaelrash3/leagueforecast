@@ -2310,6 +2310,17 @@ the deterministic story is shown. To exercise the AI path locally, run
   and it happens once per change rather than once per fit. The tidy worker takes
   the pool the same way and hands back only the parts it changed, so a tidy that
   found nothing to do no longer re-saves the whole pool.
+- Every page of a squad year is fitted over the same games, so the rankings
+  worker fits a year once and cuts each page from that fit, keyed on the pool,
+  its pages, the half, the day and the age groups (not on which team is yours).
+  The page hands the worker the year's games as the same array for every page of
+  the year, so a switch from 9U to 10U ships nothing. On the 18:40 pool a switch
+  went from about 5 s in the worker to about 55 ms, with every page's rows the
+  same to the digit. The fit itself solves over flat arrays rather than Maps:
+  the 9U 2027 fit went from about 4.0 s to 2.3 s with the same bits.
+- The collapse of league games and their pulled copies keys only rows between
+  clubs a league row names; on the 18:40 pool it went from about 1.1 s to 30 ms
+  with no league laid over it, and dropped the same rows with one.
 - The Monte Carlo loop copies the league once per simulated season and writes
   results onto that copy, rather than copying every team per game; on twelve
   teams and sixty games that took 220 seasons from 195 ms to 7 ms. It stops

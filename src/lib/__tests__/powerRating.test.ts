@@ -781,6 +781,50 @@ describe("sparse (conjugate gradient) solver", () => {
     expectBitIdentical(denseFirst, denseSecond);
   });
 
+  /*
+   * The sparse path to the last bit, pinned before its rows were flattened into arrays. A sum in
+   * floating point depends on its order, so the flat rows keep each row's own column order and the
+   * answer does not move by a single bit; sorting the columns moves most of these numbers in the
+   * twelfth place. The fingerprint is a hash of every number the fit returns, printed in full.
+   */
+  it("gives the same bits it gave before the rows were flattened", () => {
+    const fingerprint = (result: OpponentAdjustedRatings) => {
+      const text = JSON.stringify([
+        [...result.ratings],
+        [...result.strengthOfSchedule],
+        result.homeAdvantage,
+        result.ageGapRuns,
+        result.residualScale,
+      ]);
+      let hash = 0x811c9dc5;
+      for (let i = 0; i < text.length; i += 1) {
+        hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+      }
+      return hash.toString(16);
+    };
+    const withGaps = randomGraph(300, 300, 1500, true);
+    const withoutGaps = randomGraph(301, 300, 1500, false);
+    const weighted = randomGraph(302, 400, 2000, true);
+    expect([
+      fingerprint(buildOpponentAdjustedRatings(withGaps.ids, withGaps.games, { solver: "sparse" })),
+      fingerprint(
+        buildOpponentAdjustedRatings(withoutGaps.ids, withoutGaps.games, {
+          solver: "sparse",
+          cap: 10,
+          shrinkage: 1,
+          homeFieldShrinkage: 2,
+        })
+      ),
+      fingerprint(
+        buildOpponentAdjustedRatings(
+          weighted.ids,
+          weighted.games.map((game, at) => ({ ...game, weight: 0.25 + (at % 7) / 4 })),
+          { solver: "sparse" }
+        )
+      ),
+    ]).toEqual(["19bb31df", "5b911876", "f7e5e13f"]);
+  });
+
   it('"auto" is dense up to the threshold and sparse above it', () => {
     const atThreshold = randomGraph(21, SPARSE_SOLVER_THRESHOLD, 600, true);
     const auto = buildOpponentAdjustedRatings(atThreshold.ids, atThreshold.games);
