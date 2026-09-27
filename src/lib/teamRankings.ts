@@ -841,10 +841,10 @@ const poolKeyFor = (ageGroupId: string, index: GroupIndex): string => {
 
 /**
  * The record a game keeps of a row folded into it (`ScoutGame.alsoRows`): the schedule and id, the
- * start, the day where it is not the game's, and the score as the row's own schedule gave it. A
- * score the row had only borrowed from the
- * other club's schedule (`scoreFromB`) is not its own and is not kept. Undefined for a row with no
- * schedule behind it — a league fixture or a game typed in — which has nothing to be found by.
+ * start, the day where it is not the game's, the score as the row's own schedule gave it, and the
+ * club its picture named. A score the row had only borrowed from the other club's schedule
+ * (`scoreFromB`) is not its own and is not kept. Undefined for a row with no schedule behind it — a
+ * league fixture or a game typed in — which has nothing to be found by.
  */
 export const recordOf = (holder: ScoutGame, row: ScoutGame): FoldedRow | undefined => {
   if (!row.source) return undefined;
@@ -857,6 +857,7 @@ export const recordOf = (holder: ScoutGame, row: ScoutGame): FoldedRow | undefin
     ...(row.date && row.date !== holder.date ? { date: row.date } : {}),
     ...(own ? { ownScore: row.teamAScore!, opponentScore: row.teamBScore! } : {}),
     ...(onSideB ? { onSideB: true } : {}),
+    ...(row.namedByAvatar === undefined ? {} : { namedByAvatar: row.namedByAvatar }),
   };
 };
 
@@ -881,6 +882,7 @@ export const rowOfRecord = (holder: ScoutGame, record: FoldedRow): ScoutGame => 
     ...(ownLevel === undefined ? {} : { ageLevelA: ownLevel }),
     ...(otherLevel === undefined ? {} : { ageLevelB: otherLevel }),
     ...(holder.season ? { season: holder.season } : {}),
+    ...(record.namedByAvatar === undefined ? {} : { namedByAvatar: record.namedByAvatar }),
     source: { kind: "gamechanger", teamId: record.teamId, gameId: record.gameId },
   };
 };
@@ -4164,8 +4166,9 @@ export const ownPageFor = (ageGroups: AgeGroup[]): ((row: ScoutGame) => ScoutGam
 
 /**
  * `game` with every claim it holds (`FoldedRow.filedAgainst`) filed against `to(team)` instead, and
- * the club its row's picture named (`namedByAvatar`) too: a team folded into another takes the rows
- * claimed from it along, and what named it. The same game when nothing moves.
+ * the club each of its rows' pictures named (`namedByAvatar`, its own row's and the folded rows')
+ * too: a team folded into another takes the rows claimed from it along, and what named it. The same
+ * game when nothing moves.
  */
 export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => string): ScoutGame => {
   // The club the row's picture named goes where the club goes (`ScoutGame.namedByAvatar`).
@@ -4174,14 +4177,25 @@ export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => stri
     avatar === game.namedByAvatar
       ? game
       : { ...game, ...(avatar ? { namedByAvatar: avatar } : {}) };
-  if (!withAvatar.alsoRows?.some((record) => record.filedAgainst !== undefined)) return withAvatar;
+  if (
+    !withAvatar.alsoRows?.some(
+      (record) => record.filedAgainst !== undefined || record.namedByAvatar !== undefined
+    )
+  ) {
+    return withAvatar;
+  }
   let changed = false;
   const alsoRows = withAvatar.alsoRows.map((record) => {
-    if (record.filedAgainst === undefined) return record;
-    const next = to(record.filedAgainst);
-    if (next === record.filedAgainst) return record;
+    // And so does the club a folded row's picture named (`FoldedRow.namedByAvatar`).
+    const named = record.namedByAvatar === undefined ? undefined : to(record.namedByAvatar);
+    const filed = record.filedAgainst === undefined ? undefined : to(record.filedAgainst);
+    if (named === record.namedByAvatar && filed === record.filedAgainst) return record;
     changed = true;
-    return { ...record, filedAgainst: next };
+    return {
+      ...record,
+      ...(named === undefined ? {} : { namedByAvatar: named }),
+      ...(filed === undefined ? {} : { filedAgainst: filed }),
+    };
   });
   return changed ? { ...withAvatar, alsoRows } : withAvatar;
 };

@@ -218,6 +218,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
                     // level that name gave: what it goes back to if the claim stops fitting.
                     row.filedAgainst === undefined ? null : teams.index(row.filedAgainst),
                     row.filedLevel ?? null,
+                    // The club its picture named, which the tidy leaves it on once stood back up.
+                    row.namedByAvatar === undefined ? null : teams.index(row.namedByAvatar),
                   ]),
                 ];
           })
@@ -312,6 +314,8 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
         const date = decodeDate(entry[6]);
         const filedAgainst = at(pool.t, entry[7]);
         const filedLevel = num(entry[8]);
+        const namedByAvatar = at(pool.t, entry[9]);
+        // In `recordOf`'s order, which the tidy compares records in.
         return [
           {
             teamId,
@@ -322,6 +326,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
               ? { ownScore, opponentScore }
               : {}),
             ...(entry[5] === 1 ? { onSideB: true } : {}),
+            ...(namedByAvatar ? { namedByAvatar } : {}),
             ...(filedAgainst
               ? { filedAgainst, ...(filedLevel === undefined ? {} : { filedLevel }) }
               : {}),
@@ -697,6 +702,9 @@ const coerceFoldedRows = (raw: unknown): FoldedRow[] =>
                   ? { ownScore: entry.ownScore, opponentScore: entry.opponentScore }
                   : {}),
                 ...(entry.onSideB === true ? { onSideB: true } : {}),
+                ...(isFilledString(entry.namedByAvatar)
+                  ? { namedByAvatar: entry.namedByAvatar }
+                  : {}),
                 ...(isFilledString(entry.filedAgainst)
                   ? {
                       filedAgainst: entry.filedAgainst,

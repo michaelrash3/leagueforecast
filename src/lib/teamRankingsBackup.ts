@@ -156,7 +156,8 @@ const GAME_HEADERS = [
   "Start",
   /**
    * The rows folded into this game, whole: `team:game`, then `#day` for a row its schedule dated a
-   * day off the game's, `@start`, `=own-opponent` and `/B` for a row whose club is side B, each
+   * day off the game's, `@start`, `=own-opponent`, `/B` for a row whose club is side B, `!team^level`
+   * for a claimed row's team and level, and `~team` for the club the row's picture named, each
    * where there is one.
    */
   "Also Rows",
@@ -168,6 +169,12 @@ const GAME_HEADERS = [
   "Score From Second Listing",
   /** Team A's schedule no longer lists the row the game stands on; the next tidy takes it away. */
   "Withdrawn",
+  /**
+   * The club the row the game stands on named by its GameChanger picture, which a tidy rule moving
+   * rows on a name leaves it on. Missing from the file the day the id was first kept, so a restore
+   * lost it.
+   */
+  "Named By Picture",
 ];
 
 /**
@@ -387,13 +394,16 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
             (row.onSideB ? "/B" : "") +
             (row.filedAgainst === undefined
               ? ""
-              : `!${row.filedAgainst}` + (row.filedLevel === undefined ? "" : `^${row.filedLevel}`))
+              : `!${row.filedAgainst}` +
+                (row.filedLevel === undefined ? "" : `^${row.filedLevel}`)) +
+            (row.namedByAvatar === undefined ? "" : `~${row.namedByAvatar}`)
         )
         .join(" "),
       game.reportedByB ? `${game.reportedByB.teamAScore}-${game.reportedByB.teamBScore}` : "",
       yesNo(game.scoreFromB),
       yesNo(game.scoreFromTwin),
       yesNo(game.withdrawn),
+      game.namedByAvatar ?? "",
     ]
       .map(csvEscape)
       .join(",")
@@ -736,18 +746,20 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const startTs = cell("Start");
     // A colon, because neither a GameChanger team id nor a game id ever holds one; the start holds
     // colons of its own, but never "@", "=" or "/". A row dated a day off its game's carries its own
-    // day after "#", which no id holds either, and a claimed row the team it was filed against after
-    // "!", with the level that name gave after "^".
+    // day after "#", which no id holds either, a claimed row the team it was filed against after
+    // "!", with the level that name gave after "^", and a row that named its club by its picture
+    // that club after "~", which no id or start holds.
     const alsoRows = cell("Also Rows")
       .split(/\s+/)
       .flatMap((entry) => {
         // A score typed by hand can be any number the score cell takes, so not only whole ones.
         const parsed =
-          /^([^:@=/#!]+):([^:@=/#!]+)(?:#([^@=/!]+))?(?:@([^@=/!]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?(?:!([^\s!^]+)(?:\^(\d+))?)?$/.exec(
+          /^([^:@=/#!~]+):([^:@=/#!~]+)(?:#([^@=/!~]+))?(?:@([^@=/!~]+))?(?:=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?))?(\/B)?(?:!([^\s!^~]+)(?:\^(\d+))?)?(?:~([^\s~]+))?$/.exec(
             entry
           );
         if (!parsed) return [];
-        const [, teamId, gameId, date, startTs, own, opponent, sideB, filed, filedLevel] = parsed;
+        const [, teamId, gameId, date, startTs, own, opponent, sideB, filed, filedLevel, named] =
+          parsed;
         // In `recordOf`'s order, which the tidy compares records in: read back in another, every
         // game with a dated row read as regrouped on the first tidy after a restore.
         return [
@@ -760,6 +772,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
               ? { ownScore: Number(own), opponentScore: Number(opponent) }
               : {}),
             ...(sideB ? { onSideB: true } : {}),
+            ...(named ? { namedByAvatar: named } : {}),
             ...(filed
               ? { filedAgainst: filed, ...(filedLevel ? { filedLevel: Number(filedLevel) } : {}) }
               : {}),
@@ -767,6 +780,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ];
       });
     const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
+    const namedByAvatar = cell("Named By Picture");
     return [
       {
         id,
@@ -797,6 +811,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(sourceTeamId && sourceGameId
           ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }
           : {}),
+        ...(namedByAvatar ? { namedByAvatar } : {}),
       },
     ];
   });
