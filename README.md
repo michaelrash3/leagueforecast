@@ -994,6 +994,19 @@ the pool of 26 September moved away from GameChanger's own record. On that pool 
 rows off, and 178 clubs' records change: 164 toward GameChanger's own, 106 of them onto it, and 14
 away, 5 of those off it — a squad that did play up, or a namesake the game was matched to after.
 
+Nor is a row filed by name on a pulled club in a region its filer does not play in: two states on
+the border map that are neither the same nor next door (`farApart`), where no game both clubs'
+schedules have a row in, and no pulled club each has met in a game both sides' schedules have,
+backs it. Two Texas clubs' games against "Braves" sat on a Florida Braves as two wins its own
+schedules do not have. Such a row goes to a stand-in, which the refile files onto the one club of
+the name in the filer's state or next door. A meeting counts only where both schedules have it,
+because a row only one side holds may be a misfile of its own, and two misfiles, one each way,
+would vouch for each other. A province or Puerto Rico, which the map does not hold, says nothing
+about distance, and a slot's name stays on the one pulled club that carries it, as the import
+files it. On the pool of 26 September 2026 at 18:40 the tidy takes 121 rows off, and 31 clubs'
+records change: 30 toward GameChanger's own, 13 of them onto it, and one away, a loss its club's
+schedule has not scored yet, whose row the move let join the club's own copy of the game.
+
 A name nobody pulled is one stand-in per name, level and squad year among the clubs of a state that
 named it, and a lookup that missed made a second: a class year looked up at the page's age rather
 than the class's, a pull run before a rule. The tidy makes one of two such entries

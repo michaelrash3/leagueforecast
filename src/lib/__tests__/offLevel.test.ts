@@ -3,6 +3,7 @@ import {
   importGcSchedules,
   refileStandIns,
   resettleOffLevel,
+  tidyPool,
   type GcImportState,
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
@@ -568,5 +569,109 @@ describe("markPlaceholders", () => {
 
     expect(cobras?.placeholder).toBeUndefined();
     expect(slot?.placeholder).toBe(true);
+  });
+});
+
+/*
+ * A row filed by name onto a pulled club in a region its filer does not play in. A Tennessee rec
+ * league's "Phillies" was filed onto the one Phillies pulled at that age, in Texas, before the
+ * import asked anything more of a namesake in another state than its name.
+ */
+describe("a row filed by name onto a club regions away", () => {
+  const groups: AgeGroup[] = [
+    { id: "ag10", name: "10U 2027", seasonIds: [], ageLevel: 10, year: 2027 },
+  ];
+  const pulled = (id: string, name: string, state: string): ScoutTeam => ({
+    id,
+    name,
+    state,
+    gcTeams: [{ teamId: `gc${id}`, name: `${name} 10U`, ageGroupId: "ag10", ageLevel: 10 }],
+  });
+  const whiteSox = pulled("SOX", "White Sox", "TN");
+  const phillies = pulled("PHILTX", "Phillies", "TX");
+  /** A row of `clubId`'s own schedule against `against`. */
+  const row = (clubId: string, against: string, date: string, extra: Partial<ScoutGame> = {}) => ({
+    id: `gc_gc${clubId}_${date}`,
+    teamAId: clubId,
+    teamBId: against,
+    teamAScore: 8,
+    teamBScore: 1,
+    ageGroupId: "ag10",
+    date,
+    source: { kind: "gamechanger" as const, teamId: `gc${clubId}`, gameId: date },
+    ...extra,
+  });
+  const filed = row("SOX", "PHILTX", "2026-09-12");
+  const pool = (teams: ScoutTeam[], games: ScoutGame[]): GcImportState => ({
+    ageGroups: groups,
+    teams: [whiteSox, phillies, ...teams],
+    games: [filed, ...games],
+  });
+  const resettledIn = (teams: ScoutTeam[], games: ScoutGame[] = []) =>
+    resettleOffLevel(pool(teams, games)).resettled;
+
+  it("takes it off the club, onto a stand-in of the name", () => {
+    const { state, resettled } = resettleOffLevel(pool([], []));
+    expect(resettled).toBe(1);
+    const landed = state.teams.find((team) => team.id === state.games[0]?.teamBId);
+    expect(landed?.nameOnly).toBe(true);
+    expect(landed?.name).toBe("Phillies");
+  });
+
+  it("and the tidy files it onto the one club of the name in its filer's state", () => {
+    const home = pulled("PHILTN", "Phillies", "TN");
+    const tidy = tidyPool(pool([home], []));
+    expect(tidy.state.games.find((game) => game.id === filed.id)?.teamBId).toBe("PHILTN");
+  });
+
+  it("leaves it where the two met in a game both clubs' own schedules have a row in", () => {
+    const met = row("PHILTX", "SOX", "2026-08-30", { alsoFrom: ["gcSOX"] });
+    expect(resettledIn([], [met])).toBe(0);
+    // A row only the named club's schedule holds may be its own misfile of the other, as this one
+    // may be of it, and the two would vouch for each other. Neither does, and both go.
+    expect(resettledIn([], [row("PHILTX", "SOX", "2026-08-30")])).toBe(2);
+  });
+
+  it("leaves it where each met one pulled club in a game both sides' schedules have", () => {
+    // Arkansas borders both, and each club's own schedule played its Rangers, which listed both.
+    const rangers = pulled("RANG", "Rangers", "AR");
+    const listed = { alsoFrom: ["gcRANG"] };
+    const both = [
+      row("PHILTX", "RANG", "2026-08-29", listed),
+      row("SOX", "RANG", "2026-08-30", listed),
+    ];
+    expect(resettledIn([rangers], both)).toBe(0);
+    // Met by one of them only, or once only on its own word, it says nothing.
+    expect(resettledIn([rangers], both.slice(0, 1))).toBe(1);
+    expect(resettledIn([rangers], [both[0]!, row("SOX", "RANG", "2026-08-30")])).toBe(1);
+  });
+
+  it("leaves a game the named club's own schedule has a row in, claimed or not", () => {
+    const held: ScoutGame = {
+      ...filed,
+      alsoRows: [{ teamId: "gcPHILTX", gameId: "x", filedAgainst: "S-SOXSTAND", onSideB: true }],
+      alsoFrom: ["gcPHILTX"],
+    };
+    const state = { ...pool([], []), games: [held] };
+    expect(resettleOffLevel(state).resettled).toBe(0);
+  });
+
+  it("leaves a club across a border, and one in a state the border map does not hold", () => {
+    const next = { ...pool([], []), teams: [whiteSox, { ...phillies, state: "AR" }] };
+    expect(resettleOffLevel(next).resettled).toBe(0);
+    // Alberta's clubs play British Columbia's, and the map knows neither.
+    const west = {
+      ...pool([], []),
+      teams: [
+        { ...whiteSox, state: "AB" },
+        { ...phillies, state: "BC" },
+      ],
+    };
+    expect(resettleOffLevel(west).resettled).toBe(0);
+  });
+
+  it("leaves a slot's name on the one pulled club that carries it, as the import files it", () => {
+    const tbd = { ...phillies, name: "TBD" };
+    expect(resettleOffLevel({ ...pool([], []), teams: [whiteSox, tbd] }).resettled).toBe(0);
   });
 });
