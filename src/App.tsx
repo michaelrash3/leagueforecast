@@ -669,9 +669,11 @@ export default function App() {
       states: TREND_STATES,
       goldCutoff,
       settings,
+      // The results the Gold % column is rated with, so the line ends where the column is.
+      externalResults,
     });
     return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
-  }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings]);
+  }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings, externalResults]);
   const trendMap = useSimulationTrend(trendInput);
 
   const bracketInput = useMemo(

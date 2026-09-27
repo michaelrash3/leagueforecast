@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTrendStates } from "../trend";
-import { calculateTeams, rankOptionsFromSettings, rankTeams, simulateGoldOdds } from "../sim";
+import {
+  attachAdjustedRatings,
+  calculateTeams,
+  rankOptionsFromSettings,
+  rankTeams,
+  simulateGoldOdds,
+} from "../sim";
+import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
 import { isFinal } from "../util";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 import { dateInSquadYear, dedupeLeagueFixtures, inSegment, type ScoutGame } from "../teamRankings";
@@ -85,26 +92,58 @@ describe("the seasons behind the Gold-odds trend", () => {
     expect(record(last.teams)).toBe(record(live));
   });
 
-  it("gives the last point the odds the rest of the page shows", () => {
-    const last = built[built.length - 1]!;
-    const chart = simulateGoldOdds(
-      rankTeams(last.teams, rankOptionsFromSettings(settings)),
-      last.remaining,
-      2000,
-      last.seedText,
-      2,
-      settings
-    );
-    const live = simulateGoldOdds(
-      rankTeams(calculateTeams(bases, matchups, logs, settings), rankOptionsFromSettings(settings)),
+  /**
+   * The teams the Gold % column is simulated from: the league's records, each carrying the
+   * opponent-adjusted rating the forecast fits, as App builds them.
+   */
+  const pageTeams = (outside: ExternalResult[] = []) => {
+    const records = calculateTeams(bases, matchups, logs, settings);
+    const engine = buildPredictionEngine(records, matchups, logs, settings, outside);
+    return attachAdjustedRatings(records, engine.ratings);
+  };
+  const oddsOf = (teams: ReturnType<typeof pageTeams>, seedText: string) =>
+    simulateGoldOdds(
+      rankTeams(teams, rankOptionsFromSettings(settings)),
       matchups.filter((game) => !isFinal(logs[game.id])),
       2000,
-      last.seedText,
+      seedText,
       2,
       settings
     );
 
-    expect(chart).toEqual(live);
+  it("gives the last point the odds the rest of the page shows", () => {
+    /*
+     * The page's odds are simulated from rated teams. The points were records alone, and on a
+     * rebuilt league the line ended 10 points from the Gold % beside it.
+     */
+    const last = built[built.length - 1]!;
+    expect(last.teams).toEqual(pageTeams());
+    expect(last.teams.every((team) => team.adjustedRating !== undefined)).toBe(true);
+    expect(oddsOf(last.teams, last.seedText)).toEqual(oddsOf(pageTeams(), last.seedText));
+  });
+
+  it("rates each point on the outside results played by then, and the last on all of them", () => {
+    // A tournament win for F on the day of the last game, and one after the season's last final.
+    const outside: ExternalResult[] = [
+      { home: "F", away: "OUT-1", homeMargin: 8, date: "2026-10-04", neutral: true },
+      { home: "F", away: "OUT-2", homeMargin: 8, date: "2026-12-20", neutral: true },
+    ];
+    const rated = buildTrendStates(bases, matchups, logs, completed, {
+      states: 8,
+      goldCutoff: 2,
+      settings,
+      externalResults: outside,
+    });
+    const last = rated[rated.length - 1]!;
+    expect(last.teams).toEqual(pageTeams(outside));
+
+    // The point before the last is dated 10/3: neither result was played by then.
+    const earlier = rated[rated.length - 2]!;
+    const unrated = built[built.length - 2]!;
+    expect(earlier.teams).toEqual(unrated.teams);
+    const ratingOfF = (teams: typeof last.teams) =>
+      teams.find((team) => team.id === "F")?.adjustedRating;
+    expect(ratingOfF(last.teams)).toBeGreaterThan(ratingOfF(built[built.length - 1]!.teams)!);
   });
 
   it("grows one game at a time, oldest point first", () => {
