@@ -1707,20 +1707,29 @@ person answering is a third thing that can change the answer and the only one th
 does not know about. Without that, an age typed against an abandoned team sat in storage and never
 reached a schedule.
 
-Likeliest real first, by `looksInvented` read low to high — the score counts games
-carrying scores on days that have not happened, shutout blowouts, a record claiming far
-more games than the schedule lists, a roster under nine. It ran the other way to begin
-with, on the argument that junk is quick to clear. That is the wrong thing to optimise:
-ten rows is a sitting whether they are junk or not, and a sitting that opens on three
-fictions is one where the real decisions — the ones that actually put a team on a page —
-are the part nobody reaches. A fiction is quick to throw out from anywhere in the list;
-a genuine club is only ever aged from the front of it. Among rows nothing else separates,
-one carrying a lead goes ahead, then the stalest.
+The teams least likely to be real come first, then the ones that read as high school
+sides, then everyone else — the user's order, since working this list is mostly clearing
+it. **Unlikely to be real** is a name nobody gives a team that plays (test, practice,
+scrimmage, demo, delete, duplicate, placeholder; "Team 1"; no letters in any script; two
+characters or fewer), a triage rule that says so (named void or do-not-use, every game
+scored on a day that has not happened), or `looksInvented` at half a point or more — the
+score counts games carrying scores on days that have not happened, shutout blowouts, a
+record claiming far more games than the schedule lists, a roster under nine. Half a point
+because a fifth is one blowout in one scored game, a real team's bad day. **Probably high
+school** is GameChanger's school label, a side that plays varsity and JV teams, or a school
+name the refusal at the door does not take ("Tigers High-school", "LCHS Fall Ball 2026", a
+freshman side), never for a side GameChanger bands under thirteen. Within each group the
+least likely real goes first, an empty schedule a little ahead of one with games; then one
+carrying a lead; then the stalest. Over the 13,958 waiting on 26 September that is 144
+unlikely (113 of them test and practice accounts), 100 high school, and the rest; the first
+thirty rows are all "Test", "Practice" and "Delete Me". It ran the other way for a while,
+likeliest real first, on the argument that the real decisions are what a sitting should
+reach.
 
-It is **only an ordering** either way round. Every part of the score has an innocent
-reading, so nothing is ever thrown out on that number, no row is coloured by it, and
-sorting last is not the app calling a team fake; an empty schedule is a club somebody
-made this morning as often as it is a fiction.
+It is **only an ordering** either way round. A row sorted up says why in one plain line,
+and that is all: nothing is thrown out on it, no row is coloured by it, and sorting first
+is not the app calling a team fake; an empty schedule is a club somebody made this morning
+as often as it is a fiction.
 
 **One shape is thrown out outright: a schedule that is nothing but results from the future.**
 Every game on it has a score and every one is dated after today — "Test team" with 68 of 68,

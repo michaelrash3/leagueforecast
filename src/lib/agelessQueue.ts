@@ -10,21 +10,24 @@
  * cannot disagree with them. Closing the tab half way through a batch loses the batch's identity
  * and nothing else: the next sitting starts a fresh ten off the top of whatever is still waiting.
  *
- * The likeliest real teams first, and the pages that look made up last. `looksInvented` is what
- * sorts them, read the other way round from how it started: it went worst-first on the argument
- * that junk is quick to clear, and that is the wrong thing to optimise. Ten rows is a sitting
- * whether they are junk or not, and a sitting that opens on three fictions is one where the real
- * decisions — the ones that actually put a team on a page — are the part nobody reaches. A page
- * with three 20-0 wins on days that have not happened and a roster of two is quick to throw out
- * from anywhere in the list; a genuine club is only ever aged from the front of it.
- *
- * It is still only an ordering — see `looksInvented`'s own note. Every part of that score has an
- * innocent reading, nothing is ever thrown out on it by the app, and being sorted last is not the
- * app calling a team fake.
+ * The teams least likely to be real come first, then the ones that read as high school squads,
+ * then everyone else, least likely real first throughout. That is the user's call, made on 27
+ * September 2026, and it reverses the order this queue had for a while: likeliest real first, on
+ * the argument that the real decisions are the ones a sitting should reach. Working the list is
+ * clearing it, and a sitting that opens on "Test", "Practice GC" and a fantasy league's forty games
+ * dated after today clears the most for the least reading. Each row sorted up says why
+ * (`AgelessRow.standing`), and being sorted up is never the app throwing a team out: nothing here
+ * is applied without somebody pressing the button on that row.
  */
 
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
-import { isSchoolName, maybeSchoolTeam } from "./gameChangerApi";
+import {
+  ageBandFromLabel,
+  isSchoolAgeLabel,
+  isSchoolName,
+  maybeSchoolTeam,
+} from "./gameChangerApi";
+import { AGELESS_RULES } from "./agelessTriage";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { DeletedClubs } from "./deletedGames";
@@ -33,11 +36,20 @@ import type { NamedAges } from "./namedAges";
 /** How many are put in front of somebody at once. More than this is not a sitting, it is a wall. */
 export const AGELESS_BATCH = 10;
 
+/**
+ * Why a row was sorted to the top: it is unlikely to be a real team, or it reads as a high school
+ * squad. Absent for everyone else.
+ */
+export type AgelessStanding = { group: "unlikely" | "school"; because: string };
+
 /** One row of the queue: the team, and the two things a reader needs before deciding. */
 export type AgelessRow = {
   entry: AgeUnknownTeam;
   /** 0 to 1, only ever an ordering. */
   invented: number;
+  /** How unlikely a real team, for the order within a group: 0 for nothing against it. */
+  unlikely: number;
+  standing?: AgelessStanding;
   /** Why the age could not be read, in a sentence. */
   why: string;
   /** A lead the name carries, when it carries one. Present only when there is one. */
@@ -99,6 +111,112 @@ export const awaitingAnswer = (
   !isSchoolName(entry.name ?? "");
 
 /**
+ * Names nobody gives a team that plays: a test, a practice or scrimmage account, one marked for
+ * deletion or as a copy, a placeholder. Over the 13,958 teams waiting on 27 September 2026 this
+ * reads 113 names, and every one is that kind of account: "Test", "Practice GC", "Delete Me!!",
+ * "Duplicate Team->Leave Team", "Placeholder" with 233 players, "2026 NJBO Minor Fall Ball
+ * Practice Schedule". "Unknown" was tried and found nothing; "fresh" is not here because it is a
+ * word in real names ("Surcheros Fresh Mex SuperStars").
+ */
+const JUNK_NAME =
+  /\b(?:test(?:ing)?|demo|sample|example|dummy|fake|practice|scrimmage|delete[ds]?|duplicate|dupe|copy\s+of|old\s+team|not\s+(?:a\s+)?real|placeholder)\b/i;
+
+/** "Team", "Team 1", "My Team": a name nobody chose. Eight in that list. */
+const GENERIC_NAME = /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i;
+
+/**
+ * What the name alone says against a team, or nothing. A name that was never recorded says
+ * nothing: that is a list kept before names were, not a team without one.
+ */
+const junkName = (name: string): string | undefined => {
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  if (JUNK_NAME.test(trimmed)) return "the name reads as a test, practice or placeholder account";
+  if (GENERIC_NAME.test(trimmed)) return "the name is only “Team” and a number";
+  // Any script's letters: "統一獅隊" is a club in Taipei, "12345" and "***" are nobody.
+  if (!/\p{L}/u.test(trimmed)) return "the name has no letters in it";
+  if (trimmed.length <= 2) return "the name is two characters or fewer";
+  return undefined;
+};
+
+/**
+ * How far past a schedule the evidence has to go before a team is sorted in with the names above.
+ *
+ * `looksInvented` gives a fifth of a point for one shutout blowout in one scored game, which is a
+ * real team having a bad day, and 66 of the 13,958 waiting sat between 0.2 and 0.3 on little more.
+ * At half a point it takes most of a schedule scored on days that have not happened: the ten there
+ * are a cluster of forty-game schedules with every scored game dated after today, and one team
+ * with its only scored game there.
+ */
+const INVENTED_CUT = 0.5;
+
+/**
+ * A school squad's name the definite rule (`isSchoolName`) does not take: "High-school" hyphened,
+ * "(H.S)", a freshman or sophomore side, and a school's initials — "LCHS Fall Ball 2026",
+ * "HHS FALL BALL 2026". Over the same list: one hyphen, one "H.S", six freshman or sophomore sides,
+ * and 21 sets of initials, nearly all a high school's fall team.
+ */
+const SCHOOLISH_NAME =
+  /\bhigh[-_]?school\b|\bhighschool\b|\bh\.\s?s\b|\b(?:freshm[ae]n|frosh|soph(?:omore)?s?)\b/i;
+const SCHOOL_INITIALS = /\b[A-Z]{1,3}HS\b/;
+
+/**
+ * The triage rules this order reads, and only those: the two that say a page is not a real team
+ * and the one that says a side plays school teams. Every rule over the 13,958 waiting took the
+ * first sort from 27 ms to 159 ms, these three to 62 ms; neither verdict carries an age, so the band veto
+ * `agelessVerdicts` adds has nothing to veto here.
+ */
+const NOT_REAL_RULES = AGELESS_RULES.filter(
+  (rule) => rule.id === "void-name" || rule.id === "scored-ahead"
+);
+const PLAYS_SCHOOLS = AGELESS_RULES.filter((rule) => rule.id === "school-by-evidence");
+
+/** Why a row goes to the top, worked out once per entry: a re-ask writes a new entry object. */
+const standingOf = new WeakMap<AgeUnknownTeam, { unlikely: number; standing?: AgelessStanding }>();
+
+const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessStanding } => {
+  const had = standingOf.get(entry);
+  if (had) return had;
+  const evidence = entry.evidence ?? NO_EVIDENCE;
+  const name = entry.name ?? "";
+  const invented = looksInvented(evidence);
+  const junk = junkName(name);
+  const notReal = NOT_REAL_RULES.find((rule) => rule.read(entry)?.kind === "not-real");
+  // A small lean for an empty schedule: nothing to rate, and as often a page nobody used.
+  const unlikely =
+    invented + (junk ? 1 : 0) + (notReal ? 1 : 0) + (evidence.games === 0 ? 0.05 : 0);
+
+  let standing: AgelessStanding | undefined;
+  if (junk) standing = { group: "unlikely", because: junk };
+  else if (notReal) standing = { group: "unlikely", because: notReal.because };
+  else if (invented >= INVENTED_CUT) {
+    standing = {
+      group: "unlikely",
+      because:
+        evidence.aheadOfToday > 0
+          ? `${evidence.aheadOfToday} of its ${evidence.scored} scored games are dated after today`
+          : "its schedule and roster look made up",
+    };
+  } else {
+    // A side GameChanger bands under thirteen is not a high school squad, whatever it is called.
+    const band = ageBandFromLabel(evidence.ageLabel);
+    const youthBand = band?.high !== undefined && band.high <= 13;
+    if (isSchoolAgeLabel(evidence.ageLabel)) {
+      standing = { group: "school", because: "GameChanger files it as a school team" };
+    } else if (!youthBand) {
+      if (PLAYS_SCHOOLS.some((rule) => rule.read(entry)?.kind === "high-school")) {
+        standing = { group: "school", because: "it plays varsity and JV sides" };
+      } else if (SCHOOLISH_NAME.test(name) || SCHOOL_INITIALS.test(name)) {
+        standing = { group: "school", because: "the name reads as a high school side" };
+      }
+    }
+  }
+  const found = { unlikely, ...(standing ? { standing } : {}) };
+  standingOf.set(entry, found);
+  return found;
+};
+
+/**
  * One entry as a row.
  *
  * Shared by the queue and the search on purpose: a team a person finds by name has to read the
@@ -109,6 +227,7 @@ const rowFor = (entry: AgeUnknownTeam): AgelessRow => {
   return {
     entry,
     invented: looksInvented(evidence ?? NO_EVIDENCE),
+    ...stand(entry),
     why: evidence
       ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
       : "Nothing was kept about this one — the next refresh will say why.",
@@ -117,7 +236,14 @@ const rowFor = (entry: AgeUnknownTeam): AgelessRow => {
   };
 };
 
-/** Everyone still waiting on a person, likeliest real first. */
+/** The unlikely-to-be-real first, then the high school sides, then everyone else. */
+const GROUP_ORDER: Record<AgelessStanding["group"] | "rest", number> = {
+  unlikely: 0,
+  school: 1,
+  rest: 2,
+};
+
+/** Everyone still waiting on a person: least likely to be real first, then high school sides. */
 export const agelessWaiting = (
   list: AgeUnknownList,
   named: NamedAges,
@@ -129,9 +255,9 @@ export const agelessWaiting = (
     .map(rowFor)
     .sort(
       (a, b) =>
-        // Least invented-looking first: the rows most worth a person's attention, at the end of
-        // which the junk is sitting together at the bottom rather than in front of everything.
-        a.invented - b.invented ||
+        GROUP_ORDER[a.standing?.group ?? "rest"] - GROUP_ORDER[b.standing?.group ?? "rest"] ||
+        // Least likely to be real first, within each group as across them.
+        b.unlikely - a.unlikely ||
         // Among rows nothing separates, one carrying a lead goes ahead — it is answerable at a
         // glance, so it costs the sitting least.
         Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||

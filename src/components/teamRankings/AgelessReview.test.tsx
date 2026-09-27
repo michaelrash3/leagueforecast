@@ -105,20 +105,30 @@ describe("the review card for teams waiting on an age", () => {
     expect(onThrowOut).toHaveBeenCalledWith("ID0", "Club 0");
   });
 
-  /* The sitting opens on the decisions worth making; the pages that look made up sink to the end. */
-  it("puts the likeliest real teams at the top and the made-up-looking ones at the bottom", () => {
+  /* The user's order: the least likely to be real first, then the high school sides. */
+  it("puts the teams least likely to be real at the top, and says why", () => {
     show([
+      team("honest", "An Honest Club"),
+      team("school", "Tigers High-school"),
       team("fake", "Test team", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
       }),
-      team("honest", "An Honest Club"),
     ]);
-    expect(within(rows()[0]!).getByText("An Honest Club")).toBeInTheDocument();
-    expect(within(rows()[1]!).getByText("Test team")).toBeInTheDocument();
-    // Still told why, wherever it sits.
+    expect(within(rows()[0]!).getByText("Test team")).toBeInTheDocument();
     expect(
-      within(rows()[1]!).getByText(/4 scored on a day that has not happened/)
+      within(rows()[0]!).getByText(
+        "Up first, as unlikely to be a real team: the name reads as a test, practice or placeholder account."
+      )
     ).toBeInTheDocument();
+    expect(
+      within(rows()[0]!).getByText(/4 scored on a day that has not happened/)
+    ).toBeInTheDocument();
+    expect(within(rows()[1]!).getByText("Tigers High-school")).toBeInTheDocument();
+    expect(
+      within(rows()[1]!).getByText(/Up next, as probably a high school side/)
+    ).toBeInTheDocument();
+    expect(within(rows()[2]!).getByText("An Honest Club")).toBeInTheDocument();
+    expect(within(rows()[2]!).queryByText(/Up (first|next)/)).toBeNull();
   });
 
   /*
