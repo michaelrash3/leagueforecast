@@ -5840,19 +5840,36 @@ export const mergeDuplicateStandIns = (
   const into = new Map<string, string>();
   bySlot.forEach((ids) => {
     if (ids.length < 2) return;
-    const keeper = ids[0]!;
-    const kept = seen.get(keeper)!;
-    const games = [...kept.games];
-    ids.slice(1).forEach((later) => {
-      const entry = seen.get(later)!;
-      const name = teamById.get(later)!.name;
-      if (![...entry.namedFrom].some((named) => kept.namedFrom.has(named))) return;
+    /*
+     * Each entry is held up against every earlier one it was not merged into, not only the slot's
+     * first. Held up against the first alone, two entries named from one state stayed two whenever
+     * the roster listed an entry named from another state ahead of them: five on the pool of 26
+     * September 2026, "Canes National 2031" named from Florida ahead of two named from Virginia
+     * among them, which another order of the same roster made one. A merged entry's naming states
+     * join its keeper's, as its games do, which is what the next tidy would read off them.
+     */
+    const keepers: { id: string; namedFrom: Set<string>; games: Seen["games"] }[] = [];
+    ids.forEach((id) => {
+      const entry = seen.get(id)!;
+      const name = teamById.get(id)!.name;
       const byClass =
         entry.year !== undefined && ageFromGradYearInName(name, entry.year) !== undefined;
       const rare = (pulledOfName.get(teamNameKey(name)) ?? 0) <= 1;
-      if ((!byClass && !rare) || clash(games, entry.games)) return;
-      into.set(later, keeper);
-      games.push(...entry.games);
+      const keeper =
+        byClass || rare
+          ? keepers.find(
+              (kept) =>
+                [...entry.namedFrom].some((named) => kept.namedFrom.has(named)) &&
+                !clash(kept.games, entry.games)
+            )
+          : undefined;
+      if (!keeper) {
+        keepers.push({ id, namedFrom: new Set(entry.namedFrom), games: [...entry.games] });
+        return;
+      }
+      into.set(id, keeper.id);
+      keeper.games.push(...entry.games);
+      entry.namedFrom.forEach((named) => keeper.namedFrom.add(named));
     });
   });
   if (into.size === 0) return { state, merged: 0 };
@@ -6712,8 +6729,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  17 — a row against a slot or a stand-in whose name fits, with the very same result, claimed at
  *       any clock into a copy holding the club on record, and from the day either side into a
  *       copy that does not
+ *  18 — a stand-in merged into any earlier entry of its name it shares a naming state with, not
+ *       the first alone
  */
-const TIDY_RULES_VERSION = 17;
+const TIDY_RULES_VERSION = 18;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

@@ -1002,6 +1002,10 @@ in the pool carries it, a club of one state named both, and neither played anoth
 the hour of the other. A common name, two Arizona clubs' "Pirates", is as often two teams and is
 left. On the pool of 26 September 2026 that merged 127 of the 173 such entries, ten of them "Mojo
 Gold 2036", and moved 226 clubs' ratings by more than a tenth of a run and no club's record.
+Each entry is held against every earlier one it was not merged into, not the first alone: held
+against the first, two "Canes National 2031" entries named from Virginia stayed two behind one
+named from Florida, and five such pairs stood on the pool of 26 September at 18:40, all made one
+now in the roster's order and in two shuffled ones.
 
 Anything still unnamed is the ordinary rename: open the slot, type the club's
 real name, and the game moves there — merging into that club if it is already in
