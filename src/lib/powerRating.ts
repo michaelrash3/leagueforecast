@@ -17,10 +17,10 @@ import { clamp } from "./util";
  * years, and is what lets a game across age levels count. Youth baseball's rule of thumb is that
  * the older side wins by about `g0` runs per year of age (`AGE_GAP_RUNS_PER_YEAR`): an 8U losing to
  * a 9U by that much has played it even, and only the margin beyond it says anything about the two
- * teams. `δ` is the data's own correction to that prior. It is fitted from whatever cross-age
- * games the pool holds, but a ridge term of its own holds it to the prior, so one lopsided game
- * between levels cannot rewrite what a year of age is worth while a season of them can. Without a
- * single cross-age game δ is exactly 0 and the fit is the same-level model, digit for digit.
+ * teams. `δ` is a correction to that figure a caller can ask the data for, with a ridge term of its
+ * own (`ageGapShrinkage`); by default it is not fitted at all, and a year of age is worth `g0`
+ * (`DEFAULT_AGE_GAP_SHRINKAGE` says why). Without a single cross-age game δ is 0 either way and the
+ * fit is the same-level model, digit for digit.
  *
  * The fit is done by regressing `y = margin − gap·g0` on the columns (+1 home, −1 away, hf, gap)
  * with a ridge penalty on every parameter — `shrinkage` on each rating, `homeFieldShrinkage` on
@@ -124,9 +124,12 @@ export type OpponentAdjustedOptions = {
   shrinkage?: number;
   /** Ridge strength on the home-field term — high by default because many youth games are neutral-site. */
   homeFieldShrinkage?: number;
-  /** Prior runs of advantage per year of age; default AGE_GAP_RUNS_PER_YEAR. */
+  /** Runs of advantage per year of age, held or a fit's prior; default AGE_GAP_RUNS_PER_YEAR. */
   ageGapPrior?: number;
-  /** Ridge strength pulling the fitted age gap toward the prior; default DEFAULT_AGE_GAP_SHRINKAGE. */
+  /**
+   * Ridge strength pulling a fitted age gap toward the prior; default DEFAULT_AGE_GAP_SHRINKAGE,
+   * which fits none. Finite to ask the data for a correction.
+   */
   ageGapShrinkage?: number;
   /**
    * "dense" (Gaussian elimination, current), "sparse" (conjugate gradient), "auto" (sparse above
@@ -136,17 +139,31 @@ export type OpponentAdjustedOptions = {
 };
 
 /**
- * Expected runs of advantage per year of age between the two sides, before any data. Two runs a
- * year is the rule of thumb a coach uses when a team plays up a level, and it is what the
- * cross-age fit is pulled back toward.
+ * Runs of advantage per year of age between the two sides. Two runs a year is the rule of thumb a
+ * coach uses when a team plays up a level, and it is what a year of age is held at.
  */
 export const AGE_GAP_RUNS_PER_YEAR = 2;
 /**
- * Ridge strength on the age-gap correction. Deliberately heavier than the per-team shrinkage: a
- * year of age is one number for the whole pool, and a single 8U-versus-9U blowout should barely
- * move it, while a season of cross-age games can.
+ * Ridge strength on the age-gap correction: none fitted. A finite value fits δ and pulls it toward
+ * the prior with that weight, which is how the rankings ran until 27 September 2026 (at 6).
+ *
+ * The fitted figure was biased low, and not by a little. Nearly every club plays at one level (only
+ * 1,153 of 76,787 in the pool of 26 September 2026 appear at a second), so shifting every level's
+ * ratings by a steady amount and the gap by the opposite fits the results equally well: the games
+ * cannot set the gap, and the ridge on the ratings, summed over tens of thousands of clubs, did.
+ * It read 0.85, 0.92, 0.97 and 1.02 runs a year as that season filled, and simulated on its real
+ * schedule it reads 0.81 to 1.05 when the truth is 1.75. Read directly instead — each club rated
+ * on its same-level games alone, then each one-year cross-age game between clubs with eight or
+ * more of them — a year is worth 2.00 ± 0.24 runs.
+ *
+ * Held at two, the ratings predict the games after a cut better at every cut tried (7, 13 and 20
+ * September): margin error 0.0063, 0.0051 and 0.0078 runs lower on every game between two clubs
+ * the fit had seen, 0.011 to 0.018 lower on same-level games where a side had crossed a level,
+ * and Brier lower too. A club that spends its fall playing up gets the credit for it, and one that
+ * padded against younger sides stops getting too much. Nothing the data says about a year of age
+ * is lost: Setup's model check still fits several held values and says which predicted best.
  */
-export const DEFAULT_AGE_GAP_SHRINKAGE = 6;
+export const DEFAULT_AGE_GAP_SHRINKAGE = Number.POSITIVE_INFINITY;
 /**
  * Team count above which "auto" switches from Gaussian elimination to conjugate gradient. Below
  * it the dense solve is instant and bit-for-bit what the rankings have always shown; above it the
@@ -400,9 +417,11 @@ export const buildOpponentAdjustedRatings = (
   }
 
   // Parameters: n team ratings, the home-field term (index n), the age-gap correction δ (n + 1).
+  // With no ridge to hold δ, δ is not fitted: its column stays empty and it solves to 0.
   const size = n + 2;
   const hfa = n;
   const delta = n + 1;
+  const fitsGap = Number.isFinite(ageGapShrinkage);
   const useSparse = solver === "sparse" || (solver === "auto" && n > SPARSE_SOLVER_THRESHOLD);
   const system = useSparse ? sparseNormalEquations(size) : denseNormalEquations(size);
 
@@ -430,7 +449,7 @@ export const buildOpponentAdjustedRatings = (
       [w, -1],
       [hfa, hf],
     ];
-    if (gap) row.push([delta, gap]);
+    if (gap && fitsGap) row.push([delta, gap]);
     row.forEach(([i, ci]) => {
       row.forEach(([j, cj]) => system.add(i, j, weight * ci * cj));
       system.addRhs(i, weight * ci * y);
@@ -460,12 +479,12 @@ export const buildOpponentAdjustedRatings = (
    */
   for (let i = 0; i < n; i += 1) system.add(i, i, shrinkage);
   system.add(hfa, hfa, homeFieldShrinkage);
-  system.add(delta, delta, ageGapShrinkage);
+  system.add(delta, delta, fitsGap ? ageGapShrinkage : 1);
 
   const solution = system.solve();
   teamIds.forEach((id, i) => ratings.set(id, solution[i] ?? 0));
   const homeAdvantage = solution[hfa] ?? 0;
-  const ageGapRuns = ageGapPrior + (solution[delta] ?? 0);
+  const ageGapRuns = ageGapPrior + (fitsGap ? (solution[delta] ?? 0) : 0);
 
   const rawMargin = new Map<string, number>();
   const strengthOfSchedule = new Map<string, number>();

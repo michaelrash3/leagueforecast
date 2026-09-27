@@ -452,7 +452,7 @@ const legacyBuild = (
 describe("age-gap model constants", () => {
   it("publishes the values the rankings code and method panel read", () => {
     expect(AGE_GAP_RUNS_PER_YEAR).toBe(2);
-    expect(DEFAULT_AGE_GAP_SHRINKAGE).toBe(6);
+    expect(DEFAULT_AGE_GAP_SHRINKAGE).toBe(Number.POSITIVE_INFINITY);
     expect(SPARSE_SOLVER_THRESHOLD).toBe(150);
   });
 });
@@ -502,6 +502,9 @@ describe("without age gaps the dense path is the legacy model, bit for bit", () 
     expect(buildOpponentAdjustedRatings([], []).ageGapRuns).toBe(AGE_GAP_RUNS_PER_YEAR);
   });
 });
+
+/** The age-gap correction fitted, as the rankings ran until a year of age was held. */
+const FITTED = { ageGapShrinkage: 6 };
 
 describe("age gap term", () => {
   // Four 9U teams that tie each other pin the level at a rating of 0; then an 8U meets one.
@@ -614,8 +617,61 @@ describe("age gap term", () => {
     younger.map((q): RatingGame => ({ home: p, away: q, homeMargin: 6, neutral: true, ageGap: 1 }))
   );
 
-  it("(c) a season of cross-age results moves ageGapRuns off the prior", () => {
+  it("holds a year of age at the prior by default, whatever a season of results says", () => {
     const out = buildOpponentAdjustedRatings([...older, ...younger], season);
+    expect(out.ageGapRuns).toBe(AGE_GAP_RUNS_PER_YEAR);
+    // Four runs a game past the gap go to the teams: every 9U up, every 8U down, by the same.
+    const olderMean = older.reduce((sum, id) => sum + out.ratings.get(id)!, 0) / older.length;
+    const youngerMean = younger.reduce((sum, id) => sum + out.ratings.get(id)!, 0) / younger.length;
+    expect(olderMean).toBeCloseTo(-youngerMean, 9);
+    expect(olderMean).toBeGreaterThan(1);
+    expect(
+      buildOpponentAdjustedRatings([...older, ...younger], season, { ageGapPrior: 3 }).ageGapRuns
+    ).toBe(3);
+  });
+
+  it("does not read a year low where the strong young clubs are the ones playing up", () => {
+    // Two levels rated the same way, every game played exactly to the truth, and a year of age
+    // worth two runs. Only the three strongest 9Us play up, as in a real fall.
+    const level = (prefix: string) =>
+      Array.from({ length: 12 }, (_, i) => ({ id: `${prefix}${i}`, truth: (i - 5.5) * 0.8 }));
+    const nine = level("N");
+    const ten = level("T");
+    const games: RatingGame[] = [];
+    [nine, ten].forEach((clubs) =>
+      clubs.forEach((a, i) =>
+        clubs
+          .slice(i + 1)
+          .forEach((b) =>
+            games.push({ home: a.id, away: b.id, homeMargin: a.truth - b.truth, neutral: true })
+          )
+      )
+    );
+    nine.slice(-3).forEach((young) =>
+      ten.forEach((old) =>
+        games.push({
+          home: old.id,
+          away: young.id,
+          homeMargin: old.truth - young.truth + 2,
+          neutral: true,
+          ageGap: 1,
+        })
+      )
+    );
+    const ids = [...nine, ...ten].map((club) => club.id);
+    const fitted = buildOpponentAdjustedRatings(ids, games, FITTED);
+    const held = buildOpponentAdjustedRatings(ids, games);
+    // The ridge pulls the strong 9Us toward average, and the fit explains their close games with
+    // the 10Us by making a year worth less: 1.78 runs, not 2.
+    expect(fitted.ageGapRuns).toBeLessThan(1.85);
+    expect(held.ageGapRuns).toBe(2);
+    // So the club that played up gets the credit for it: nearer its true 4.4.
+    expect(held.ratings.get("N11")!).toBeGreaterThan(fitted.ratings.get("N11")! + 0.05);
+    expect(held.ratings.get("N11")!).toBeLessThan(4.4);
+  });
+
+  it("(c) a season of cross-age results moves ageGapRuns off the prior, when asked to fit it", () => {
+    const out = buildOpponentAdjustedRatings([...older, ...younger], season, FITTED);
     expect(out.ageGapRuns).toBeGreaterThan(3);
     expect(out.ageGapRuns).toBeLessThan(6);
     // Strength of schedule uses the fitted figure, not the prior: each 8U faced six 9Us.
@@ -628,11 +684,12 @@ describe("age gap term", () => {
   it("(c) shrinkage keeps a single lopsided game from rewriting the gap", () => {
     const one = buildOpponentAdjustedRatings(
       ["P1", "Q1"],
-      [{ home: "P1", away: "Q1", homeMargin: 12, neutral: true, ageGap: 1 }]
+      [{ home: "P1", away: "Q1", homeMargin: 12, neutral: true, ageGap: 1 }],
+      FITTED
     );
     const single = Math.abs(one.ageGapRuns - AGE_GAP_RUNS_PER_YEAR);
     expect(single).toBeLessThan(0.5);
-    const many = buildOpponentAdjustedRatings([...older, ...younger], season);
+    const many = buildOpponentAdjustedRatings([...older, ...younger], season, FITTED);
     expect(many.ageGapRuns - AGE_GAP_RUNS_PER_YEAR).toBeGreaterThan(3 * single);
   });
 
@@ -640,7 +697,7 @@ describe("age gap term", () => {
     const loose = buildOpponentAdjustedRatings([...older, ...younger], season, {
       ageGapShrinkage: 1,
     });
-    const normal = buildOpponentAdjustedRatings([...older, ...younger], season);
+    const normal = buildOpponentAdjustedRatings([...older, ...younger], season, FITTED);
     const tight = buildOpponentAdjustedRatings([...older, ...younger], season, {
       ageGapShrinkage: 1e6,
     });
@@ -700,13 +757,19 @@ describe("age gap term", () => {
 describe("sparse (conjugate gradient) solver", () => {
   it("agrees with the dense solver to 1e-6 on a random 300-team graph", () => {
     const { ids: teamIds, games } = randomGraph(300, 300, 1500, true);
-    const dense = buildOpponentAdjustedRatings(teamIds, games, { solver: "dense" });
-    const sparse = buildOpponentAdjustedRatings(teamIds, games, { solver: "sparse" });
+    const dense = buildOpponentAdjustedRatings(teamIds, games, { ...FITTED, solver: "dense" });
+    const sparse = buildOpponentAdjustedRatings(teamIds, games, { ...FITTED, solver: "sparse" });
     expectClose(sparse, dense, 1e-6);
     // Sanity: the graph actually exercised every term.
     expect(dense.homeAdvantage).not.toBe(0);
     expect(dense.ageGapRuns).not.toBe(AGE_GAP_RUNS_PER_YEAR);
     expect(games.some((game) => game.ageGap !== undefined)).toBe(true);
+    // And held, as the rankings run it.
+    expectClose(
+      buildOpponentAdjustedRatings(teamIds, games, { solver: "sparse" }),
+      buildOpponentAdjustedRatings(teamIds, games, { solver: "dense" }),
+      1e-6
+    );
   });
 
   it("agrees with the dense solver on a second seed without gaps and with custom options", () => {
@@ -738,12 +801,20 @@ describe("sparse (conjugate gradient) solver", () => {
       { home: "P2", away: "P3", homeMargin: 3 },
       { home: "Q2", away: "Q3", homeMargin: -2, neutral: true },
     ];
-    const dense = buildOpponentAdjustedRatings([...older, ...younger], games, { solver: "dense" });
-    const sparse = buildOpponentAdjustedRatings([...older, ...younger], games, {
-      solver: "sparse",
-    });
-    expectClose(sparse, dense, 1e-9);
-    expect(sparse.ageGapRuns).toBeGreaterThan(AGE_GAP_RUNS_PER_YEAR);
+    const both = (options: OpponentAdjustedOptions) => {
+      const dense = buildOpponentAdjustedRatings([...older, ...younger], games, {
+        ...options,
+        solver: "dense",
+      });
+      const sparse = buildOpponentAdjustedRatings([...older, ...younger], games, {
+        ...options,
+        solver: "sparse",
+      });
+      expectClose(sparse, dense, 1e-9);
+      return sparse;
+    };
+    expect(both({ ageGapShrinkage: 6 }).ageGapRuns).toBeGreaterThan(AGE_GAP_RUNS_PER_YEAR);
+    expect(both({}).ageGapRuns).toBe(AGE_GAP_RUNS_PER_YEAR);
   });
 
   it("regresses teams with no games to exactly 0", () => {
@@ -805,8 +876,14 @@ describe("sparse (conjugate gradient) solver", () => {
     const withGaps = randomGraph(300, 300, 1500, true);
     const withoutGaps = randomGraph(301, 300, 1500, false);
     const weighted = randomGraph(302, 400, 2000, true);
+    // With the correction fitted, as when these were pinned: the δ column is not what changed.
     expect([
-      fingerprint(buildOpponentAdjustedRatings(withGaps.ids, withGaps.games, { solver: "sparse" })),
+      fingerprint(
+        buildOpponentAdjustedRatings(withGaps.ids, withGaps.games, {
+          solver: "sparse",
+          ageGapShrinkage: 6,
+        })
+      ),
       fingerprint(
         buildOpponentAdjustedRatings(withoutGaps.ids, withoutGaps.games, {
           solver: "sparse",
@@ -819,7 +896,7 @@ describe("sparse (conjugate gradient) solver", () => {
         buildOpponentAdjustedRatings(
           weighted.ids,
           weighted.games.map((game, at) => ({ ...game, weight: 0.25 + (at % 7) / 4 })),
-          { solver: "sparse" }
+          { solver: "sparse", ageGapShrinkage: 6 }
         )
       ),
     ]).toEqual(["19bb31df", "5b911876", "f7e5e13f"]);

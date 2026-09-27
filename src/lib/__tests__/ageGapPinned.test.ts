@@ -27,28 +27,28 @@ describe("a small cross-age pool, pinned", () => {
   it("rates each club and a year of age as it did", () => {
     const out = buildOpponentAdjustedRatings(ids, games);
     const round = (value: number) => Number(value.toFixed(6));
-    expect(round(out.ageGapRuns)).toMatchInlineSnapshot(`2.061558`);
+    expect(round(out.ageGapRuns)).toMatchInlineSnapshot(`2`);
     expect(Object.fromEntries(ids.map((id) => [id, round(out.ratings.get(id)!)])))
       .toMatchInlineSnapshot(`
-      {
-        "A9": 2.7806,
-        "B9": -0.612854,
-        "C9": -2.413979,
-        "X10": 0.813979,
-        "Y10": 0.383037,
-        "Z10": -0.950783,
-      }
-    `);
+        {
+          "A9": 2.758809,
+          "B9": -0.631376,
+          "C9": -2.436364,
+          "X10": 0.836364,
+          "Y10": 0.404827,
+          "Z10": -0.932261,
+        }
+      `);
     expect(Object.fromEntries(ids.map((id) => [id, round(out.strengthOfSchedule.get(id)!)])))
       .toMatchInlineSnapshot(`
-      {
-        "A9": 0.573325,
-        "B9": 1.080719,
-        "C9": 1.430779,
-        "X10": -0.630779,
-        "Y10": -0.973325,
-        "Z10": -1.092841,
-      }
-    `);
+        {
+          "A9": 0.543363,
+          "B9": 1.052936,
+          "C9": 1.4,
+          "X10": -0.6,
+          "Y10": -0.943363,
+          "Z10": -1.065058,
+        }
+      `);
   });
 });
