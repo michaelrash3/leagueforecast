@@ -6290,20 +6290,18 @@ const oneRowOnePlace = (state: GcImportState): { state: GcImportState; settled: 
     else released.set(at, [key]);
   };
   let settled = 0;
-  heldAt.forEach((holders, key) => {
-    const standing = standingAt.get(key);
-    if (standing === undefined && holders.length < 2) return;
+  heldAt.forEach((everyHolder, key) => {
     /*
-     * A copy the user has thrown out is left as the user left it, and so is every other copy of its
-     * row: it does not count, so the row is not counted twice, and resolved anyway, a thrown-out
-     * standing copy went and the copy it had been kept out beside counted in its place.
+     * A copy the user has thrown out is left as the user left it, and is no copy for the others to
+     * be read against: it does not count, so only the copies that do are two. Resolved with the
+     * rest, a thrown-out standing copy went and the copy it had been kept out beside counted in its
+     * place; left out with the whole row, three copies with one thrown out kept counting twice.
      */
-    if (
-      (standing !== undefined && state.games[standing]!.excluded) ||
-      holders.some((at) => state.games[at]!.excluded)
-    ) {
-      return;
-    }
+    const counted = (at: number) => !state.games[at]!.excluded;
+    const standsAt = standingAt.get(key);
+    const standing = standsAt !== undefined && counted(standsAt) ? standsAt : undefined;
+    const holders = everyHolder.filter(counted);
+    if (holders.length === 0 || (standing === undefined && holders.length < 2)) return;
     settled += 1;
     const ranked = holders.sort(
       (x, y) =>

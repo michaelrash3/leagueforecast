@@ -269,6 +269,44 @@ describe("a row standing as a game and folded into another", () => {
   });
 });
 
+describe("a row folded into three games, one of them thrown out", () => {
+  it("leaves the thrown-out game alone and keeps the row in one of the others", () => {
+    const teams = [
+      club("STAR", "5 Star Coastal Gold", "ag9", "GA"),
+      club("CBU", "CBU Georgia 2032- Strickland", "ag9", "GA"),
+      club("WAB", "WA Bulldogs", "ag9", "GA"),
+      club("OUT", "Peach State Prospects", "ag9", "GA"),
+    ];
+    const cbu = holding(
+      own("CBU", "c1", "STAR", "ag9", "14:00", [13, 6]),
+      record("STAR", "s1", "15:00", [6, 13])
+    );
+    const bulldogs = holding(
+      own("WAB", "w1", "STAR", "ag9", "15:00"),
+      record("STAR", "s1", "15:00", [6, 13]),
+      true
+    );
+    const thrownOut: ScoutGame = {
+      ...holding(
+        own("OUT", "o1", "STAR", "ag9", "16:00", [2, 1]),
+        record("STAR", "s1", "15:00", [6, 13])
+      ),
+      excluded: true,
+    };
+    const before: GcImportState = { ageGroups, teams, games: [bulldogs, cbu, thrownOut] };
+    expect(recordOf(before, "STAR")).toBe("0-2-0");
+
+    const after = settled(before);
+    expect(holdersOf(after, gcRowId("gcSTAR", "s1")).map((game) => game.id)).toEqual([
+      cbu.id,
+      thrownOut.id,
+    ]);
+    expect(after.games.find((game) => game.id === thrownOut.id)?.excluded).toBe(true);
+    expect(recordOf(after, "WAB")).toBe("0-0-0");
+    expect(recordOf(after, "STAR")).toBe("0-1-0");
+  });
+});
+
 describe("a row folded into two games", () => {
   it("stays in the one whose own result agrees with it", () => {
     // 5 Star Coastal Gold's 6-13, in CBU Georgia's own 13-6 at 14:00, and in the WA Bulldogs'
