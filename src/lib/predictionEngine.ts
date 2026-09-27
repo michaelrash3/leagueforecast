@@ -1,5 +1,6 @@
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
+import { parseDateValue } from "./date";
 import { buildOpponentAdjustedRatings } from "./powerRating";
 import { resolveMaxRunDifferential } from "./sim";
 
@@ -125,6 +126,22 @@ const tierForData = (
   return { tier, warnings, recommendedActions };
 };
 
+/**
+ * Oldest first by the day played, for walking a team's games in order.
+ *
+ * Not by the text: league dates are "M/D" and Team Rankings' are ISO, so as strings "9/12" came
+ * before "9/5", every October day before every September one, and every tournament game before
+ * every league game. Recent form then weighed games that were not the last ones played, and from a
+ * team's first October game the Trend column read its September. The year is dropped, as
+ * everywhere else in the league: a league date has none to compare. An undated game stays first,
+ * where it always sorted, since it cannot be placed and read as the newest it would set the trend.
+ */
+const dayOf = (date: string) => {
+  const value = parseDateValue(date);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+};
+const byDay = (a: { date: string }, b: { date: string }) => dayOf(a.date) - dayOf(b.date) || 0;
+
 const confidenceTier = (score: number): ConfidenceTier =>
   score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
 
@@ -219,7 +236,7 @@ export const buildPredictionEngine = (
       home: game.home,
       margin: -game.homeMargin,
     }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort(byDay);
 
   /** A team's finished games, league and tournament together, oldest first. */
   const gamesFor = (teamId: string) =>
@@ -236,7 +253,7 @@ export const buildPredictionEngine = (
           date: game.date,
           margin: game.away === teamId ? game.margin : -game.margin,
         })),
-    ].sort((a, b) => a.date.localeCompare(b.date));
+    ].sort(byDay);
 
   const powerRatings = teams
     .map((team): PowerRating => {
@@ -381,7 +398,9 @@ export const buildPredictionEngine = (
     ];
     if (favRating.strengthOfSchedule - underRating.strengthOfSchedule >= 0.5)
       keyFactors.push(`${favorite.name} has also faced the tougher schedule.`);
-    if (Math.abs(favRating.recentForm - underRating.recentForm) >= 1)
+    // Only when the favourite is the one in form: the difference used to be taken either way, so
+    // an underdog on a winning run was read as support for the side it was catching.
+    if (favRating.recentForm - underRating.recentForm >= 1)
       keyFactors.push("Recent form supports the projected winner.");
     if (headToHead && headToHead.wins + headToHead.losses + headToHead.ties > 0)
       keyFactors.push(
