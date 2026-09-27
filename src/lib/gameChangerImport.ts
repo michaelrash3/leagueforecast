@@ -6047,6 +6047,22 @@ export type TidyStep = {
 export type TidyWatcher = (step: TidyStep) => void;
 
 /**
+ * How two copies of one row are ranked for keeping: one between two real clubs over one against a
+ * stand-in or a slot, then one holding other schedules' rows.
+ */
+const copyRanks = (teams: readonly ScoutTeam[]) => {
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  const real = (game: ScoutGame) =>
+    [game.teamAId, game.teamBId].every((id) => {
+      const team = teamById.get(id);
+      return team !== undefined && !team.placeholder && !team.nameOnly;
+    });
+  const rank = (game: ScoutGame) =>
+    (real(game) ? 2 : 0) + ((game.alsoRows?.length ?? 0) > 0 ? 1 : 0);
+  return { real, rank };
+};
+
+/**
  * The pool with one game per GameChanger row. One row is one game, and two games standing on one
  * row — under one id, or a game that took over a re-entered row and a refresh's copy of that row
  * under its own id — are that row filed twice: a refresh of one page that could not see the other
@@ -6073,14 +6089,7 @@ const withoutRepeatedIds = (state: GcImportState): { state: GcImportState; dropp
     } else copies.set(key, [at]);
   });
   if (!repeated) return { state, dropped: 0 };
-  const teamById = new Map(state.teams.map((team) => [team.id, team]));
-  const real = (game: ScoutGame) =>
-    [game.teamAId, game.teamBId].every((id) => {
-      const team = teamById.get(id);
-      return team !== undefined && !team.placeholder && !team.nameOnly;
-    });
-  const rank = (game: ScoutGame) =>
-    (real(game) ? 2 : 0) + ((game.alsoRows?.length ?? 0) > 0 ? 1 : 0);
+  const { rank } = copyRanks(state.teams);
   const kept = new Map<number, ScoutGame>();
   const gone = new Set<number>();
   copies.forEach((at) => {
@@ -6122,6 +6131,162 @@ const withoutRepeatedIds = (state: GcImportState): { state: GcImportState; dropp
   });
   const games = state.games.flatMap((game, at) => (gone.has(at) ? [] : [kept.get(at) ?? game]));
   return { state: { ...state, games }, dropped: gone.size };
+};
+
+/**
+ * The pool with each GameChanger row in one game, whether it stands as a game or is folded into
+ * one (`ScoutGame.alsoRows`).
+ *
+ * A game played across two ages is filed on one club's page, and the other club's row folded into
+ * it there. A refresh of that club's own page cannot see the other page (`pullSections`), so it
+ * filed the row again as a game of its own, against a stand-in or a slot where the name found
+ * nobody at that level, and the club was credited with one game twice. The regroup
+ * (`collapseSameGames`) only compares rows of one pair on one day, and the check above only two
+ * games standing on one row, so both copies came through every tidy: on the pool of 26 September
+ * 2026, 246 rows stood as a game and sat folded in another, and 10 more sat folded in two.
+ *
+ * A row folded into two games stays in the one ranked higher (`copyRanks`), or fitting it better.
+ * A row standing as a game and folded into another stays standing where the game it stands as is
+ * between two real clubs or holds another schedule's row, and comes out of the other game.
+ * Otherwise the standing copy is the refresh's, and it goes; its start, day and score — the newest
+ * word on the row — go onto the record in the other game, and the regroup then reads that game
+ * again.
+ *
+ * Except where the standing copy says the other game is not this one: its own result has the club
+ * winning where the other game's own row has it losing, or tying, or the other way round. Or the
+ * other game's only score is the one this row lent it: the other club has posted nothing, so all
+ * that ties this row to that game is the club's own word, and its word now names someone else.
+ * There the standing copy stays and the row comes out of the other game. Read the other way, a
+ * 5-6 loss to "Western 2" was written into another club's 16-3 game as that club winning 6-5, and
+ * a 9U club's only result, a tie lent by a row that had since been scored 11-6 against the
+ * Diamondbacks, became an 11-6 loss.
+ */
+const oneRowOnePlace = (state: GcImportState): { state: GcImportState; settled: number } => {
+  const standingAt = new Map<string, number>();
+  state.games.forEach((game, at) => {
+    if (game.source) standingAt.set(gcRowId(game.source.teamId, game.source.gameId), at);
+  });
+  const heldAt = new Map<string, number[]>();
+  state.games.forEach((game, at) =>
+    game.alsoRows?.forEach((record) => {
+      const key = gcRowId(record.teamId, record.gameId);
+      if (standingAt.get(key) === at) return;
+      const list = heldAt.get(key);
+      if (!list) heldAt.set(key, [at]);
+      else if (!list.includes(at)) list.push(at);
+    })
+  );
+  const { real, rank } = copyRanks(state.teams);
+  const sign = (runs: number) => Math.sign(runs);
+  const ownResult = (game: ScoutGame): number | undefined =>
+    isScored(game) && !game.scoreFromB && !game.scoreFromTwin
+      ? sign(game.teamAScore! - game.teamBScore!)
+      : undefined;
+  /** Whether the standing copy says the other game is another game (above). */
+  const another = (standing: ScoutGame, other: ScoutGame, record: FoldedRow): boolean => {
+    if (other.scoreFromB && record.onSideB) return true;
+    const mine = ownResult(standing);
+    const theirs = ownResult(other);
+    if (mine === undefined || theirs === undefined) return false;
+    return mine !== (record.onSideB ? -theirs : theirs);
+  };
+  const recordIn = (game: ScoutGame, key: string) =>
+    game.alsoRows?.find((record) => gcRowId(record.teamId, record.gameId) === key);
+  /**
+   * Between two games ranked alike, how well one fits the row it holds: its own result agreeing
+   * with the row's, then its start the row's. Two real clubs' copies both holding one row is the
+   * usual shape of a row folded twice, and a copy whose only score is the row's own fits nothing:
+   * 5 Star Coastal Gold's 6-13 sat in CBU Georgia's own 13-6 at 14:00 and in the WA Bulldogs'
+   * blank copy at 15:00, the row's own start, and there counted the Bulldogs one more win than
+   * GameChanger gives them.
+   */
+  const fit = (game: ScoutGame, key: string): number => {
+    const record = recordIn(game, key)!;
+    const theirs = ownResult(game);
+    const agrees =
+      theirs !== undefined &&
+      record.ownScore !== undefined &&
+      record.opponentScore !== undefined &&
+      (record.onSideB ? -theirs : theirs) === sign(record.ownScore - record.opponentScore);
+    return (agrees ? 2 : 0) + (sameStart(game.startTs, record.startTs) ? 1 : 0);
+  };
+
+  const dropped = new Set<number>();
+  const released = new Map<number, string[]>();
+  const rewritten = new Map<number, Map<string, ScoutGame>>();
+  const release = (at: number, key: string) => {
+    const keys = released.get(at);
+    if (keys) keys.push(key);
+    else released.set(at, [key]);
+  };
+  let settled = 0;
+  heldAt.forEach((holders, key) => {
+    const standing = standingAt.get(key);
+    if (standing === undefined && holders.length < 2) return;
+    settled += 1;
+    const ranked = holders.sort(
+      (x, y) =>
+        rank(state.games[y]!) - rank(state.games[x]!) ||
+        fit(state.games[y]!, key) - fit(state.games[x]!, key) ||
+        x - y
+    );
+    const best = ranked[0]!;
+    if (standing === undefined) {
+      ranked.slice(1).forEach((at) => release(at, key));
+      return;
+    }
+    const copy = state.games[standing]!;
+    const other = state.games[best]!;
+    const stays =
+      real(copy) || (copy.alsoRows?.length ?? 0) > 0 || another(copy, other, recordIn(other, key)!);
+    if (stays) {
+      ranked.forEach((at) => release(at, key));
+      return;
+    }
+    dropped.add(standing);
+    const rewrites = rewritten.get(best) ?? new Map<string, ScoutGame>();
+    rewrites.set(key, copy);
+    rewritten.set(best, rewrites);
+    ranked.slice(1).forEach((at) => release(at, key));
+  });
+  if (settled === 0) return { state, settled: 0 };
+
+  const games = state.games.flatMap((game, at) => {
+    if (dropped.has(at)) return [];
+    let next = game;
+    released.get(at)?.forEach((key) => {
+      const record = recordIn(next, key);
+      if (record) next = releaseClaim(next, record);
+    });
+    const rewrites = rewritten.get(at);
+    if (rewrites && next.alsoRows) {
+      next = {
+        ...next,
+        alsoRows: next.alsoRows.map((record) => {
+          const copy = rewrites.get(gcRowId(record.teamId, record.gameId));
+          return copy ? newestWord(record, copy, next) : record;
+        }),
+      };
+    }
+    return [next];
+  });
+  return { state: { ...state, games }, settled };
+};
+
+/**
+ * The record of a row, as the refresh's own copy of it (`copy`, standing on it) now has it: its
+ * start, its day where that is not the game's, and its score where the copy's own schedule gave
+ * one. A score the copy only borrowed is not the row's word, and a row now blank is blank.
+ */
+const newestWord = (record: FoldedRow, copy: ScoutGame, game: ScoutGame): FoldedRow => {
+  const { ownScore: _own, opponentScore: _theirs, startTs: _start, date: _date, ...rest } = record;
+  const scored = isScored(copy) && !copy.scoreFromB && !copy.scoreFromTwin;
+  return {
+    ...rest,
+    ...(copy.startTs ? { startTs: copy.startTs } : {}),
+    ...(copy.date && copy.date !== game.date ? { date: copy.date } : {}),
+    ...(scored ? { ownScore: copy.teamAScore!, opponentScore: copy.teamBScore! } : {}),
+  };
 };
 
 const tidyOnce = (
@@ -6172,7 +6337,9 @@ const tidyOnce = (
   const standing =
     gone.games !== season.state.games ? { ...season.state, games: gone.games } : season.state;
   finished("withdrawn", gone.withdrawn, standing);
-  const unique = withoutRepeatedIds(standing);
+  const repeated = withoutRepeatedIds(standing);
+  const onePlace = oneRowOnePlace(repeated.state);
+  const unique = { state: onePlace.state, dropped: repeated.dropped + onePlace.settled };
   starting("named", unique.state);
   const named = resolveSlotGames(unique.state);
   finished("named", named.resolved, named.state);
@@ -6411,8 +6578,9 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       mirror within the hour joined across any border
  *  14 — across regions, a row with no result on either side neither settled nor claimed into a
  *       copy on the clock alone
+ *  15 — a row standing as a game and folded into another, or folded into two, kept in one
  */
-const TIDY_RULES_VERSION = 14;
+const TIDY_RULES_VERSION = 15;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

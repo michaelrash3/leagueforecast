@@ -620,6 +620,33 @@ were — with the same result however far off the clocks, as any two schedules' 
 game are, or at the game's very start whatever it says, which is how an earlier join left two
 coaches' different scores at one start.
 
+**One row, one place.** A row folded into one game can also stand as a game of its own, or sit
+folded in a second. A refresh of a club's own page cannot see a cross-age copy of its game on the
+other club's page (`pullSections`), and filed the row again, against a stand-in where the name
+found nobody at that level. The regroup compares the rows of one pair on one day and never saw
+both, so the club counted the game twice: on the pool of 18:40, 26 September 2026, 246 rows stood
+as a game and sat folded in another, 10 more sat folded in two, and 155 counted twice for their own
+club. The tidy now keeps each row in one place (`oneRowOnePlace`). A row folded into two stays in
+the one ranked higher, as a repeated id is ranked, then the one whose own result agrees with it,
+then the one at its start: 5 Star Coastal Gold's 6-13 sat in CBU Georgia's own 13-6 and in the WA
+Bulldogs' blank copy, and there gave the Bulldogs a win GameChanger does not. A row standing as a
+game between two real clubs, or holding another schedule's row, stays standing and comes out of the
+other game. Otherwise the standing copy is the refresh's and goes, and its start, day and score, the
+newest word on the row, go onto the record in the other game for the regroup to read again. Unless
+the standing copy says the other game is another game: its own result has the club winning where
+the other game's own row has it losing or level, or the other game's only score is the one this row
+lent it. Written in regardless, Western Reserve's 5-6 loss to "Western 2" read as Milan winning 6-5
+a game Milan's own row lost 3-16, and a 9U club's only result, a tie lent by a row since scored
+11-6 against the Diamondbacks, became an 11-6 loss.
+
+On that pool the first tidy takes 2 passes and a second finds nothing. 230 games go; 155
+single-link records move, every one toward the club's own rows (124 onto them), and 146 toward
+GameChanger's own count (91 onto it). The 9 that move away from GameChanger's land on the club's own
+rows: the pool is missing games GameChanger has. No row is in two games after it, and none counts
+twice for its club. A club can still count twice where the other game stands on the other club's
+own row naming it, since which club that schedule meant is not the tidy's to say; Pool Health lists
+those, 512 of them where there were 647.
+
 Such a record answered for the club's row that day with no row to read. When the row came back
 filed against another name, the claim step took the game as holding the club's row already, and
 the row stood beside it, the same game ten minutes off, counted twice. So a pull now does two
