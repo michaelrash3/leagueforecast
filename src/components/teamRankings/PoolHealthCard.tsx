@@ -2,16 +2,12 @@ import { useMemo, useSyncExternalStore } from "react";
 import { isPullLive, watchPull } from "../../lib/pullSession";
 import { useState } from "react";
 import type { GcImportState, GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
-import {
-  describeTidy,
-  proposeSeasonPairings,
-  proposeTwinSquads,
-  GC_PAIRING_EVIDENCE_LABEL,
-} from "../../lib/gameChangerImport";
+import { describeTidy, GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
 import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
-import { keepApart as apartAfter } from "../../lib/keptApart";
+import { keepApart as apartAfter, isKeptApart } from "../../lib/keptApart";
+import type { PoolLists } from "../../workers/tidyProtocol";
 import { isDatedAhead } from "../../lib/deletedGames";
 import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
@@ -22,7 +18,6 @@ import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/s
 import { downloadCsv, fileDay } from "../../lib/download";
 import { usePoolTidy, type TidyOutcome } from "../../hooks/usePoolTidy";
 import {
-  countedTwice,
   countedTwiceCsv,
   countedTwiceCsvFilename,
   type CountedTwice,
@@ -189,10 +184,21 @@ export function PoolHealthCard({
   }, [datedAhead, unreal, pool.teams]);
   const [allClubs, setAllClubs] = useState(false);
 
-  const sameSeasonPairs = (state: GcImportState) =>
-    proposeSeasonPairings(state.teams, state.games, loadKeptApart()).filter(
-      (pairing) => pairing.kind === "same-season"
-    );
+  /**
+   * The lists from the worker's answer, which works them out beside the numbers (`poolLists`): each
+   * walks the whole pool, and done here after the answer they froze the page for 2.4 s on the
+   * 18:40 pool. A pair kept apart while the answer was on its way was sent as not kept apart, so it
+   * is taken out again here, which is a few dozen entries at most.
+   */
+  const showLists = (lists: PoolLists) => {
+    const apart = loadKeptApart();
+    const offered = (pairing: { fromGcId: string; toGcId: string }) =>
+      !isKeptApart(apart, pairing.fromGcId, pairing.toGcId);
+    setToPull(lists.toPull);
+    setDuplicates(lists.duplicates.filter(offered));
+    setTwins(lists.twins.filter(offered));
+    setTwice(lists.twice);
+  };
 
   const look = async () => {
     const found = await inspect(pool, tidyStamp);
@@ -201,10 +207,7 @@ export function PoolHealthCard({
     setHealth(found.health);
     setSettleable(found.settleable);
     setLastTidy(null);
-    setToPull(unpulledClubs(pool));
-    setDuplicates(sameSeasonPairs(pool));
-    setTwins(proposeTwinSquads(pool.teams, pool.games, loadKeptApart()));
-    setTwice(countedTwice(pool.teams, pool.games));
+    showLists(found.lists);
   };
 
   const run = async () => {
@@ -218,10 +221,7 @@ export function PoolHealthCard({
     if (!found) return;
     setHealth(found.health);
     setSettleable(found.settleable);
-    setToPull(unpulledClubs(outcome.state));
-    setDuplicates(sameSeasonPairs(outcome.state));
-    setTwins(proposeTwinSquads(outcome.state.teams, outcome.state.games, loadKeptApart()));
-    setTwice(countedTwice(outcome.state.teams, outcome.state.games));
+    showLists(found.lists);
   };
 
   /**
