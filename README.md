@@ -1887,9 +1887,10 @@ winter in it. In season, at four nested cuts, the day-based schemes beat
 counting every game the same on every one, and the games-since schemes were
 indistinguishable from it — on a small hold-out, without the shuffled-calendar
 null run to completion, so a direction rather than a finding. Practice and the
-direction agree. Setup's **Check the model** card runs the same comparison in
-the app (`compareRecencySchemes`), so a pool this is wrong for will say so, and
-changing it is one line in `src/lib/ratingRecency.ts`: every candidate is in
+direction agree. The comparison is `compareRecencySchemes`, which the sweep runs;
+Setup's **Check the model** card runs the plain backtest, the age-gap priors and
+the run caps (`checkTheModel`), in the rankings worker a run at a time so the page
+never waits on it. Changing the scheme is one line in `src/lib/ratingRecency.ts`: every candidate is in
 `RECENCY_SCHEMES`, and `noDecay` restores exactly the behaviour that shipped
 before weighting existed.
 

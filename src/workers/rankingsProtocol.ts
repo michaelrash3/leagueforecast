@@ -11,6 +11,13 @@ import {
 } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
+import {
+  backtestGames,
+  backtestScoutRatings,
+  type BacktestGames,
+  type ScoutBacktestOptions,
+  type ScoutBacktestResult,
+} from "../lib/scoutBacktest";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
 
 /**
@@ -78,9 +85,26 @@ export type WhatIfRequest = {
   pool: PoolShipment;
 };
 
+/**
+ * One run of Setup's model check, against the pool the worker already holds.
+ *
+ * One run, not the eleven: the worker answers one message at a time, and a board refit asked for
+ * while the whole check ran waited for all of it, about 15 s on a nationwide year. Asked a run at
+ * a time, the refit waits for one. The page's rated games in order are the same for every run and
+ * are kept between them.
+ */
+export type ModelCheckRequest = {
+  kind: "model-check";
+  id: number;
+  ageGroupId: string;
+  ageGroups: AgeGroup[];
+  run: ScoutBacktestOptions;
+  pool: PoolShipment;
+};
+
 export type CancelRequest = { kind: "cancel"; id: number };
 
-export type WorkerRequest = RankingsRequest | WhatIfRequest | CancelRequest;
+export type WorkerRequest = RankingsRequest | WhatIfRequest | ModelCheckRequest | CancelRequest;
 
 export type RankingsResponse = {
   kind: "rankings";
@@ -103,10 +127,18 @@ export type WhatIfResponse = {
   elapsedMs: number;
 };
 
+export type ModelCheckResponse = {
+  kind: "model-check";
+  id: number;
+  result: ScoutBacktestResult;
+  elapsedMs: number;
+};
+
 /** The worker does not hold the revision the request named; ship it and ask again. */
 export type PoolNeededResponse = { kind: "pool-needed"; id: number; revision: number };
 
-export type WorkerResponse = RankingsResponse | WhatIfResponse | PoolNeededResponse;
+export type WorkerResponse =
+  RankingsResponse | WhatIfResponse | ModelCheckResponse | PoolNeededResponse;
 
 type HeldPool = { revision: number; teams: ScoutTeam[]; games: ScoutGame[] };
 
@@ -147,6 +179,8 @@ export const createRankingsHandler = (
    * the next fit replaces rather than adds to.
    */
   let yearFit: { key: string; fit: ScoutYearFit } | null = null;
+  /** The page's rated games in order, for the model check's runs; see `ModelCheckRequest`. */
+  let checked: { key: string; games: BacktestGames } | null = null;
   const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
     const today = todayIsoDay();
     const key = yearFitKey(request, pool.revision, today);
@@ -195,6 +229,34 @@ export const createRankingsHandler = (
     }
 
     const start = now();
+
+    if (request.kind === "model-check") {
+      const key = JSON.stringify([
+        held.revision,
+        rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
+        request.ageGroups,
+      ]);
+      if (checked?.key !== key) {
+        checked = null;
+        checked = {
+          key,
+          games: backtestGames(request.ageGroupId, held.teams, held.games, request.ageGroups),
+        };
+      }
+      const result = backtestScoutRatings(
+        request.ageGroupId,
+        held.teams,
+        held.games,
+        request.ageGroups,
+        request.run,
+        checked.games
+      );
+      if (!canceled.has(request.id)) {
+        post({ kind: "model-check", id: request.id, result, elapsedMs: now() - start });
+      }
+      canceled.delete(request.id);
+      return;
+    }
 
     if (request.kind === "what-if") {
       /*
