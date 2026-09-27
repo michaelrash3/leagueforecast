@@ -12,6 +12,7 @@ import {
   MODEL_CHECK_RUNS,
   modelCheckAnswer,
   pairedImprovement,
+  clearlyBetterBar,
   RUN_CAPS_TO_TRY,
   type ScoutBacktestOptions,
   type ScoutBacktestResult,
@@ -977,5 +978,52 @@ describe("naming a better setting only when it clearly wins", () => {
     expect(paired!.standardError).toBeCloseTo(1 / Math.sqrt(3), 12);
     expect(pairedImprovement(better, worse, true)).toMatchObject({ by: 0.5, samples: 2 });
     expect(pairedImprovement(better, { ...worse, errors: undefined }, false)).toBeNull();
+  });
+
+  it("counts the games that share a club as moving together", () => {
+    // Ten games, five of one club's against five others and five of a second club's: the first
+    // club's all two runs lower, the second's level. Read as ten independent games the mean of one
+    // is a third of a run either way; read by club it is two clubs' worth, √0.5 either way.
+    const of = (values: number[]) =>
+      run(
+        {},
+        values,
+        values.map(() => 1)
+      );
+    const sides = Uint32Array.from([0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 6, 7, 6, 8, 6, 9, 6, 10, 6, 11]);
+    const worse = { ...of([3, 3, 3, 3, 3, 3, 3, 3, 3, 3]), sides };
+    const better = of([1, 1, 1, 1, 1, 3, 3, 3, 3, 3]);
+
+    const paired = pairedImprovement(better, worse, false)!;
+    expect(paired.by).toBeCloseTo(1, 12);
+    expect(paired.standardError).toBeCloseTo(Math.sqrt(0.5), 12);
+    const { sides: _sides, ...unsided } = worse;
+    expect(pairedImprovement(better, unsided, false)!.standardError).toBeCloseTo(1 / 3, 12);
+
+    // The rating never counts a club's game against itself, but read as one, such a game is in its
+    // club's sum once and in no pair's: the five lower here all one club's, the five level between
+    // five pairs of others. √0.3, where taking the club's sum back as a pair's left a third of a run.
+    const alone = Uint32Array.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(pairedImprovement(better, { ...worse, sides: alone }, false)!.standardError).toBeCloseTo(
+      Math.sqrt(0.3),
+      12
+    );
+  });
+
+  it("holds each of several rivals to a bar that splits chance between them", () => {
+    expect(clearlyBetterBar(1)).toBeCloseTo(2, 3);
+    expect(clearlyBetterBar(4)).toBeCloseTo(2.531, 2);
+    expect(clearlyBetterBar(5)).toBeCloseTo(2.608, 2);
+    // About 2.3 standard errors lower on the games between rated clubs: past the one-rival bar of
+    // 2, which named it, and short of the 2.53 four age gaps tried share.
+    const shade = reference.map((error, at) => error - 0.115 + (at % 4 < 2 ? 0.5 : -0.5));
+    const paired = pairedImprovement(
+      run({}, shade, everyOther),
+      run({}, reference, everyOther),
+      true
+    )!;
+    expect(paired.by / paired.standardError).toBeGreaterThan(2);
+    expect(paired.by / paired.standardError).toBeLessThan(clearlyBetterBar(4));
+    expect(answerFrom(reference, everyOther, { gaps: new Map([[3, shade]]) }).betterGap).toBeNull();
   });
 });
