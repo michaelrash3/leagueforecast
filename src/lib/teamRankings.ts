@@ -3031,10 +3031,41 @@ export const MATCHUP_MARGIN_CAP = 14;
  */
 export const MATCHUP_PROBABILITY_FLOOR = 0.08;
 
-export const predictMatchup = (ratingA: number, ratingB: number) => {
+/**
+ * The spread of the odds curve at 8U, in runs: the projected margin that moves a matchup from even
+ * to about 73%, and 0.09 of a run wider for each year of age above it (`matchupOddsSpread`).
+ */
+export const MATCHUP_ODDS_SPREAD_AT_8U = 2.95;
+export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.09;
+
+/**
+ * How far apart two teams' projected margin has to be for the odds to reach about 73%, at the age
+ * level the matchup is played at.
+ *
+ * It was 2.8 runs at every level, and on games the ratings had not seen it was overconfident. On
+ * the pool of 26 September, fitted up to 13, 19 and 20 September and scored on the 25,000, 18,600
+ * and 9,100 games between clubs after each, the favourite it called at about 75% won 69 to 71% of
+ * the time, and at about 85% won 82 to 83%. The spread that fitted best also grew with age: 8U and
+ * 9U were best near 2.8 to 3.0, and most levels from 11U up between 3.2 and 4.2, where a margin says
+ * less about who wins.
+ * A spread rising 0.09 of a run a year from 2.95, the average of what fitting on either of the
+ * later cuts and scoring on the other gave (0.08 and 0.10), called the same favourites at 72 to 75%
+ * and 85 to 86%, lowered the Brier score at all three cuts (0.2075, 0.2051 and 0.1998 to 0.2063,
+ * 0.2042 and 0.1991), and left 9U, already best near 2.8, within a thousandth of its log loss. The
+ * order of the table does not move: only the odds the scouting report prints.
+ *
+ * A level outside 8U to 18U, where the pool had nothing to measure, is read as the nearer end; a
+ * matchup with no level is read at 12U, whose spread is the one flat value that did best overall.
+ */
+export const matchupOddsSpread = (ageLevel?: number): number => {
+  const level = ageLevel === undefined || !Number.isFinite(ageLevel) ? 12 : clamp(ageLevel, 8, 18);
+  return MATCHUP_ODDS_SPREAD_AT_8U + MATCHUP_ODDS_SPREAD_PER_YEAR * (level - 8);
+};
+
+export const predictMatchup = (ratingA: number, ratingB: number, ageLevel?: number) => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
   const winProbA = clamp(
-    1 / (1 + Math.exp(-margin / 2.8)),
+    1 / (1 + Math.exp(-margin / matchupOddsSpread(ageLevel))),
     MATCHUP_PROBABILITY_FLOOR,
     1 - MATCHUP_PROBABILITY_FLOOR
   );
@@ -3098,7 +3129,11 @@ export const buildScoutingReport = (
   const opponents = rows.filter((row) => row.teamId !== forTeamId);
 
   const preview = (opponent: ScoutRankingRow): MatchupPreview => {
-    const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
+    const { projectedMargin, winProbA } = predictMatchup(
+      forRow.rating,
+      opponent.rating,
+      forRow.ageLevel ?? opponent.ageLevel
+    );
     return {
       opponentId: opponent.teamId,
       opponentName: opponent.teamName,
@@ -3201,7 +3236,11 @@ export const buildUpcomingSchedule = (
       };
       if (!opponent) return base;
       const across = notCompared(forRow, opponent);
-      const { projectedMargin, winProbA } = predictMatchup(forRow.rating, opponent.rating);
+      const { projectedMargin, winProbA } = predictMatchup(
+        forRow.rating,
+        opponent.rating,
+        forRow.ageLevel ?? opponent.ageLevel
+      );
       return {
         ...base,
         opponentRank: opponent.rank,
