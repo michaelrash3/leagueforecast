@@ -499,6 +499,10 @@ const gcLinkYear = (link: GcTeamLink, index: GroupIndex): number | undefined => 
     : squadYearForGcSeason(link.season, link.seasonYear);
 };
 
+/** The squad year a link sits in (`gcLinkYear`), for a caller holding the groups themselves. */
+export const gcLinkSquadYear = (link: GcTeamLink, ageGroups: AgeGroup[]): number | undefined =>
+  gcLinkYear(link, indexGroups(ageGroups));
+
 /** The value seen most often, the first seen winning a tie; undefined when there are none. */
 const mostCommon = (values: (number | undefined)[]): number | undefined => {
   const counts = new Map<number, number>();

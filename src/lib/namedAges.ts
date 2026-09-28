@@ -23,6 +23,11 @@
  * Keyed on the GameChanger id, which is minted per team per season, so a named level cannot go
  * stale as a squad ages up: Fall and Spring of one squad year are one id at one level, and next
  * autumn is a different id nobody has named.
+ *
+ * A level set on a club's own panel is the exception to GameChanger winning (`pinned`). That one
+ * corrects the level the app filed a club at, and the level on a link is not always GameChanger's
+ * word: a league list, the club's opponents or the name can have decided it. So it holds whatever
+ * GameChanger later says, until somebody takes it back on the panel.
  */
 
 import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings/seasons";
@@ -37,6 +42,17 @@ export type NamedAge = {
   namedAt: string;
   /** What GameChanger said at the time, when it said anything. */
   insteadOf?: number;
+  /**
+   * Set on the club's own panel, over the level the app had filed it at, and held whatever
+   * GameChanger says later (`namedAgeStands`).
+   *
+   * The user asked for it on 28 September 2026: "Cincinnati Hornets *Fall Ball*" was filed at 8U,
+   * with a 9U league schedule and nothing on the page to move it, and the only way to name an age
+   * was the waiting list, which only holds teams with none.
+   */
+  pinned?: true;
+  /** The level the club was filed at when it was pinned, to say so and to go back to. */
+  was?: number;
 };
 
 export type NamedAges = ReadonlyMap<string, NamedAge>;
@@ -70,6 +86,8 @@ export const coerceNamedAges = (raw: unknown): Map<string, NamedAge> => {
       ...(typeof row.name === "string" && row.name ? { name: row.name } : {}),
       namedAt: typeof row.namedAt === "string" ? row.namedAt : "",
       ...(isNameableLevel(row.insteadOf) ? { insteadOf: row.insteadOf } : {}),
+      ...(row.pinned === true ? { pinned: true } : {}),
+      ...(isNameableLevel(row.was) ? { was: row.was } : {}),
     });
   });
   return out;
@@ -85,9 +103,11 @@ export const namedAgesList = (named: NamedAges): NamedAge[] =>
  * It does not the moment GameChanger's answer differs from what it was when the level was named.
  * `undefined` on either side is an answer in itself: named over silence and GameChanger has since
  * spoken is a change, and so is a field that has gone blank since.
+ *
+ * A pinned level always stands: it was set to correct the app, not to fill in for GameChanger.
  */
 export const namedAgeStands = (entry: NamedAge, gcSaysNow: number | undefined): boolean =>
-  gcSaysNow === entry.insteadOf;
+  entry.pinned === true || gcSaysNow === entry.insteadOf;
 
 /**
  * The level to file this team under, or undefined to let the app work it out.

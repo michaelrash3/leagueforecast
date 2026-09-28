@@ -15,6 +15,7 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
+import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "../lib/teamRankings/seasons";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
@@ -53,6 +54,15 @@ type TeamDetailPanelProps = {
   onUnlinkGc: (gcTeamId: string) => void;
   /** Folds this team into another — the "same team as" the pull could only propose. */
   onMergeInto: (intoTeamId: string) => void;
+  /**
+   * The level this club is filed at in the page's year, and the level somebody set here if they
+   * did. Absent for a club with no GameChanger link that year, whose level is read off its games.
+   */
+  age?: { level?: number; pinned?: { level: number; was?: number } };
+  /** Files the club at another level from now on (`setClubAge`), and keeps it there. */
+  onSetAge?: (level: number) => void;
+  /** Takes back a level set here, putting the club back where it had been filed. */
+  onClearAge?: () => void;
   /** Teams this one could be folded into: everyone else on the page, likeliest club first. */
   mergeCandidates: MergeCandidate[];
   onClose: () => void;
@@ -92,11 +102,16 @@ export function TeamDetailPanel({
   onSetState,
   onUnlinkGc,
   onMergeInto,
+  age,
+  onSetAge,
+  onClearAge,
   mergeCandidates,
   onClose,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
   const [mergeTarget, setMergeTarget] = useState("");
+  const [draftAge, setDraftAge] = useState(age?.level ?? MIN_AGE_LEVEL);
+  const ageId = useId();
 
   /**
    * What the merge picker offers. The state rides along as the detail line, because a pool pulled
@@ -292,7 +307,8 @@ export function TeamDetailPanel({
                 </a>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
                   {gcSeasonLabel(link) || "season unknown"}
-                  {link.ageLevel === undefined ? "" : ` · ${link.ageLevel}U`}
+                  {/* Where the app filed it, which GameChanger's page need not have said. */}
+                  {link.ageLevel === undefined ? "" : ` · filed at ${link.ageLevel}U`}
                   {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
                 </span>
                 {(link.record || link.importedAt) && (
@@ -328,6 +344,64 @@ export function TeamDetailPanel({
             GameChanger mints a new id every season, so a club pulled across two seasons is known by
             two. Unlinking takes one off and leaves its games here — that id can then be pulled onto
             a team of its own, which is how a wrong pairing is taken apart.
+          </p>
+        </div>
+      )}
+
+      {age && onSetAge && (
+        <div className="mt-4">
+          <label
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            htmlFor={ageId}
+          >
+            Age
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <select
+              id={ageId}
+              value={draftAge}
+              onChange={(event) => setDraftAge(Number(event.target.value))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              {Array.from({ length: MAX_AGE_LEVEL - MIN_AGE_LEVEL + 1 }, (_, at) => {
+                const level = MIN_AGE_LEVEL + at;
+                return (
+                  <option key={level} value={level}>
+                    {level}U
+                  </option>
+                );
+              })}
+            </select>
+            <button
+              type="button"
+              disabled={age.pinned?.level === draftAge}
+              onClick={() => onSetAge(draftAge)}
+              className={button.ghost}
+            >
+              Set age
+            </button>
+            {age.pinned && onClearAge && (
+              <button
+                type="button"
+                onClick={onClearAge}
+                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+              >
+                Let the app decide
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {age.pinned
+              ? `You set this club to ${age.pinned.level}U${
+                  age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
+                    ? `; the app had filed it at ${age.pinned.was}U`
+                    : ""
+                }. Later pulls keep it there, whatever GameChanger says.`
+              : `${
+                  age.level === undefined
+                    ? "The app has no age for this club."
+                    : `The app filed this club at ${age.level}U.`
+                } If it plays at another age, set it here: its games move to that age's page and later pulls keep it there.`}
           </p>
         </div>
       )}

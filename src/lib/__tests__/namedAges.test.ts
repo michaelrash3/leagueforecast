@@ -165,6 +165,48 @@ describe("an age somebody named by hand", () => {
     ).toBeUndefined();
   });
 
+  /*
+   * A level set on a club's own panel corrects where the app filed it, and the level on a link is
+   * not always GameChanger's word: a league list or the club's opponents can have decided it. So it
+   * holds whatever GameChanger's own field says, now or later, until somebody takes it back.
+   */
+  it("holds a level pinned on the panel whatever GameChanger says", () => {
+    const pinned = nameAge(new Map(), {
+      teamId: "bKpjvY5AVqOV",
+      level: 9,
+      namedAt: NOW,
+      pinned: true,
+      was: 8,
+    });
+    // GameChanger's own field says 8U: without the pin a level named over silence gives way to it.
+    const says8U: GcTeamSchedule = {
+      ...unageable(),
+      profile: { ...unageable().profile, ageLevel: 8, ageLabel: "8U" },
+    };
+    expect(
+      createGcImporter(empty, { today: NOW, namedAges: named(9) }).add(says8U).ageGroupName
+    ).toMatch(/8U/);
+    const outcome = createGcImporter(empty, { today: NOW, namedAges: pinned }).add(says8U);
+    expect(outcome.ageGroupName).toMatch(/9U/);
+    expect(outcome.ageNamedByUser).toBe(9);
+
+    // And it is never listed as overruled, so nothing tidies it away.
+    expect(namedAgesOverruled(pinned, () => 8)).toEqual([]);
+    expect(namedAgesOverruled(pinned, () => undefined)).toEqual([]);
+  });
+
+  it("reads a pin back, with the level the club had been filed at", () => {
+    const stored = coerceNamedAges([
+      { teamId: "A", level: 9, namedAt: NOW, pinned: true, was: 8 },
+      // Anything but true is no pin, and a level the app does not rank is no level to go back to.
+      { teamId: "B", level: 9, namedAt: NOW, pinned: "yes", was: 6 },
+    ]);
+    expect(stored.get("A")).toEqual({ teamId: "A", level: 9, namedAt: NOW, pinned: true, was: 8 });
+    expect(stored.get("B")).toEqual({ teamId: "B", level: 9, namedAt: NOW });
+    expect(namedAgeFor(stored, "A", 12)).toBe(9);
+    expect(namedAgeFor(stored, "B", 12)).toBeUndefined();
+  });
+
   it("lists the ones GameChanger has overruled, so they can be cleared out", () => {
     const one = nameAge(new Map(), { teamId: "A", level: 9, namedAt: NOW });
     expect(namedAgesOverruled(one, () => 10).map((entry) => entry.teamId)).toEqual(["A"]);

@@ -4,6 +4,7 @@ import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
+import { setClubAge, type ClubAgeState } from "../lib/clubAge";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
@@ -18,6 +19,8 @@ import {
   deriveLeagueScoutGames,
   filedTeamIds,
   findDuplicateGame,
+  gcAgeLevels,
+  gcLinkSquadYear,
   isRankedAgeLevel,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
@@ -1240,6 +1243,89 @@ export function TeamRankingsView({
     showToast("Unlinked from GameChanger.", { tone: "success" });
   };
 
+  /** Saves what `setClubAge` changed, and only what it changed. */
+  const saveClubAge = (before: ClubAgeState, after: ClubAgeState) => {
+    if (after.ageGroups !== before.ageGroups) persistAgeGroups(after.ageGroups);
+    if (after.teams !== before.teams) persistTeams(after.teams);
+    if (after.games !== before.games) persistGames(after.games);
+  };
+
+  /**
+   * Files a pulled club at the age somebody says it plays at, and holds it there.
+   *
+   * The club's GameChanger ids in this year are pinned in the named ages (`NamedAge.pinned`), so a
+   * later pull files its schedule at this level whatever GameChanger or the app's other rules say;
+   * `setClubAge` moves what is already filed. The toast's undo puts back exactly what was there.
+   */
+  const setTeamAge = (teamId: string, level: number) => {
+    if (selectedYear === undefined) return;
+    const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
+    const change = setClubAge(before, teamId, level, selectedYear);
+    if (!change) return;
+    const previousNamed = loadNamedAges();
+    let named = previousNamed;
+    change.gcTeamIds.forEach((gcTeamId) => {
+      const link = scoutTeams
+        .find((team) => team.id === teamId)
+        ?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
+      // The level the app had it at, kept through a second change so going back reaches it.
+      const was = previousNamed.get(gcTeamId)?.pinned
+        ? previousNamed.get(gcTeamId)?.was
+        : change.was;
+      named = nameAge(named, {
+        teamId: gcTeamId,
+        level,
+        ...(link?.name ? { name: link.name } : {}),
+        namedAt: new Date().toISOString(),
+        pinned: true,
+        ...(was === undefined ? {} : { was }),
+      });
+    });
+    setNamedAges(named);
+    saveNamedAges(named);
+    saveClubAge(before, change);
+    const name = scoutTeams.find((team) => team.id === teamId)?.name ?? "The club";
+    showToast(
+      `${name} is ${level}U now${change.moved > 0 ? `: ${change.moved} of its games moved to ${change.page.name}` : ""}.`,
+      {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: () => {
+          setNamedAges(previousNamed);
+          saveNamedAges(previousNamed);
+          saveClubAge(change, before);
+        },
+      }
+    );
+  };
+
+  /**
+   * Takes back an age set on the panel: the pin comes off, and the club goes back to the level the
+   * app had filed it at, until a pull decides again.
+   */
+  const clearTeamAge = (teamId: string) => {
+    if (selectedYear === undefined) return;
+    const club = scoutTeams.find((team) => team.id === teamId);
+    const ids = (club?.gcTeams ?? [])
+      .filter((link) => gcLinkSquadYear(link, ageGroups) === selectedYear)
+      .map((link) => link.teamId);
+    let named = loadNamedAges();
+    const was = ids.map((id) => named.get(id)).find((entry) => entry?.pinned)?.was;
+    ids.forEach((id) => {
+      if (named.get(id)?.pinned) named = forgetNamedAge(named, id);
+    });
+    setNamedAges(named);
+    saveNamedAges(named);
+    const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
+    const change = was === undefined ? null : setClubAge(before, teamId, was, selectedYear);
+    if (change) saveClubAge(before, change);
+    showToast(
+      change
+        ? `${club?.name ?? "The club"} is back at ${was}U, where the app had it.`
+        : `${club?.name ?? "The club"} is the app's to age again.`
+    );
+  };
+
   /**
    * The "same team as" the pull can only ever propose. Folding is confirmed first because it moves
    * every game and removes an entry, and a wrong one is tedious to undo by hand.
@@ -1614,6 +1700,27 @@ export function TeamRankingsView({
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
+  /**
+   * The open club's level in this year and whether it was set by hand, for the panel's Age line.
+   * Only for a club with a GameChanger link in the year: its level is the link's, where a club
+   * without one has its level read off games other clubs filed.
+   */
+  const openTeamAge = useMemo(() => {
+    if (!openTeam || selectedYear === undefined) return undefined;
+    const links = (openTeam.gcTeams ?? []).filter(
+      (link) => gcLinkSquadYear(link, ageGroups) === selectedYear
+    );
+    if (links.length === 0) return undefined;
+    const levels = gcAgeLevels(openTeam, selectedYear, ageGroups);
+    const level = levels[levels.length - 1];
+    const pin = links.map((link) => namedAges.get(link.teamId)).find((entry) => entry?.pinned);
+    return {
+      ...(level === undefined ? {} : { level }),
+      ...(pin
+        ? { pinned: { level: pin.level, ...(pin.was === undefined ? {} : { was: pin.was }) } }
+        : {}),
+    };
+  }, [openTeam, selectedYear, ageGroups, namedAges]);
 
   /**
    * Renaming onto a name that already exists merges the two teams, so a placeholder or a
@@ -2411,6 +2518,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
           onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}
           onMergeInto={(intoTeamId) => void mergeInto(openTeam.id, intoTeamId)}
+          {...(openTeamAge ? { age: openTeamAge } : {})}
+          onSetAge={(level) => setTeamAge(openTeam.id, level)}
+          onClearAge={() => clearTeamAge(openTeam.id)}
           mergeCandidates={mergeCandidatesFor(openTeam.id)}
           onSetState={(state) => setTeamState(openTeam.id, state)}
           onClose={() => setOpenTeamId(null)}
