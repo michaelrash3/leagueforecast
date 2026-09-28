@@ -5,11 +5,13 @@ import {
   formatAgeGroupName,
   isRankedAgeLevel,
   MIN_RANKED_AGE_LEVEL,
-  MIN_SEASON_YEAR,
   parseAgeGroupName,
+  segmentOn,
   type AgeGroup,
   type AgeGroupSeason,
 } from "../../lib/teamRankings";
+import { parseGcSeasonLabel, squadYearOfGcTeam } from "../../lib/gameChangerApi";
+import { todayIsoDay } from "../../lib/date";
 import type { SeasonMeta } from "../../lib/storage";
 import { button, card } from "../../styles/tokens";
 
@@ -41,6 +43,7 @@ export function LeagueSeasonsCard({
   const [drafts, setDrafts] = useState<Record<string, AgeGroupSeason>>({});
 
   if (seasons.length === 0) return null;
+  const today = todayIsoDay();
 
   return (
     <div className={`${card} p-5`}>
@@ -61,9 +64,19 @@ export function LeagueSeasonsCard({
           // A season named "Spring 2027 9U" has already answered this; start there rather than at
           // a default the user has to correct.
           const guess = parseAgeGroupName(season.name);
+          /*
+           * The year a page is filed under is the squad year, the one a spring closes, so a name
+           * that says its half is read the way GameChanger's own season is: "Fall 2027" opens
+           * squad year 2028. A name with no year starts at the season being played, not at the
+           * oldest year the picker lists, which stayed put while the calendar moved on.
+           */
+          const named = parseGcSeasonLabel(season.name);
           const draft: AgeGroupSeason = drafts[season.id] ?? {
             ageLevel: held.ageLevel ?? guess.ageLevel ?? MIN_RANKED_AGE_LEVEL,
-            year: held.year ?? guess.year ?? yearOptions[0] ?? MIN_SEASON_YEAR,
+            year:
+              held.year ??
+              (named ? squadYearOfGcTeam(named, [], today) : guess.year) ??
+              segmentOn(today).year,
           };
           const draftName = formatAgeGroupName(draft.ageLevel, draft.year);
           const settled =

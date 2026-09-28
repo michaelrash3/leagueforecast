@@ -136,6 +136,15 @@ season, and answering makes the page if the pull has not already. A season moves
 off whatever page held it before, since one league season is played at one age
 and leaving it on two would count its games twice.
 
+The row starts at the page the season is on, else at the year its name gives —
+read the way GameChanger's seasons are, so "Fall 2027 10U" opens squad year 2028
+and "Spring 2027 9U" is 2027 — else at the season being played. It used to start
+at the name's year as written, which put "Fall 2026 9U" on last season's 2026 page
+even now, else at the oldest year the picker lists, which stayed put while the
+calendar moved on. Either way the button's own default put an autumn league
+season on last season's page, and its "9/18" games were read a year early, onto
+the finished fall board.
+
 #### Which age a team is
 
 Five things can say, and they are asked in this order. `ageLevelOf` in
