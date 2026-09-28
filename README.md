@@ -52,19 +52,20 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Features
 
-| Area                 | Highlights                                                                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                     |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                           |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                       |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                 |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                   |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                     |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                     |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail. |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                            |
+| Area                 | Highlights                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
+| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
+| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Our team**         | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
+| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
+| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
+| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
+| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
+| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
+| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
 
 ## Architecture
 
@@ -2241,6 +2242,18 @@ side holds, the line says so — "1 more win guarantees at least a share of the
 last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a won
 tiebreak keeps the team in" — rather than claim either. Once nothing is left to
 play, the table's own rank answers.
+
+## Our team
+
+The Dashboard leads with one team, picked there, for the questions asked at the
+field: where are we, what are our chances, who is next. The card gives its place
+and record, its Gold % and how far the last result moved it (the last step of the
+trend line), its next game with the chance of winning it and the seed a win or a
+loss leaves, the magic number once few enough games remain to work it out exactly,
+and **Enter a score**, which opens the Schedule on that team's games. The pick is
+this browser's, one per season (`readOurTeam`), and deliberately not a setting:
+settings travel in a shared link, and a parent's team is not the coach's they send
+the standings to. It is not in a backup either, for the same reason.
 
 ## Settings
 

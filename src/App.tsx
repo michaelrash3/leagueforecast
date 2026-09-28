@@ -39,7 +39,15 @@ import {
   isPoolUnavailable,
   onPoolWriteError,
 } from "./lib/teamRankingsStorage";
-import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
+import {
+  readOurTeam,
+  readSummaryMode,
+  writeOurTeam,
+  writeSummaryMode,
+  type SummaryMode,
+} from "./lib/preferences";
+import { ourTeamSummary } from "./lib/ourTeam";
+import { OurTeamCard } from "./components/league/OurTeamCard";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -1867,6 +1875,47 @@ export default function App() {
     [selectedTeam, matchups, logs, runsOnly]
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
+
+  /*
+   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season id,
+   * so a season switch reads the pick made for that season rather than carrying one across.
+   */
+  const [ourTeamPick, setOurTeamPick] = useState(() => ({
+    seasonId: activeSeasonId,
+    teamId: readOurTeam(activeSeasonId),
+  }));
+  const ourTeamId =
+    ourTeamPick.seasonId === activeSeasonId ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+  const pickOurTeam = useCallback(
+    (teamId: string | null) => {
+      writeOurTeam(activeSeasonId, teamId);
+      setOurTeamPick({ seasonId: activeSeasonId, teamId });
+    },
+    [activeSeasonId]
+  );
+  const ourTeam = useMemo(() => {
+    const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
+    if (!team) return null;
+    const magic =
+      hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
+        : undefined;
+    return ourTeamSummary(team, dashboardRows.length, {
+      hasCutLine,
+      swings: nextTwoSwingGames(team.id),
+      ...(magic ? { magic } : {}),
+    });
+  }, [
+    ourTeamId,
+    dashboardById,
+    dashboardRows,
+    hasCutLine,
+    remainingGames,
+    goldCutoff,
+    settings,
+    nextTwoSwingGames,
+  ]);
   const currentLeader = dashboardRows[0];
 
   const selectedTeamDetail = useMemo(() => {
@@ -2518,6 +2567,17 @@ export default function App() {
                 teamsById={liveById}
                 matchups={matchups}
                 setActiveView={setActiveView}
+                ourTeam={
+                  <OurTeamCard
+                    summary={ourTeam}
+                    teams={teams}
+                    onPick={pickOurTeam}
+                    onEnterScore={(teamId) => {
+                      setScoreboardTeamFilter(teamId);
+                      setActiveView("games");
+                    }}
+                  />
+                }
               />
             ) : activeView === "power" ? (
               <PowerRatingsView engine={predictionEngine} />

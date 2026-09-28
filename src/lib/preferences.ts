@@ -63,3 +63,34 @@ export const readSummaryMode = (): SummaryMode => {
   return isSummaryMode(raw) ? raw : "ask";
 };
 export const writeSummaryMode = (mode: SummaryMode): boolean => safeSet(SUMMARY_MODE_KEY, mode);
+
+const OUR_TEAM_KEY = "lf_our_team_v1";
+
+const readOurTeams = (): Record<string, string> => {
+  try {
+    const parsed: unknown = JSON.parse(safeGet(OUR_TEAM_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * The league team this browser follows, for the Dashboard's "Our team" card, one per season.
+ *
+ * Kept here and not in Settings, because Settings travel in a shared link and a backup of the
+ * season: a parent's own team is theirs, and the coach they send the standings to follows another.
+ */
+export const readOurTeam = (seasonId: string): string | null => readOurTeams()[seasonId] ?? null;
+
+export const writeOurTeam = (seasonId: string, teamId: string | null): boolean => {
+  const all = readOurTeams();
+  if (teamId === null) delete all[seasonId];
+  else all[seasonId] = teamId;
+  return safeSet(OUR_TEAM_KEY, JSON.stringify(all));
+};

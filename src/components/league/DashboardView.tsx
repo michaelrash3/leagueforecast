@@ -2,6 +2,7 @@
  * The league's front page: where the season stands, what the model makes of the next games, and
  * what it is still missing to say more.
  */
+import type { ReactNode } from "react";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
@@ -109,12 +110,15 @@ export function DashboardView({
   teamsById,
   matchups,
   setActiveView,
+  ourTeam,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   setActiveView: (view: ActiveShareView) => void;
+  /** The team this browser follows, which leads the page (`OurTeamCard`). */
+  ourTeam?: ReactNode;
 }) {
   const avgConfidence = engine.predictions.length
     ? Math.round(
@@ -124,6 +128,7 @@ export function DashboardView({
     : 0;
   return (
     <div className="space-y-6">
+      {ourTeam}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Games forecasted", String(engine.predictions.length)],
