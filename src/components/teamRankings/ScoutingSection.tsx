@@ -77,6 +77,8 @@ type ScoutingSectionProps = {
   explanation: LeagueSummaryState;
   /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
   placeOf: (teamId: string) => string | undefined;
+  /** Who coaches a club (`coachesOf`), searched and listed by the pickers; none for a stand-in. */
+  coachesFor?: (teamId: string) => readonly string[];
   /** The fixture whose what-if is open, if any. */
   whatIfGameId: string | null;
   whatIf: WhatIfState;
@@ -138,6 +140,7 @@ export function ScoutingSection({
   upcomingRows,
   explanation,
   placeOf,
+  coachesFor,
   whatIfGameId,
   whatIf,
   onToggleWhatIf,
@@ -149,12 +152,16 @@ export function ScoutingSection({
    */
   const teamOptions = useMemo(
     () =>
-      rankings.map((row) => ({
-        id: row.teamId,
-        label: row.teamName,
-        ...(placeOf(row.teamId) ? { detail: placeOf(row.teamId) as string } : {}),
-      })),
-    [rankings, placeOf]
+      rankings.map((row) => {
+        const coaches = coachesFor?.(row.teamId) ?? [];
+        return {
+          id: row.teamId,
+          label: row.teamName,
+          ...(placeOf(row.teamId) ? { detail: placeOf(row.teamId) as string } : {}),
+          ...(coaches.length > 0 ? { coaches } : {}),
+        };
+      }),
+    [rankings, placeOf, coachesFor]
   );
 
   /** The same options, minus the team the report is about — it cannot be its own opponent. */
@@ -191,7 +198,7 @@ export function ScoutingSection({
           value={reportForId}
           onChange={onReportTeamChange}
           options={teamOptions}
-          placeholder="Search for a team"
+          placeholder="Search for a team or coach"
           className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
         <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:inline dark:text-slate-400">
@@ -418,7 +425,7 @@ export function ScoutingSection({
           value=""
           onChange={onPickOpponent}
           options={opponentOptions}
-          placeholder="Search for an opponent"
+          placeholder="Search for an opponent or coach"
           className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
         />
         <span className="text-xs text-slate-500 dark:text-slate-400">

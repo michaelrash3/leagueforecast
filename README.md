@@ -1877,6 +1877,14 @@ of teams pulled by id alone. Both ride on a waiting team's row too, since its sc
 is read once and thrown away and a fact not written down there costs two requests to
 learn again.
 
+**Finding a club by its coach.** Every club picker — Find a team, the Scouting boxes, a
+club's Same team as, and Settings' choice of which club each league team is — searches
+the coaches off a club's GameChanger teams as well as its name, and lists up to three of
+them under each result, the one the search found first and in bold. Forty clubs can
+share a name, and the person looking for one usually knows its coach. On the pool of 26
+September, 52,881 of the 53,010 pulled clubs carry at least one coach, three at the
+median.
+
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
 all ride in an `answers` block — in the Team Rankings pool file as well as the

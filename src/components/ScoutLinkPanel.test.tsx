@@ -58,6 +58,44 @@ const optionsInPicker = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("picking which club a league team is", () => {
+  it("finds a club by its coach, and lists who coaches each one", async () => {
+    // Invented names: the coach is often the one thing about a club in your own league you know.
+    const user = userEvent.setup();
+    renderPanel({
+      candidatesFor: () => [
+        { ...candidate("S-9", 9), coaches: ["Pat Placeholder"] },
+        { ...candidate("S-10", 10), coaches: ["Sam Sample"] },
+      ],
+    });
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByRole("combobox"), "sample");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("10U");
+    expect(options[0]).toHaveTextContent("Coaches: Sam Sample");
+  });
+
+  it("finds a club by its coach in the wide search too", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      allClubs: () => [
+        wideClub("S-9", 9),
+        {
+          ...wideClub("S-10", 10),
+          gcTeams: [
+            { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
+          ],
+        },
+      ],
+    });
+    await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByRole("combobox"), "sample");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("Coaches: Sam Sample");
+  });
+
   it("puts the age on each row, so two clubs of one name in one town can be told apart", async () => {
     const user = userEvent.setup();
     renderPanel();

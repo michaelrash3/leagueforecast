@@ -16,6 +16,7 @@ import {
   type SeasonSegment,
 } from "../lib/teamRankings";
 import { describeRoster, rosterStanding } from "../lib/gcRoster";
+import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { button, card, pill } from "../styles/tokens";
@@ -104,20 +105,25 @@ export function TeamDetailPanel({
    */
   const mergeOptions = useMemo(
     () =>
-      mergeCandidates.map((candidate, index) => ({
-        id: candidate.id,
-        label: candidate.name,
-        // The caller hands these club-first; the index keeps that order through the picker's own
-        // alphabetical sort, which would otherwise bury the answer among thousands of names.
-        ...(candidate.clubHint ? { priority: index } : {}),
-        // The club hint when there is one, since it is the reason this name is near the top; the
-        // state otherwise, which is what tells two clubs of the same name apart.
-        ...(candidate.clubHint
-          ? { detail: candidate.clubHint }
-          : candidate.state
-            ? { detail: candidate.state }
-            : {}),
-      })),
+      mergeCandidates.map((candidate, index) => {
+        // Who coaches each: two teams run by the same people are one club (`gcStaff.ts`).
+        const coaches = coachesOf(candidate);
+        return {
+          id: candidate.id,
+          label: candidate.name,
+          ...(coaches.length > 0 ? { coaches } : {}),
+          // The caller hands these club-first; the index keeps that order through the picker's own
+          // alphabetical sort, which would otherwise bury the answer among thousands of names.
+          ...(candidate.clubHint ? { priority: index } : {}),
+          // The club hint when there is one, since it is the reason this name is near the top; the
+          // state otherwise, which is what tells two clubs of the same name apart.
+          ...(candidate.clubHint
+            ? { detail: candidate.clubHint }
+            : candidate.state
+              ? { detail: candidate.state }
+              : {}),
+        };
+      }),
     [mergeCandidates]
   );
 
@@ -340,7 +346,7 @@ export function TeamDetailPanel({
               value={mergeTarget}
               onChange={setMergeTarget}
               options={mergeOptions}
-              placeholder="Type a team name…"
+              placeholder="Type a team or coach name…"
               className="w-full text-sm"
             />
             <button

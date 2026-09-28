@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export type TeamSearchOption = {
   /** What selecting this option yields. Names repeat across the country; ids do not. */
@@ -6,6 +6,11 @@ export type TeamSearchOption = {
   label: string;
   /** A second line to tell two clubs of the same name apart — a state, a season, a record. */
   detail?: string;
+  /**
+   * Who coaches it (`coachesOf`), searched along with the name and listed under it. Where forty
+   * clubs share a name, the coach is often the one thing about it the person looking already knows.
+   */
+  coaches?: readonly string[];
   /**
    * Put this one above the alphabet, lowest first.
    *
@@ -46,11 +51,38 @@ export const matchTeamOptions = (
         (a.detail ?? "").localeCompare(b.detail ?? "")
     );
   const matches = needle
-    ? sorted.filter((option) =>
-        `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle)
+    ? sorted.filter(
+        (option) =>
+          `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle) ||
+          option.coaches?.some((coach) => coach.toLowerCase().includes(needle))
       )
     : sorted;
   return { shown: matches.slice(0, limit), total: matches.length };
+};
+
+/** Coaches listed under a result before the rest are counted rather than named. */
+export const COACHES_SHOWN = 3;
+
+/**
+ * The coaches a result lists, and how many more it has: the ones the query found first, marked, so
+ * a club found by its coach says which coach, then the others in the order the club gave them.
+ * Null for an option with none.
+ */
+export const coachesToList = (
+  coaches: readonly string[] | undefined,
+  query: string
+): { names: Array<{ name: string; found: boolean }>; more: number } | null => {
+  if (!coaches?.length) return null;
+  const needle = query.trim().toLowerCase();
+  const marked = coaches.map((name) => ({
+    name,
+    found: needle !== "" && name.toLowerCase().includes(needle),
+  }));
+  const ordered = [...marked.filter((coach) => coach.found), ...marked.filter((c) => !c.found)];
+  return {
+    names: ordered.slice(0, COACHES_SHOWN),
+    more: Math.max(0, ordered.length - COACHES_SHOWN),
+  };
 };
 
 /**
@@ -191,34 +223,57 @@ export function TeamSearchSelect({
               No team matches that.
             </li>
           )}
-          {shown.map((option, index) => (
-            <li
-              key={option.id}
-              id={`${listboxId}-${index}`}
-              role="option"
-              aria-selected={option.id === value}
-            >
-              <button
-                type="button"
-                // Fires before the input's blur, so the click registers before the list closes.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(option);
-                }}
-                onMouseEnter={() => setActive(index)}
-                className={`block w-full px-3 py-1.5 text-left ${
-                  index === activeIndex ? "bg-slate-100 dark:bg-slate-800" : ""
-                }`}
+          {shown.map((option, index) => {
+            const coaches = coachesToList(option.coaches, query);
+            return (
+              <li
+                key={option.id}
+                id={`${listboxId}-${index}`}
+                role="option"
+                aria-selected={option.id === value}
               >
-                <span className="font-semibold text-slate-950 dark:text-white">{option.label}</span>
-                {option.detail && (
-                  <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
-                    {option.detail}
+                <button
+                  type="button"
+                  // Fires before the input's blur, so the click registers before the list closes.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    choose(option);
+                  }}
+                  onMouseEnter={() => setActive(index)}
+                  className={`block w-full px-3 py-1.5 text-left ${
+                    index === activeIndex ? "bg-slate-100 dark:bg-slate-800" : ""
+                  }`}
+                >
+                  <span className="font-semibold text-slate-950 dark:text-white">
+                    {option.label}
                   </span>
-                )}
-              </button>
-            </li>
-          ))}
+                  {option.detail && (
+                    <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                      {option.detail}
+                    </span>
+                  )}
+                  {coaches && (
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                      Coaches:{" "}
+                      {coaches.names.map((coach, at) => (
+                        <Fragment key={coach.name}>
+                          {at > 0 && ", "}
+                          {coach.found ? (
+                            <strong className="font-semibold text-slate-800 dark:text-slate-100">
+                              {coach.name}
+                            </strong>
+                          ) : (
+                            coach.name
+                          )}
+                        </Fragment>
+                      ))}
+                      {coaches.more > 0 && ` and ${coaches.more} more`}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
           {total > shown.length && (
             <li className="px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400">
               {total - shown.length} more — keep typing to narrow it.
