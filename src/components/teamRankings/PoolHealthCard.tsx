@@ -661,76 +661,6 @@ export function PoolHealthCard({
             {dropping === "games" ? "Deleting…" : `Delete ${plural(datedAhead.length, "game")}`}
           </button>
 
-          {unreal.length > 0 && (
-            <>
-              <h4 className="mt-4 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                The clubs they belong to
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Deleting the rows while the club that files them is still in the pull list only
-                lasts until the next run. A club that is all impossible games is not a club:
-                deleting one takes its whole schedule with it and refuses its GameChanger id from
-                then on. A club you know is real can be taken off this list instead, for good; its
-                games dated ahead still count for nothing.
-              </p>
-              <ul className="mt-2 space-y-1">
-                {(allClubs ? unreal : unreal.slice(0, 12)).map((club) => (
-                  <li key={club.teamId} className="text-xs">
-                    <span className="font-bold text-slate-700 dark:text-slate-200">
-                      {club.name}
-                    </span>{" "}
-                    {club.gcTeamIds.map((gcId, at) => (
-                      <a
-                        key={gcId}
-                        href={gcTeamPageUrl(gcId)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mr-1 text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
-                      >
-                        {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
-                      </a>
-                    ))}
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {[club.city, club.state].filter(Boolean).join(", ")}
-                    </span>{" "}
-                    <span className={pill(club.ahead === club.played ? "amber" : "emerald")}>
-                      {count(club.ahead)} of {plural(club.played, "played game")} impossible
-                    </span>{" "}
-                    <button
-                      type="button"
-                      onClick={() => void dropClub(club)}
-                      disabled={dropping !== null || pullLive}
-                      className={`${button.ghost} text-xs`}
-                    >
-                      {dropping === club.teamId ? "Deleting…" : "Delete club"}
-                    </button>{" "}
-                    <button
-                      type="button"
-                      onClick={() => confirmClub(club)}
-                      disabled={dropping !== null}
-                      className={`${button.ghost} text-xs`}
-                    >
-                      It&rsquo;s real
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {unreal.length > 12 && (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {allClubs
-                    ? `All ${count(unreal.length)}, worst first. `
-                    : `Drawing 12 of ${count(unreal.length)}, worst first. `}
-                  <button
-                    type="button"
-                    onClick={() => setAllClubs((shown) => !shown)}
-                    className="underline hover:text-slate-950 dark:hover:text-white"
-                  >
-                    {allClubs ? "Show the worst 12" : `Show all ${count(unreal.length)}`}
-                  </button>
-                </p>
-              )}
-            </>
-          )}
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Deleted for good: each one is remembered by its GameChanger id, so the next pull of that
             schedule does not file it again. A date corrected on GameChanger does not bring it back
@@ -821,6 +751,88 @@ export function PoolHealthCard({
               ? "Deleting…"
               : `Delete all ${plural(implausible.length, "game")}`}
           </button>
+        </div>
+      )}
+
+      {unreal.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Clubs that may not be real
+          </h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            The clubs whose own schedules filed the games above: first the ones posting wins by more
+            than {IMPLAUSIBLE_MARGIN} runs, then the ones scoring games on days that have not
+            happened. Deleting the rows while the club that files them is still in the pull list
+            only lasts until the next run. A club that is all impossible games is not a club:
+            deleting one takes its whole schedule with it and refuses its GameChanger id from then
+            on. A club you know is real can be taken off this list instead, for good; its impossible
+            games still count for nothing.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {(allClubs ? unreal : unreal.slice(0, 12)).map((club) => (
+              <li key={club.teamId} className="text-xs">
+                <span className="font-bold text-slate-700 dark:text-slate-200">{club.name}</span>{" "}
+                {club.gcTeamIds.map((gcId, at) => (
+                  <a
+                    key={gcId}
+                    href={gcTeamPageUrl(gcId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mr-1 text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                  >
+                    {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
+                  </a>
+                ))}
+                <span className="text-slate-500 dark:text-slate-400">
+                  {[club.city, club.state].filter(Boolean).join(", ")}
+                </span>{" "}
+                {club.implausible > 0 && (
+                  <>
+                    <span className={pill("red")}>
+                      {plural(club.implausible, "win")} by more than {IMPLAUSIBLE_MARGIN}
+                    </span>{" "}
+                  </>
+                )}
+                {club.ahead > 0 && (
+                  <>
+                    <span className={pill(club.ahead === club.played ? "amber" : "emerald")}>
+                      {count(club.ahead)} of {plural(club.played, "played game")} impossible
+                    </span>{" "}
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void dropClub(club)}
+                  disabled={dropping !== null || pullLive}
+                  className={`${button.ghost} text-xs`}
+                >
+                  {dropping === club.teamId ? "Deleting…" : "Delete club"}
+                </button>{" "}
+                <button
+                  type="button"
+                  onClick={() => confirmClub(club)}
+                  disabled={dropping !== null}
+                  className={`${button.ghost} text-xs`}
+                >
+                  It&rsquo;s real
+                </button>
+              </li>
+            ))}
+          </ul>
+          {unreal.length > 12 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {allClubs
+                ? `All ${count(unreal.length)}, worst first. `
+                : `Drawing 12 of ${count(unreal.length)}, worst first. `}
+              <button
+                type="button"
+                onClick={() => setAllClubs((shown) => !shown)}
+                className="underline hover:text-slate-950 dark:hover:text-white"
+              >
+                {allClubs ? "Show the worst 12" : `Show all ${count(unreal.length)}`}
+              </button>
+            </p>
+          )}
         </div>
       )}
 

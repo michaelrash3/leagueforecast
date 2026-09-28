@@ -3,6 +3,7 @@ import type { GcImportState } from "./gameChangerImport";
 import {
   filedRowOf,
   filedTeamIds,
+  isImplausibleScore,
   ownPageFor,
   type AgeGroup,
   type ScoutGame,
@@ -29,6 +30,11 @@ export type UnrealClub = {
   state?: string;
   /** Played games dated after today. */
   ahead: number;
+  /**
+   * Games its schedule filed with one side winning by more than `IMPLAUSIBLE_MARGIN` runs that
+   * nobody has said were played that way (`isImplausibleScore`): 9,999-0, 4,612-0, 529-2.
+   */
+  implausible: number;
   /** Played games in total, so the share can be seen. */
   played: number;
   /** The GameChanger ids it was pulled under, which is what a deletion has to remember. */
@@ -73,11 +79,15 @@ export const clubsByGcId = (teams: readonly ScoutTeam[]): Map<string, string> =>
   new Map(teams.flatMap((team) => (team.gcTeams ?? []).map((link) => [link.teamId, team.id])));
 
 /**
- * The clubs holding at least one result dated ahead, worst first.
+ * The clubs holding at least one result dated ahead or won by more than `IMPLAUSIBLE_MARGIN` runs,
+ * worst first.
  *
- * Worst is the count rather than the share, because the count is what is wrong with the pool and
- * the share is what says whether the club is wrong: a club with 103 of 115 is doing more damage
- * than one with 3 of 3, and both are on the list.
+ * The clubs whose schedules post scores like 9,999-0 come first, most such games first: the user
+ * asked on 28 September 2026 for the clubs on the list of games won by more than thirty runs to
+ * head the list of clubs that may not be real. After them, worst is the count of results dated
+ * ahead rather than their share, because the count is what is wrong with the pool and the share is
+ * what says whether the club is wrong: a club with 103 of 115 is doing more damage than one with 3
+ * of 3, and both are on the list.
  *
  * A game is charged to the club whose schedule filed it, not to both sides. An invented game is
  * written by one club against another that never played it, so counting both put the victim on
@@ -86,26 +96,31 @@ export const clubsByGcId = (teams: readonly ScoutTeam[]): Map<string, string> =>
  */
 export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] => {
   const ahead = new Map<string, number>();
+  const implausible = new Map<string, number>();
   const played = new Map<string, number>();
   const rows = new Map<string, string[]>();
   const clubOfGcId = clubsByGcId(state.teams);
+  const add = (counts: Map<string, number>, teamId: string) =>
+    counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
 
   state.games.forEach((game) => {
     if (!isPlayed(game)) return;
-    [game.teamAId, game.teamBId].forEach((teamId) => {
-      played.set(teamId, (played.get(teamId) ?? 0) + 1);
-    });
-    if (!isDatedAhead(game, today)) return;
+    [game.teamAId, game.teamBId].forEach((teamId) => add(played, teamId));
+    const early = isDatedAhead(game, today);
+    const wide = isImplausibleScore(game);
+    if (!early && !wide) return;
     filedBy(game, clubOfGcId).forEach((teamId) => {
-      ahead.set(teamId, (ahead.get(teamId) ?? 0) + 1);
+      if (early) add(ahead, teamId);
+      if (wide) add(implausible, teamId);
     });
   });
-  if (ahead.size === 0) return [];
+  const suspects = new Set([...ahead.keys(), ...implausible.keys()]);
+  if (suspects.size === 0) return [];
 
   // Every row a club is in, played or not: deleting the club takes its whole schedule with it.
   state.games.forEach((game) => {
     [game.teamAId, game.teamBId].forEach((teamId) => {
-      if (!ahead.has(teamId)) return;
+      if (!suspects.has(teamId)) return;
       const bucket = rows.get(teamId);
       if (bucket) bucket.push(game.id);
       else rows.set(teamId, [game.id]);
@@ -113,21 +128,24 @@ export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] =
   });
 
   const byId = new Map(state.teams.map((team: ScoutTeam) => [team.id, team]));
-  return [...ahead.entries()]
-    .map(([teamId, count]): UnrealClub => {
+  return [...suspects]
+    .map((teamId): UnrealClub => {
       const team = byId.get(teamId);
       return {
         teamId,
         name: team?.name ?? teamId,
         ...(team?.city === undefined ? {} : { city: team.city }),
         ...(team?.state === undefined ? {} : { state: team.state }),
-        ahead: count,
+        ahead: ahead.get(teamId) ?? 0,
+        implausible: implausible.get(teamId) ?? 0,
         played: played.get(teamId) ?? 0,
         gcTeamIds: (team?.gcTeams ?? []).map((link) => link.teamId),
         gameIds: rows.get(teamId) ?? [],
       };
     })
-    .sort((a, b) => b.ahead - a.ahead || a.name.localeCompare(b.name));
+    .sort(
+      (a, b) => b.implausible - a.implausible || b.ahead - a.ahead || a.name.localeCompare(b.name)
+    );
 };
 
 /**
