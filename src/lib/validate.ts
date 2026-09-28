@@ -164,6 +164,9 @@ const coerceTiebreakerOrder = (raw: unknown, runDiffTiebreaker: boolean): Tiebre
       ? [...DEFAULT_TIEBREAKER_ORDER]
       : ["headToHead", "runsAgainst", "runsFor"];
   }
+  // All four set to None is a choice, and the standings honour it; only a list with something in
+  // it and nothing readable falls back below.
+  if (raw.length === 0) return [];
 
   const order: TiebreakerFactor[] = [];
   raw.forEach((value) => {

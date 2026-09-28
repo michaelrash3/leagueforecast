@@ -132,7 +132,7 @@ import {
 } from "./lib/teamStats";
 import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, clamp, isFinal } from "./lib/util";
+import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { DashboardView } from "./components/league/DashboardView";
@@ -1716,18 +1716,7 @@ export default function App() {
     setLogs((prev) => {
       const log = prev[gameId];
       if (!log) return prev;
-      return {
-        ...prev,
-        [gameId]: {
-          ...log,
-          awayRuns: log.homeRuns,
-          awayHits: log.homeHits,
-          awayK: log.homeK,
-          homeRuns: log.awayRuns,
-          homeHits: log.awayHits,
-          homeK: log.awayK,
-        },
-      };
+      return { ...prev, [gameId]: swappedLog(log) };
     });
   };
 

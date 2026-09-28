@@ -75,3 +75,18 @@ describe("error tracking coercion", () => {
     expect(DEFAULT_SETTINGS.trackErrors).toBe(true);
   });
 });
+
+describe("tiebreaker order coercion", () => {
+  it("keeps a league's choice of no tiebreakers at all", () => {
+    // Settings lets all four be None, and the session honours it; a reload read the empty list as
+    // missing and put the defaults back, so standings ties broke differently after every refresh.
+    expect(coerceSettings({ tiebreakerOrder: [] }).tiebreakerOrder).toEqual([]);
+  });
+
+  it("still falls back to the defaults for a missing or unreadable order", () => {
+    expect(coerceSettings({}).tiebreakerOrder).toEqual(DEFAULT_SETTINGS.tiebreakerOrder);
+    expect(coerceSettings({ tiebreakerOrder: ["nonsense", 4] }).tiebreakerOrder).toEqual(
+      DEFAULT_SETTINGS.tiebreakerOrder
+    );
+  });
+});

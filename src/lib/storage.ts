@@ -285,6 +285,16 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
     name: name.trim() || `Season ${seasons.length + 1}`,
     createdAt: nowIso(),
   };
+  /*
+   * The copy's label is its own name, as `createSeason` seeds it. The switcher renames a season to
+   * match its label, so a copy left holding the original's was renamed back to it the first time
+   * it was opened. Everything else in the settings is copied as it was.
+   */
+  const settings = parseJson(safeGet(seasonKey(newId, "settings")));
+  safeSet(
+    seasonKey(newId, "settings"),
+    JSON.stringify({ ...(isRecord(settings) ? settings : {}), seasonLabel: meta.name })
+  );
   writeSeasons([...seasons, meta]);
   return meta;
 };
