@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import {
@@ -9,7 +9,13 @@ import {
   type GcTeamResponse,
   type GcTeamSchedule,
 } from "../gameChangerApi";
-import { BATCH_SIZE, fetchGcTeam, fetchGcTeams, MAX_REFUSALS } from "../gameChangerClient";
+import {
+  BATCH_SIZE,
+  fetchGcTeam,
+  fetchGcTeams,
+  gcProxyEndpoint,
+  MAX_REFUSALS,
+} from "../gameChangerClient";
 
 const TEAM_ID = "gsUthn4XoIxS";
 
@@ -673,5 +679,46 @@ describe("reading GameChanger's own bodies", () => {
       reason: "unrecognized",
       diagnostics: { bodyPreview: "<html>maintenance</html>" },
     });
+  });
+});
+
+/*
+ * Which proxy a pull asks. The Vercel function beside the app unless the build names another —
+ * the Firebase function, `VITE_GC_PROXY_URL` — so moving hosts, and moving back, is a setting.
+ */
+describe("where the proxy is", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is the Vercel function unless the build names another", () => {
+    expect(gcProxyEndpoint(undefined)).toBe(GC_TEAM_ENDPOINT);
+    expect(gcProxyEndpoint("   ")).toBe(GC_TEAM_ENDPOINT);
+    expect(gcProxyEndpoint(" https://gcteam-abc-uc.a.run.app/ ")).toBe(
+      "https://gcteam-abc-uc.a.run.app"
+    );
+  });
+
+  it("is where a pull goes once the build names it, and the Vercel route when it does not", async () => {
+    const asked = async () => {
+      const fetchImpl = fakeFetch((url) =>
+        jsonResponse(200, {
+          ok: true,
+          teams: idsOf(url).map((teamId) => ({
+            teamId,
+            result: {
+              ok: true,
+              raw: { profile: JSON.stringify(profileFixture), games: null },
+              fetchedAt: "2026-09-28T12:00:00.000Z",
+            },
+          })),
+        })
+      );
+      await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 });
+      return fetchImpl.calls[0]!.url;
+    };
+    expect(await asked()).toMatch(/^\/api\/gc-team\?ids=/);
+    vi.stubEnv("VITE_GC_PROXY_URL", "https://us-central1-example.cloudfunctions.net/gcTeam");
+    expect(await asked()).toMatch(
+      /^https:\/\/us-central1-example\.cloudfunctions\.net\/gcTeam\?ids=gsUthn4XoIxS&raw=1$/
+    );
   });
 });

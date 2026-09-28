@@ -1,8 +1,8 @@
 /**
  * Browser side of the GameChanger pull.
  *
- * Talks to `/api/gc-team`, the Vercel function that fetches GameChanger's public API on the app's
- * behalf (the browser cannot: GameChanger's CORS only admits web.gc.com). Every failure is
+ * Talks to the GameChanger proxy (`gcProxyEndpoint`), the function that fetches GameChanger's public
+ * API on the app's behalf (the browser cannot: GameChanger's CORS only admits web.gc.com). Every failure is
  * reported as data rather than thrown, so the import panel can show one row per team with what
  * happened to it — and `fetchGcTeams` pulls a whole pasted list with a small concurrency cap and
  * retries for the failures that are worth retrying.
@@ -135,7 +135,34 @@ const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "
 const defaultDelayMs = (attempt: number): number =>
   DEFAULT_BACKOFF_MS[attempt - 1] ?? DEFAULT_BACKOFF_MS[DEFAULT_BACKOFF_MS.length - 1] ?? 3_000;
 
-const UNCONFIGURED_MESSAGE = `${GC_TEAM_ENDPOINT} did not answer with JSON. The GameChanger proxy runs as a Vercel function: deploy the app to Vercel, or run it locally with \`vercel dev\` instead of \`vite\`.`;
+/**
+ * Where the GameChanger proxy answers: the Firebase function the build names in
+ * `VITE_GC_PROXY_URL`, else the Vercel function beside the app (`GC_TEAM_ENDPOINT`). A build
+ * setting rather than a code change, so switching hosts, and back, is a redeploy with the variable
+ * set or cleared.
+ */
+export const gcProxyEndpoint = (configured: string | undefined = configuredProxy()): string =>
+  configured?.trim().replace(/\/+$/, "") || GC_TEAM_ENDPOINT;
+
+/**
+ * The build's setting. Written out whole, because Vite substitutes `import.meta.env.VITE_…` only
+ * where it appears literally: read through an alias or `?.` it survived into the bundle untouched,
+ * and a browser's `import.meta` has no `env`, so the setting was never seen. A Node script, which
+ * has no Vite and so no `import.meta.env`, lands in the catch and reads none.
+ */
+function configuredProxy(): string | undefined {
+  try {
+    const value: unknown = import.meta.env.VITE_GC_PROXY_URL;
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const unconfiguredMessage = (endpoint: string): string =>
+  endpoint === GC_TEAM_ENDPOINT
+    ? `${endpoint} did not answer with JSON. The GameChanger proxy runs as a Vercel function: deploy the app to Vercel, or run it locally with \`vercel dev\` instead of \`vite\`.`
+    : `${endpoint} did not answer with JSON. Check the Firebase function is deployed and VITE_GC_PROXY_URL names it.`;
 
 const isAbortError = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === "AbortError") ||
@@ -250,7 +277,7 @@ const readTeamResult = (
 
 export const fetchGcTeam = async (
   teamId: string,
-  { fetchImpl = fetch, signal, endpoint = GC_TEAM_ENDPOINT }: FetchGcTeamOptions = {}
+  { fetchImpl = fetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
 ): Promise<GcTeamResponse> => {
   try {
     const response = await fetchImpl(`${endpoint}?id=${encodeURIComponent(teamId)}`, {
@@ -267,7 +294,7 @@ export const fetchGcTeam = async (
         return {
           ok: false,
           reason: "unconfigured",
-          message: UNCONFIGURED_MESSAGE,
+          message: unconfiguredMessage(endpoint),
           status: response.status,
         };
       }
@@ -333,7 +360,7 @@ export const BATCH_SIZE = 10;
  */
 const fetchGcTeamBatch = async (
   teamIds: readonly string[],
-  { fetchImpl = fetch, signal, endpoint = GC_TEAM_ENDPOINT }: FetchGcTeamOptions = {}
+  { fetchImpl = fetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
 ): Promise<Map<string, GcTeamResponse>> => {
   const results = new Map<string, GcTeamResponse>();
   const forAll = (failure: GcTeamResponse) => {
@@ -357,7 +384,7 @@ const fetchGcTeamBatch = async (
         return forAll({
           ok: false,
           reason: "unconfigured",
-          message: UNCONFIGURED_MESSAGE,
+          message: unconfiguredMessage(endpoint),
           status: response.status,
         });
       }

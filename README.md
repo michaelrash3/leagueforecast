@@ -3015,3 +3015,80 @@ Vercel deploys the Vite app plus the `api/` serverless function. CI runs lint,
 typecheck, tests, and build. Set `GEMINI_API_KEY` in the Vercel project to turn
 on the AI league story; without it the deploy still works and uses the local
 story generator.
+
+### The GameChanger proxy on Firebase
+
+The proxy can run as a Firebase function instead of on Vercel. Vercel's Hobby plan
+bills a function's invocations and CPU, and a nationwide pull spends both: 443,000
+calls had used the month's four hours of Active CPU by 28 September 2026. The
+function in `functions/` is the same handler as `api/gc-team.ts`, bundled by
+esbuild, with two things a function on another host adds for itself
+(`serveGcProxy`): CORS for the app's own pages, including exposing `Retry-After` so
+the pull can still hold itself back, and gzip, which Vercel does for a function and
+Firebase does not. The app asks whichever proxy `VITE_GC_PROXY_URL` names at build
+time, and `/api/gc-team` when it names none, so moving is a setting and so is moving
+back. The Vercel function stays deployed either way. CI builds the bundle and runs
+it on a fake request (`functions/smoke.mjs`) on every change to it, and the
+**Firebase functions** workflow deploys it on merge once the project is connected.
+
+**What it costs.** It needs the pay-as-you-go Blaze plan, since the free Spark plan
+runs no functions; Blaze's free monthly allowances are used first. The daily refresh
+of the 26 September pool was 53,254 teams in 5,330 calls, about 160,000 calls a month,
+far inside the two million a month Cloud Functions gives free, and each call spends
+its time waiting on GameChanger rather than computing. What can pass the free level
+is the bytes sent back to the browser, which is why the answer is gzipped. The size
+of GameChanger's replies could not be measured from here, so treat the bill as
+unknown until the first week's usage is in; a budget alert of a few dollars catches
+it either way.
+
+**Connecting it, once.**
+
+1. In the [Firebase console](https://console.firebase.google.com), create a project
+   (or pick one) and note its **project ID**. Under **Usage and billing**, switch it
+   to **Blaze**, and set a budget alert.
+2. Open [Cloud Shell](https://console.cloud.google.com/?cloudshell=true) in that
+   project and run this, with your project ID on the first line. It turns on the
+   services a deploy needs, makes a deploy account for GitHub with the roles it
+   needs, and prints that account's key:
+
+   ```sh
+   PROJECT=your-project-id
+   gcloud config set project "$PROJECT"
+   gcloud services enable iam.googleapis.com cloudresourcemanager.googleapis.com \
+     compute.googleapis.com cloudfunctions.googleapis.com cloudbuild.googleapis.com \
+     artifactregistry.googleapis.com run.googleapis.com eventarc.googleapis.com \
+     pubsub.googleapis.com cloudscheduler.googleapis.com storage.googleapis.com
+   SA="github-deploy@$PROJECT.iam.gserviceaccount.com"
+   gcloud iam service-accounts create github-deploy --display-name "GitHub deploy"
+   for ROLE in roles/firebase.admin roles/cloudfunctions.admin roles/run.admin \
+     roles/iam.serviceAccountUser roles/artifactregistry.admin \
+     roles/serviceusage.serviceUsageConsumer; do
+     gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$SA" \
+       --role "$ROLE" --condition=None > /dev/null
+   done
+   # Builds run as the project's default compute account, which new projects no
+   # longer give the role it needs.
+   NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
+   gcloud projects add-iam-policy-binding "$PROJECT" \
+     --member "serviceAccount:$NUMBER-compute@developer.gserviceaccount.com" \
+     --role roles/cloudbuild.builds.builder --condition=None > /dev/null
+   gcloud iam service-accounts keys create key.json --iam-account "$SA"
+   cat key.json
+   ```
+
+3. In GitHub, under the repository's **Settings → Secrets and variables → Actions**,
+   add a secret `FIREBASE_SERVICE_ACCOUNT` holding the whole key printed above, and a
+   variable `FIREBASE_PROJECT_ID` holding the project ID. Then delete the key from
+   Cloud Shell (`rm key.json`). It can deploy to the project, so it belongs in that
+   secret and nowhere else.
+4. Under **Actions**, run **Firebase functions**. Its log ends with the function's
+   URL, `Function URL (gcTeam(us-central1)): https://…`.
+5. Under **Actions**, run **Verify the GameChanger pull** with **proxy** set to that
+   URL. It pulls a real team through the function, which is the one thing no test here
+   can: whether GameChanger's firewall lets a Google server through as it does
+   Vercel's. Setting the repository variable `VERIFY_GC_PROXY` to the URL makes the
+   weekly check use it too.
+6. In the Vercel project, add the environment variable `VITE_GC_PROXY_URL` set to
+   that URL, and redeploy. Pulls now go to Firebase; the **Usage** page in the
+   Firebase console shows them arrive. Removing the variable and redeploying moves
+   them back.

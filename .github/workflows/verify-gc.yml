@@ -23,6 +23,10 @@ on:
         description: "Space-separated GameChanger team ids (defaults to the script's sample)"
         required: false
         type: string
+      proxy:
+        description: "A proxy's own URL, such as the Firebase function's (overrides the deployment's /api/gc-team)"
+        required: false
+        type: string
 
 # A push while one is running makes the older run pointless — it is checking a deployment that has
 # been replaced. Scheduled runs keep their own group so a merge never cancels the weekly check.
@@ -56,9 +60,12 @@ jobs:
           # Proxy check fails and says so, which is its own answer rather than a silent pass.
           BASE: ${{ inputs.base || vars.VERIFY_GC_BASE || 'https://leagueforecast.vercel.app' }}
           IDS: ${{ inputs.ids }}
+          # Set the VERIFY_GC_PROXY repository variable to check the Firebase function as well.
+          PROXY: ${{ inputs.proxy || vars.VERIFY_GC_PROXY }}
         run: |
           set -o pipefail
           args=(--base "$BASE")
+          if [ -n "$PROXY" ]; then args+=(--proxy "$PROXY"); fi
           for id in $IDS; do args+=(--id "$id"); done
           npm run --silent verify:gc -- "${args[@]}" 2>&1 | tee verify-gc.log
 

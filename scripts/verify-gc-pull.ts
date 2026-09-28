@@ -9,6 +9,11 @@
  *   npm run verify:gc -- --base https://your-app.vercel.app --id FtEExZwB4b8E
  *
  * `--base` defaults to http://localhost:3000, which is where `vercel dev` serves the function.
+ * `--proxy` names the proxy itself instead, for one that is not at `<base>/api/gc-team` — the
+ * Firebase function (`functions/`), whose own URL is the endpoint:
+ *
+ *   npm run verify:gc -- --proxy https://us-central1-<project>.cloudfunctions.net/gcTeam
+ *
  * Several `--id`s may be given; the last one also exercises the batch endpoint. Exits non-zero if
  * anything essential failed, so CI or a shell script can rely on it.
  */
@@ -27,23 +32,27 @@ const DEFAULT_BASE = "http://localhost:3000";
 /** A team id known to exist publicly, so the script is runnable with no arguments at all. */
 const SAMPLE_ID = "FtEExZwB4b8E";
 
-type Args = { base: string; ids: string[] };
+type Args = { endpoint: string; ids: string[] };
 
 const parseArgs = (argv: string[]): Args => {
   const ids: string[] = [];
   let base = DEFAULT_BASE;
+  let proxy: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
     if ((flag === "--base" || flag === "-b") && value) {
       base = value.replace(/\/+$/, "");
       index += 1;
+    } else if (flag === "--proxy" && value) {
+      proxy = value.replace(/\/+$/, "");
+      index += 1;
     } else if ((flag === "--id" || flag === "-i") && value) {
       ids.push(value);
       index += 1;
     }
   }
-  return { base, ids: ids.length > 0 ? ids : [SAMPLE_ID] };
+  return { endpoint: proxy ?? `${base}/api/gc-team`, ids: ids.length > 0 ? ids : [SAMPLE_ID] };
 };
 
 const MARK: Record<PullCheck["status"], string> = { pass: "  ok ", warn: "warn ", fail: "FAIL " };
@@ -68,24 +77,26 @@ const getJson = async (url: string): Promise<unknown> => {
 };
 
 const main = async (): Promise<number> => {
-  const { base, ids } = parseArgs(process.argv.slice(2));
-  console.log(`Verifying the GameChanger pull through ${base}\n`);
+  const { endpoint, ids } = parseArgs(process.argv.slice(2));
+  console.log(`Verifying the GameChanger pull through ${endpoint}\n`);
 
   // Does the function exist at all, and with what configuration? This never touches GameChanger,
   // so a failure here is about the deployment rather than about the WAF.
   try {
-    const probe = await getJson(`${base}/api/gc-team?probe=1`);
+    const probe = await getJson(`${endpoint}?probe=1`);
     console.log("Proxy:", JSON.stringify(probe));
   } catch (error) {
     console.log(`FAIL  Proxy: ${error instanceof Error ? error.message : String(error)}`);
-    console.log("        → The function is not answering. Is it deployed, and is --base right?");
+    console.log(
+      "        → The function is not answering. Is it deployed, and is --base (or --proxy) right?"
+    );
     return 1;
   }
   console.log("");
 
   const all: PullCheck[] = [];
   for (const id of ids) {
-    const response = (await getJson(`${base}/api/gc-team?id=${encodeURIComponent(id)}`)) as
+    const response = (await getJson(`${endpoint}?id=${encodeURIComponent(id)}`)) as
       GcTeamResponse | undefined;
     if (!response || typeof response !== "object" || !("ok" in response)) {
       all.push({
@@ -102,9 +113,8 @@ const main = async (): Promise<number> => {
   }
 
   // The batch path is what a real pull uses; a single id never exercises it.
-  const batch = (await getJson(
-    `${base}/api/gc-team?ids=${ids.map(encodeURIComponent).join(",")}`
-  )) as { ok?: boolean; teams?: Array<{ teamId: string; result: GcTeamResponse }> } | undefined;
+  const batch = (await getJson(`${endpoint}?ids=${ids.map(encodeURIComponent).join(",")}`)) as
+    { ok?: boolean; teams?: Array<{ teamId: string; result: GcTeamResponse }> } | undefined;
   const returned = Array.isArray(batch?.teams) ? batch.teams.length : 0;
   const batchCheck: PullCheck = {
     step: "Batch endpoint",

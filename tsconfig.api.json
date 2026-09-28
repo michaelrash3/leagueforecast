@@ -24,6 +24,7 @@
     "src/lib/leagueSummary.ts",
     "src/lib/gameChangerApi.ts",
     "src/lib/ttlCache.ts",
-    "src/lib/apiShared.ts"
+    "src/lib/apiShared.ts",
+    "src/lib/firebaseProxy.ts"
   ]
 }

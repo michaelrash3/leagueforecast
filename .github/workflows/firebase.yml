@@ -1,0 +1,68 @@
+# The Firebase functions (`functions/`): built and smoke-tested on every change to them, and
+# deployed on merge once the project is connected.
+#
+# The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
+# invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
+# Until the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret are set the deploy
+# step says so and passes, so this workflow is never red for want of an account.
+name: Firebase functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "api/gc-team.ts"
+      - "src/lib/gameChangerApi.ts"
+      - "src/lib/apiShared.ts"
+      - "src/lib/ttlCache.ts"
+      - "src/lib/firebaseProxy.ts"
+      - "firebase.json"
+      - ".github/workflows/firebase.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "api/gc-team.ts"
+      - "src/lib/gameChangerApi.ts"
+      - "src/lib/apiShared.ts"
+      - "src/lib/ttlCache.ts"
+      - "src/lib/firebaseProxy.ts"
+      - "firebase.json"
+      - ".github/workflows/firebase.yml"
+  workflow_dispatch:
+
+# Deploys queue rather than cancel: a deploy cut off halfway can leave a function half-updated.
+concurrency:
+  group: firebase-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix functions
+      - run: npm run build --prefix functions
+      # The built bundle, run as Cloud Functions will run it: a fake request, no network.
+      - run: npm run smoke --prefix functions
+
+      - name: Deploy
+        if: github.event_name != 'pull_request'
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
+            echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
+            exit 0
+          fi
+          printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
+          trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
+          # --force sets up the cleanup policy for old build images, which is what keeps their
+          # storage from growing a cost of its own.
+          npx --yes firebase-tools@15 deploy --only functions --project "$PROJECT" --non-interactive --force
