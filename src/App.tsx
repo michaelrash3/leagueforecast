@@ -1444,8 +1444,8 @@ export default function App() {
    * action would risk filling storage for nothing.
    */
   const readSeasonForUndo = useCallback(
-    () => ({ teams, matchups, logs, bracketLogs }),
-    [teams, matchups, logs, bracketLogs]
+    () => ({ teams, matchups, logs, bracketLogs, settings }),
+    [teams, matchups, logs, bracketLogs, settings]
   );
 
   const applySeasonFromUndo = useCallback(
@@ -1454,6 +1454,7 @@ export default function App() {
       setMatchups(season.matchups);
       setLogs(season.logs);
       setBracketLogs(season.bracketLogs);
+      if (season.settings) setSettings(season.settings);
       closeTeamData();
     },
     [closeTeamData]
@@ -1733,7 +1734,7 @@ export default function App() {
       if (!confirmed) return;
     }
     const demo = buildDemoSeason();
-    captureUndo("Load demo season");
+    captureUndo("Load demo season", { withSettings: true });
     setTeams(demo.teams);
     setMatchups(demo.matchups);
     setLogs(demo.logs);
@@ -2093,10 +2094,12 @@ export default function App() {
       confirmLabel: "Load snapshot",
     }).then((ok) => {
       if (ok) {
-        captureUndo("Load shared snapshot");
+        captureUndo("Load shared snapshot", { withSettings: true });
         setTeams(sharedSnapshot.teams);
         setMatchups(sharedSnapshot.matchups);
         setLogs(sharedSnapshot.logs);
+        // A link carries no bracket, and the one here was scored between the teams just replaced.
+        setBracketLogs({});
         setSettings(sharedSnapshot.settings);
         if (sharedUiState.view) setActiveView(sharedUiState.view);
         if (sharedUiState.teamId) setSelectedTeamId(sharedUiState.teamId);

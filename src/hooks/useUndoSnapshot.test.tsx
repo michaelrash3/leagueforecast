@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUndoSnapshot, type UndoableSeason } from "./useUndoSnapshot";
 import * as storage from "../lib/storage";
-import type { Matchup, TeamBase } from "../lib/types";
+import { DEFAULT_SETTINGS, type Matchup, type TeamBase } from "../lib/types";
 
 /**
  * Undo is held in memory first and mirrored to storage. Those are two different things that can
@@ -51,6 +51,24 @@ describe("useUndoSnapshot", () => {
     expect(applySeason).toHaveBeenCalledTimes(1);
     expect(applySeason.mock.calls[0]?.[0].teams[0].name).toBe("before");
     expect(showToast).toHaveBeenCalledWith("Restored: Enter score.", { tone: "success" });
+  });
+
+  it("carries settings only when asked, so an ordinary undo leaves them as they are now", () => {
+    const withSettings = { ...season("before"), settings: { ...DEFAULT_SETTINGS, goldCutoff: 3 } };
+    const { result, applySeason } = setup(() => withSettings);
+
+    act(() => result.current.capture("Delete game"));
+    act(() => result.current.restore());
+    expect(applySeason.mock.calls[0]?.[0]).not.toHaveProperty("settings");
+
+    act(() => result.current.capture("Load demo season", { withSettings: true }));
+    act(() => result.current.forget());
+    // From storage this time, where the settings are read back the way stored settings are.
+    act(() => result.current.restore());
+    expect(applySeason.mock.calls[1]?.[0].settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      goldCutoff: 3,
+    });
   });
 
   it("does nothing when there is no snapshot to put back", () => {

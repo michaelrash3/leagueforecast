@@ -22,6 +22,7 @@ import { useFullBackup } from "./useFullBackup";
 import type { AppMode } from "./useAppMode";
 import type { ConfirmState } from "./useConfirmation";
 import type { ToastTone } from "./useToast";
+import type { UndoSnapshotControls } from "./useUndoSnapshot";
 import type { ActiveShareView, GameLog, Matchup, Settings, TeamBase } from "../lib/types";
 
 /**
@@ -58,7 +59,7 @@ export type SeasonFilesOptions = {
    * one.
    */
   applySeason: (next: ImportedSeason) => void;
-  captureUndo: (label: string, options?: { withTeamRankings?: boolean }) => void;
+  captureUndo: UndoSnapshotControls["capture"];
   restoreUndo: () => void;
   requestConfirmation: (options: ConfirmState) => Promise<boolean>;
   showToast: (
@@ -340,7 +341,11 @@ This backup carries one season, so it replaces the current season data and saves
     });
     if (!confirmed) return;
 
-    captureUndo("Backup import", { withTeamRankings: Boolean(nextRankings) });
+    captureUndo("Backup import", {
+      withTeamRankings: Boolean(nextRankings),
+      // The backup's settings replace these, so the undo has to be able to put them back.
+      withSettings: Boolean(season.settings),
+    });
     await applyTeamRankingsImport(nextRankings);
     applySeason(season);
     closeTeamData();

@@ -6,7 +6,8 @@ import {
   type UndoSnapshotWithRankings,
 } from "../lib/teamRankingsBackup";
 import { readUndoSnapshot, saveUndoSnapshot } from "../lib/storage";
-import type { GameLog, Matchup, TeamBase } from "../lib/types";
+import type { GameLog, Matchup, Settings, TeamBase } from "../lib/types";
+import { coerceSettings } from "../lib/validate";
 
 /** The part of a season an undo puts back. */
 export type UndoableSeason = {
@@ -15,6 +16,12 @@ export type UndoableSeason = {
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   bracketLogs: Record<string, GameLog>;
+  /**
+   * The league's settings, carried only by a snapshot taken before something that replaces them —
+   * Load Demo, a shared link, a one-season backup. Any other undo leaves settings as they are now,
+   * so a setting changed after a deleted game is not taken back by undoing the delete.
+   */
+  settings?: Settings;
 };
 
 export type UndoSnapshotOptions = {
@@ -29,7 +36,10 @@ export type UndoSnapshotOptions = {
 
 export type UndoSnapshotControls = {
   /** Takes a snapshot before a change, labelled with what the change was. */
-  capture: (label: string, options?: { withTeamRankings?: boolean }) => void;
+  capture: (
+    label: string,
+    options?: { withTeamRankings?: boolean; withSettings?: boolean }
+  ) => void;
   /** Puts the last snapshot back, from memory if it is there and from storage if it is not. */
   restore: () => void;
   /** Drops the held snapshot without restoring it, for when the season underneath has changed. */
@@ -53,10 +63,11 @@ export function useUndoSnapshot({
   const held = useRef<UndoSnapshotWithRankings | null>(null);
 
   const capture = useCallback(
-    (label: string, options?: { withTeamRankings?: boolean }) => {
-      const season = readSeason();
+    (label: string, options?: { withTeamRankings?: boolean; withSettings?: boolean }) => {
+      const { settings, ...season } = readSeason();
       const snapshot: UndoSnapshotWithRankings = {
         ...season,
+        ...(options?.withSettings && settings ? { settings } : {}),
         label,
         timestamp: Date.now(),
         ...(options?.withTeamRankings ? { teamRankings: readTeamRankingsBackup() } : {}),
@@ -86,6 +97,8 @@ export function useUndoSnapshot({
       matchups: snapshot.matchups,
       logs: snapshot.logs,
       bracketLogs: snapshot.bracketLogs ?? {},
+      // Off storage as well, so read the way stored settings always are.
+      ...(snapshot.settings !== undefined ? { settings: coerceSettings(snapshot.settings) } : {}),
     });
     // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
     const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);
