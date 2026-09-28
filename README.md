@@ -1296,6 +1296,19 @@ panel can explain. It sends the same `Accept` versions and `gc-app-name` header
 the site does. `GC_EXTRA_HEADERS` takes a JSON object of extra headers for the
 day AWS WAF starts challenging server traffic.
 
+**The function passes GameChanger's answers through, and the browser reads them.**
+Vercel bills a function by the CPU it keeps busy, and on 28 September 2026 the
+app's Hobby plan ran out of it: four hours of Fluid Active CPU over 443,000 calls,
+about 33 ms a call. Nearly all of that was the function reading what it fetched —
+parsing and normalizing a thirty-game schedule measured 3.1 ms of CPU a team, 31 ms
+for a request of ten, against 0.04 ms a team to pass the two bodies on as text. So
+the app asks for `?ids=…&raw=1`: the same fetches, the same profile cache and the
+same failures classified by status, but each team comes back as GameChanger's own
+profile and schedule text, which the browser reads with the same normalizers
+(`gcTeamFromBodies`) to the same team. Raw bodies are about 30% bigger than the
+normalized answer and the same size compressed. The parsed answer stays for a
+caller that does not ask, such as a tab still running an older copy of the app.
+
 **Identity is asymmetric, on purpose.**
 
 |                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

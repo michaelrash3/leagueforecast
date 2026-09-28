@@ -144,6 +144,76 @@ export type GcTeamResponse =
       diagnostics?: GcFetchDiagnostics;
     };
 
+/**
+ * GameChanger's own two bodies for a team, as the proxy hands them over untouched (`?raw=1`): the
+ * profile's text, and the schedule's, or null when GameChanger has no schedule for the team yet.
+ */
+export type GcRawTeam = { profile: string; games: string | null };
+
+/** How much of a body that could not be read goes back, as the proxy's own diagnostics do. */
+const RAW_PREVIEW_CHARS = 300;
+
+const parsedOrUndefined = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+const unreadableBody = (what: string, text: string, json: unknown): GcTeamResponse => ({
+  ok: false,
+  reason: "unrecognized",
+  message:
+    json === undefined
+      ? `GameChanger's ${what} response was not JSON.`
+      : `GameChanger's ${what} JSON is not in a shape this app can read; the diagnostics show what came back.`,
+  status: 502,
+  diagnostics: {
+    bodyPreview: text.slice(0, RAW_PREVIEW_CHARS),
+    ...(json && typeof json === "object"
+      ? {
+          topLevelKeys: Array.isArray(json)
+            ? ["[array]"]
+            : Object.keys(json as Record<string, unknown>).slice(0, 20),
+        }
+      : {}),
+  },
+});
+
+/**
+ * A team's answer out of GameChanger's own two bodies: the profile normalized, the schedule's
+ * games and row ids read, or why either could not be.
+ *
+ * The proxy used to do this before answering, and on Vercel that was nearly all of what it cost.
+ * Parsing and normalizing a thirty-game schedule measured 3.1 ms of CPU a team against 0.04 ms to
+ * pass the two bodies on as text, and at ten teams a request that is the 31 ms a call that 443,000
+ * calls had spent by 28 September 2026: the four hours of Active CPU a Hobby plan allows in a month.
+ * So the proxy hands the text over and the browser, whose CPU costs nothing, does the reading here,
+ * with the same functions and to the same result.
+ */
+export const gcTeamFromBodies = (
+  teamId: string,
+  raw: GcRawTeam,
+  fetchedAt: string
+): GcTeamResponse => {
+  const profileJson = parsedOrUndefined(raw.profile);
+  const profile = profileJson === undefined ? null : normalizeGcTeamProfile(profileJson, teamId);
+  if (!profile) return unreadableBody("profile", raw.profile, profileJson);
+  // A team with a profile but no schedule yet (nothing scheduled) is still a team.
+  let games: GcGame[] = [];
+  let rowIds: string[] = [];
+  if (raw.games !== null) {
+    const gamesJson = parsedOrUndefined(raw.games);
+    if (gamesJson === undefined || !gcGameListFrom(gamesJson)) {
+      return unreadableBody("schedule", raw.games, gamesJson);
+    }
+    games = normalizeGcGames(gamesJson);
+    rowIds = gcGameIdsFrom(gamesJson);
+  }
+  return { ok: true, schedule: { profile, games, rowIds, fetchedAt } };
+};
+
 /** One line of the user's team list: an id, plus whatever their spreadsheet said about it. */
 export type GcTeamListEntry = {
   teamId: string;

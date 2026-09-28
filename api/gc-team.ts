@@ -33,6 +33,7 @@ import {
   type GcFetchErrorReason,
   type GcGame,
   type GcTeamProfile,
+  type GcRawTeam,
   type GcTeamResponse,
 } from "../src/lib/gameChangerApi.js";
 import { createTtlCache } from "../src/lib/ttlCache.js";
@@ -157,10 +158,18 @@ type UpstreamResult = {
 const isTimeoutError = (error: unknown): boolean =>
   error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 
+/**
+ * Whether a body is JSON by its label or its first character, for a pass-through that does not
+ * parse it (`raw`): the browser does, and says so if it cannot.
+ */
+const looksJson = (contentType: string, text: string): boolean =>
+  /json/i.test(contentType) || /^\s*[[{]/.test(text.slice(0, 64));
+
 const fetchUpstream = async (
   url: string,
   accept: string,
-  config: UpstreamConfig
+  config: UpstreamConfig,
+  parse = true
 ): Promise<UpstreamResult> => {
   const result: UpstreamResult = {
     url,
@@ -184,11 +193,15 @@ const fetchUpstream = async (
     result.contentType = response.headers.get("content-type") ?? "";
     result.retryAfter = response.headers.get("retry-after") ?? "";
     result.text = await response.text();
-    try {
-      result.json = JSON.parse(result.text);
-      result.isJson = true;
-    } catch {
-      result.isJson = false;
+    if (!parse) {
+      result.isJson = looksJson(result.contentType, result.text);
+    } else {
+      try {
+        result.json = JSON.parse(result.text);
+        result.isJson = true;
+      } catch {
+        result.isJson = false;
+      }
     }
   } catch (error) {
     if (isTimeoutError(error)) {
@@ -350,7 +363,13 @@ const profileCache = createTtlCache<GcTeamProfile>(PROFILE_TTL_MS, MAX_CACHED_PR
  * without it one test's cached profile answers the next one's request and the fetch under test
  * never happens.
  */
-export const clearProfileCache = (): void => profileCache.clear();
+export const clearProfileCache = (): void => {
+  profileCache.clear();
+  rawProfileCache.clear();
+};
+
+/** The same, for the pass-through, which keeps the profile as GameChanger's own text. */
+const rawProfileCache = createTtlCache<string>(PROFILE_TTL_MS, MAX_CACHED_PROFILES);
 
 /** Teams one request may ask for. Enough to be worth batching, few enough to finish in time. */
 const MAX_BATCH = 10;
@@ -432,6 +451,77 @@ const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledT
   };
 };
 
+/** A team's two bodies as GameChanger sent them, or why they could not be had. */
+type RawPulledTeam = {
+  teamId: string;
+  result: { ok: true; raw: GcRawTeam; fetchedAt: string } | GcTeamFailure;
+  retryAfter?: string;
+};
+
+/**
+ * `pullTeam` without the reading: the same two fetches and the same failures, but the bodies go
+ * back as text for the browser to parse (`gcTeamFromBodies`).
+ *
+ * Parsing and normalizing is where this function's CPU went — 3.1 ms of 3.2 a team, measured on a
+ * thirty-game schedule — and Vercel bills a function by the CPU it keeps busy. So nothing here is
+ * parsed: whether a body is JSON is told from its label and its first character, a failure is
+ * still classified by its status as before, and a body that turns out not to read is reported by
+ * the browser with the same diagnostics this would have sent.
+ */
+const pullTeamRaw = async (teamId: string, config: UpstreamConfig): Promise<RawPulledTeam> => {
+  const cachedProfile = rawProfileCache.get(teamId);
+  const [profileResult, gamesResult] = await Promise.all([
+    cachedProfile === undefined
+      ? fetchUpstream(gcProfileApiUrl(teamId, config.base), GC_PROFILE_ACCEPT, config, false)
+      : Promise.resolve(null),
+    fetchUpstream(gcGamesApiUrl(teamId, config.base), GC_GAMES_ACCEPT, config, false),
+  ]);
+
+  let profile: string;
+  if (cachedProfile !== undefined) {
+    profile = cachedProfile;
+  } else {
+    const fetched = profileResult ?? {
+      url: gcProfileApiUrl(teamId, config.base),
+      status: 0,
+      contentType: "",
+      text: "",
+      json: undefined,
+      isJson: false,
+      timedOut: false,
+      networkError: "profile fetch did not run",
+      retryAfter: "",
+    };
+    const failure = failureFor(fetched, "profile");
+    if (failure) {
+      return {
+        teamId,
+        result: failure,
+        ...(fetched.retryAfter ? { retryAfter: fetched.retryAfter } : {}),
+      };
+    }
+    profile = fetched.text;
+    rawProfileCache.set(teamId, profile);
+  }
+
+  let games: string | null = null;
+  if (gamesResult.status !== 404) {
+    const failure = failureFor(gamesResult, "schedule");
+    if (failure) {
+      return {
+        teamId,
+        result: failure,
+        ...(gamesResult.retryAfter ? { retryAfter: gamesResult.retryAfter } : {}),
+      };
+    }
+    games = gamesResult.text;
+  }
+  return {
+    teamId,
+    result: { ok: true, raw: { profile, games }, fetchedAt: new Date().toISOString() },
+  };
+};
+
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -480,7 +570,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       return;
     }
 
-    const pulled = await Promise.all(unique.map((teamId) => pullTeam(teamId, config)));
+    // The pass-through the app asks for (`gcTeamFromBodies`); read here only for a caller that
+    // predates it, such as a tab still running an older copy of the app.
+    const raw = url.searchParams.get("raw") === "1";
+    const pulled: Array<PulledTeam | RawPulledTeam> = await Promise.all(
+      unique.map((teamId) => (raw ? pullTeamRaw(teamId, config) : pullTeam(teamId, config)))
+    );
     const throttled = pulled.find((entry) => entry.retryAfter);
     if (throttled?.retryAfter) res.setHeader("retry-after", throttled.retryAfter);
     // Schedules change whenever a score is entered, so this must never be cached.
