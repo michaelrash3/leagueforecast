@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchTeamOptions, type TeamSearchOption } from "./TeamSearchSelect";
+import { coachesToList, matchTeamOptions, type TeamSearchOption } from "./TeamSearchSelect";
 
 const options: TeamSearchOption[] = [
   { id: "3", label: "Trash Pandas", detail: "TN" },
@@ -105,5 +105,43 @@ describe("an option something knows about", () => {
   it("leaves a list with no priorities exactly as it was", () => {
     const { shown } = matchTeamOptions([plain("Badgers"), plain("Aces")], "");
     expect(shown.map((option) => option.label)).toEqual(["Aces", "Badgers"]);
+  });
+});
+
+describe("a club's coaches", () => {
+  // Invented names.
+  const clubs: TeamSearchOption[] = [
+    { id: "ky", label: "Rangers", detail: "KY", coaches: ["Pat Placeholder", "Sam Sample"] },
+    { id: "tx", label: "Rangers", detail: "TX" },
+  ];
+
+  it("are searched as well as the name, in any case and any part", () => {
+    expect(matchTeamOptions(clubs, "SAMPLE").shown.map((option) => option.id)).toEqual(["ky"]);
+    expect(matchTeamOptions(clubs, "placeh").shown.map((option) => option.id)).toEqual(["ky"]);
+    // A club with none is still found by its name, and a coach nobody has finds nothing.
+    expect(matchTeamOptions(clubs, "rangers").total).toBe(2);
+    expect(matchTeamOptions(clubs, "nobody").total).toBe(0);
+  });
+
+  it("are listed with the ones the search found first and marked, three named at most", () => {
+    const coaches = ["Dana Dummy", "Robin Roster", "Casey Clipboard", "Jordan Jersey"];
+    expect(coachesToList(coaches, "")).toEqual({
+      names: [
+        { name: "Dana Dummy", found: false },
+        { name: "Robin Roster", found: false },
+        { name: "Casey Clipboard", found: false },
+      ],
+      more: 1,
+    });
+    expect(coachesToList(coaches, "JERSEY")).toEqual({
+      names: [
+        { name: "Jordan Jersey", found: true },
+        { name: "Dana Dummy", found: false },
+        { name: "Robin Roster", found: false },
+      ],
+      more: 1,
+    });
+    expect(coachesToList([], "x")).toBeNull();
+    expect(coachesToList(undefined, "x")).toBeNull();
   });
 });

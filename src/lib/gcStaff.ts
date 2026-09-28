@@ -3,7 +3,7 @@
  *
  * GameChanger never says which teams belong to the same organisation. Names do not answer it
  * either: "27/28 HD" and "HD 2029" are one club in Albuquerque, and nothing in those two strings
- * says so. The coaches do — both are run by Eric Varela and Sam Wilson.
+ * says so. The coaches do — the same two run both.
  *
  * Measured over an export of 52,470 teams, two teams sharing two staff names are in the same state
  * 97.8% of the time and the same town 89.0%. Sharing exactly one: 56.8% and 43.1%, which is barely
@@ -33,6 +33,27 @@
  * export lists at most four coaches a card, so five shared occurs eight times in fifty thousand
  * teams.
  */
+
+/**
+ * Who coaches a club, off every GameChanger team it is linked to: each name once, however the lists
+ * spelt it, in the order the links give them. What a person looking for a club often knows it by,
+ * where its name is one of forty, so the pickers search it and show it (`TeamSearchOption.coaches`).
+ */
+export const coachesOf = (team: {
+  gcTeams?: ReadonlyArray<{ staff?: readonly string[] }>;
+}): string[] => {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  (team.gcTeams ?? []).forEach((link) =>
+    link.staff?.forEach((name) => {
+      const key = staffKey(name);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(name.trim());
+    })
+  );
+  return names;
+};
 
 /** A name a spreadsheet wrote, as something two spreadsheets can agree on. */
 export const staffKey = (name: string): string =>

@@ -8,6 +8,7 @@ import {
   type ScoutTeam,
 } from "../lib/teamRankings";
 import { displayName } from "../lib/format";
+import { coachesOf } from "../lib/gcStaff";
 import { card, pill } from "../styles/tokens";
 
 type ScoutLinkPanelProps = {
@@ -49,7 +50,13 @@ const optionFor = (candidate: ScoutLinkCandidate): TeamSearchOption => {
     );
   }
   const detail = parts.join(" · ");
-  return { id: candidate.scoutTeamId, label: candidate.name, ...(detail ? { detail } : {}) };
+  return {
+    id: candidate.scoutTeamId,
+    label: candidate.name,
+    ...(detail ? { detail } : {}),
+    // Who coaches it: the one thing about a club in your own league you are sure to know.
+    ...(candidate.coaches?.length ? { coaches: candidate.coaches } : {}),
+  };
 };
 
 /** What a row's state should say, and in what tone. Null where there is nothing worth saying. */
@@ -141,7 +148,13 @@ function ScoutLinkPanelInner({
       wide
         ? allClubs().map((club): TeamSearchOption => {
             const detail = [where(club), atLevel(club)].filter(Boolean).join(" · ");
-            return { id: club.id, label: club.name, ...(detail ? { detail } : {}) };
+            const coaches = coachesOf(club);
+            return {
+              id: club.id,
+              label: club.name,
+              ...(detail ? { detail } : {}),
+              ...(coaches.length > 0 ? { coaches } : {}),
+            };
           })
         : [],
     [wide, allClubs]
@@ -219,7 +232,7 @@ function ScoutLinkPanelInner({
                         placeholder={
                           row.how === "guessed" && row.suggestedName
                             ? `Guessing: ${row.suggestedName}`
-                            : "Type a club name…"
+                            : "Type a club or coach name…"
                         }
                         className="w-full text-sm"
                       />

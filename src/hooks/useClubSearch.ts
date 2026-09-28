@@ -13,7 +13,7 @@ import {
   type ScoutTeam,
   type TeamPage,
 } from "../lib/teamRankings";
-import { buildStaffIndex, clubRelations, describeRelation } from "../lib/gcStaff";
+import { buildStaffIndex, clubRelations, coachesOf, describeRelation } from "../lib/gcStaff";
 import type { MergeCandidate } from "../components/TeamDetailPanel";
 
 type ClubSearchInput = {
@@ -56,13 +56,7 @@ export function useClubSearch({
    * alphabetical picker it always was.
    */
   const staffIndex = useMemo(
-    () =>
-      buildStaffIndex(
-        teams.map((team) => ({
-          teamId: team.id,
-          staff: [...new Set((team.gcTeams ?? []).flatMap((link) => link.staff ?? []))],
-        }))
-      ),
+    () => buildStaffIndex(teams.map((team) => ({ teamId: team.id, staff: coachesOf(team) }))),
     [teams]
   );
 
@@ -97,7 +91,16 @@ export function useClubSearch({
        */
       const place = [team.city, team.state].filter(Boolean).join(", ");
       const detail = [where, place].filter(Boolean).join(" · ");
-      return [{ id: teamId, label: team.name, ...(detail ? { detail } : {}) }];
+      // And who coaches it, which is often how a person knows a club whose name forty others share.
+      const coaches = coachesOf(team);
+      return [
+        {
+          id: teamId,
+          label: team.name,
+          ...(detail ? { detail } : {}),
+          ...(coaches.length > 0 ? { coaches } : {}),
+        },
+      ];
     });
   }, [pagesByTeam, teams]);
 

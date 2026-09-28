@@ -991,6 +991,39 @@ describe("telling two clubs of one name apart by who they played", () => {
     expect(other.sharedOpponents).toEqual([]);
   });
 
+  it("says who coaches each candidate, off its GameChanger teams", () => {
+    // Invented names, spelt two ways on two links: one coach, listed once.
+    const coached = pool.map((club) =>
+      club.id === "S-OURS"
+        ? {
+            ...club,
+            gcTeams: [
+              { teamId: "gc-a", name: club.name, ageGroupId: "ag1", staff: ["Pat Placeholder"] },
+              {
+                teamId: "gc-b",
+                name: club.name,
+                ageGroupId: "ag1",
+                staff: ["pat placeholder", "Sam Sample"],
+              },
+            ],
+          }
+        : club
+    );
+    const found = scoutLinkCandidates(
+      "Trash Pandas",
+      "spring2027",
+      groups,
+      coached,
+      games,
+      fixtures
+    );
+    expect(found.find((c) => c.scoutTeamId === "S-OURS")!.coaches).toEqual([
+      "Pat Placeholder",
+      "Sam Sample",
+    ]);
+    expect(found.find((c) => c.scoutTeamId === "S-THEIRS")!.coaches).toBeUndefined();
+  });
+
   it("does not offer a club with no GameChanger team behind it, however well it matches", () => {
     // A name-only stand-in: known because somebody's schedule named it, pulled by nobody. It has
     // exactly the opponents the league plays, and it is still not a link worth making - there is

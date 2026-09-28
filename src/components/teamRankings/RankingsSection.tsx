@@ -129,7 +129,7 @@ export function RankingsSection({
               value=""
               onChange={onSearchTeam}
               options={searchOptions}
-              placeholder="Search every team, any age or season"
+              placeholder="Search every team or coach, any age or season"
             />
           </div>
         </div>

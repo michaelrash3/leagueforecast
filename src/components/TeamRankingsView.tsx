@@ -147,6 +147,7 @@ import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
+import { coachesOf } from "../lib/gcStaff";
 import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
@@ -831,6 +832,15 @@ export function TeamRankingsView({
   // A lookup rather than a search of the page's clubs per call: the Scouting picker asks it of
   // every row, and on a four-thousand-club page that was 288 ms of searching against about 5.
   const placeOf = useCallback((teamId: string) => placeById.get(teamId), [placeById]);
+  /** Who coaches each club on the page, for the Scouting pickers to search and list. */
+  const coachesById = useMemo(
+    () => new Map(rankedTeams.map((team) => [team.id, coachesOf(team)])),
+    [rankedTeams]
+  );
+  const coachesFor = useCallback(
+    (teamId: string): readonly string[] => coachesById.get(teamId) ?? [],
+    [coachesById]
+  );
 
   const stateTopRows = useMemo(
     () =>
@@ -2187,6 +2197,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               upcomingRows={upcomingRows}
               explanation={explanation}
               placeOf={placeOf}
+              coachesFor={coachesFor}
               whatIfGameId={whatIfGameId}
               whatIf={whatIf}
               onToggleWhatIf={(gameId) =>

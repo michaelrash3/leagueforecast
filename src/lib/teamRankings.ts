@@ -8,6 +8,7 @@ import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, todayIsoDay } from "./date";
 import { weightsForGames } from "./ratingRecency";
 import { ageLevelFromName } from "./gameChangerApi";
+import { coachesOf } from "./gcStaff";
 
 /**
  * What has been split out so far, re-exported so nothing that imports from here had to change.
@@ -3999,6 +4000,8 @@ export type ScoutLinkCandidate = {
    * at "Cincy Stix Navy · Harrison, OH" twice over cannot pick between them.
    */
   ageLevel?: number;
+  /** Who coaches it (`coachesOf`), which a person linking their own league's team usually knows. */
+  coaches?: string[];
 };
 
 /**
@@ -4072,12 +4075,14 @@ export const scoutLinkCandidates = (
     });
     shared.sort((a, b) => a.localeCompare(b));
     const ageLevel = gcAgeLevels(team, years[0], ageGroups)[0];
+    const coaches = coachesOf(team);
     candidates.push({
       scoutTeamId,
       name: team.name,
       ...(team.city ? { city: team.city } : {}),
       ...(team.state ? { state: team.state } : {}),
       ...(ageLevel === undefined ? {} : { ageLevel }),
+      ...(coaches.length > 0 ? { coaches } : {}),
       sharedOpponents: shared,
       games: count,
     });
