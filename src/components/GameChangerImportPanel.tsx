@@ -74,7 +74,9 @@ import {
   describeDue,
   describeRotation,
   dueRefresh,
+  idsPlayingAround,
   markRefreshed,
+  MIN_PULL_GAP_HOURS,
   type DueRefresh,
   type RefreshCadence,
   type RefreshLog,
@@ -100,6 +102,12 @@ import {
   tooYoungFromOutcomes,
   type TooYoungClubs,
 } from "../lib/tooYoungClubs";
+import {
+  forgetRefused,
+  isRefusedClub,
+  rememberRefused,
+  type RefusedClubs,
+} from "../lib/refusedClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
@@ -120,6 +128,8 @@ import {
   loadDroppedClubs,
   loadTooYoungClubs,
   saveTooYoungClubs,
+  loadRefusedClubs,
+  saveRefusedClubs,
   loadOrgMembership,
   saveOrgMembership,
   loadKeptApart,
@@ -463,6 +473,8 @@ export function GameChangerImportPanel({
    * learns fifty more of them should shorten the next paste without a reload.
    */
   const [tooYoung, setTooYoung] = useState<TooYoungClubs>(() => loadTooYoungClubs());
+  // The ids earlier pulls turned away, which a paste leaves out (`refusedClubs.ts`).
+  const [refused, setRefused] = useState<RefusedClubs>(() => loadRefusedClubs());
 
   const listRead = useMemo(() => {
     const read = parseGcTeamList(text);
@@ -562,15 +574,25 @@ export function GameChangerImportPanel({
       bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
       if (wanted.has(year)) entries.push(entry);
     }
+    /*
+     * And the rows an earlier pull fetched and turned away: for what the team is, or as a season
+     * that is still not asked for. A list with no Season column is where this pays — every paste
+     * of it asked GameChanger again about teams it had already answered for.
+     */
+    const kept = entries.filter((entry) => !isRefusedClub(refused, entry.teamId, seasonYears));
+    const turnedAway = entries
+      .filter((entry) => isRefusedClub(refused, entry.teamId, seasonYears))
+      .map((entry) => entry.teamId);
     return {
       ...listRead,
-      entries,
+      entries: kept,
+      turnedAway,
       otherSeason: listRead.entries.length - entries.length,
       bySeason,
       readable,
       noSeason,
     };
-  }, [listRead, seasonYears]);
+  }, [listRead, seasonYears, refused]);
 
   /**
    * The years the picker offers: the one being played, the one before, and any the list's rows
@@ -670,6 +692,12 @@ export function GameChangerImportPanel({
    * about whether a team was asked seven days ago — which is exactly the kind of thing nobody
    * would ever reproduce.
    */
+  /*
+   * The teams with a game within a day of today, which a refresh never holds back however lately
+   * they were pulled (`MIN_PULL_GAP_HOURS`). Off the games, so a walk of the pool once per change
+   * to it rather than once per render.
+   */
+  const playing = useMemo(() => idsPlayingAround(pool.games, todayIsoDay()), [pool.games]);
   const { due, agelessLine } = useMemo(() => {
     const now = new Date();
     return {
@@ -684,10 +712,11 @@ export function GameChangerImportPanel({
         cadence,
         namedAges: asks,
         refused: droppedClubs,
+        playing,
       }),
       agelessLine: describeAgeUnknown(ageless, now, asks, droppedClubs),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -710,8 +739,9 @@ export function GameChangerImportPanel({
       namedAges: asks,
       refused: droppedClubs,
       force: true,
+      playing,
     });
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
 
@@ -931,7 +961,8 @@ export function GameChangerImportPanel({
               parsed.highSchool +
               parsed.notYouth +
               parsed.thrownOut +
-              parsed.otherSeason,
+              parsed.otherSeason +
+              parsed.turnedAway.length,
             alreadyHere: split.seen,
             asked: askedInRun,
           });
@@ -1277,6 +1308,17 @@ export function GameChangerImportPanel({
        * fetch whose answer never changes. Safe to keep for good — a GameChanger id is minted per
        * team per season, so this cannot hold a club down as it ages up.
        */
+      /*
+       * And every team it turned away for good or as another season's, so the next paste of the
+       * same list leaves them out rather than asking GameChanger again (`refusedClubs.ts`).
+       */
+      const heldRefusals = loadRefusedClubs();
+      const nextRefused = rememberRefused(heldRefusals, outcomesRef.current);
+      if (nextRefused !== heldRefusals) {
+        setRefused(nextRefused);
+        saveRefusedClubs(nextRefused);
+      }
+
       const learnedTooYoung = tooYoungFromOutcomes(outcomesRef.current);
       if (learnedTooYoung.length > 0) {
         const nextTooYoung = rememberTooYoung(loadTooYoungClubs(), learnedTooYoung);
@@ -1822,6 +1864,16 @@ export function GameChangerImportPanel({
                 </p>
               </>
             )}
+            {due.heldBack > 0 && (
+              <p
+                className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                data-testid="gc-held-back"
+              >
+                {due.heldBack.toLocaleString()} team{due.heldBack === 1 ? "" : "s"} pulled in the
+                last {MIN_PULL_GAP_HOURS} hours with no game yesterday, today or tomorrow{" "}
+                {due.heldBack === 1 ? "waits" : "wait"} for a later run.
+              </p>
+            )}
             {due.teamIds.length === 0 && forcedCount > 0 && (
               <>
                 <button type="button" onClick={runEverything} className={`${button.ghost} mt-3`}>
@@ -2026,6 +2078,25 @@ export function GameChangerImportPanel({
                 {parsed.otherSeason > 0 && (
                   <span className={pill("neutral")}>
                     {parsed.otherSeason} from other seasons, skipped
+                  </span>
+                )}
+                {parsed.turnedAway.length > 0 && (
+                  <span
+                    className={pill("neutral")}
+                    title="Fetched by an earlier pull and turned away: high school, wiffle ball, adult or over-age teams for good, and teams from a season that is still not ticked."
+                  >
+                    {parsed.turnedAway.length} turned away before, skipped{" "}
+                    <button
+                      type="button"
+                      className="font-bold underline"
+                      onClick={() => {
+                        const next = forgetRefused(refused, parsed.turnedAway);
+                        setRefused(next);
+                        saveRefusedClubs(next);
+                      }}
+                    >
+                      Ask again
+                    </button>
                   </span>
                 )}
                 {parsed.thrownOut > 0 && (

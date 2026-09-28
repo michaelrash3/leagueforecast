@@ -1428,6 +1428,16 @@ run's summary counts those in a line of their own instead of listing them under
 was started for, and the same list asked for different seasons starts over. The
 rota keeps to the season being played as well; see the next section.
 
+**A team turned away is remembered.** A crawl that searched every season exports no
+Season column, and pasting it again on 26 September 2026 sent 220,103 ids, about
+22,000 calls, most of them teams an earlier pull had already refused as another
+season's. Each finished run now keeps what it turned away (`refusedClubs.ts`): for
+good when it is about what the team is (wiffle ball, high school, adult, over the
+oldest age), and against its squad year when it was another season's, so it is left
+out of a paste only while that year is unticked. A pill says how many were left out,
+and **Ask again** forgets them. It is a cache of GameChanger's answers, like the
+too-young list beside it, and stays out of backups.
+
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
 on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are
@@ -1528,7 +1538,21 @@ Either way, and that button too, only the season being played comes round. A
 finished season's pages cannot change, so walking them every day spent a whole
 year's worth of requests on nothing. What that costs is a result posted after
 August 1 for a game in late July, which the rota no longer goes back for. The
-teams waiting on an age are asked about as before, whatever their season.
+teams waiting on an age are asked about only as the season being played's too (see
+**A year put away stays away**).
+
+**Nor a team pulled a few hours ago, unless it is playing.** A team pulled within
+the last 16 hours (`MIN_PULL_GAP_HOURS`) waits for a later run unless its own
+schedule holds a game dated yesterday, today or tomorrow (`idsPlayingAround`), and
+the panel says how many waited. Three whole-pool refreshes ran within 42 hours on 25
+and 26 September 2026. Of the 53,140 ids that two of them, fifteen hours apart, both
+pulled, 10,783 (20.3%) came back with anything new, nearly all of it dated the day
+it was pulled; the ids with a game within a day of the earlier pull were 32.3% of
+the pull and held 75.2% of the changed ones. The rest of what changed is picked up
+by the next day's run instead of costing a second pull of every team. The button
+that runs a finished day again keeps to the gap as well, since a second press on
+the same evening is how those three refreshes happened, and a team playing today is
+never held.
 
 The teams with no age are paced by that same principle, and used not to be. Each
 is asked at most once a week — unless somebody has answered for it since its last
