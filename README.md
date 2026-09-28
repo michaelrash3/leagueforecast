@@ -280,11 +280,12 @@ is no board a week ago and nothing is marked.
 **The rank line.** Under the card's place, a line of the club's place week by week:
 last week's board, then each week before it, then today's, first place at the top.
 Each week is another fit of the year as it stood that day, so the worker is asked
-for them one at a time, naming the club so only its place comes back, and keeps the
-last three boards so a line's weeks do not push last week's out (`RANK_HISTORY_WEEKS`,
-eight at most). A page switch waits on at most one week's fit, and the walk stops at a
-week whose board was empty, where the half had not begun, or at two weeks running
-without the club on it. Nothing is drawn until two weeks have a place.
+for them one at a time, naming the club so only its place comes back, and keeps every
+board of a line and one more (`RANK_HISTORY_WEEKS`, eight at most, so nine boards, about
+28 MB on a year of 76,792 clubs), so walking it does not push last week's out and going
+back to a page fits none of them again. A page switch waits on at most one week's fit,
+and the walk stops at a week whose board was empty, where the half had not begun, or
+at two weeks running without the club on it. Nothing is drawn until two weeks have a place.
 
 ### Scouting report
 
@@ -1957,10 +1958,12 @@ all.
 
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
 September 2026: a club whose schedule filed a win by more than thirty runs that nobody has
-vouched for is listed whether or not anything of its is dated ahead, charged the way a result
-dated ahead is (`filedBy`), and those clubs come first, most such wins first, with a red pill
-saying how many; the clubs with results dated ahead follow in their old order. The list is its
-own section now, so it shows when nothing is dated ahead at all.
+vouched for is listed whether or not anything of its is dated ahead, charged to the side that
+won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
+rout against it is not said to have won one, and those clubs come first, most such wins first,
+with a red pill saying how many; the clubs with results dated ahead follow in their old order.
+The list is its own section now, so it shows when nothing is dated ahead at all. **Delete club**
+acts at once, without a dialog, as the user asked the same day.
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
@@ -1987,8 +1990,11 @@ the level on a link is not always GameChanger's word — a league list, the club
 name can have decided it — so "has GameChanger changed its mind?" is not a question it can be
 held to. The panel's link line says "filed at 8U" for the same reason, where it said "8U" as if
 GameChanger had. The toast's **Undo** restores exactly what was there, and **Let the app decide**
-takes the pin off and puts the club back at the level it had been filed at, until a pull decides
-again.
+takes the pin off and puts each of the club's ids back at the level it had been filed at, until a
+pull decides again: a club whose fall and spring ids the app had filed a level apart goes back a
+level apart. An id whose earlier level was never known stays where it is for the next pull to
+decide. The Age choice starts from the level shown on the page, and starts again when the panel,
+left open, is on another year's page.
 
 Naming is only an instruction to the next pull: it is applied when that team's schedule
 is next fetched, because the page it is filed under, the link written against it and the
@@ -2047,6 +2053,16 @@ somebody holding a team's page has, and until 28 September 2026 a pasted one fou
 twelve-letter word counts as an id only where a club carries it exactly, so a name that long still
 searches as a name, and a pasted link no club carries says so rather than only that nothing
 matched: the id has not been pulled, or was unlinked.
+
+A pulled id can also end somewhere other than a club, and Find a team says where
+(`whereIsGcId`): waiting on an age nobody could read, thrown out, younger than 8U by
+GameChanger's word, or filed during a pull still running, which the held index has not
+seen. A bare id is answered this way too when it is shaped like one, a digit or a capital
+past its first letter, which "Thunderbolts" is not. And a pulled club with no games in the
+pool yet, its schedule empty or none of it filed, now has the page its latest link is
+filed under (`teamPages`), where it had none and so could not be found at all, not even
+by its own id. Both came of the user, on 28 September 2026, pasting an id they knew had
+been pulled and being told no team matched.
 
 **Find a team stays up while a pull runs.** Its index is not rebuilt during a run, since every
 save hands back new teams and a rebuild reads every stored year; it used to be switched off
@@ -2456,7 +2472,9 @@ on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027
 of the whole year's pool, so each time a board is up on the Team Rankings side the
 places of the clubs its page's league seasons are linked to are written to a small
 per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
-card reads them with the day they were read.
+card reads them with the day they were read, in the reader's own time zone. A board that
+settles with none of the season's clubs on it takes their places away rather than
+leaving the last ones showing.
 
 ## Settings
 

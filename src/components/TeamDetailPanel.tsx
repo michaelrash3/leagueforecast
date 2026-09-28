@@ -143,6 +143,15 @@ export function TeamDetailPanel({
   const [draftName, setDraftName] = useState(team.name);
   const [mergeTarget, setMergeTarget] = useState("");
   const [draftAge, setDraftAge] = useState(age?.level ?? MIN_AGE_LEVEL);
+  // The panel is keyed by club alone, so it stays open across a switch to another year's page, or
+  // a level set or handed back; the choice starts again from the level shown, rather than setting
+  // a level read off another year.
+  const draftFor = `${ageGroupId}:${age?.level ?? ""}`;
+  const [draftSeen, setDraftSeen] = useState(draftFor);
+  if (draftSeen !== draftFor) {
+    setDraftSeen(draftFor);
+    setDraftAge(age?.level ?? MIN_AGE_LEVEL);
+  }
   const ageId = useId();
 
   /**

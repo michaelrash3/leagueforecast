@@ -1,7 +1,7 @@
 import { useId } from "react";
 import type { OurTeamSummary } from "../../lib/ourTeam";
 import { displayName } from "../../lib/format";
-import { formatGameDate } from "../../lib/date";
+import { formatGameDate, todayIsoDay } from "../../lib/date";
 import type { LeagueClubRank } from "../../lib/leagueClubRanks";
 import { button as buttonClasses, card } from "../../styles/tokens";
 
@@ -33,10 +33,14 @@ const moved = (movement: LeagueClubRank["movement"]): string =>
       ? " (new)"
       : ` (${movement > 0 ? "▲" : "▼"}${Math.abs(movement)})`;
 
-/** The day a board was read, as the card says it. */
+/**
+ * The day a board was read, as the card says it: the reader's own day, as the board's cut-offs are
+ * (`todayIsoDay`). The time is stored in UTC, whose day is already tomorrow's on an evening in the
+ * Americas.
+ */
 const asOf = (at: string): string => {
-  const day = at.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? formatGameDate(day) : "";
+  const read = new Date(at);
+  return Number.isNaN(read.getTime()) ? "" : formatGameDate(todayIsoDay(read));
 };
 
 /**

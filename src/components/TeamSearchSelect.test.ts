@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  noMatchText,
   coachesToList,
   gcIdsInSearch,
   matchTeamOptions,
@@ -253,5 +254,24 @@ describe("finding a club by its GameChanger id", () => {
 
   it("finds nobody for an id no club here carries", () => {
     expect(found("https://web.gc.com/teams/Nn1nN2nN3nN4")).toEqual([]);
+  });
+});
+
+describe("what an empty list says of a pasted id", () => {
+  const explain = (id: string) => (id === "gcWAIT000001" ? "Waiting on an age." : undefined);
+
+  it("says where the app has an id no club carries", () => {
+    expect(noMatchText("gcWAIT000001", explain)).toBe("Waiting on an age.");
+    expect(noMatchText("https://web.gc.com/teams/gcWAIT000001", explain)).toBe(
+      "Waiting on an age."
+    );
+  });
+
+  it("answers an id it has no record of as not pulled, and a name as no match", () => {
+    expect(noMatchText("bKpjvY5AVqOV", explain)).toMatch(
+      /^No team here is linked to that GameChanger id\. It has not been pulled/
+    );
+    // Twelve letters, but a name: no digit, and no capital past the first letter.
+    expect(noMatchText("Thunderbolts", explain)).toBe("No team matches that.");
   });
 });

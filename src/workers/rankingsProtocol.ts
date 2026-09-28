@@ -19,7 +19,7 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
-import { ranksAsOf } from "../lib/rankMovement";
+import { RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
 
 /**
  * What crosses between the page and the rankings worker, and what the worker does with it.
@@ -215,12 +215,14 @@ export const createRankingsHandler = (
   let checked: { key: string; games: BacktestGames } | null = null;
   /**
    * Past boards' places, for every page of the year: one refit per pool, day and half rather than
-   * one per page switch, and only the numbers kept, not the fit (`ranksAsOf`). A few of them, the
-   * latest used last, so the weeks of a rank line do not push last week's board out and a page
-   * switch does not fit it again.
+   * one per page switch, and only the numbers kept, not the fit (`ranksAsOf`). The latest used
+   * last, and enough of them for a whole rank line and one more: last week's and the seven before
+   * it, so walking the line does not push last week's board out, and going back to a page after
+   * another fits none of them again. Each is about 3 MB on a year of 76,792 clubs (measured in
+   * Node, the ids shared with the pool), so the nine are about 28 MB beside the fit's 44.
    */
   const pastBoards = new Map<string, Record<string, number>>();
-  const PAST_BOARDS_KEPT = 3;
+  const PAST_BOARDS_KEPT = RANK_HISTORY_WEEKS + 1;
   const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
     const today = todayIsoDay();
     const key = yearFitKey(request, pool.revision, today);

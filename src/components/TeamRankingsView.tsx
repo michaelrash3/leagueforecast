@@ -5,6 +5,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge, type ClubAgeState } from "../lib/clubAge";
+import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
@@ -91,6 +92,7 @@ import {
   storedGamesByYear,
   loadDeletedGames,
   loadAgeUnknown,
+  loadTooYoungClubs,
   loadDroppedClubs,
   loadNamedAges,
   saveNamedAges,
@@ -968,10 +970,11 @@ export function TeamRankingsView({
    * Where the clubs of the league seasons this page claims stand on it, written for League
    * Standings' "Our team" card (`leagueClubRanksFrom`), which cannot fit a board of its own. Only
    * off a board that is this page's and settled, so a switch between pages never writes one page's
-   * places under another's seasons.
+   * places under another's seasons. A settled board with nobody on it is written too: it takes
+   * away places the card would otherwise go on showing.
    */
   useEffect(() => {
-    if (rankingsStale || rankings.length === 0) return;
+    if (rankingsStale) return;
     const group = ageGroups.find((one) => one.id === selectedAgeGroupId);
     if (!group || group.seasonIds.length === 0) return;
     const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
@@ -1317,10 +1320,11 @@ export function TeamRankingsView({
       const link = scoutTeams
         .find((team) => team.id === teamId)
         ?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
-      // The level the app had it at, kept through a second change so going back reaches it.
+      // The level the app had this id at, kept through a second change so going back reaches it.
+      // Each id's own, since a club's ids in a year are not always filed at one level.
       const was = previousNamed.get(gcTeamId)?.pinned
         ? previousNamed.get(gcTeamId)?.was
-        : change.was;
+        : change.levels[gcTeamId];
       named = nameAge(named, {
         teamId: gcTeamId,
         level,
@@ -1349,8 +1353,9 @@ export function TeamRankingsView({
   };
 
   /**
-   * Takes back an age set on the panel: the pin comes off, and the club goes back to the level the
-   * app had filed it at, until a pull decides again.
+   * Takes back an age set on the panel: the pins come off, and each of the club's ids goes back to
+   * the level the app had filed it at, until a pull decides again. An id whose earlier level was
+   * never known stays where it is, no longer marked as set by you, for the next pull to decide.
    */
   const clearTeamAge = (teamId: string) => {
     if (selectedYear === undefined) return;
@@ -1358,20 +1363,37 @@ export function TeamRankingsView({
     const ids = (club?.gcTeams ?? [])
       .filter((link) => gcLinkSquadYear(link, ageGroups) === selectedYear)
       .map((link) => link.teamId);
-    let named = loadNamedAges();
-    const was = ids.map((id) => named.get(id)).find((entry) => entry?.pinned)?.was;
+    const pinned = loadNamedAges();
+    let named = pinned;
+    const back = new Map<number, Set<string>>();
     ids.forEach((id) => {
-      if (named.get(id)?.pinned) named = forgetNamedAge(named, id);
+      const entry = pinned.get(id);
+      if (!entry?.pinned) return;
+      named = forgetNamedAge(named, id);
+      const to = entry.was ?? entry.level;
+      back.set(to, (back.get(to) ?? new Set()).add(id));
     });
     setNamedAges(named);
     saveNamedAges(named);
     const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    const change = was === undefined ? null : setClubAge(before, teamId, was, selectedYear, null);
-    if (change) saveClubAge(before, change);
+    // The whole club at once when every id goes back to one level, so the other clubs' rows that
+    // recorded an age for it go back too; otherwise each id with its own schedule's rows.
+    const whole = back.size === 1 && [...back.values()][0]?.size === ids.length;
+    let after = before;
+    back.forEach((gcIds, level) => {
+      after =
+        setClubAge(after, teamId, level, selectedYear, null, whole ? undefined : gcIds) ?? after;
+    });
+    saveClubAge(before, after);
+    const unknown = ids.some((id) => pinned.get(id)?.pinned && pinned.get(id)?.was === undefined);
+    const levels = [...back.keys()].sort((a, b) => a - b).map((level) => `${level}U`);
+    const name = club?.name ?? "The club";
     showToast(
-      change
-        ? `${club?.name ?? "The club"} is back at ${was}U, where the app had it.`
-        : `${club?.name ?? "The club"} is the app's to age again.`
+      unknown || levels.length === 0
+        ? `${name} is the app's to age again at its next pull.`
+        : levels.length === 1
+          ? `${name} is back at ${levels[0]}, where the app had it.`
+          : `${name} is back where the app had it: ${levels.join(" and ")}.`
     );
   };
 
@@ -1635,16 +1657,13 @@ export function TeamRankingsView({
     [showToast, requestConfirmation, undoClearedPass]
   );
 
+  /**
+   * Deletes a club off the list of clubs that may not be real: the club, every row it is in, and
+   * its GameChanger ids, which a later pull then refuses. At once, without asking: the user, going
+   * down a list of 9,999-0 winners, said on 28 September 2026 to take the dialog away and that they
+   * would take their chances.
+   */
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
-    const where = [club.city, club.state].filter(Boolean).join(", ");
-    const confirmed = await requestConfirmation({
-      title: `Delete ${club.name}?`,
-      message: `${club.ahead} of its ${club.played} played games are on days that have not happened${
-        where ? `, and it is listed in ${where}` : ""
-      }. The club, all ${club.gameIds.length} of its rows and its GameChanger id go, and pulling that id again will be refused.`,
-      confirmLabel: "Delete the club",
-    });
-    if (!confirmed) return false;
     if (club.gcTeamIds.length > 0) {
       // Into the view's state as well as storage, so a list pasted in this session skips it too.
       const next = forgetClubs(loadDroppedClubs(), club.gcTeamIds);
@@ -1693,6 +1712,21 @@ export function TeamRankingsView({
         leagueStandIns(allKnown.teams, ageGroups)
       ),
     [allKnown.derivedGames, allKnown.teams, ageGroups]
+  );
+  /**
+   * Where a GameChanger id pasted into Find a team is when no club there carries it (`whereIsGcId`).
+   * Read when asked rather than kept: it is asked only of an id nothing matched, and the lists it
+   * reads are cached in memory already.
+   */
+  const explainGcId = useCallback(
+    (gcTeamId: string) =>
+      whereIsGcId(gcTeamId, {
+        ...(pullLive ? { liveTeams: scoutTeams } : {}),
+        ageless: loadAgeUnknown(),
+        dropped: droppedClubs,
+        tooYoung: loadTooYoungClubs(),
+      }),
+    [pullLive, scoutTeams, droppedClubs]
   );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
@@ -2288,6 +2322,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               groupName={selectedGroupName}
               searchOptions={searchOptions}
               onSearchTeam={openSearchedTeam}
+              explainGcId={explainGcId}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
               segment={

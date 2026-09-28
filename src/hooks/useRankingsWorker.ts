@@ -18,7 +18,7 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
-import { daysBefore, ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
 import { todayIsoDay } from "../lib/date";
 import { createWorker } from "./createWorker";
 
@@ -74,9 +74,6 @@ type LastWeekResult = { snapshot: RankingsInput; lastWeek: LastWeek };
 
 /** A club's place on a past week's board, or null when it had none yet. */
 export type RankHistoryPoint = { asOf: string; rank: number | null };
-
-/** How many weeks back the "My team" rank line looks: most of a half. */
-export const RANK_HISTORY_WEEKS = 8;
 
 /**
  * The weeks before last week worked out so far for the marked club, oldest first, remembered

@@ -166,3 +166,62 @@ describe("what the links say decided the level", () => {
     expect(back?.teams.find((one) => one.id === club.id)?.gcTeams?.[1]).toEqual(club.gcTeams?.[1]);
   });
 });
+
+describe("a club whose ids the app had filed at different levels", () => {
+  // A spring id for the same squad year, which the app had filed a level up.
+  const spring = {
+    teamId: "gcHIVESPRG27",
+    name: "Example Hive 9U",
+    ageGroupId: u9.id,
+    season: "spring" as const,
+    seasonYear: 2027,
+    ageLevel: 9,
+  };
+  const split = (): ClubAgeState => {
+    const base = state();
+    return {
+      ...base,
+      teams: base.teams.map((team) =>
+        team.id === club.id ? { ...team, gcTeams: [...(team.gcTeams ?? []), spring] } : team
+      ),
+      games: [
+        ...base.games,
+        own("s1", "S-FOXES", {
+          ageGroupId: u9.id,
+          date: "2027-03-14",
+          ageLevelA: 9,
+          source: { kind: "gamechanger", teamId: spring.teamId, gameId: "s1" },
+        }),
+      ],
+    };
+  };
+
+  it("says where each id was, though they did not agree", () => {
+    const change = setClubAge(split(), club.id, 10, 2027);
+    expect(change?.was).toBeUndefined();
+    expect(change?.levels).toEqual({ gcHIVEFALL26: 8, gcHIVESPRG27: 9 });
+  });
+
+  it("puts each id back with its own schedule's rows, and leaves other clubs' rows alone", () => {
+    const set = setClubAge(split(), club.id, 10, 2027, "you");
+    if (!set) throw new Error("expected the level to be set");
+    const fall = setClubAge(set, club.id, 8, 2027, null, new Set(["gcHIVEFALL26"]));
+    const both = fall && setClubAge(fall, club.id, 9, 2027, null, new Set(["gcHIVESPRG27"]));
+    if (!both) throw new Error("expected both ids to go back");
+
+    const links = both.teams.find((team) => team.id === club.id)?.gcTeams ?? [];
+    expect(links.find((link) => link.teamId === "gcHIVEFALL26")).toMatchObject({
+      ageGroupId: u8.id,
+      ageLevel: 8,
+    });
+    expect(links.find((link) => link.teamId === "gcHIVESPRG27")).toMatchObject({
+      ageGroupId: u9.id,
+      ageLevel: 9,
+    });
+    expect(links.some((link) => "ageFrom" in link)).toBe(false);
+    expect(byId(both.games, "g1")).toMatchObject({ ageGroupId: u8.id, ageLevelA: 8 });
+    expect(byId(both.games, "s1")).toMatchObject({ ageGroupId: u9.id, ageLevelA: 9 });
+    // The Foxes' copy said 10 once the level was set, and nothing on it says which id it meant.
+    expect(byId(both.games, "g4")?.ageLevelB).toBe(10);
+  });
+});

@@ -149,4 +149,36 @@ describe("Find a team while a pull runs", () => {
     expect(within(list).getByRole("option", { name: /Rays/ })).toBeInTheDocument();
     expect(readWholePool).not.toHaveBeenCalled();
   });
+
+  it("says a club filed since the run began will be found when it ends", async () => {
+    const user = userEvent.setup();
+    seen.persist = null;
+    renderTeamRankings({ ageGroups: groups, teams, games, search: "?section=import" });
+    await waitFor(() => expect(seen.persist).not.toBeNull());
+    act(() => {
+      session = beginPull("2026-09-19T12:00:00.000Z");
+    });
+    const storm = team("t3", "Example Storm", {
+      gcTeams: [{ teamId: "gcSTORMFAL26", name: "Example Storm", ageGroupId: groups[0]!.id }],
+    });
+    act(() => {
+      seen.persist?.({
+        ageGroups: groups,
+        teams: [...teams, storm],
+        games: [
+          ...games,
+          game("g-storm", groups[0]!.id, "t3", "t1", 5, 2, { date: seasonDate(2027) }),
+        ],
+      });
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Rankings" }));
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "gcSTORMFAL26");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    expect(list).toHaveTextContent(
+      "Example Storm was filed during the pull that is running. Find a team adds it when the pull ends."
+    );
+  });
 });

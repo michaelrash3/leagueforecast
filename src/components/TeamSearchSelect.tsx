@@ -119,6 +119,28 @@ export const gcIdsInSearch = (query: string): string[] => {
 };
 
 /**
+ * What an empty list says. A pasted GameChanger link, or a word shaped like an id (twelve letters
+ * and digits with a digit or a capital past the first letter, which "Thunderbolts" is not), is
+ * answered as an id: where the app has it (`explainGcId`), or that no club here carries it.
+ */
+export const noMatchText = (
+  query: string,
+  explainGcId?: (gcTeamId: string) => string | undefined
+): string => {
+  const ids = gcIdsInSearch(query);
+  for (const id of ids) {
+    const said = explainGcId?.(id);
+    if (said) return said;
+  }
+  const pasted =
+    /gc\.com\/teams\/[A-Za-z0-9]{12}/.test(query) ||
+    ids.some((id) => /\d/.test(id) || /[A-Z]/.test(id.slice(1)));
+  return pasted
+    ? "No team here is linked to that GameChanger id. It has not been pulled: paste it into Pull from GameChanger. Or it was pulled onto another team and unlinked."
+    : "No team matches that.";
+};
+
+/**
  * The options in the order a search lists them, sorted once per list rather than once a keystroke.
  *
  * Find a team offers every club in the pool, and once the clubs known only from other schedules
@@ -212,6 +234,11 @@ type TeamSearchSelectProps = {
   options: TeamSearchOption[];
   placeholder?: string;
   className?: string;
+  /**
+   * Where a pasted GameChanger id is when no option carries it, to say instead of "no match":
+   * waiting on an age, thrown out, too young (`whereIsGcId`).
+   */
+  explainGcId?: (gcTeamId: string) => string | undefined;
 };
 
 /**
@@ -234,6 +261,7 @@ export function TeamSearchSelect({
   options,
   placeholder,
   className,
+  explainGcId,
 }: TeamSearchSelectProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -330,9 +358,7 @@ export function TeamSearchSelect({
         >
           {shown.length === 0 && (
             <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
-              {/^\s*\S*gc\.com\/teams\/[A-Za-z0-9]{12}/.test(query)
-                ? "No team here is linked to that GameChanger page. It has not been pulled, or it was pulled onto another team and unlinked."
-                : "No team matches that."}
+              {noMatchText(query, explainGcId)}
             </li>
           )}
           {shown.map((option, index) => {

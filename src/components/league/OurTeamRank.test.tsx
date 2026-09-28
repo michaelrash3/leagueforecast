@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { OurTeamCard } from "./OurTeamCard";
 import { leagueClubRankFor } from "../../lib/leagueClubRanks";
@@ -60,6 +61,33 @@ describe("the league's clubs on the board", () => {
   });
 });
 
+describe("a season whose board has emptied", () => {
+  it("loses the places it had, rather than going on showing them", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings({
+      ageGroups: [ageGroup(9, 2027, { seasonIds: ["default"] })],
+      teams: [
+        team("S-HIVE", "Example Hive", { state: "OH" }),
+        team("S-OWLS", "Owls", { state: "OH" }),
+      ],
+      games: [game("g1", "ag_9u_2027", "S-HIVE", "S-OWLS", 5, 3, { date: "2026-09-12" })],
+      league: {
+        teams: [
+          { id: "L-HIVE", name: "Example Hive" },
+          { id: "L-OWLS", name: "Owls" },
+        ],
+        matchups: [{ id: "m1", date: "10/3", away: "L-HIVE", home: "L-OWLS" }],
+        logs: {},
+      },
+    });
+    await waitFor(() => expect(leagueClubRankFor("default", "L-HIVE")).toBeDefined());
+
+    // The spring half, where nothing has been played: a board with nobody on it.
+    await user.click(screen.getByRole("button", { name: /^Spring 2027/ }));
+    await waitFor(() => expect(leagueClubRankFor("default", "L-HIVE")).toBeUndefined());
+  });
+});
+
 describe("the Our team card", () => {
   const summary = {
     teamId: "L-HIVE",
@@ -93,6 +121,33 @@ describe("the Our team card", () => {
     expect(region).toHaveTextContent(
       "Team Rankings: 37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall 2026, as of 9/27"
     );
+  });
+
+  it("dates the board by the reader's own day, not by UTC's", () => {
+    vi.stubEnv("TZ", "America/Chicago");
+    try {
+      render(
+        <OurTeamCard
+          summary={summary}
+          teams={[{ id: "L-HIVE", name: "Example Hive" }]}
+          onPick={() => {}}
+          onEnterScore={() => {}}
+          clubRank={{
+            clubId: "S-HIVE",
+            board: "9U 2027",
+            rank: 37,
+            of: 1812,
+            // 9:30 in the evening of 27 September in Chicago, already the 28th in UTC.
+            at: "2026-09-28T02:30:00.000Z",
+          }}
+        />
+      );
+      expect(screen.getByRole("region", { name: "Our team" })).toHaveTextContent(
+        "9U 2027, as of 9/27"
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("says nothing of Team Rankings when no board has been read", () => {

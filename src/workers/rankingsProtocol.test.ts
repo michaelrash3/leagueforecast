@@ -8,7 +8,7 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import { whatIfCurve } from "../lib/scoutWhatIf";
-import { ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
 
 const groups: AgeGroup[] = [
   { id: "u10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
@@ -216,16 +216,27 @@ describe("last week's places, from the pool the worker holds", () => {
     expect(before.empty).toBe(true);
   });
 
-  it("keeps a few past boards, so the weeks of a line do not push last week's out", () => {
+  it("keeps every board of a rank line, so walking it does not push last week's out", () => {
     const { posted, handle } = harness();
     handle({ ...base, id: 1, pool: shipment(1) });
-    handle(movement(2, "2026-09-12"));
-    handle({ ...movement(3, "2026-09-05"), teamIds: ["A"] });
-    handle(movement(4, "2026-09-12"));
-    const [, first, , again] = posted;
-    if (first?.kind !== "movement" || again?.kind !== "movement") throw new Error("no answer");
-    // The same object: answered from what was kept, not fitted again.
-    expect(again.ranks).toBe(first.ranks);
+    // Last week's board, then each week before it back to the start of the line.
+    const weeks = Array.from({ length: RANK_HISTORY_WEEKS }, (_, at) =>
+      daysBefore("2026-09-19", 7 * (at + 1))
+    );
+    weeks.forEach((asOf, at) => handle(movement(2 + at, asOf)));
+    // Back on the page after another: last week's and the oldest week's, answered again.
+    handle(movement(100, weeks[0] ?? ""));
+    handle(movement(101, weeks[weeks.length - 1] ?? ""));
+    const answers = posted.filter((one) => one.kind === "movement");
+    expect(answers).toHaveLength(RANK_HISTORY_WEEKS + 2);
+    const ranksOf = (at: number) => {
+      const one = answers[at];
+      if (one?.kind !== "movement") throw new Error("no answer");
+      return one.ranks;
+    };
+    // The same objects: answered from what was kept, not fitted again.
+    expect(ranksOf(RANK_HISTORY_WEEKS)).toBe(ranksOf(0));
+    expect(ranksOf(RANK_HISTORY_WEEKS + 1)).toBe(ranksOf(RANK_HISTORY_WEEKS - 1));
   });
 
   it("fits the year as it stood that day, as ranksAsOf does", () => {
