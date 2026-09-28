@@ -2052,7 +2052,14 @@ to a team's page, and answer with the club that id is linked to (`gcIdsInSearch`
 somebody holding a team's page has, and until 28 September 2026 a pasted one found nothing. A
 twelve-letter word counts as an id only where a club carries it exactly, so a name that long still
 searches as a name, and a pasted link no club carries says so rather than only that nothing
-matched: the id has not been pulled, or was unlinked.
+matched: the app has no record of the id. That is all it can say, and not that the id was
+never pulled: a pull that turns a team away for its season, as a high school or adult side,
+or for a request that failed keeps no record of it past the run. So it says to pull the id
+on its own with this season and last ticked, the two the pull's picker always offers, which
+files it or says why not; a team from an older season is refused, and the run says so. Only
+Find a team says it, since only it looks an id up in the whole pool and the lists the app
+keeps: a picker over fewer clubs, Same team as or the league's club picker, says only that
+no team in its list carries the id.
 
 A pulled id can also end somewhere other than a club, and Find a team says where
 (`whereIsGcId`): waiting on an age nobody could read, thrown out, younger than 8U by

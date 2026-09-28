@@ -185,9 +185,7 @@ describe("finding a club by its GameChanger link", () => {
 
     await user.clear(box);
     await user.type(box, "https://web.gc.com/teams/gcNOBODY0000");
-    expect(list()).toHaveTextContent(
-      "No team here is linked to that GameChanger id. It has not been pulled"
-    );
+    expect(list()).toHaveTextContent("The app has no record of that GameChanger id.");
   });
 
   it("finds a pulled club that has no games yet by its id", async () => {
