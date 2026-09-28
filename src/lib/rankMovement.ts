@@ -19,6 +19,13 @@ export const daysBefore = (today: string, days: number = LAST_WEEK_DAYS): string
 };
 
 /**
+ * How many weeks back the "My team" rank line looks, last week's board included: most of a half.
+ * Beside `ranksAsOf` because both the hook that walks the line and the worker that keeps its
+ * boards read it.
+ */
+export const RANK_HISTORY_WEEKS = 8;
+
+/**
  * Every club's place on its page as the board stood on `asOf`: the year fitted on the games played
  * by then, weighed as they were that day, and every page of the year cut from that one fit.
  *

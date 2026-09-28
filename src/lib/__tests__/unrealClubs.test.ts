@@ -141,6 +141,25 @@ describe("clubs posting wins by more than thirty runs", () => {
       ["Mostly Fine", 0, 1],
     ]);
   });
+
+  it("charges the side that won it, never a club for a rout its own schedule records against it", () => {
+    const lost: GcImportState = {
+      ...pool,
+      games: [
+        // The loser filed this one: nobody's schedule posted it as a win.
+        { ...game("l1", "S-ODD", "S-REAL", "2026-09-13", true, "lvvjCaqPngbP"), teamAScore: 40 },
+        // Nothing traces this one to a schedule, so both sides filed it; only the winner won it.
+        {
+          ...game("l2", "S-FAKE", "S-REAL", "2026-09-13", true, "gone00000000"),
+          teamAScore: 0,
+          teamBScore: 52,
+        },
+      ],
+    };
+    expect(unrealClubs(lost, TODAY).map((club) => [club.name, club.implausible])).toEqual([
+      ["Orlando Scrappers", 1],
+    ]);
+  });
 });
 
 describe("the clubs behind results dated ahead", () => {

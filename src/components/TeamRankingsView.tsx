@@ -968,10 +968,11 @@ export function TeamRankingsView({
    * Where the clubs of the league seasons this page claims stand on it, written for League
    * Standings' "Our team" card (`leagueClubRanksFrom`), which cannot fit a board of its own. Only
    * off a board that is this page's and settled, so a switch between pages never writes one page's
-   * places under another's seasons.
+   * places under another's seasons. A settled board with nobody on it is written too: it takes
+   * away places the card would otherwise go on showing.
    */
   useEffect(() => {
-    if (rankingsStale || rankings.length === 0) return;
+    if (rankingsStale) return;
     const group = ageGroups.find((one) => one.id === selectedAgeGroupId);
     if (!group || group.seasonIds.length === 0) return;
     const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
@@ -1317,10 +1318,11 @@ export function TeamRankingsView({
       const link = scoutTeams
         .find((team) => team.id === teamId)
         ?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
-      // The level the app had it at, kept through a second change so going back reaches it.
+      // The level the app had this id at, kept through a second change so going back reaches it.
+      // Each id's own, since a club's ids in a year are not always filed at one level.
       const was = previousNamed.get(gcTeamId)?.pinned
         ? previousNamed.get(gcTeamId)?.was
-        : change.was;
+        : change.levels[gcTeamId];
       named = nameAge(named, {
         teamId: gcTeamId,
         level,
@@ -1349,8 +1351,9 @@ export function TeamRankingsView({
   };
 
   /**
-   * Takes back an age set on the panel: the pin comes off, and the club goes back to the level the
-   * app had filed it at, until a pull decides again.
+   * Takes back an age set on the panel: the pins come off, and each of the club's ids goes back to
+   * the level the app had filed it at, until a pull decides again. An id whose earlier level was
+   * never known stays where it is, no longer marked as set by you, for the next pull to decide.
    */
   const clearTeamAge = (teamId: string) => {
     if (selectedYear === undefined) return;
@@ -1358,20 +1361,37 @@ export function TeamRankingsView({
     const ids = (club?.gcTeams ?? [])
       .filter((link) => gcLinkSquadYear(link, ageGroups) === selectedYear)
       .map((link) => link.teamId);
-    let named = loadNamedAges();
-    const was = ids.map((id) => named.get(id)).find((entry) => entry?.pinned)?.was;
+    const pinned = loadNamedAges();
+    let named = pinned;
+    const back = new Map<number, Set<string>>();
     ids.forEach((id) => {
-      if (named.get(id)?.pinned) named = forgetNamedAge(named, id);
+      const entry = pinned.get(id);
+      if (!entry?.pinned) return;
+      named = forgetNamedAge(named, id);
+      const to = entry.was ?? entry.level;
+      back.set(to, (back.get(to) ?? new Set()).add(id));
     });
     setNamedAges(named);
     saveNamedAges(named);
     const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    const change = was === undefined ? null : setClubAge(before, teamId, was, selectedYear, null);
-    if (change) saveClubAge(before, change);
+    // The whole club at once when every id goes back to one level, so the other clubs' rows that
+    // recorded an age for it go back too; otherwise each id with its own schedule's rows.
+    const whole = back.size === 1 && [...back.values()][0]?.size === ids.length;
+    let after = before;
+    back.forEach((gcIds, level) => {
+      after =
+        setClubAge(after, teamId, level, selectedYear, null, whole ? undefined : gcIds) ?? after;
+    });
+    saveClubAge(before, after);
+    const unknown = ids.some((id) => pinned.get(id)?.pinned && pinned.get(id)?.was === undefined);
+    const levels = [...back.keys()].sort((a, b) => a - b).map((level) => `${level}U`);
+    const name = club?.name ?? "The club";
     showToast(
-      change
-        ? `${club?.name ?? "The club"} is back at ${was}U, where the app had it.`
-        : `${club?.name ?? "The club"} is the app's to age again.`
+      unknown || levels.length === 0
+        ? `${name} is the app's to age again at its next pull.`
+        : levels.length === 1
+          ? `${name} is back at ${levels[0]}, where the app had it.`
+          : `${name} is back where the app had it: ${levels.join(" and ")}.`
     );
   };
 

@@ -22,6 +22,8 @@ export type ClubAgeChange = ClubAgeState & {
   gcTeamIds: string[];
   /** The level the club was filed at before, when its links agreed on one. */
   was?: number;
+  /** The level each of those ids was filed at before, where it had one, agreeing or not. */
+  levels: Record<string, number>;
   /** The page the club is filed on now. */
   page: AgeGroup;
   /** Rows of the club's own schedules moved onto that page. */
@@ -46,29 +48,36 @@ export type ClubAgeChange = ClubAgeState & {
  * `source` is what the links say decided the level (`GcTeamLink.ageFrom`): "you" when somebody
  * sets it, and null to say nothing when it is handed back, since what the app had used is only
  * known again once a pull asks. Absent leaves it as it was.
+ *
+ * `only` narrows it to some of the club's ids in the year, for putting back a club whose ids the
+ * app had filed at different levels: each id's link and the rows its own schedule filed. Another
+ * club's row is left as it is then, since nothing on it says which of the club's ids it was about.
  */
 export const setClubAge = (
   state: ClubAgeState,
   clubId: string,
   level: number,
   year: number,
-  source?: GcAgeSource | null
+  source?: GcAgeSource | null,
+  only?: ReadonlySet<string>
 ): ClubAgeChange | null => {
   if (!Number.isInteger(level) || level < MIN_AGE_LEVEL || level > MAX_AGE_LEVEL) return null;
   const club = state.teams.find((team) => team.id === clubId);
   const links = (club?.gcTeams ?? []).filter(
-    (link) => gcLinkSquadYear(link, state.ageGroups) === year
+    (link) =>
+      gcLinkSquadYear(link, state.ageGroups) === year &&
+      (only === undefined || only.has(link.teamId))
   );
   if (!club || links.length === 0) return null;
 
   const groupById = new Map(state.ageGroups.map((group) => [group.id, group]));
-  const levels = new Set(
-    links.flatMap((link) => {
-      const at = link.ageLevel ?? ageGroupLevel(groupById.get(link.ageGroupId));
-      return at === undefined ? [] : [at];
-    })
-  );
-  const was = levels.size === 1 ? [...levels][0] : undefined;
+  const levels: Record<string, number> = {};
+  links.forEach((link) => {
+    const at = link.ageLevel ?? ageGroupLevel(groupById.get(link.ageGroupId));
+    if (at !== undefined) levels[link.teamId] = at;
+  });
+  const agreed = new Set(Object.values(levels));
+  const was = agreed.size === 1 ? [...agreed][0] : undefined;
 
   const existing = state.ageGroups.find(
     (group) => ageGroupLevel(group) === level && ageGroupYear(group) === year
@@ -110,6 +119,7 @@ export const setClubAge = (
     const onB = game.teamBId === clubId;
     if (!onA && !onB) return game;
     const ownRow = game.source?.teamId !== undefined && own.has(game.source.teamId);
+    if (only !== undefined && !ownRow) return game;
     const refile = ownRow && game.ageGroupId !== page.id;
     const levelA = onA && (ownRow || game.ageLevelA !== undefined) && game.ageLevelA !== level;
     const levelB = onB && (ownRow || game.ageLevelB !== undefined) && game.ageLevelB !== level;
@@ -130,6 +140,7 @@ export const setClubAge = (
     ageGroups,
     gcTeamIds,
     ...(was === undefined ? {} : { was }),
+    levels,
     page,
     moved,
   };

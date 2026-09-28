@@ -5,6 +5,7 @@ import {
   filedTeamIds,
   isImplausibleScore,
   ownPageFor,
+  ratedMargin,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
@@ -31,8 +32,8 @@ export type UnrealClub = {
   /** Played games dated after today. */
   ahead: number;
   /**
-   * Games its schedule filed with one side winning by more than `IMPLAUSIBLE_MARGIN` runs that
-   * nobody has said were played that way (`isImplausibleScore`): 9,999-0, 4,612-0, 529-2.
+   * Games its schedule filed that it won by more than `IMPLAUSIBLE_MARGIN` runs, and that nobody
+   * has said were played that way (`isImplausibleScore`): 9,999-0, 4,612-0, 529-2.
    */
   implausible: number;
   /** Played games in total, so the share can be seen. */
@@ -107,11 +108,14 @@ export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] =
     if (!isPlayed(game)) return;
     [game.teamAId, game.teamBId].forEach((teamId) => add(played, teamId));
     const early = isDatedAhead(game, today);
-    const wide = isImplausibleScore(game);
-    if (!early && !wide) return;
+    // Only the side that won it: a club whose own schedule records a rout against it posted a
+    // loss, which is no sign it was invented, and saying it won by thirty would be untrue.
+    const margin = isImplausibleScore(game) ? (ratedMargin(game) ?? 0) : 0;
+    const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
+    if (!early && winner === undefined) return;
     filedBy(game, clubOfGcId).forEach((teamId) => {
       if (early) add(ahead, teamId);
-      if (wide) add(implausible, teamId);
+      if (teamId === winner) add(implausible, teamId);
     });
   });
   const suspects = new Set([...ahead.keys(), ...implausible.keys()]);

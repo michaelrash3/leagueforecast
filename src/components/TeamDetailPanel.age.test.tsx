@@ -250,3 +250,107 @@ describe("finding a club known only from other clubs' schedules", () => {
     expect(screen.getByRole("region", { name: "Example Wasps" })).toHaveTextContent("Owls");
   });
 });
+
+describe("an age set on a club whose ids were filed apart", () => {
+  it("puts each id back at the level the app had it at", async () => {
+    const user = userEvent.setup();
+    const base = pool();
+    const harness = renderTeamRankings({
+      ...base,
+      teams: base.teams.map((one) =>
+        one.id === "S-HIVE"
+          ? {
+              ...one,
+              gcTeams: [
+                ...(one.gcTeams ?? []),
+                {
+                  teamId: "gcHIVESPRG27",
+                  name: "Example Hive 9U",
+                  ageGroupId: u9.id,
+                  season: "spring" as const,
+                  seasonYear: 2027,
+                  ageLevel: 9,
+                },
+              ],
+            }
+          : one
+      ),
+      games: [
+        ...base.games,
+        game("s1", u9.id, "S-HIVE", "S-BEARS", 4, 3, {
+          date: "2026-09-20",
+          ageLevelA: 9,
+          source: { kind: "gamechanger", teamId: "gcHIVESPRG27", gameId: "s1" },
+        }),
+      ],
+    });
+    const panel = await openHive(user);
+    await user.selectOptions(within(panel).getByLabelText("Age"), "10");
+    await user.click(within(panel).getByRole("button", { name: "Set age" }));
+    // Both ids on the one 10U page while the level is set.
+    expect(pageOf("g1")).toBe(pageOf("s1"));
+    expect(pageOf("g1")).not.toBe(u9.id);
+
+    await user.click(within(panel).getByRole("button", { name: "Let the app decide" }));
+
+    expect(harness.toasts()).toContain(
+      "Example Hive *Fall Ball* is back where the app had it: 8U and 9U."
+    );
+    const links = hive()?.gcTeams ?? [];
+    expect(links.find((link) => link.teamId === "gcHIVEFALL26")).toMatchObject({
+      ageGroupId: u8.id,
+      ageLevel: 8,
+    });
+    expect(links.find((link) => link.teamId === "gcHIVESPRG27")).toMatchObject({
+      ageGroupId: u9.id,
+      ageLevel: 9,
+    });
+    expect([pageOf("g1"), pageOf("g2"), pageOf("s1")]).toEqual([u8.id, u8.id, u9.id]);
+    expect(links.some((link) => link.ageFrom === "you")).toBe(false);
+  });
+});
+
+describe("the age choice on a panel left open", () => {
+  it("starts from the level shown on the year's page it is now on", async () => {
+    const user = userEvent.setup();
+    const base = pool();
+    const u10last = ageGroup(10, 2026);
+    renderTeamRankings({
+      ...base,
+      ageGroups: [...base.ageGroups, u10last],
+      teams: base.teams.map((one) =>
+        one.id === "S-HIVE"
+          ? {
+              ...one,
+              gcTeams: [
+                ...(one.gcTeams ?? []),
+                {
+                  teamId: "gcHIVEFALL25",
+                  name: "Example Hive",
+                  ageGroupId: u10last.id,
+                  season: "fall" as const,
+                  seasonYear: 2025,
+                  ageLevel: 10,
+                },
+              ],
+            }
+          : one
+      ),
+      games: [
+        ...base.games,
+        game("h1", u10last.id, "S-HIVE", "S-OWLS", 3, 2, {
+          date: "2025-09-13",
+          ageLevelA: 10,
+          source: { kind: "gamechanger", teamId: "gcHIVEFALL25", gameId: "h1" },
+        }),
+      ],
+    });
+    const panel = await openHive(user);
+    expect(within(panel).getByLabelText("Age")).toHaveValue("8");
+
+    await user.selectOptions(screen.getByLabelText("Season"), "2026");
+
+    const still = screen.getByRole("region", { name: "Example Hive *Fall Ball*" });
+    expect(within(still).getByLabelText("Age")).toHaveValue("10");
+  });
+});
