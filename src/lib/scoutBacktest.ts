@@ -248,12 +248,13 @@ export type ScoutBacktestOptions = {
   /**
    * The most run-differential one game may contribute to the fit. Defaults to `RATING_CAP`.
    *
-   * The reason this is a knob at all is that `RATING_CAP` is the least justified number in the
-   * model: the case for having a cap is sound — without one a 20-0 against a weak club outweighs
-   * a season of close wins against strong ones — but the case for *eight* was never made. It is
-   * inherited from the League Standings machine-pitch default, where it comes from a real rule
-   * (coach and machine pitch carry a per-inning run limit), and then applied flat across 8U to
-   * 18U even though the same settings put player pitch at twelve.
+   * The reason this is a knob at all is that `RATING_CAP` was for a long time the least justified
+   * number in the model: the case for having a cap is sound — without one a 20-0 against a weak
+   * club outweighs a season of close wins against strong ones — but the case for *eight*, which it
+   * was, was never made. It was inherited from the League Standings machine-pitch default, where it
+   * comes from a real rule (coach and machine pitch carry a per-inning run limit), and applied flat
+   * across 8U to 18U even though the same settings put player pitch at twelve. This sweep is what
+   * moved it to twelve (`pairedImprovement` has the numbers), and it keeps asking.
    *
    * `Infinity` is a legal value and means no cap at all: the fit is handed the margin as played.
    * `clamp` takes it without special-casing, and it is the only honest way to ask whether having
@@ -287,7 +288,7 @@ export type ScoutBacktestOptions = {
    * third: pinned, no cap reads worse than twelve; on the margin as played it beats everything by
    * a factor of two. So `compareRunCaps` grades on the margin as played. That is still one target
    * for every candidate, which is the property that matters, and it is the least arbitrary one
-   * available: the margin is a fact and eight is a choice. It does read higher in absolute terms,
+   * available: the margin is a fact and the cap is a choice. It does read higher in absolute terms,
    * because a 21-run game now contributes every run of its unpredictability to every row.
    */
   scoreCap?: number;
@@ -669,23 +670,25 @@ export const compareAgeGaps = (
 /**
  * The caps worth trying, and no cap at all.
  *
- * Four to twelve brackets both numbers this app already uses: eight is what the rating clamps at
- * and what League Standings puts machine and coach pitch at, twelve is what the same settings put
- * player pitch at. `Infinity` closes the open end, and it is not decoration — it is the only row
- * that asks whether having a cap is earning anything, as against which cap is best. Measured on a
- * pool whose margins all fit inside eight it ties every cap from eight up, exactly as it must,
- * since a clamp that never bites does nothing.
+ * Four to sixteen brackets the cap the rating uses, twelve, from both sides, and takes in both
+ * numbers League Standings uses: eight for machine and coach pitch, which is also what the rating
+ * clamped at until the sweep moved it, and twelve for player pitch. Sixteen is there so the cap in
+ * use has a finite neighbour above it as well as below. `Infinity` closes the open end, and it is
+ * not decoration — it is the only row that asks whether having a cap is earning anything, as
+ * against which cap is best. Measured on a pool whose margins all fit inside eight it ties every
+ * cap from eight up, exactly as it must, since a clamp that never bites does nothing.
  */
-export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12, Infinity];
+export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12, 16, Infinity];
 
 /**
  * The same backtest under several run-differential caps, best first.
  *
- * `RATING_CAP` is the least justified number in the model. The case for having a cap is sound —
- * without one a 20-0 against a weak club outweighs a season of close wins against strong ones —
- * but the case for *eight* was never made: it is inherited from the League Standings machine-pitch
- * default, where it comes from a real rule, and then applied flat from 8U to 18U even though the
- * same settings put player pitch at twelve. This is the measurement that was missing.
+ * `RATING_CAP` was for a long time the least justified number in the model. The case for having a
+ * cap is sound — without one a 20-0 against a weak club outweighs a season of close wins against
+ * strong ones — but the case for *eight*, which it was, was never made: it was inherited from the
+ * League Standings machine-pitch default, where it comes from a real rule, and applied flat from
+ * 8U to 18U even though the same settings put player pitch at twelve. This is the measurement that
+ * was missing, and the one that moved it to twelve.
  *
  * The scoring target is pinned while the fit's cap moves, and that is not a detail. Sharing one
  * constant between the two made a smaller cap a smaller error for nothing: a model that predicts
@@ -694,8 +697,8 @@ export const RUN_CAPS_TO_TRY = [4, 6, 8, 10, 12, Infinity];
  * model scores 2.605 at every cap.
  *
  * It is pinned at the margin as played rather than at `RATING_CAP`, which matters once the sweep
- * reaches past eight: a target clipped at eight penalises a wider candidate for swinging where
- * the target is flat, and on a pool whose margins genuinely run past eight that inverts the
+ * reaches past the cap in use: a target clipped at the cap penalises a wider candidate for swinging
+ * where the target is flat, and on a pool whose margins genuinely run past it that inverts the
  * answer — no cap reads worse than twelve pinned at eight (2.760 against 1.939) and beats
  * everything on the margin as played (1.091). See `scoreCap` for the three pools. The absolute
  * numbers read higher this way, because a 21-run game hands every row all of its unpredictability.
@@ -785,7 +788,7 @@ export const beatsTheBaseline = (result: ScoutBacktestResult): boolean | null =>
  *
  * Listed rather than run in one go so the rankings worker can take them one request at a time: a
  * board refit asked for in the middle then waits for one run, about two seconds on a nationwide
- * year, rather than for all eleven.
+ * year, rather than for all twelve.
  */
 export const MODEL_CHECK_RUNS: readonly ScoutBacktestOptions[] = [
   ...AGE_GAPS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior, keepErrors: true })),
@@ -846,9 +849,9 @@ const upperTail = (z: number): number => {
 
 /**
  * The bar each of `rivals` settings tried against the one in use must clear: the chance the one
- * rival's bar leaves, split between them (Bonferroni). Tried against one bar each, four or five
- * rivals gave chance four or five goes at naming one of them better — 2 standard errors for one,
- * about 2.53 for the four age gaps and 2.61 for the five caps.
+ * rival's bar leaves, split between them (Bonferroni). Tried against one bar each, four or six
+ * rivals gave chance four or six goes at naming one of them better — 2 standard errors for one,
+ * about 2.53 for the four age gaps and 2.67 for the six caps.
  */
 export const clearlyBetterBar = (rivals: number): number => {
   const tail = upperTail(CLEARLY_BETTER) / Math.max(1, rivals);
@@ -872,8 +875,8 @@ export const clearlyBetterBar = (rivals: number): number => {
  * 2027 pool of 27 September 2026 a year of age held at 1.5 read 0.0011 runs a game better than the
  * 2 in use over 21,986 games between rated clubs, and the card named it best; paired, that is 1.1
  * standard errors (0.00099), inside the noise. The same pool's cap of 12 read 0.050 runs a game
- * better than the 8 in use, 9.2 standard errors (0.0054), which is an answer. Counted by club, those
- * errors are 4% and 6% wider than read as independent games, which held out games spread over
+ * better than the 8 then in use, 9.2 standard errors (0.0054), which is an answer. Counted by club,
+ * those errors are 4% and 6% wider than read as independent games, which held out games spread over
  * thousands of clubs keep small; a handful of clubs' games would not.
  */
 export const pairedImprovement = (

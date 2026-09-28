@@ -82,9 +82,10 @@ describe("checking the model on the real pool", () => {
   });
 
   /**
-   * The run cap is the least justified number in the model — eight, inherited from a League
-   * Standings rule that does not apply here — so the card has to show its work: a row per
-   * candidate, every one fitted at its own cap and scored against the same target.
+   * The run cap was for a long time the least justified number in the model — eight, inherited
+   * from a League Standings rule that does not apply here — and the sweep is what moved it, so the
+   * card has to show its work: a row per candidate, every one fitted at its own cap and scored
+   * against the same target.
    */
   it("shows what each run cap would have cost", async () => {
     const user = userEvent.setup();

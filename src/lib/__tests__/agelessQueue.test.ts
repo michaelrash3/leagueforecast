@@ -57,7 +57,7 @@ describe("the queue of teams waiting on an answer", () => {
       team("iffy", { evidence: evidence({ aheadOfToday: 2 }) }),
       // Every game scored on a day that has not happened, all of them shutout blowouts.
       team("invented", {
-        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
       }),
     ];
     const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
@@ -282,6 +282,44 @@ describe("finding one team by name or id", () => {
 
   it("finds nothing for an empty search rather than everything", () => {
     expect(agelessSearch(list(), new Map(), new Set(), NOW, "   ").total).toBe(0);
+  });
+
+  /*
+   * The user's rule of 28 September 2026: a team without nine players is not on this list. Nine
+   * is on it, and so is a team nobody gave a count for — an unknown roster is not a short one.
+   */
+  it("keeps a team with fewer than nine players off the queue", () => {
+    const list: AgeUnknownList = [
+      team("eight", { evidence: evidence({ playerCount: 8 }) }),
+      team("nobody", { evidence: evidence({ playerCount: 0 }) }),
+      team("nine", { evidence: evidence({ playerCount: 9 }) }),
+      team("uncounted", { evidence: evidence() }),
+      team("no-evidence"),
+    ];
+    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
+    expect(batchIds(waiting).sort()).toEqual(["nine", "no-evidence", "uncounted"]);
+  });
+
+  it("still finds a short-roster team by name, and says why it is off the queue", () => {
+    const short = team("ID-SHORT", {
+      name: "Riverdogs 10U",
+      evidence: evidence({ playerCount: 6 }),
+    });
+    // A team the rota has stopped asking about cannot come back when its roster fills, so it says so.
+    const shortAndSpent = team("ID-SPENT", {
+      name: "Riverdogs 11U",
+      tries: 99,
+      firstSeen: daysBefore(400),
+      evidence: evidence({ playerCount: 6 }),
+    });
+    const all: AgeUnknownList = [short, shortAndSpent];
+
+    const found = agelessSearch(all, new Map(), new Set(), NOW, "riverdogs");
+    expect(found.total).toBe(2);
+    expect(found.hits.find((hit) => hit.row.entry.teamId === "ID-SHORT")?.aside).toBe(
+      "short-roster"
+    );
+    expect(found.hits.find((hit) => hit.row.entry.teamId === "ID-SPENT")?.aside).toBe("left-alone");
   });
 
   it("finds a team the queue is hiding, and says what is holding it", () => {

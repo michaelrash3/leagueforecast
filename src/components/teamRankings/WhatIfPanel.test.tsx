@@ -65,9 +65,9 @@ describe("the what-if panel", () => {
       name: /What a win or a loss against Club 2/,
     });
     const rows = within(answer).getAllByRole("row").slice(1);
-    // One rung per whole run up to the cap, which is what one game can carry.
-    expect(rows).toHaveLength(8);
-    expect(within(answer).getByText(/8 runs or more/)).toBeInTheDocument();
+    // One rung per whole run up to the cap of 12, which is what one game can carry.
+    expect(rows).toHaveLength(12);
+    expect(within(answer).getByText(/12 runs or more/)).toBeInTheDocument();
     expect(
       within(answer)
         .getAllByRole("columnheader")
@@ -80,8 +80,9 @@ describe("the what-if panel", () => {
   });
 
   it("says which way each result moves you in words, not in colour", async () => {
-    // 2 of 40 wins at the projected margin move a club DOWN and 9 of 40 losses move it UP, so a
-    // green win column above a fallen rank would teach the reader the feature is broken.
+    // With the cap at 8, 2 of 40 wins at the projected margin moved a club DOWN and 9 of 40 losses
+    // moved it UP, so a green win column above a fallen rank would teach the reader the feature is
+    // broken.
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderTeamRankings(pool());
     await openScouting(user);

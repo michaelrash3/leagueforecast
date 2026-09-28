@@ -82,13 +82,23 @@ import {
  */
 
 /**
- * The most run-differential any single game can contribute. A 20-0 counts as an 8-0: without a cap
+ * The most run-differential any single game can contribute. A 20-0 counts as a 12-0: without a cap
  * one blowout against a weak team would outweigh a season of close wins against strong ones.
+ *
+ * It was 8. The model check's margin error already read 12 better (`pairedImprovement`), and on win
+ * chances 8 looked best only because the curve it was judged with had been tuned for 8. On the pool
+ * of 26 September, fitted as the board would have been on 13, 19 and 20 September and scored on the
+ * 22,700, 17,100 and 8,200 decided games between ranked clubs after each, 12 with the curve
+ * re-fitted to it (`matchupOddsSpread`) lowered the log loss at every cut (0.6042 to 0.6012, 0.5980
+ * to 0.5949, 0.5864 to 0.5842) and called the same share of winners (67.1, 67.5 and 68.8%, each
+ * within 0.1 of a point). Of that year's 149,500 rated games 31.7% were decided by more than 8 and
+ * 12.9% by more than 12, so 12 still stops a rout counting in full: moving to it kept 20 of the 9U
+ * top 25, and 201 of the 250 places in the ten pages' top 25s, where no cap at all kept 13 and 147.
  *
  * Exported because the app explains its own ranking to the reader, and a number quoted in prose
  * that has drifted from the number in the maths is worse than not quoting it.
  */
-export const RATING_CAP = 8;
+export const RATING_CAP = 12;
 
 /**
  * How many standard errors a rating is discounted by before it is ranked or shown.
@@ -96,22 +106,25 @@ export const RATING_CAP = 8;
  * The fit's rating is a best guess, and a best guess from four games is not the same claim as the
  * same number from forty. The ridge already pulls a thin record toward the mean — that is what
  * makes the guess as good as it can be — but it does not make the table honest, because two teams
- * whose best guess is +8 are not equally likely to actually be +8. A four-game team's rating has a
- * standard error of about 1.4 runs on a real pool; a forty-game team's is about 0.6.
+ * whose best guess is +8 are not equally likely to actually be +8. With the cap at 8, a four-game
+ * team's rating had a standard error of about 1.4 runs on a real pool, and a forty-game team's
+ * about 0.6. The cap at 12 widens both by about a fifth: on the pool of 26 September the residual
+ * scale they are read off went from 3.52 runs to 4.29.
  *
  * So what is ranked and shown is the rating less one standard error: not what a team might be, but
  * what it is confidently worth. It is the "conservative rating" a skill system reports, for the
  * same reason, and it is why a 4-0 club sits behind an 11-1 club that has proved as much over
  * nearly three times the schedule.
  *
- * One, measured rather than picked. On the real pool's 2026 year — 59,408 out-of-sample games
- * between teams the fit had seen — discounts from a quarter of an error to one and a half were all
- * inside noise against no discount at all: the best, half an error, was +41 games net of the 1,349
- * the two orders disagreed on (1.1σ), and one error was −15 of 2,649 (−0.3σ). On the 2027 year the
- * picks were identical to four figures. What the discount changes is the table: thin teams in the
- * national top 100 fell from 18 to 6 on the mature year, and on the current one `MTBA Dawgs Moore
- * 4-0` went from first in the nation to third, behind an 11-1 and a 10-1. One standard error is the
- * plain reading of the thing and costs nothing, so it is not tuned any finer than that.
+ * One, measured rather than picked, with the cap at 8. On the real pool's 2026 year — 59,408
+ * out-of-sample games between teams the fit had seen — discounts from a quarter of an error to one
+ * and a half were all inside noise against no discount at all: the best, half an error, was +41
+ * games net of the 1,349 the two orders disagreed on (1.1σ), and one error was −15 of 2,649
+ * (−0.3σ). On the 2027 year the picks were identical to four figures. What the discount changes is
+ * the table: thin teams in the national top 100 fell from 18 to 6 on the mature year, and on the
+ * current one `MTBA Dawgs Moore 4-0` went from first in the nation to third, behind an 11-1 and a
+ * 10-1. One standard error is the plain reading of the thing and costs nothing, so it is not tuned
+ * any finer than that.
  *
  * Deliberately not a minimum-games cut-off. A cut-off says a team with nine games does not exist
  * and a team with ten is believed outright; this says a thin record counts for as much as it can
@@ -195,10 +208,11 @@ export const evidenceDiscount = (
  * ridge leaves this team about `shrinkage / (1 + shrinkage)` of it — 0.6 at the default, which is
  * the weight here. So a record of eight wins over one-game stand-ins is thinner evidence than eight
  * over clubs with seasons of their own, and discounted for it. Measured with the app's own fit and
- * discount on the 2027 year of 26 September 2026, over eight cut days: the Brier score of the next
- * week's same-level games improved at every cut, -0.00010 ± 0.00002 pooled over 73,614 games, and
- * margin error by 0.0016 runs; scaling every count down by the pool's average ratio instead, or
- * shuffling which opponent a game was against, gained nothing, so it is the opponents that help.
+ * discount, the cap then 8, on the 2027 year of 26 September 2026, over eight cut days: the Brier
+ * score of the next week's same-level games improved at every cut, -0.00010 ± 0.00002 pooled over
+ * 73,614 games, and margin error by 0.0016 runs; scaling every count down by the pool's average
+ * ratio instead, or shuffling which opponent a game was against, gained nothing, so it is the
+ * opponents that help.
  *
  * A game whose side the fit did not read is not counted: there is no opponent count to weigh it by.
  */
@@ -2670,11 +2684,11 @@ export const leagueStandIns = (
  * prediction about anything. It is two unrelated numbers subtracted.
  *
  * On the real pool this is not an edge case. 9U 2027's autumn holds 15,629 clubs in 2,107 pieces,
- * the largest with 28.4% of them, and 39 of the national top 100 sit outside it — one of them off
- * an island of twelve clubs. And it is a different problem from a thin record: `The Chill Dogs
- * 17-5` was seventh in the nation on 22 games off an island of 21, which no amount of evidence
- * discounting touches, because the games are real and the rating is well determined. It is well
- * determined *relative to twenty other clubs*.
+ * the largest with 28.4% of them, and on the board with the cap at 8, 39 of the national top 100
+ * sat outside it — one of them off an island of twelve clubs. And it is a different problem from a
+ * thin record: `The Chill Dogs 17-5` was seventh in the nation on 22 games off an island of 21,
+ * which no amount of evidence discounting touches, because the games are real and the rating is
+ * well determined. It is well determined *relative to twenty other clubs*.
  *
  * Returned as a lookup rather than a list of sets, because every caller wants "which piece is this
  * club in, and how big is it".
@@ -2944,7 +2958,7 @@ export type RatedScoutGame = { game: ScoutGame; ageGap: number };
  * splicing it into the pool and re-selecting drops it and answers the question that was not asked.
  * Measured: appending a future-dated 20-0 win to a four-club pool moved the winner not at all —
  * same rank, same record, same rating to three decimals — while the same game dated yesterday
- * moved it from #4 to #3 and from -2.656 to -0.443.
+ * moved it from #4 to #3 and from -2.656 to -0.443 (with the cap at 8, as it then was).
  *
  * `games` is still the whole pool rather than the rated slice, because a club's home age level is
  * a fact about its season and is read off every game it played, not off the ones this page counts.
@@ -3191,9 +3205,6 @@ const buildPooledTeamRankings = (
     ageGroups
   );
 
-/** Same margin-clamp/logistic formula `predictionEngine.ts` uses for League Standings' own
- * matchup predictions — kept identical so the two features read consistently. Deliberately ignores
- * home-field advantage: Team Rankings games are treated as neutral-site. */
 /**
  * Whether two rows have never been compared, by any chain of opponents.
  *
@@ -3218,10 +3229,10 @@ export const MATCHUP_PROBABILITY_FLOOR = 0.08;
 
 /**
  * The spread of the odds curve at 8U, in runs: the projected margin that moves a matchup from even
- * to about 73%, and 0.09 of a run wider for each year of age above it (`matchupOddsSpread`).
+ * to about 73%, and 0.10 of a run wider for each year of age above it (`matchupOddsSpread`).
  */
-export const MATCHUP_ODDS_SPREAD_AT_8U = 2.95;
-export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.09;
+export const MATCHUP_ODDS_SPREAD_AT_8U = 3.75;
+export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.1;
 
 /**
  * How far apart two teams' projected margin has to be for the odds to reach about 73%, at the age
@@ -3230,23 +3241,39 @@ export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.09;
  * It was 2.8 runs at every level, and on games the ratings had not seen it was overconfident. On
  * the pool of 26 September, fitted up to 13, 19 and 20 September and scored on the 25,000, 18,600
  * and 9,100 games between clubs after each, the favourite it called at about 75% won 69 to 71% of
- * the time, and at about 85% won 82 to 83%. The spread that fitted best also grew with age: 8U and
- * 9U were best near 2.8 to 3.0, and most levels from 11U up between 3.2 and 4.2, where a margin says
- * less about who wins.
- * A spread rising 0.09 of a run a year from 2.95, the average of what fitting on either of the
- * later cuts and scoring on the other gave (0.08 and 0.10), called the same favourites at 72 to 75%
- * and 85 to 86%, lowered the Brier score at all three cuts (0.2075, 0.2051 and 0.1998 to 0.2063,
- * 0.2042 and 0.1991), and left 9U, already best near 2.8, within a thousandth of its log loss. The
- * order of the table does not move: only the odds the scouting report prints.
+ * the time, and at about 85% won 82 to 83%. The spread that fitted best also grew with age, where a
+ * margin says less about who wins, and a spread rising 0.09 of a run a year from 2.95 replaced it.
+ *
+ * That was fitted to ratings capped at 8. `RATING_CAP` at 12 lets a rating stretch further, so the
+ * same odds need a wider spread. Refitted the same way on the same pool, now through the app's own
+ * fit and shown ratings (`fitScoutYearFor`, `rowsOfYearFit`), the best straight line at each of the
+ * three cuts ran from 3.55 to 3.95 at 8U and rose 0.09 to 0.12 a year; the same fit on ratings
+ * capped at 8 came close to the old line (2.85 to 3.10 at 8U about its 2.95, rising 0.10 to 0.11
+ * against its 0.09), which is the check that the method measures what it did before. The average,
+ * 3.75 rising 0.10 a year, lowered the log loss against cap 8 on its old line at every cut (0.6042
+ * to 0.6012, 0.5980 to 0.5949, 0.5864 to 0.5842) and the Brier score likewise (0.2088 to 0.2076,
+ * 0.2061 to 0.2049, 0.2009 to 0.2001), and the favourite it called at about 75% won 73 to 75% of
+ * the time and at about 85% won 85 to 86.5%. Cap 12 on the old line was worse than either (0.6067,
+ * 0.5984, 0.5871): the cap and the curve move together or not at all. Of the ten levels at three
+ * cuts, 23 of the 30 improved; the seven that did not were 10U to 18U by at most 0.0034, on 205 to
+ * 1,610 games each.
  *
  * A level outside 8U to 18U, where the pool had nothing to measure, is read as the nearer end; a
- * matchup with no level is read at 12U, whose spread is the one flat value that did best overall.
+ * matchup with no level is read at 12U, whose spread, 4.15, sits among the flat values that did
+ * best over every level at once (4.00 to 4.30 at the three cuts).
  */
 export const matchupOddsSpread = (ageLevel?: number): number => {
   const level = ageLevel === undefined || !Number.isFinite(ageLevel) ? 12 : clamp(ageLevel, 8, 18);
   return MATCHUP_ODDS_SPREAD_AT_8U + MATCHUP_ODDS_SPREAD_PER_YEAR * (level - 8);
 };
 
+/**
+ * The same margin clamp and logistic shape `predictionEngine.ts` uses for League Standings' own
+ * matchups, with the spread read at the matchup's age (`matchupOddsSpread`) rather than League's
+ * flat 2.8: League rates a season's games under the league's own cap, and this curve is fitted to
+ * ratings capped at `RATING_CAP`. Deliberately ignores home-field advantage: Team Rankings games
+ * are treated as neutral-site.
+ */
 export const predictMatchup = (ratingA: number, ratingB: number, ageLevel?: number) => {
   const margin = clamp(ratingA - ratingB, -MATCHUP_MARGIN_CAP, MATCHUP_MARGIN_CAP);
   const winProbA = clamp(

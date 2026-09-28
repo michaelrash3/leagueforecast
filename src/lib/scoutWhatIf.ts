@@ -10,15 +10,15 @@
  * Two things make that affordable and one makes it honest.
  *
  * The fit is least squares and `RATING_CAP` clamps a margin before it reaches the fit, so within
- * ±8 runs every club's fitted rating is an affine function of the margin assumed, and two fits,
+ * ±12 runs every club's fitted rating is an affine function of the margin assumed, and two fits,
  * the two ends, give it at every margin between. The shown rating is that less an evidence
  * discount, which is the pool's residual scale times a number fixed for each club — its games
  * weighed by its opponents', which no margin changes — and the residual scale is not linear: its
  * square is the weighted mean of squared residuals, each affine in the margin, so it is a quadratic
  * in the margin, pinned exactly by a third fit, at a tie. A straight line between the two ends
- * missed a real re-fit's rank 2 times in 160 synthetic cases with stand-ins, and 8 once the
- * discount weighed opponents, which spreads the clubs' discounts further; drawn exactly there are
- * none.
+ * missed a real re-fit's rank 2 times in 160 synthetic cases with stand-ins at the cap of 8 then in
+ * use, and 8 once the discount weighed opponents, which spreads the clubs' discounts further; drawn
+ * exactly there are none.
  *
  * Selecting the games once and fitting three times, rather than calling `buildTeamRankings` for
  * each and selecting each time: the two fits measured 41ms against 65ms over 16,000 clubs and

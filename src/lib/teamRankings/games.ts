@@ -39,10 +39,11 @@ export const playsItself = (game: ScoutGame): boolean => game.teamAId === game.t
 /**
  * The most runs a side can win a game by and have it believed. Past this the score is suspected of
  * being made up (`isImplausibleScore`): the pool of 26 September held 144 such games among 149,809
- * scored, 19 of them won by more than 100 runs and one by 9,999. Only the rating cap held them to
- * an 8-run win each; uncapped, one of them put a club with no other result at the top of the 9U
- * board. Thirty is the user's line, and it sits past nearly every real game: one in eighty is won
- * by more than 20.
+ * scored, 19 of them won by more than 100 runs and one by 9,999. Only the rating cap, then 8,
+ * held them to an 8-run win each; uncapped, one of them put a club with no other result at the top
+ * of the 9U board. Thirty is the user's line, and it sits past nearly every real game: one in
+ * eighty is won by more than 20. It has to stay past `RATING_CAP` too, or a win by the cap would be
+ * a score nobody believes and the what-if's top rung would not count.
  */
 export const IMPLAUSIBLE_MARGIN = 30;
 

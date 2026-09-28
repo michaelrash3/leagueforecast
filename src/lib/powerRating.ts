@@ -162,6 +162,10 @@ export const AGE_GAP_RUNS_PER_YEAR = 2;
  * and Brier lower too. A club that spends its fall playing up gets the credit for it, and one that
  * padded against younger sides stops getting too much. Nothing the data says about a year of age
  * is lost: Setup's model check still fits several held values and says which predicted best.
+ *
+ * Those figures are for ratings capped at 8 runs a game. With `RATING_CAP` at 12, the check on the
+ * 9U 2027 page of 26 September still read two best of the five values held (4.9810 runs a game on
+ * the 21,967 held-back games between rated clubs, 1.5 a ten-thousandth behind).
  */
 export const DEFAULT_AGE_GAP_SHRINKAGE = Number.POSITIVE_INFINITY;
 /**

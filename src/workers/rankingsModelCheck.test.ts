@@ -14,8 +14,8 @@ import {
  *
  * The check ran in the button's click handler, eleven fits of the page's year, and froze the tab
  * for 18 s on the 18:40 pool. The worker already holds that pool, so the page sends the runs there
- * one per request; a board refit asked for in the middle waits for one run, not eleven. What must
- * hold is that the answer is the one the card worked out itself.
+ * one per request; a board refit asked for in the middle waits for one run, not all of them. What
+ * must hold is that the answer is the one the card worked out itself.
  */
 const groups: AgeGroup[] = [
   { id: "u9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },

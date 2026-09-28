@@ -67,9 +67,9 @@ export function ModelCheckCard({
   const [interrupted, setInterrupted] = useState(false);
 
   /*
-   * Never in the click handler. The check is eleven fits of the page's year, and run there it froze
-   * the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press paints "Working it
-   * out" first, and the fits run in the rankings worker when there is one.
+   * Never in the click handler. The check is twelve fits of the page's year, and run there, when it
+   * was eleven, it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press
+   * paints "Working it out" first, and the fits run in the rankings worker when there is one.
    */
   const run = () => {
     const forGroup = ageGroupId;
@@ -200,10 +200,11 @@ export function ModelCheckCard({
                 What the run cap is costing
               </h3>
               <p className="mt-1 text-slate-500 dark:text-slate-400">
-                The most one game may swing a rating. {RATING_CAP} is what it is set to, and unlike
-                the League Standings cap — which is a rule of your league — nothing measured put it
-                there. The last row caps nothing at all, which is the row that asks whether having a
-                cap is earning anything rather than which cap is best.
+                The most one game may swing a rating. {RATING_CAP} is what it is set to. Unlike the
+                League Standings cap, which is a rule of your league, it was chosen by measurement:
+                on a nationwide pool it predicted games better than 8 did. The rows below check it
+                again on this pool. The last row caps nothing at all, which is the row that asks
+                whether having a cap is earning anything rather than which cap is best.
               </p>
               <p className="mt-1 text-slate-500 dark:text-slate-400">
                 Every row is fitted at its own cap and then scored against the same target: the

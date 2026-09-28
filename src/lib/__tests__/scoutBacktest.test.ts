@@ -717,8 +717,8 @@ describe("what the run cap is costing", () => {
 
   /**
    * Every fourth game becomes a rout, which is what a cap exists for and what the plain synthetic
-   * pool has none of: its margins are the difference between two strengths spanning four runs, so
-   * they never reach eight and no cap from eight up ever bites.
+   * pool has none of: the first side is always the weaker, and its score is floored at nothing
+   * against the other's six, so no margin is wider than six and no cap from eight up ever bites.
    */
   const withRouts = (
     pool: { teams: ScoutTeam[]; games: ScoutGame[] },
@@ -730,17 +730,29 @@ describe("what the run cap is costing", () => {
     ),
   });
 
+  /*
+   * The sweep is there to check the cap in use against its neighbours, so it has to hold it — a list
+   * without it leaves the card nothing to compare against and it would never name a better cap —
+   * and a finite cap either side of it, as well as no cap at all.
+   */
+  it("tries the cap in use, a finite cap either side of it, and no cap", () => {
+    expect(RUN_CAPS_TO_TRY).toContain(RATING_CAP);
+    expect(RUN_CAPS_TO_TRY.some((cap) => cap < RATING_CAP)).toBe(true);
+    expect(RUN_CAPS_TO_TRY.some((cap) => cap > RATING_CAP && Number.isFinite(cap))).toBe(true);
+    expect(RUN_CAPS_TO_TRY).toContain(Infinity);
+  });
+
   it("offers no cap at all, and lets that fit see the whole margin", () => {
     const { teams, games } = withRouts(syntheticPool({ teamCount: 12, gamesPerPair: 2 }), 20);
     const rows = compareRunCaps("ag_9", teams, games, groups);
 
     const open = rows.find((row) => row.cap === Infinity);
-    const eight = rows.find((row) => row.cap === RATING_CAP);
+    const inUse = rows.find((row) => row.cap === RATING_CAP);
     expect(open).toBeDefined();
     // Not NaN, which is what an Infinity mishandled anywhere in the fit would produce.
     expect(Number.isFinite(open!.meanAbsoluteError!)).toBe(true);
-    // Handed 20-run margins whole, it believes in bigger gaps than the row clamped at eight does.
-    expect(open!.meanAbsolutePrediction!).toBeGreaterThan(eight!.meanAbsolutePrediction!);
+    // Handed 20-run margins whole, it believes in bigger gaps than the row at the cap in use does.
+    expect(open!.meanAbsolutePrediction!).toBeGreaterThan(inUse!.meanAbsolutePrediction!);
   });
 
   /**
@@ -758,10 +770,13 @@ describe("what the run cap is costing", () => {
     expect(rows[0]!.baselineError!).toBeGreaterThan(clipped.baselineError!);
   });
 
-  /** A clamp that never reaches is not a clamp, so these three have to agree to the digit. */
+  /**
+   * A clamp that never reaches is not a clamp, so these three have to agree to the digit: the plain
+   * pool's margins never reach eight, so neither eight, the cap in use nor no cap bites.
+   */
   it("says nothing new about a pool whose margins all fit inside the cap", () => {
     const { teams, games } = syntheticPool({ teamCount: 12, gamesPerPair: 2 });
-    const errors = [RATING_CAP, 12, Infinity].map(
+    const errors = [8, RATING_CAP, Infinity].map(
       (cap) => backtestScoutRatings("ag_9", teams, games, groups, { cap }).meanAbsoluteError
     );
 
@@ -907,12 +922,12 @@ describe("naming a better setting only when it clearly wins", () => {
     const lower = reference.map((error, at) => error - 0.2 + (((at * 13) % 5) - 2) * 0.01);
     const answer = answerFrom(reference, everyOther, {
       gaps: new Map([[3, lower]]),
-      caps: new Map([[12, lower]]),
+      caps: new Map([[10, lower]]),
     });
 
     expect(answer.betterGap).toMatchObject({ value: 3, samples: 100 });
     expect(answer.betterGap!.by).toBeCloseTo(0.2, 2);
-    expect(answer.betterCap).toMatchObject({ value: 12, samples: 200 });
+    expect(answer.betterCap).toMatchObject({ value: 10, samples: 200 });
   });
 
   it("names nothing when the lower average is within the noise of the one in use", () => {
@@ -961,7 +976,7 @@ describe("naming a better setting only when it clearly wins", () => {
     const lower = few.map((error) => error - 0.3);
     const answer = answerFrom(few, allRated, {
       gaps: new Map([[3, lower]]),
-      caps: new Map([[12, lower]]),
+      caps: new Map([[10, lower]]),
     });
 
     expect(answer.betterGap).toBeNull();
@@ -1014,6 +1029,7 @@ describe("naming a better setting only when it clearly wins", () => {
     expect(clearlyBetterBar(1)).toBeCloseTo(2, 3);
     expect(clearlyBetterBar(4)).toBeCloseTo(2.531, 2);
     expect(clearlyBetterBar(5)).toBeCloseTo(2.608, 2);
+    expect(clearlyBetterBar(6)).toBeCloseTo(2.67, 2);
     // About 2.3 standard errors lower on the games between rated clubs: past the one-rival bar of
     // 2, which named it, and short of the 2.53 four age gaps tried share.
     const shade = reference.map((error, at) => error - 0.115 + (at % 4 < 2 ? 0.5 : -0.5));

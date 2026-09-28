@@ -342,7 +342,7 @@ export function useRankingsWorker(input: RankingsInput): {
    * That is also what makes one held pool enough: the board and the what-if are always naming the
    * same revision.
    *
-   * A small pool is worked out here, as the board is. Two fits over four hundred clubs is well
+   * A small pool is worked out here, as the board is. Three fits over four hundred clubs is well
    * inside what a press can wait for, and it keeps the feature alive in tests and anywhere a
    * worker cannot be had.
    */
@@ -369,7 +369,7 @@ export function useRankingsWorker(input: RankingsInput): {
       );
 
     /*
-     * Both of these are deferred by a turn rather than run here. A two-fit answer is work, and
+     * Both of these are deferred by a turn rather than run here. A three-fit answer is work, and
      * doing it in the effect body would block the paint that puts "working it out" on screen —
      * the reader would see the press do nothing and then the answer appear.
      */

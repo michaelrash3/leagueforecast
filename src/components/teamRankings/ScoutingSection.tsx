@@ -694,7 +694,7 @@ function WhatIfTrigger({
  * result in it.
  *
  * A margin table rather than two buttons, because the margin is the larger half of the answer: the
- * gap between winning by one and winning by eight moves a club further than the gap between
+ * gap between winning by one and winning by the cap moves a club further than the gap between
  * winning and losing at the margin the projection expects. Two buttons would hide that.
  *
  * Nothing here is coloured by outcome. Winning is not always good news and losing is not always
@@ -721,7 +721,7 @@ function WhatIfPanel({
   if (!mine || state.status === "working") {
     return (
       <p className="text-sm text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
-        Working it out — the whole table is fitted again, twice.
+        Working it out — the whole table is fitted again, three times.
       </p>
     );
   }

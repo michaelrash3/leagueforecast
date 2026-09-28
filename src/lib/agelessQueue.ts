@@ -28,6 +28,7 @@ import {
   maybeSchoolTeam,
 } from "./gameChangerApi";
 import { AGELESS_RULES } from "./agelessTriage";
+import { rosterStanding } from "./gcRoster";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
 import type { DeletedClubs } from "./deletedGames";
@@ -98,6 +99,9 @@ const NO_EVIDENCE: AgelessEvidence = {
  *
  * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
  * gets a hint instead — see `LONE_V_HINT`.
+ *
+ * Nor is a team whose roster is short of nine (`shortRoster`), which the user ruled off this list
+ * on 28 September 2026.
  */
 export const awaitingAnswer = (
   entry: AgeUnknownTeam,
@@ -108,7 +112,25 @@ export const awaitingAnswer = (
   stillWorthAsking(entry, now) &&
   !named.has(entry.teamId) &&
   !dropped.has(entry.teamId) &&
-  !isSchoolName(entry.name ?? "");
+  !isSchoolName(entry.name ?? "") &&
+  !shortRoster(entry);
+
+/**
+ * A team GameChanger lists with fewer than nine players: not a side yet, and off the queue.
+ *
+ * It takes nine to field one (`MIN_REAL_ROSTER`), and the user ruled on 28 September 2026 that a
+ * team without them does not belong on this list. It is a strong sign here where it would not be
+ * among clubs with an age: of the 13,962 teams waiting in the backup of 26 September, 3,232 listed
+ * fewer than nine and 1,742 listed nobody at all, where the clubs pulled with an age had fewer than
+ * nine on 1,717 of 53,252 GameChanger teams.
+ *
+ * Held off, like a high school squad, rather than thrown out. The row stays stored and the rota
+ * keeps asking about it while it is inside its budget, and every ask replaces the evidence — so a
+ * squad still being assembled comes back on its own once a check finds nine, and a search still
+ * finds it meanwhile. A count nobody gave is not a short one: those stay on the queue.
+ */
+export const shortRoster = (entry: AgeUnknownTeam): boolean =>
+  rosterStanding(entry.evidence?.playerCount) === "short";
 
 /**
  * Names nobody gives a team that plays: a test, a practice or scrimmage account, one marked for
@@ -195,7 +217,7 @@ const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessSta
       because:
         evidence.aheadOfToday > 0
           ? `${evidence.aheadOfToday} of its ${evidence.scored} scored games are dated after today`
-          : "its schedule and roster look made up",
+          : "its schedule looks made up",
     };
   } else {
     // A side GameChanger bands under thirteen is not a high school squad, whatever it is called.
@@ -298,7 +320,7 @@ export const batchIds = (rows: readonly AgelessRow[]): string[] =>
  * the worst possible answer to "I know this club is in here" — so the search reads the whole
  * list and says which of them it is.
  */
-export type AgelessAside = "dropped" | "named" | "high-school" | "left-alone";
+export type AgelessAside = "dropped" | "named" | "high-school" | "short-roster" | "left-alone";
 
 /** A team the search found, and whether anything is standing between it and the queue. */
 export type AgelessHit = {
@@ -331,7 +353,9 @@ const asideFor = (
   if (dropped.has(entry.teamId)) return "dropped";
   if (named.has(entry.teamId)) return "named";
   if (recognise(entry).school) return "high-school";
+  // Before the roster: a team nothing will ask about again cannot come back when its roster fills.
   if (!stillWorthAsking(entry, now)) return "left-alone";
+  if (shortRoster(entry)) return "short-roster";
   return undefined;
 };
 

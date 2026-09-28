@@ -300,54 +300,58 @@ saved in this browser by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
-a coin flip. The curve's spread rises with age, 2.95 runs at 8U and 0.09 more a
+a coin flip. The curve's spread rises with age, 3.75 runs at 8U and 0.10 more a
 year, because a margin says less about who wins as players get older. It was 2.8
 at every level, and on the pool of 26 September, fitted up to three different
 days and scored on the games after each, that was overconfident: favourites it
-called at about 75% won 69 to 71% of the time, and at about 85% won 82 to 83%.
-With the rising spread they won 72 to 75% and 85 to 86%. Only the odds move; the
-order of the table does not.
+called at about 75% won 69 to 71% of the time, and at about 85% won 82 to 83%. A
+spread rising from 2.95 by 0.09 a year fixed that for ratings capped at 8 runs;
+when the cap went to 12 (below) the ratings stretched and the spread was fitted
+again, the same way, through the app's own fit. Favourites it calls at about 75%
+won 73 to 75% of the time, and at about 85% won 85 to 86.5%. The cap and the
+curve move together: cap 12 on the old curve read worse than cap 8 on it.
 
 **What if?** Under each fixture is the question the projection cannot answer: not
 who is favoured on Saturday, but where Saturday leaves you. A rating here is not a
 property of a club — it is the solution of one least-squares fit over every counted
 game in the pool — so the answer is the whole table fitted again with the result in
-it. The panel shows a rung per whole run, from a defeat by eight to a win by eight,
+it. The panel shows a rung per whole run, from a defeat by twelve to a win by twelve,
 each with the place it would leave you and how far that moved you.
 
 It is a margin table rather than two buttons because the margin is the larger half of
-the answer: winning by one against winning by eight moves a club further than winning
-against losing at the projected margin. Eight is the top rung because `RATING_CAP` is
-eight, so a 9-1 and a 20-0 are the same evidence.
+the answer: winning by one against winning by twelve moves a club further than winning
+against losing at the projected margin. Twelve is the top rung because `RATING_CAP` is
+twelve, so a 13-1 and a 20-0 are the same evidence.
 
-Three fits are enough for all sixteen rungs, exactly. The fit is least squares and the
-cap is applied before it, so within ±8 runs every fitted rating is affine in the margin
+Three fits are enough for all twenty-four rungs, exactly. The fit is least squares and the
+cap is applied before it, so within ±12 runs every fitted rating is affine in the margin
 assumed, and the two ends give it at every margin between. The shown rating is that less
 an evidence discount: the pool's residual scale times a number fixed for each club, its
 games weighed by its opponents', which no margin changes. The scale is not linear, but its
 square is the mean of squared residuals, each affine in the margin, so it is a parabola,
 and a third fit at a tie pins it. A straight line between the two ends missed a real
-re-fit's rank 2 times in 160 synthetic cases with stand-ins; drawn this way there are none,
-and the worst rating error is 1.6e-10 runs.
+re-fit's rank 2 times in 160 synthetic cases with stand-ins (at the cap of 8 then in use);
+drawn this way there are none, and the worst rating error is 1.6e-10 runs.
 
 The discount weighs each game by what it can say about the club: `1 - 1/(1.5 + the
 opponent's games)`. A win over a stand-in seen once mostly pins the stand-in, which has
 nothing else to go on, and leaves the club 0.6 of a game, what the ridge leaves it; a win
 over a club with twenty games leaves 0.95. So eight wins over one-game stand-ins are
-discounted more than eight over clubs with seasons of their own, and the Games column
-still counts every game. On the 2027 year of 26 September, fitted as the app fits it and
-scored on the next week's same-level games at eight cut days, the Brier score improved at
-every cut, −0.00010 ± 0.00002 over 73,614 games; thinning every count by the pool's average
-ratio, or shuffling which opponent a game was against, gained nothing, so it is the
-opponents that help. The shown win chance moves a median 0.14 points. On the 14U 2027 board
-of the same pool, "Florida", 19-2 with all 21 games against stand-ins or slots, goes from #22
-to #24, and Texas Edge Black, 5-0 against clubs, from #24 to #23.
+discounted more than eight over clubs with seasons of their own, and the Games column still
+counts every game. On the 2027 year of 26 September, with the cap then at eight and the
+win-chance curve fitted to it, fitted as the app fits it and scored on the next week's
+same-level games at eight cut days, the Brier score improved at every cut, −0.00010 ±
+0.00002 over 73,614 games; thinning every count by the pool's average ratio, or shuffling
+which opponent a game was against, gained nothing, so it is the opponents that help. The
+shown win chance moves a median 0.14 points. On the 14U 2027 board of the same pool,
+"Florida", 19-2 with all 21 games against stand-ins or slots, goes from #22 to #24, and
+Texas Edge Black, 5-0 against clubs, from #24 to #23.
 
 Nothing in the panel is coloured by outcome. Winning is not always good news and
 losing is not always bad: a narrow loss to a much stronger club can lift a thinly
 played side, because the table rates who you played and one more game is one more
-thing the rating stands on. Measured on a 40-club pool, a side with three games that
-loses by two to the best club in it goes from #31 to #27.
+thing the rating stands on. Measured on a 40-club pool with the cap then at eight, a side
+with three games that loses by two to the best club in it goes from #31 to #27.
 
 The hypothetical is fitted as if the game were played today. That is deliberate and
 the alternative is worse: older games count for less, so a result dated weeks ahead
@@ -1508,6 +1512,15 @@ went onto the list before that rule existed: the name settles it, so it costs no
 the ten, and the next time the rota asks, the answer comes back `high-school` and the
 entry retires itself.
 
+Nor is a team whose GameChanger roster lists fewer than nine players (`shortRoster`), by
+the user's rule of 28 September 2026: it takes nine to field a side. On the waiting list of
+26 September that was 3,232 of 13,962 teams, 1,742 of them with nobody listed at all, where
+the clubs pulled with an age list fewer than nine on 1,717 of 53,252 GameChanger teams. It is
+held off rather than thrown out: the row stays stored, the rota keeps asking about it while
+it has asks left, and each ask replaces what was known — so a squad still being assembled
+comes back on its own once a check finds nine. A team nobody gave a count for stays on the
+card, and the search still finds a short one and says why it is off the queue.
+
 A lone `V` is the opposite case and stays. "Madison V" is the varsity side on a school
 schedule and is equally a squad number, a colour or a coach's initial, and one letter
 is too thin to refuse a real club on. So it comes to the **top** of the queue, with
@@ -1897,12 +1910,12 @@ answered.
 
 **A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
 9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
-than 30, 19 of them by more than 100. The rating cap held each to an 8-run win; uncapped, one
-of them put a club with no other result at the top of the 9U board. Now such a game counts
-toward no rating or record (`isImplausibleScore`, read as the rating reads a margin, both
-clubs' reports together), and Pool health lists it, widest first, to be deleted — remembered,
-as a row dated ahead is — or vouched for with **It's real**, which keeps the margin vouched for
-(`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
+than 30, 19 of them by more than 100. The rating cap, then 8, held each to an 8-run win;
+uncapped, one of them put a club with no other result at the top of the 9U board. Now such a
+game counts toward no rating or record (`isImplausibleScore`, read as the rating reads a margin,
+both clubs' reports together), and Pool health lists it, widest first, to be deleted —
+remembered, as a row dated ahead is — or vouched for with **It's real**, which keeps the margin
+vouched for (`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
 vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. Thirty is the user's line;
 one game in eighty is won by more than 20. On that pool 253 clubs' records change, and the 9U
 board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
@@ -2049,7 +2062,7 @@ the number it was before any of this existed.
 ### Ratings
 
 A rating estimates how many runs a team beats an average opponent by, adjusted
-for opponent strength, capped at ±8 so one blowout cannot run away with a season.
+for opponent strength, capped at ±12 so one blowout cannot run away with a season.
 Only completed games count; scheduled ones exist so a future opponent can be
 logged early. Win probabilities are clamped to 8–92% — youth baseball has no
 locks.
@@ -2057,18 +2070,18 @@ locks.
 Until teams share opponents, directly or through a chain, a rating is close to a
 plain run differential.
 
-**Where the eight came from, and how to check it.** The case for _having_ a cap
+**Where the twelve came from, and how to check it.** The case for _having_ a cap
 is plain — without one a 20-0 against a weak club outweighs a season of close
-wins against strong ones — but the case for _eight_ was never made here. It is
-inherited from League Standings, where the cap is a rule of the league (coach
-and machine pitch carry a per-inning run limit), and then applied flat from 8U
-to 18U even though the same settings put player pitch at twelve. Setup's **Check
-the model** card now sweeps it: `compareRunCaps` refits the pool at four, six,
-eight, ten and twelve runs — and at no cap at all — and reports what each one
-predicted. The last row is the one that asks whether _having_ a cap earns
-anything, rather than which cap is best. On a pool whose margins all fit inside
-eight it ties every cap from eight up, exactly as it must: a clamp that never
-reaches is not a clamp.
+wins against strong ones — but the case for _eight_, which the rating used until
+the end of September 2026, was never made here. It was inherited from League Standings,
+where the cap is a rule of the league (coach and machine pitch carry a
+per-inning run limit), and applied flat from 8U to 18U even though the same
+settings put player pitch at twelve. Setup's **Check the model** card sweeps it:
+`compareRunCaps` refits the pool at four, six, eight, ten, twelve and sixteen
+runs — and at no cap at all — and reports what each one predicted. The last row
+is the one that asks whether _having_ a cap earns anything, rather than which
+cap is best. On a pool whose margins all fit inside eight it ties every cap from
+eight up, exactly as it must: a clamp that never reaches is not a clamp.
 
 The sweep moves the fit's cap and holds the scoring target still, and that
 separation is the whole reason the answer can be believed. One constant used to
@@ -2096,17 +2109,33 @@ and inverts the third, where pinned at eight reads "no cap is worse than twelve"
 and the margin as played has it beating everything by a factor of two. So the
 sweep grades on the margin as played: still one target for every candidate,
 which is the property that matters, and the least arbitrary one going, since the
-margin is a fact and eight is a choice. It reads higher in absolute terms than
-the **Off by, on average** figure above it, which does clip at eight, so the
+margin is a fact and the cap is a choice. It reads higher in absolute terms than
+the **Off by, on average** figure above it, which does clip at the cap, so the
 rows are to be compared with each other rather than with that one. The
 called-right column is the check on all of it — direction is clamped by
 nothing — though it is the quieter signal, since direction is easy wherever two
 sides are far apart.
 
-Nothing changes on the strength of the sweep by itself — `RATING_CAP` is still
-eight and the League Standings cap, which is a rule rather than a guess, is
-untouched. The card is there so the number stops being inherited and starts
-being a measurement.
+The sweep and the win-chance curve together moved the cap to twelve. On the 9U
+2027 pool of 27 September the sweep read twelve clearly better than eight
+(below). Then, on the backup of 26 September tidied as the app tidies it, the
+year was fitted as the board would have been on 13, 19 and 20 September and
+scored on the decided games between ranked clubs after each (22,685, 17,064 and
+8,155 of them): twelve with the curve refitted to it (`matchupOddsSpread`)
+predicted them better than eight on its own curve at all three — log loss 0.6042
+to 0.6012, 0.5980 to 0.5949 and 0.5864 to 0.5842 — and called the same share of
+winners. Twelve on eight's curve read worse than either, so the two moved
+together. About one game in three is decided by more than eight and one in eight
+by more than twelve, so twelve still stops a rout counting in full; the move
+kept 20 of the 9U top 25, and 201 of the 250 places in the ten pages' top 25s,
+where no cap at all kept 13 and 147. The League Standings cap, which is a rule
+rather than a guess, is untouched.
+
+Run at twelve on the 9U page of 26 September, the card names nothing clearly
+better: sixteen and no cap read 0.006 and 0.003 runs a game lower, inside the
+noise, and eight 0.049 higher. Sixteen is in the sweep so that the cap in use has
+a neighbour above it as well as below. The card is there so the number stays a
+measurement rather than an inheritance.
 
 The card names another cap only when it predicted the held-back games clearly
 better than the one in use: paired game by game, since every row faces the same
@@ -2117,11 +2146,13 @@ answer once the pairing says how far it can be trusted. The standard error is
 counted by club, since every game of a club leans on the one rating the fit gave
 it, and never less than the games read as independent. The bar is two standard
 errors for one rival and rises with the rivals tried, the chance that two leaves
-split between them: 2.53 for the four age gaps and 2.61 for the five caps, as
-four or five tries at one bar of two would give chance that many goes at naming
+split between them: 2.53 for the four age gaps and 2.67 for the six caps, as
+four or six tries at one bar of two would give chance that many goes at naming
 one. On the 9U 2027 pool of 27 September a cap of 12 read 0.050 runs a game
-better than eight over 31,581 held-back games, 9.2 standard errors, and ten read
-0.034, 10.9; no cap at all read 0.032 worse, well inside its own spread.
+better than the eight then in use over 31,581 held-back games, 9.2 standard errors, and ten read
+0.034, 10.9; no cap at all read 0.032 worse, well inside its own spread. That was
+with the wins by more than thirty runs, one of them 9,999, still counted; with them
+set aside, as they now are, no cap reads about as well as twelve (above).
 
 #### Recent form
 
@@ -2204,7 +2235,10 @@ pool at 1, 1.5, 2, 2.5 and 3 and names another value only when it predicted the
 games between two rated clubs clearly better than two, by the same paired rule as
 the caps. On the pool of 27 September 1.5 read 0.0011 runs a game better over
 21,986 such games, 1.1 standard errors, and the card had named it best on that
-alone; 2.5 and 3 read clearly worse.
+alone; 2.5 and 3 read clearly worse. All of that was measured with the rating
+capped at eight. Run again with the cap at twelve, on the 9U page of 26
+September, two still read best of the five (4.9810 runs a game on 21,967 games
+between rated clubs, 1.5 a ten-thousandth behind) and the card named nothing.
 
 **Pooling the fit is not pooling the tables.** Each level lists only its own
 teams — a 9U that beats an 11U in a tournament stays on the 9U page, and the 11U
@@ -2429,6 +2463,11 @@ page that carried a squad on from one of the year's pages stops doing so. League
 keeps its seasons either way; only the links from the deleted pages go, so their fixtures
 stop feeding a ranking. The confirmation says how many pages, games and clubs go, and how
 many clubs stay without that year's ids.
+
+An archived table keeps the numbers it was frozen with, since its games are gone and nothing
+can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of
+September 2026, were rated with the cap at eight and are not comparable with later ones;
+nothing on the card marks which is which beyond the day each was frozen.
 
 ### Backups
 

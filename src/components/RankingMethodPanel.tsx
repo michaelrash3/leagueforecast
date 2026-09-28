@@ -82,8 +82,8 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           </span>{" "}
           Each game contributes the winning margin, clamped to {RATING_CAP} runs. A{" "}
           {RATING_CAP + 12}
-          -0 counts the same as an {RATING_CAP}-0 — otherwise one blowout against a weak team would
-          outweigh a season of close wins against strong ones.
+          -0 counts the same as winning {RATING_CAP}-0 — otherwise one blowout against a weak team
+          would outweigh a season of close wins against strong ones.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">
