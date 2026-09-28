@@ -1571,7 +1571,7 @@ const idFromRow = (cells: string[], columns: ListColumns): string | null => {
  * The club's name out of a list cell that carries more than the name.
  *
  * A team list exported from GameChanger's own pages writes the whole card into one cell —
- * "101 Baseball Bros 9U Fall 2026 • Staff: Eric Deskins • 10 players" — and everything after the
+ * "101 Baseball Bros 9U Fall 2026 • Staff: Avery Stubmore • 10 players" — and everything after the
  * first bullet describes the team rather than naming it. Keeping it would put the coach and a
  * player count into a team's name on any row the pull cannot reach, and into every line of the
  * review before it. The bullet is the separator GameChanger uses; a name that genuinely contains

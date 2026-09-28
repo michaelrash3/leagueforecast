@@ -535,18 +535,18 @@ describe("the coaches and the roster size on a link", () => {
     decodeScoutTeams(encodeScoutTeams(teams), () => []);
 
   it("comes back exactly as it went in", () => {
-    const teams = [withStaff("a", ["Eric Varela", "Sam Wilson"], 23)];
+    const teams = [withStaff("a", ["Avery Mockley", "Blake Mockford"], 23)];
     expect(roundTrip(teams)).toEqual(teams);
   });
 
   it("writes a name shared across a club once", () => {
     const encoded = encodeScoutTeams([
-      withStaff("a", ["Eric Varela", "Sam Wilson"]),
-      withStaff("b", ["Eric Varela", "Sam Wilson"]),
-      withStaff("c", ["Eric Varela", "Cyndee Varela"]),
+      withStaff("a", ["Avery Mockley", "Blake Mockford"]),
+      withStaff("b", ["Avery Mockley", "Blake Mockford"]),
+      withStaff("c", ["Avery Mockley", "Dana Mockley"]),
     ]);
-    // A club's officer sits on every team it runs; three links, three distinct names.
-    expect(encoded.p).toEqual(["Eric Varela", "Sam Wilson", "Cyndee Varela"]);
+    // A club's jory sits on every team it runs; three links, three distinct names.
+    expect(encoded.p).toEqual(["Avery Mockley", "Blake Mockford", "Dana Mockley"]);
   });
 
   it("leaves the dictionary off a pool that has no staff", () => {
@@ -556,7 +556,7 @@ describe("the coaches and the roster size on a link", () => {
   });
 
   it("reads a pool written before staff existed as having none", () => {
-    const encoded = encodeScoutTeams([withStaff("a", ["Eric Varela"], 12)]);
+    const encoded = encodeScoutTeams([withStaff("a", ["Avery Mockley"], 12)]);
     // What an older writer produced: the first eleven slots and no dictionary.
     const older = {
       ...encoded,
@@ -582,7 +582,7 @@ describe("the coaches and the roster size on a link", () => {
   });
 
   it("drops a staff index pointing at a name that is not there", () => {
-    const encoded = encodeScoutTeams([withStaff("a", ["Eric Varela"])]);
+    const encoded = encodeScoutTeams([withStaff("a", ["Avery Mockley"])]);
     const broken = { ...encoded, p: [] };
     // A truncated dictionary loses the names, never the link they were on.
     const [team] = decodeScoutTeams(broken, () => []);

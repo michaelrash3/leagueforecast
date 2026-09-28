@@ -27,7 +27,7 @@ const club = (
       ageLevel: level,
       season,
       seasonYear: year,
-      staff: over.staff ?? ["Nick Brodbeck", "Peter Boudreau"],
+      staff: over.staff ?? ["Lark Dummywell", "Merit Dummyby"],
     },
   ],
 });
@@ -162,6 +162,8 @@ describe("one squad listed twice in one season", () => {
   });
 
   it("is refused when the coaches say nothing", () => {
-    expect(proposeSeasonPairings(twice({ staff: ["Dana Hall", "Rory Estes"] }), [])).toEqual([]);
+    expect(
+      proposeSeasonPairings(twice({ staff: ["Tatum Stubson", "Umber Stubwick"] }), [])
+    ).toEqual([]);
   });
 });

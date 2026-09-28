@@ -181,25 +181,25 @@ describe("importGcSchedule", () => {
   it("keeps the coaches GameChanger names, and prefers the pasted list when there is one", () => {
     const fromProfile = importGcSchedule(
       {
-        ...schedule({ staff: ["Dana Reed", "Kit Alvarez"] }, [game()]),
+        ...schedule({ staff: ["Tatum Sampleley", "Vale Sampleford"] }, [game()]),
         fetchedAt: "2026-09-14T12:00:00.000Z",
       },
       empty
     );
     const pulled = fromProfile.state.teams.find((team) => team.gcTeams?.length);
-    expect(pulled?.gcTeams?.[0]?.staff).toEqual(["Dana Reed", "Kit Alvarez"]);
+    expect(pulled?.gcTeams?.[0]?.staff).toEqual(["Tatum Sampleley", "Vale Sampleford"]);
 
     // The list is the newer reading and the one its owner can correct, so it wins outright.
     const withList = importGcSchedule(
       {
-        ...schedule({ staff: ["Dana Reed"] }, [game()]),
-        listed: { staff: ["Correct Name"] },
+        ...schedule({ staff: ["Tatum Sampleley"] }, [game()]),
+        listed: { staff: ["Wren Samplewell"] },
         fetchedAt: "2026-09-14T12:00:00.000Z",
       },
       empty
     );
     const listed = withList.state.teams.find((team) => team.gcTeams?.length);
-    expect(listed?.gcTeams?.[0]?.staff).toEqual(["Correct Name"]);
+    expect(listed?.gcTeams?.[0]?.staff).toEqual(["Wren Samplewell"]);
   });
 
   /**
@@ -4617,16 +4617,16 @@ describe("what a refresh keeps", () => {
      * stripped the evidence the merge suggestions and the watch list are built on, every week.
      */
     const first = importGcSchedule(
-      withListed({ staff: ["Ada Coach", "Bo Coach"], playerCount: 11 }),
+      withListed({ staff: ["Arden Parker", "Bryce Parker"], playerCount: 11 }),
       empty
     ).state;
-    expect(linkOf(first)?.staff).toEqual(["Ada Coach", "Bo Coach"]);
+    expect(linkOf(first)?.staff).toEqual(["Arden Parker", "Bryce Parker"]);
     expect(linkOf(first)?.playerCount).toBe(11);
     const countedAt = linkOf(first)?.countedAt;
     expect(countedAt).toBeDefined();
 
     const refreshed = importGcSchedule(withListed(undefined), first).state;
-    expect(linkOf(refreshed)?.staff).toEqual(["Ada Coach", "Bo Coach"]);
+    expect(linkOf(refreshed)?.staff).toEqual(["Arden Parker", "Bryce Parker"]);
     expect(linkOf(refreshed)?.playerCount).toBe(11);
     // The day the count was taken travels with it, or it could never be re-checked.
     expect(linkOf(refreshed)?.countedAt).toBe(countedAt);
@@ -4634,15 +4634,15 @@ describe("what a refresh keeps", () => {
 
   it("lets a newer list overwrite both", () => {
     const first = importGcSchedule(
-      withListed({ staff: ["Ada Coach"], playerCount: 8 }),
+      withListed({ staff: ["Arden Parker"], playerCount: 8 }),
       empty
     ).state;
     const second = importGcSchedule(
-      withListed({ staff: ["Cy Coach", "Di Coach"], playerCount: 13 }),
+      withListed({ staff: ["Cyan Parker", "Dell Parker"], playerCount: 13 }),
       first
     ).state;
 
-    expect(linkOf(second)?.staff).toEqual(["Cy Coach", "Di Coach"]);
+    expect(linkOf(second)?.staff).toEqual(["Cyan Parker", "Dell Parker"]);
     expect(linkOf(second)?.playerCount).toBe(13);
   });
 
@@ -5418,7 +5418,7 @@ describe("one squad listed twice in one season", () => {
          * nothing else a schedule records, so the coaches are what has to say these are one
          * roster listed twice.
          */
-        staff: ["Ali Castle", "Crystal Akers"],
+        staff: ["Ezra Sampleby", "Fable Sampleton"],
         ...link,
       },
     ],
@@ -5474,8 +5474,8 @@ describe("one squad listed twice in one season", () => {
      */
     const pairings = proposeSeasonPairings(
       [
-        staffed("a", "Ambush 9U", { staff: ["Dana Hall", "Rory Estes"] }),
-        staffed("b", "Ambush 9U", { staff: ["Marie Ochoa", "Glenn Tapp"] }),
+        staffed("a", "Ambush 9U", { staff: ["Tatum Stubson", "Umber Stubwick"] }),
+        staffed("b", "Ambush 9U", { staff: ["Gale Sampleson", "Hollis Samplewick"] }),
       ],
       [listed("gc-a", "g1"), listed("gc-b", "g2")]
     );
@@ -5490,7 +5490,7 @@ describe("one squad listed twice in one season", () => {
      * more often than a club fielding two identical squads. Strong enough to offer; never strong
      * enough to apply on its own.
      */
-    const coaches = ["Dana Hall", "Rory Estes"];
+    const coaches = ["Tatum Stubson", "Umber Stubwick"];
     const pairings = proposeSeasonPairings(
       [
         staffed("a", "Ambush 9U", { staff: coaches }),
@@ -5505,11 +5505,11 @@ describe("one squad listed twice in one season", () => {
   });
 
   it("will not take one shared coach for two", () => {
-    // One name in common is as likely to be a club officer sitting on both cards as anything else.
+    // One name in common is as likely to be a club jory sitting on both cards as anything else.
     const pairings = proposeSeasonPairings(
       [
-        staffed("a", "Ambush 9U", { staff: ["Dana Hall", "Rory Estes"] }),
-        staffed("b", "Ambush 9U", { staff: ["Dana Hall", "Wes Pruitt"] }),
+        staffed("a", "Ambush 9U", { staff: ["Tatum Stubson", "Umber Stubwick"] }),
+        staffed("b", "Ambush 9U", { staff: ["Tatum Stubson", "Ives Samplemore"] }),
       ],
       [listed("gc-a", "g1"), listed("gc-b", "g2")]
     );
