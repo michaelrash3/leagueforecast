@@ -849,8 +849,8 @@ const upperTail = (z: number): number => {
 
 /**
  * The bar each of `rivals` settings tried against the one in use must clear: the chance the one
- * rival's bar leaves, split between them (Bonferroni). Tried against one bar each, four or five
- * rivals gave chance four or five goes at naming one of them better — 2 standard errors for one,
+ * rival's bar leaves, split between them (Bonferroni). Tried against one bar each, four or six
+ * rivals gave chance four or six goes at naming one of them better — 2 standard errors for one,
  * about 2.53 for the four age gaps and 2.67 for the six caps.
  */
 export const clearlyBetterBar = (rivals: number): number => {

@@ -67,9 +67,9 @@ export function ModelCheckCard({
   const [interrupted, setInterrupted] = useState(false);
 
   /*
-   * Never in the click handler. The check is eleven fits of the page's year, and run there it froze
-   * the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press paints "Working it
-   * out" first, and the fits run in the rankings worker when there is one.
+   * Never in the click handler. The check is twelve fits of the page's year, and run there, when it
+   * was eleven, it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press
+   * paints "Working it out" first, and the fits run in the rankings worker when there is one.
    */
   const run = () => {
     const forGroup = ageGroupId;

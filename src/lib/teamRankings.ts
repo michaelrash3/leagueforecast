@@ -3248,14 +3248,15 @@ export const MATCHUP_ODDS_SPREAD_PER_YEAR = 0.1;
  * same odds need a wider spread. Refitted the same way on the same pool, now through the app's own
  * fit and shown ratings (`fitScoutYearFor`, `rowsOfYearFit`), the best straight line at each of the
  * three cuts ran from 3.55 to 3.95 at 8U and rose 0.09 to 0.12 a year; the same fit on ratings
- * capped at 8 gave back the old line (2.85 to 3.10, rising 0.10 to 0.11), which is the check that
- * the method measures what it did before. The average, 3.75 rising 0.10 a year, lowered the log
- * loss against cap 8 on its old line at every cut (0.6042 to 0.6012, 0.5980 to 0.5949, 0.5864 to
- * 0.5842) and the Brier score likewise (0.2088 to 0.2076, 0.2061 to 0.2049, 0.2009 to 0.2001), and
- * the favourite it called at about 75% won 73 to 75% of the time and at about 85% won 85 to 86.5%.
- * Cap 12 on the old line was worse than either (0.6067, 0.5984, 0.5871): the cap and the curve move
- * together or not at all. Of the ten levels at three cuts, 23 of the 30 improved; the seven that
- * did not were 10U to 18U by at most 0.0034, on 205 to 1,610 games each.
+ * capped at 8 came close to the old line (2.85 to 3.10 at 8U about its 2.95, rising 0.10 to 0.11
+ * against its 0.09), which is the check that the method measures what it did before. The average,
+ * 3.75 rising 0.10 a year, lowered the log loss against cap 8 on its old line at every cut (0.6042
+ * to 0.6012, 0.5980 to 0.5949, 0.5864 to 0.5842) and the Brier score likewise (0.2088 to 0.2076,
+ * 0.2061 to 0.2049, 0.2009 to 0.2001), and the favourite it called at about 75% won 73 to 75% of
+ * the time and at about 85% won 85 to 86.5%. Cap 12 on the old line was worse than either (0.6067,
+ * 0.5984, 0.5871): the cap and the curve move together or not at all. Of the ten levels at three
+ * cuts, 23 of the 30 improved; the seven that did not were 10U to 18U by at most 0.0034, on 205 to
+ * 1,610 games each.
  *
  * A level outside 8U to 18U, where the pool had nothing to measure, is read as the nearer end; a
  * matchup with no level is read at 12U, whose spread, 4.15, sits among the flat values that did

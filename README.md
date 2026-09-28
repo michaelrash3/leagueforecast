@@ -337,14 +337,15 @@ The discount weighs each game by what it can say about the club: `1 - 1/(1.5 + t
 opponent's games)`. A win over a stand-in seen once mostly pins the stand-in, which has
 nothing else to go on, and leaves the club 0.6 of a game, what the ridge leaves it; a win
 over a club with twenty games leaves 0.95. So eight wins over one-game stand-ins are
-discounted more than eight over clubs with seasons of their own, and the Games column
-still counts every game. On the 2027 year of 26 September, fitted as the app fits it and
-scored on the next week's same-level games at eight cut days, the Brier score improved at
-every cut, −0.00010 ± 0.00002 over 73,614 games; thinning every count by the pool's average
-ratio, or shuffling which opponent a game was against, gained nothing, so it is the
-opponents that help. The shown win chance moves a median 0.14 points. On the 14U 2027 board
-of the same pool, "Florida", 19-2 with all 21 games against stand-ins or slots, goes from #22
-to #24, and Texas Edge Black, 5-0 against clubs, from #24 to #23.
+discounted more than eight over clubs with seasons of their own, and the Games column still
+counts every game. On the 2027 year of 26 September, with the cap then at eight and the
+win-chance curve fitted to it, fitted as the app fits it and scored on the next week's
+same-level games at eight cut days, the Brier score improved at every cut, −0.00010 ±
+0.00002 over 73,614 games; thinning every count by the pool's average ratio, or shuffling
+which opponent a game was against, gained nothing, so it is the opponents that help. The
+shown win chance moves a median 0.14 points. On the 14U 2027 board of the same pool,
+"Florida", 19-2 with all 21 games against stand-ins or slots, goes from #22 to #24, and
+Texas Edge Black, 5-0 against clubs, from #24 to #23.
 
 Nothing in the panel is coloured by outcome. Winning is not always good news and
 losing is not always bad: a narrow loss to a much stronger club can lift a thinly
@@ -2116,17 +2117,19 @@ nothing — though it is the quieter signal, since direction is easy wherever tw
 sides are far apart.
 
 The sweep and the win-chance curve together moved the cap to twelve. On the 9U
-2027 pool of 27 September the sweep read twelve clearly better than eight (below).
-Fitted as the board would have been on 13, 19 and 20 September and scored on the
-games after each, twelve with the curve refitted to it (`matchupOddsSpread`)
+2027 pool of 27 September the sweep read twelve clearly better than eight
+(below). Then, on the backup of 26 September tidied as the app tidies it, the
+year was fitted as the board would have been on 13, 19 and 20 September and
+scored on the decided games between ranked clubs after each (22,685, 17,064 and
+8,155 of them): twelve with the curve refitted to it (`matchupOddsSpread`)
 predicted them better than eight on its own curve at all three — log loss 0.6042
 to 0.6012, 0.5980 to 0.5949 and 0.5864 to 0.5842 — and called the same share of
 winners. Twelve on eight's curve read worse than either, so the two moved
 together. About one game in three is decided by more than eight and one in eight
-by more than twelve, so twelve still stops a rout counting in full; the move kept
-20 of the 9U top 25, and 201 of the 250 places in the ten pages' top 25s, where
-no cap at all kept 13 and 147. The League Standings cap, which is a rule rather
-than a guess, is untouched.
+by more than twelve, so twelve still stops a rout counting in full; the move
+kept 20 of the 9U top 25, and 201 of the 250 places in the ten pages' top 25s,
+where no cap at all kept 13 and 147. The League Standings cap, which is a rule
+rather than a guess, is untouched.
 
 Run at twelve on the 9U page of 26 September, the card names nothing clearly
 better: sixteen and no cap read 0.006 and 0.003 runs a game lower, inside the
@@ -2147,7 +2150,9 @@ split between them: 2.53 for the four age gaps and 2.67 for the six caps, as
 four or six tries at one bar of two would give chance that many goes at naming
 one. On the 9U 2027 pool of 27 September a cap of 12 read 0.050 runs a game
 better than the eight then in use over 31,581 held-back games, 9.2 standard errors, and ten read
-0.034, 10.9; no cap at all read 0.032 worse, well inside its own spread.
+0.034, 10.9; no cap at all read 0.032 worse, well inside its own spread. That was
+with the wins by more than thirty runs, one of them 9,999, still counted; with them
+set aside, as they now are, no cap reads about as well as twelve (above).
 
 #### Recent form
 
@@ -2460,9 +2465,9 @@ stop feeding a ranking. The confirmation says how many pages, games and clubs go
 many clubs stay without that year's ids.
 
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
-can fit it again. Tables frozen before 28 September 2026 were rated with the cap at eight and
-the win-chance curve fitted to it, so they are not comparable with a table frozen after the
-cap went to twelve; the frozen date on the card is what tells them apart.
+can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of
+September 2026, were rated with the cap at eight and are not comparable with later ones;
+nothing on the card marks which is which beyond the day each was frozen.
 
 ### Backups
 
