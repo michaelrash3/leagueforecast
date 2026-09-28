@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { coerceLogs, coerceSettings } from "../validate";
-import { DEFAULT_SETTINGS, type Settings } from "../types";
+import { DEFAULT_SETTINGS } from "../types";
 
 describe("postseason format coercion", () => {
   it("keeps a stored format", () => {
@@ -47,16 +47,19 @@ describe("what a final needs, by score detail", () => {
     },
   };
 
-  it("keeps a runs-only final in a league that never records strikeouts", () => {
-    // Machine and coach pitch normally require strikeouts before a game counts
-    // as final; a runs-only league has none to give, and the score is enough.
-    const settings: Settings = { ...DEFAULT_SETTINGS, pitchMode: "machine", scoreDetail: "runs" };
-    expect(coerceLogs(scoredGame, [], settings).game?.isFinal).toBe(true);
+  it("keeps a final with a score and no strikeouts, whatever the league records", () => {
+    // Nothing on the way in ever asked for strikeouts: Verify Final takes a score, Fill scores
+    // from Team Rankings writes runs, and a league that switched to the full box score had a
+    // season of runs-only finals already. Machine and coach pitch under the full box score used
+    // to revoke them on load, which erased every one on the next reload, and the save after it
+    // wrote the erasure back, so switching back to runs only did not undo it. The reading takes
+    // no settings now, so no setting can do that again.
+    expect(coerceLogs(scoredGame, []).game?.isFinal).toBe(true);
   });
 
-  it("still requires strikeouts under a full box score", () => {
-    const settings: Settings = { ...DEFAULT_SETTINGS, pitchMode: "machine", scoreDetail: "full" };
-    expect(coerceLogs(scoredGame, [], settings).game?.isFinal).toBe(false);
+  it("still takes a final away from a game with no score", () => {
+    const unscored = { game: { ...scoredGame.game, homeRuns: "" } };
+    expect(coerceLogs(unscored, []).game?.isFinal).toBe(false);
   });
 });
 

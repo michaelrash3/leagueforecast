@@ -123,11 +123,7 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
   return out;
 };
 
-export const coerceLogs = (
-  raw: unknown,
-  matchups: Matchup[] = [],
-  settings: Pick<Settings, "maxScoreCap" | "pitchMode" | "scoreDetail"> = DEFAULT_SETTINGS
-): Record<string, GameLog> => {
+export const coerceLogs = (raw: unknown, matchups: Matchup[] = []): Record<string, GameLog> => {
   if (!isRecord(raw)) return {};
   const matchupIds = new Set(matchups.map((matchup) => matchup.id));
   const requireKnownGames = matchupIds.size > 0;
@@ -151,13 +147,12 @@ export const coerceLogs = (
       log.awayWalksAllowed = clampGameStatText(value.awayWalksAllowed);
     if (value.homeWalksAllowed !== undefined)
       log.homeWalksAllowed = clampGameStatText(value.homeWalksAllowed);
+    // A final is a score and nothing more. Machine and coach pitch under the full box score once
+    // needed strikeouts here too, but nothing on the way in asks for them — Verify Final takes a
+    // score, Fill scores from Team Rankings writes runs — so the rule only ever surfaced as every
+    // such final read back as not final on the next reload, and saved that way.
     const hasScore = log.awayRuns !== "" && log.homeRuns !== "";
-    const hasKs = log.awayK !== "" && log.homeK !== "";
-    // A runs-only league never enters strikeouts, so demanding them here would
-    // quietly un-final every machine- and coach-pitch game on the next reload.
-    const hasRequiredStats =
-      settings.scoreDetail === "runs" || settings.pitchMode === "player" ? hasScore : hasKs;
-    log.isFinal = Boolean(log.isFinal && hasScore && hasRequiredStats);
+    log.isFinal = Boolean(log.isFinal && hasScore);
     out[key] = log;
   });
   return out;

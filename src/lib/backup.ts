@@ -119,10 +119,10 @@ const coerceSeasonSnapshot = (raw: unknown, index: number): SeasonSnapshot | nul
     ...(isString(raw.updatedAt) ? { updatedAt: raw.updatedAt } : {}),
     teams,
     matchups,
-    logs: coerceLogs(raw.logs, matchups, settings),
+    logs: coerceLogs(raw.logs, matchups),
     // Bracket logs are keyed by bracket slot rather than by a scheduled game, so they are coerced
     // without a matchup list, exactly as the storage layer reads them.
-    bracketLogs: coerceLogs(raw.bracketLogs, [], settings),
+    bracketLogs: coerceLogs(raw.bracketLogs, []),
     settings,
   };
 };
@@ -190,8 +190,8 @@ export const coerceBackup = (raw: unknown): ParsedBackup | null => {
     season: {
       teams,
       matchups,
-      logs: coerceLogs(raw.logs, matchups, settings),
-      bracketLogs: coerceLogs(isRecord(raw.bracketLogs) ? raw.bracketLogs : {}, [], settings),
+      logs: coerceLogs(raw.logs, matchups),
+      bracketLogs: coerceLogs(isRecord(raw.bracketLogs) ? raw.bracketLogs : {}, []),
       settings,
     },
     teamRankings: coerceTeamRankingsBackup(raw.teamRankings),

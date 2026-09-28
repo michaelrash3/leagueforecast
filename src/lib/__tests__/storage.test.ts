@@ -13,7 +13,9 @@ import {
   loadTeams,
   loadTeamsForSeason,
   renameSeason,
+  saveLogs,
   saveMatchups,
+  saveSettings,
   saveTeams,
   setActiveSeason,
 } from "../storage";
@@ -121,6 +123,32 @@ describe("storage hardening", () => {
         isFinal: true,
       },
     });
+  });
+});
+
+describe("a final across a reload", () => {
+  it("stays final under a full box score with its strikeouts left blank", () => {
+    // Machine pitch under the full box score is where a final without strikeouts used to be read
+    // back as not final: the Scoreboard showed it Scheduled and the standings lost the game.
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    saveMatchups([{ id: "g1", date: "2026-05-01", away: "A", home: "B" }]);
+    saveSettings({ ...loadSettings(), pitchMode: "machine", scoreDetail: "full" });
+    const final = {
+      awayRuns: "7",
+      awayHits: "",
+      awayK: "",
+      homeRuns: "4",
+      homeHits: "",
+      homeK: "",
+      innings: "6",
+      isFinal: true,
+    };
+    saveLogs({ g1: final });
+
+    expect(loadLogs()).toEqual({ g1: final });
   });
 });
 

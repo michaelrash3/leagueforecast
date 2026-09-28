@@ -137,7 +137,7 @@ const expandCompactSnapshot = (parsed: CompactSnapshot): SharedSnapshot | null =
     v: 1,
     teams: coercedTeams,
     matchups: coercedMatchups,
-    logs: coerceLogs(logs, coercedMatchups, settings),
+    logs: coerceLogs(logs, coercedMatchups),
     settings,
   };
 };
@@ -157,7 +157,7 @@ export const decodeSnapshot = (encoded: string): SharedSnapshot | null => {
     const settings = coerceSettings(parsed.settings);
     const teams = coerceTeams(parsed.teams);
     const matchups = coerceMatchups(parsed.matchups, teams);
-    const logs = coerceLogs(parsed.logs, matchups, settings);
+    const logs = coerceLogs(parsed.logs, matchups);
     return { v: 1, teams, matchups, logs, settings };
   } catch {
     return null;
