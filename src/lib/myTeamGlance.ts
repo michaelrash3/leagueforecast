@@ -1,4 +1,5 @@
 import type { ScoutRankingRow, UpcomingMatchup } from "./teamRankings";
+import { movementOf, type Movement } from "./rankMovement";
 
 /** Where one club stands on a board, and what it plays next: the card above the boards. */
 export type MyTeamGlance = {
@@ -15,6 +16,8 @@ export type MyTeamGlance = {
   rating: number;
   /** The first game still to play: dated ones first, soonest first, as the schedule lists them. */
   next?: UpcomingMatchup;
+  /** Places climbed on this page since last week, once last week's board is known. */
+  movement?: Movement;
 };
 
 /**
@@ -31,7 +34,9 @@ export const myTeamGlance = (
   rankings: readonly ScoutRankingRow[],
   myTeamId: string | undefined,
   stateOf: (teamId: string) => string | undefined,
-  upcoming: readonly UpcomingMatchup[]
+  upcoming: readonly UpcomingMatchup[],
+  /** Every club's place a week ago (`ranksAsOf`), when it has been worked out. */
+  lastWeek: Readonly<Record<string, number>> | null = null
 ): MyTeamGlance | null => {
   if (myTeamId === undefined) return null;
   const row = rankings.find((candidate) => candidate.teamId === myTeamId);
@@ -47,14 +52,17 @@ export const myTeamGlance = (
     });
   }
   const next = upcoming[0];
+  const nationalRank = row.overallRank ?? row.rank;
+  const movement = movementOf(row.teamId, nationalRank, lastWeek);
   return {
     teamId: row.teamId,
     teamName: row.teamName,
-    nationalRank: row.overallRank ?? row.rank,
+    nationalRank,
     nationalOf: rankings.length,
     ...(state && stateRank !== undefined ? { state, stateRank, stateOf: inState } : {}),
     record: row.record,
     rating: row.rating,
     ...(next ? { next } : {}),
+    ...(movement !== undefined ? { movement } : {}),
   };
 };

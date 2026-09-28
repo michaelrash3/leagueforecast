@@ -1,6 +1,6 @@
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import { formatIsoDayShort } from "../../lib/date";
-import { formatRating } from "./RankingList";
+import { formatRating, MovementMark } from "./RankingList";
 import { card } from "../../styles/tokens";
 
 type MyTeamCardProps = {
@@ -43,6 +43,12 @@ export function MyTeamCard({ glance, segmentName, onOpenTeam }: MyTeamCardProps)
           #{glance.nationalRank.toLocaleString()} of {glance.nationalOf.toLocaleString()}
         </strong>{" "}
         nationally
+        {glance.movement !== undefined && glance.movement !== 0 && (
+          <>
+            {" "}
+            <MovementMark movement={glance.movement} />
+          </>
+        )}
         {glance.state && glance.stateRank !== undefined && glance.stateOf !== undefined && (
           <>
             {" · "}

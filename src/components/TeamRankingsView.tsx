@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
+import { movementOf } from "../lib/rankMovement";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -37,6 +38,7 @@ import {
   type AgeGroupSeason,
   type LeagueSeasonSnapshot,
   type ScoutGame,
+  type ScoutRankingRow,
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
@@ -760,6 +762,7 @@ export function TeamRankingsView({
     whatIf,
     askWhatIf,
     checkModel,
+    lastWeek,
   } = useRankingsWorker({
     ageGroupId: selectedAgeGroupId,
     teams: allKnown.teams,
@@ -897,6 +900,13 @@ export function TeamRankingsView({
   }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
 
+  /** How far a row on this page's national board has moved since last week. */
+  const boardMovement = useCallback(
+    (row: ScoutRankingRow) =>
+      movementOf(row.teamId, row.overallRank ?? row.rank, lastWeek?.ranks ?? null),
+    [lastWeek]
+  );
+
   /** The team marked as yours, where it stands on this page and what it plays next. */
   const myTeam = useMemo(() => {
     if (myTeamId === undefined) return null;
@@ -905,8 +915,15 @@ export function TeamRankingsView({
       myTeamId === reportForId
         ? upcomingRows
         : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
-    return myTeamGlance(rankings, myTeamId, (teamId) => stateById.get(teamId), upcoming);
+    return myTeamGlance(
+      rankings,
+      myTeamId,
+      (teamId) => stateById.get(teamId),
+      upcoming,
+      lastWeek?.ranks ?? null
+    );
   }, [
+    lastWeek,
     myTeamId,
     reportForId,
     upcomingRows,
@@ -2127,6 +2144,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onOpenTeam={setOpenTeamId}
               onMarkMine={setMyTeam}
               myTeam={myTeam}
+              movementOf={boardMovement}
               onRemoveTeam={removeTeamById}
             />
           )}

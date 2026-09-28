@@ -6,6 +6,7 @@ import { RankingList, formatRating } from "./RankingList";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { useWideViewport } from "../../hooks/useWideViewport";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
+import type { Movement } from "../../lib/rankMovement";
 import { MyTeamCard } from "./MyTeamCard";
 import { card, pill } from "../../styles/tokens";
 
@@ -56,6 +57,8 @@ type RankingsSectionProps = {
   onRemoveTeam: (teamId: string) => void;
   /** The team marked as yours on this page, where it stands and what it plays next. */
   myTeam?: MyTeamGlance | null;
+  /** How far a row has moved on this page since last week (`movementOf`). */
+  movementOf?: (row: ScoutRankingRow) => Movement | undefined;
 };
 
 /**
@@ -98,6 +101,7 @@ export function RankingsSection({
   onMarkMine,
   onRemoveTeam,
   myTeam,
+  movementOf,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -175,7 +179,12 @@ export function RankingsSection({
                   {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
                 </span>
               </div>
-              <RankingList rows={nationalTop} onOpen={onOpenTeam} placeOf={placeOf} />
+              <RankingList
+                rows={nationalTop}
+                onOpen={onOpenTeam}
+                placeOf={placeOf}
+                {...(movementOf ? { movementOf } : {})}
+              />
             </div>
 
             <div className={`${card} p-5`}>

@@ -257,6 +257,16 @@ game with the chance to win it (`myTeamGlance`). "Where are we ranked?" is asked
 every field, and without the card the only answer was Show all and a hundred rows
 at a time. The card reads only what the page already has, so it costs nothing.
 
+**Movement since last week.** The national board and the card mark how far each
+club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club that was
+not ranked then. A board keeps no history, so last week's is fitted again from the
+games played by then (`ranksAsOf`), once the board on screen is up, in the rankings
+worker for a large pool. That fit gives every page of the year at once and only its
+places are kept, a number a club, rather than a second year's fit of about 44 MB. A
+result posted since for a game played before that day is counted in it, so last week
+recomputed can differ from what was on screen then. In the first week of a half there
+is no board a week ago and nothing is marked.
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that

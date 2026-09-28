@@ -18,6 +18,8 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
+import { daysBefore, ranksAsOf } from "../lib/rankMovement";
+import { todayIsoDay } from "../lib/date";
 import { createWorker } from "./createWorker";
 
 type RankingsInput = {
@@ -64,6 +66,12 @@ const NOT_ASKED: WhatIfState = { status: "idle" };
 /** A settled answer, remembered against the ask it answers so a stale one is never shown. */
 type WhatIfResult = { ask: WhatIfAsk; curve: WhatIfCurve | null };
 
+/** Every club's place on its page a week ago (`ranksAsOf`), and the day that was. */
+export type LastWeek = { asOf: string; ranks: Record<string, number> };
+
+/** Last week's places, remembered against the board they belong beside. */
+type LastWeekResult = { snapshot: RankingsInput; lastWeek: LastWeek };
+
 /**
  * The pool the worker holds, as this hook last shipped it.
  *
@@ -94,6 +102,8 @@ export function useRankingsWorker(input: RankingsInput): {
    * done, because the answer would describe a pool that is no longer there.
    */
   checkModel: () => Promise<ModelCheckAnswer | null>;
+  /** Each club's place a week ago, once the board is up; null until then. */
+  lastWeek: LastWeek | null;
 } {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
   const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
@@ -106,6 +116,7 @@ export function useRankingsWorker(input: RankingsInput): {
   const [ask, setAsk] = useState<WhatIfAsk | null>(null);
   const [result, setResult] = useState<WhatIfResult | null>(null);
   const askWhatIf = useCallback((next: WhatIfAsk | null) => setAsk(next), []);
+  const [lastWeekResult, setLastWeekResult] = useState<LastWeekResult | null>(null);
 
   /*
    * Derived rather than stored. Only the settled answer is state; whether we are working is
@@ -444,6 +455,94 @@ export function useRankingsWorker(input: RankingsInput): {
     };
   }, [ask, idle, small, snapshot, settledSnapshot, poolFor]);
 
+  /**
+   * Where every club stood a week ago, for the arrows beside the board.
+   *
+   * A second fit of the year, so it waits for the board: the rows are what the reader is waiting
+   * for, and this is decoration on them. A small pool is fitted here on the next turn; a large one
+   * goes to the worker holding the pool, as a what-if does, and the worker keeps the answer for
+   * every page of the year, so switching pages costs nothing more.
+   */
+  useEffect(() => {
+    if (idle) return;
+    if (!small && settledSnapshot !== snapshot) return;
+    const asOf = daysBefore(todayIsoDay());
+    const answer = (ranks: Record<string, number>) =>
+      setLastWeekResult({ snapshot, lastWeek: { asOf, ranks } });
+    const runInline = () =>
+      answer(
+        ranksAsOf(
+          snapshot.ageGroupId,
+          snapshot.teams,
+          snapshot.games,
+          snapshot.ageGroups,
+          snapshot.segment,
+          asOf
+        )
+      );
+    if (small) {
+      const soon = window.setTimeout(runInline, 0);
+      return () => window.clearTimeout(soon);
+    }
+
+    if (!workerRef.current)
+      workerRef.current = createWorker(
+        () =>
+          new Worker(new URL("../workers/rankings.worker.ts", import.meta.url), {
+            type: "module",
+          }),
+        "Rankings"
+      );
+    const worker = workerRef.current;
+    if (!worker) {
+      runInline();
+      return;
+    }
+
+    const id = nextIdRef.current + 1;
+    nextIdRef.current = id;
+    let detach: (() => void) | null = null;
+    const request = (pool: PoolShipment): WorkerRequest => ({
+      kind: "movement",
+      id,
+      ageGroupId: snapshot.ageGroupId,
+      ageGroups: snapshot.ageGroups,
+      ...(snapshot.segment === undefined ? {} : { segment: snapshot.segment }),
+      asOf,
+      pool,
+    });
+    const onMessage = (event: MessageEvent<WorkerResponse>) => {
+      if (event.data.kind === "pool-needed") {
+        shippedRef.current = null;
+        if (event.data.id === id) worker.postMessage(request(poolFor(worker)));
+        return;
+      }
+      if (event.data.kind !== "movement" || event.data.id !== id) return;
+      detach?.();
+      detach = null;
+      answer(event.data.ranks);
+    };
+    // A failed worker is the board's to recover from; the arrows simply do not appear.
+    const onError = () => {
+      detach?.();
+      detach = null;
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    detach = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
+    worker.postMessage(request(poolFor(worker)));
+
+    return () => {
+      detach?.();
+      worker.postMessage({ kind: "cancel", id } satisfies WorkerRequest);
+    };
+  }, [idle, small, snapshot, settledSnapshot, poolFor]);
+
+  const lastWeek = lastWeekResult?.snapshot === snapshot ? lastWeekResult.lastWeek : null;
+
   /** The snapshot on screen now, for a check that outlives the render that started it. */
   const currentSnapshotRef = useRef(snapshot);
   useEffect(() => {
@@ -533,7 +632,8 @@ export function useRankingsWorker(input: RankingsInput): {
     })();
   }, [snapshot, idle, small, poolFor]);
 
-  if (idle) return { rows: NO_ROWS, stale: false, whatIf, askWhatIf, checkModel };
-  if (inlineRows) return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel };
-  return { rows, stale: settledSnapshot !== snapshot, whatIf, askWhatIf, checkModel };
+  if (idle) return { rows: NO_ROWS, stale: false, whatIf, askWhatIf, checkModel, lastWeek: null };
+  if (inlineRows)
+    return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel, lastWeek };
+  return { rows, stale: settledSnapshot !== snapshot, whatIf, askWhatIf, checkModel, lastWeek };
 }
