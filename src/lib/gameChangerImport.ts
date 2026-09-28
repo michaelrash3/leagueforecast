@@ -23,6 +23,8 @@ import {
   ageFromGradYearInName,
   ageLevelFromLooseName,
   ageLevelFromName,
+  ageLevelOf,
+  ageSpanFromName,
   formatGcSeason,
   gcSeasonIsCurrent,
   isNotBaseball,
@@ -79,6 +81,7 @@ import {
   nameFitsWithin,
   withFiledMark,
   type AgeGroup,
+  type GcAgeSource,
   type GcTeamLink,
   type ScoutGame,
   type ScoutTeam,
@@ -1102,7 +1105,11 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
 };
 
 /** The link this pull records against a team, so a later pull knows what it already has. */
-const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
+const linkFor = (
+  schedule: GcTeamSchedule,
+  ageGroupId: string,
+  ageFrom?: GcAgeSource
+): GcTeamLink => {
   const { profile, fetchedAt, listed } = schedule;
   return {
     teamId: profile.id,
@@ -1110,6 +1117,9 @@ const linkFor = (schedule: GcTeamSchedule, ageGroupId: string): GcTeamLink => {
     ageGroupId,
     ...(profile.season ? { season: profile.season.season, seasonYear: profile.season.year } : {}),
     ...(profileAgeLevel(profile) === undefined ? {} : { ageLevel: profileAgeLevel(profile) }),
+    // What GameChanger's own field said, and which rule filed it: see `GcTeamLink.ageFrom`.
+    ...(profile.ageLabel ? { ageLabel: profile.ageLabel } : {}),
+    ...(ageFrom === undefined ? {} : { ageFrom }),
     ...(profile.avatarKey ? { avatarKey: profile.avatarKey } : {}),
     ...(profile.record ? { record: profile.record } : {}),
     /*
@@ -1228,10 +1238,11 @@ const resolveOwnTeam = (
   schedule: GcTeamSchedule,
   ageGroupId: string,
   teams: ScoutTeam[],
-  index: ImportIndex
+  index: ImportIndex,
+  ageFrom?: GcAgeSource
 ): { teamId: string; created: boolean } => {
   const { profile } = schedule;
-  const link = linkFor(schedule, ageGroupId);
+  const link = linkFor(schedule, ageGroupId, ageFrom);
   const known = index.teamByGcId.get(profile.id);
   if (known) {
     replaceTeam(index, teams, withLink(known, link));
@@ -2329,7 +2340,32 @@ const importOne = (
   // The working arrays are mutated from here on; the public entry hands in copies.
   const teams = state.teams;
   const games = state.games;
-  const own = resolveOwnTeam(schedule, group.id, teams, index);
+  /*
+   * Which rule of the ladder above answered, written on the link so the club's panel can say why
+   * it is filed where it is. GameChanger's own reading is a ladder of its own (`ageLevelOf`): a
+   * bracket in the name outranks the age field, and a name is read when the field says nothing,
+   * so the field is read alone to tell which of the two it was.
+   */
+  const ageFrom: GcAgeSource | undefined =
+    named !== undefined
+      ? "you"
+      : gcSaysNow !== undefined
+        ? ageSpanFromName(original.profile.name) === undefined &&
+          ageLevelOf(original.profile.ageLabel, "", seasonYear) === gcSaysNow
+          ? "gamechanger"
+          : "name"
+        : fromLeague !== undefined
+          ? "list"
+          : fromNames.inferred !== undefined
+            ? "opponents"
+            : fromPool !== undefined
+              ? "pool"
+              : fromFixtures !== undefined
+                ? "fixtures"
+                : fromLooseName !== undefined
+                  ? "name"
+                  : undefined;
+  const own = resolveOwnTeam(schedule, group.id, teams, index, ageFrom);
   const ourLevel = profileAgeLevel(profile);
   const outcome: GcImportOutcome = {
     ...base,

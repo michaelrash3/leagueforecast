@@ -590,3 +590,39 @@ describe("the coaches and the roster size on a link", () => {
     expect(team?.gcTeams?.[0]?.teamId).toBe("gc-a");
   });
 });
+
+describe("where a link's age came from", () => {
+  const withSource = (link: Partial<NonNullable<ScoutTeam["gcTeams"]>[number]>): ScoutTeam[] => [
+    {
+      id: "S-HIVE",
+      name: "Example Hive",
+      gcTeams: [
+        {
+          teamId: "gcHIVEFALL26",
+          name: "Example Hive",
+          ageGroupId: "ag_8u_2027",
+          ageLevel: 8,
+          ...link,
+        },
+      ],
+    },
+  ];
+
+  it("keeps GameChanger's field and the rule that filed it through storage", () => {
+    const teams = withSource({ ageLabel: "8U", ageFrom: "gamechanger" });
+    expect(roundTripTeams(teams)).toEqual(teams);
+    // And through the plain JSON a backup carries.
+    expect(coerceScoutTeams(JSON.parse(JSON.stringify(teams)))).toEqual(teams);
+  });
+
+  it("drops a source this app does not write, and writes an old link as it always did", () => {
+    const odd = withSource({ ageFrom: "guess" as never });
+    expect(roundTripTeams(odd)[0]?.gcTeams?.[0]?.ageFrom).toBeUndefined();
+    expect(
+      coerceScoutTeams(JSON.parse(JSON.stringify(odd)))[0]?.gcTeams?.[0]?.ageFrom
+    ).toBeUndefined();
+    // Nothing appended for a link without them: older pools are stored byte for byte as before.
+    const plain = encodeScoutTeams(withSource({}));
+    expect(JSON.stringify(plain)).not.toContain("null,null]");
+  });
+});

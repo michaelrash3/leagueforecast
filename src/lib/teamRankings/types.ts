@@ -107,6 +107,25 @@ export type ScoutTeam = {
   gcTeams?: GcTeamLink[];
 };
 
+/**
+ * Which rung of the import's ladder filed a pulled team at its level (`importOne`), best evidence
+ * first: somebody naming it, GameChanger's own age field, an age written in its name, the league or
+ * organization the user's list puts it under, its opponents' names, the level the pool files its
+ * opponents at, and the clubs its games identify.
+ */
+export type GcAgeSource =
+  "you" | "gamechanger" | "name" | "list" | "opponents" | "pool" | "fixtures";
+
+export const GC_AGE_SOURCES: readonly GcAgeSource[] = [
+  "you",
+  "gamechanger",
+  "name",
+  "list",
+  "opponents",
+  "pool",
+  "fixtures",
+];
+
 /** One GameChanger team id and what GameChanger said about it the last time it was pulled. */
 export type GcTeamLink = {
   /** GameChanger's public team id — the 12 characters in web.gc.com/teams/<id>. */
@@ -119,8 +138,20 @@ export type GcTeamLink = {
   season?: string;
   /** The calendar year GameChanger gives that season ("Fall 2026" → 2026). */
   seasonYear?: number;
-  /** The age level GameChanger lists, as a number (9 for "9U"). */
+  /**
+   * The level it is filed at, as a number (9 for "9U"). Not always GameChanger's word: `ageFrom`
+   * says which rule of the import decided it.
+   */
   ageLevel?: number;
+  /**
+   * GameChanger's own age field for this id when it was last pulled, verbatim ("8U", "Under 13",
+   * "2031"); absent when it gave none. Kept beside `ageLevel` so "why is it filed at 8U?" can be
+   * answered from the page: the user asked it on 28 September 2026 of a club whose name carries no
+   * age, and nothing stored could say whether GameChanger or a list had.
+   */
+  ageLabel?: string;
+  /** Which rule of the import filed it at `ageLevel` (`GcAgeSource`). */
+  ageFrom?: GcAgeSource;
   /**
    * The id of the team's avatar image. GameChanger names an opponent but never gives its team id;
    * the avatar it shows beside that name is the one stable thing that survives the trip, so a

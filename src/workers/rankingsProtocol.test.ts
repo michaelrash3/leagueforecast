@@ -195,6 +195,39 @@ describe("last week's places, from the pool the worker holds", () => {
       pool: { revision },
     }) satisfies WorkerRequest;
 
+  /*
+   * A week of the "My team" rank line asks for one club's place: the whole board's is a number for
+   * every club in the year, sent back for the sake of one.
+   */
+  it("answers for the clubs named, and says when that day's board was empty", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle({ ...movement(2, "2026-09-12"), teamIds: ["A", "nobody"] });
+    const answer = posted[1];
+    if (answer?.kind !== "movement") throw new Error("no answer");
+    const all = ranksAsOf("u10", teams, games, groups, undefined, "2026-09-12");
+    expect(answer.ranks).toEqual({ A: all.A });
+    expect(answer.empty).toBe(false);
+
+    handle({ ...movement(3, "2025-01-01"), teamIds: ["A"] });
+    const before = posted[2];
+    if (before?.kind !== "movement") throw new Error("no answer");
+    expect(before.ranks).toEqual({});
+    expect(before.empty).toBe(true);
+  });
+
+  it("keeps a few past boards, so the weeks of a line do not push last week's out", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle(movement(2, "2026-09-12"));
+    handle({ ...movement(3, "2026-09-05"), teamIds: ["A"] });
+    handle(movement(4, "2026-09-12"));
+    const [, first, , again] = posted;
+    if (first?.kind !== "movement" || again?.kind !== "movement") throw new Error("no answer");
+    // The same object: answered from what was kept, not fitted again.
+    expect(again.ranks).toBe(first.ranks);
+  });
+
   it("fits the year as it stood that day, as ranksAsOf does", () => {
     const { posted, handle } = harness();
     handle({ ...base, id: 1, pool: shipment(1) });

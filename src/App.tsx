@@ -47,6 +47,7 @@ import {
   type SummaryMode,
 } from "./lib/preferences";
 import { ourTeamSummary } from "./lib/ourTeam";
+import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
 import { PlayoffMachine } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
@@ -1895,6 +1896,16 @@ export default function App() {
     },
     [activeSeasonId]
   );
+  /*
+   * Where the followed team's club stands on Team Rankings, as its board last stood there
+   * (`leagueClubRankFor`). Read again whenever the League side is shown, since the Rankings side
+   * is what writes it.
+   */
+  const ourClubRank = useMemo(
+    () =>
+      ourTeamId && appMode === "league" ? leagueClubRankFor(activeSeasonId, ourTeamId) : undefined,
+    [activeSeasonId, ourTeamId, appMode]
+  );
   const ourTeam = useMemo(() => {
     const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
     if (!team) return null;
@@ -2571,6 +2582,7 @@ export default function App() {
                 ourTeam={
                   <OurTeamCard
                     summary={ourTeam}
+                    {...(ourClubRank ? { clubRank: ourClubRank } : {})}
                     teams={teams}
                     onPick={pickOurTeam}
                     onEnterScore={(teamId) => {

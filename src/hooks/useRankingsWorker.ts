@@ -72,6 +72,23 @@ export type LastWeek = { asOf: string; ranks: Record<string, number> };
 /** Last week's places, remembered against the board they belong beside. */
 type LastWeekResult = { snapshot: RankingsInput; lastWeek: LastWeek };
 
+/** A club's place on a past week's board, or null when it had none yet. */
+export type RankHistoryPoint = { asOf: string; rank: number | null };
+
+/** How many weeks back the "My team" rank line looks: most of a half. */
+export const RANK_HISTORY_WEEKS = 8;
+
+/**
+ * The weeks before last week worked out so far for the marked club, oldest first, remembered
+ * against the board and the club they belong to; `done` once there is nothing further back to ask.
+ */
+type HistoryResult = {
+  snapshot: RankingsInput;
+  teamId: string;
+  points: RankHistoryPoint[];
+  done: boolean;
+};
+
 /**
  * The pool the worker holds, as this hook last shipped it.
  *
@@ -104,6 +121,11 @@ export function useRankingsWorker(input: RankingsInput): {
   checkModel: () => Promise<ModelCheckAnswer | null>;
   /** Each club's place a week ago, once the board is up; null until then. */
   lastWeek: LastWeek | null;
+  /**
+   * The marked club's place week by week, oldest first and ending a week ago, filled in a week at
+   * a time once last week is known; null until then, and for a page with no club marked.
+   */
+  history: RankHistoryPoint[] | null;
 } {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
   const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
@@ -117,6 +139,7 @@ export function useRankingsWorker(input: RankingsInput): {
   const [result, setResult] = useState<WhatIfResult | null>(null);
   const askWhatIf = useCallback((next: WhatIfAsk | null) => setAsk(next), []);
   const [lastWeekResult, setLastWeekResult] = useState<LastWeekResult | null>(null);
+  const [historyResult, setHistoryResult] = useState<HistoryResult | null>(null);
 
   /*
    * Derived rather than stored. Only the settled answer is state; whether we are working is
@@ -543,6 +566,107 @@ export function useRankingsWorker(input: RankingsInput): {
 
   const lastWeek = lastWeekResult?.snapshot === snapshot ? lastWeekResult.lastWeek : null;
 
+  /**
+   * The marked club's place on each week's board before last week's, for the "My team" rank line.
+   *
+   * Every week is a fit of the year as it stood that day, so they are asked for one at a time,
+   * each once the one after it is in, with the club named so only its place comes back: a page
+   * switch then waits on at most one week's fit rather than on all of them, and a new board stops
+   * the walk. It stops as well at a week whose board was empty, where the half had not begun, at
+   * two weeks running without the club on the board, and at `RANK_HISTORY_WEEKS`.
+   */
+  const historyTeam = snapshot.myTeamId;
+  const historyHere =
+    historyResult !== null &&
+    historyResult.snapshot === snapshot &&
+    historyResult.teamId === historyTeam
+      ? historyResult
+      : null;
+  useEffect(() => {
+    if (idle || !lastWeek || historyTeam === undefined || historyHere?.done) return;
+    const done = historyHere?.points ?? [];
+    const weeksBack = done.length + 2;
+    const asOf = daysBefore(todayIsoDay(), 7 * weeksBack);
+    const newer = done[0]?.rank ?? lastWeek.ranks[historyTeam] ?? null;
+    const answer = (ranks: Record<string, number>, empty: boolean) => {
+      const rank = ranks[historyTeam] ?? null;
+      setHistoryResult({
+        snapshot,
+        teamId: historyTeam,
+        points: empty ? done : [{ asOf, rank }, ...done],
+        done: empty || weeksBack >= RANK_HISTORY_WEEKS || (rank === null && newer === null),
+      });
+    };
+    const runInline = () => {
+      const ranks = ranksAsOf(
+        snapshot.ageGroupId,
+        snapshot.teams,
+        snapshot.games,
+        snapshot.ageGroups,
+        snapshot.segment,
+        asOf
+      );
+      answer(ranks, Object.keys(ranks).length === 0);
+    };
+    if (small) {
+      const soon = window.setTimeout(runInline, 0);
+      return () => window.clearTimeout(soon);
+    }
+    const worker = workerRef.current;
+    if (!worker) {
+      runInline();
+      return;
+    }
+    const id = nextIdRef.current + 1;
+    nextIdRef.current = id;
+    let detach: (() => void) | null = null;
+    const request = (pool: PoolShipment): WorkerRequest => ({
+      kind: "movement",
+      id,
+      ageGroupId: snapshot.ageGroupId,
+      ageGroups: snapshot.ageGroups,
+      ...(snapshot.segment === undefined ? {} : { segment: snapshot.segment }),
+      asOf,
+      teamIds: [historyTeam],
+      pool,
+    });
+    const onMessage = (event: MessageEvent<WorkerResponse>) => {
+      if (event.data.kind === "pool-needed") {
+        shippedRef.current = null;
+        if (event.data.id === id) worker.postMessage(request(poolFor(worker)));
+        return;
+      }
+      if (event.data.kind !== "movement" || event.data.id !== id) return;
+      detach?.();
+      detach = null;
+      answer(event.data.ranks, event.data.empty === true);
+    };
+    // A failed worker is the board's to recover from; the line simply stops where it got to.
+    const onError = () => {
+      detach?.();
+      detach = null;
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    detach = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
+    worker.postMessage(request(poolFor(worker)));
+    return () => {
+      detach?.();
+      worker.postMessage({ kind: "cancel", id } satisfies WorkerRequest);
+    };
+  }, [idle, small, snapshot, lastWeek, historyTeam, historyHere, poolFor]);
+
+  const history = useMemo((): RankHistoryPoint[] | null => {
+    if (!lastWeek || historyTeam === undefined) return null;
+    return [
+      ...(historyHere?.points ?? []),
+      { asOf: lastWeek.asOf, rank: lastWeek.ranks[historyTeam] ?? null },
+    ];
+  }, [lastWeek, historyTeam, historyHere]);
+
   /** The snapshot on screen now, for a check that outlives the render that started it. */
   const currentSnapshotRef = useRef(snapshot);
   useEffect(() => {
@@ -632,8 +756,25 @@ export function useRankingsWorker(input: RankingsInput): {
     })();
   }, [snapshot, idle, small, poolFor]);
 
-  if (idle) return { rows: NO_ROWS, stale: false, whatIf, askWhatIf, checkModel, lastWeek: null };
+  if (idle)
+    return {
+      rows: NO_ROWS,
+      stale: false,
+      whatIf,
+      askWhatIf,
+      checkModel,
+      lastWeek: null,
+      history: null,
+    };
   if (inlineRows)
-    return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel, lastWeek };
-  return { rows, stale: settledSnapshot !== snapshot, whatIf, askWhatIf, checkModel, lastWeek };
+    return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel, lastWeek, history };
+  return {
+    rows,
+    stale: settledSnapshot !== snapshot,
+    whatIf,
+    askWhatIf,
+    checkModel,
+    lastWeek,
+    history,
+  };
 }

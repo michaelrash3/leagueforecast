@@ -81,13 +81,13 @@ describe("where to find a team", () => {
     expect(pages.has("A")).toBe(true);
   });
 
-  it("has no page for a club known only from somebody else's schedule", () => {
+  it("puts a club known only from somebody else's schedule on the page its games were filed on", () => {
     const pages = teamPages(
       [team("A"), team("B", { nameOnly: true })],
       [game("g1", "ag_9_2027", "A", "B", "2026-09-12")],
       groups
     );
-    expect(pages.has("B")).toBe(false);
+    expect(pages.get("B")).toMatchObject({ ageGroupId: "ag_9_2027", level: 9 });
   });
 
   it("has no page for a team with no games at all", () => {

@@ -6024,3 +6024,73 @@ describe("a pull asked for particular seasons", () => {
     expect(lines).toContain("1 team from a season this pull was not asked for left out.");
   });
 });
+
+/*
+ * Which rule filed a club at its level, and what GameChanger's own age field said, written on the
+ * link: the user asked on 28 September 2026 why a club whose name carries no age was filed at 8U,
+ * and nothing stored could say whether GameChanger or a list had. Invented names.
+ */
+describe("where a pulled club's age came from", () => {
+  const linkOf = (result: ReturnType<typeof importGcSchedule>) =>
+    result.state.teams.find((team) => team.gcTeams?.length)?.gcTeams?.[0];
+
+  it("says GameChanger's age field when that is what answered, with the field verbatim", () => {
+    const link = linkOf(
+      importGcSchedule(
+        schedule({ name: "Example Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
+        empty
+      )
+    );
+    expect(link).toMatchObject({ ageLevel: 8, ageFrom: "gamechanger", ageLabel: "8U" });
+  });
+
+  it("says the name when the name answered, the field saying nothing", () => {
+    const link = linkOf(importGcSchedule(schedule({ name: "Example Hive 9U" }, [game()]), empty));
+    expect(link).toMatchObject({ ageLevel: 9, ageFrom: "name" });
+    expect(link?.ageLabel).toBeUndefined();
+  });
+
+  it("says the name when a bracket in it outranked the field", () => {
+    const link = linkOf(
+      importGcSchedule(
+        schedule({ name: "Example Hive 9U/10U", ageLevel: 10, ageLabel: "9U" }, [game()]),
+        empty
+      )
+    );
+    expect(link).toMatchObject({ ageLevel: 10, ageFrom: "name", ageLabel: "9U" });
+  });
+
+  it("says the list when a league on it answered", () => {
+    const ageless = schedule({ name: "Example Hive", ageLevel: undefined }, [game()]);
+    const link = linkOf(importGcSchedule({ ...ageless, listed: { ageLevel: 8 } }, empty));
+    expect(link).toMatchObject({ ageLevel: 8, ageFrom: "list" });
+  });
+
+  it("says the opponents when their names answered", () => {
+    const ageless = schedule({ name: "Example Hive", ageLevel: undefined }, [
+      game({ id: "o1", opponentName: "Owls 9U" }),
+      game({ id: "o2", opponentName: "Foxes 9U" }),
+      game({ id: "o3", opponentName: "Bears 9U" }),
+    ]);
+    const link = linkOf(importGcSchedule(ageless, empty));
+    expect(link).toMatchObject({ ageLevel: 9, ageFrom: "opponents" });
+  });
+
+  it("says you when somebody named it", () => {
+    const link = linkOf(
+      importGcSchedule(
+        schedule({ name: "Example Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
+        empty,
+        {
+          namedAges: new Map([
+            [
+              "gcAAAAAAAAAA",
+              { teamId: "gcAAAAAAAAAA", level: 9, namedAt: "2026-09-28", pinned: true as const },
+            ],
+          ]),
+        }
+      )
+    );
+    expect(link).toMatchObject({ ageLevel: 9, ageFrom: "you", ageLabel: "8U" });
+  });
+});

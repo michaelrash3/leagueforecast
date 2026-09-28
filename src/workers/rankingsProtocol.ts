@@ -115,6 +115,11 @@ export type MovementRequest = {
   ageGroups: AgeGroup[];
   segment?: SeasonSegment;
   asOf: string;
+  /**
+   * The clubs whose places are wanted, when not every club's: a week of the "My team" rank line
+   * asks for one club, and a whole board's places are a number for every club in the year.
+   */
+  teamIds?: string[];
   pool: PoolShipment;
 };
 
@@ -156,6 +161,8 @@ export type MovementResponse = {
   id: number;
   asOf: string;
   ranks: Record<string, number>;
+  /** No club had a place on that day's board: the half had not started. */
+  empty?: boolean;
   elapsedMs: number;
 };
 
@@ -207,10 +214,13 @@ export const createRankingsHandler = (
   /** The page's rated games in order, for the model check's runs; see `ModelCheckRequest`. */
   let checked: { key: string; games: BacktestGames } | null = null;
   /**
-   * Last week's places, for every page of the year: one refit per pool, day and half rather than
-   * one per page switch, and only the numbers kept, not the fit (`ranksAsOf`).
+   * Past boards' places, for every page of the year: one refit per pool, day and half rather than
+   * one per page switch, and only the numbers kept, not the fit (`ranksAsOf`). A few of them, the
+   * latest used last, so the weeks of a rank line do not push last week's board out and a page
+   * switch does not fit it again.
    */
-  let lastWeek: { key: string; ranks: Record<string, number> } | null = null;
+  const pastBoards = new Map<string, Record<string, number>>();
+  const PAST_BOARDS_KEPT = 3;
   const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
     const today = todayIsoDay();
     const key = yearFitKey(request, pool.revision, today);
@@ -296,25 +306,39 @@ export const createRankingsHandler = (
         request.asOf,
         request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
       ]);
-      if (lastWeek?.key !== key) {
-        lastWeek = {
-          key,
-          ranks: ranksAsOf(
-            request.ageGroupId,
-            held.teams,
-            held.games,
-            request.ageGroups,
-            request.segment,
-            request.asOf
-          ),
-        };
+      let ranks = pastBoards.get(key);
+      if (ranks) pastBoards.delete(key);
+      else
+        ranks = ranksAsOf(
+          request.ageGroupId,
+          held.teams,
+          held.games,
+          request.ageGroups,
+          request.segment,
+          request.asOf
+        );
+      pastBoards.set(key, ranks);
+      while (pastBoards.size > PAST_BOARDS_KEPT) {
+        const oldest = pastBoards.keys().next().value;
+        if (oldest === undefined) break;
+        pastBoards.delete(oldest);
       }
+      const wanted = request.teamIds;
+      const answer = wanted
+        ? Object.fromEntries(
+            wanted.flatMap((teamId) =>
+              ranks[teamId] === undefined ? [] : [[teamId, ranks[teamId]!]]
+            )
+          )
+        : ranks;
       if (!canceled.has(request.id)) {
         post({
           kind: "movement",
           id: request.id,
           asOf: request.asOf,
-          ranks: lastWeek.ranks,
+          ranks: answer,
+          // Whether the board that day had anyone on it, which a club's own answer cannot say.
+          empty: Object.keys(ranks).length === 0,
           elapsedMs: now() - start,
         });
       }

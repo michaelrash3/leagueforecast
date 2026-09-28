@@ -49,3 +49,38 @@ describe("movement since last week", () => {
     expect(await within(card).findByLabelText(/^up \d+ since last week$/)).toBeInTheDocument();
   });
 });
+
+/*
+ * The marked club's place week by week, a line under its place on the "My team" card: each week a
+ * fit of the year as it stood that day, walked back until the half had not begun.
+ */
+describe("the rank line", () => {
+  it("draws the club's place on each week's board up to now", async () => {
+    renderTeamRankings(pool("S-DOE"));
+    const card = await screen.findByRole("region", { name: "My team" });
+    // Does had not played by the 7th and were last on the 14th; they lead now.
+    const line = await within(card).findByRole("img", { name: /^Place by week:/ });
+    expect(line.getAttribute("aria-label")).toMatch(/^Place by week: #4 on .+, #1 now$/);
+    expect(card).toHaveTextContent(/#4 on .+, #1 now/);
+  });
+
+  it("walks back past last week to the weeks before it", async () => {
+    renderTeamRankings(pool("S-COW"));
+    const card = await screen.findByRole("region", { name: "My team" });
+    // Cows played on the 6th, so the board of the 7th has them as well as the 14th's and today's.
+    const line = await within(card).findByRole("img", {
+      name: /^Place by week: #\d+ on .+, #\d+ on .+, #\d+ now$/,
+    });
+    expect(line).toBeInTheDocument();
+  });
+
+  it("draws nothing for a club with only today's place", async () => {
+    renderTeamRankings({
+      ...pool("S-DOE"),
+      games: pool().games.filter((one) => one.date !== undefined && one.date >= "2026-09-19"),
+    });
+    const card = await screen.findByRole("region", { name: "My team" });
+    await screen.findByText(/National top/i);
+    expect(within(card).queryByRole("img", { name: /^Place by week:/ })).toBeNull();
+  });
+});

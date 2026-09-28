@@ -64,10 +64,24 @@ export const searchTerms = (query: string): SearchTerms => {
  * A state's name is still a word too: "georgia smith" is as likely a coach called Georgia Smith as
  * a Smith in Georgia, so the name counts wherever it is written out, a coach's name included.
  */
-const matchesTerms = (option: TeamSearchOption, terms: SearchTerms): boolean => {
+/** What a search reads of an option, lower-cased once per option rather than once a keystroke. */
+type SearchText = { text: string; lower: string; coaches: string[] };
+const searchTexts = new WeakMap<TeamSearchOption, SearchText>();
+const searchTextOf = (option: TeamSearchOption): SearchText => {
+  const known = searchTexts.get(option);
+  if (known) return known;
   const text = `${option.label} ${option.detail ?? ""}`;
-  const lower = text.toLowerCase();
-  const coaches = option.coaches?.map((coach) => coach.toLowerCase()) ?? [];
+  const read = {
+    text,
+    lower: text.toLowerCase(),
+    coaches: option.coaches?.map((coach) => coach.toLowerCase()) ?? [],
+  };
+  searchTexts.set(option, read);
+  return read;
+};
+
+const matchesTerms = (option: TeamSearchOption, terms: SearchTerms): boolean => {
+  const { text, lower, coaches } = searchTextOf(option);
   const written = (word: string) => lower.includes(word) || coaches.some((c) => c.includes(word));
   return (
     terms.words.every(written) &&
@@ -104,6 +118,40 @@ export const gcIdsInSearch = (query: string): string[] => {
   return [...ids];
 };
 
+/**
+ * The options in the order a search lists them, sorted once per list rather than once a keystroke.
+ *
+ * Find a team offers every club in the pool, and once the clubs known only from other schedules
+ * joined it that was about 93,000; sorting them on every keystroke took 130 to 190 ms of it,
+ * measured in Node, which a phone multiplies. The list is a memo's, so the same array comes back
+ * until the pool changes, and the order is kept against it.
+ */
+const sortedLists = new WeakMap<readonly TeamSearchOption[], TeamSearchOption[]>();
+/** One collator for every comparison: the same order as `localeCompare`, without making one each. */
+const collator = new Intl.Collator();
+const sortedOptions = (options: readonly TeamSearchOption[]): TeamSearchOption[] => {
+  const known = sortedLists.get(options);
+  if (known) return known;
+  const sorted = options
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.priority ?? Infinity) - (b.priority ?? Infinity) ||
+        collator.compare(a.label, b.label) ||
+        collator.compare(a.detail ?? "", b.detail ?? "")
+    );
+  sortedLists.set(options, sorted);
+  return sorted;
+};
+
+/**
+ * Sorts a list and reads every option's text ahead of the first search of it, which is otherwise
+ * what that first keystroke waits on: about 0.4 s on 93,000 options, measured in Node.
+ */
+export const warmTeamSearch = (options: readonly TeamSearchOption[]): void => {
+  sortedOptions(options).forEach(searchTextOf);
+};
+
 export const matchTeamOptions = (
   options: readonly TeamSearchOption[],
   query: string,
@@ -116,14 +164,7 @@ export const matchTeamOptions = (
   }
   const terms = searchTerms(query);
   const searching = terms.words.length > 0 || terms.states.length > 0;
-  const sorted = options
-    .slice()
-    .sort(
-      (a, b) =>
-        (a.priority ?? Infinity) - (b.priority ?? Infinity) ||
-        a.label.localeCompare(b.label) ||
-        (a.detail ?? "").localeCompare(b.detail ?? "")
-    );
+  const sorted = sortedOptions(options);
   const matches = searching ? sorted.filter((option) => matchesTerms(option, terms)) : sorted;
   return { shown: matches.slice(0, limit), total: matches.length };
 };

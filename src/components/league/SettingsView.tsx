@@ -294,9 +294,11 @@ export function SettingsView({
               <option value="0">No cap</option>
             </select>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Standings, ratings, and projections cap each game&apos;s run-differential credit at
+              The standings and their run-differential tiebreaker cap each game&apos;s margin at
               this amount. <strong>Auto</strong> uses 8 runs for machine/coach pitch (per-inning run
-              limit) and 12 for player pitch (9U+ has no run limit).
+              limit) and 12 for player pitch (9U+ has no run limit). Power ratings and forecasts are
+              not bound by the rule: they count each game&apos;s real margin, up to 20 runs, which
+              called real results better.
             </p>
           </label>
 

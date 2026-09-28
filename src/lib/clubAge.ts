@@ -1,4 +1,10 @@
-import { gcLinkSquadYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
+import {
+  gcLinkSquadYear,
+  type AgeGroup,
+  type GcAgeSource,
+  type ScoutGame,
+  type ScoutTeam,
+} from "./teamRankings";
 import {
   ageGroupLevel,
   ageGroupYear,
@@ -36,12 +42,17 @@ export type ClubAgeChange = ClubAgeState & {
  *
  * Null for a club with no GameChanger link in the year, whose level is read off its games and
  * whose games were all filed by other clubs, and for a level this app does not rank.
+ *
+ * `source` is what the links say decided the level (`GcTeamLink.ageFrom`): "you" when somebody
+ * sets it, and null to say nothing when it is handed back, since what the app had used is only
+ * known again once a pull asks. Absent leaves it as it was.
  */
 export const setClubAge = (
   state: ClubAgeState,
   clubId: string,
   level: number,
-  year: number
+  year: number,
+  source?: GcAgeSource | null
 ): ClubAgeChange | null => {
   if (!Number.isInteger(level) || level < MIN_AGE_LEVEL || level > MAX_AGE_LEVEL) return null;
   const club = state.teams.find((team) => team.id === clubId);
@@ -73,11 +84,19 @@ export const setClubAge = (
 
   const gcTeamIds = links.map((link) => link.teamId);
   const own = new Set(gcTeamIds);
-  const relinked = club.gcTeams?.map((link) =>
-    own.has(link.teamId) && (link.ageGroupId !== page.id || link.ageLevel !== level)
-      ? { ...link, ageGroupId: page.id, ageLevel: level }
-      : link
-  );
+  const sourced = (link: NonNullable<ScoutTeam["gcTeams"]>[number]) => {
+    if (source === undefined || link.ageFrom === (source ?? undefined)) return link;
+    const { ageFrom: _was, ...rest } = link;
+    return source === null ? rest : { ...rest, ageFrom: source };
+  };
+  const relinked = club.gcTeams?.map((link) => {
+    if (!own.has(link.teamId)) return link;
+    const moved =
+      link.ageGroupId !== page.id || link.ageLevel !== level
+        ? { ...link, ageGroupId: page.id, ageLevel: level }
+        : link;
+    return sourced(moved);
+  });
   const teams =
     relinked && relinked.some((link, at) => link !== club.gcTeams?.[at])
       ? state.teams.map((team) => (team.id === clubId ? { ...club, gcTeams: relinked } : team))

@@ -165,6 +165,15 @@ A person outranks all five. A level named by hand stands in until GameChanger's 
 answer _changes_, and one set on a club's panel stands until it is taken back — see **Naming an
 age**.
 
+**The panel says which of them answered.** Each GameChanger link records the rule that filed it
+(`GcTeamLink.ageFrom`: GameChanger's age field, the name, a league or organization on your list,
+the opponents' names, where its opponents are filed, the clubs its games identify, or you) and
+GameChanger's own age field verbatim (`ageLabel`), and the link line reads "filed at 8U, from its
+league or organization on your list; GameChanger gives no age". The user asked on 28 September 2026
+why a club whose name carries no age was filed at 8U, and nothing stored could say: the rules
+that read opponents' names only run when nothing above them answered, so it was the age field or
+the list, and which one was lost. A link pulled before this says nothing until its next pull.
+
 #### High school squads are left out
 
 A varsity or JV side plays other varsity and JV sides. Its whole schedule is the
@@ -267,6 +276,15 @@ places are kept, a number a club, rather than a second year's fit of about 44 MB
 result posted since for a game played before that day is counted in it, so last week
 recomputed can differ from what was on screen then. In the first week of a half there
 is no board a week ago and nothing is marked.
+
+**The rank line.** Under the card's place, a line of the club's place week by week:
+last week's board, then each week before it, then today's, first place at the top.
+Each week is another fit of the year as it stood that day, so the worker is asked
+for them one at a time, naming the club so only its place comes back, and keeps the
+last three boards so a line's weeks do not push last week's out (`RANK_HISTORY_WEEKS`,
+eight at most). A page switch waits on at most one week's fit, and the walk stops at a
+week whose board was empty, where the half had not begun, or at two weeks running
+without the club on it. Nothing is drawn until two weeks have a place.
 
 ### Scouting report
 
@@ -2017,7 +2035,11 @@ pulled clubs on that pool — and those are placed by the clubs they played inst
 played by OH, KY clubs", up to three states, most games first (`statesThatPlayed`). The state a
 pulled club's opponents most often come from is its own for 92% of the 48,045 clubs that have
 one, and 1,265 of the clubs with none have played a club that does. Clubs known only as a name
-on someone else's schedule are still left out of the search, as they are left out of the tables.
+on someone else's schedule are found too, on the page their games were filed on, and open there
+with every game they are in, though no table ranks them. With them the search offers about
+93,000 clubs, so it sorts the list and reads its text once, in the background after the list is
+built, rather than on every keystroke: 130 to 190 ms a keystroke became 35 to 55, measured in
+Node on 93,000 made-up clubs.
 
 **Finding a club by its GameChanger id.** The same pickers take a GameChanger team id, or a link
 to a team's page, and answer with the club that id is linked to (`gcIdsInSearch`): an id is what
@@ -2112,6 +2134,34 @@ no date and cannot be placed on the league's timeline without leaking the future
 
 A team the fit never rated carries no rating at all, and its forecast is exactly
 the number it was before any of this existed.
+
+**Measured on real games, the rating pulls harder and is fitted to real margins.**
+The weight above says how much of a pick the rating gets; `RATING_EDGE_PER_RUN`
+says how hard a run of rating pulls it, and the league's cap on run differential
+used to bound the rating itself. Both were set on simulations: 0.25 a run, held
+below the 0.43 that fitted best because overdispersed simulated scoring punished
+anything higher, and the league's own cap of 8. The user ruled on 28 September
+2026 that the cap is a standings rule the forecast need not follow, so both were
+measured on the pool of 26 September instead. Every state's pulled clubs on a 2027
+page (20 or more) made a pseudo-league; its games among themselves up to 13, 19 or
+20 September were the season so far, the pool's other games touching those clubs
+were the Team Rankings results a linked league is handed, and the 54,265 league
+games after each cut were scored through the app's own engine and `predictGame`.
+
+| Cap, weight         | Log loss with results | Without | Called ~75%, won |
+| ------------------- | --------------------- | ------- | ---------------- |
+| 8, 0.25 (as it was) | 0.6431                | 0.6484  | 90%              |
+| 20, 0.25            | 0.6327                | 0.6394  | 85%              |
+| 20, 0.43 (as it is) | 0.6230                | 0.6303  | 76%              |
+| none, 0.43          | 0.6229                | 0.6303  | 76%              |
+
+So the forecast's fit counts each game's margin up to 20 runs (`FORECAST_RUN_CAP`)
+whatever the league's setting — twenty rather than none so a mistyped 91-1 is not a
+ninety-run win — and the rating pulls at 0.43 a run. The standings, their
+run-differential tiebreaker and the per-game stats model keep the league's cap. The
+Dashboard's matchup odds were refitted on the same games: a spread of 4.7 runs where
+it was 2.8 (log loss 0.6254 to 0.6188 with results), and 3.95 for machine and coach
+pitch, which is what the 8U pages fitted.
 
 ### Ratings
 
@@ -2399,6 +2449,14 @@ and **Enter a score**, which opens the Schedule on that team's games. The pick i
 this browser's, one per season (`readOurTeam`), and deliberately not a setting:
 settings travel in a shared link, and a parent's team is not the coach's they send
 the standings to. It is not in a backup either, for the same reason.
+
+When the team is linked to a Team Rankings club, the card also gives the club's place
+on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall
+2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
+of the whole year's pool, so each time a board is up on the Team Rankings side the
+places of the clubs its page's league seasons are linked to are written to a small
+per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
+card reads them with the day they were read.
 
 ## Settings
 
