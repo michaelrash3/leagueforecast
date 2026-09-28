@@ -15,6 +15,8 @@ import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { TeamSearchSelect } from "../TeamSearchSelect";
+import { ClubCompare } from "./ClubCompare";
+import type { ClubComparison } from "../../lib/clubCompare";
 import { useWideViewport } from "../../hooks/useWideViewport";
 import { card, pill } from "../../styles/tokens";
 
@@ -75,6 +77,11 @@ type ScoutingSectionProps = {
   onToggleWhatIf: (gameId: string) => void;
   /** Why this fixture cannot be asked about, or null when it can. */
   whatIfDeclineFor: (gameId: string) => WhatIfDeclined | null;
+  /** The club the report's team is being compared with, or "" for none. */
+  compareId?: string;
+  onCompareChange?: (teamId: string) => void;
+  /** The two side by side (`compareClubs`), when a club to compare with is picked. */
+  comparison?: ClubComparison | null;
 };
 
 /** "52 places better", "1 place worse", "no change". Direction in words, never in colour. */
@@ -135,6 +142,9 @@ export function ScoutingSection({
   whatIf,
   onToggleWhatIf,
   whatIfDeclineFor,
+  compareId = "",
+  onCompareChange,
+  comparison = null,
 }: ScoutingSectionProps) {
   /**
    * The place rides along as the detail line: a nationwide pool holds several clubs of the same
@@ -210,6 +220,44 @@ export function ScoutingSection({
             waiting={explanation.waiting}
             onAsk={explanation.ask}
           />
+        </div>
+      )}
+      {reportRow && onCompareChange && (
+        <div className="mt-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label
+              className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+              htmlFor="scout-compare-team"
+            >
+              Compare with
+            </label>
+            <TeamSearchSelect
+              id="scout-compare-team"
+              value={compareId}
+              onChange={onCompareChange}
+              options={opponentOptions}
+              placeholder="Search for a team or coach"
+              className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
+            />
+            {compareId && (
+              <button
+                type="button"
+                onClick={() => onCompareChange("")}
+                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {comparison && (
+            <ClubCompare
+              comparison={comparison}
+              aName={reportRow.teamName}
+              bName={
+                rankings.find((row) => row.teamId === comparison.b.teamId)?.teamName ?? "Other club"
+              }
+            />
+          )}
         </div>
       )}
       <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

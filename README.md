@@ -277,6 +277,14 @@ opponent nobody has pulled has no rating, and the row says "not rated here yet"
 rather than inventing one. Below it, the same projection against every ranked
 team on the page, which is the question to ask before entering a tournament.
 
+**Compare with** sets a second club beside the report's (`compareClubs`): the
+games the two played against each other, every club both have played with each
+one's score against it ("we beat the Bears by 5, they beat them by 1"), and each
+side's best wins and worst losses by the rank of who it was against, and its last
+five. It reads the games the board counts, in the half it is showing, each score as
+that club's own schedule gave it. The projection is one number; this is the
+evidence it is made of. Names and scores only.
+
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
 a coin flip. The curve's spread rises with age, 2.95 runs at 8U and 0.09 more a

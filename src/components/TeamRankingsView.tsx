@@ -3,6 +3,7 @@ import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
+import { compareClubs } from "../lib/clubCompare";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -10,6 +11,7 @@ import {
   buildScoutingReport,
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
+  countedInWindow,
   dedupeLeagueFixtures,
   leagueStandIns,
   deriveLeagueScoutGames,
@@ -874,6 +876,24 @@ export function TeamRankingsView({
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
   /** Opponents asked for by name in the scouting report, beyond the two lists it shows by default. */
   const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>([]);
+
+  /**
+   * A club to set beside the report's team (`compareClubs`): their meetings, the clubs both have
+   * played, and each one's best wins, worst losses and latest results, off the games this board
+   * counts in the half it is showing.
+   */
+  const [compareId, setCompareId] = useState("");
+  const comparison = useMemo(() => {
+    if (!compareId || !reportForId || compareId === reportForId) return null;
+    return compareClubs(
+      reportForId,
+      compareId,
+      poolGames,
+      rankings,
+      (teamId) => teamNameById.get(teamId) ?? "Unknown team",
+      (game) => countedInWindow(game, ageGroups, selectedSegment)
+    );
+  }, [compareId, reportForId, poolGames, rankings, teamNameById, ageGroups, selectedSegment]);
   const report = useMemo(
     () =>
       reportForId
@@ -2282,6 +2302,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 )
               }
               whatIfDeclineFor={whatIfDeclineFor}
+              compareId={compareId}
+              onCompareChange={setCompareId}
+              comparison={comparison}
             />
           )}
 
