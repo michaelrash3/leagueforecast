@@ -428,6 +428,24 @@ describe("describeLeagueSummaryHealth", () => {
     expect(refused).toContain("Check that GROQ_API_KEY holds the whole key");
   });
 
+  it("calls Groq's key alone a working setup, not a missing Gemini key", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: false,
+        vercelEnv: "production",
+        groq: {
+          keyConfigured: true,
+          keyLength: 56,
+          probe: { ok: true, modelCount: 4, candidates: ["llama-3.3-70b-versatile"] },
+        },
+      },
+    });
+    expect(text).toBe(
+      "The function is deployed (env production) with no GEMINI_API_KEY, so Groq writes every story. Groq's key lists 4 usable models, llama-3.3-70b-versatile first."
+    );
+  });
+
   it("says nothing of Groq for a function from before it", () => {
     expect(describeLeagueSummaryHealth({ ok: true, health: working })).not.toContain("Groq");
   });

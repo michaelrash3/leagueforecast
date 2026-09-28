@@ -160,6 +160,44 @@ describe("a story when Gemini is at its limit", () => {
   });
 });
 
+describe("Groq's reserved time", () => {
+  it("goes on an answer, not on listing models, when Gemini has used its own", async () => {
+    // Each Gemini attempt takes five seconds of the clock, so Gemini spends its twenty and
+    // leaves Groq five: too little to list models and still answer, so it does not list.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const calls = stubUpstream({ ...lists, [GROQ_CHAT]: groqText("Groq, in time.") });
+    const upstream = globalThis.fetch as unknown as (
+      url: string,
+      init?: RequestInit
+    ) => Promise<Response>;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (isGeminiGenerate(url)) {
+        calls.push({ url, init: init ?? {} });
+        vi.setSystemTime(Date.now() + 5_000);
+        return {
+          ok: false,
+          status: 429,
+          json: async () => ({ error: { message: "Resource has been exhausted." } }),
+        } as Response;
+      }
+      return upstream(url, init);
+    });
+
+    try {
+      const recorded = await post();
+
+      expect(recorded.body).toEqual({
+        summary: "Groq, in time.",
+        model: "llama-3.3-70b-versatile",
+        source: "groq",
+      });
+      expect(calls.some((call) => call.url === GROQ_LIST)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("a story Gemini writes", () => {
   it("never asks Groq", async () => {
     const calls = stubUpstream({

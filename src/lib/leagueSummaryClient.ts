@@ -425,7 +425,7 @@ type GroqHealthProbe = {
  * The Groq key's sentence: whether it reaches the function and, when the probe asked, whether Groq
  * lists models for it. Empty for a function from before Groq, which says nothing about it.
  */
-const describeGroqHealth = (groq: LeagueSummaryHealth["groq"]): string => {
+const describeGroqHealth = (groq: LeagueSummaryHealth["groq"], alone: boolean): string => {
   if (!groq) return "";
   if (!groq.keyConfigured) {
     return "No GROQ_API_KEY reaches the function, so nothing writes the story when Gemini cannot. If one is set, check its name and environment, and redeploy.";
@@ -436,11 +436,12 @@ const describeGroqHealth = (groq: LeagueSummaryHealth["groq"]): string => {
   const set = `A GROQ_API_KEY is set (${groq.keyLength ?? 0} characters)`;
   const probe = groq.probe as GroqHealthProbe | undefined;
   if (!probe || typeof probe !== "object") {
-    return `${set} for when Gemini cannot write the story.${whitespace}`;
+    return `${set}${alone ? "" : " for when Gemini cannot write the story"}.${whitespace}`;
   }
   if (probe.ok === true) {
     const first = probe.candidates?.[0];
-    return `Groq takes over when Gemini cannot: its key lists ${probe.modelCount ?? 0} usable models${first ? `, ${first} first` : ""}.${whitespace}`;
+    const lists = `lists ${probe.modelCount ?? 0} usable models${first ? `, ${first} first` : ""}`;
+    return `${alone ? `Groq's key ${lists}` : `Groq takes over when Gemini cannot: its key ${lists}`}.${whitespace}`;
   }
   if (!probe.listError && probe.error) return `${set}. ${probe.error}${whitespace}`;
   const said = probe.listError?.message ? ` Groq said: "${probe.listError.message}"` : "";
@@ -468,6 +469,11 @@ const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
   const suffix = where ? ` (${where})` : "";
 
   if (!health.keyConfigured) {
+    // Groq's key alone is a working setup, not a missing variable: say which writes the stories
+    // rather than prescribe a redeploy nobody needs.
+    if (health.groq?.keyConfigured) {
+      return `The function is deployed${suffix} with no GEMINI_API_KEY, so Groq writes every story.`;
+    }
     return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the variable for this environment and redeploy — Vercel scopes variables per environment and does not apply a new one until the next build.`;
   }
 
@@ -507,6 +513,7 @@ const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
 export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
   if (!outcome.ok) return describeGeminiHealth(outcome);
   const gemini = describeGeminiHealth(outcome);
-  const groq = describeGroqHealth(outcome.health.groq);
+  const { health } = outcome;
+  const groq = describeGroqHealth(health.groq, !health.keyConfigured);
   return groq ? `${gemini} ${groq}` : gemini;
 };

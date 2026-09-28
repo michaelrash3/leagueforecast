@@ -68,8 +68,9 @@ const MAX_MODEL_ATTEMPTS = 4;
 const MAX_GROQ_ATTEMPTS = 3;
 /**
  * Time kept back for Groq when both keys are set, so a Gemini walk that spends the whole budget
- * failing (four timeouts) still leaves Groq one attempt. Gemini's usual failure, its quota, is a
- * quick 429 on every model, which leaves Groq nearly all of it.
+ * failing (four timeouts) still leaves Groq one attempt; Groq does not list its models then
+ * (`resolveGroqCandidates`), since the listing would eat the attempt. Gemini's usual failure,
+ * its quota, is a quick 429 on every model, which leaves Groq nearly all of it.
  */
 const GROQ_RESERVE_MS = 8_000;
 
@@ -307,10 +308,14 @@ const generateWithGemini = async (
       });
 };
 
-const resolveGroqCandidates = async (apiKey: string): Promise<string[]> => {
+const resolveGroqCandidates = async (apiKey: string, deadline: number): Promise<string[]> => {
   const pinned = process.env.GROQ_MODEL?.trim() || null;
   const now = Date.now();
-  if (!groqModelCache || groqModelCache.expiresAt <= now) {
+  // Listing can take DISCOVERY_TIMEOUT_MS, which out of what Gemini left would leave too little
+  // for an answer. With less than a listing and a whole attempt to go, the list already known is
+  // used as it stands, or the preferred one, and the reserve buys Groq a whole attempt.
+  const timeToList = deadline - now >= DISCOVERY_TIMEOUT_MS + PER_ATTEMPT_TIMEOUT_MS;
+  if (timeToList && (!groqModelCache || groqModelCache.expiresAt <= now)) {
     const discovered = await discoverGroqModels(apiKey, {
       signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
     });
@@ -371,7 +376,7 @@ const generateWithGroq = async (
   request: LeagueSummaryRequest,
   deadline: number
 ): Promise<SummaryResult> => {
-  const candidates = await resolveGroqCandidates(apiKey);
+  const candidates = await resolveGroqCandidates(apiKey, deadline);
   const prompt = buildLeagueSummaryPrompt(request);
   const systemInstruction = systemInstructionForKind(request.kind);
   const failures: string[] = [];
