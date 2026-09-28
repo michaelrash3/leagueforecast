@@ -407,7 +407,8 @@ describe("games won by more than thirty runs", () => {
 
     await user.click(within(rows()[1]!).getByRole("button", { name: "It’s real" }));
     expect(rows()).toHaveLength(1);
-    expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(true);
+    // The margin vouched for, so a later score read differently is suspect again.
+    expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(31);
     // The 31-0 counts now, and the 9,999-0 still does not.
     expect(await recordOf(user, "Big Scores")).toBe("1-0");
   });

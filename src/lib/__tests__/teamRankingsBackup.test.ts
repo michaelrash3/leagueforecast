@@ -226,7 +226,10 @@ describe("teamRankingsCsvSections", () => {
   it("round-trips a win by more than thirty runs the user said is real", () => {
     const vouched: TeamRankingsBackup = {
       ...backup,
-      games: [{ ...games[0]!, teamAScore: 31, teamBScore: 0, scoreConfirmed: true }],
+      games: [
+        { ...games[0]!, teamAScore: 31, teamBScore: 0, scoreConfirmed: 31 },
+        { ...games[1]!, teamAScore: 0, teamBScore: 32, scoreConfirmed: -31.5 },
+      ],
     };
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(vouched))).toEqual(vouched);
   });
@@ -329,7 +332,7 @@ describe("teamRankingsCsvSections", () => {
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
-        "Withdrawn,Named By Picture,Score Confirmed Real",
+        "Withdrawn,Named By Picture,Margin Confirmed Real",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,

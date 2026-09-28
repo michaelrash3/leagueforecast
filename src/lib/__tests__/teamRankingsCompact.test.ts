@@ -140,7 +140,19 @@ describe("games round-trip", () => {
         teamBScore: 0,
         ageGroupId: "ag_1",
         date: "2026-09-12",
-        scoreConfirmed: true,
+        scoreConfirmed: 31,
+      },
+      // Side B's win, read by the rating as the average of the two clubs' reports.
+      {
+        id: "gc_gcBIG_b2",
+        teamAId: "SMALL",
+        teamBId: "BIG",
+        teamAScore: 0,
+        teamBScore: 32,
+        reportedByB: { teamAScore: 0, teamBScore: 31 },
+        ageGroupId: "ag_1",
+        date: "2026-09-13",
+        scoreConfirmed: -31.5,
       },
     ];
     expect(roundTripGames(games)).toEqual(games);

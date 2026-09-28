@@ -182,8 +182,11 @@ const GAME_HEADERS = [
    * lost it.
    */
   "Named By Picture",
-  /** You said this win by more than thirty runs is real, so it counts; see `isImplausibleScore`. */
-  "Score Confirmed Real",
+  /**
+   * The margin you said is real in a game won by more than thirty runs, which counts while the game
+   * still reads it; see `isImplausibleScore`.
+   */
+  "Margin Confirmed Real",
 ];
 
 /**
@@ -418,7 +421,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       yesNo(game.scoreFromTwin),
       yesNo(game.withdrawn),
       game.namedByAvatar ?? "",
-      yesNo(game.scoreConfirmed),
+      game.scoreConfirmed ?? "",
     ]
       .map(csvEscape)
       .join(",")
@@ -797,6 +800,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
       });
     const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
     const namedByAvatar = cell("Named By Picture");
+    const confirmed = parseScore(cell("Margin Confirmed Real"));
     return [
       {
         id,
@@ -815,7 +819,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
         ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
         ...(isYes(cell("Withdrawn")) ? { withdrawn: true as const } : {}),
-        ...(isYes(cell("Score Confirmed Real")) ? { scoreConfirmed: true as const } : {}),
+        ...(confirmed === undefined ? {} : { scoreConfirmed: confirmed }),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),

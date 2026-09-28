@@ -16,6 +16,7 @@ import {
   isRankedAgeLevel,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
+  ratedMargin,
   mergeScoutTeams,
   MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
@@ -1228,9 +1229,11 @@ export function TeamRankingsView({
   const confirmScore = async (gameId: string): Promise<boolean> => {
     const game = wholePoolGames.find((entry) => entry.id === gameId);
     if (!game) return false;
+    // The margin as it reads now, and only that: a later score is one nobody has vouched for.
+    const margin = ratedMargin(game);
     persistAllGames(
       wholePoolGames.map((entry) =>
-        entry.id === gameId ? { ...entry, scoreConfirmed: true as const } : entry
+        entry.id === gameId && margin !== undefined ? { ...entry, scoreConfirmed: margin } : entry
       )
     );
     const nameOf = (id: string) => allKnown.teams.find((team) => team.id === id)?.name ?? id;

@@ -47,7 +47,23 @@ describe("a score suspected of being made up", () => {
   it("counts toward nothing until the user says it is real", () => {
     expect(countsTowardRating(game(9999, 0), TODAY)).toBe(false);
     expect(countsTowardRating(game(30, 0), TODAY)).toBe(true);
-    expect(countsTowardRating(game(31, 0, { scoreConfirmed: true }), TODAY)).toBe(true);
-    expect(isImplausibleScore(game(31, 0, { scoreConfirmed: true }))).toBe(false);
+    expect(countsTowardRating(game(31, 0, { scoreConfirmed: 31 }), TODAY)).toBe(true);
+    expect(isImplausibleScore(game(0, 35, { scoreConfirmed: -35 }))).toBe(false);
+  });
+
+  it("is suspect again once the score is not the one vouched for", () => {
+    // A vouched-for 31-0 corrected or re-pulled as 9,999-0 is a score nobody has vouched for.
+    expect(isImplausibleScore(game(9999, 0, { scoreConfirmed: 31 }))).toBe(true);
+    expect(countsTowardRating(game(9999, 0, { scoreConfirmed: 31 }), TODAY)).toBe(false);
+    // And the margin as the rating reads it, so side B's report moving it counts as a change.
+    const vouched = game(40, 0, { reportedByB: { teamAScore: 23, teamBScore: 0 } });
+    expect(isImplausibleScore({ ...vouched, scoreConfirmed: 31.5 })).toBe(false);
+    expect(
+      isImplausibleScore({
+        ...vouched,
+        scoreConfirmed: 31.5,
+        reportedByB: { teamAScore: 25, teamBScore: 0 },
+      })
+    ).toBe(true);
   });
 });

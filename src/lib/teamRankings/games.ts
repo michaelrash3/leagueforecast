@@ -48,14 +48,15 @@ export const IMPLAUSIBLE_MARGIN = 30;
 
 /**
  * A score suspected of being made up: won by more than `IMPLAUSIBLE_MARGIN` runs, read as the
- * rating reads a margin (`ratedMargin`), and not vouched for by the user (`scoreConfirmed`). It
+ * rating reads a margin (`ratedMargin`), and not the very margin the user vouched for
+ * (`scoreConfirmed`). A vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. It
  * counts toward nothing (`countsTowardRating`) and Pool Health lists it, to be deleted or vouched
  * for.
  */
 export const isImplausibleScore = (game: ScoutGame): boolean => {
-  if (game.scoreConfirmed === true) return false;
   const margin = ratedMargin(game);
-  return margin !== undefined && Math.abs(margin) > IMPLAUSIBLE_MARGIN;
+  if (margin === undefined || Math.abs(margin) <= IMPLAUSIBLE_MARGIN) return false;
+  return game.scoreConfirmed !== margin;
 };
 
 /**
