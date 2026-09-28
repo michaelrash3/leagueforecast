@@ -8,7 +8,7 @@
  */
 import React from "react";
 import { displayName, recordText, teamAbbr, winPct } from "../../lib/format";
-import type { LeagueSummaryErrorReason } from "../../lib/leagueSummary";
+import type { AiProvider, LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { buildTeamDataHref } from "../../lib/teamLink";
 import type { LastImpact, TeamWithProjection } from "../../lib/types";
 import { AiStoryPanel } from "../AiStoryPanel";
@@ -59,7 +59,7 @@ export function StandingsView({
   hasCutLine: boolean;
   /** Gemini story when one arrived, otherwise the deterministic one. */
   storyText: string;
-  storySource: "gemini" | "local";
+  storySource: AiProvider | "local";
   storyModel: string;
   storyLoading: boolean;
   storyUnavailableReason: LeagueSummaryErrorReason | null;

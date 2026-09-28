@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   leagueSummarySignature,
+  type AiProvider,
   type LeagueSummaryErrorReason,
   type LeagueSummaryRequest,
 } from "../lib/leagueSummary";
@@ -14,6 +15,8 @@ export type LeagueSummaryState = {
   status: LeagueSummaryStatus;
   summary: string;
   model: string;
+  /** Who wrote `summary`: Gemini, or Groq when Gemini could not. */
+  provider: AiProvider;
   message: string;
   /** Why the AI story is unavailable, so the UI can say so instead of failing silently. */
   reason: LeagueSummaryErrorReason | null;
@@ -40,6 +43,7 @@ const IDLE_STATE = {
   status: "idle" as LeagueSummaryStatus,
   summary: "",
   model: "",
+  provider: "gemini" as AiProvider,
   message: "",
   reason: null as LeagueSummaryErrorReason | null,
 };
@@ -138,6 +142,7 @@ export const useLeagueSummary = (
             status: "ready",
             summary: outcome.summary,
             model: outcome.model,
+            provider: outcome.provider,
             message: "",
             reason: null,
           });

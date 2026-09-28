@@ -2624,7 +2624,7 @@ export default function App() {
                 dashboardRows={dashboardRows}
                 hasCutLine={hasCutLine}
                 storyText={storyText}
-                storySource={aiStory.status === "ready" ? "gemini" : "local"}
+                storySource={aiStory.status === "ready" ? aiStory.provider : "local"}
                 storyModel={aiStory.model}
                 storyLoading={aiStory.status === "loading"}
                 storyUnavailableReason={
@@ -2694,6 +2694,7 @@ export default function App() {
                 hasPostseason={hasPostseason}
                 forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
                 forecastStoryModel={forecastStory.model}
+                forecastStoryProvider={forecastStory.provider}
                 forecastStoryLoading={forecastStory.status === "loading"}
                 forecastStoryUnavailableReason={
                   forecastStory.status === "unavailable" || forecastStory.status === "error"

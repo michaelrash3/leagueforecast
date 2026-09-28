@@ -458,9 +458,10 @@ export function SettingsView({
           </h3>
           <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
             The league story, the forecast write-up and the scouting explanation are each written by
-            Gemini on request. Every one is a call against your API quota, and the facts change
-            whenever you switch age group or pick a different team — so by default nothing is
-            written until you press the button on the card.
+            Gemini on request, or by Groq when Gemini is at its limit and a Groq key is set. Every
+            one is a call against your API quota, and the facts change whenever you switch age group
+            or pick a different team — so by default nothing is written until you press the button
+            on the card.
           </p>
           <label className="mt-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
             <input

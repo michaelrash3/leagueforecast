@@ -137,10 +137,13 @@ export type LeagueSummaryRequest = {
   fallback?: string;
 };
 
+/** Which provider wrote a story: Gemini, or Groq when Gemini could not (`api/league-summary.ts`). */
+export type AiProvider = "gemini" | "groq";
+
 export type LeagueSummaryResponse = {
   summary: string;
   model: string;
-  source: "gemini";
+  source: AiProvider;
 };
 
 export type LeagueSummaryErrorReason =
