@@ -94,6 +94,20 @@ describe("where to find a team", () => {
     expect(teamPages([team("A")], [], groups).has("A")).toBe(false);
   });
 
+  it("puts a pulled club with no games yet on the page its latest link is filed under", () => {
+    const pulled = team("A", {
+      gcTeams: [
+        { teamId: "gcA000000026", name: "Team A", ageGroupId: "ag_9_2027", ageLevel: 9 },
+        { teamId: "gcA000000027", name: "Team A", ageGroupId: "ag_10_2028", ageLevel: 10 },
+      ],
+    });
+    expect(teamPages([pulled], [], groups).get("A")).toEqual({
+      ageGroupId: "ag_10_2028",
+      level: 10,
+      year: 2028,
+    });
+  });
+
   it("falls back to where the results actually are when no page fits the level", () => {
     // A game filed on the 9U page but recording both sides as 14U — no 14U page exists, so the
     // page carrying the results is the only place somebody would find them.

@@ -2054,6 +2054,16 @@ twelve-letter word counts as an id only where a club carries it exactly, so a na
 searches as a name, and a pasted link no club carries says so rather than only that nothing
 matched: the id has not been pulled, or was unlinked.
 
+A pulled id can also end somewhere other than a club, and Find a team says where
+(`whereIsGcId`): waiting on an age nobody could read, thrown out, younger than 8U by
+GameChanger's word, or filed during a pull still running, which the held index has not
+seen. A bare id is answered this way too when it is shaped like one, a digit or a capital
+past its first letter, which "Thunderbolts" is not. And a pulled club with no games in the
+pool yet, its schedule empty or none of it filed, now has the page its latest link is
+filed under (`teamPages`), where it had none and so could not be found at all, not even
+by its own id. Both came of the user, on 28 September 2026, pasting an id they knew had
+been pulled and being told no team matched.
+
 **Find a team stays up while a pull runs.** Its index is not rebuilt during a run, since every
 save hands back new teams and a rebuild reads every stored year; it used to be switched off
 instead, which took the box off the top of Rankings for as long as a pull went on. It is held

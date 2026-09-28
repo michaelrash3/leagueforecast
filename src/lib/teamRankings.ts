@@ -662,7 +662,26 @@ export const teamPages = (
 
   eligible.forEach((team) => {
     const teamYears = [...(yearsByTeam.get(team.id) ?? [])];
-    if (teamYears.length === 0) return;
+    if (teamYears.length === 0) {
+      // A pulled club with no games in the pool yet, its schedule empty or none of it filed, is
+      // still where its link files it: without a page it was offered nowhere, not even to its own
+      // GameChanger id pasted into Find a team, as the user found on 28 September 2026. The link
+      // of its latest year, the later of two in one year.
+      let linked: { group: AgeGroup; year: number } | undefined;
+      team.gcTeams?.forEach((link) => {
+        const group = ageGroups.find((entry) => entry.id === link.ageGroupId);
+        const year = gcLinkYear(link, index);
+        if (group && year !== undefined && (linked === undefined || year >= linked.year))
+          linked = { group, year };
+      });
+      if (linked)
+        pages.set(team.id, {
+          ageGroupId: linked.group.id,
+          level: ageGroupLevel(linked.group),
+          year: ageGroupYear(linked.group),
+        });
+      return;
+    }
     // The most recent year it played; a group with no year sorts below every year that has one.
     const latestYear = teamYears.reduce((best, year) =>
       best === undefined ? year : year === undefined ? best : Math.max(best, year)

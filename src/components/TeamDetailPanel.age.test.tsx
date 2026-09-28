@@ -2,7 +2,12 @@ import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ageGroup, game, renderTeamRankings, team, type Pool } from "../test/teamRankingsHarness";
-import { loadNamedAges, loadScoutGamesForYear, loadScoutTeams } from "../lib/teamRankingsStorage";
+import {
+  loadNamedAges,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  saveAgeUnknown,
+} from "../lib/teamRankingsStorage";
 
 /**
  * A club the app filed a year too young, set right from its own panel.
@@ -180,7 +185,60 @@ describe("finding a club by its GameChanger link", () => {
 
     await user.clear(box);
     await user.type(box, "https://web.gc.com/teams/gcNOBODY0000");
-    expect(list()).toHaveTextContent("No team here is linked to that GameChanger page.");
+    expect(list()).toHaveTextContent(
+      "No team here is linked to that GameChanger id. It has not been pulled"
+    );
+  });
+
+  it("finds a pulled club that has no games yet by its id", async () => {
+    const user = userEvent.setup();
+    const base = pool();
+    renderTeamRankings({
+      ...base,
+      teams: [
+        ...base.teams,
+        team("S-GALE", "Example Gales", {
+          state: "OH",
+          gcTeams: [
+            {
+              teamId: "gcGALEFALL26",
+              name: "Example Gales",
+              ageGroupId: u9.id,
+              season: "fall",
+              seasonYear: 2026,
+              ageLevel: 9,
+            },
+          ],
+        }),
+      ],
+    });
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "gcGALEFALL26");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    const option = within(list).getByRole("option", { name: /Example Gales/ });
+    expect(option).toHaveTextContent("9U 2027");
+    await user.click(within(option).getByRole("button"));
+    expect(screen.getByRole("region", { name: "Example Gales" })).toBeInTheDocument();
+  });
+
+  it("says where an id is that no club carries", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    saveAgeUnknown([
+      {
+        teamId: "gcGUSTWAIT26",
+        name: "Example Gusts",
+        firstSeen: "2026-09-20",
+        lastTried: "2026-09-27",
+        tries: 1,
+      },
+    ]);
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "gcGUSTWAIT26");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    expect(list).toHaveTextContent("Example Gusts is waiting on an age");
   });
 });
 

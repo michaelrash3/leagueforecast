@@ -26,6 +26,8 @@ type RankingsSectionProps = {
   searchOptions: TeamSearchOption[];
   /** Goes to the page that team is on and opens it. */
   onSearchTeam: (teamId: string) => void;
+  /** Where a pasted GameChanger id is when no club here carries it (`whereIsGcId`). */
+  explainGcId?: (gcTeamId: string) => string | undefined;
   hasAgeGroups: boolean;
   /** Why this page has no table at all, when the reason is the age level rather than the data. */
   unrankedLevelNote: string | null;
@@ -81,6 +83,7 @@ export function RankingsSection({
   groupName,
   searchOptions,
   onSearchTeam,
+  explainGcId,
   hasAgeGroups,
   unrankedLevelNote,
   segment,
@@ -142,6 +145,7 @@ export function RankingsSection({
               value=""
               onChange={onSearchTeam}
               options={searchOptions}
+              {...(explainGcId ? { explainGcId } : {})}
               placeholder="Search every team or coach, any age or season"
             />
           </div>

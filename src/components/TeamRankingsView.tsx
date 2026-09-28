@@ -5,6 +5,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge, type ClubAgeState } from "../lib/clubAge";
+import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
@@ -91,6 +92,7 @@ import {
   storedGamesByYear,
   loadDeletedGames,
   loadAgeUnknown,
+  loadTooYoungClubs,
   loadDroppedClubs,
   loadNamedAges,
   saveNamedAges,
@@ -1711,6 +1713,21 @@ export function TeamRankingsView({
       ),
     [allKnown.derivedGames, allKnown.teams, ageGroups]
   );
+  /**
+   * Where a GameChanger id pasted into Find a team is when no club there carries it (`whereIsGcId`).
+   * Read when asked rather than kept: it is asked only of an id nothing matched, and the lists it
+   * reads are cached in memory already.
+   */
+  const explainGcId = useCallback(
+    (gcTeamId: string) =>
+      whereIsGcId(gcTeamId, {
+        ...(pullLive ? { liveTeams: scoutTeams } : {}),
+        ageless: loadAgeUnknown(),
+        dropped: droppedClubs,
+        tooYoung: loadTooYoungClubs(),
+      }),
+    [pullLive, scoutTeams, droppedClubs]
+  );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
     games: everyKnownGame,
@@ -2305,6 +2322,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               groupName={selectedGroupName}
               searchOptions={searchOptions}
               onSearchTeam={openSearchedTeam}
+              explainGcId={explainGcId}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
               segment={
