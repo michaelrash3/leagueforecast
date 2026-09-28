@@ -666,13 +666,20 @@ export const teamPages = (
       // A pulled club with no games in the pool yet, its schedule empty or none of it filed, is
       // still where its link files it: without a page it was offered nowhere, not even to its own
       // GameChanger id pasted into Find a team, as the user found on 28 September 2026. The link
-      // of its latest year, the later of two in one year.
-      let linked: { group: AgeGroup; year: number } | undefined;
+      // of its latest year, and in that year of its latest season, as the home level reads them
+      // (`GC_SEASON_ORDER`), not the last in the list: a refreshed link moves to the end of it.
+      let linked: { group: AgeGroup; year: number; order: number } | undefined;
       team.gcTeams?.forEach((link) => {
         const group = ageGroups.find((entry) => entry.id === link.ageGroupId);
         const year = gcLinkYear(link, index);
-        if (group && year !== undefined && (linked === undefined || year >= linked.year))
-          linked = { group, year };
+        if (!group || year === undefined) return;
+        const order = GC_SEASON_ORDER[(link.season ?? "").trim().toLowerCase()] ?? -1;
+        if (
+          linked === undefined ||
+          year > linked.year ||
+          (year === linked.year && order > linked.order)
+        )
+          linked = { group, year, order };
       });
       if (linked)
         pages.set(team.id, {
