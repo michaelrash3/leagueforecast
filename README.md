@@ -3155,11 +3155,12 @@ gcloud pubsub topics add-iam-policy-binding billing-cap \
   --member serviceAccount:billing-budget-alert@system.gserviceaccount.com \
   --role roles/pubsub.publisher > /dev/null
 # The budget: a dollar a month on this project, emailing at half and at all of it,
-# and publishing every reading to the topic.
+# and publishing every reading to the topic. A budget names its project by number.
 BILLING=$(gcloud billing projects describe "$PROJECT" --format='value(billingAccountName)')
+NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
 gcloud billing budgets create --billing-account "${BILLING#billingAccounts/}" \
   --display-name "Hard stop" --budget-amount 1.00USD \
-  --filter-projects "projects/$PROJECT" \
+  --filter-projects "projects/$NUMBER" \
   --threshold-rule percent=0.5 --threshold-rule percent=1.0 \
   --notifications-rule-pubsub-topic "projects/$PROJECT/topics/billing-cap"
 ```
