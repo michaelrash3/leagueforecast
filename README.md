@@ -2437,6 +2437,14 @@ this browser's, one per season (`readOurTeam`), and deliberately not a setting:
 settings travel in a shared link, and a parent's team is not the coach's they send
 the standings to. It is not in a backup either, for the same reason.
 
+When the team is linked to a Team Rankings club, the card also gives the club's place
+on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall
+2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
+of the whole year's pool, so each time a board is up on the Team Rankings side the
+places of the clubs its page's league seasons are linked to are written to a small
+per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
+card reads them with the day they were read.
+
 ## Settings
 
 | Setting               | Effect                                                                                                                                                                    |
