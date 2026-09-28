@@ -5,6 +5,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge, type ClubAgeState } from "../lib/clubAge";
+import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
@@ -643,6 +644,7 @@ export function TeamRankingsView({
     const derivedGames: ScoutGame[] = [];
     const picked = new Set<string>();
     const named = new Set<string>();
+    const leagueClubs = new Map<string, Map<string, Map<string, string>>>();
     const stored = { games: scoutGames, ageGroups };
     ageGroups.forEach((group) => {
       const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
@@ -657,6 +659,7 @@ export function TeamRankingsView({
       derivedGames.push(...derived.games);
       derived.pickedClubIds.forEach((id) => picked.add(id));
       derived.namedClubIds.forEach((id) => named.add(id));
+      leagueClubs.set(group.id, derived.clubByLeagueTeam);
     });
     // `derivedGames` stays whole — `leagueGameTeamIds` reads it to decide which teams arrived from
     // the league — while the pool every rating, record and page is built from gets one row per
@@ -671,6 +674,8 @@ export function TeamRankingsView({
        * rename, and stays locked.
        */
       pickedOnly: new Set([...picked].filter((id) => !named.has(id))),
+      /** Page, then league season, then league team, to the club it was carried onto. */
+      leagueClubs,
       games: dedupeLeagueFixtures(
         [...derivedGames, ...scoutGames],
         leagueStandIns(teams, ageGroups)
@@ -956,6 +961,49 @@ export function TeamRankingsView({
     poolGames,
     allKnown.teams,
     today,
+  ]);
+
+  /**
+   * Where the clubs of the league seasons this page claims stand on it, written for League
+   * Standings' "Our team" card (`leagueClubRanksFrom`), which cannot fit a board of its own. Only
+   * off a board that is this page's and settled, so a switch between pages never writes one page's
+   * places under another's seasons.
+   */
+  useEffect(() => {
+    if (rankingsStale || rankings.length === 0) return;
+    const group = ageGroups.find((one) => one.id === selectedAgeGroupId);
+    if (!group || group.seasonIds.length === 0) return;
+    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
+    const board =
+      selectedSegment === undefined || selectedYear === undefined
+        ? group.name
+        : `${group.name} · ${segmentLabel(selectedYear, selectedSegment)}`;
+    const at = new Date().toISOString();
+    group.seasonIds.forEach((seasonId) => {
+      const clubs = allKnown.leagueClubs.get(group.id)?.get(seasonId);
+      if (!clubs) return;
+      writeLeagueClubRanks(
+        seasonId,
+        leagueClubRanksFrom(
+          rankings,
+          clubs,
+          (teamId) => stateById.get(teamId),
+          lastWeek?.ranks ?? null,
+          board,
+          at
+        )
+      );
+    });
+  }, [
+    rankings,
+    rankingsStale,
+    rankedTeams,
+    ageGroups,
+    selectedAgeGroupId,
+    selectedSegment,
+    selectedYear,
+    allKnown.leagueClubs,
+    lastWeek,
   ]);
 
   /**

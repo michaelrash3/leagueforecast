@@ -288,11 +288,17 @@ export const deriveLeagueScoutGames = (
    * name. Renaming one of these moves the league's games off it, where a pick holds by id.
    */
   namedClubIds: Set<string>;
+  /**
+   * Which club each league team was carried onto, by season: what lets the league's "Our team"
+   * card be told where its club stands on this page's board (`leagueClubRanksFrom`).
+   */
+  clubByLeagueTeam: Map<string, Map<string, string>>;
 } => {
   let teams = scoutTeams;
   const games: ScoutGame[] = [];
   const pickedClubIds = new Set<string>();
   const namedClubIds = new Set<string>();
+  const clubByLeagueTeam = new Map<string, Map<string, string>>();
 
   seasons.forEach(
     ({ seasonId, teams: leagueTeams, matchups: leagueMatchups, logs: leagueLogs }) => {
@@ -353,10 +359,17 @@ export const deriveLeagueScoutGames = (
           date: dateInSquadYear(matchup.date, squadYear),
         });
       });
+
+      // Every team the walk above reached, and the ones Settings links that played nothing yet.
+      const carried = new Map(resolvedIdByLeagueId);
+      clubByLeagueId.forEach((clubId, leagueId) => {
+        if (!carried.has(leagueId)) carried.set(leagueId, clubId);
+      });
+      clubByLeagueTeam.set(seasonId, carried);
     }
   );
 
-  return { teams, games, pickedClubIds, namedClubIds };
+  return { teams, games, pickedClubIds, namedClubIds, clubByLeagueTeam };
 };
 
 /**

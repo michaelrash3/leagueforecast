@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { OurTeamSummary } from "../../lib/ourTeam";
 import { displayName } from "../../lib/format";
 import { formatGameDate } from "../../lib/date";
+import type { LeagueClubRank } from "../../lib/leagueClubRanks";
 import { button as buttonClasses, card } from "../../styles/tokens";
 
 type OurTeamCardProps = {
@@ -11,6 +12,8 @@ type OurTeamCardProps = {
   onPick: (teamId: string | null) => void;
   /** Opens the Schedule on this team's games, for entering a score. */
   onEnterScore: (teamId: string) => void;
+  /** Where its club stood on Team Rankings when that board was last up (`leagueClubRankFor`). */
+  clubRank?: LeagueClubRank;
 };
 
 const ordinal = (n: number): string => {
@@ -22,6 +25,20 @@ const ordinal = (n: number): string => {
 const points = (change: number): string =>
   `${change >= 0 ? "+" : "−"}${Math.abs(change).toFixed(1)} pts`;
 
+/** "▲3", "▼2" or "new" beside a place; nothing when it held or no week-old board says. */
+const moved = (movement: LeagueClubRank["movement"]): string =>
+  movement === undefined || movement === 0
+    ? ""
+    : movement === "new"
+      ? " (new)"
+      : ` (${movement > 0 ? "▲" : "▼"}${Math.abs(movement)})`;
+
+/** The day a board was read, as the card says it. */
+const asOf = (at: string): string => {
+  const day = at.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? formatGameDate(day) : "";
+};
+
 /**
  * The team this browser follows, first on the Dashboard.
  *
@@ -29,7 +46,7 @@ const points = (change: number): string =>
  * and the Dashboard answered it for the league, with the rest a tap away in the team's drawer. The
  * pick is this browser's (`readOurTeam`), one per season, and never a setting that would travel.
  */
-export function OurTeamCard({ summary, teams, onPick, onEnterScore }: OurTeamCardProps) {
+export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: OurTeamCardProps) {
   const pickerId = useId();
   const picker = (
     <select
@@ -85,6 +102,24 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore }: OurTeamCar
           </>
         )}
       </p>
+      {clubRank && (
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Team Rankings: <strong>{ordinal(clubRank.rank)}</strong> of {clubRank.of.toLocaleString()}{" "}
+          nationally{moved(clubRank.movement)}
+          {clubRank.state && clubRank.stateRank !== undefined && clubRank.stateOf !== undefined && (
+            <>
+              {" · "}
+              <strong>{ordinal(clubRank.stateRank)}</strong> of {clubRank.stateOf.toLocaleString()}{" "}
+              in {clubRank.state}
+            </>
+          )}
+          <span className="text-slate-500 dark:text-slate-400">
+            {" "}
+            · {clubRank.board}
+            {asOf(clubRank.at) ? `, as of ${asOf(clubRank.at)}` : ""}
+          </span>
+        </p>
+      )}
       {next ? (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           Next: {next.date ? formatGameDate(next.date) : "date to come"}{" "}
