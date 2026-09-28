@@ -488,6 +488,17 @@ that as evidence about how they compare to each other. Slots are not ranked,
 never offered as a name to log a game against, and never matched to a real club
 that looks similar.
 
+A slot is not a club even when GameChanger has a club of that name. Coaches make
+teams called "Tbd", "Practice", "Scrimmage" or "14U" to hold a date, and a
+nationwide pull fetches them like any other; filed on one, every undecided game in
+the country joined it, so a Puerto Rico club's "TBD" and an Ohio club's sat on one
+Washington "Tbd". A name that could be nothing but a slot — the whole of it a slot
+word, a round, an age, or "TBD" and when — is filed as a slot whoever carries the
+name (`namesNobody`), and the tidy takes rows filed on such a club by name off it
+again: 25 rows on the backup of 26 September 2026. The club's own schedule is left
+alone. A longer name still goes to the one pulled club that carries it, since a
+club really can call its squad "Miami Bulldogs Tournament".
+
 **One fixture listed twice on a club's own schedule.** GameChanger does this: the
 same game arrives under two game ids, with the opponent spelled two ways —
 "Cincinnati Angels Red" and "Cincinnati Angels- Red", 13-21 on both — and a club's

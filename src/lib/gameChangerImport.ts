@@ -38,6 +38,7 @@ import {
   ageGroupYear,
   createAgeGroupId,
   isPlaceholderName,
+  namesNobody,
   MIN_AGE_LEVEL,
   buildScoutTeam,
   cleanTeamName,
@@ -1620,7 +1621,11 @@ const planOpponent = (
      * level was pulled, the mention is that club rather than a slot.
      */
     const pulled = sameName.filter((id) => index.teamsById.get(id)?.gcTeams?.length);
-    if (pulled.length === 1 && pulled[0]) return { teamId: pulled[0], basis: "name" };
+    // Not a name that could be nothing but a slot, which a pulled "Tbd" is a coach's placeholder
+    // for rather than a club anybody plays (`namesNobody`).
+    if (pulled.length === 1 && pulled[0] && !namesNobody(game.opponentName)) {
+      return { teamId: pulled[0], basis: "name" };
+    }
     return { create: { placeholder: true }, basis: "created" };
   }
 
@@ -5730,6 +5735,20 @@ export const resettleOffLevel = (
     const typed = namedId === game.teamAId ? game.ageLevelA : game.ageLevelB;
     const level = typed ?? levelOf.get(game.ageGroupId);
     const moverId = namedId === game.teamAId ? game.teamBId : game.teamAId;
+    /*
+     * A pulled club called "Tbd", "Practice" or "14U" holds a date on its coach's schedule, and a
+     * row filed on it by name is some other club's undecided game (`namesNobody`). It goes to a slot
+     * of its own, as the import now files one, and out of every rating.
+     */
+    if (namesNobody(named.name)) {
+      const slot = buildScoutTeam(named.name, used, { placeholder: true });
+      used.add(slot.id);
+      added.push(slot);
+      resettled += 1;
+      return namedId === game.teamAId
+        ? { ...game, teamAId: slot.id }
+        : { ...game, teamBId: slot.id };
+    }
     const farOff = !levelFits(levels.get(namedId), level);
     if (!farOff && !twoOff(namedId, typed, game.date) && !unvouched(namedId, moverId)) {
       return game;

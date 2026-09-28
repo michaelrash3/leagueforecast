@@ -8,7 +8,7 @@ import {
 } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import { decodePoolTeams } from "../teamRankingsCompact";
-import { isPlaceholderName } from "../teamRankings";
+import { isPlaceholderName, namesNobody } from "../teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 const empty: GcImportState = { ageGroups: [], teams: [], games: [] };
@@ -670,8 +670,137 @@ describe("a row filed by name onto a club regions away", () => {
     expect(resettleOffLevel(west).resettled).toBe(0);
   });
 
-  it("leaves a slot's name on the one pulled club that carries it, as the import files it", () => {
-    const tbd = { ...phillies, name: "TBD" };
-    expect(resettleOffLevel({ ...pool([], []), teams: [whiteSox, tbd] }).resettled).toBe(0);
+  it("leaves a name the import reads as a slot on the one pulled club that carries it", () => {
+    const bulldogs = { ...phillies, name: "Miami Bulldogs Tournament" };
+    expect(resettleOffLevel({ ...pool([], []), teams: [whiteSox, bulldogs] }).resettled).toBe(0);
+  });
+});
+
+/*
+ * GameChanger holds teams a coach made to hold a date — "Tbd", "Practice", "Scrimmage", "14U" —
+ * and a nationwide pull fetches them like any other. A schedule writing "TBD" in the opponent
+ * column then found exactly one pulled club of that name and filed the game on it: a Puerto Rico
+ * club's and an Ohio club's undecided games sat on one Washington "Tbd", tying clubs that never
+ * met into one graph. On the backup of 26 September 2026 at 18:40, 31 pulled clubs had such a
+ * name, carrying 35 rows other clubs' schedules had filed on them.
+ */
+describe("a name that names nobody is never a pulled club", () => {
+  it.each([
+    "TBD",
+    "Tbd",
+    "tba",
+    "T.B.D.",
+    "TBD- 09/20/26, 10:00 AM",
+    "Practice",
+    "Scrimmage",
+    "10u",
+    "14U",
+    "To be determined",
+    "Winner of Game 3",
+  ])("%s names nobody", (name) => {
+    expect(namesNobody(name)).toBe(true);
+  });
+
+  it.each([
+    // Real clubs, or names that could be: a word or an event in a longer name is not the whole of it.
+    "Game 7 Sports- White",
+    "TBA Rangers Jones",
+    "TBD Baseball",
+    "TBC",
+    "Miami Bulldogs Tournament",
+    "Tourney Contenders Coral Springs",
+    "Practice Niehoff",
+    "Lookouts Baseball Club",
+  ])("%s may name somebody", (name) => {
+    expect(namesNobody(name)).toBe(false);
+  });
+
+  const club = (id: string, name: string, state: string, games: GcTeamSchedule["games"] = []) => ({
+    profile: {
+      id,
+      name,
+      ageLevel: 11,
+      season: { season: "fall" as const, year: 2026 },
+      state,
+    },
+    games,
+    fetchedAt: "2026-09-14T12:00:00.000Z",
+  });
+
+  it("files a TBD game on a slot, not on the one pulled club called Tbd", () => {
+    const tbd = club("gcTbdWA", "Tbd", "WA");
+    const potros = club("gcPotros", "Potros 11U", "PR", [
+      {
+        id: "g-1",
+        date: "2026-09-19",
+        opponentName: "TBD",
+        status: "completed",
+        teamScore: 2,
+        opponentScore: 2,
+      },
+    ]);
+
+    const { state } = importGcSchedules([tbd, potros], empty);
+
+    expect(gamesOf(state, "gcTbdWA")).toEqual([]);
+    const [game] = gamesOf(state, "gcPotros");
+    const opponent = state.teams.find((team) => team.id === game?.teamBId);
+    expect(opponent?.placeholder).toBe(true);
+    expect(opponent?.gcTeams).toBeUndefined();
+  });
+
+  it("takes a row filed that way off the club in the tidy, onto a slot, and leaves its own", () => {
+    const groups: AgeGroup[] = [
+      { id: "ag11", name: "11U 2027", seasonIds: [], ageLevel: 11, year: 2027 },
+    ];
+    const practice: ScoutTeam = {
+      id: "S-PRAC",
+      name: "Practice",
+      state: "TX",
+      gcTeams: [{ teamId: "gcPRAC", name: "Practice", ageGroupId: "ag11", ageLevel: 11 }],
+    };
+    const bandits: ScoutTeam = {
+      id: "S-BAND",
+      name: "Long Island Bandits",
+      state: "NY",
+      gcTeams: [{ teamId: "gcBAND", name: "Long Island Bandits 11U", ageGroupId: "ag11" }],
+    };
+    const filedOn: ScoutGame = {
+      id: "gc_gcBAND_x",
+      ageGroupId: "ag11",
+      teamAId: "S-BAND",
+      teamBId: "S-PRAC",
+      date: "2026-09-08",
+      source: { kind: "gamechanger", teamId: "gcBAND", gameId: "x" },
+    };
+    const riders: ScoutTeam = {
+      id: "S-RIDE",
+      name: "Texas Riders",
+      state: "TX",
+      gcTeams: [{ teamId: "gcRIDE", name: "Texas Riders 11U", ageGroupId: "ag11" }],
+    };
+    const itsOwn: ScoutGame = {
+      id: "gc_gcPRAC_y",
+      ageGroupId: "ag11",
+      teamAId: "S-PRAC",
+      teamBId: "S-RIDE",
+      teamAScore: 3,
+      teamBScore: 1,
+      date: "2026-09-10",
+      source: { kind: "gamechanger", teamId: "gcPRAC", gameId: "y" },
+    };
+
+    const { state, resettled } = resettleOffLevel({
+      ageGroups: groups,
+      teams: [practice, bandits, riders],
+      games: [filedOn, itsOwn],
+    });
+
+    expect(resettled).toBe(1);
+    const moved = state.games.find((game) => game.id === filedOn.id)!;
+    const slot = state.teams.find((team) => team.id === moved.teamBId);
+    expect(slot?.placeholder).toBe(true);
+    expect(slot?.name).toBe("Practice");
+    expect(state.games.find((game) => game.id === itsOwn.id)?.teamAId).toBe("S-PRAC");
   });
 });
