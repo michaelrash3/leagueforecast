@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { coachesToList, matchTeamOptions, type TeamSearchOption } from "./TeamSearchSelect";
+import {
+  coachesToList,
+  gcIdsInSearch,
+  matchTeamOptions,
+  type TeamSearchOption,
+} from "./TeamSearchSelect";
 
 const options: TeamSearchOption[] = [
   { id: "3", label: "Trash Pandas", detail: "TN" },
@@ -213,5 +218,40 @@ describe("searching by several words, in any order", () => {
       { name: "Sam Sample", found: true },
       { name: "Pat Placeholder", found: false },
     ]);
+  });
+});
+
+/*
+ * A GameChanger id is what somebody holding a team's page has, and a pasted one found nothing:
+ * names were all a search read. Invented ids throughout.
+ */
+describe("finding a club by its GameChanger id", () => {
+  const withIds: TeamSearchOption[] = [
+    {
+      id: "hive",
+      label: "Example Hive *Fall Ball*",
+      detail: "8U 2027 · OH",
+      gcIds: ["Ab3dEf6hIj9k"],
+    },
+    { id: "owls", label: "Owls", detail: "9U 2027 · OH", gcIds: ["Zy8xWv7uTs6r", "Qp5oNm4lKj3i"] },
+    { id: "bolts", label: "Thunderbolts", detail: "9U 2027 · KY" },
+  ];
+  const found = (query: string) => matchTeamOptions(withIds, query).shown.map((one) => one.id);
+
+  it("finds the club an id is linked to, bare or inside a link to its page", () => {
+    expect(found("Ab3dEf6hIj9k")).toEqual(["hive"]);
+    expect(found("https://web.gc.com/teams/Qp5oNm4lKj3i")).toEqual(["owls"]);
+    expect(found("web.gc.com/teams/Zy8xWv7uTs6r/schedule")).toEqual(["owls"]);
+  });
+
+  it("reads a twelve-letter word as a name unless a club carries it as an id", () => {
+    expect(gcIdsInSearch("Thunderbolts")).toEqual(["Thunderbolts"]);
+    expect(found("Thunderbolts")).toEqual(["bolts"]);
+    // Ids are matched exactly: GameChanger's are case-sensitive.
+    expect(found("ab3def6hij9k")).toEqual([]);
+  });
+
+  it("finds nobody for an id no club here carries", () => {
+    expect(found("https://web.gc.com/teams/Nn1nN2nN3nN4")).toEqual([]);
   });
 });

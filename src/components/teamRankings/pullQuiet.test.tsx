@@ -1,4 +1,5 @@
-import { act, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import { beginPull, endPull, resetPullSession, type PullSession } from "../../lib/pullSession";
@@ -113,5 +114,39 @@ describe("a pull's own saves", () => {
     });
 
     expect(readWholePool).toHaveBeenCalled();
+  });
+});
+
+describe("Find a team while a pull runs", () => {
+  let session: PullSession | null = null;
+
+  afterEach(() => {
+    if (session) endPull(session);
+    session = null;
+    resetPullSession();
+    vi.restoreAllMocks();
+  });
+
+  /*
+   * The box used to be switched off for the run, which took it off the top of Rankings for as long
+   * as a pull went on, with nothing to say why. It stays now, finding the pool as it stood when the
+   * run began, and still reads nothing while the run owns the pool.
+   */
+  it("stays on Rankings and finds the pool as it stood when the run began", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings({ ageGroups: groups, teams, games });
+    await screen.findByRole("combobox", { name: /find a team/i });
+
+    const readWholePool = vi.spyOn(storage, "loadScoutGames");
+    act(() => {
+      session = beginPull("2026-09-19T12:00:00.000Z");
+    });
+
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "rays");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    expect(within(list).getByRole("option", { name: /Rays/ })).toBeInTheDocument();
+    expect(readWholePool).not.toHaveBeenCalled();
   });
 });

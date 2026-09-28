@@ -499,6 +499,10 @@ const gcLinkYear = (link: GcTeamLink, index: GroupIndex): number | undefined => 
     : squadYearForGcSeason(link.season, link.seasonYear);
 };
 
+/** The squad year a link sits in (`gcLinkYear`), for a caller holding the groups themselves. */
+export const gcLinkSquadYear = (link: GcTeamLink, ageGroups: AgeGroup[]): number | undefined =>
+  gcLinkYear(link, indexGroups(ageGroups));
+
 /** The value seen most often, the first seen winning a tie; undefined when there are none. */
 const mostCommon = (values: (number | undefined)[]): number | undefined => {
   const counts = new Map<number, number>();
@@ -4038,6 +4042,8 @@ export type ScoutLinkCandidate = {
   ageLevel?: number;
   /** Who coaches it (`coachesOf`), which a person linking their own league's team usually knows. */
   coaches?: string[];
+  /** Its GameChanger ids, so a pasted id or link finds it in the picker. */
+  gcIds?: string[];
 };
 
 /**
@@ -4119,6 +4125,7 @@ export const scoutLinkCandidates = (
       ...(team.state ? { state: team.state } : {}),
       ...(ageLevel === undefined ? {} : { ageLevel }),
       ...(coaches.length > 0 ? { coaches } : {}),
+      ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
       sharedOpponents: shared,
       games: count,
     });

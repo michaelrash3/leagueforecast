@@ -24,6 +24,7 @@ import { coerceNamedAges, namedAgesList, type NamedAge, type NamedAges } from ".
 import { coerceOrgMembership, type OrgMembership } from "./orgMembership";
 import {
   archiveEntryOf,
+  archivedSegment,
   coerceArchivedSeason,
   withUniqueIds,
   type ArchivedSeason,
@@ -1433,6 +1434,7 @@ export const coerceArchiveIndex = (raw: unknown): ArchiveEntry[] => {
         name: entry.name,
         ...(isNumber(entry.ageLevel) ? { ageLevel: entry.ageLevel } : {}),
         ...(isNumber(entry.year) ? { year: entry.year } : {}),
+        ...(archivedSegment(entry.segment) ? { segment: archivedSegment(entry.segment)! } : {}),
         archivedAt: isString(entry.archivedAt) ? entry.archivedAt : "",
         fromGames: isNumber(entry.fromGames) ? entry.fromGames : 0,
         fromTeams: isNumber(entry.fromTeams) ? entry.fromTeams : 0,

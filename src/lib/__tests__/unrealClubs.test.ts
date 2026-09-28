@@ -108,6 +108,41 @@ describe("the club that filed them, not the club they were filed against", () =>
   });
 });
 
+/*
+ * The user asked on 28 September 2026 for the clubs on the list of games won by more than thirty
+ * runs to head the list of clubs that may not be real. Invented names.
+ */
+describe("clubs posting wins by more than thirty runs", () => {
+  const wide = (id: string, a: string, b: string, runs: number, filer: string): ScoutGame => ({
+    ...game(id, a, b, "2026-09-13", true, filer),
+    teamAScore: runs,
+    teamBScore: 0,
+  });
+  const withRouts: GcImportState = {
+    ...pool,
+    teams: [...pool.teams, team("S-ISLE", "Example Islanders", "IsLeIsLeIsLe")],
+    games: [
+      ...pool.games,
+      wide("w1", "S-ISLE", "S-REAL", 9999, "IsLeIsLeIsLe"),
+      wide("w2", "S-ISLE", "S-ODD", 4612, "IsLeIsLeIsLe"),
+      // Thirty exactly is a result, and one said to have been played that way counts.
+      wide("w3", "S-ODD", "S-REAL", 30, "aaaaaaaaaaaa"),
+      { ...wide("w4", "S-ODD", "S-REAL", 45, "aaaaaaaaaaaa"), scoreConfirmed: 45 },
+    ],
+  };
+
+  it("puts them first, charged to the schedule that filed them, even with nothing dated ahead", () => {
+    expect(
+      unrealClubs(withRouts, TODAY).map((club) => [club.name, club.implausible, club.ahead])
+    ).toEqual([
+      ["Example Islanders", 2, 0],
+      ["Orlando Scrappers", 0, 3],
+      ["Test team", 0, 2],
+      ["Mostly Fine", 0, 1],
+    ]);
+  });
+});
+
 describe("the clubs behind results dated ahead", () => {
   const found = unrealClubs(pool, TODAY);
 

@@ -291,7 +291,7 @@ describe("the impossible games, worst club first", () => {
     renderTeamRankings(pool());
     await openSetup(user);
 
-    const clubs = screen.getByRole("heading", { name: /The clubs they belong to/ })
+    const clubs = screen.getByRole("heading", { name: /Clubs that may not be real/ })
       .nextElementSibling?.nextElementSibling as HTMLElement;
     const names = [...clubs.querySelectorAll("li > span.font-bold")].map((one) => one.textContent);
     expect(names).toEqual(["Invented Nine", "Wrong Dates"]);
@@ -318,7 +318,7 @@ describe("the impossible games, worst club first", () => {
     await openSetup(user);
 
     const listed = () => {
-      const clubs = screen.getByRole("heading", { name: /The clubs they belong to/ })
+      const clubs = screen.getByRole("heading", { name: /Clubs that may not be real/ })
         .nextElementSibling?.nextElementSibling as HTMLElement;
       return [...clubs.querySelectorAll("li > span.font-bold")].map((one) => one.textContent);
     };
@@ -398,6 +398,20 @@ describe("games won by more than thirty runs", () => {
     expect(section()).toHaveTextContent("9,999 at the most");
     // The Victims' 9,999-run loss is not a result: they are 1-1, the 30-0 loss and the 5-4 win.
     expect(await recordOf(user, "Victims")).toBe("1-1");
+  });
+
+  it("puts the club that posted them at the top of the clubs that may not be real", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    const clubs = screen.getByRole("heading", { name: /Clubs that may not be real/ })
+      .nextElementSibling?.nextElementSibling as HTMLElement;
+    const listed = [...clubs.querySelectorAll("li")];
+    expect(listed.map((one) => one.querySelector("span.font-bold")?.textContent)).toEqual([
+      "Big Scores",
+    ]);
+    expect(listed[0]).toHaveTextContent("2 wins by more than 30");
   });
 
   it("counts one said to be real, and takes it off the list", async () => {
