@@ -17,6 +17,7 @@ on:
       - "src/lib/apiShared.ts"
       - "src/lib/ttlCache.ts"
       - "src/lib/firebaseProxy.ts"
+      - "src/lib/billingCap.ts"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
   pull_request:
@@ -28,6 +29,7 @@ on:
       - "src/lib/apiShared.ts"
       - "src/lib/ttlCache.ts"
       - "src/lib/firebaseProxy.ts"
+      - "src/lib/billingCap.ts"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
   workflow_dispatch:

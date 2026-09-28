@@ -3116,3 +3116,62 @@ it either way.
    that URL, and redeploy. Pulls now go to Firebase; the **Usage** page in the
    Firebase console shows them arrive. Removing the variable and redeploying moves
    them back.
+
+**A hard stop on the bill.** Google Cloud has no spending cap: a budget only sends
+email. The `billingCap` function (`src/lib/billingCap.ts`) makes one, the way
+Google's own guide to capping costs does. The budget publishes each of its readings,
+several a day, to the Pub/Sub topic `billing-cap`; once a reading says the month's
+cost has reached the budget, the function takes the project off its billing account,
+and every paid service in it stops, the proxy included, until billing is linked
+again. It runs as a service account of its own, the only one allowed to do that,
+and the ceiling is the budget's amount rather than a number in the code, so moving
+it is an edit to the budget. Google's cost figures arrive hours late, so a stop can
+land a little past the amount. Whether the proxy's ordinary use stays under a dollar
+is not known until the first week's usage is in, for the reason above.
+
+Set it up once, in Cloud Shell, **before the first deploy** (the deploy creates the
+function, and fails for want of its account otherwise):
+
+```sh
+PROJECT=your-project-id
+gcloud config set project "$PROJECT"
+gcloud services enable cloudbilling.googleapis.com billingbudgets.googleapis.com
+# The stop's own account: it may unlink billing and be called by its trigger.
+gcloud iam service-accounts create billing-cap --display-name "Billing hard stop"
+CAP="billing-cap@$PROJECT.iam.gserviceaccount.com"
+for ROLE in roles/billing.projectManager roles/run.invoker roles/eventarc.eventReceiver; do
+  gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$CAP" \
+    --role "$ROLE" --condition=None > /dev/null
+done
+# The deploy account wires the function to its topic.
+for ROLE in roles/pubsub.editor roles/eventarc.admin; do
+  gcloud projects add-iam-policy-binding "$PROJECT" \
+    --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
+    --role "$ROLE" --condition=None > /dev/null
+done
+# The topic, which budgets may publish to.
+gcloud pubsub topics create billing-cap
+gcloud pubsub topics add-iam-policy-binding billing-cap \
+  --member serviceAccount:billing-budget-alert@system.gserviceaccount.com \
+  --role roles/pubsub.publisher > /dev/null
+# The budget: a dollar a month on this project, emailing at half and at all of it,
+# and publishing every reading to the topic.
+BILLING=$(gcloud billing projects describe "$PROJECT" --format='value(billingAccountName)')
+gcloud billing budgets create --billing-account "${BILLING#billingAccounts/}" \
+  --display-name "Hard stop" --budget-amount 1.00USD \
+  --filter-projects "projects/$PROJECT" \
+  --threshold-rule percent=0.5 --threshold-rule percent=1.0 \
+  --notifications-rule-pubsub-topic "projects/$PROJECT/topics/billing-cap"
+```
+
+A budget made in the console does the same once **Connect a Pub/Sub topic to this
+budget**, under its actions, names `billing-cap`. After a deploy, the function's
+log (Firebase console, **Functions**, `billingCap`) shows a line for every reading:
+"Under the budget (0.12 USD of 1.00 USD); nothing done."
+
+**If it stops the project.** Pulls fail, since the proxy is down; removing
+`VITE_GC_PROXY_URL` from Vercel and redeploying sends them back to Vercel's proxy
+meanwhile. To start it again, raise the budget's amount first, or the next reading
+turns billing off again, since the month's cost is still past it; then link the
+project to its billing account (**Billing → Account management**, the project's
+menu, **Change billing**) and run **Firebase functions** to bring the functions back.

@@ -3,8 +3,11 @@
  * handler is the very file Vercel runs rather than a copy of it: see `serveGcProxy` for what a
  * function on another host adds.
  */
+import { logger } from "firebase-functions";
 import { onRequest } from "firebase-functions/v2/https";
+import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import gcTeamHandler from "../../api/gc-team";
+import { capBilling, describeCap } from "../../src/lib/billingCap";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
 
 /**
@@ -25,4 +28,36 @@ export const gcTeam = onRequest(
     maxInstances: 5,
   },
   (req, res) => serveGcProxy(req, res, gcTeamHandler)
+);
+
+/**
+ * The hard stop on the project's bill (`billingCap.ts`): reads each budget reading published to
+ * the `billing-cap` topic and takes the project off its billing account once the month's cost has
+ * reached the budget.
+ *
+ * It runs as a service account of its own, `billing-cap`, because it is the one thing here that
+ * may turn billing off: the proxy's identity, which answers anybody, is not given that. One
+ * instance, and no retry: a budget publishes several readings a day, so a stop that fails is tried
+ * again by the next one, and a failure is logged as an error either way.
+ */
+export const billingCap = onMessagePublished(
+  {
+    topic: "billing-cap",
+    region: "us-central1",
+    serviceAccount: "billing-cap@",
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    maxInstances: 1,
+    retry: false,
+  },
+  async (event) => {
+    const outcome = await capBilling(event.data.message.data);
+    const line = describeCap(outcome);
+    if (outcome.kind === "failed") {
+      logger.error(line);
+      throw new Error(line);
+    }
+    if (outcome.kind === "stopped") logger.warn(line);
+    else logger.info(line);
+  }
 );
