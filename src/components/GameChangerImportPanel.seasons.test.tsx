@@ -157,6 +157,19 @@ describe("a pull keeps to the season being played", () => {
     ).toBeChecked();
     expect(screen.queryByText(/from other seasons, skipped/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+    // Its other reading, the winter a year on, can be ticked too, and takes the row with it.
+    const nextWinter = screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028" });
+    expect(nextWinter).not.toBeChecked();
+    await user.click(nextWinter);
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+      })
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028 (1 team)" })
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Pull 1 schedule" })).toBeEnabled();
   });
 
   it("pulls last season too once it is ticked", async () => {

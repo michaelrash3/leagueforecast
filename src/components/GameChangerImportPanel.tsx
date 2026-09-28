@@ -540,6 +540,8 @@ export function GameChangerImportPanel({
   const parsed = useMemo(() => {
     const wanted = new Set(seasonYears);
     const bySeason = new Map<number, number>();
+    /** Every year a row could be, so either reading of a winter can be ticked. */
+    const readable = new Set<number>();
     const entries: GcTeamListEntry[] = [];
     let noSeason = 0;
     for (const entry of listRead.entries) {
@@ -554,6 +556,7 @@ export function GameChangerImportPanel({
        * either year is ticked and counted under that one, and the import files it by its games.
        */
       const readings = squadYearsForGcSeason(entry.season);
+      readings.forEach((reading) => readable.add(reading));
       const year =
         readings.find((reading) => wanted.has(reading)) ?? readings[readings.length - 1]!;
       bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
@@ -564,17 +567,22 @@ export function GameChangerImportPanel({
       entries,
       otherSeason: listRead.entries.length - entries.length,
       bySeason,
+      readable,
       noSeason,
     };
   }, [listRead, seasonYears]);
 
-  /** The years the picker offers: the one being played, the one before, and any the list names. */
+  /**
+   * The years the picker offers: the one being played, the one before, and any the list's rows
+   * could be — both readings of a winter's label, so the one its schedule is dated in can be
+   * ticked whichever that is.
+   */
   const seasonOptions = useMemo(
     () =>
-      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.bySeason.keys()])].sort(
+      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.readable])].sort(
         (a, b) => b - a
       ),
-    [currentSeasonYear, parsed.bySeason]
+    [currentSeasonYear, parsed.readable]
   );
 
   /**
