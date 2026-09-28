@@ -178,6 +178,18 @@ describe("searching by several words, in any order", () => {
     expect(ids("virginia")).toEqual(["va"]);
   });
 
+  it("finds a state's code only as a whole capitalised word", () => {
+    const more: TeamSearchOption[] = [
+      ...clubs,
+      { id: "coho", label: "COHO Elite", detail: "WA" },
+      { id: "pride", label: "Pride in Pinstripes", detail: "TX" },
+      { id: "hoos", label: "Hoosiers", detail: "IN" },
+    ];
+    const found = (query: string) => matchTeamOptions(more, query).shown.map((option) => option.id);
+    expect(found("ohio")).toEqual(["rap"]);
+    expect(found("indiana")).toEqual(["hoos"]);
+  });
+
   it("lets one word find the club and another its coach", () => {
     expect(ids("raptors sample")).toEqual(["rap"]);
   });
