@@ -285,6 +285,19 @@ five. It reads the games the board counts, in the half it is showing, each score
 that club's own schedule gave it. The projection is one number; this is the
 evidence it is made of. Names and scores only.
 
+**Tournament field** plays a weekend out before it is played. Build the field by
+name, or from the report team's own next opponents in one press, choose pools and
+a bracket of two, four or eight, and the event is simulated 2,000 times on the
+board's ratings (`simulateTournament`). The field is drawn into pools by snaking
+down the ratings, as organisers do; each pool plays a round robin; the clubs with
+the most pool wins go to a single-elimination bracket seeded on those wins; each
+game is won with the scouting report's chance. Ties on wins are drawn, because a
+tournament's run-differential rules are its own. The panel gives the field's
+strength (average rating and rank, and its best club) and each club's chance to
+win its pool, reach the final and win, marking as a guess a club whose rating was
+worked out against a different set of teams from most of the field. Fields are
+saved in this browser by name, per age group.
+
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
 a coin flip. The curve's spread rises with age, 2.95 runs at 8U and 0.09 more a

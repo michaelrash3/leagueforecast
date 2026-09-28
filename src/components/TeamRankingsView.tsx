@@ -4,6 +4,7 @@ import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
+import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -2305,6 +2306,16 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               compareId={compareId}
               onCompareChange={setCompareId}
               comparison={comparison}
+            />
+          )}
+          {section === "scouting" && rankings.length > 0 && (
+            <TournamentPanel
+              key={selectedAgeGroupId}
+              ageGroupId={selectedAgeGroupId}
+              rankings={rankings}
+              reportForId={reportForId}
+              upcomingRows={upcomingRows}
+              placeOf={placeOf}
             />
           )}
 
