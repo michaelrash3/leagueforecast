@@ -65,6 +65,8 @@ type SetupSectionProps = {
     onDropClub: (club: UnrealClub) => Promise<boolean>;
     /** Opens a club's own panel from a list the card shows. */
     onOpenTeam: (teamId: string) => void;
+    /** Files a club at another level in a squad year and holds it there; whether it happened. */
+    onSetAge?: (teamId: string, level: number, year: number) => boolean;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -220,6 +222,7 @@ export function SetupSection({
         onDropClub={poolHealth.onDropClub}
         onConfirmScore={poolHealth.onConfirmScore}
         onOpenTeam={poolHealth.onOpenTeam}
+        onSetAge={poolHealth.onSetAge}
       />
 
       <ModelCheckCard

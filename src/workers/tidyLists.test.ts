@@ -3,11 +3,12 @@ import { createTidyHandler, packPool, poolLists, type WorkerResponse } from "./t
 import { proposeSeasonPairings, proposeTwinSquads } from "../lib/gameChangerImport";
 import { countedTwice } from "../lib/countedTwice";
 import { unpulledClubs } from "../lib/unpulledClubs";
+import { filedAtWrongAge } from "../lib/wrongAge";
 import { apartKey, keptApartList } from "../lib/keptApart";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../lib/teamRankings";
 
 /*
- * Pool health's four lists, worked out in the tidy worker beside its numbers.
+ * Pool health's lists, worked out in the tidy worker beside its numbers.
  *
  * Each walks the whole pool, and the page worked all four out after the worker's answer came back,
  * on the pool the worker had just unpacked: on the 18:40 pool a 2.4 s freeze after every press of
@@ -76,7 +77,7 @@ const inspect = (apart: string[] = []) => {
 };
 
 describe("pool health's lists, from the worker", () => {
-  it("are the four lists the page worked out", () => {
+  it("are the lists the page worked out", () => {
     const lists = inspect();
     expect(lists).toEqual({
       toPull: unpulledClubs(state),
@@ -85,6 +86,8 @@ describe("pool health's lists, from the worker", () => {
       ),
       twins: proposeTwinSquads(state.teams, state.games),
       twice: countedTwice(state.teams, state.games, TODAY),
+      // Read in the squad year being played on the day asked about.
+      wrongAge: filedAtWrongAge(state, 2027),
     });
     // The fixture is worth something: there is a twin pair to offer.
     expect(lists.twins).toHaveLength(1);
@@ -95,5 +98,48 @@ describe("pool health's lists, from the worker", () => {
   it("do not offer a pair the user said is two clubs", () => {
     const apart = keptApartList(new Set([apartKey("gcGRN", "gcCUBS")]));
     expect(inspect(apart).twins).toEqual([]);
+  });
+});
+
+describe("the clubs filed at the wrong age, from the worker", () => {
+  it("are read in the squad year being played on the day asked about", () => {
+    const pages: AgeGroup[] = [
+      { id: "ag8", name: "8U 2027", ageLevel: 8, year: 2027, seasonIds: [] },
+      { id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+    ];
+    const at = (id: string, name: string, page: string): ScoutTeam => ({
+      id,
+      name,
+      gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: page }],
+    });
+    const played = (a: string, b: string, date: string): ScoutGame => ({
+      id: `${a}-${b}-${date}`,
+      ageGroupId: "ag8",
+      teamAId: a,
+      teamBId: b,
+      date,
+    });
+    const posted: WorkerResponse[] = [];
+    createTidyHandler((response) => posted.push(response))({
+      kind: "inspect",
+      id: 2,
+      state: packPool({
+        ageGroups: pages,
+        teams: [
+          at("HORN", "Hornets 9U", "ag8"),
+          at("N1", "Nine One 9U", "ag9"),
+          at("N2", "Nine Two 9U", "ag9"),
+        ],
+        games: [played("HORN", "N1", "2026-09-12"), played("HORN", "N2", "2026-09-26")],
+      }),
+      stamp: "",
+      today: TODAY,
+      apart: [],
+    });
+    const answer = posted[0];
+    if (answer?.kind !== "inspect") throw new Error("no inspection");
+    expect(answer.lists.wrongAge).toMatchObject([
+      { teamId: "HORN", year: 2027, filed: 8, suggested: 9, gcTeamIds: ["gcHORN"] },
+    ]);
   });
 });

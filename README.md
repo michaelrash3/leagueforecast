@@ -1246,6 +1246,31 @@ three matched 0.41% of candidate pairs, so roughly one added row in eight to fou
 after all; they are marked **past the hour** in the card and the file, to be checked on GameChanger,
 and one may be a copy to leave out rather than two entries to fold.
 
+**Clubs filed at the wrong age.** **Check the pool** also lists the pulled clubs that look filed at
+one age and play another in the squad year being played (`wrongAge.ts`): the Cincinnati Hornets
+*Fall Ball* problem, filed 8U by GameChanger's age field and playing 9U every week. A club on the
+wrong board sits there all season, every game against the age it really plays read as playing up
+or down, and its rating carries an edge it never earned. Two readings list one, each a rule about
+evidence:
+
+- **Its name and its opponents.** The GameChanger name of one of its squads that year states
+  another age than it is filed at (the squads' names, since a club's own name often drops the age),
+  at least two distinct pulled opponents are filed at that age, and they are a strict majority of
+  the pulled opponents whose age is known.
+- **Its opponents alone,** for a name with no age in it: at least three distinct pulled opponents
+  at one other age, 80% or more of those whose age is known, met in at least two different weeks.
+  The weeks are what keep out a club that played up at one tournament.
+
+On the pool of 26 September 2026 that is 214 clubs by name, 170 of them filed younger than their
+name says, and 39 by opponents alone, the Hornets among them; 201 and 41 on the 28th. A row withdrawn
+by its own schedule, a club against itself and an opponent never pulled say nothing, and a club
+whose age was set by hand is never listed. It is worked out in the tidy worker beside the other
+lists, about a second on those pools. Nothing is changed for you: **Set 9U** files the club at the
+age the evidence points to and holds it there through later pulls, exactly as setting it on the
+club's own panel does (games moved, with an undo), in the squad year it was read in whichever year
+the board is showing; **It plays up** (or down) says the age it has is right, remembered against its
+GameChanger ids so it is not asked again.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South

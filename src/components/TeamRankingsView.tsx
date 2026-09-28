@@ -450,10 +450,13 @@ export function TeamRankingsView({
     },
     [showToast, onDataChange]
   );
-  /** Saves the season on screen's games, and only those; see `scoutGames`. */
+  /**
+   * Saves the season on screen's games, and only those; see `scoutGames`. Another year's, for the
+   * one change made from outside it (a club's age set from Pool health's list), when it is named.
+   */
   const persistGames = useCallback(
-    (games: ScoutGame[]) => {
-      if (!saveScoutGamesForYear(selectedYear, games))
+    (games: ScoutGame[], year: number | undefined = selectedYear) => {
+      if (!saveScoutGamesForYear(year, games))
         showToast("Could not save games (storage full).", { tone: "error" });
       bumpPool();
       onDataChange?.();
@@ -1330,11 +1333,11 @@ export function TeamRankingsView({
     showToast("Unlinked from GameChanger.", { tone: "success" });
   };
 
-  /** Saves what `setClubAge` changed, and only what it changed. */
-  const saveClubAge = (before: ClubAgeState, after: ClubAgeState) => {
+  /** Saves what `setClubAge` changed, and only what it changed, the games into `year`'s. */
+  const saveClubAge = (before: ClubAgeState, after: ClubAgeState, year = selectedYear) => {
     if (after.ageGroups !== before.ageGroups) persistAgeGroups(after.ageGroups);
     if (after.teams !== before.teams) persistTeams(after.teams);
-    if (after.games !== before.games) persistGames(after.games);
+    if (after.games !== before.games) persistGames(after.games, year);
   };
 
   /**
@@ -1343,12 +1346,17 @@ export function TeamRankingsView({
    * The club's GameChanger ids in this year are pinned in the named ages (`NamedAge.pinned`), so a
    * later pull files its schedule at this level whatever GameChanger or the app's other rules say;
    * `setClubAge` moves what is already filed. The toast's undo puts back exactly what was there.
+   *
+   * In the year on screen, or in the one named: Pool health lists clubs in the squad year being
+   * played, whichever year the board shows, and that year's games are read for the move. Answers
+   * whether anything changed, so that list can drop the club.
    */
-  const setTeamAge = (teamId: string, level: number) => {
-    if (selectedYear === undefined) return;
-    const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    const change = setClubAge(before, teamId, level, selectedYear, "you");
-    if (!change) return;
+  const setTeamAge = (teamId: string, level: number, year = selectedYear): boolean => {
+    if (year === undefined) return false;
+    const games = year === selectedYear ? scoutGames : loadScoutGamesForYear(year);
+    const before: ClubAgeState = { teams: scoutTeams, games, ageGroups };
+    const change = setClubAge(before, teamId, level, year, "you");
+    if (!change) return false;
     const previousNamed = loadNamedAges();
     let named = previousNamed;
     change.gcTeamIds.forEach((gcTeamId) => {
@@ -1371,7 +1379,7 @@ export function TeamRankingsView({
     });
     setNamedAges(named);
     saveNamedAges(named);
-    saveClubAge(before, change);
+    saveClubAge(before, change, year);
     const name = scoutTeams.find((team) => team.id === teamId)?.name ?? "The club";
     showToast(
       `${name} is ${level}U now${change.moved > 0 ? `: ${change.moved} of its games moved to ${change.page.name}` : ""}.`,
@@ -1381,10 +1389,11 @@ export function TeamRankingsView({
         onAction: () => {
           setNamedAges(previousNamed);
           saveNamedAges(previousNamed);
-          saveClubAge(change, before);
+          saveClubAge(change, before, year);
         },
       }
     );
+    return true;
   };
 
   /**
@@ -2587,6 +2596,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onDropClub: dropClub,
                 onConfirmScore: confirmScore,
                 onOpenTeam: openListedTeam,
+                onSetAge: setTeamAge,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
