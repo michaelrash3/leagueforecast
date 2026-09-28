@@ -24,6 +24,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   type AgeGroup,
+  type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
 import {
@@ -152,11 +153,56 @@ export const gcTeamIdsForLevels = (
   return ids;
 };
 
+/**
+ * How long a team's schedule is left alone after a pull, unless it has a game within a day of today.
+ *
+ * Three full refreshes ran within 42 hours on 25 and 26 September 2026, each the whole pool. Of the
+ * 53,140 ids the 23:33 and 14:25 runs both pulled, fifteen hours apart, 10,783 (20.3%) came back
+ * with anything new — a row added, a game scored, a score changed — and the ids with a game of their
+ * own dated the day before the earlier pull, that day or the day after were 32.3% of the pull and
+ * held 75.2% of the changed ones; nearly every new row and score was dated the day it was pulled.
+ * So a team pulled within this long is held back unless it is playing (`idsPlayingAround`), and
+ * the rest of what changed waits for the next day's run instead of costing a second pull of every
+ * team. Sixteen hours rather than twenty-four so an evening's refresh never holds back the next
+ * evening's.
+ */
+export const MIN_PULL_GAP_HOURS = 16;
+
+const shiftDay = (day: string, by: number): string => {
+  const at = new Date(`${day}T12:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + by);
+  return at.toISOString().slice(0, 10);
+};
+
+/**
+ * The GameChanger ids whose own schedule holds a game dated yesterday, today or tomorrow: the
+ * pulled schedule a row came from, and each schedule folded into it (`alsoRows`, `alsoFrom`). A
+ * refresh never holds these back, because they are where the day's new results are.
+ */
+export const idsPlayingAround = (games: readonly ScoutGame[], today: string): Set<string> => {
+  const days = new Set([shiftDay(today, -1), today, shiftDay(today, 1)]);
+  const playing = new Set<string>();
+  games.forEach((game) => {
+    if (game.source && game.date && days.has(game.date)) playing.add(game.source.teamId);
+    game.alsoRows?.forEach((record) => {
+      const day = record.date ?? game.date;
+      if (day && days.has(day)) playing.add(record.teamId);
+    });
+    if (game.date && days.has(game.date)) game.alsoFrom?.forEach((id) => playing.add(id));
+  });
+  return playing;
+};
+
 export type DueRefresh = {
   /** The levels this day is for; empty on the catch-up day. */
   ageLevels: number[];
   /** GameChanger ids to fetch. */
   teamIds: string[];
+  /**
+   * How many of the day's teams were held back for having been pulled within
+   * `MIN_PULL_GAP_HOURS` with no game within a day of today.
+   */
+  heldBack: number;
   /** The day's own description, for the prompt. */
   label: string;
   catchUp: boolean;
@@ -235,6 +281,25 @@ export type DueRefreshOptions = {
    * the log cannot know about, and "come back tomorrow" is the wrong answer to that.
    */
   force?: boolean;
+  /**
+   * The ids with a game within a day of today (`idsPlayingAround`). Given, a team pulled within
+   * `MIN_PULL_GAP_HOURS` is held back unless it is among them; left out, nothing is held back.
+   */
+  playing?: ReadonlySet<string>;
+};
+
+/** When each GameChanger id was last pulled, by the latest stamp on any link to it. */
+const lastPulled = (teams: readonly ScoutTeam[]): Map<string, number> => {
+  const at = new Map<string, number>();
+  teams.forEach((team) =>
+    team.gcTeams?.forEach((link) => {
+      const stamp = link.importedAt ? Date.parse(link.importedAt) : Number.NaN;
+      if (Number.isFinite(stamp) && stamp > (at.get(link.teamId) ?? -Infinity)) {
+        at.set(link.teamId, stamp);
+      }
+    })
+  );
+  return at;
 };
 
 export const dueRefresh = (
@@ -249,6 +314,7 @@ export const dueRefresh = (
     refused,
     cadence = DEFAULT_REFRESH_CADENCE,
     force = false,
+    playing,
   }: DueRefreshOptions = {}
 ): DueRefresh => {
   /*
@@ -264,9 +330,19 @@ export const dueRefresh = (
   const outstanding = force
     ? entry.ageLevels
     : entry.ageLevels.filter((level) => !refreshedToday(log, level, now));
+  const levelIds = gcTeamIdsForLevels(outstanding, ageGroups, teams, seasonYear);
+  // Held to the gap even when forced: a second press of "again" on the same evening is how three
+  // whole-pool refreshes landed in 42 hours, and a team with a game today is never held.
+  const pulledAt = playing ? lastPulled(teams) : undefined;
+  const since = now.getTime() - MIN_PULL_GAP_HOURS * 3_600_000;
+  const teamIds =
+    playing && pulledAt
+      ? levelIds.filter((id) => playing.has(id) || !((pulledAt.get(id) ?? -Infinity) > since))
+      : levelIds;
   return {
     ageLevels: outstanding,
-    teamIds: gcTeamIdsForLevels(outstanding, ageGroups, teams, seasonYear),
+    teamIds,
+    heldBack: levelIds.length - teamIds.length,
     label: entry.label,
     catchUp: Boolean(entry.catchUp),
     cadence,

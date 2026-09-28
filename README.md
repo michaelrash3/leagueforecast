@@ -1538,7 +1538,21 @@ Either way, and that button too, only the season being played comes round. A
 finished season's pages cannot change, so walking them every day spent a whole
 year's worth of requests on nothing. What that costs is a result posted after
 August 1 for a game in late July, which the rota no longer goes back for. The
-teams waiting on an age are asked about as before, whatever their season.
+teams waiting on an age are asked about only as the season being played's too (see
+**A year put away stays away**).
+
+**Nor a team pulled a few hours ago, unless it is playing.** A team pulled within
+the last 16 hours (`MIN_PULL_GAP_HOURS`) waits for a later run unless its own
+schedule holds a game dated yesterday, today or tomorrow (`idsPlayingAround`), and
+the panel says how many waited. Three whole-pool refreshes ran within 42 hours on 25
+and 26 September 2026. Of the 53,140 ids that two of them, fifteen hours apart, both
+pulled, 10,783 (20.3%) came back with anything new, nearly all of it dated the day
+it was pulled; the ids with a game within a day of the earlier pull were 32.3% of
+the pull and held 75.2% of the changed ones. The rest of what changed is picked up
+by the next day's run instead of costing a second pull of every team. The button
+that runs a finished day again keeps to the gap as well, since a second press on
+the same evening is how those three refreshes happened, and a team playing today is
+never held.
 
 The teams with no age are paced by that same principle, and used not to be. Each
 is asked at most once a week — unless somebody has answered for it since its last

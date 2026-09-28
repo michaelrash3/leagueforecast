@@ -316,6 +316,32 @@ describe("the refresh keeps to the season being played", () => {
     expect(screen.getByRole("button", { name: "Refresh all 1 teams" })).toBeInTheDocument();
   });
 
+  it("leaves a team pulled an hour ago with no game near today for a later run", () => {
+    const justPulled: GcImportState = {
+      ...twoSeasons,
+      teams: [
+        ...twoSeasons.teams,
+        {
+          id: "fresh",
+          name: "Pulled Just Now 12U",
+          gcTeams: [
+            {
+              teamId: "FreshTeam001",
+              name: "Pulled Just Now 12U",
+              ageGroupId: "ag12now",
+              importedAt: "2026-09-24T11:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    };
+    panel(undefined, { pool: justPulled });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams" })).toBeInTheDocument();
+    expect(screen.getByTestId("gc-held-back")).toHaveTextContent(
+      "1 team pulled in the last 16 hours with no game yesterday, today or tomorrow waits for a later run."
+    );
+  });
+
   it("does the same when today is done and it is asked to run again", () => {
     panel(undefined, {
       pool: twoSeasons,

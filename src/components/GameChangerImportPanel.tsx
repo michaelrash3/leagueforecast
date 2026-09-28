@@ -74,7 +74,9 @@ import {
   describeDue,
   describeRotation,
   dueRefresh,
+  idsPlayingAround,
   markRefreshed,
+  MIN_PULL_GAP_HOURS,
   type DueRefresh,
   type RefreshCadence,
   type RefreshLog,
@@ -690,6 +692,12 @@ export function GameChangerImportPanel({
    * about whether a team was asked seven days ago — which is exactly the kind of thing nobody
    * would ever reproduce.
    */
+  /*
+   * The teams with a game within a day of today, which a refresh never holds back however lately
+   * they were pulled (`MIN_PULL_GAP_HOURS`). Off the games, so a walk of the pool once per change
+   * to it rather than once per render.
+   */
+  const playing = useMemo(() => idsPlayingAround(pool.games, todayIsoDay()), [pool.games]);
   const { due, agelessLine } = useMemo(() => {
     const now = new Date();
     return {
@@ -704,10 +712,11 @@ export function GameChangerImportPanel({
         cadence,
         namedAges: asks,
         refused: droppedClubs,
+        playing,
       }),
       agelessLine: describeAgeUnknown(ageless, now, asks, droppedClubs),
     };
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
 
   /*
    * The same day, with what has already been done today set aside. Only ever used by the button
@@ -730,8 +739,9 @@ export function GameChangerImportPanel({
       namedAges: asks,
       refused: droppedClubs,
       force: true,
+      playing,
     });
-  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs]);
+  }, [refreshLog, pool.ageGroups, pool.teams, ageless, cadence, asks, droppedClubs, playing]);
   const [showWeek, setShowWeek] = useState(false);
   const resumable = savedProgress ? remainingIds(savedProgress) : [];
 
@@ -1853,6 +1863,16 @@ export function GameChangerImportPanel({
                   pool is written back several times along the way, which is the slower half.
                 </p>
               </>
+            )}
+            {due.heldBack > 0 && (
+              <p
+                className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                data-testid="gc-held-back"
+              >
+                {due.heldBack.toLocaleString()} team{due.heldBack === 1 ? "" : "s"} pulled in the
+                last {MIN_PULL_GAP_HOURS} hours with no game yesterday, today or tomorrow{" "}
+                {due.heldBack === 1 ? "waits" : "wait"} for a later run.
+              </p>
             )}
             {due.teamIds.length === 0 && forcedCount > 0 && (
               <>
