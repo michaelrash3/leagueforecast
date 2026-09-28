@@ -181,7 +181,12 @@ export const buildPredictionEngine = (
     : 0;
 
   // NET-in-spirit power ratings: opponent-adjusted, capped run margin with small-sample shrinkage.
-  const runDiffCap = settings ? resolveMaxRunDifferential(settings) : 8;
+  //
+  // Settings keep "No cap" as 0, which is how the standings read it. The fit reads its cap as a
+  // clamp, and a clamp of 0 turns every margin into nothing and every rating into 0.00; it takes no
+  // cap as Infinity.
+  const leagueCap = settings ? resolveMaxRunDifferential(settings) : 8;
+  const runDiffCap = leagueCap > 0 ? leagueCap : Infinity;
   // Results from outside the league sharpen the ratings, and are worth the most exactly where the
   // league schedule is weakest: two teams that have not played each other, but have both played
   // the same tournament opponent, become comparable through it. Those outside opponents are given
