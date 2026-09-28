@@ -222,6 +222,63 @@ describe("a pull keeps to the season being played", () => {
 });
 
 /*
+ * And a team a pull turned away is remembered, so pasting the same list again does not ask
+ * GameChanger about it again: a list with no Season column cannot say, and every paste of one
+ * re-fetched every other-season team it had already been told about.
+ */
+describe("a team turned away as another season's", () => {
+  beforeEach(() => {
+    resetPullSession();
+    localStorage.clear();
+    vi.mocked(fetchGcTeams).mockClear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("is left out when the list is pasted again, until it is asked about again", async () => {
+    const persisted: GcImportState[] = [];
+    const user = userEvent.setup();
+    const first = panel((pool) => {
+      persisted.push(pool);
+      return true;
+    });
+    await user.type(screen.getByLabelText("Teams"), `${FALL_TWO}\n${SUMMER}`);
+    await user.click(screen.getByRole("button", { name: "Pull 2 schedules" }));
+    await screen.findByText("1 team from a season this pull was not asked for left out.");
+    first.unmount();
+
+    // The same two ids, a day later, into the pool the first pull left.
+    vi.mocked(fetchGcTeams).mockClear();
+    panel(() => true, { pool: persisted[persisted.length - 1]! });
+    await user.type(screen.getByLabelText("Teams"), `${FALL_ONE}\n${FALL_TWO}\n${SUMMER}`);
+    expect(screen.getByText(/1 turned away before, skipped/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pull 1 schedule" }));
+    await waitFor(() => expect(fetchGcTeams).toHaveBeenCalled());
+    expect(vi.mocked(fetchGcTeams).mock.calls[0]?.[0]).toEqual([FALL_ONE]);
+  });
+
+  it("is asked about again once last season is ticked, or at a click", async () => {
+    const user = userEvent.setup();
+    const first = panel();
+    await user.type(screen.getByLabelText("Teams"), SUMMER);
+    await user.click(screen.getByRole("button", { name: "Pull 1 schedule" }));
+    await screen.findByText("1 team from a season this pull was not asked for left out.");
+    first.unmount();
+
+    panel();
+    await user.type(screen.getByLabelText("Teams"), `${FALL_ONE}\n${SUMMER}`);
+    expect(screen.getByText(/1 turned away before, skipped/)).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026" }));
+    expect(screen.queryByText(/turned away before/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026" }));
+    await user.click(screen.getByRole("button", { name: "Ask again" }));
+    expect(screen.queryByText(/turned away before/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+  });
+});
+
+/*
  * The rota keeps to the season being played too. A finished season's pages cannot change, so
  * walking them every day spent a pool's worth of requests on nothing.
  */

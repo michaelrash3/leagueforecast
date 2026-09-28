@@ -544,6 +544,11 @@ export type GcImportOutcome = {
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
   issue?: string;
   /**
+   * The squad year the team plays in, on a team refused as another season's (`other-season`), so
+   * the refusal can be remembered against that year and hold only while it is not asked for.
+   */
+  otherSeasonYear?: number;
+  /**
    * What GameChanger said about a team nobody could age.
    *
    * Present only with `skip: "no-age"`. The team is filed nowhere, so this outcome is the only
@@ -2341,6 +2346,7 @@ const importOne = (
       outcome: {
         ...base,
         skip: "other-season",
+        otherSeasonYear: seasonYear,
         issue: `${formatGcSeason(profile.season)} falls in the ${seasonYear} season, which this pull was not asked for, so its schedule was not read.`,
       },
     };

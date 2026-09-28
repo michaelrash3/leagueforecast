@@ -1428,6 +1428,16 @@ run's summary counts those in a line of their own instead of listing them under
 was started for, and the same list asked for different seasons starts over. The
 rota keeps to the season being played as well; see the next section.
 
+**A team turned away is remembered.** A crawl that searched every season exports no
+Season column, and pasting it again on 26 September 2026 sent 220,103 ids, about
+22,000 calls, most of them teams an earlier pull had already refused as another
+season's. Each finished run now keeps what it turned away (`refusedClubs.ts`): for
+good when it is about what the team is (wiffle ball, high school, adult, over the
+oldest age), and against its squad year when it was another season's, so it is left
+out of a paste only while that year is unticked. A pill says how many were left out,
+and **Ask again** forgets them. It is a cache of GameChanger's answers, like the
+too-young list beside it, and stays out of backups.
+
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
 on a pool whose shape differs from the one it last tidied, the whole pool is
 gone over until a pass finds nothing more: games outside their squad year are

@@ -20,6 +20,7 @@ import {
   type DeletedGames,
 } from "./deletedGames";
 import { coerceTooYoungClubs, tooYoungClubsList, type TooYoungClubs } from "./tooYoungClubs";
+import { coerceRefusedClubs, refusedClubsStored, type RefusedClubs } from "./refusedClubs";
 import { coerceNamedAges, namedAgesList, type NamedAge, type NamedAges } from "./namedAges";
 import { coerceOrgMembership, type OrgMembership } from "./orgMembership";
 import {
@@ -182,6 +183,12 @@ const GC_REAL_CLUBS_KEY = "league_forecast_gc_real_clubs_v1";
  * hundreds of times the size.
  */
 const GC_TOO_YOUNG_KEY = "league_forecast_gc_too_young_v1";
+/**
+ * The ids a pull fetched and turned away, for what they are or as another season's, so the next
+ * paste of the same list does not fetch them again (`refusedClubs.ts`). A cache of GameChanger's
+ * answers like the too-young list, and like it the largest thing here after the games.
+ */
+const GC_REFUSED_KEY = "league_forecast_gc_refused_v1";
 /** The ages somebody named by hand for teams the app could not work out. */
 const GC_NAMED_AGES_KEY = "league_forecast_gc_named_ages_v1";
 /** The organizations the user's Organizations file named, with the teams under each. */
@@ -418,6 +425,7 @@ const POOL_KEYS = [
   GC_DROPPED_CLUBS_KEY,
   GC_REAL_CLUBS_KEY,
   GC_TOO_YOUNG_KEY,
+  GC_REFUSED_KEY,
   GC_NAMED_AGES_KEY,
   GC_ORG_MEMBERSHIP_KEY,
 ];
@@ -1374,6 +1382,11 @@ export const loadTooYoungClubs = (): Set<string> =>
 
 export const saveTooYoungClubs = (clubs: TooYoungClubs): boolean =>
   writeValue(GC_TOO_YOUNG_KEY, tooYoungClubsList(clubs));
+
+export const loadRefusedClubs = (): RefusedClubs => coerceRefusedClubs(readValue(GC_REFUSED_KEY));
+
+export const saveRefusedClubs = (refused: RefusedClubs): boolean =>
+  writeValue(GC_REFUSED_KEY, refusedClubsStored(refused));
 
 export const loadNamedAges = (): Map<string, NamedAge> =>
   coerceNamedAges(readValue(GC_NAMED_AGES_KEY));

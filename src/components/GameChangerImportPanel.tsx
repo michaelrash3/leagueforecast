@@ -100,6 +100,12 @@ import {
   tooYoungFromOutcomes,
   type TooYoungClubs,
 } from "../lib/tooYoungClubs";
+import {
+  forgetRefused,
+  isRefusedClub,
+  rememberRefused,
+  type RefusedClubs,
+} from "../lib/refusedClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
@@ -120,6 +126,8 @@ import {
   loadDroppedClubs,
   loadTooYoungClubs,
   saveTooYoungClubs,
+  loadRefusedClubs,
+  saveRefusedClubs,
   loadOrgMembership,
   saveOrgMembership,
   loadKeptApart,
@@ -463,6 +471,8 @@ export function GameChangerImportPanel({
    * learns fifty more of them should shorten the next paste without a reload.
    */
   const [tooYoung, setTooYoung] = useState<TooYoungClubs>(() => loadTooYoungClubs());
+  // The ids earlier pulls turned away, which a paste leaves out (`refusedClubs.ts`).
+  const [refused, setRefused] = useState<RefusedClubs>(() => loadRefusedClubs());
 
   const listRead = useMemo(() => {
     const read = parseGcTeamList(text);
@@ -562,15 +572,25 @@ export function GameChangerImportPanel({
       bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
       if (wanted.has(year)) entries.push(entry);
     }
+    /*
+     * And the rows an earlier pull fetched and turned away: for what the team is, or as a season
+     * that is still not asked for. A list with no Season column is where this pays — every paste
+     * of it asked GameChanger again about teams it had already answered for.
+     */
+    const kept = entries.filter((entry) => !isRefusedClub(refused, entry.teamId, seasonYears));
+    const turnedAway = entries
+      .filter((entry) => isRefusedClub(refused, entry.teamId, seasonYears))
+      .map((entry) => entry.teamId);
     return {
       ...listRead,
-      entries,
+      entries: kept,
+      turnedAway,
       otherSeason: listRead.entries.length - entries.length,
       bySeason,
       readable,
       noSeason,
     };
-  }, [listRead, seasonYears]);
+  }, [listRead, seasonYears, refused]);
 
   /**
    * The years the picker offers: the one being played, the one before, and any the list's rows
@@ -931,7 +951,8 @@ export function GameChangerImportPanel({
               parsed.highSchool +
               parsed.notYouth +
               parsed.thrownOut +
-              parsed.otherSeason,
+              parsed.otherSeason +
+              parsed.turnedAway.length,
             alreadyHere: split.seen,
             asked: askedInRun,
           });
@@ -1277,6 +1298,17 @@ export function GameChangerImportPanel({
        * fetch whose answer never changes. Safe to keep for good — a GameChanger id is minted per
        * team per season, so this cannot hold a club down as it ages up.
        */
+      /*
+       * And every team it turned away for good or as another season's, so the next paste of the
+       * same list leaves them out rather than asking GameChanger again (`refusedClubs.ts`).
+       */
+      const heldRefusals = loadRefusedClubs();
+      const nextRefused = rememberRefused(heldRefusals, outcomesRef.current);
+      if (nextRefused !== heldRefusals) {
+        setRefused(nextRefused);
+        saveRefusedClubs(nextRefused);
+      }
+
       const learnedTooYoung = tooYoungFromOutcomes(outcomesRef.current);
       if (learnedTooYoung.length > 0) {
         const nextTooYoung = rememberTooYoung(loadTooYoungClubs(), learnedTooYoung);
@@ -2026,6 +2058,25 @@ export function GameChangerImportPanel({
                 {parsed.otherSeason > 0 && (
                   <span className={pill("neutral")}>
                     {parsed.otherSeason} from other seasons, skipped
+                  </span>
+                )}
+                {parsed.turnedAway.length > 0 && (
+                  <span
+                    className={pill("neutral")}
+                    title="Fetched by an earlier pull and turned away: high school, wiffle ball, adult or over-age teams for good, and teams from a season that is still not ticked."
+                  >
+                    {parsed.turnedAway.length} turned away before, skipped{" "}
+                    <button
+                      type="button"
+                      className="font-bold underline"
+                      onClick={() => {
+                        const next = forgetRefused(refused, parsed.turnedAway);
+                        setRefused(next);
+                        saveRefusedClubs(next);
+                      }}
+                    >
+                      Ask again
+                    </button>
                   </span>
                 )}
                 {parsed.thrownOut > 0 && (
