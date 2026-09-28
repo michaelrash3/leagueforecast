@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import { STATE_CODE_BY_NAME } from "../lib/stateNames";
 
 export type TeamSearchOption = {
   /** What selecting this option yields. Names repeat across the country; ids do not. */
@@ -25,6 +26,47 @@ export type TeamSearchOption = {
 /** Drawn at once. Past this the answer is to type more, not to scroll further. */
 export const TEAM_SEARCH_LIMIT = 50;
 
+/** State names longest first, so "west virginia" is taken whole before "virginia" can be. */
+const STATES_LONGEST_FIRST = [...STATE_CODE_BY_NAME.entries()].sort(
+  (a, b) => b[0].length - a[0].length
+);
+
+/** What a search asks of each result: every word somewhere in it, and every state it names. */
+type SearchTerms = { words: string[]; states: Array<{ name: string; code: string }> };
+
+/**
+ * A search as the words it is made of, with any state named in full taken out as a state.
+ *
+ * Words rather than one string because a name is remembered in pieces and typed in whatever order
+ * they come — "pandas trash" is the Trash Pandas — and a state's name because a club carries its
+ * code: "ohio" found nothing in a list where every Ohio club reads "OH". A search that finds
+ * nobody is still the answer when a word matches nothing about a club.
+ */
+export const searchTerms = (query: string): SearchTerms => {
+  let rest = ` ${query.trim().toLowerCase().replace(/\s+/g, " ")} `;
+  const states: SearchTerms["states"] = [];
+  STATES_LONGEST_FIRST.forEach(([name, code]) => {
+    const phrase = ` ${name} `;
+    while (rest.includes(phrase)) {
+      states.push({ name, code });
+      rest = rest.replace(phrase, " ");
+    }
+  });
+  return { words: rest.split(" ").filter(Boolean), states };
+};
+
+const matchesTerms = (option: TeamSearchOption, terms: SearchTerms): boolean => {
+  const text = `${option.label} ${option.detail ?? ""}`;
+  const lower = text.toLowerCase();
+  const coaches = option.coaches?.map((coach) => coach.toLowerCase()) ?? [];
+  return (
+    terms.words.every((word) => lower.includes(word) || coaches.some((c) => c.includes(word))) &&
+    terms.states.every(
+      ({ name, code }) => new RegExp(`\\b${code}\\b`).test(text) || lower.includes(name)
+    )
+  );
+};
+
 /**
  * The rows a query leaves, and how many there were in all.
  *
@@ -41,7 +83,8 @@ export const matchTeamOptions = (
   query: string,
   limit: number = TEAM_SEARCH_LIMIT
 ): { shown: TeamSearchOption[]; total: number } => {
-  const needle = query.trim().toLowerCase();
+  const terms = searchTerms(query);
+  const searching = terms.words.length > 0 || terms.states.length > 0;
   const sorted = options
     .slice()
     .sort(
@@ -50,13 +93,7 @@ export const matchTeamOptions = (
         a.label.localeCompare(b.label) ||
         (a.detail ?? "").localeCompare(b.detail ?? "")
     );
-  const matches = needle
-    ? sorted.filter(
-        (option) =>
-          `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle) ||
-          option.coaches?.some((coach) => coach.toLowerCase().includes(needle))
-      )
-    : sorted;
+  const matches = searching ? sorted.filter((option) => matchesTerms(option, terms)) : sorted;
   return { shown: matches.slice(0, limit), total: matches.length };
 };
 
@@ -73,10 +110,10 @@ export const coachesToList = (
   query: string
 ): { names: Array<{ name: string; found: boolean }>; more: number } | null => {
   if (!coaches?.length) return null;
-  const needle = query.trim().toLowerCase();
+  const { words } = searchTerms(query);
   const marked = coaches.map((name) => ({
     name,
-    found: needle !== "" && name.toLowerCase().includes(needle),
+    found: words.some((word) => name.toLowerCase().includes(word)),
   }));
   const ordered = [...marked.filter((coach) => coach.found), ...marked.filter((c) => !c.found)];
   return {

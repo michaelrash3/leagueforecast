@@ -145,3 +145,47 @@ describe("a club's coaches", () => {
     expect(coachesToList(undefined, "x")).toBeNull();
   });
 });
+
+describe("searching by several words, in any order", () => {
+  const clubs: TeamSearchOption[] = [
+    { id: "tn", label: "Trash Pandas", detail: "9U 2027 · Nashville, TN" },
+    { id: "ky", label: "Trash Pandas", detail: "9U 2027 · Hebron, KY" },
+    { id: "ny", label: "Brooklyn Bombers", detail: "10U 2027 · Brooklyn, NY" },
+    { id: "wv", label: "Mountaineers", detail: "WV" },
+    { id: "va", label: "Cavaliers", detail: "VA" },
+    { id: "rap", label: "River City Raptors", detail: "OH", coaches: ["Sam Sample"] },
+  ];
+  const ids = (query: string) => matchTeamOptions(clubs, query).shown.map((option) => option.id);
+
+  it("finds a name whatever order its words are typed in", () => {
+    expect(ids("pandas trash")).toEqual(["ky", "tn"]);
+  });
+
+  it("needs every word to match something about the club", () => {
+    expect(ids("trash ky")).toEqual(["ky"]);
+    expect(ids("trash zzz")).toEqual([]);
+  });
+
+  it("reads a state's name as its code", () => {
+    expect(ids("pandas kentucky")).toEqual(["ky"]);
+    expect(ids("tennessee")).toEqual(["tn"]);
+    expect(ids("new york")).toEqual(["ny"]);
+    expect(ids("ohio raptors")).toEqual(["rap"]);
+  });
+
+  it("takes the longest state name it can, so West Virginia is not Virginia", () => {
+    expect(ids("west virginia")).toEqual(["wv"]);
+    expect(ids("virginia")).toEqual(["va"]);
+  });
+
+  it("lets one word find the club and another its coach", () => {
+    expect(ids("raptors sample")).toEqual(["rap"]);
+  });
+
+  it("marks a coach any word of the search found", () => {
+    expect(coachesToList(["Pat Placeholder", "Sam Sample"], "raptors sample")?.names).toEqual([
+      { name: "Sam Sample", found: true },
+      { name: "Pat Placeholder", found: false },
+    ]);
+  });
+});
