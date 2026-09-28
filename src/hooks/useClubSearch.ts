@@ -5,7 +5,7 @@
  * without already knowing its season and age level is the one thing the age tabs cannot do, and is
  * the point of searching at all.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   teamPages,
   type AgeGroup,
@@ -34,7 +34,22 @@ type ClubSearchInput = {
    * would be a decode of every year, every time, for a box nobody can see.
    */
   enabled: boolean;
+  /**
+   * Whether a pull is running. The index is not rebuilt while one is: each save hands back new
+   * teams, and a rebuild reads every stored year. It keeps what it was built from when the run
+   * began instead, so the box stays and finds the pool as it stood then, and it is built once more
+   * when the run lets go.
+   */
+  hold?: boolean;
   /** Storage is not reactive; this is bumped when the pool changes, and the index follows it. */
+  revision: number;
+};
+
+/** What the index is built from, kept whole while a pull runs. */
+type IndexInputs = {
+  teams: ScoutTeam[];
+  games: () => ScoutGame[];
+  ageGroups: AgeGroup[];
   revision: number;
 };
 
@@ -48,8 +63,24 @@ export function useClubSearch({
   ageGroups,
   rankedTeams,
   enabled,
+  hold = false,
   revision,
 }: ClubSearchInput) {
+  /*
+   * Taken when a pull begins and let go when it ends, during render rather than in an effect, the
+   * way the view follows a pull's revision: a frame built from inputs about to be replaced is a
+   * rebuild of the whole index for nothing.
+   */
+  const [held, setHeld] = useState<IndexInputs | null>(null);
+  if (hold && held === null) setHeld({ teams, games, ageGroups, revision });
+  if (!hold && held !== null) setHeld(null);
+  const {
+    teams: indexTeams,
+    games: indexGames,
+    ageGroups: indexGroups,
+    revision: indexRevision,
+  } = hold && held ? held : { teams, games, ageGroups, revision };
+
   /**
    * Who coaches each team, gathered from every GameChanger id it is linked to.
    *
@@ -69,18 +100,18 @@ export function useClubSearch({
    * and age level is the one thing the age tabs cannot do, and is the point of searching at all.
    */
   const { pagesByTeam, playedBy } = useMemo(() => {
-    void revision;
+    void indexRevision;
     if (!enabled) return { pagesByTeam: NO_PAGES, playedBy: NO_PLAYED_BY };
-    const everyGame = games();
+    const everyGame = indexGames();
     return {
-      pagesByTeam: teamPages(teams, everyGame, ageGroups),
+      pagesByTeam: teamPages(indexTeams, everyGame, indexGroups),
       // Where a stand-in's opponents are from, read off the same games (`statesThatPlayed`).
-      playedBy: statesThatPlayed(teams, everyGame),
+      playedBy: statesThatPlayed(indexTeams, everyGame),
     };
-  }, [enabled, teams, games, ageGroups, revision]);
+  }, [enabled, indexTeams, indexGames, indexGroups, indexRevision]);
 
   const searchOptions = useMemo(() => {
-    const byId = new Map(teams.map((team) => [team.id, team]));
+    const byId = new Map(indexTeams.map((team) => [team.id, team]));
     return [...pagesByTeam.entries()].flatMap(([teamId, page]) => {
       const team = byId.get(teamId);
       if (!team) return [];
@@ -118,7 +149,7 @@ export function useClubSearch({
         },
       ];
     });
-  }, [pagesByTeam, playedBy, teams]);
+  }, [pagesByTeam, playedBy, indexTeams]);
 
   /**
    * What to offer as "same team as": everyone else rated on this page, with the likely clubs first.

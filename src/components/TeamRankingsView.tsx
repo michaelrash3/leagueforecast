@@ -1651,20 +1651,21 @@ export function TeamRankingsView({
     ageGroups,
     rankedTeams,
     /*
-     * Not while a pull is running, and that is the expensive half of this.
+     * Not rebuilt while a pull is running, and that is the expensive half of this.
      *
-     * Rebuilding the index reads every stored year and walks every team against every game. The
-     * note that used to sit here said Setup was where a pull saves the pool every few hundred
-     * teams — right reason, wrong section: a pull runs from Import, where the index was enabled,
-     * so every save during a run rebuilt the whole thing. Nor is the revision enough to stop it,
-     * because a save hands back new `teams` and `ageGroups` arrays and the index follows those by
-     * identity, as it should.
+     * Rebuilding the index reads every stored year and walks every team against every game, and a
+     * pull runs from Import, where the index is on, so every save during a run rebuilt the whole
+     * thing. The revision is not enough to stop it, because a save hands back new `teams` and
+     * `ageGroups` arrays and the index follows those by identity, as it should.
      *
-     * What it powers is a search box and the place line under a team's name. Both can wait for a
-     * run that is adding the very teams they would be searching; the index comes back, once, when
-     * the pool is released.
+     * It used to be switched off for the run instead, which took the Find a team box off the top
+     * of Rankings for as long as a pull went on, an hour and more on a nationwide list, with
+     * nothing to say why: the user asked where it had gone on 28 September 2026. Held, the box
+     * stays and searches the pool as it stood when the run began, and the index is built once
+     * more when the run lets go.
      */
-    enabled: section !== "setup" && !pullLive,
+    enabled: section !== "setup",
+    hold: pullLive,
     revision: settledRevision,
   });
 
