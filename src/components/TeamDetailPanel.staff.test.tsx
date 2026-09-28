@@ -51,8 +51,11 @@ const openMergePicker = async (
   user: ReturnType<typeof userEvent.setup>,
   panel: HTMLElement
 ): Promise<HTMLElement[]> => {
-  await user.click(within(panel).getByRole("combobox"));
-  return within(panel).getAllByRole("option");
+  const box = within(panel).getByRole("combobox", { name: "Same team as" });
+  await user.click(box);
+  // Its own list, not the panel's: the Age line is a select, and its options are options too.
+  const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+  return within(list).getAllByRole("option");
 };
 
 describe("finding the same club in the merge picker", () => {
