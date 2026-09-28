@@ -16,6 +16,8 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   countedInWindow,
+  countsTowardRating,
+  dateInSquadYear,
   dedupeLeagueFixtures,
   leagueStandIns,
   deriveLeagueScoutGames,
@@ -647,6 +649,7 @@ export function TeamRankingsView({
     const picked = new Set<string>();
     const named = new Set<string>();
     const leagueClubs = new Map<string, Map<string, Map<string, string>>>();
+    const leagueHalves = new Map<string, Map<string, Set<SeasonSegment>>>();
     const stored = { games: scoutGames, ageGroups };
     ageGroups.forEach((group) => {
       const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
@@ -656,12 +659,27 @@ export function TeamRankingsView({
         logs: loadLogsForSeason(seasonId),
       }));
       // The page's squad year supplies the year a League Standings date does not carry.
-      const derived = deriveLeagueScoutGames(group.id, seasons, teams, ageGroupYear(group), stored);
+      const year = ageGroupYear(group);
+      const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored);
       teams = derived.teams;
       derivedGames.push(...derived.games);
       derived.pickedClubIds.forEach((id) => picked.add(id));
       derived.namedClubIds.forEach((id) => named.add(id));
       leagueClubs.set(group.id, derived.clubByLeagueTeam);
+      // The halves each season's schedule falls in, dated as its games just were.
+      leagueHalves.set(
+        group.id,
+        new Map(
+          seasons.map(({ seasonId, matchups }) => {
+            const halves = new Set<SeasonSegment>();
+            matchups.forEach((matchup) => {
+              const half = segmentOfDate(dateInSquadYear(matchup.date, year), year);
+              if (half) halves.add(half);
+            });
+            return [seasonId, halves];
+          })
+        )
+      );
     });
     // `derivedGames` stays whole — `leagueGameTeamIds` reads it to decide which teams arrived from
     // the league — while the pool every rating, record and page is built from gets one row per
@@ -678,6 +696,8 @@ export function TeamRankingsView({
       pickedOnly: new Set([...picked].filter((id) => !named.has(id))),
       /** Page, then league season, then league team, to the club it was carried onto. */
       leagueClubs,
+      /** Page, then league season, to the halves of the year its schedule is played in. */
+      leagueHalves,
       games: dedupeLeagueFixtures(
         [...derivedGames, ...scoutGames],
         leagueStandIns(teams, ageGroups)
@@ -735,20 +755,24 @@ export function TeamRankingsView({
   /**
    * How many counted games each half of this year holds.
    *
-   * Only so a half with nothing in it can say so on its own tab instead of being an empty board
-   * with no explanation. Off `poolGames`, which is the same list the boards are fitted from, so
-   * the count and the table cannot disagree.
+   * So a half with nothing in it can say so on its own tab instead of being an empty board with no
+   * explanation, and so the board opens on a half worth reading (`segmentWorthShowing`). Off
+   * `poolGames`, which is the same list the boards are fitted from, and by the rule the fit counts
+   * a game by (`countsTowardRating`), so the count and the table cannot disagree. Counted as merely
+   * scored, a score typed ahead on a day not yet played, or a game kept only for the record, was a
+   * spring the board opened on in January and fitted with nothing: the 26 September 2026 pool
+   * already held two scores dated March 2027.
    */
   const segmentGames = useMemo(() => {
     const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
     const counts: Record<SeasonSegment, number> = { fall: 0, spring: 0 };
     poolGames.forEach((game) => {
-      if (!isScoutGamePlayed(game)) return;
+      if (!countsTowardRating(game, today)) return;
       const half = segmentOfDate(game.date, year);
       if (half) counts[half] += 1;
     });
     return counts;
-  }, [poolGames, ageGroups, selectedAgeGroupId]);
+  }, [poolGames, ageGroups, selectedAgeGroupId, today]);
 
   /**
    * Which half of the year the boards are for.
@@ -972,6 +996,10 @@ export function TeamRankingsView({
    * off a board that is this page's and settled, so a switch between pages never writes one page's
    * places under another's seasons. A settled board with nobody on it is written too: it takes
    * away places the card would otherwise go on showing.
+   *
+   * And only off a half the season plays its games in. A fall league's clubs are on the fall
+   * board; the spring one, with none of the league's games on it, took away the places the card
+   * was showing the moment anybody looked at it, as a board opened on the spring in January did.
    */
   useEffect(() => {
     if (rankingsStale) return;
@@ -986,6 +1014,10 @@ export function TeamRankingsView({
     group.seasonIds.forEach((seasonId) => {
       const clubs = allKnown.leagueClubs.get(group.id)?.get(seasonId);
       if (!clubs) return;
+      const halves = allKnown.leagueHalves.get(group.id)?.get(seasonId);
+      if (selectedSegment !== undefined && halves && halves.size > 0) {
+        if (!halves.has(selectedSegment)) return;
+      }
       writeLeagueClubRanks(
         seasonId,
         leagueClubRanksFrom(
@@ -1007,6 +1039,7 @@ export function TeamRankingsView({
     selectedSegment,
     selectedYear,
     allKnown.leagueClubs,
+    allKnown.leagueHalves,
     lastWeek,
   ]);
 

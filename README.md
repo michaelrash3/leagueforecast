@@ -270,6 +270,17 @@ rated against the whole country and then listed together, so the second-best tea
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
 
+**Which half a page opens on.** The fall and the spring are two tables, and with no
+half in the link a page opens on the one the calendar is in, unless that half holds
+less than a tenth of the other's counted games (`HALF_WORTH_SHOWING`). A winter's
+tournaments are a sliver of an autumn: the 26 September 2026 pool held 150,408 games
+scored in August and September and 317 scheduled for all of January and February.
+Opened on the calendar's half the day it held any game, the board went to the spring
+on the first January weekend anywhere in the country, a table of a few Florida and
+Texas clubs. The halves are counted by the rule the fit counts by (`countsTowardRating`),
+so a score typed ahead for March, or a game kept only for the record, is not a spring
+either; the pool of 26 September already held two scores dated March 2027.
+
 Above both, the team marked as yours (★) gets a card of its own: its place in the
 whole table and among its own state's clubs, its record and rating, and its next
 game with the chance to win it (`myTeamGlance`). "Where are we ranked?" is asked at
@@ -2526,7 +2537,10 @@ places of the clubs its page's league seasons are linked to are written to a sma
 per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
 card reads them with the day they were read, in the reader's own time zone. A board that
 settles with none of the season's clubs on it takes their places away rather than
-leaving the last ones showing.
+leaving the last ones showing. Only a board of a half the season plays its games in
+writes them: a fall league's places are read off the fall board, and looking at the
+spring one, which holds none of the league's games, leaves the card as it was rather
+than blanking it.
 
 ## Settings
 
