@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
+import { myTeamGlance } from "../lib/myTeamGlance";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -895,6 +896,26 @@ export function TeamRankingsView({
     return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
   }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
+
+  /** The team marked as yours, where it stands on this page and what it plays next. */
+  const myTeam = useMemo(() => {
+    if (myTeamId === undefined) return null;
+    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
+    const upcoming =
+      myTeamId === reportForId
+        ? upcomingRows
+        : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
+    return myTeamGlance(rankings, myTeamId, (teamId) => stateById.get(teamId), upcoming);
+  }, [
+    myTeamId,
+    reportForId,
+    upcomingRows,
+    rankings,
+    rankedTeams,
+    poolGames,
+    allKnown.teams,
+    today,
+  ]);
 
   /**
    * The fixture whose what-if is open, if any. One at a time: two would be two tables.
@@ -2105,6 +2126,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               hasGamesFiledHere={hasGamesFiledHere}
               onOpenTeam={setOpenTeamId}
               onMarkMine={setMyTeam}
+              myTeam={myTeam}
               onRemoveTeam={removeTeamById}
             />
           )}

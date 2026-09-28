@@ -9,6 +9,7 @@ import {
   type ScoutRankingRow,
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
+import { formatIsoDayShort } from "../../lib/date";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
@@ -50,18 +51,7 @@ const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
-/** "Sat, Sep 20" from "2026-09-20". Parsed as UTC so the day cannot slip a timezone backwards. */
-const formatDay = (date: string) => {
-  if (!date) return "No date";
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-};
+const formatDay = formatIsoDayShort;
 
 type ScoutingSectionProps = {
   rankings: ScoutRankingRow[];

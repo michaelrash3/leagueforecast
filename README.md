@@ -250,6 +250,12 @@ rated against the whole country and then listed together, so the second-best tea
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
 
+Above both, the team marked as yours (★) gets a card of its own: its place in the
+whole table and among its own state's clubs, its record and rating, and its next
+game with the chance to win it (`myTeamGlance`). "Where are we ranked?" is asked at
+every field, and without the card the only answer was Show all and a hundred rows
+at a time. The card reads only what the page already has, so it costs nothing.
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that

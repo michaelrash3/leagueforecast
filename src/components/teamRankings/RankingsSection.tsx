@@ -5,6 +5,8 @@ import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { useWideViewport } from "../../hooks/useWideViewport";
+import type { MyTeamGlance } from "../../lib/myTeamGlance";
+import { MyTeamCard } from "./MyTeamCard";
 import { card, pill } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
@@ -52,6 +54,8 @@ type RankingsSectionProps = {
   onOpenTeam: (teamId: string) => void;
   onMarkMine: (teamId: string) => void;
   onRemoveTeam: (teamId: string) => void;
+  /** The team marked as yours on this page, where it stands and what it plays next. */
+  myTeam?: MyTeamGlance | null;
 };
 
 /**
@@ -93,6 +97,7 @@ export function RankingsSection({
   onOpenTeam,
   onMarkMine,
   onRemoveTeam,
+  myTeam,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -152,6 +157,13 @@ export function RankingsSection({
         </div>
       ) : (
         <>
+          {myTeam && (
+            <MyTeamCard
+              glance={myTeam}
+              {...(segment ? { segmentName: segment.name } : {})}
+              onOpenTeam={onOpenTeam}
+            />
+          )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className={`${card} p-5`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">

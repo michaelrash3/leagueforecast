@@ -94,3 +94,16 @@ export const agoLabel = (iso: string | null | undefined, now = new Date()): stri
   if (days === 1) return "yesterday";
   return `${days} days ago`;
 };
+
+/** "Sat, Sep 20" from "2026-09-20". Parsed as UTC so the day cannot slip a timezone backwards. */
+export const formatIsoDayShort = (date: string): string => {
+  if (!date) return "No date";
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+};
