@@ -4,6 +4,7 @@ import {
   ageFromOrgName,
   parseGcOrgList,
   parseGcTeamList,
+  squadYearsForGcSeason,
   type GcTeamListEntry,
   type GcTeamProfile,
 } from "../lib/gameChangerApi";
@@ -134,13 +135,7 @@ import {
   type PullRunLog,
   type PullTracker,
 } from "../lib/pullTracker";
-import {
-  MIN_AGE_LEVEL,
-  mergeScoutTeams,
-  pulledGcTeamIds,
-  segmentOn,
-  squadYearForGcSeason,
-} from "../lib/teamRankings";
+import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds, segmentOn } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
@@ -547,7 +542,14 @@ export function GameChangerImportPanel({
         entries.push(entry);
         continue;
       }
-      const year = squadYearForGcSeason(entry.season.season, entry.season.year);
+      /*
+       * A winter's label names either year it straddles (`squadYearsForGcSeason`), so a "Winter
+       * 2027" row is this season's as much as next's until its schedule says which: kept where
+       * either year is ticked and counted under that one, and the import files it by its games.
+       */
+      const readings = squadYearsForGcSeason(entry.season);
+      const year =
+        readings.find((reading) => wanted.has(reading)) ?? readings[readings.length - 1]!;
       bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
       if (wanted.has(year)) entries.push(entry);
     }
@@ -1293,7 +1295,8 @@ export function GameChangerImportPanel({
         proposeSeasonPairings(
           heldRef.current.state.teams,
           heldRef.current.state.games,
-          loadKeptApart()
+          loadKeptApart(),
+          heldRef.current.state.ageGroups
         )
       );
       setApproved(new Set());

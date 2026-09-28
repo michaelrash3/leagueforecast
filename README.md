@@ -1369,6 +1369,20 @@ club's older games under its new id often enough that a nationwide pull carried
 three thousand of them; a game dated outside its squad year is left out on
 arrival and deleted from a pool that already holds one.
 
+**A winter is filed by its games.** GameChanger's label for a winter names either
+year it straddles — "Winter 2026" and "Winter 2027" are both names for the one
+that starts in November 2026 — so a winter team's squad year is the one most of
+its games are dated in, and with none, the squad year being played if the label
+can mean it, else the year after (`squadYearOfGcTeam`). Read off the label alone,
+"Winter 2027" was squad year 2028: a pull of this season skipped such a squad as
+another season's, and filed anyway, every game it played was dropped as dated
+before its season began. Its age is read in that year too, because a class year
+in the age field is a different age each year ("2034" is 11U in 2027 and 12U in
+2028); the season picker keeps a winter row under either year it could be; and
+the season pairings read a link in the year of the page it was filed on. The 719
+winter teams in the 26 September 2026 pool are all labelled Winter 2026 with their
+games in squad year 2027, and stay where they were filed.
+
 **A pull files the season being played, unless told otherwise.** A crawl that
 searches every season of a calendar year hands over last spring's and summer's
 squads beside this fall's, each under a new GameChanger id with nothing else to

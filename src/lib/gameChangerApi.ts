@@ -1155,6 +1155,51 @@ export const squadYearForGcSeason = (season: GcSeason): number =>
   season.season === "fall" || season.season === "winter" ? season.year + 1 : season.year;
 
 /**
+ * The squad years a GameChanger season's label could mean. A winter runs over New Year and is
+ * labelled by either year it straddles — "Winter 2026" and "Winter 2027" are both names for the
+ * winter that starts in November 2026 (`gcSeasonIsCurrent`) — so "Winter Y" is squad year Y or the
+ * year after; every other season is one year.
+ */
+export const squadYearsForGcSeason = (season: GcSeason): number[] =>
+  season.season === "winter" ? [season.year, season.year + 1] : [squadYearForGcSeason(season)];
+
+/** The squad year an ISO day falls in: August starts the next one. */
+const squadYearOfDay = (day: string): number => {
+  const year = Number(day.slice(0, 4));
+  return Number(day.slice(5, 7)) >= 8 ? year + 1 : year;
+};
+
+/**
+ * The squad year a pulled team plays in: its season label's (`squadYearForGcSeason`), except a
+ * winter's, whose label may name either year it straddles. There the team's own games decide — the
+ * squad year most of them are dated in — and with none, the reading that is the squad year being
+ * played on `today`, or else the year after the label, as it was always read.
+ *
+ * Read off the label alone, "Winter 2027" was squad year 2028: a winter squad playing from November
+ * 2026 was skipped by a pull of this season as another season's, and filed anyway, every game it
+ * played was dropped as dated before its season began.
+ */
+export const squadYearOfGcTeam = (
+  season: GcSeason,
+  games: readonly { date?: string }[],
+  today: string
+): number => {
+  if (season.season !== "winter") return squadYearForGcSeason(season);
+  const readings = squadYearsForGcSeason(season);
+  const counts = new Map<number, number>();
+  games.forEach((game) => {
+    if (!game.date) return;
+    const year = squadYearOfDay(game.date);
+    if (readings.includes(year)) counts.set(year, (counts.get(year) ?? 0) + 1);
+  });
+  // The later year on a tie, as the label has always been read.
+  const [played] = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  if (played) return played[0];
+  const current = squadYearOfDay(today);
+  return readings.includes(current) ? current : season.year + 1;
+};
+
+/**
  * The months each GameChanger season is played in, as [first, last] of the calendar year, 1-12.
  *
  * Generous and overlapping on purpose. A club picks its season label when it builds the team, and

@@ -114,7 +114,7 @@ export type PoolLists = {
 
 export const poolLists = (state: GcImportState, apart: KeptApart, today: string): PoolLists => ({
   toPull: unpulledClubs(state),
-  duplicates: proposeSeasonPairings(state.teams, state.games, apart).filter(
+  duplicates: proposeSeasonPairings(state.teams, state.games, apart, state.ageGroups).filter(
     (pairing) => pairing.kind === "same-season"
   ),
   twins: proposeTwinSquads(state.teams, state.games, apart),
