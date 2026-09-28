@@ -105,13 +105,28 @@ describe("the review card for teams waiting on an age", () => {
     expect(onThrowOut).toHaveBeenCalledWith("ID0", "Club 0");
   });
 
+  /* The user's rule of 28 September 2026: a team without nine players is not on this list. */
+  it("leaves a team with fewer than nine players off the list, and says why when it is found", async () => {
+    const user = userEvent.setup();
+    show([
+      ...twelve(),
+      team("ID-SHORT", "Riverdogs 10U", { evidence: evidence({ playerCount: 6 }) }),
+    ]);
+    expect(screen.getByText(/Showing 10 of 12/)).toBeInTheDocument();
+    expect(screen.queryByText("Riverdogs 10U")).not.toBeInTheDocument();
+
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Riverdogs");
+    expect(screen.getByText("Riverdogs 10U")).toBeInTheDocument();
+    expect(screen.getByText(/lists fewer than nine players on it/)).toBeInTheDocument();
+  });
+
   /* The user's order: the least likely to be real first, then the high school sides. */
   it("puts the teams least likely to be real at the top, and says why", () => {
     show([
       team("honest", "An Honest Club"),
       team("school", "Tigers High-school"),
       team("fake", "Test team", {
-        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
       }),
     ]);
     expect(within(rows()[0]!).getByText("Test team")).toBeInTheDocument();
@@ -144,7 +159,7 @@ describe("the review card for teams waiting on an age", () => {
       [
         ...twelve(),
         team("fake", "Test team", {
-          evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+          evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
         }),
       ],
       { dropped: forgetClubs(new Set(), ["fake"]) }
@@ -162,7 +177,7 @@ describe("the review card for teams waiting on an age", () => {
   it("does not colour a row by how invented it looks", () => {
     show([
       team("fake", "Test team", {
-        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 2 }),
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
       }),
     ]);
     expect(rows()[0]!.innerHTML).not.toMatch(/text-red|bg-red|text-emerald|bg-emerald/);

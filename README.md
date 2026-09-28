@@ -1511,6 +1511,15 @@ went onto the list before that rule existed: the name settles it, so it costs no
 the ten, and the next time the rota asks, the answer comes back `high-school` and the
 entry retires itself.
 
+Nor is a team whose GameChanger roster lists fewer than nine players (`shortRoster`), by
+the user's rule of 28 September 2026: it takes nine to field a side. On the waiting list of
+26 September that was 3,232 of 13,962 teams, 1,742 of them with nobody listed at all, where
+the clubs pulled with an age list fewer than nine on 1,717 of 53,252 GameChanger teams. It is
+held off rather than thrown out: the row stays stored, the rota keeps asking about it while
+it has asks left, and each ask replaces what was known — so a squad still being assembled
+comes back on its own once a check finds nine. A team nobody gave a count for stays on the
+card, and the search still finds a short one and says why it is off the queue.
+
 A lone `V` is the opposite case and stays. "Madison V" is the varsity side on a school
 schedule and is equally a squad number, a colour or a coach's initial, and one letter
 is too thin to refuse a real club on. So it comes to the **top** of the queue, with

@@ -82,7 +82,9 @@ function Evidence({ row }: { row: AgelessRow }) {
  * Nothing here is coloured by how unlikely a team looks. That orders the queue — the least likely
  * to be real first, then the high school sides, as the user asked — and a row sorted up says why
  * in a line of plain text, and that is all: an empty schedule is a club somebody made this morning
- * as often as it is a fiction, and a roster of six in September is twelve in October.
+ * as often as it is a fiction. A roster short of nine is the one thing that keeps a team off the
+ * queue by count alone (`shortRoster`), and only until a check finds nine: a roster of six in
+ * September is twelve in October.
  */
 /** What stands between a team somebody found and the queue, said plainly. */
 const ASIDE_NOTE: Record<AgelessAside, string> = {
@@ -90,6 +92,9 @@ const ASIDE_NOTE: Record<AgelessAside, string> = {
   named: "You have already said what age this is. It is filed on the next refresh.",
   "high-school":
     "The name reads as a high school squad, so it is left out of the rankings and off this queue.",
+  "short-roster":
+    "GameChanger lists fewer than nine players on it, so it is not a side yet and is kept off " +
+    "this queue. It comes back on its own if a later check finds nine.",
   "left-alone":
     "Left alone: it had its asks and its weeks and nobody could ever age it. Saying what age it " +
     "is puts it back in the queue.",
