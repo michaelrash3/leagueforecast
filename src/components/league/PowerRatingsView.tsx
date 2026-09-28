@@ -46,12 +46,13 @@ export function PowerRatingsView({
           <HelpTip title="How the rating works">
             <strong>Rating</strong> is an opponent-adjusted run margin (a Massey rating, the same
             idea as the NCAA&apos;s NET): it fits every team so rating difference ≈ expected run
-            margin, using per-game-capped run differential regressed toward league average so short
-            seasons stay stable. It reads in runs — <strong>+2.0</strong> means about two runs
-            better than an average team. <strong>Run Diff/G</strong> is your own capped run
-            differential per game; <strong>SOS</strong> ranks how tough a schedule you&apos;ve faced
-            (#1 = toughest). Because it adjusts for opponents, this is <em>not</em> the standings —
-            an undefeated team that beat weak opponents can rank below a strong-schedule team.
+            margin, using each game&apos;s real margin — counted up to 20 runs, whatever cap the
+            standings use — regressed toward league average so short seasons stay stable. It reads
+            in runs — <strong>+2.0</strong> means about two runs better than an average team.{" "}
+            <strong>Run Diff/G</strong> is your own margin per game on the same count;{" "}
+            <strong>SOS</strong> ranks how tough a schedule you&apos;ve faced (#1 = toughest).
+            Because it adjusts for opponents, this is <em>not</em> the standings — an undefeated
+            team that beat weak opponents can rank below a strong-schedule team.
           </HelpTip>
         </h2>
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

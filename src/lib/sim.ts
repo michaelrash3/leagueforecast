@@ -726,25 +726,24 @@ export const RATING_PRIOR_FLOOR = 0.4;
 export const RATING_PRIOR_GROWTH = 0.6;
 export const RATING_PRIOR_MIDPOINT = 4;
 /**
- * Runs of rating margin per unit of pre-calibration win edge. Deliberately below the 0.43 that
- * scored best on Poisson-scored simulated seasons: the loss either side of this constant is
- * lopsided, and where scoring was overdispersed — which is the realistic case for youth baseball,
- * with its blowouts and its run rules — anything at or above 0.43 was *worse* than not blending at
- * all. 0.25 was the only value that improved every scenario in every noise model tried, and it
- * still takes two thirds to four fifths of the gain.
- */
-export const RATING_EDGE_PER_RUN = 0.25;
-
-/**
- * The same conversion, unshrunk: the value that actually fitted best in that sweep.
+ * Runs of rating margin per unit of pre-calibration win edge: how hard the rating pulls a game's
+ * forecast.
  *
- * `RATING_EDGE_PER_RUN` is deliberately below it because blending a forecast toward the rating is
- * a bet, and the loss either side of the constant is lopsided. That reasoning applies to a
- * forecast and to nothing else. Somewhere that only wants to state how a record translates into
- * runs — a display figure, with no bet riding on it — shrinking toward a coin flip makes the
- * answer wrong rather than safe, so it reads this one. `scheduleDifficulty.ts` is the only caller.
+ * It was 0.25, held below the 0.43 that fitted best on Poisson-scored simulated seasons, because
+ * on overdispersed ones anything at 0.43 or above was worse than not blending at all. Real games
+ * said otherwise once the rating was fitted to real margins. On the pseudo-leagues
+ * `FORECAST_RUN_CAP` describes, 54,265 games scored after three cuts, with the rating capped at 20
+ * the per-game log loss was lowest at 0.43 both with Team Rankings results (0.6230, against 0.6327
+ * at 0.25) and without them (0.6303 against 0.6394), and the forecast stopped being too shy: the
+ * favourite called at about 65% won 66% of the time, at 75% won 76% and at 84% won 84%, where at
+ * 0.25 and the old cap of 8 it had won 78%, 90% and 97%. At 0.5 and above it was too sure again.
+ * The 8U pages, machine and coach pitch, did best a little higher (0.50, 0.5689 against 0.5716 at
+ * 0.43) and were still far better at 0.43 than at the old 0.25 (0.6162).
+ *
+ * `scheduleDifficulty.ts` reads it too, to state a record as runs, which is the same conversion
+ * with no bet riding on it.
  */
-export const EDGE_PER_RUN_BEST_FIT = 0.43;
+export const RATING_EDGE_PER_RUN = 0.43;
 
 /**
  * How many games the model has on a team, counting the ones Team Rankings brought in.

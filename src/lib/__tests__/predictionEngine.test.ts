@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildOpponentAdjustedRatings } from "../powerRating";
 import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
-import { calculateTeams } from "../sim";
+import { attachAdjustedRatings, calculateTeams, predictGame } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
 const teams: TeamBase[] = [
@@ -201,8 +201,112 @@ describe("buildPredictionEngine with no cap on the run differential", () => {
     expect(engineAt(0).powerRatings[0]?.teamId).toBe("FAL");
   });
 
-  it("credits the 14-run win beyond what a 10-run cap allows", () => {
-    expect(ratingsOf(engineAt(0)).FAL).toBeGreaterThan(ratingsOf(engineAt(10)).FAL ?? Infinity);
+  /*
+   * The league's cap is a standings rule, and the forecast is not bound by it (the user, 28
+   * September 2026): every setting rates the 14-run win as fourteen, up to `FORECAST_RUN_CAP`.
+   */
+  it("rates the 14-run win as played, whatever cap the league's standings use", () => {
+    const uncapped = ratingsOf(engineAt(0));
+    for (const cap of [8, 10]) {
+      const at = ratingsOf(engineAt(cap));
+      for (const id of ["FAL", "WOL", "COM"]) expect(at[id]).toBeCloseTo(uncapped[id] ?? NaN, 9);
+    }
+  });
+});
+
+/*
+ * The forecast's own cap, the Dashboard's odds and the rating's weight in a game's forecast, held
+ * to the digit. Each moved on purpose on 28 September 2026 (see `FORECAST_RUN_CAP`,
+ * `MATCHUP_ODDS_SPREAD` and `RATING_EDGE_PER_RUN`), and the numbers they had before are in the
+ * comments beside the ones they have now.
+ */
+describe("the forecast's cap, odds and rating weight", () => {
+  const four: TeamBase[] = [...teams, { id: "BEA", name: "Bears" }];
+  const final = (awayRuns: string, homeRuns: string): GameLog => ({
+    awayRuns,
+    homeRuns,
+    awayHits: "",
+    homeHits: "",
+    awayK: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const schedule: Matchup[] = [
+    { id: "1", date: "4/1", away: "FAL", home: "WOL" },
+    { id: "2", date: "4/2", away: "FAL", home: "COM" },
+    { id: "3", date: "4/3", away: "WOL", home: "COM" },
+    { id: "4", date: "4/4", away: "BEA", home: "FAL" },
+    { id: "5", date: "4/5", away: "COM", home: "BEA" },
+    { id: "6", date: "4/6", away: "WOL", home: "BEA" },
+    { id: "7", date: "4/10", away: "FAL", home: "BEA" },
+    { id: "8", date: "4/11", away: "COM", home: "WOL" },
+  ];
+  const played: Record<string, GameLog> = {
+    "1": final("9", "4"),
+    "2": final("16", "2"),
+    "3": final("6", "3"),
+    "4": final("3", "7"),
+    "5": final("5", "6"),
+    "6": final("8", "2"),
+  };
+  const settingsFor = (pitchMode: "player" | "machine") => ({
+    ...DEFAULT_SETTINGS,
+    autoRunDiffCap: false,
+    maxRunDifferential: 8,
+    pitchMode,
+  });
+  const run = (pitchMode: "player" | "machine" = "player", logs = played) => {
+    const settings = settingsFor(pitchMode);
+    const base = calculateTeams(four, schedule, logs, settings);
+    const engine = buildPredictionEngine(base, schedule, logs, settings);
+    const state = attachAdjustedRatings(base, engine.ratings);
+    const byId = new Map(state.map((team) => [team.id, team]));
+    return { base, engine, state, byId, settings };
+  };
+
+  it("fits the ratings on real margins up to twenty runs", () => {
+    const { engine } = run();
+    const rating = Object.fromEntries(engine.powerRatings.map((row) => [row.teamId, row.rating]));
+    expect(rating.FAL).toBeCloseTo(4.181818, 6); // 3.090909 at the league's cap of 8
+    expect(rating.WOL).toBeCloseTo(0.727273, 6); // unchanged
+    expect(rating.BEA).toBeCloseTo(-1.636364, 6); // unchanged
+    expect(rating.COM).toBeCloseTo(-3.272727, 6); // -2.181818
+  });
+
+  it("counts a mistyped ninety-run win as twenty", () => {
+    const typo = run("player", { ...played, "2": final("91", "1") });
+    const twenty = run("player", { ...played, "2": final("21", "1") });
+    const of = (engine: ReturnType<typeof buildPredictionEngine>) =>
+      engine.powerRatings.map((row) => [row.teamId, row.rating.toFixed(9)]);
+    expect(of(typo.engine)).toEqual(of(twenty.engine));
+  });
+
+  it("keeps the league's own cap in the standings' run differential", () => {
+    const { base } = run();
+    // Falcons: +5, +14 and +4 as played; the standings count the 14 as the rule's 8.
+    expect(base.find((team) => team.id === "FAL")?.runDiff).toBe(17);
+  });
+
+  it("gives the Dashboard's odds on the wider spread, narrower for machine pitch", () => {
+    const player = run().engine.predictions.find((one) => one.gameId === "7");
+    expect(player?.projectedMargin).toBe(6.2); // 5.1
+    expect(player?.winProbability.teamA).toBe(0.79); // 0.86 on 2.8 and ratings capped at 8
+    const machine = run("machine").engine.predictions.find((one) => one.gameId === "7");
+    expect(machine?.winProbability.teamA).toBe(0.83);
+  });
+
+  it("leans a game's forecast on the rating at 0.43 a run", () => {
+    const { state, byId, settings } = run();
+    const chance = (id: string) =>
+      predictGame(
+        schedule.find((game) => game.id === id)!,
+        state,
+        settings,
+        byId
+      ).awayWinPct;
+    expect(chance("7")).toBeCloseTo(0.772248, 6); // 0.655900 at 0.25 and the cap of 8
+    expect(chance("8")).toBeCloseTo(0.297402, 6); // 0.394955
   });
 });
 

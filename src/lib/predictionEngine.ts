@@ -3,7 +3,6 @@ import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, parseDateValue } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
 import { buildOpponentAdjustedRatings } from "./powerRating";
-import { resolveMaxRunDifferential } from "./sim";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
 export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
@@ -190,6 +189,44 @@ export type ExternalResult = {
   neutral?: boolean;
 };
 
+/**
+ * How far one game's margin counts in the forecast's rating, whatever the league's rule caps its
+ * standings at.
+ *
+ * The league's cap is a rule about standings — a run-differential tiebreaker that stops a team
+ * being rewarded for running up a score — and the standings keep it. A forecast is a different
+ * question, how good each team is, and the user ruled on 28 September 2026 that it need not be
+ * bound by the rule. So it was measured. Every state's pulled clubs on a 2027 page of the pool of
+ * 26 September (20 or more clubs) were made a pseudo-league: its games among themselves up to 13,
+ * 19 or 20 September were the season so far, the pool's other games touching those clubs were the
+ * Team Rankings results a linked league is handed, and the 54,265 league games after each cut were
+ * scored, through the app's own `buildPredictionEngine`, `attachAdjustedRatings` and
+ * `predictGame`. The cap was tried at 8, 12, 20 and none, and the rating weight in the per-game
+ * model (`RATING_EDGE_PER_RUN`) with it.
+ *
+ * Twenty and none were one answer to four places, and both beat 8 and 12 with the weight refitted:
+ * the per-game log loss that drives Gold % fell from 0.6431 (8, 0.25, as the app had it) to 0.6230
+ * with the Team Rankings results and from 0.6484 to 0.6303 without them, and the favourite called
+ * at about 75% won 90% of the time at 8 and 76% at 20. Twenty rather than none, so one mistyped
+ * 91-1 in a league's own entry does not count as a ninety-run win.
+ */
+export const FORECAST_RUN_CAP = 20;
+
+/**
+ * The spread of the Dashboard's matchup odds (`predictionFor`): the projected margin that moves a
+ * matchup from even to about 73%.
+ *
+ * It was 2.8 runs, fitted to ratings capped at the league's 8. Ratings capped at
+ * `FORECAST_RUN_CAP` stretch further, and on the same pseudo-leagues the spread that fitted best
+ * was 4.70 with Team Rankings results and 4.75 without, the log loss falling from 0.6254 to 0.6188
+ * and from 0.6330 to 0.6265 against 2.8 on ratings capped at 8. The 9U to 18U pages each fitted
+ * between 3.80 and 5.45 with no trend in age, so one number serves them. The 8U pages, which are
+ * machine and coach pitch, fitted 3.95 (5,123 games in 78 pseudo-leagues of ten clubs or more): a
+ * margin says more about who wins where the pitching is the same for everybody.
+ */
+export const MATCHUP_ODDS_SPREAD = 4.7;
+export const MATCHUP_ODDS_SPREAD_MACHINE_PITCH = 3.95;
+
 export const buildPredictionEngine = (
   teams: Team[],
   matchups: Matchup[],
@@ -213,13 +250,13 @@ export const buildPredictionEngine = (
       (completedGames.length * 2)
     : 0;
 
-  // NET-in-spirit power ratings: opponent-adjusted, capped run margin with small-sample shrinkage.
-  //
-  // Settings keep "No cap" as 0, which is how the standings read it. The fit reads its cap as a
-  // clamp, and a clamp of 0 turns every margin into nothing and every rating into 0.00; it takes no
-  // cap as Infinity.
-  const leagueCap = settings ? resolveMaxRunDifferential(settings) : 8;
-  const runDiffCap = leagueCap > 0 ? leagueCap : Infinity;
+  // NET-in-spirit power ratings: opponent-adjusted run margin, each game counted up to
+  // `FORECAST_RUN_CAP` rather than the league's standings cap, with small-sample shrinkage.
+  const runDiffCap = FORECAST_RUN_CAP;
+  const oddsSpread =
+    settings?.pitchMode === "machine" || settings?.pitchMode === "coach"
+      ? MATCHUP_ODDS_SPREAD_MACHINE_PITCH
+      : MATCHUP_ODDS_SPREAD;
   // Results from outside the league sharpen the ratings, and are worth the most exactly where the
   // league schedule is weakest: two teams that have not played each other, but have both played
   // the same tournament opponent, become comparable through it. Those outside opponents are given
@@ -393,7 +430,7 @@ export const buildPredictionEngine = (
     // margin; the home team gets the estimated home-field bump, plus a small head-to-head nudge.
     const h2hEdge = headToHead ? clamp((headToHead.wins - headToHead.losses) * 0.4, -1.5, 1.5) : 0;
     const margin = clamp(ar.rating - br.rating - adjusted.homeAdvantage + h2hEdge, -14, 14);
-    const probA = clamp(1 / (1 + Math.exp(-margin / 2.8)), 0.08, 0.92);
+    const probA = clamp(1 / (1 + Math.exp(-margin / oddsSpread)), 0.08, 0.92);
     const projectedWinnerId = margin >= 0 ? a.id : b.id;
     // Games the rating was fitted from, not league games alone. The margin above is a difference
     // of two ratings, so what the confidence in it turns on is how well *those* are pinned down —

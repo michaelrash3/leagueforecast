@@ -1,6 +1,6 @@
 import { displayName } from "./format";
 import {
-  EDGE_PER_RUN_BEST_FIT,
+  RATING_EDGE_PER_RUN,
   RATING_PRIOR_FLOOR,
   RATING_PRIOR_GROWTH,
   RATING_PRIOR_MIDPOINT,
@@ -21,9 +21,9 @@ const average = (values: number[]) =>
  * A record, as runs of margin against an average team.
  *
  * This was `(pct - 0.5) * 6`. The six came from nowhere — no sweep, no fit, nothing measured —
- * while the app already knew the answer: `EDGE_PER_RUN_BEST_FIT` is runs of margin per unit of win
- * edge, measured on simulated seasons, and a win percentage is a win edge once it is put through
- * a logit. So the conversion is the one the rest of the app uses, rather than a second one.
+ * while the app already knew the answer: `RATING_EDGE_PER_RUN` is runs of margin per unit of win
+ * edge, measured on simulated seasons and again on real games, and a win percentage is a win edge
+ * once it is put through a logit. So the conversion is the one the forecast uses, not a second one.
  *
  * The percentage is smoothed by half a win in one extra game before that. Two reasons, and both
  * were live bugs. A logit of 1.0 is infinite, so an undefeated team had no finite answer at all
@@ -37,7 +37,7 @@ const average = (values: number[]) =>
  */
 const recordAdjustment = (team: Team) => {
   const smoothed = (team.w + team.t * 0.5 + 0.5) / (team.games + 1);
-  return Math.log(smoothed / (1 - smoothed)) / EDGE_PER_RUN_BEST_FIT;
+  return Math.log(smoothed / (1 - smoothed)) / RATING_EDGE_PER_RUN;
 };
 
 type TeamGameVsAverage = {

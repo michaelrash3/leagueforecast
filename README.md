@@ -2122,6 +2122,34 @@ no date and cannot be placed on the league's timeline without leaking the future
 A team the fit never rated carries no rating at all, and its forecast is exactly
 the number it was before any of this existed.
 
+**Measured on real games, the rating pulls harder and is fitted to real margins.**
+The weight above says how much of a pick the rating gets; `RATING_EDGE_PER_RUN`
+says how hard a run of rating pulls it, and the league's cap on run differential
+used to bound the rating itself. Both were set on simulations: 0.25 a run, held
+below the 0.43 that fitted best because overdispersed simulated scoring punished
+anything higher, and the league's own cap of 8. The user ruled on 28 September
+2026 that the cap is a standings rule the forecast need not follow, so both were
+measured on the pool of 26 September instead. Every state's pulled clubs on a 2027
+page (20 or more) made a pseudo-league; its games among themselves up to 13, 19 or
+20 September were the season so far, the pool's other games touching those clubs
+were the Team Rankings results a linked league is handed, and the 54,265 league
+games after each cut were scored through the app's own engine and `predictGame`.
+
+| Cap, weight         | Log loss with results | Without | Called ~75%, won |
+| ------------------- | --------------------- | ------- | ---------------- |
+| 8, 0.25 (as it was) | 0.6431                | 0.6484  | 90%              |
+| 20, 0.25            | 0.6327                | 0.6394  | 85%              |
+| 20, 0.43 (as it is) | 0.6230                | 0.6303  | 76%              |
+| none, 0.43          | 0.6229                | 0.6303  | 76%              |
+
+So the forecast's fit counts each game's margin up to 20 runs (`FORECAST_RUN_CAP`)
+whatever the league's setting — twenty rather than none so a mistyped 91-1 is not a
+ninety-run win — and the rating pulls at 0.43 a run. The standings, their
+run-differential tiebreaker and the per-game stats model keep the league's cap. The
+Dashboard's matchup odds were refitted on the same games: a spread of 4.7 runs where
+it was 2.8 (log loss 0.6254 to 0.6188 with results), and 3.95 for machine and coach
+pitch, which is what the 8U pages fitted.
+
 ### Ratings
 
 A rating estimates how many runs a team beats an average opponent by, adjusted
