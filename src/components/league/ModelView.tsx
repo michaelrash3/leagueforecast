@@ -12,7 +12,7 @@ import { buildBracketProjection } from "../../lib/bracket";
 import { goldCutLineSnapshot, type ClinchingPathNote } from "../../lib/clinchingPaths";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
-import type { LeagueSummaryErrorReason } from "../../lib/leagueSummary";
+import type { AiProvider, LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { projectionConfidenceForTeam } from "../../lib/projectionConfidence";
 import type { SeasonTimelineEntry } from "../../lib/seasonTimeline";
 import type { BracketOddsResult } from "../../lib/sim";
@@ -102,6 +102,8 @@ export function ModelView(props: {
   /** Gemini write-up of the projection; empty when the AI story is unavailable. */
   forecastStoryText: string;
   forecastStoryModel: string;
+  /** Who wrote the forecast write-up, when one arrived. */
+  forecastStoryProvider?: AiProvider;
   forecastStoryLoading: boolean;
   forecastStoryUnavailableReason: LeagueSummaryErrorReason | null;
   forecastStoryErrorMessage: string;
@@ -149,6 +151,7 @@ export function ModelView(props: {
     askForecastStory,
     forecastStoryText,
     forecastStoryModel,
+    forecastStoryProvider = "gemini",
     forecastStoryLoading,
     forecastStoryUnavailableReason,
     forecastStoryErrorMessage,
@@ -175,7 +178,7 @@ export function ModelView(props: {
           <AiStoryPanel
             title="Forecast Write-up"
             text={forecastPanelText}
-            source={forecastStoryText ? "gemini" : "local"}
+            source={forecastStoryText ? forecastStoryProvider : "local"}
             model={forecastStoryModel}
             loading={forecastStoryLoading}
             loadingLabel="Reading the projection…"

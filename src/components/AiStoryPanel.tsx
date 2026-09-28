@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { LeagueSummaryErrorReason } from "../lib/leagueSummary";
+import type { AiProvider, LeagueSummaryErrorReason } from "../lib/leagueSummary";
 import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../lib/leagueSummaryClient";
 
 /**
@@ -17,7 +17,8 @@ export const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): strin
     case "throttled":
       return "Paused — too many retries";
     case "rate-limited":
-      return "Gemini limit reached";
+      // Gemini's, or Groq's too when it was asked after Gemini and was at its own.
+      return "AI limit reached";
     case "no-model":
       return "No AI model available";
     default:
@@ -27,9 +28,10 @@ export const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): strin
 
 export type AiStoryPanelProps = {
   title: string;
-  /** The Gemini write-up when one arrived, otherwise the deterministic text. */
+  /** The AI write-up when one arrived, otherwise the deterministic text. */
   text: string;
-  source: "gemini" | "local";
+  /** Who wrote `text`: Gemini or Groq, or the app's own words. */
+  source: AiProvider | "local";
   model: string;
   loading: boolean;
   loadingLabel?: string;
@@ -116,10 +118,10 @@ export function AiStoryPanel({
     <div className="mb-3 whitespace-pre-line rounded-lg bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
       <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <span>{title}</span>
-        {source === "gemini" && (
+        {source !== "local" && (
           <span
             className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
-            title={`Written by Gemini (${model})`}
+            title={`Written by ${source === "groq" ? "Groq" : "Gemini"} (${model})`}
           >
             AI
           </span>
@@ -147,13 +149,13 @@ export function AiStoryPanel({
             {checking ? "Checking…" : "Why?"}
           </button>
         )}
-        {!loading && (source === "gemini" || unavailableReason) && (
+        {!loading && (source !== "local" || unavailableReason) && (
           <button
             type="button"
             onClick={onRetry}
             className="ml-auto rounded-full px-2 py-0.5 font-black uppercase tracking-wide text-slate-500 underline decoration-dotted hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-100"
           >
-            {source === "gemini" ? "Rewrite" : "Retry"}
+            {source !== "local" ? "Rewrite" : "Retry"}
           </button>
         )}
       </div>

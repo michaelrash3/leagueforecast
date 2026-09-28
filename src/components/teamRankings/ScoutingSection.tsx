@@ -210,7 +210,7 @@ export function ScoutingSection({
           <AiStoryPanel
             title="Why this ranking"
             text={explanation.status === "ready" ? explanation.summary : ""}
-            source={explanation.status === "ready" ? "gemini" : "local"}
+            source={explanation.status === "ready" ? explanation.provider : "local"}
             model={explanation.model}
             loading={explanation.status === "loading"}
             loadingLabel="Writing rank explanation…"

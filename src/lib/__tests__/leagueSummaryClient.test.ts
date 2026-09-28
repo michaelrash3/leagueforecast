@@ -180,11 +180,39 @@ describe("requestLeagueSummary", () => {
 
     const outcome = await requestLeagueSummary(request, { fetchImpl });
 
-    expect(outcome).toEqual({ ok: true, summary: "Stallions are in.", model: "gemini-3-flash" });
+    expect(outcome).toEqual({
+      ok: true,
+      summary: "Stallions are in.",
+      model: "gemini-3-flash",
+      provider: "gemini",
+    });
     const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
     expect(call[0]).toBe(LEAGUE_SUMMARY_ENDPOINT);
     expect(call[1]?.method).toBe("POST");
     expect(JSON.parse(call[1]?.body).facts).toHaveLength(2);
+  });
+
+  it("says Groq wrote it when Groq did, and Gemini for a function from before Groq", async () => {
+    const groq = vi.fn(async () =>
+      jsonResponse(200, {
+        summary: "Groq wrote it.",
+        model: "llama-3.3-70b-versatile",
+        source: "groq",
+      })
+    ) as unknown as typeof fetch;
+    await expect(requestLeagueSummary(request, { fetchImpl: groq })).resolves.toEqual({
+      ok: true,
+      summary: "Groq wrote it.",
+      model: "llama-3.3-70b-versatile",
+      provider: "groq",
+    });
+
+    const older = vi.fn(async () =>
+      jsonResponse(200, { summary: "An older function.", model: "gemini-2.5-flash" })
+    ) as unknown as typeof fetch;
+    await expect(requestLeagueSummary(request, { fetchImpl: older })).resolves.toMatchObject({
+      provider: "gemini",
+    });
   });
 
   it("reports the server reason so the caller can stay quiet", async () => {
@@ -358,6 +386,70 @@ describe("fetchLeagueSummaryHealth", () => {
 });
 
 describe("describeLeagueSummaryHealth", () => {
+  const working = { keyConfigured: true, keyLength: 39, vercelEnv: "production" };
+
+  it("says Groq takes over, with the model it would ask first, when its key lists models", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        ...working,
+        groq: {
+          keyConfigured: true,
+          keyLength: 56,
+          probe: { ok: true, modelCount: 4, candidates: ["llama-3.3-70b-versatile"] },
+        },
+      },
+    });
+    expect(text).toContain(
+      "Groq takes over when Gemini cannot: its key lists 4 usable models, llama-3.3-70b-versatile first."
+    );
+  });
+
+  it("says when no Groq key reaches the function, and quotes Groq when it refuses one", () => {
+    expect(
+      describeLeagueSummaryHealth({
+        ok: true,
+        health: { ...working, groq: { keyConfigured: false } },
+      })
+    ).toContain("No GROQ_API_KEY reaches the function");
+
+    const refused = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        ...working,
+        groq: {
+          keyConfigured: true,
+          keyLength: 12,
+          probe: { ok: false, listError: { status: 401, message: "Invalid API Key" } },
+        },
+      },
+    });
+    expect(refused).toContain('Groq would not list models for it. Groq said: "Invalid API Key"');
+    expect(refused).toContain("Check that GROQ_API_KEY holds the whole key");
+  });
+
+  it("calls Groq's key alone a working setup, not a missing Gemini key", () => {
+    const text = describeLeagueSummaryHealth({
+      ok: true,
+      health: {
+        keyConfigured: false,
+        vercelEnv: "production",
+        groq: {
+          keyConfigured: true,
+          keyLength: 56,
+          probe: { ok: true, modelCount: 4, candidates: ["llama-3.3-70b-versatile"] },
+        },
+      },
+    });
+    expect(text).toBe(
+      "The function is deployed (env production) with no GEMINI_API_KEY, so Groq writes every story. Groq's key lists 4 usable models, llama-3.3-70b-versatile first."
+    );
+  });
+
+  it("says nothing of Groq for a function from before it", () => {
+    expect(describeLeagueSummaryHealth({ ok: true, health: working })).not.toContain("Groq");
+  });
+
   it("points at the deploy, not the key, when nothing is serving the endpoint", () => {
     const text = describeLeagueSummaryHealth({
       ok: false,

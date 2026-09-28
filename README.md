@@ -7,8 +7,8 @@ A browser-first web app for league predictions, power ratings, matchup analysis,
 - Vite 8 + React 19 + TypeScript 6
 - Tailwind CSS 4 (configured in CSS; there is no tailwind.config.js)
 - Web Worker-based Monte Carlo simulation
-- Two Vercel Serverless Functions: `api/league-summary.ts` for the Gemini-written league story,
-  `api/gc-team.ts` for the GameChanger pull
+- Two Vercel Serverless Functions: `api/league-summary.ts` for the AI league story (Gemini, and
+  Groq when Gemini cannot), `api/gc-team.ts` for the GameChanger pull
 - Vitest, with coverage reported (not enforced) on every pull request
 - ESLint + Prettier
 
@@ -73,7 +73,7 @@ A map rather than a manifest — the directories and the files worth knowing abo
 
 ```
 api/
-  league-summary.ts     # Vercel function: Gemini recap of standings movement
+  league-summary.ts     # Vercel function: AI recap of standings movement (Gemini, then Groq)
   gc-team.ts            # Vercel function: CORS proxy for the GameChanger pull
 scripts/
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
@@ -2506,7 +2506,7 @@ leaving the last ones showing.
   `league_forecast_scout_age_groups_v1`, plus `league_forecast_gc_pull_v1` (an
   interrupted pull's place) and `league_forecast_gc_refresh_v1` (the rota's record)
 - `league_undo_snapshot_v1`
-- League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose; see [AI league story](#ai-league-story). No key is required for the app to work.
+- League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 
@@ -2715,12 +2715,15 @@ point or two between runs.
 | -------------------- | -------- | ----------------------------------------------------------------------------- |
 | `GEMINI_API_KEY`     | No       | Enables the AI story. Server-side only — never exposed to the browser.        |
 | `GEMINI_MODEL`       | No       | Pins one model id (e.g. `gemini-2.5-flash`). Tried first, then the auto list. |
+| `GROQ_API_KEY`       | No       | Groq writes the story when Gemini cannot. Server-side only, like Gemini's.    |
+| `GROQ_MODEL`         | No       | Pins one Groq model id (e.g. `llama-3.3-70b-versatile`). Tried first.         |
 
 Set these in Vercel under **Project → Settings → Environment Variables**, for
 every environment you want the AI story in, then redeploy. Do
 _not_ prefix them with `VITE_`: any `VITE_*` variable is inlined into the client
 bundle and would publish the key to every visitor. The browser posts recap facts
-to `/api/league-summary` and the function calls Gemini with the key.
+to `/api/league-summary` and the function calls Gemini with the key, and Groq with
+its key when Gemini cannot write the story.
 
 ### Model selection
 
@@ -2743,6 +2746,25 @@ If listing models fails, a hand-maintained fallback list in
 `src/lib/geminiModels.ts` is used instead. The list is cached for 30 minutes per
 warm instance.
 
+### Groq, when Gemini cannot
+
+The user added a Groq key on 28 September 2026 for when Gemini's quota runs out, which it
+does at the worst time, a day of results entered at once. With `GROQ_API_KEY` set, a story
+Gemini could not write is asked of Groq instead, with the same prompt and instructions:
+Gemini at its quota on every model, most often, but also a key Gemini rejects or no model to
+ask. Either key alone is enough. With both, Gemini is asked first, and 8 of the 25 seconds a
+story may take are kept back so a Gemini walk that times out still leaves Groq an attempt.
+
+Groq's models are chosen the way Gemini's are (`src/lib/groqModels.ts`). The key lists them
+(`GET /openai/v1/models`), the speech, safety-classifier and agentic ones are dropped, and the
+rest are tried in a hand-kept order of preference (`GROQ_PREFERRED_MODEL_IDS`), a general
+model first since a recap needs no reasoning, then any others the key lists, newest first, up
+to three. When the list cannot be read, the preferred list is tried as it stands, and a model
+Groq has retired answers with an error and the next is tried. A reasoning model's `<think>`
+text is taken out, and an answer cut off at the token cap is refused for the next model. The
+`AI` badge's tooltip says which provider wrote the story, and when both are at their limits the
+answer is `rate-limited`, with both providers' messages.
+
 ### Failure behavior
 
 Every failure path returns a non-200 with a machine-readable `reason`
@@ -2758,15 +2780,15 @@ was asked of Gemini and walking the model list would not have helped.
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
 
-| Header shows                     | Meaning                                                       |
-| -------------------------------- | ------------------------------------------------------------- |
-| `AI` badge                       | Gemini wrote this. The tooltip names the model that answered. |
-| `AI off — no API key`            | The function ran but `GEMINI_API_KEY` is not readable by it.  |
-| `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                     |
-| `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.     |
-| `Gemini limit reached`           | Gemini's own quota refused every model tried.                 |
-| `No AI model available`          | The key listed no usable model.                               |
-| `AI unavailable`                 | Something else upstream. The tooltip carries the message.     |
+| Header shows                     | Meaning                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `AI` badge                       | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
+| `AI off — no API key`            | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
+| `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                                           |
+| `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.                           |
+| `AI limit reached`               | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
+| `No AI model available`          | The key listed no usable model.                                                     |
+| `AI unavailable`                 | Something else upstream. The tooltip carries the message.                           |
 
 A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
 analysis that already succeeded. The endpoint is throttled per IP (best effort,
@@ -2788,18 +2810,20 @@ https://<your-site>/api/league-summary
 https://<your-site>/api/league-summary?probe=1
 ```
 
-| Result                              | Meaning                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------- |
-| **404**                             | The function is not deployed or not routed. The app shows `AI off — endpoint not deployed`. |
-| `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                           |
-| `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                        |
-| `keyLength`                         | Length only, never the value — catches a truncated paste.                                   |
-| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.           |
-| `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.               |
-| `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                |
-| `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.          |
-| `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                 |
-| `?probe=1` → `generation`           | Result of one tiny `generateContent` call — a key can be able to generate but not list.     |
+| Result                              | Meaning                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **404**                             | The function is not deployed or not routed. The app shows `AI off — endpoint not deployed`.      |
+| `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                                |
+| `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                             |
+| `keyLength`                         | Length only, never the value — catches a truncated paste.                                        |
+| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.                |
+| `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.                    |
+| `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                     |
+| `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.               |
+| `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                      |
+| `?probe=1` → `generation`           | Result of one tiny `generateContent` call — a key can be able to generate but not list.          |
+| `groq`                              | The Groq key's side: `keyConfigured`, `keyLength`, `keyHadSurroundingWhitespace`, `pinnedModel`. |
+| `?probe=1` → `groq.probe`           | Whether Groq lists models for its key, the order they would be tried, and Groq's own error.      |
 
 Two Vercel behaviors cause most of the confusion: environment variables are
 **scoped per environment** (a Production-only variable is invisible to preview

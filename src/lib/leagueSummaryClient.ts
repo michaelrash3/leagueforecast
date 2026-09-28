@@ -10,6 +10,7 @@
 import { displayName, recordText } from "./format";
 import type { RecapItem } from "./insights";
 import {
+  type AiProvider,
   LEAGUE_SUMMARY_ENDPOINT,
   type LeagueSummaryError,
   type LeagueSummaryErrorReason,
@@ -23,7 +24,7 @@ import {
 } from "./leagueSummary";
 
 export type LeagueSummaryOutcome =
-  | { ok: true; summary: string; model: string }
+  | { ok: true; summary: string; model: string; provider: AiProvider }
   | { ok: false; reason: LeagueSummaryErrorReason; message: string };
 
 export type LeagueSummaryStandingsInput = {
@@ -278,9 +279,11 @@ export const requestLeagueSummary = async (
     }
     const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
     if (!summary) {
-      return { ok: false, reason: "upstream-error", message: "Gemini returned an empty summary." };
+      return { ok: false, reason: "upstream-error", message: "The AI returned an empty summary." };
     }
-    return { ok: true, summary, model: payload.model ?? "gemini" };
+    // Groq writes one when Gemini could not; a function from before it says nothing, and was Gemini.
+    const provider: AiProvider = payload.source === "groq" ? "groq" : "gemini";
+    return { ok: true, summary, model: payload.model ?? provider, provider };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       return { ok: false, reason: "upstream-error", message: "Summary request cancelled." };
@@ -304,6 +307,14 @@ export type LeagueSummaryHealth = {
   vercelEnv?: string | null;
   commit?: string | null;
   probe?: unknown;
+  /** The Groq key's side of it; absent from a function deployed before Groq was added. */
+  groq?: {
+    keyConfigured?: boolean;
+    keyLength?: number;
+    keyHadSurroundingWhitespace?: boolean;
+    pinnedModel?: string | null;
+    probe?: unknown;
+  };
 };
 
 export type LeagueSummaryHealthOutcome =
@@ -401,8 +412,47 @@ const explainGeminiRejection = (error: HealthProbeError): string => {
   return "";
 };
 
-/** Turns a health result into one sentence a person can act on. */
-export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
+type GroqHealthProbe = {
+  ok?: boolean;
+  modelCount?: number;
+  candidates?: string[];
+  /** Set when the probe never reached Groq (the app's own throttle). */
+  error?: string;
+  listError?: HealthProbeError;
+};
+
+/**
+ * The Groq key's sentence: whether it reaches the function and, when the probe asked, whether Groq
+ * lists models for it. Empty for a function from before Groq, which says nothing about it.
+ */
+const describeGroqHealth = (groq: LeagueSummaryHealth["groq"], alone: boolean): string => {
+  if (!groq) return "";
+  if (!groq.keyConfigured) {
+    return "No GROQ_API_KEY reaches the function, so nothing writes the story when Gemini cannot. If one is set, check its name and environment, and redeploy.";
+  }
+  const whitespace = groq.keyHadSurroundingWhitespace
+    ? " The stored Groq key has stray whitespace around it, which is worth removing."
+    : "";
+  const set = `A GROQ_API_KEY is set (${groq.keyLength ?? 0} characters)`;
+  const probe = groq.probe as GroqHealthProbe | undefined;
+  if (!probe || typeof probe !== "object") {
+    return `${set}${alone ? "" : " for when Gemini cannot write the story"}.${whitespace}`;
+  }
+  if (probe.ok === true) {
+    const first = probe.candidates?.[0];
+    const lists = `lists ${probe.modelCount ?? 0} usable models${first ? `, ${first} first` : ""}`;
+    return `${alone ? `Groq's key ${lists}` : `Groq takes over when Gemini cannot: its key ${lists}`}.${whitespace}`;
+  }
+  if (!probe.listError && probe.error) return `${set}. ${probe.error}${whitespace}`;
+  const said = probe.listError?.message ? ` Groq said: "${probe.listError.message}"` : "";
+  const advice =
+    probe.listError?.status === 401
+      ? " Check that GROQ_API_KEY holds the whole key from the Groq console."
+      : "";
+  return `${set}, but Groq would not list models for it.${said}${advice}${whitespace}`;
+};
+
+const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
   if (!outcome.ok) {
     return outcome.reason === "endpoint-missing"
       ? "Nothing is serving /api/league-summary, so the function is not deployed. That is a build or routing problem, not the API key."
@@ -419,6 +469,11 @@ export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome)
   const suffix = where ? ` (${where})` : "";
 
   if (!health.keyConfigured) {
+    // Groq's key alone is a working setup, not a missing variable: say which writes the stories
+    // rather than prescribe a redeploy nobody needs.
+    if (health.groq?.keyConfigured) {
+      return `The function is deployed${suffix} with no GEMINI_API_KEY, so Groq writes every story.`;
+    }
     return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the variable for this environment and redeploy — Vercel scopes variables per environment and does not apply a new one until the next build.`;
   }
 
@@ -452,4 +507,13 @@ export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome)
   }
 
   return `The function is deployed${suffix} and a key is set (${health.keyLength ?? 0} characters).${whitespace}`;
+};
+
+/** Turns a health result into one sentence a person can act on, and one about Groq. */
+export const describeLeagueSummaryHealth = (outcome: LeagueSummaryHealthOutcome): string => {
+  if (!outcome.ok) return describeGeminiHealth(outcome);
+  const gemini = describeGeminiHealth(outcome);
+  const { health } = outcome;
+  const groq = describeGroqHealth(health.groq, !health.keyConfigured);
+  return groq ? `${gemini} ${groq}` : gemini;
 };

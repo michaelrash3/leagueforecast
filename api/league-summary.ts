@@ -1,7 +1,8 @@
 /**
- * POST /api/league-summary — Gemini-written recap of standings movement.
+ * POST /api/league-summary — Gemini-written recap of standings movement, and Groq's when Gemini
+ * cannot write one.
  *
- * Runs as a Vercel Serverless Function so `GEMINI_API_KEY` stays on the server.
+ * Runs as a Vercel Serverless Function so `GEMINI_API_KEY` and `GROQ_API_KEY` stay on the server.
  * A key inlined into the Vite bundle (any `VITE_*` variable) ships to every
  * visitor, so the browser never sees it: it posts recap facts here instead.
  *
@@ -34,6 +35,14 @@ import {
   GEMINI_FALLBACK_MODEL_IDS,
 } from "../src/lib/geminiModels.js";
 import {
+  buildGroqCandidates,
+  discoverGroqModels,
+  groqChatBody,
+  readGroqChatText,
+  GROQ_API_BASE,
+  type GroqChatResponse,
+} from "../src/lib/groqModels.js";
+import {
   clientKey,
   createRateLimiter,
   type ApiRequest,
@@ -55,6 +64,15 @@ const DISCOVERY_TIMEOUT_MS = 5_000;
 /** Model list is stable for hours; re-listing on every warm call is wasted latency. */
 const MODEL_CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_MODEL_ATTEMPTS = 4;
+/** Groq is the fallback, and three of its models is as far down its list as is worth going. */
+const MAX_GROQ_ATTEMPTS = 3;
+/**
+ * Time kept back for Groq when both keys are set, so a Gemini walk that spends the whole budget
+ * failing (four timeouts) still leaves Groq one attempt; Groq does not list its models then
+ * (`resolveGroqCandidates`), since the listing would eat the attempt. Gemini's usual failure,
+ * its quota, is a quick 429 on every model, which leaves Groq nearly all of it.
+ */
+const GROQ_RESERVE_MS = 8_000;
 
 const RATE_LIMIT_MAX_REQUESTS = 12;
 /**
@@ -66,6 +84,13 @@ const PROBE_RATE_LIMIT_MAX_REQUESTS = 6;
 
 type ModelCache = { ids: string[]; expiresAt: number };
 let modelCache: ModelCache | null = null;
+let groqModelCache: ModelCache | null = null;
+
+/** Forgets both providers' model lists, so each test starts from a cold instance. */
+export const clearModelCaches = (): void => {
+  modelCache = null;
+  groqModelCache = null;
+};
 
 /** Gemini's own quota remains the hard limit; this only caps runaway retries from one client. */
 const isRateLimited = createRateLimiter(RATE_LIMIT_MAX_REQUESTS);
@@ -200,26 +225,32 @@ type SummaryResult = {
   ok: boolean;
   summary: string;
   model: string;
+  source: LeagueSummaryResponse["source"];
   status: number;
   error: LeagueSummaryError | null;
 };
 
-const summaryFailure = (status: number, error: LeagueSummaryError): SummaryResult => ({
+const summaryFailure = (
+  source: LeagueSummaryResponse["source"],
+  status: number,
+  error: LeagueSummaryError
+): SummaryResult => ({
   ok: false,
   summary: "",
   model: "",
+  source,
   status,
   error,
 });
 
-const generateSummary = async (
+const generateWithGemini = async (
   apiKey: string,
   request: LeagueSummaryRequest,
   deadline: number
 ): Promise<SummaryResult> => {
   const candidates = await resolveModelCandidates(apiKey);
   if (candidates.length === 0) {
-    return summaryFailure(502, {
+    return summaryFailure("gemini", 502, {
       error: "No Gemini model is available for this API key.",
       reason: "no-model",
     });
@@ -242,14 +273,21 @@ const generateSummary = async (
       Math.min(PER_ATTEMPT_TIMEOUT_MS, remaining)
     );
     if (attempt.ok) {
-      return { ok: true, summary: attempt.summary, model, status: 200, error: null };
+      return {
+        ok: true,
+        summary: attempt.summary,
+        model,
+        source: "gemini",
+        status: 200,
+        error: null,
+      };
     }
 
     failures.push(`${model}: ${attempt.message}`);
     if (attempt.status === 429) sawRateLimit = true;
     if (attempt.fatal) {
       console.error("[league-summary] Gemini rejected the API key:", attempt.message);
-      return summaryFailure(502, {
+      return summaryFailure("gemini", 502, {
         error: "Gemini rejected the configured API key.",
         reason: "upstream-error",
       });
@@ -260,14 +298,184 @@ const generateSummary = async (
 
   console.error("[league-summary] all Gemini candidates failed:", failures.join(" | "));
   return sawRateLimit
-    ? summaryFailure(429, {
-        error: `Gemini rate-limited every model tried (${candidates.join(", ")}). Try again shortly.`,
+    ? summaryFailure("gemini", 429, {
+        error: `Gemini rate-limited every model tried (${candidates.join(", ")}).`,
         reason: "rate-limited",
       })
-    : summaryFailure(502, {
+    : summaryFailure("gemini", 502, {
         error: "Gemini could not generate a summary.",
         reason: "upstream-error",
       });
+};
+
+const resolveGroqCandidates = async (apiKey: string, deadline: number): Promise<string[]> => {
+  const pinned = process.env.GROQ_MODEL?.trim() || null;
+  const now = Date.now();
+  // Listing can take DISCOVERY_TIMEOUT_MS, which out of what Gemini left would leave too little
+  // for an answer. With less than a listing and a whole attempt to go, the list already known is
+  // used as it stands, or the preferred one, and the reserve buys Groq a whole attempt.
+  const timeToList = deadline - now >= DISCOVERY_TIMEOUT_MS + PER_ATTEMPT_TIMEOUT_MS;
+  if (timeToList && (!groqModelCache || groqModelCache.expiresAt <= now)) {
+    const discovered = await discoverGroqModels(apiKey, {
+      signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    });
+    // As with Gemini, only a listing that worked is kept; a failed one is asked again next time.
+    if (discovered.ids.length > 0) {
+      groqModelCache = { ids: discovered.ids, expiresAt: now + MODEL_CACHE_TTL_MS };
+    }
+  }
+  return buildGroqCandidates({
+    pinned,
+    discovered: groqModelCache?.ids ?? [],
+    limit: MAX_GROQ_ATTEMPTS,
+  });
+};
+
+const generateWithGroqModel = async (
+  apiKey: string,
+  model: string,
+  prompt: string,
+  systemInstruction: string,
+  timeoutMs: number
+): Promise<AttemptResult> => {
+  try {
+    const response = await fetch(`${GROQ_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify(groqChatBody(model, systemInstruction, prompt)),
+    });
+    const payload = (await response.json().catch(() => ({}))) as GroqChatResponse;
+    if (!response.ok) {
+      const message = payload.error?.message ?? `HTTP ${response.status}`;
+      // A key Groq does not accept fails the same way on every model.
+      return {
+        ok: false,
+        summary: "",
+        status: response.status,
+        message,
+        fatal: response.status === 401 || response.status === 403,
+      };
+    }
+    const read = readGroqChatText(payload);
+    const text = normalizeSummaryText(read.text);
+    if (!text) return { ok: false, summary: "", message: read.problem ?? "no usable text" };
+    return { ok: true, summary: text };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "request failed";
+    return { ok: false, summary: "", message };
+  }
+};
+
+/**
+ * Groq's turn, once Gemini could not write the story: the same prompt and system instruction,
+ * walked down the key's models the way Gemini's are.
+ */
+const generateWithGroq = async (
+  apiKey: string,
+  request: LeagueSummaryRequest,
+  deadline: number
+): Promise<SummaryResult> => {
+  const candidates = await resolveGroqCandidates(apiKey, deadline);
+  const prompt = buildLeagueSummaryPrompt(request);
+  const systemInstruction = systemInstructionForKind(request.kind);
+  const failures: string[] = [];
+  let sawRateLimit = false;
+
+  for (const model of candidates) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 500) break;
+    const attempt = await generateWithGroqModel(
+      apiKey,
+      model,
+      prompt,
+      systemInstruction,
+      Math.min(PER_ATTEMPT_TIMEOUT_MS, remaining)
+    );
+    if (attempt.ok) {
+      return {
+        ok: true,
+        summary: attempt.summary,
+        model,
+        source: "groq",
+        status: 200,
+        error: null,
+      };
+    }
+    failures.push(`${model}: ${attempt.message}`);
+    if (attempt.status === 429) sawRateLimit = true;
+    if (attempt.fatal) {
+      console.error("[league-summary] Groq rejected the API key:", attempt.message);
+      return summaryFailure("groq", 502, {
+        error: "Groq rejected the configured API key.",
+        reason: "upstream-error",
+      });
+    }
+  }
+
+  console.error("[league-summary] all Groq candidates failed:", failures.join(" | "));
+  return sawRateLimit
+    ? summaryFailure("groq", 429, {
+        error: `Groq rate-limited every model tried (${candidates.join(", ")}).`,
+        reason: "rate-limited",
+      })
+    : summaryFailure("groq", 502, {
+        error: "Groq could not generate a summary.",
+        reason: "upstream-error",
+      });
+};
+
+/** A limit passes, so a failure that is one says to try again rather than to fix anything. */
+const withRetryHint = (result: SummaryResult): SummaryResult =>
+  result.status === 429 && result.error
+    ? { ...result, error: { ...result.error, error: `${result.error.error} Try again shortly.` } }
+    : result;
+
+/**
+ * Gemini first, and Groq when Gemini could not write the story, for whatever reason: its quota,
+ * which is what the Groq key was added for, but also a key it rejects or a model list it cannot
+ * serve, since a second provider is as much use then. Either key alone is enough.
+ */
+const generateSummary = async (
+  keys: { gemini?: string; groq?: string },
+  request: LeagueSummaryRequest,
+  deadline: number
+): Promise<SummaryResult> => {
+  const failed: SummaryResult[] = [];
+  if (keys.gemini) {
+    const gemini = await generateWithGemini(
+      keys.gemini,
+      request,
+      keys.groq ? deadline - GROQ_RESERVE_MS : deadline
+    );
+    if (gemini.ok) return gemini;
+    failed.push(gemini);
+  }
+  if (keys.groq) {
+    const groq = await generateWithGroq(keys.groq, request, deadline);
+    if (groq.ok) return groq;
+    failed.push(groq);
+  }
+  const last = failed[failed.length - 1];
+  if (!last) {
+    return summaryFailure("gemini", 503, {
+      error: "Neither GEMINI_API_KEY nor GROQ_API_KEY is configured.",
+      reason: "unconfigured",
+    });
+  }
+  if (failed.length === 1) return withRetryHint(last);
+  // Both tried and both failed: a limit only if both were at theirs, so the label says what to
+  // wait for; otherwise Groq's reason, the last word, with both providers' messages.
+  const bothLimited = failed.every((result) => result.status === 429);
+  return withRetryHint(
+    summaryFailure("groq", bothLimited ? 429 : last.status, {
+      error: failed
+        .map((result) => result.error?.error ?? "")
+        .join(" ")
+        .trim(),
+      reason: bothLimited ? "rate-limited" : (last.error?.reason ?? "upstream-error"),
+    })
+  );
 };
 
 /**
@@ -280,7 +488,8 @@ const generateSummary = async (
  * runtime. `?probe=1` additionally asks Gemini which models the key can use.
  *
  * It reports no secret material: booleans, a key length (to catch a truncated
- * paste), the deployed commit, and the Vercel environment.
+ * paste), the deployed commit, and the Vercel environment. The same for the
+ * Groq key under `groq`, whose probe asks Groq which models the key can use.
  */
 const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
   const rawKey = process.env.GEMINI_API_KEY;
@@ -300,9 +509,48 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
     commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
     probe: wantsProbe ? "requested" : "add ?probe=1 to test the key against Gemini",
   };
+  const rawGroqKey = process.env.GROQ_API_KEY;
+  const groqKey = rawGroqKey?.trim();
+  const groq: Record<string, unknown> = {
+    keyConfigured: Boolean(groqKey),
+    keyLength: groqKey?.length ?? 0,
+    keyHadSurroundingWhitespace: Boolean(rawGroqKey && rawGroqKey !== rawGroqKey.trim()),
+    pinnedModel: process.env.GROQ_MODEL?.trim() || null,
+  };
+  health.groq = groq;
+
+  // One throttle for the whole probe, which may ask both providers.
+  const probeThrottled =
+    wantsProbe &&
+    Boolean(apiKey || groqKey) &&
+    isRateLimited(`probe:${clientKey(req)}`, PROBE_RATE_LIMIT_MAX_REQUESTS);
+  const throttledProbe = {
+    ok: false,
+    error: `The key was not tested: this browser used all ${PROBE_RATE_LIMIT_MAX_REQUESTS} health checks allowed in a minute. That is this app's own limit, not the AI provider's. Wait a minute and check again.`,
+  };
+
+  if (wantsProbe && groqKey) {
+    if (probeThrottled) {
+      groq.probe = throttledProbe;
+    } else {
+      const discovery = await discoverGroqModels(groqKey, {
+        signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+      });
+      groq.probe = {
+        ok: discovery.ids.length > 0,
+        modelCount: discovery.ids.length,
+        candidates: buildGroqCandidates({
+          pinned: process.env.GROQ_MODEL?.trim() || null,
+          discovered: discovery.ids,
+          limit: MAX_GROQ_ATTEMPTS,
+        }),
+        listError: discovery.error ?? null,
+      };
+    }
+  }
 
   if (wantsProbe && apiKey) {
-    if (isRateLimited(`probe:${clientKey(req)}`, PROBE_RATE_LIMIT_MAX_REQUESTS)) {
+    if (probeThrottled) {
       health.probe = {
         ok: false,
         error: `The key was not tested: this browser used all ${PROBE_RATE_LIMIT_MAX_REQUESTS} health checks allowed in a minute. That is this app's own limit, not Gemini's. Wait a minute and check again.`,
@@ -366,12 +614,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    // Expected on local dev and any deployment without the key: the client
+  const geminiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
+  const groqKey = process.env.GROQ_API_KEY?.trim() || undefined;
+  if (!geminiKey && !groqKey) {
+    // Expected on local dev and any deployment without a key: the client
     // treats this as "AI story off" and keeps the deterministic story.
     sendError(res, 503, {
-      error: "GEMINI_API_KEY is not configured.",
+      error: "Neither GEMINI_API_KEY nor GROQ_API_KEY is configured.",
       reason: "unconfigured",
     });
     return;
@@ -381,7 +630,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // attempted — so it gets its own reason rather than reading as a Gemini quota.
   if (isRateLimited(clientKey(req))) {
     sendError(res, 429, {
-      error: `Too many summary requests from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit, and no Gemini model was attempted. Wait a minute and retry.`,
+      error: `Too many summary requests from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit, and no AI model was attempted. Wait a minute and retry.`,
       reason: "throttled",
     });
     return;
@@ -396,12 +645,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     return;
   }
 
-  const result = await generateSummary(apiKey, request, Date.now() + TOTAL_BUDGET_MS);
+  const result = await generateSummary(
+    { gemini: geminiKey, groq: groqKey },
+    request,
+    Date.now() + TOTAL_BUDGET_MS
+  );
   if (!result.ok || !result.summary) {
     sendError(
       res,
       result.status,
-      result.error ?? { error: "Gemini could not generate a summary.", reason: "upstream-error" }
+      result.error ?? { error: "No AI model could generate a summary.", reason: "upstream-error" }
     );
     return;
   }
@@ -411,7 +664,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const body: LeagueSummaryResponse = {
     summary: result.summary,
     model: result.model,
-    source: "gemini",
+    source: result.source,
   };
   res.status(200).json(body);
 }
