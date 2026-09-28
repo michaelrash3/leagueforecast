@@ -1425,14 +1425,18 @@ const couldHavePlayed = (index: ImportIndex, clubId: string, date: string | unde
   if (!club?.gcTeams?.length) return true;
   if (!date) return false;
   const own = new Set(club.gcTeams.map((link) => link.teamId));
-  return aroundDay(date).some((day) =>
-    (index.gamesByTeamDate.get(`${clubId}\u0000${day}`) ?? []).some(
-      (game) =>
-        (game.source !== undefined && own.has(game.source.teamId)) ||
-        (game.alsoRows ?? []).some((record) => own.has(record.teamId)) ||
-        (game.alsoFrom ?? []).some((schedule) => own.has(schedule))
-    )
-  );
+  const near = new Set(aroundDay(date));
+  const ofClub = (schedule: string) => (own.has(schedule) ? clubId : undefined);
+  /*
+   * Games are filed under their own day and a row folded into one keeps its own, a day off at most
+   * (`ownRowDays`), so the games two days either side are read and each row at its own day.
+   */
+  return [-2, -1, 0, 1, 2].some((offset) => {
+    const day = isoDayFrom(date, offset);
+    return (index.gamesByTeamDate.get(`${clubId}\u0000${day}`) ?? []).some((game) =>
+      ownRowDays(game, ofClub).some(([, rowDay]) => near.has(rowDay))
+    );
+  });
 };
 
 /**
@@ -3176,6 +3180,29 @@ const aroundDay = (date: string): string[] =>
   [date, isoDayFrom(date, -1), isoDayFrom(date, 1)].filter(
     (day): day is string => day !== undefined
   );
+
+/**
+ * The days `game` holds a row of a pulled club's own schedules on, as [club, day]: the game's day
+ * for the row it stands on and for a schedule on record with no row kept, and a folded row's own
+ * day where it keeps one (`FoldedRow.date`), as a row joined into a copy dated a day off does. Read
+ * at the game's day alone, such a club looked to have played on the copy's day and not on its own.
+ */
+const ownRowDays = (
+  game: ScoutGame,
+  clubOfSchedule: (schedule: string) => string | undefined
+): [string, string][] => {
+  const out: [string, string][] = [];
+  const note = (schedule: string, day: string | undefined) => {
+    const club = clubOfSchedule(schedule);
+    if (club !== undefined && day) out.push([club, day]);
+  };
+  if (game.source) note(game.source.teamId, game.date);
+  game.alsoRows?.forEach((record) => note(record.teamId, record.date ?? game.date));
+  game.alsoFrom?.forEach((schedule) => {
+    if (!game.alsoRows?.some((record) => record.teamId === schedule)) note(schedule, game.date);
+  });
+  return out;
+};
 
 /**
  * Whether the collapse could yet read a club's own row against another club, that no row of the
@@ -5691,8 +5718,11 @@ export const resettleOffLevel = (
       if (game.source) of(game.source.teamId);
       game.alsoRows?.forEach((record) => of(record.teamId));
       game.alsoFrom?.forEach(of);
+      // Each row on its own day: a row folded into a copy dated a day off keeps its own.
+      ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([clubId, day]) =>
+        add(days, clubId, day)
+      );
       clubs.forEach((clubId) => {
-        if (game.date) add(days, clubId, game.date);
         const side = clubId === game.teamAId ? "A" : clubId === game.teamBId ? "B" : undefined;
         if (side === undefined) return;
         const at = (side === "A" ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
@@ -5954,15 +5984,11 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
         team.gcTeams?.forEach((link) => clubOfSchedule.set(link.teamId, team.id))
       );
       const days = new Set<string>();
-      state.games.forEach((game) => {
-        const of = (schedule: string) => {
-          const club = clubOfSchedule.get(schedule);
-          if (club !== undefined && game.date) days.add(`${club}\u0000${game.date}`);
-        };
-        if (game.source) of(game.source.teamId);
-        game.alsoRows?.forEach((record) => of(record.teamId));
-        game.alsoFrom?.forEach(of);
-      });
+      state.games.forEach((game) =>
+        ownRowDays(game, (schedule) => clubOfSchedule.get(schedule)).forEach(([club, day]) =>
+          days.add(`${club}\u0000${day}`)
+        )
+      );
       ownDays = days;
     }
     return (

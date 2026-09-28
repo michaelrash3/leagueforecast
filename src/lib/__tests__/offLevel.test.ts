@@ -506,6 +506,45 @@ describe("a row a name filed onto a club that did not play that day", () => {
     expect(resettleOffLevel({ ...pool([]), games: [pictured] }).resettled).toBe(0);
   });
 
+  it("reads a row folded into a copy dated a day off at its own day, not the copy's", () => {
+    const rivals: ScoutTeam = {
+      id: "S-RIVAL",
+      name: "Rivals",
+      state: "KY",
+      gcTeams: [{ teamId: "gcRIVAL00001", name: "Rivals 9U", ageGroupId: "ag9", ageLevel: 9 }],
+    };
+    /** The Rivals' copy of a game on `copyDay`, with the Eagles' own row of it, dated `ownDay`. */
+    const folded = (copyDay: string, ownDay: string): GcImportState => {
+      const base = pool([]);
+      const copy: ScoutGame = {
+        id: "gc_gcRIVAL00001_r1",
+        teamAId: "S-RIVAL",
+        teamBId: "S-EAGL",
+        teamAScore: 3,
+        teamBScore: 5,
+        ageGroupId: "ag9",
+        date: copyDay,
+        source: { kind: "gamechanger", teamId: "gcRIVAL00001", gameId: "r1" },
+        alsoFrom: ["gcEAGLESKY01"],
+        alsoRows: [
+          {
+            teamId: "gcEAGLESKY01",
+            gameId: "x",
+            date: ownDay,
+            ownScore: 5,
+            opponentScore: 3,
+            onSideB: true,
+          },
+        ],
+      };
+      return { ...base, teams: [...base.teams, rivals], games: [...base.games, copy] };
+    };
+    // Their own row is on the 7th, the day before the loss, though its copy is on the 6th...
+    expect(onEagles(resettleOffLevel(folded("2026-08-06", "2026-08-07")).state)).toBe(true);
+    // ...and on the 10th, two days after it, though its copy is on the 9th.
+    expect(onEagles(resettleOffLevel(folded("2026-08-09", "2026-08-10")).state)).toBe(false);
+  });
+
   it("leaves a row with no day, which there is nothing to check against", () => {
     const { date: _date, ...undated } = lost;
     expect(resettleOffLevel({ ...pool([]), games: [undated] }).resettled).toBe(0);

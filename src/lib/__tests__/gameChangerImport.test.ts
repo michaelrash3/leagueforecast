@@ -4194,6 +4194,51 @@ describe("who a name belongs to: level, state and the game", () => {
     expect(tidyChangedAnything(tidyPool(tidied))).toBe(false);
   });
 
+  it("reads a club's row folded into a copy dated a day off at its own day", () => {
+    // The Bucks' own row of a game is folded into the Sliders' copy of it, dated the 11th where
+    // the Bucks' schedule has the 12th; a neighbour then names the Bucks on `day`.
+    const named = (day: string) => {
+      const pool = fold([
+        club("gcBRAZOS1100", "Brazos Valley Bucks Lemons 11U", 11, "TX", []),
+        club("gcSLIDERS110", "Sugar Land Sliders 11U", 11, "TX", [
+          played("s1", "Pearland Pride 11U", "2026-09-11", 1, 4),
+        ]),
+      ]);
+      const bucks = pool.teams.find((team) => team.gcTeams?.[0]?.teamId === "gcBRAZOS1100")!;
+      const withFold: GcImportState = {
+        ...pool,
+        games: pool.games.map((game) =>
+          game.id === "gc_gcSLIDERS110_s1"
+            ? {
+                ...game,
+                teamBId: bucks.id,
+                alsoFrom: ["gcBRAZOS1100"],
+                alsoRows: [
+                  {
+                    teamId: "gcBRAZOS1100",
+                    gameId: "z1",
+                    date: "2026-09-12",
+                    ownScore: 4,
+                    opponentScore: 1,
+                    onSideB: true,
+                  },
+                ],
+              }
+            : game
+        ),
+      };
+      const katy = club("gcTXC1100000", "Katy Krush 11U", 11, "TX", [
+        played("k1", "Brazos Valley Bucks Lemons 11U", day, 2, 6),
+      ]);
+      const state = importGcSchedule(katy, withFold).state;
+      return state.games.find((game) => game.id === "gc_gcTXC1100000_k1")!.teamBId === bucks.id;
+    };
+    // The 13th is the day after the Bucks' own row, though two after the copy it sits in.
+    expect(named("2026-09-13")).toBe(true);
+    // The 10th is two days before the Bucks' own row, though the day before the copy.
+    expect(named("2026-09-10")).toBe(false);
+  });
+
   it("leaves a club with an empty schedule out of the games a neighbour names it in", () => {
     // Their schedule came back with no games at all, so it has none that day either.
     const pool = fold([
