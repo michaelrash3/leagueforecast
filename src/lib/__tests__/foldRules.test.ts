@@ -162,6 +162,8 @@ describe("one squad listed twice in one season", () => {
   });
 
   it("is refused when the coaches say nothing", () => {
-    expect(proposeSeasonPairings(twice({ staff: ["Tatum Stubson", "Umber Stubwick"] }), [])).toEqual([]);
+    expect(
+      proposeSeasonPairings(twice({ staff: ["Tatum Stubson", "Umber Stubwick"] }), [])
+    ).toEqual([]);
   });
 });
