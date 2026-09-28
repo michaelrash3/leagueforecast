@@ -190,6 +190,20 @@ describe("searching by several words, in any order", () => {
     expect(found("indiana")).toEqual(["hoos"]);
   });
 
+  it("still finds a coach whose name is a state's", () => {
+    const more: TeamSearchOption[] = [
+      ...clubs,
+      { id: "tx", label: "Lone Stars", detail: "TX", coaches: ["Georgia Smith"] },
+    ];
+    expect(matchTeamOptions(more, "georgia smith").shown.map((option) => option.id)).toEqual([
+      "tx",
+    ]);
+    expect(coachesToList(["Pat Placeholder", "Georgia Smith"], "georgia")?.names).toEqual([
+      { name: "Georgia Smith", found: true },
+      { name: "Pat Placeholder", found: false },
+    ]);
+  });
+
   it("lets one word find the club and another its coach", () => {
     expect(ids("raptors sample")).toEqual(["rap"]);
   });

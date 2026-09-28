@@ -55,15 +55,18 @@ export const searchTerms = (query: string): SearchTerms => {
   return { words: rest.split(" ").filter(Boolean), states };
 };
 
+/**
+ * A state's name is still a word too: "georgia smith" is as likely a coach called Georgia Smith as
+ * a Smith in Georgia, so the name counts wherever it is written out, a coach's name included.
+ */
 const matchesTerms = (option: TeamSearchOption, terms: SearchTerms): boolean => {
   const text = `${option.label} ${option.detail ?? ""}`;
   const lower = text.toLowerCase();
   const coaches = option.coaches?.map((coach) => coach.toLowerCase()) ?? [];
+  const written = (word: string) => lower.includes(word) || coaches.some((c) => c.includes(word));
   return (
-    terms.words.every((word) => lower.includes(word) || coaches.some((c) => c.includes(word))) &&
-    terms.states.every(
-      ({ name, code }) => new RegExp(`\\b${code}\\b`).test(text) || lower.includes(name)
-    )
+    terms.words.every(written) &&
+    terms.states.every(({ name, code }) => new RegExp(`\\b${code}\\b`).test(text) || written(name))
   );
 };
 
@@ -110,10 +113,11 @@ export const coachesToList = (
   query: string
 ): { names: Array<{ name: string; found: boolean }>; more: number } | null => {
   if (!coaches?.length) return null;
-  const { words } = searchTerms(query);
+  const { words, states } = searchTerms(query);
+  const needles = [...words, ...states.map((state) => state.name)];
   const marked = coaches.map((name) => ({
     name,
-    found: words.some((word) => name.toLowerCase().includes(word)),
+    found: needles.some((word) => name.toLowerCase().includes(word)),
   }));
   const ordered = [...marked.filter((coach) => coach.found), ...marked.filter((c) => !c.found)];
   return {
