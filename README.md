@@ -162,7 +162,8 @@ about the age by one, 267 had the list's level in the team's own name (the table
 under **Check the id**).
 
 A person outranks all five. A level named by hand stands in until GameChanger's own
-answer _changes_ — see **Naming an age**.
+answer _changes_, and one set on a club's panel stands until it is taken back — see **Naming an
+age**.
 
 #### High school squads are left out
 
@@ -504,12 +505,14 @@ of the results it reads from Team Rankings once the league has the game's final
 score, so they are not counted twice there either.
 
 Both passes look across the squad year, not only the page that claims the
-league, because the rating is fitted over the year and a club GameChanger lists
-at another age files its own copy on that age's page. The Cincinnati Hornets'
-fall team is "Cincinnati Hornets \*Fall Ball\*", listed at 8U, and its rows of the
-league's 9U games sat on the 8U page, never matched. The name guess cannot find
-that club — its name is not the league's and it has no game on the 9U page — so
-the league's Hornets have to be linked to it in Settings, with the wide search.
+league, because the rating is fitted over the year and a club filed at another
+age files its own copy on that age's page. The Cincinnati Hornets' fall team is
+"Cincinnati Hornets \*Fall Ball\*", which the app filed at 8U — its name carries no
+age — and its rows of the league's 9U games sat on the 8U page, never matched. The
+name guess cannot find that club — its name is not the league's and it has no game
+on the 9U page — so the league's Hornets have to be linked to it in Settings, with
+the wide search, or its age set to 9U on its panel, which moves its games onto the
+9U page (see **Naming an age**).
 Linked, the pool of 27 September with the three October games played counts
 every league game once (Yeager Dreyer 2-0, Headlines Nagel 3-0, Trash Pandas
 0-7); unlinked or linked to the 9U listing, four were counted twice either way.
@@ -1921,6 +1924,13 @@ one game in eighty is won by more than 20. On that pool 253 clubs' records chang
 board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
 all.
 
+The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
+September 2026: a club whose schedule filed a win by more than thirty runs that nobody has
+vouched for is listed whether or not anything of its is dated ahead, charged the way a result
+dated ahead is (`filedBy`), and those clubs come first, most such wins first, with a red pill
+saying how many; the clubs with results dated ahead follow in their old order. The list is its
+own section now, so it shows when nothing is dated ahead at all.
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at
@@ -1930,6 +1940,24 @@ GameChanger was saying at the time, so that is a comparison rather than a guess.
 level outside the ranked range is refused rather than clamped: a stored 6U would be an
 answer that files nowhere, taking the team off the waiting list and putting it on no
 page, so it would vanish from both.
+
+**Setting a club's age on its panel** is the same answer given to a club the app has already
+filed, and it holds harder. The team panel has an **Age** line for any club with a GameChanger
+link in the year: the level the app filed it at, and a choice of another. The case that asked for
+it, on 28 September 2026, was "Cincinnati Hornets \*Fall Ball\*": filed at 8U 2027 while every club
+on its schedule is 9U and several of their names say so, and 8U is below the youngest level with
+a table, so it was ranked nowhere and its 9U league could not pick it in Settings. Setting it moves
+what is already filed at once (`setClubAge`): its links, the rows its own schedules filed (onto
+the new level's page, made if there is none) and its side of every game that recorded an age for
+it; a row another club filed stays on that club's page. And it pins the level in the named ages
+against each of its GameChanger ids (`NamedAge.pinned`, with the level it replaced in `was`). A
+pinned level stands whatever GameChanger later says: it corrects where the app filed a club, and
+the level on a link is not always GameChanger's word — a league list, the club's opponents or its
+name can have decided it — so "has GameChanger changed its mind?" is not a question it can be
+held to. The panel's link line says "filed at 8U" for the same reason, where it said "8U" as if
+GameChanger had. The toast's **Undo** restores exactly what was there, and **Let the app decide**
+takes the pin off and puts the club back at the level it had been filed at, until a pull decides
+again.
 
 Naming is only an instruction to the next pull: it is applied when that team's schedule
 is next fetched, because the page it is filed under, the link written against it and the
@@ -1977,6 +2005,19 @@ played by OH, KY clubs", up to three states, most games first (`statesThatPlayed
 pulled club's opponents most often come from is its own for 92% of the 48,045 clubs that have
 one, and 1,265 of the clubs with none have played a club that does. Clubs known only as a name
 on someone else's schedule are still left out of the search, as they are left out of the tables.
+
+**Finding a club by its GameChanger id.** The same pickers take a GameChanger team id, or a link
+to a team's page, and answer with the club that id is linked to (`gcIdsInSearch`): an id is what
+somebody holding a team's page has, and until 28 September 2026 a pasted one found nothing. A
+twelve-letter word counts as an id only where a club carries it exactly, so a name that long still
+searches as a name, and a pasted link no club carries says so rather than only that nothing
+matched: the id has not been pulled, or was unlinked.
+
+**Find a team stays up while a pull runs.** Its index is not rebuilt during a run, since every
+save hands back new teams and a rebuild reads every stored year; it used to be switched off
+instead, which took the box off the top of Rankings for as long as a pull went on. It is held
+now: the box finds the pool as it stood when the run began, and is built once more when the run
+lets go (`useClubSearch`'s `hold`).
 
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
