@@ -50,6 +50,16 @@ separate teams.
 
 See [Team Rankings](#team-rankings) below for how the two connect.
 
+**A season over New Year.** League Standings writes a date as "M/D", with no year,
+and put every season in the order of one calendar year: a fall league that plays on
+into January had its January first, and gave a January game as a team's next one.
+A season is now ordered by its own dates. Its year turns in the month after the
+longest run of months it plays nothing in (`seasonStartMonth`), so November to
+January reads in that order everywhere a season is put in order — the next game,
+the schedule, form and the Gold-odds trend, the timeline, the backtest and the
+simulation's walk through the results — and a summer league running into August
+starts in its June. A season inside one calendar year is ordered exactly as before.
+
 ## Features
 
 | Area                 | Highlights                                                                                                                                              |
@@ -135,6 +145,15 @@ directly — "what age does this League Standings season play?" — one row per
 season, and answering makes the page if the pull has not already. A season moves
 off whatever page held it before, since one league season is played at one age
 and leaving it on two would count its games twice.
+
+The row starts at the page the season is on, else at the year its name gives —
+read the way GameChanger's seasons are, so "Fall 2027 10U" opens squad year 2028
+and "Spring 2027 9U" is 2027 — else at the season being played. It used to start
+at the name's year as written, which put "Fall 2026 9U" on last season's 2026 page
+even now, else at the oldest year the picker lists, which stayed put while the
+calendar moved on. Either way the button's own default put an autumn league
+season on last season's page, and its "9/18" games were read a year early, onto
+the finished fall board.
 
 #### Which age a team is
 
@@ -260,6 +279,17 @@ place shown in each is the place in _that_ list: a state top ten is ten teams
 rated against the whole country and then listed together, so the second-best team
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
+
+**Which half a page opens on.** The fall and the spring are two tables, and with no
+half in the link a page opens on the one the calendar is in, unless that half holds
+less than a tenth of the other's counted games (`HALF_WORTH_SHOWING`). A winter's
+tournaments are a sliver of an autumn: the 26 September 2026 pool held 150,408 games
+scored in August and September and 317 scheduled for all of January and February.
+Opened on the calendar's half the day it held any game, the board went to the spring
+on the first January weekend anywhere in the country, a table of a few Florida and
+Texas clubs. The halves are counted by the rule the fit counts by (`countsTowardRating`),
+so a score typed ahead for March, or a game kept only for the record, is not a spring
+either; the pool of 26 September already held two scores dated March 2027.
 
 Above both, the team marked as yours (★) gets a card of its own: its place in the
 whole table and among its own state's clubs, its record and rating, and its next
@@ -1368,6 +1398,20 @@ which is what GameChanger means by it.
 club's older games under its new id often enough that a nationwide pull carried
 three thousand of them; a game dated outside its squad year is left out on
 arrival and deleted from a pool that already holds one.
+
+**A winter is filed by its games.** GameChanger's label for a winter names either
+year it straddles — "Winter 2026" and "Winter 2027" are both names for the one
+that starts in November 2026 — so a winter team's squad year is the one most of
+its games are dated in, and with none, the squad year being played if the label
+can mean it, else the year after (`squadYearOfGcTeam`). Read off the label alone,
+"Winter 2027" was squad year 2028: a pull of this season skipped such a squad as
+another season's, and filed anyway, every game it played was dropped as dated
+before its season began. Its age is read in that year too, because a class year
+in the age field is a different age each year ("2034" is 11U in 2027 and 12U in
+2028); the season picker keeps a winter row under either year it could be; and
+the season pairings read a link in the year of the page it was filed on. The 719
+winter teams in the 26 September 2026 pool are all labelled Winter 2026 with their
+games in squad year 2027, and stay where they were filed.
 
 **A pull files the season being played, unless told otherwise.** A crawl that
 searches every season of a calendar year hands over last spring's and summer's
@@ -2503,7 +2547,10 @@ places of the clubs its page's league seasons are linked to are written to a sma
 per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
 card reads them with the day they were read, in the reader's own time zone. A board that
 settles with none of the season's clubs on it takes their places away rather than
-leaving the last ones showing.
+leaving the last ones showing. Only a board of a half the season plays its games in
+writes them: a fall league's places are read off the fall board, and looking at the
+spring one, which holds none of the league's games, leaves the card as it was rather
+than blanking it.
 
 ## Settings
 
@@ -2622,6 +2669,14 @@ page that carried a squad on from one of the year's pages stops doing so. League
 keeps its seasons either way; only the links from the deleted pages go, so their fixtures
 stop feeding a ranking. The confirmation says how many pages, games and clubs go, and how
 many clubs stay without that year's ids.
+
+**A year put away stays away.** An archived year's clubs keep the ids they were pulled as,
+and the list of teams waiting on an age is not the pool's, so it outlives a delete. The two
+re-asks that named no season, the roster check of under-strength pages and **Ask again**
+about teams with no age, reached those squads and filed them back onto a page of the year
+that was put away. Both now keep to the season being played, as the rota does: the roster
+check lists only that season's pages, and both pulls refuse any other season's team
+(`other-season`), which also takes it off the waiting list.
 
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
 can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of

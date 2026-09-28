@@ -76,7 +76,12 @@ describe("a season whose board has emptied", () => {
           { id: "L-HIVE", name: "Example Hive" },
           { id: "L-OWLS", name: "Owls" },
         ],
-        matchups: [{ id: "m1", date: "10/3", away: "L-HIVE", home: "L-OWLS" }],
+        // A season played in both halves, so both boards speak for it: a board of a half the
+        // season plays none of its games in leaves the card as it was.
+        matchups: [
+          { id: "m1", date: "10/3", away: "L-HIVE", home: "L-OWLS" },
+          { id: "m2", date: "4/3", away: "L-OWLS", home: "L-HIVE" },
+        ],
         logs: {},
       },
     });

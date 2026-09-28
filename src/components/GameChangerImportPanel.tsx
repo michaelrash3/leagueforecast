@@ -4,6 +4,7 @@ import {
   ageFromOrgName,
   parseGcOrgList,
   parseGcTeamList,
+  squadYearsForGcSeason,
   type GcTeamListEntry,
   type GcTeamProfile,
 } from "../lib/gameChangerApi";
@@ -135,11 +136,11 @@ import {
   type PullTracker,
 } from "../lib/pullTracker";
 import {
+  gcLinkSquadYearIn,
   MIN_AGE_LEVEL,
   mergeScoutTeams,
   pulledGcTeamIds,
   segmentOn,
-  squadYearForGcSeason,
 } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
 import type { ToastTone } from "../hooks/useToast";
@@ -539,6 +540,8 @@ export function GameChangerImportPanel({
   const parsed = useMemo(() => {
     const wanted = new Set(seasonYears);
     const bySeason = new Map<number, number>();
+    /** Every year a row could be, so either reading of a winter can be ticked. */
+    const readable = new Set<number>();
     const entries: GcTeamListEntry[] = [];
     let noSeason = 0;
     for (const entry of listRead.entries) {
@@ -547,7 +550,15 @@ export function GameChangerImportPanel({
         entries.push(entry);
         continue;
       }
-      const year = squadYearForGcSeason(entry.season.season, entry.season.year);
+      /*
+       * A winter's label names either year it straddles (`squadYearsForGcSeason`), so a "Winter
+       * 2027" row is this season's as much as next's until its schedule says which: kept where
+       * either year is ticked and counted under that one, and the import files it by its games.
+       */
+      const readings = squadYearsForGcSeason(entry.season);
+      readings.forEach((reading) => readable.add(reading));
+      const year =
+        readings.find((reading) => wanted.has(reading)) ?? readings[readings.length - 1]!;
       bySeason.set(year, (bySeason.get(year) ?? 0) + 1);
       if (wanted.has(year)) entries.push(entry);
     }
@@ -556,17 +567,22 @@ export function GameChangerImportPanel({
       entries,
       otherSeason: listRead.entries.length - entries.length,
       bySeason,
+      readable,
       noSeason,
     };
   }, [listRead, seasonYears]);
 
-  /** The years the picker offers: the one being played, the one before, and any the list names. */
+  /**
+   * The years the picker offers: the one being played, the one before, and any the list's rows
+   * could be — both readings of a winter's label, so the one its schedule is dated in can be
+   * ticked whichever that is.
+   */
   const seasonOptions = useMemo(
     () =>
-      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.bySeason.keys()])].sort(
+      [...new Set([currentSeasonYear, currentSeasonYear - 1, ...parsed.readable])].sort(
         (a, b) => b - a
       ),
-    [currentSeasonYear, parsed.bySeason]
+    [currentSeasonYear, parsed.readable]
   );
 
   /**
@@ -707,19 +723,26 @@ export function GameChangerImportPanel({
    * squad of six in September is twelve in October and the roster count is the only thing that
    * ever says which. They are simply asked about again, a fortnight later.
    */
-  const rosterWatch = useMemo(
-    () =>
-      rosterWatchList(
-        pool.teams.flatMap((team) =>
-          (team.gcTeams ?? []).map((link) => ({
+  /*
+   * The season being played's pages only, as the rota keeps to. A club keeps the ids it was pulled
+   * as after its year is archived or deleted, so last season's six-player page stayed on this list
+   * and asking about it again filed the squad back onto a page of the year that was put away.
+   */
+  const rosterWatch = useMemo(() => {
+    const playing = segmentOn(todayIsoDay()).year;
+    const yearOf = gcLinkSquadYearIn(pool.ageGroups);
+    return rosterWatchList(
+      pool.teams.flatMap((team) =>
+        (team.gcTeams ?? [])
+          .filter((link) => (yearOf(link) ?? playing) === playing)
+          .map((link) => ({
             teamId: link.teamId,
             ...(link.playerCount === undefined ? {} : { playerCount: link.playerCount }),
             ...(link.countedAt ? { countedAt: link.countedAt } : {}),
           }))
-        )
-      ),
-    [pool.teams]
-  );
+      )
+    );
+  }, [pool.teams, pool.ageGroups]);
   const rosterDue = rosterWatch.filter((entry) => entry.due);
 
   /**
@@ -1293,7 +1316,8 @@ export function GameChangerImportPanel({
         proposeSeasonPairings(
           heldRef.current.state.teams,
           heldRef.current.state.games,
-          loadKeptApart()
+          loadKeptApart(),
+          heldRef.current.state.ageGroups
         )
       );
       setApproved(new Set());
@@ -1424,7 +1448,9 @@ export function GameChangerImportPanel({
     const progress = startPull(
       rosterDue.map((entry) => entry.teamId),
       nowIso(),
-      null
+      null,
+      // Filed only in the season being played, whatever GameChanger now says the page is.
+      [segmentOn(todayIsoDay()).year]
     );
     onSaveProgress(progress);
     // Not a rota run, so nothing is marked refreshed when it finishes.
@@ -1443,7 +1469,12 @@ export function GameChangerImportPanel({
    */
   const runAgeless = () => {
     if (due.agelessIds.length === 0) return;
-    const progress = startPull(due.agelessIds, nowIso(), null);
+    /*
+     * Filed only in the season being played, as the rota is. The waiting list is not the pool's
+     * and outlives a year archived or deleted, so a team from that year was asked about again and
+     * filed back onto a page of it. Refused as another season's, it leaves the list too.
+     */
+    const progress = startPull(due.agelessIds, nowIso(), null, [segmentOn(todayIsoDay()).year]);
     onSaveProgress(progress);
     dueLevelsRef.current = [];
     void runSectioned(remainingIds(progress), progress);

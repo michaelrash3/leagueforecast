@@ -67,7 +67,7 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import { formatGameDate, normalizeDateInput, parseDateValue } from "./lib/date";
+import { formatGameDate, normalizeDateInput, parseDateValue, seasonStartMonth } from "./lib/date";
 import {
   builderTeamNames,
   buildRoundRobin,
@@ -594,6 +594,14 @@ export default function App() {
     () => rankTeams(liveTeams, rankOptionsFromSettings(settings)),
     [liveTeams, settings]
   );
+  /*
+   * The month this season's year turns in, from its own dates (`seasonStartMonth`), so a season
+   * played over New Year orders its January after its December everywhere it is put in order.
+   */
+  const seasonStart = useMemo(
+    () => seasonStartMonth(matchups.map((game) => game.date)),
+    [matchups]
+  );
   const remainingGames = useMemo(
     () => matchups.filter((game) => !isFinal(deferredLogs[game.id])),
     [matchups, deferredLogs]
@@ -602,8 +610,8 @@ export default function App() {
     () =>
       matchups
         .filter((game) => isFinal(deferredLogs[game.id]))
-        .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date)),
-    [matchups, deferredLogs]
+        .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart)),
+    [matchups, deferredLogs, seasonStart]
   );
   const leagueAverageStats = useMemo(
     () => buildLeagueAverageStats(matchups, deferredLogs),
@@ -829,7 +837,7 @@ export default function App() {
     (teamId: string): SwingGame[] => {
       return remainingGames
         .filter((game) => game.away === teamId || game.home === teamId)
-        .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
+        .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart))
         .slice(0, 2)
         .map((game) => {
           const teamIsAway = game.away === teamId;
@@ -863,6 +871,7 @@ export default function App() {
     },
     [
       remainingGames,
+      seasonStart,
       teamBaseById,
       liveTeams,
       settings,
@@ -1099,6 +1108,7 @@ export default function App() {
     liveTeams,
     settings,
     remainingGames,
+    seasonStart,
     goldCutoff,
     hasCutLine,
     dashboardById,
@@ -1317,7 +1327,7 @@ export default function App() {
         winnerPct,
         impact,
         sourceLabel: "Regular Season",
-        sortValue: parseDateValue(game.date),
+        sortValue: parseDateValue(game.date, seasonStart),
       };
     });
 
@@ -1361,6 +1371,7 @@ export default function App() {
   }, [
     activeView,
     remainingGames,
+    seasonStart,
     liveTeams,
     settings,
     liveById,
@@ -1379,7 +1390,10 @@ export default function App() {
       const bNoDate = !(b.date ?? "").trim();
       if (aFinal !== bFinal) return aFinal ? 1 : -1;
       if (!aFinal && aNoDate !== bNoDate) return aNoDate ? -1 : 1;
-      return parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id);
+      return (
+        parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart) ||
+        a.id.localeCompare(b.id)
+      );
     };
     const filtered =
       scoreboardTeamFilter === "ALL"
@@ -1388,7 +1402,7 @@ export default function App() {
             (game) => game.away === scoreboardTeamFilter || game.home === scoreboardTeamFilter
           );
     return [...filtered].sort(dateCompare);
-  }, [matchups, logs, scoreboardTeamFilter]);
+  }, [matchups, logs, scoreboardTeamFilter, seasonStart]);
 
   useEffect(() => {
     // Clearing first is the point: predictions are filled in incrementally over many chunks, and

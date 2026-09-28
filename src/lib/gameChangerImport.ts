@@ -31,6 +31,7 @@ import {
   isAdultAgeLabel,
   isSchoolAgeLabel,
   isSchoolName,
+  squadYearOfGcTeam,
   type GcGame,
   type GcTeamProfile,
   type GcTeamSchedule,
@@ -658,12 +659,17 @@ const SEASON_ORDER = ["fall", "winter", "spring", "summer"] as const;
  *
  * So the answer is not yes or no but which of the two, and the caller checks the ages against it.
  */
-const seasonStep = (from: GcTeamLink, to: GcTeamLink): "same-year" | "ages-up" | null => {
+const seasonStep = (
+  from: GcTeamLink,
+  to: GcTeamLink,
+  /** The squad year a link plays in: its page's where known (`squadYearOfGcTeam` filed it there). */
+  yearOf: (link: GcTeamLink) => number
+): "same-year" | "ages-up" | null => {
   const fromIndex = SEASON_ORDER.indexOf((from.season ?? "") as (typeof SEASON_ORDER)[number]);
   const toIndex = SEASON_ORDER.indexOf((to.season ?? "") as (typeof SEASON_ORDER)[number]);
   if (fromIndex < 0 || toIndex < 0) return null;
-  const fromYear = squadYearForGcSeason(from.season, from.seasonYear ?? 0);
-  const toYear = squadYearForGcSeason(to.season, to.seasonYear ?? 0);
+  const fromYear = yearOf(from);
+  const toYear = yearOf(to);
   if (fromYear === toYear) return toIndex > fromIndex ? "same-year" : null;
   // One squad year on, and forward in time. Two years on is a squad somebody stopped following.
   return toYear === fromYear + 1 ? "ages-up" : null;
@@ -871,7 +877,8 @@ export const ageFromFixtures = (
 ): number | undefined => {
   const { profile } = schedule;
   if (!profile.season) return undefined;
-  const pool = `y:${squadYearForGcSeason(profile.season.season, profile.season.year)}`;
+  // `today` only decides for a winter team with no dated game, and then there is nothing to read.
+  const pool = `y:${squadYearOfGcTeam(profile.season, schedule.games, todayIsoDay())}`;
   const fits = nameFitter();
   const seen = new Set<string>();
   const counts = new Map<number, number>();
@@ -965,7 +972,9 @@ const gcGameId = (gcTeamId: string, gameId: string): string => `gc_${gcTeamId}_$
  */
 const resolveAgeGroup = (
   profile: GcTeamProfile,
-  state: GcImportState
+  state: GcImportState,
+  /** The squad year the team plays in (`squadYearOfGcTeam`), where the caller has worked it out. */
+  squadYear?: number
 ): { ageGroups: AgeGroup[]; group: AgeGroup; created: boolean } | null => {
   // A different game entirely. Checked before the age, because a wiffle team filed under 12U has
   // a perfectly good age level and that is exactly what makes it invisible.
@@ -980,7 +989,7 @@ const resolveAgeGroup = (
   // reads. They are skipped outright rather than ranked or half-created.
   if (ageLevel === undefined || ageLevel < MIN_AGE_LEVEL || ageLevel > MAX_AGE_LEVEL) return null;
   if (!profile.season) return null;
-  const year = squadYearForGcSeason(profile.season.season, profile.season.year);
+  const year = squadYear ?? squadYearForGcSeason(profile.season.season, profile.season.year);
 
   // Few enough age groups that a scan is honest here — one per level per year, not one per team.
   const existing = state.ageGroups.find(
@@ -2113,8 +2122,30 @@ export const importGcSchedule = (
   return result.outcome.issue ? { state, outcome: result.outcome } : result;
 };
 
+/**
+ * A pulled schedule with GameChanger's own reading of its age done again in the squad year the team
+ * plays in, where that is not the year its season's label reads as (`squadYearOfGcTeam`).
+ *
+ * Only a class year reads differently from one year to the next — "2034" in the age field is 11U
+ * in 2027 and 12U in 2028 — and only a level the profile's own ladder gave (`ageLevelOf`, read in
+ * the label's year) is read again, so a level that came from anywhere else stands as it is.
+ */
+const withAgeReadIn = (schedule: GcTeamSchedule, squadYear: number): GcTeamSchedule => {
+  const { profile } = schedule;
+  if (!profile.season) return schedule;
+  const labelYear = squadYearForGcSeason(profile.season.season, profile.season.year);
+  if (squadYear === labelYear) return schedule;
+  if (ageLevelOf(profile.ageLabel, profile.name, labelYear) !== profile.ageLevel) return schedule;
+  const ageLevel = ageLevelOf(profile.ageLabel, profile.name, squadYear);
+  if (ageLevel === profile.ageLevel) return schedule;
+  const next: GcTeamProfile = { ...profile };
+  if (ageLevel === undefined) delete next.ageLevel;
+  else next.ageLevel = ageLevel;
+  return { ...schedule, profile: next };
+};
+
 const importOne = (
-  original: GcTeamSchedule,
+  pulled: GcTeamSchedule,
   state: GcImportState,
   index: ImportIndex,
   options: GcImportOptions
@@ -2122,6 +2153,16 @@ const importOne = (
   const deleted = options.deleted ?? NOTHING_DELETED;
   const droppedClubs = options.droppedClubs ?? NO_CLUBS;
   const tooYoung = options.tooYoung ?? NO_CLUBS;
+  /*
+   * The squad year the team plays in, which is its season label's except for a winter's: that
+   * names either year it straddles, and the team's own games say which (`squadYearOfGcTeam`). Read
+   * first, because the age is read in it too — the profile read a class year against the label's
+   * later year, and a Winter 2027 squad playing from November 2026 is a level younger than that.
+   */
+  const seasonYear = pulled.profile.season
+    ? squadYearOfGcTeam(pulled.profile.season, pulled.games, options.today ?? todayIsoDay())
+    : undefined;
+  const original = seasonYear === undefined ? pulled : withAgeReadIn(pulled, seasonYear);
   /*
    * Filled in before anything else looks at the profile, so the page, the link and the games all
    * agree on one level. A team GameChanger did not file under an age is filed under the one its
@@ -2289,9 +2330,6 @@ const importOne = (
    * the list's column is a claim about the id and this is the answer. A team GameChanger gives no
    * season at all is left to the refusal that already says so, a few lines on.
    */
-  const seasonYear = profile.season
-    ? squadYearForGcSeason(profile.season.season, profile.season.year)
-    : undefined;
   if (
     options.seasonYears &&
     profile.season &&
@@ -2327,7 +2365,7 @@ const importOne = (
     };
   }
 
-  const resolved = resolveAgeGroup(profile, state);
+  const resolved = resolveAgeGroup(profile, state, seasonYear);
   if (!resolved) {
     const why = skipReason(profile);
     /*
@@ -4635,10 +4673,19 @@ export const proposeTwinSquads = (
 export const proposeSeasonPairings = (
   teams: ScoutTeam[],
   games: readonly ScoutGame[] = [],
-  apart: KeptApart = new Set<string>()
+  apart: KeptApart = new Set<string>(),
+  /**
+   * The pool's pages, so a link is read in the squad year it was filed in. A winter label names
+   * either year it straddles (`squadYearOfGcTeam`), and read off the label a Winter 2027 squad
+   * playing from November 2026 was a year after its own Fall 2026 and Spring 2027.
+   */
+  ageGroups: readonly AgeGroup[] = []
 ): GcSeasonPairing[] => {
   const linked = teams.flatMap((team) => (team.gcTeams ?? []).map((link) => ({ team, link })));
   if (linked.length === 0) return [];
+  const pageYear = new Map(ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const linkYear = (link: GcTeamLink): number =>
+    pageYear.get(link.ageGroupId) ?? squadYearForGcSeason(link.season, link.seasonYear ?? 0);
 
   /**
    * Who each team has played, so "a club in common" can be asked without scanning the games. Only
@@ -4731,7 +4778,7 @@ export const proposeSeasonPairings = (
       if (from.team.id === to.team.id) continue;
       if (isKeptApart(apart, from.link.teamId, to.link.teamId)) continue;
       const sameSeason = isSameSeason(from.link, to.link);
-      const carriesOn = sameSeason ? null : seasonStep(from.link, to.link);
+      const carriesOn = sameSeason ? null : seasonStep(from.link, to.link, linkYear);
       if (!sameSeason && carriesOn === null) continue;
       /*
        * The ages, which mean different things either side of a season boundary.
@@ -4940,7 +4987,9 @@ export const pairSettledSquads = (
   progress?: (processed: number, total: number, paired: number) => void,
   apart: KeptApart = new Set<string>()
 ): { state: GcImportState; paired: number } => {
-  const settled = proposeSeasonPairings(state.teams, state.games, apart).filter(isSettledPairing);
+  const settled = proposeSeasonPairings(state.teams, state.games, apart, state.ageGroups).filter(
+    isSettledPairing
+  );
   if (settled.length === 0) return { state, paired: 0 };
 
   /*

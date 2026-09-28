@@ -1,4 +1,4 @@
-import { formatGameDate, parseDateValue } from "./date";
+import { formatGameDate, parseDateValue, seasonStartMonth } from "./date";
 import { displayName } from "./format";
 import {
   calculateTeams,
@@ -55,9 +55,13 @@ export const buildSeasonTimeline = (
   limit = 8
 ): SeasonTimelineEntry[] => {
   const hasCutLine = settings.postseasonFormat === "cut";
+  const start = seasonStartMonth(matchups.map((game) => game.date));
   const finals = [...matchups]
     .filter((game) => isFinal(logs[game.id]))
-    .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        parseDateValue(a.date, start) - parseDateValue(b.date, start) || a.id.localeCompare(b.id)
+    );
   const workingLogs: Record<string, GameLog> = {};
   const entries: SeasonTimelineEntry[] = [];
 

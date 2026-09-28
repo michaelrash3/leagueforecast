@@ -137,6 +137,41 @@ describe("a pull keeps to the season being played", () => {
     expect(vi.mocked(fetchGcTeams).mock.calls[0]?.[0]).toEqual([FALL_ONE, FALL_TWO]);
   });
 
+  it("keeps a winter row labelled with the year its winter ends, counted in this season", async () => {
+    // "Winter 2027" names the winter from November 2026 as often as the one after: kept here, and
+    // filed by its games' dates when it arrives (`squadYearOfGcTeam`).
+    const user = userEvent.setup();
+    panel();
+    await user.upload(
+      screen.getByLabelText("Team list CSV"),
+      teamFile([
+        `Fall Club 1 12U,${FALL_ONE},12U,Fall 2026`,
+        "Winter Club 12U,WinterTeam01,12U,Winter 2027",
+      ])
+    );
+
+    expect(
+      await screen.findByRole("checkbox", {
+        name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+      })
+    ).toBeChecked();
+    expect(screen.queryByText(/from other seasons, skipped/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+    // Its other reading, the winter a year on, can be ticked too, and takes the row with it.
+    const nextWinter = screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028" });
+    expect(nextWinter).not.toBeChecked();
+    await user.click(nextWinter);
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+      })
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028 (1 team)" })
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Pull 1 schedule" })).toBeEnabled();
+  });
+
   it("pulls last season too once it is ticked", async () => {
     const user = userEvent.setup();
     panel();
