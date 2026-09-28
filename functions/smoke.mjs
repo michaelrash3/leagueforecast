@@ -1,12 +1,13 @@
 /**
- * Runs the built function (`lib/index.js`) the way Cloud Functions will, with a fake request, and
- * fails the deploy if it does not answer as the app expects. No network: the upstream host is
- * pointed at a closed local port, so a pull fails fast and the failure is itself the answer checked.
+ * Runs the built functions (`lib/index.js`) the way Cloud Functions will, with a fake request, and
+ * fails the deploy if one does not answer as expected. No network: the upstream host is pointed at
+ * a closed local port, so a pull fails fast and the failure is itself the answer checked, and the
+ * billing stop is handed only a reading under its budget, which it must leave alone.
  */
 import { gunzipSync } from "node:zlib";
 
 process.env.GC_API_BASE = "http://127.0.0.1:9";
-const { gcTeam } = await import("./lib/index.js");
+const { gcTeam, billingCap } = await import("./lib/index.js");
 
 const call = (url, headers = {}) =>
   new Promise((resolve, reject) => {
@@ -82,3 +83,37 @@ check(
   batch.headers["content-encoding"] === "gzip",
   JSON.stringify(batch.headers)
 );
+
+// The hard stop: deployed where the setup put its topic and its own service account, and a
+// reading under the budget does nothing at all.
+const trigger = billingCap.__endpoint;
+check(
+  "the billing stop listens on its topic, as its own account",
+  trigger.eventTrigger?.eventFilters?.topic === "billing-cap" &&
+    trigger.serviceAccountEmail === "billing-cap@" &&
+    trigger.maxInstances === 1,
+  JSON.stringify(trigger)
+);
+const reading = (costAmount) =>
+  Buffer.from(
+    JSON.stringify({ budgetDisplayName: "Smoke", costAmount, budgetAmount: 1, currencyCode: "USD" })
+  ).toString("base64");
+const realFetch = globalThis.fetch;
+let fetched = 0;
+globalThis.fetch = async (...args) => {
+  fetched += 1;
+  return realFetch(...args);
+};
+await billingCap({
+  specversion: "1.0",
+  id: "smoke",
+  source: "//pubsub.googleapis.com/projects/smoke/topics/billing-cap",
+  type: "google.cloud.pubsub.topic.v1.messagePublished",
+  time: new Date().toISOString(),
+  data: {
+    message: { data: reading(0.4), messageId: "1", publishTime: new Date().toISOString() },
+    subscription: "projects/smoke/subscriptions/billing-cap",
+  },
+});
+check("a reading under the budget calls nobody", fetched === 0, `${fetched} requests`);
+globalThis.fetch = realFetch;
