@@ -1952,6 +1952,18 @@ share a name, and the person looking for one usually knows its coach. On the poo
 September, 52,881 of the 53,010 pulled clubs carry at least one coach, three at the
 median.
 
+**Finding a club by where it is.** The same pickers take the words in any order and read a
+state's name as its code, so "hurricanes ohio" finds the Hurricanes whose line ends in OH:
+before, the whole query had to appear as written, and a state had to be typed the way the list
+abbreviates it. A state matches its code only as a whole capitalised word, so "ohio" finds OH
+but not the "oh" in "John", or its name written out, so it finds "Ohio Elite" too. GameChanger
+lists some clubs with no state at all — 1,832 of the 53,010 pulled clubs on that pool — and
+those are placed by the clubs they played instead: "Wilmington, played by OH, KY clubs", up to
+three states, most games first (`statesThatPlayed`). The state a pulled club's opponents most
+often come from is its own for 92% of the 48,045 clubs that have one, and 1,265 of the clubs
+with none have played a club that does. Clubs known only as a name on someone else's schedule
+are still left out of the search, as they are left out of the tables.
+
 **A backup carries the answers, not just the pool.** The named ages, the thrown-out
 clubs, the too-young ids, the deleted rows, the kept-apart pairs and the waiting list
 all ride in an `answers` block — in the Team Rankings pool file as well as the

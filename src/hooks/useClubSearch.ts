@@ -14,6 +14,7 @@ import {
   type TeamPage,
 } from "../lib/teamRankings";
 import { buildStaffIndex, clubRelations, coachesOf, describeRelation } from "../lib/gcStaff";
+import { statesThatPlayed } from "../lib/playedByStates";
 import type { MergeCandidate } from "../components/TeamDetailPanel";
 
 type ClubSearchInput = {
@@ -39,6 +40,7 @@ type ClubSearchInput = {
 
 /** Referentially stable, so a consumer memoising on "no pages" does not re-run every render. */
 const NO_PAGES = new Map<string, TeamPage>();
+const NO_PLAYED_BY = new Map<string, string[]>();
 
 export function useClubSearch({
   teams,
@@ -66,10 +68,15 @@ export function useClubSearch({
    * Over the whole pool rather than this page: finding a club without already knowing its season
    * and age level is the one thing the age tabs cannot do, and is the point of searching at all.
    */
-  const pagesByTeam = useMemo(() => {
+  const { pagesByTeam, playedBy } = useMemo(() => {
     void revision;
-    if (!enabled) return NO_PAGES;
-    return teamPages(teams, games(), ageGroups);
+    if (!enabled) return { pagesByTeam: NO_PAGES, playedBy: NO_PLAYED_BY };
+    const everyGame = games();
+    return {
+      pagesByTeam: teamPages(teams, everyGame, ageGroups),
+      // Where a stand-in's opponents are from, read off the same games (`statesThatPlayed`).
+      playedBy: statesThatPlayed(teams, everyGame),
+    };
   }, [enabled, teams, games, ageGroups, revision]);
 
   const searchOptions = useMemo(() => {
@@ -89,7 +96,16 @@ export function useClubSearch({
        * the place blank on exactly the results that needed it — and the place is what tells two
        * clubs of the same name apart.
        */
-      const place = [team.city, team.state].filter(Boolean).join(", ");
+      // A club GameChanger gives no state is placed by the clubs that played it instead; only
+      // those clubs are in `playedBy`.
+      const playedByStates = playedBy.get(teamId) ?? [];
+      const place = [
+        team.city,
+        team.state,
+        playedByStates.length > 0 ? `played by ${playedByStates.join(", ")} clubs` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
       const detail = [where, place].filter(Boolean).join(" · ");
       // And who coaches it, which is often how a person knows a club whose name forty others share.
       const coaches = coachesOf(team);
@@ -102,7 +118,7 @@ export function useClubSearch({
         },
       ];
     });
-  }, [pagesByTeam, teams]);
+  }, [pagesByTeam, playedBy, teams]);
 
   /**
    * What to offer as "same team as": everyone else rated on this page, with the likely clubs first.
