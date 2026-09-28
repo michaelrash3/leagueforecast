@@ -8,6 +8,7 @@ import { useWideViewport } from "../../hooks/useWideViewport";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import type { Movement } from "../../lib/rankMovement";
 import { MyTeamCard } from "./MyTeamCard";
+import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
 import { card, pill } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
@@ -57,6 +58,8 @@ type RankingsSectionProps = {
   onRemoveTeam: (teamId: string) => void;
   /** The team marked as yours on this page, where it stands and what it plays next. */
   myTeam?: MyTeamGlance | null;
+  /** The marked club's place week by week, oldest first, ending a week ago (`useRankingsWorker`). */
+  rankHistory?: RankHistoryPoint[];
   /** How far a row has moved on this page since last week (`movementOf`). */
   movementOf?: (row: ScoutRankingRow) => Movement | undefined;
 };
@@ -101,6 +104,7 @@ export function RankingsSection({
   onMarkMine,
   onRemoveTeam,
   myTeam,
+  rankHistory,
   movementOf,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
@@ -164,6 +168,7 @@ export function RankingsSection({
           {myTeam && (
             <MyTeamCard
               glance={myTeam}
+              {...(rankHistory ? { history: rankHistory } : {})}
               {...(segment ? { segmentName: segment.name } : {})}
               onOpenTeam={onOpenTeam}
             />

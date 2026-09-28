@@ -277,6 +277,15 @@ result posted since for a game played before that day is counted in it, so last 
 recomputed can differ from what was on screen then. In the first week of a half there
 is no board a week ago and nothing is marked.
 
+**The rank line.** Under the card's place, a line of the club's place week by week:
+last week's board, then each week before it, then today's, first place at the top.
+Each week is another fit of the year as it stood that day, so the worker is asked
+for them one at a time, naming the club so only its place comes back, and keeps the
+last three boards so a line's weeks do not push last week's out (`RANK_HISTORY_WEEKS`,
+eight at most). A page switch waits on at most one week's fit, and the walk stops at a
+week whose board was empty, where the half had not begun, or at two weeks running
+without the club on it. Nothing is drawn until two weeks have a place.
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that

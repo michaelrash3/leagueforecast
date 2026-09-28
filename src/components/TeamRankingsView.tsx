@@ -774,6 +774,7 @@ export function TeamRankingsView({
     askWhatIf,
     checkModel,
     lastWeek,
+    history: rankHistory,
   } = useRankingsWorker({
     ageGroupId: selectedAgeGroupId,
     teams: allKnown.teams,
@@ -2321,6 +2322,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onOpenTeam={setOpenTeamId}
               onMarkMine={setMyTeam}
               myTeam={myTeam}
+              {...(rankHistory ? { rankHistory } : {})}
               movementOf={boardMovement}
               onRemoveTeam={removeTeamById}
             />
