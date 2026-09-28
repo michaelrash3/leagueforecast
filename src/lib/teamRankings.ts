@@ -609,8 +609,14 @@ export type TeamPage = {
  * has been pulled for three seasons should be found where it is now.
  *
  * A team with no page — nothing but games in groups that no longer exist — is absent rather than
- * guessed at. So is a placeholder, which names nobody, and a club known only from somebody else's
- * schedule, which has no page of its own to be on.
+ * guessed at. So is a placeholder, which names nobody.
+ *
+ * A club known only from somebody else's schedule is on the page its games were filed on, read the
+ * way any club without a GameChanger link is (`homeLevelOf`: the levels its games recorded for it,
+ * else where they were filed). It used to have no page, so no search could find it: the user
+ * asked for these to be findable on 28 September 2026, when a club they were looking for was one,
+ * known only from its opponents' schedules. It is not ranked there, but its panel opens there with
+ * every game it is in.
  */
 export const teamPages = (
   teams: ScoutTeam[],
@@ -646,7 +652,7 @@ export const teamPages = (
   });
 
   // One home-level pass per distinct year rather than one per team.
-  const eligible = teams.filter((team) => !team.placeholder && !team.nameOnly);
+  const eligible = teams.filter((team) => !team.placeholder);
   const years = new Set<number | undefined>();
   yearsByTeam.forEach((teamYears) => teamYears.forEach((year) => years.add(year)));
   const homeLevels = new Map<number | undefined, Map<string, number | undefined>>();

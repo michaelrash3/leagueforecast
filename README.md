@@ -2026,7 +2026,11 @@ pulled clubs on that pool — and those are placed by the clubs they played inst
 played by OH, KY clubs", up to three states, most games first (`statesThatPlayed`). The state a
 pulled club's opponents most often come from is its own for 92% of the 48,045 clubs that have
 one, and 1,265 of the clubs with none have played a club that does. Clubs known only as a name
-on someone else's schedule are still left out of the search, as they are left out of the tables.
+on someone else's schedule are found too, on the page their games were filed on, and open there
+with every game they are in, though no table ranks them. With them the search offers about
+93,000 clubs, so it sorts the list and reads its text once, in the background after the list is
+built, rather than on every keystroke: 130 to 190 ms a keystroke became 35 to 55, measured in
+Node on 93,000 made-up clubs.
 
 **Finding a club by its GameChanger id.** The same pickers take a GameChanger team id, or a link
 to a team's page, and answer with the club that id is linked to (`gcIdsInSearch`): an id is what

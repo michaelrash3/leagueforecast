@@ -5,7 +5,7 @@
  * without already knowing its season and age level is the one thing the age tabs cannot do, and is
  * the point of searching at all.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   teamPages,
   type AgeGroup,
@@ -16,6 +16,7 @@ import {
 import { buildStaffIndex, clubRelations, coachesOf, describeRelation } from "../lib/gcStaff";
 import { statesThatPlayed } from "../lib/playedByStates";
 import type { MergeCandidate } from "../components/TeamDetailPanel";
+import { warmTeamSearch } from "../components/TeamSearchSelect";
 
 type ClubSearchInput = {
   teams: ScoutTeam[];
@@ -152,6 +153,16 @@ export function useClubSearch({
       ];
     });
   }, [pagesByTeam, playedBy, indexTeams]);
+
+  /*
+   * The search box's own work on this list, done once the list is built rather than on the first
+   * keystroke (`warmTeamSearch`), and after the frame that built it has been drawn.
+   */
+  useEffect(() => {
+    if (searchOptions.length === 0) return;
+    const soon = window.setTimeout(() => warmTeamSearch(searchOptions), 0);
+    return () => window.clearTimeout(soon);
+  }, [searchOptions]);
 
   /**
    * What to offer as "same team as": everyone else rated on this page, with the likely clubs first.

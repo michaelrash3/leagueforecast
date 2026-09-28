@@ -223,3 +223,30 @@ describe("why a club is filed at its age", () => {
     expect(panel).not.toHaveTextContent("GameChanger gives no age");
   });
 });
+
+describe("finding a club known only from other clubs' schedules", () => {
+  it("offers it on the page its games were filed on, and opens its panel", async () => {
+    const user = userEvent.setup();
+    const base = pool();
+    renderTeamRankings({
+      ...base,
+      teams: [...base.teams, team("S-WASPS", "Example Wasps", { nameOnly: true })],
+      games: [
+        ...base.games,
+        game("g4", u9.id, "S-OWLS", "S-WASPS", 7, 5, {
+          date: "2026-09-20",
+          ageLevelA: 9,
+          source: { kind: "gamechanger", teamId: "gcOWLSFALL26", gameId: "g4" },
+        }),
+      ],
+    });
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "wasps");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    const option = within(list).getByRole("option", { name: /Example Wasps/ });
+    expect(option).toHaveTextContent("9U 2027");
+    await user.click(within(option).getByRole("button"));
+    expect(screen.getByRole("region", { name: "Example Wasps" })).toHaveTextContent("Owls");
+  });
+});
