@@ -121,7 +121,12 @@ export const gcIdsInSearch = (query: string): string[] => {
 /**
  * What an empty list says. A pasted GameChanger link, or a word shaped like an id (twelve letters
  * and digits with a digit or a capital past the first letter, which "Thunderbolts" is not), is
- * answered as an id: where the app has it (`explainGcId`), or that no club here carries it.
+ * answered as an id: where the app has it (`explainGcId`), or that it has no record of it.
+ *
+ * Not that it was never pulled, which it said until the user pasted an id and was told so on 28
+ * September 2026: a pull that turns a team away for its season, as a high school or adult side,
+ * or for a request that failed keeps no record of it past that run, so the app cannot tell those
+ * from an id nobody asked for. Pulling it alone, with its season ticked, is what settles it.
  */
 export const noMatchText = (
   query: string,
@@ -136,7 +141,7 @@ export const noMatchText = (
     /gc\.com\/teams\/[A-Za-z0-9]{12}/.test(query) ||
     ids.some((id) => /\d/.test(id) || /[A-Z]/.test(id.slice(1)));
   return pasted
-    ? "No team here is linked to that GameChanger id. It has not been pulled: paste it into Pull from GameChanger. Or it was pulled onto another team and unlinked."
+    ? "The app has no record of that GameChanger id. It has not been pulled, or it was unlinked from a club here, or a pull turned it away without keeping one: a season that was not ticked, a high school or adult side, or a request that failed. Pull it on its own in Pull from GameChanger, with its season ticked, and the run says which."
     : "No team matches that.";
 };
 

@@ -267,10 +267,12 @@ describe("what an empty list says of a pasted id", () => {
     );
   });
 
-  it("answers an id it has no record of as not pulled, and a name as no match", () => {
-    expect(noMatchText("bKpjvY5AVqOV", explain)).toMatch(
-      /^No team here is linked to that GameChanger id\. It has not been pulled/
-    );
+  it("says it has no record of an unknown id, without claiming it was never pulled", () => {
+    const said = noMatchText("bKpjvY5AVqOV", explain);
+    expect(said).toMatch(/^The app has no record of that GameChanger id\./);
+    // A pull that refused it for its season keeps no record, so both are possible.
+    expect(said).toContain("a season that was not ticked");
+    expect(said).toContain("with its season ticked");
     // Twelve letters, but a name: no digit, and no capital past the first letter.
     expect(noMatchText("Thunderbolts", explain)).toBe("No team matches that.");
   });
