@@ -9,6 +9,7 @@
  */
 
 import {
+  gcTeamFromBodies,
   GC_TEAM_ENDPOINT,
   isGcFetchErrorReason,
   type GcFetchDiagnostics,
@@ -173,7 +174,37 @@ const readSchedule = (value: unknown): GcTeamSchedule | null => {
  * One team's answer, as the proxy states it, turned into a result. Shared by the single-team call
  * and the batch, so both read a failure exactly the same way.
  */
-const readTeamResult = (payload: unknown, endpoint: string, status?: number): GcTeamResponse => {
+/**
+ * GameChanger's own two bodies from the proxy's pass-through (`?raw=1`), read here: see
+ * `gcTeamFromBodies` for why the reading moved out of the proxy.
+ */
+const readRawTeam = (
+  raw: Record<string, unknown>,
+  teamId: string,
+  fetchedAt: unknown,
+  endpoint: string
+): GcTeamResponse => {
+  const { profile, games } = raw;
+  if (typeof profile !== "string" || (games !== null && typeof games !== "string")) {
+    return {
+      ok: false,
+      reason: "unrecognized",
+      message: `${endpoint} answered ok but without GameChanger's bodies for ${teamId}.`,
+    };
+  }
+  return gcTeamFromBodies(
+    teamId,
+    { profile, games },
+    typeof fetchedAt === "string" && fetchedAt ? fetchedAt : new Date().toISOString()
+  );
+};
+
+const readTeamResult = (
+  payload: unknown,
+  endpoint: string,
+  status?: number,
+  teamId?: string
+): GcTeamResponse => {
   if (!isRecord(payload)) {
     return {
       ok: false,
@@ -181,6 +212,9 @@ const readTeamResult = (payload: unknown, endpoint: string, status?: number): Gc
       message: `${endpoint} answered with something that is not a result.`,
       ...(status === undefined ? {} : { status }),
     };
+  }
+  if (payload.ok === true && isRecord(payload.raw) && teamId !== undefined) {
+    return readRawTeam(payload.raw, teamId, payload.fetchedAt, endpoint);
   }
   if (payload.ok === true) {
     const schedule = readSchedule(payload.schedule);
@@ -309,7 +343,9 @@ const fetchGcTeamBatch = async (
 
   try {
     const query = teamIds.map((teamId) => encodeURIComponent(teamId)).join(",");
-    const response = await fetchImpl(`${endpoint}?ids=${query}`, {
+    // `raw=1`: GameChanger's bodies as they came, read here rather than on the server, whose CPU
+    // is billed (`gcTeamFromBodies`).
+    const response = await fetchImpl(`${endpoint}?ids=${query}&raw=1`, {
       method: "GET",
       headers: { accept: "application/json" },
       signal,
@@ -348,7 +384,7 @@ const fetchGcTeamBatch = async (
 
     payload.teams.forEach((entry) => {
       if (!isRecord(entry) || typeof entry.teamId !== "string") return;
-      results.set(entry.teamId, readTeamResult(entry.result, endpoint));
+      results.set(entry.teamId, readTeamResult(entry.result, endpoint, undefined, entry.teamId));
     });
 
     // A team the answer said nothing about is a failure for that team, not for the batch.

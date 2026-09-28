@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
 import handler, { clearProfileCache } from "../../../api/gc-team";
-import { GC_GAMES_ACCEPT, GC_PROFILE_ACCEPT, type GcTeamResponse } from "../gameChangerApi";
+import {
+  GC_GAMES_ACCEPT,
+  GC_PROFILE_ACCEPT,
+  gcTeamFromBodies,
+  type GcTeamResponse,
+} from "../gameChangerApi";
 
 const TEAM_ID = "gsUthn4XoIxS";
 
@@ -440,5 +445,100 @@ describe("the profile cache", () => {
 
     await run(`/api/gc-team?id=${TEAM_ID}`);
     expect((await run("/api/gc-team?probe=1")).body).toMatchObject({ cachedProfiles: 1 });
+  });
+});
+
+/*
+ * The pass-through the app asks for (`?raw=1`). Parsing and normalizing was nearly all of this
+ * function's CPU, which Vercel bills: 443,000 calls had spent a Hobby plan's four hours by 28
+ * September 2026. So the bodies go back as GameChanger sent them and the browser reads them
+ * (`gcTeamFromBodies`), to the same team the old answer carried.
+ */
+describe("GET /api/gc-team?ids=…&raw=1", () => {
+  type RawBatch = {
+    ok: true;
+    teams: Array<{
+      teamId: string;
+      result:
+        | { ok: true; raw: { profile: string; games: string | null }; fetchedAt: string }
+        | (GcTeamResponse & { ok: false });
+    }>;
+  };
+
+  it("hands back both bodies as GameChanger sent them, without parsing either", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: gamesFixture } });
+    const parse = vi.spyOn(JSON, "parse");
+    const recorded = await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`);
+    const parsed = parse.mock.calls.length;
+    parse.mockRestore();
+
+    expect(recorded.statusCode).toBe(200);
+    expect(recorded.headers["cache-control"]).toBe("no-store");
+    const entry = (recorded.body as RawBatch).teams[0]!;
+    expect(entry.teamId).toBe(TEAM_ID);
+    expect(entry.result).toMatchObject({
+      ok: true,
+      raw: { profile: JSON.stringify(profileFixture), games: JSON.stringify(gamesFixture) },
+    });
+    // The whole point: nothing on the server read either body.
+    expect(parsed).toBe(0);
+  });
+
+  it("reads to exactly the team the parsed answer carried", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { body: gamesFixture } });
+    const old = (await run(`/api/gc-team?ids=${TEAM_ID}`)).body as {
+      teams: Array<{ result: GcTeamResponse }>;
+    };
+    clearProfileCache();
+    const raw = (await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`)).body as RawBatch;
+
+    const before = old.teams[0]!.result;
+    const entry = raw.teams[0]!.result;
+    expect(before.ok && entry.ok).toBe(true);
+    if (!before.ok || !entry.ok || !("raw" in entry)) return;
+    const after = gcTeamFromBodies(TEAM_ID, entry.raw, before.schedule.fetchedAt);
+    expect(after).toEqual(before);
+  });
+
+  it("says a team with no schedule yet has none, rather than failing it", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { status: 404, body: "" } });
+    const entry = ((await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`)).body as RawBatch).teams[0]!;
+    expect(entry.result).toMatchObject({ ok: true, raw: { games: null } });
+  });
+
+  it("still names a throttle, a refusal and a page that is not JSON as it did", async () => {
+    stubUpstream({
+      profile: { status: 429, body: "", headers: { "retry-after": "30" } },
+      games: { body: gamesFixture },
+    });
+    const throttled = await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`);
+    expect(throttled.headers["retry-after"]).toBe("30");
+    expect((throttled.body as RawBatch).teams[0]!.result).toMatchObject({
+      ok: false,
+      reason: "throttled",
+    });
+
+    clearProfileCache();
+    stubUpstream({ profile: { status: 403, body: "" }, games: { body: gamesFixture } });
+    const refused = (await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`)).body as RawBatch;
+    expect(refused.teams[0]!.result).toMatchObject({ ok: false, reason: "blocked" });
+
+    clearProfileCache();
+    stubUpstream({ profile: { body: "<html>maintenance</html>" }, games: { body: gamesFixture } });
+    const page = (await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`)).body as RawBatch;
+    expect(page.teams[0]!.result).toMatchObject({ ok: false, reason: "unrecognized" });
+  });
+
+  it("keeps the profile for the next request, as the parsed answer does", async () => {
+    const captured = stubUpstream({ profile: { body: profileFixture }, games: { body: [] } });
+    await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`);
+    const second = (await run(`/api/gc-team?ids=${TEAM_ID}&raw=1`)).body as RawBatch;
+
+    const paths = captured.map((call) => new URL(call.url).pathname);
+    expect(paths.filter((path) => !path.endsWith("/games"))).toHaveLength(1);
+    expect(second.teams[0]!.result).toMatchObject({
+      ok: true,
+      raw: { profile: JSON.stringify(profileFixture) },
+    });
   });
 });

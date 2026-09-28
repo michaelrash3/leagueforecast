@@ -614,3 +614,64 @@ describe("growing the pool while the route stays clean", () => {
     expect(peak).toBeLessThan(15);
   });
 });
+
+/*
+ * The proxy's pass-through (`?raw=1`): GameChanger's bodies as it sent them, read here rather
+ * than on the server, whose CPU is billed (`gcTeamFromBodies`).
+ */
+describe("reading GameChanger's own bodies", () => {
+  const rawBatch = (perTeam: (teamId: string) => unknown): FakeFetch =>
+    fakeFetch((url) =>
+      jsonResponse(200, {
+        ok: true,
+        teams: idsOf(url).map((teamId) => ({ teamId, result: perTeam(teamId) })),
+      })
+    );
+
+  it("asks for them, and reads them to the team the proxy used to send", async () => {
+    const fetchImpl = rawBatch(() => ({
+      ok: true,
+      raw: { profile: JSON.stringify(profileFixture), games: JSON.stringify(gamesFixture) },
+      fetchedAt: "2026-09-28T12:00:00.000Z",
+    }));
+    const results = await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 });
+
+    expect(new URL(fetchImpl.calls[0]!.url, "http://localhost").searchParams.get("raw")).toBe("1");
+    const result = results.get(TEAM_ID);
+    expect(result).toEqual({
+      ok: true,
+      schedule: {
+        profile: normalizeGcTeamProfile(profileFixture, TEAM_ID),
+        games: normalizeGcGames(gamesFixture),
+        rowIds: gamesFixture.map((game) => game.id),
+        fetchedAt: "2026-09-28T12:00:00.000Z",
+      },
+    });
+  });
+
+  it("reads a team with no schedule yet as a team with no games", async () => {
+    const fetchImpl = rawBatch(() => ({
+      ok: true,
+      raw: { profile: JSON.stringify(profileFixture), games: null },
+      fetchedAt: "2026-09-28T12:00:00.000Z",
+    }));
+    const result = (await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 })).get(TEAM_ID);
+    expect(result).toMatchObject({ ok: true, schedule: { games: [], rowIds: [] } });
+  });
+
+  it("says what came back when a body cannot be read", async () => {
+    const fetchImpl = rawBatch(() => ({
+      ok: true,
+      raw: { profile: "<html>maintenance</html>", games: "[]" },
+      fetchedAt: "2026-09-28T12:00:00.000Z",
+    }));
+    const result = (await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0, retries: 0 })).get(
+      TEAM_ID
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "unrecognized",
+      diagnostics: { bodyPreview: "<html>maintenance</html>" },
+    });
+  });
+});
