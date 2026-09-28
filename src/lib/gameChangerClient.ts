@@ -144,11 +144,19 @@ const defaultDelayMs = (attempt: number): number =>
 export const gcProxyEndpoint = (configured: string | undefined = configuredProxy()): string =>
   configured?.trim().replace(/\/+$/, "") || GC_TEAM_ENDPOINT;
 
-/** The build's setting. A Node script has no Vite and so no `import.meta.env`, and reads none. */
+/**
+ * The build's setting. Written out whole, because Vite substitutes `import.meta.env.VITE_…` only
+ * where it appears literally: read through an alias or `?.` it survived into the bundle untouched,
+ * and a browser's `import.meta` has no `env`, so the setting was never seen. A Node script, which
+ * has no Vite and so no `import.meta.env`, lands in the catch and reads none.
+ */
 function configuredProxy(): string | undefined {
-  const meta = import.meta as ImportMeta & { env?: { VITE_GC_PROXY_URL?: unknown } };
-  const value = meta.env?.VITE_GC_PROXY_URL;
-  return typeof value === "string" ? value : undefined;
+  try {
+    const value: unknown = import.meta.env.VITE_GC_PROXY_URL;
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const unconfiguredMessage = (endpoint: string): string =>
