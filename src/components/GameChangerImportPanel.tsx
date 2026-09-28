@@ -135,7 +135,13 @@ import {
   type PullRunLog,
   type PullTracker,
 } from "../lib/pullTracker";
-import { MIN_AGE_LEVEL, mergeScoutTeams, pulledGcTeamIds, segmentOn } from "../lib/teamRankings";
+import {
+  gcLinkSquadYearIn,
+  MIN_AGE_LEVEL,
+  mergeScoutTeams,
+  pulledGcTeamIds,
+  segmentOn,
+} from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
@@ -709,19 +715,26 @@ export function GameChangerImportPanel({
    * squad of six in September is twelve in October and the roster count is the only thing that
    * ever says which. They are simply asked about again, a fortnight later.
    */
-  const rosterWatch = useMemo(
-    () =>
-      rosterWatchList(
-        pool.teams.flatMap((team) =>
-          (team.gcTeams ?? []).map((link) => ({
+  /*
+   * The season being played's pages only, as the rota keeps to. A club keeps the ids it was pulled
+   * as after its year is archived or deleted, so last season's six-player page stayed on this list
+   * and asking about it again filed the squad back onto a page of the year that was put away.
+   */
+  const rosterWatch = useMemo(() => {
+    const playing = segmentOn(todayIsoDay()).year;
+    const yearOf = gcLinkSquadYearIn(pool.ageGroups);
+    return rosterWatchList(
+      pool.teams.flatMap((team) =>
+        (team.gcTeams ?? [])
+          .filter((link) => (yearOf(link) ?? playing) === playing)
+          .map((link) => ({
             teamId: link.teamId,
             ...(link.playerCount === undefined ? {} : { playerCount: link.playerCount }),
             ...(link.countedAt ? { countedAt: link.countedAt } : {}),
           }))
-        )
-      ),
-    [pool.teams]
-  );
+      )
+    );
+  }, [pool.teams, pool.ageGroups]);
   const rosterDue = rosterWatch.filter((entry) => entry.due);
 
   /**
@@ -1427,7 +1440,9 @@ export function GameChangerImportPanel({
     const progress = startPull(
       rosterDue.map((entry) => entry.teamId),
       nowIso(),
-      null
+      null,
+      // Filed only in the season being played, whatever GameChanger now says the page is.
+      [segmentOn(todayIsoDay()).year]
     );
     onSaveProgress(progress);
     // Not a rota run, so nothing is marked refreshed when it finishes.
@@ -1446,7 +1461,12 @@ export function GameChangerImportPanel({
    */
   const runAgeless = () => {
     if (due.agelessIds.length === 0) return;
-    const progress = startPull(due.agelessIds, nowIso(), null);
+    /*
+     * Filed only in the season being played, as the rota is. The waiting list is not the pool's
+     * and outlives a year archived or deleted, so a team from that year was asked about again and
+     * filed back onto a page of it. Refused as another season's, it leaves the list too.
+     */
+    const progress = startPull(due.agelessIds, nowIso(), null, [segmentOn(todayIsoDay()).year]);
     onSaveProgress(progress);
     dueLevelsRef.current = [];
     void runSectioned(remainingIds(progress), progress);

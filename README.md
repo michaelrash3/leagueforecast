@@ -2670,6 +2670,14 @@ keeps its seasons either way; only the links from the deleted pages go, so their
 stop feeding a ranking. The confirmation says how many pages, games and clubs go, and how
 many clubs stay without that year's ids.
 
+**A year put away stays away.** An archived year's clubs keep the ids they were pulled as,
+and the list of teams waiting on an age is not the pool's, so it outlives a delete. The two
+re-asks that named no season, the roster check of under-strength pages and **Ask again**
+about teams with no age, reached those squads and filed them back onto a page of the year
+that was put away. Both now keep to the season being played, as the rota does: the roster
+check lists only that season's pages, and both pulls refuse any other season's team
+(`other-season`), which also takes it off the waiting list.
+
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
 can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of
 September 2026, were rated with the cap at eight and are not comparable with later ones;

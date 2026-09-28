@@ -516,6 +516,14 @@ const gcLinkYear = (link: GcTeamLink, index: GroupIndex): number | undefined => 
 export const gcLinkSquadYear = (link: GcTeamLink, ageGroups: AgeGroup[]): number | undefined =>
   gcLinkYear(link, indexGroups(ageGroups));
 
+/** `gcLinkSquadYear` for a whole pool's links, with the groups indexed once rather than per link. */
+export const gcLinkSquadYearIn = (
+  ageGroups: AgeGroup[]
+): ((link: GcTeamLink) => number | undefined) => {
+  const index = indexGroups(ageGroups);
+  return (link) => gcLinkYear(link, index);
+};
+
 /** The value seen most often, the first seen winning a tie; undefined when there are none. */
 const mostCommon = (values: (number | undefined)[]): number | undefined => {
   const counts = new Map<number, number>();
