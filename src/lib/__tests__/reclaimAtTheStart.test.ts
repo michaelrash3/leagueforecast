@@ -208,6 +208,17 @@ describe("a copy left where it is", () => {
     expect(reclaimMisfiled(state).reclaimed).toBe(0);
     const after = tidyPool(state).state;
     expect(after.games.every((game) => game.teamAId !== game.teamBId)).toBe(true);
-    expect(sidesOf(after, tie.id)).toEqual(["TT10", "TT11"]);
+    // The 11U's own schedule has no game that day, so the name leaves it for a stand-in of the
+    // name, and the refile does not put it back on the 10U whose row it is.
+    const [, against] = sidesOf(after, tie.id);
+    const landed = after.teams.find((team) => team.id === against);
+    expect([landed?.name, landed?.nameOnly]).toEqual(["Texas Takeover", true]);
+    // With the 11U playing that day, the row stays on it as before.
+    const played = tidyPool({
+      ...state,
+      games: [tie, own("TT11", "u1", "S-ELSE", [4, 1], "15:00", "2026-08-30", "ag10")],
+      teams: [...tt, standIn("S-ELSE", "Elsewhere")],
+    }).state;
+    expect(sidesOf(played, tie.id)).toEqual(["TT10", "TT11"]);
   });
 });

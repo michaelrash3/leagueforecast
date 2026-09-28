@@ -154,6 +154,35 @@ const misfiled = (): GcImportState => {
   return { ageGroups: groups, teams, games };
 };
 
+/**
+ * `state` with a game on the club's own schedule on `date`, against a name nobody pulled. A name
+ * puts a row on a pulled club only where its own schedule has a game that day or the day either
+ * side (`resettleOffLevel`), so a test of another rule gives the club one and is decided by its own.
+ */
+const playsOn = (
+  state: GcImportState,
+  clubId: string,
+  gcId: string,
+  date: string,
+  ageGroupId: string
+): GcImportState => ({
+  ...state,
+  teams: state.teams.some((team) => team.id === "S-ELSEWHERE")
+    ? state.teams
+    : [...state.teams, { id: "S-ELSEWHERE", name: "Elsewhere", nameOnly: true }],
+  games: [
+    ...state.games,
+    {
+      id: `gc_${gcId}_own_${date}`,
+      teamAId: clubId,
+      teamBId: "S-ELSEWHERE",
+      ageGroupId,
+      date,
+      source: { kind: "gamechanger", teamId: gcId, gameId: `own_${date}` },
+    },
+  ],
+});
+
 describe("resettleOffLevel", () => {
   it("moves the row to the namesake that does play that age", () => {
     const { state, resettled } = resettleOffLevel(misfiled());
@@ -274,15 +303,21 @@ describe("resettleOffLevel", () => {
      * somebody else's schedule named by name is ever moved.
      */
     const before = misfiled();
-    const own = {
-      ...before,
-      games: [
-        {
-          ...before.games[0]!,
-          source: { kind: "gamechanger" as const, teamId: "p8KJXdIzoYPR", gameId: "1" },
-        },
-      ],
-    };
+    const own = playsOn(
+      {
+        ...before,
+        games: [
+          {
+            ...before.games[0]!,
+            source: { kind: "gamechanger" as const, teamId: "p8KJXdIzoYPR", gameId: "1" },
+          },
+        ],
+      },
+      "S-PANDAS",
+      "sd2CKtYsvOFh",
+      "2026-09-13",
+      "ag15"
+    );
 
     const { state, resettled } = resettleOffLevel(own);
 
@@ -330,23 +365,29 @@ describe("resettleOffLevel", () => {
   it("keeps a stand-in with no game that a claimed row goes back to", () => {
     const before = misfiled();
     const sharks: ScoutTeam = { id: "S-SHARKS", name: "Sharks", nameOnly: true };
-    const claimed = {
-      ...before,
-      teams: [...before.teams, sharks],
-      games: [
-        ...before.games,
-        {
-          id: "gc_gcOTHER_1",
-          teamAId: "S-PANDAS",
-          teamBId: "S-LOOK15",
-          ageGroupId: "ag15",
-          date: "2026-09-20",
-          source: { kind: "gamechanger" as const, teamId: "sd2CKtYsvOFh", gameId: "2" },
-          alsoFrom: ["gcELSE"],
-          alsoRows: [{ teamId: "gcELSE", gameId: "e1", filedAgainst: sharks.id }],
-        },
-      ],
-    };
+    const claimed = playsOn(
+      {
+        ...before,
+        teams: [...before.teams, sharks],
+        games: [
+          ...before.games,
+          {
+            id: "gc_gcOTHER_1",
+            teamAId: "S-PANDAS",
+            teamBId: "S-LOOK15",
+            ageGroupId: "ag15",
+            date: "2026-09-20",
+            source: { kind: "gamechanger" as const, teamId: "sd2CKtYsvOFh", gameId: "2" },
+            alsoFrom: ["gcELSE"],
+            alsoRows: [{ teamId: "gcELSE", gameId: "e1", filedAgainst: sharks.id }],
+          },
+        ],
+      },
+      "S-LOOK15",
+      "bTL9fmm4EEgy",
+      "2026-09-20",
+      "ag15"
+    );
     const { state, resettled } = resettleOffLevel(claimed);
     expect(resettled).toBe(1);
     expect(state.teams.some((team) => team.id === sharks.id)).toBe(true);
@@ -361,12 +402,120 @@ describe("resettleOffLevel", () => {
 
   it("leaves a level that disagrees by a year alone", () => {
     const before = misfiled();
-    const near = {
-      ...before,
-      games: [{ ...before.games[0]!, ageGroupId: "ag9", ageLevelA: 10, ageLevelB: 10 }],
-    };
+    const near = playsOn(
+      {
+        ...before,
+        games: [{ ...before.games[0]!, ageGroupId: "ag9", ageLevelA: 10, ageLevelB: 10 }],
+      },
+      "S-LOOK9",
+      "p8KJXdIzoYPR",
+      "2026-09-13",
+      "ag9"
+    );
 
     expect(resettleOffLevel(near).resettled).toBe(0);
+  });
+});
+
+/*
+ * A row filed by name onto a pulled club whose own schedule has no game that day, or the day
+ * either side: the user's double check of 28 September 2026. An Illinois club's 8 August loss to
+ * "Eagles" had gone onto the Eagles of Independence, Kentucky, whose own schedule opened on 3
+ * September.
+ */
+describe("a row a name filed onto a club that did not play that day", () => {
+  const groups: AgeGroup[] = [
+    { id: "ag9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 },
+  ];
+  const gameday: ScoutTeam = {
+    id: "S-GAME",
+    name: "GAMEDAY USA ALLSTAR STRIPES",
+    state: "IL",
+    gcTeams: [
+      {
+        teamId: "gcGAMEDAY001",
+        name: "GAMEDAY USA ALLSTAR 9U STRIPES",
+        ageGroupId: "ag9",
+        ageLevel: 9,
+      },
+    ],
+  };
+  const eagles: ScoutTeam = {
+    id: "S-EAGL",
+    name: "Eagles",
+    state: "KY",
+    gcTeams: [{ teamId: "gcEAGLESKY01", name: "Eagles", ageGroupId: "ag9", ageLevel: 9 }],
+  };
+  const lost: ScoutGame = {
+    id: "gc_gcGAMEDAY001_aug8",
+    teamAId: "S-GAME",
+    teamBId: "S-EAGL",
+    teamAScore: 16,
+    teamBScore: 15,
+    ageGroupId: "ag9",
+    ageLevelA: 9,
+    date: "2026-08-08",
+    source: { kind: "gamechanger", teamId: "gcGAMEDAY001", gameId: "aug8" },
+  };
+  /** A game of the Eagles' own schedule on `date`. */
+  const theirs = (date: string, extra: Partial<ScoutGame> = {}): ScoutGame => ({
+    id: `gc_gcEAGLESKY01_${date}`,
+    teamAId: "S-EAGL",
+    teamBId: "S-LOOKOUTS",
+    teamAScore: 14,
+    teamBScore: 6,
+    ageGroupId: "ag9",
+    date,
+    source: { kind: "gamechanger", teamId: "gcEAGLESKY01", gameId: date },
+    ...extra,
+  });
+  const lookouts: ScoutTeam = { id: "S-LOOKOUTS", name: "Lookouts Baseball Club", nameOnly: true };
+  const pool = (games: ScoutGame[]): GcImportState => ({
+    ageGroups: groups,
+    teams: [gameday, eagles, lookouts],
+    games: [lost, ...games],
+  });
+  const onEagles = (state: GcImportState) =>
+    state.games.find((game) => game.id === lost.id)?.teamBId === "S-EAGL";
+
+  it("takes it off the club, onto a stand-in of the name", () => {
+    const { state, resettled } = resettleOffLevel(pool([theirs("2026-09-11")]));
+    expect(resettled).toBe(1);
+    const landed = state.teams.find(
+      (team) => team.id === state.games.find((game) => game.id === lost.id)?.teamBId
+    );
+    expect([landed?.name, landed?.nameOnly, landed?.gcTeams]).toEqual(["Eagles", true, undefined]);
+    // Its own games stay with it, and the Illinois club keeps its loss.
+    expect(state.games.find((game) => game.id === "gc_gcEAGLESKY01_2026-09-11")?.teamAId).toBe(
+      "S-EAGL"
+    );
+    expect(state.games.find((game) => game.id === lost.id)?.teamAId).toBe("S-GAME");
+  });
+
+  it("leaves it where the club's own schedule has a game that day or the day either side", () => {
+    for (const day of ["2026-08-07", "2026-08-08", "2026-08-09"]) {
+      expect(onEagles(resettleOffLevel(pool([theirs(day)])).state)).toBe(true);
+    }
+    expect(onEagles(resettleOffLevel(pool([theirs("2026-08-10")])).state)).toBe(false);
+  });
+
+  it("leaves it where the club's own schedule has the game on record, or it was named by picture", () => {
+    const onRecord = { ...lost, alsoFrom: ["gcEAGLESKY01"] };
+    expect(resettleOffLevel({ ...pool([]), games: [onRecord] }).resettled).toBe(0);
+    const pictured = { ...lost, namedByAvatar: "S-EAGL" };
+    expect(resettleOffLevel({ ...pool([]), games: [pictured] }).resettled).toBe(0);
+  });
+
+  it("leaves a row with no day, which there is nothing to check against", () => {
+    const { date: _date, ...undated } = lost;
+    expect(resettleOffLevel({ ...pool([]), games: [undated] }).resettled).toBe(0);
+  });
+
+  it("is not filed back onto the club by the refile, and a tidy leaves it there", () => {
+    const tidy = tidyPool(pool([theirs("2026-09-11")]));
+    expect(onEagles(tidy.state)).toBe(false);
+    expect(tidyPool(tidy.state).refiled).toBe(0);
+    expect(tidyPool(tidy.state).resettled).toBe(0);
   });
 });
 
@@ -446,13 +595,26 @@ describe("a row typed two levels from every level a club plays", () => {
     expect(landed?.name).toBe("Lookouts Baseball Club");
   });
 
+  /*
+   * The Lookouts' own schedule has a game the day before in the next two, so the club could have
+   * played the row's game for all a day's check can say (`unlisted`), and the level rule decides;
+   * on the day itself, the level rule would stand aside too.
+   */
+  const dayBefore = own(lookouts9, "2026-09-12", 9);
+
   it("leaves it where the age was the page's, not typed", () => {
     const { ageLevelB: _typed, ...untyped } = typedRow;
-    expect(resettleOffLevel(pool([untyped])).resettled).toBe(0);
+    expect(resettleOffLevel(pool([untyped, dayBefore])).resettled).toBe(0);
+    expect(resettleOffLevel(pool([typedRow, dayBefore])).resettled).toBe(1);
   });
 
   it("leaves it where the club's own rows play within a level of it", () => {
-    expect(resettleOffLevel(pool([typedRow, own(lookouts9, "2026-09-20", 10)])).resettled).toBe(0);
+    // (The 20th's own row names the Rivals, whose own schedule has nothing near that day, so that
+    // row's other side is the day check's to move; the typed row is what this is about.)
+    const { state } = resettleOffLevel(
+      pool([typedRow, dayBefore, own(lookouts9, "2026-09-20", 10)])
+    );
+    expect(state.games.find((game) => game.id === typedRow.id)?.teamBId).toBe("S-LOOK9");
   });
 
   it("leaves it where the club's own schedule lists a game that day", () => {
@@ -464,13 +626,15 @@ describe("a row typed two levels from every level a club plays", () => {
       ...lookouts9,
       gcTeams: [{ teamId: "p8KJXdIzoYPR", name: "Lookouts Baseball Club", ageGroupId: "agX" }],
     };
-    expect(resettleOffLevel(pool([typedRow], [rivals, unlisted])).resettled).toBe(0);
+    expect(
+      resettleOffLevel(pool([typedRow, own(unlisted, "2026-09-12", 9)], [rivals, unlisted]))
+        .resettled
+    ).toBe(0);
   });
 
   /*
    * And the stand-in it goes to is not filed back onto the namesake at the typed age on the name
-   * alone: the name is a club's at two levels in reach, and the 11U's own schedules list nothing
-   * that day, so nothing says which squad it was.
+   * alone: the 11U's own schedules list nothing that day, so nothing says it played.
    */
   describe("the stand-in it goes to", () => {
     const moved = (extra: ScoutGame[] = []) =>
@@ -487,10 +651,14 @@ describe("a row typed two levels from every level a club plays", () => {
       expect(out.state.games.find((game) => game.id === typedRow.id)?.teamBId).toBe("S-LOOK11");
     });
 
-    it("is filed onto the one club of the name as before, where no other level is in reach", () => {
-      const state = moved();
-      const alone = { ...state, teams: state.teams.filter((team) => team.id !== "S-LOOK9") };
-      const out = refileStandIns(alone);
+    it("is filed onto the one club of the name only where it played that day, other level or none", () => {
+      // The name alone once did it where no other level was in reach; now the day has to agree.
+      const without = (state: GcImportState) => ({
+        ...state,
+        teams: state.teams.filter((team) => team.id !== "S-LOOK9"),
+      });
+      expect(refileStandIns(without(moved())).refiled).toBe(0);
+      const out = refileStandIns(without(moved([own(lookouts11, "2026-09-14", 11)])));
       expect(out.refiled).toBe(1);
       expect(out.state.games.find((game) => game.id === typedRow.id)?.teamBId).toBe("S-LOOK11");
     });
@@ -511,7 +679,7 @@ describe("a weekend written in the opponent column is not a club", () => {
     expect(isPlaceholderName("Lookouts Baseball Club")).toBe(false);
   });
 
-  it("gives the mention to the club when one of that name was pulled by id", () => {
+  it("gives the mention to the club when one of that name was pulled by id and played that day", () => {
     // A club really can call its travel squad this, and 74 do in a nationwide pool.
     const bulldogs: GcTeamSchedule = {
       profile: {
@@ -521,7 +689,16 @@ describe("a weekend written in the opponent column is not a club", () => {
         season: { season: "fall", year: 2026 },
         state: "FL",
       },
-      games: [],
+      games: [
+        {
+          id: "g-0",
+          date: "2026-09-13",
+          opponentName: "Hialeah Hawks 11U",
+          status: "completed",
+          teamScore: 6,
+          opponentScore: 2,
+        },
+      ],
       fetchedAt: "2026-09-14T12:00:00.000Z",
     };
     const other: GcTeamSchedule = {
@@ -547,7 +724,15 @@ describe("a weekend written in the opponent column is not a club", () => {
 
     const { state } = importGcSchedules([bulldogs, other], empty);
 
-    expect(gamesOf(state, "gcBulldogsAA").map((game) => game.date)).toEqual(["2026-09-13"]);
+    expect(gamesOf(state, "gcBulldogsAA").map((game) => game.date)).toEqual([
+      "2026-09-13",
+      "2026-09-13",
+    ]);
+    // A day the club's own schedule has nothing: the weekend it names is a slot's.
+    const idle = importGcSchedules([{ ...bulldogs, games: [] }, other], empty).state;
+    expect(gamesOf(idle, "gcBulldogsAA")).toEqual([]);
+    const [game] = gamesOf(idle, "gcOtherClubB");
+    expect(idle.teams.find((team) => team.id === game?.teamBId)?.placeholder).toBe(true);
   });
 });
 
@@ -602,13 +787,19 @@ describe("a row filed by name onto a club regions away", () => {
     ...extra,
   });
   const filed = row("SOX", "PHILTX", "2026-09-12");
+  const elsewhere: ScoutTeam = { id: "S-ELSE", name: "Elsewhere", nameOnly: true };
+  /**
+   * A game of `clubId`'s own that day, so it could have played the row's game for all the day's
+   * check can say (`unlisted`), and the tests below are decided by the regions rule.
+   */
+  const playing = (clubId: string) => row(clubId, "S-ELSE", "2026-09-12");
   const pool = (teams: ScoutTeam[], games: ScoutGame[]): GcImportState => ({
     ageGroups: groups,
-    teams: [whiteSox, phillies, ...teams],
+    teams: [whiteSox, phillies, elsewhere, ...teams],
     games: [filed, ...games],
   });
   const resettledIn = (teams: ScoutTeam[], games: ScoutGame[] = []) =>
-    resettleOffLevel(pool(teams, games)).resettled;
+    resettleOffLevel(pool(teams, [playing("PHILTX"), ...games])).resettled;
 
   it("takes it off the club, onto a stand-in of the name", () => {
     const { state, resettled } = resettleOffLevel(pool([], []));
@@ -619,9 +810,15 @@ describe("a row filed by name onto a club regions away", () => {
   });
 
   it("and the tidy files it onto the one club of the name in its filer's state", () => {
+    // Where that club's own schedule has a game that day: otherwise nothing says it played.
     const home = pulled("PHILTN", "Phillies", "TN");
-    const tidy = tidyPool(pool([home], []));
+    const tidy = tidyPool(pool([home], [playing("PHILTN")]));
     expect(tidy.state.games.find((game) => game.id === filed.id)?.teamBId).toBe("PHILTN");
+    const idle = tidyPool(pool([home], []));
+    const landed = idle.state.teams.find(
+      (team) => team.id === idle.state.games.find((game) => game.id === filed.id)?.teamBId
+    );
+    expect([landed?.name, landed?.nameOnly]).toEqual(["Phillies", true]);
   });
 
   it("leaves it where the two met in a game both clubs' own schedules have a row in", () => {
@@ -657,22 +854,29 @@ describe("a row filed by name onto a club regions away", () => {
   });
 
   it("leaves a club across a border, and one in a state the border map does not hold", () => {
-    const next = { ...pool([], []), teams: [whiteSox, { ...phillies, state: "AR" }] };
+    const played = pool([], [playing("PHILTX")]);
+    const next = { ...played, teams: [whiteSox, { ...phillies, state: "AR" }, elsewhere] };
     expect(resettleOffLevel(next).resettled).toBe(0);
     // Alberta's clubs play British Columbia's, and the map knows neither.
     const west = {
-      ...pool([], []),
-      teams: [
-        { ...whiteSox, state: "AB" },
-        { ...phillies, state: "BC" },
-      ],
+      ...played,
+      teams: [{ ...whiteSox, state: "AB" }, { ...phillies, state: "BC" }, elsewhere],
     };
     expect(resettleOffLevel(west).resettled).toBe(0);
   });
 
   it("leaves a name the import reads as a slot on the one pulled club that carries it", () => {
     const bulldogs = { ...phillies, name: "Miami Bulldogs Tournament" };
-    expect(resettleOffLevel({ ...pool([], []), teams: [whiteSox, bulldogs] }).resettled).toBe(0);
+    const played = pool([], [playing("PHILTX")]);
+    expect(resettleOffLevel({ ...played, teams: [whiteSox, bulldogs, elsewhere] }).resettled).toBe(
+      0
+    );
+    // A day it has no game of its own, the row goes to a slot, as the import now files it.
+    const idle = { ...pool([], []), teams: [whiteSox, bulldogs, elsewhere] };
+    const { state, resettled } = resettleOffLevel(idle);
+    expect(resettled).toBe(1);
+    const slot = state.teams.find((team) => team.id === state.games[0]?.teamBId);
+    expect([slot?.name, slot?.placeholder]).toEqual(["Miami Bulldogs Tournament", true]);
   });
 });
 
@@ -790,11 +994,15 @@ describe("a name that names nobody is never a pulled club", () => {
       source: { kind: "gamechanger", teamId: "gcPRAC", gameId: "y" },
     };
 
-    const { state, resettled } = resettleOffLevel({
-      ageGroups: groups,
-      teams: [practice, bandits, riders],
-      games: [filedOn, itsOwn],
-    });
+    const { state, resettled } = resettleOffLevel(
+      playsOn(
+        { ageGroups: groups, teams: [practice, bandits, riders], games: [filedOn, itsOwn] },
+        "S-RIDE",
+        "gcRIDE",
+        "2026-09-10",
+        "ag11"
+      )
+    );
 
     expect(resettled).toBe(1);
     const moved = state.games.find((game) => game.id === filedOn.id)!;

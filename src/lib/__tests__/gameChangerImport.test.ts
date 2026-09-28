@@ -3405,22 +3405,24 @@ describe("claimFiledRows: a stand-in row beside a copy its club's schedules leav
         const comet = pulled.teams.find((team) =>
           team.gcTeams?.some((link) => link.teamId === "gcD")
         )!;
-        // Filed apart: the Aces' row against the Comets by name, the Bears' against the Aces.
-        expect(pulled.games.map((game) => [game.id, game.teamBId === comet.id])).toEqual(
-          order[0] === bears
-            ? [
-                ["gc_gcB_b1", false],
-                ["gc_gcA_a1", true],
-              ]
-            : [
-                ["gc_gcA_a1", true],
-                ["gc_gcB_b1", false],
-              ]
-        );
         const tidy = tidyPool(pulled);
-        expect(tidy.claimed).toBe(1);
         expect(tidy.state.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
-        expect(tidy.state.games[0]!.alsoRows?.[0]?.filedAgainst).toBe(comet.id);
+        /*
+         * The Aces' row is in the Bears' game, and never on the Comets. Their schedule has no game
+         * that day, so the name does not put the row on them: pulled before the Aces, the Comets
+         * are passed over and the row is filed against a stand-in the game then settles; pulled
+         * after, the club that took the stand-in on has the row taken off again and claimed, and
+         * it would go back to a "Comets Blue" of its own rather than to them.
+         */
+        const [record, ...more] = tidy.state.games[0]!.alsoRows ?? [];
+        expect([record?.teamId, record?.gameId, more.length]).toEqual(["gcA", "a1", 0]);
+        if (record?.filedAgainst !== undefined) {
+          const standIn = tidy.state.teams.find((team) => team.id === record.filedAgainst);
+          expect([standIn?.name, standIn?.nameOnly]).toEqual(["Comets Blue", true]);
+        }
+        expect(
+          tidy.state.games.some((game) => [game.teamAId, game.teamBId].includes(comet.id))
+        ).toBe(false);
         expect(tidyChangedAnything(tidyPool(tidy.state))).toBe(false);
         const again = importGcSchedule(aces, tidy.state).state;
         expect(again.games.map((game) => game.id)).toEqual(["gc_gcB_b1"]);
@@ -4060,10 +4062,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r19|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r20|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r19|0|0|0|");
+    expect(poolSignature(empty)).toBe("r20|0|0|0|");
   });
 });
 
@@ -4162,18 +4164,47 @@ describe("who a name belongs to: level, state and the game", () => {
     expect(grit.filter((team) => team.gcTeams?.length)).toHaveLength(1);
   });
 
-  it("still matches a club whose schedule was empty when a neighbour names it", () => {
-    // Brazos Valley Bucks (TX) came back with no games at all; a Texas schedule then names them.
+  it("matches a neighbour's name to a club only where the club's own schedule has a game that day", () => {
+    // Brazos Valley Bucks (TX) came back with no game on the 5th; a Texas schedule names them that
+    // day. The name is where to look, and their own schedule says they did not play: the game
+    // stands against a "Brazos Valley Bucks Lemons" of its own, and the pulled club carries none.
+    const pool = fold([
+      club("gcBRAZOS1100", "Brazos Valley Bucks Lemons 11U", 11, "TX", [
+        played("z1", "Sugar Land Sliders 11U", "2026-09-12", 4, 1),
+      ]),
+      club("gcTXC1100000", "Katy Krush 11U", 11, "TX", [
+        played("k1", "Brazos Valley Bucks Lemons 11U", "2026-09-05", 2, 3),
+        played("k2", "Brazos Valley Bucks Lemons 11U", "2026-09-12", 2, 6),
+      ]),
+    ]);
+    /*
+     * The 12th has a game on the Bucks' own schedule, another of the day's, so the name stands.
+     * The import files it against the stand-in the 5th made, as that has made the name two
+     * entries; the tidy that follows every pull puts it on the Bucks (`refileStandIns`).
+     */
+    const tidied = tidyPool(pool).state;
+    const bucks = named(tidied, "Brazos Valley Bucks Lemons");
+    expect(bucks).toHaveLength(2);
+    const pulled = bucks.find((team) => team.gcTeams?.length)!;
+    const standIn = bucks.find((team) => team.nameOnly)!;
+    const against = (gameId: string) =>
+      tidied.games.find((game) => game.id === `gc_gcTXC1100000_${gameId}`)!.teamBId;
+    expect(against("k1")).toBe(standIn.id);
+    expect(against("k2")).toBe(pulled.id);
+    expect(tidyChangedAnything(tidyPool(tidied))).toBe(false);
+  });
+
+  it("leaves a club with an empty schedule out of the games a neighbour names it in", () => {
+    // Their schedule came back with no games at all, so it has none that day either.
     const pool = fold([
       club("gcBRAZOS1100", "Brazos Valley Bucks Lemons 11U", 11, "TX", []),
       club("gcTXC1100000", "Katy Krush 11U", 11, "TX", [
         played("k1", "Brazos Valley Bucks Lemons 11U", "2026-09-05", 2, 3),
       ]),
     ]);
-    const bucks = named(pool, "Brazos Valley Bucks Lemons");
-    expect(bucks).toHaveLength(1);
-    expect(bucks[0]?.gcTeams?.[0]?.teamId).toBe("gcBRAZOS1100");
+    const pulled = named(pool, "Brazos Valley Bucks Lemons").find((team) => team.gcTeams?.length)!;
     expect(pool.games).toHaveLength(1);
+    expect([pool.games[0]!.teamAId, pool.games[0]!.teamBId]).not.toContain(pulled.id);
   });
 
   it("leaves a sole namesake in another state as a stand-in unless something vouches for it", () => {
@@ -4254,7 +4285,7 @@ describe("who a name belongs to: level, state and the game", () => {
     ]);
     const mayhem = named(pool, "OES Mayhem")[0]!;
     const standIn: ScoutTeam = { id: "S-CUBS-STUB", name: "Cubs", nameOnly: true };
-    const stale: GcImportState = {
+    const staleOn = (date: string): GcImportState => ({
       ...pool,
       teams: [...pool.teams, standIn],
       games: [
@@ -4264,7 +4295,7 @@ describe("who a name belongs to: level, state and the game", () => {
           teamAId: mayhem.id,
           teamBId: standIn.id,
           ageGroupId: pool.games[0]!.ageGroupId,
-          date: "2026-08-15",
+          date,
           teamAScore: 4,
           teamBScore: 6,
           ageLevelA: 8,
@@ -4272,7 +4303,15 @@ describe("who a name belongs to: level, state and the game", () => {
           source: { kind: "gamechanger", teamId: "gcMSA8000000", gameId: "old" },
         },
       ],
-    };
+    });
+    // On a day the Grenada Cubs' own schedule has nothing, the name is not enough.
+    const unplayed = refileStandIns(staleOn("2026-08-15"));
+    expect(unplayed.refiled).toBe(0);
+    expect(unplayed.state.games.find((game) => game.id === "gc_gcMSA8000000_old")?.teamBId).toBe(
+      standIn.id
+    );
+    // On the 5th their schedule has a game, so the name is theirs.
+    const stale = staleOn("2026-09-05");
     const out = refileStandIns(stale);
     expect(out.refiled).toBe(1);
     const ms = named(out.state, "Cubs").find((team) => team.state === "MS")!;
@@ -4307,9 +4346,17 @@ describe("who a name belongs to: level, state and the game", () => {
      * club the game itself identified 1,174 times in 1,240 — nearer the one-in-ten miss this
      * rule already accepts within a state than a refusal is worth.
      */
-    const cubsAt = (states: { state: string; city?: string }[]) => {
-      const clubs = states.map(({ state, city }, at) =>
-        club(`gcCUBS${state}${String(at).padStart(4, "0")}`, "Cubs 8U", 8, state, [], city)
+    const cubsAt = (states: { state: string; city?: string; idle?: boolean }[]) => {
+      // Each Cubs' own schedule has a game on the row's day unless it is `idle` that day.
+      const clubs = states.map(({ state, city, idle }, at) =>
+        club(
+          `gcCUBS${state}${String(at).padStart(4, "0")}`,
+          "Cubs 8U",
+          8,
+          state,
+          idle ? [] : [played(`c${at}`, "Tri-State Titans 8U", "2026-08-15", 5, 5)],
+          city
+        )
       );
       const pool = fold([
         ...clubs,
@@ -4353,6 +4400,15 @@ describe("who a name belongs to: level, state and the game", () => {
       expect(out.refiled).toBe(1);
       expect(on.state).toBe("OH");
       expect(on.nameOnly).toBeUndefined();
+    });
+
+    it("leaves it where that club's own schedule has no game that day", () => {
+      // The Eagles of Independence, Kentucky, were the one 9U Eagles across Illinois's border, and
+      // an Illinois club's 8 August loss to "Eagles" went onto them by the name alone; their own
+      // schedule opened on 3 September.
+      const { out, on } = cubsAt([{ state: "OH", idle: true }, { state: "FL" }]);
+      expect(out.refiled).toBe(0);
+      expect(on.id).toBe("S-CUBS-STUB");
     });
 
     it("leaves it where the only namesake is in a state that does not border", () => {
@@ -4409,7 +4465,8 @@ describe("who a name belongs to: level, state and the game", () => {
           teamAId: pride.id,
           teamBId: standIn.id,
           ageGroupId: pool.games[0]!.ageGroupId,
-          date: "2026-09-05",
+          // A day both Rangers' own schedules have a game, so only the town tells them apart.
+          date: "2026-09-01",
           teamAScore: 2,
           teamBScore: 3,
           ageLevelA: 10,

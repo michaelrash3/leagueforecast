@@ -1411,6 +1411,31 @@ const holdsThisGame = (
 };
 
 /**
+ * Whether a club a name points at could have played this game: a stand-in, which has no schedule
+ * to ask, or a pulled club whose own schedules have a game that day.
+ *
+ * The double check a name needs before it files a game onto a pulled club. GameChanger gives an
+ * opponent as the words somebody typed and nothing else, so a name is where to look rather than
+ * who played; the club it points at either has a game that day on its own schedule or did not
+ * play this one. Asked only of the name's own guesses: the game itself (`clubHoldingThisGame`,
+ * `opponentFromSameFixture`) and the picture already are the club's own word.
+ */
+const couldHavePlayed = (index: ImportIndex, clubId: string, date: string | undefined): boolean => {
+  const club = index.teamsById.get(clubId);
+  if (!club?.gcTeams?.length) return true;
+  if (!date) return false;
+  const own = new Set(club.gcTeams.map((link) => link.teamId));
+  return aroundDay(date).some((day) =>
+    (index.gamesByTeamDate.get(`${clubId}\u0000${day}`) ?? []).some(
+      (game) =>
+        (game.source !== undefined && own.has(game.source.teamId)) ||
+        (game.alsoRows ?? []).some((record) => own.has(record.teamId)) ||
+        (game.alsoFrom ?? []).some((schedule) => own.has(schedule))
+    )
+  );
+};
+
+/**
  * Of the clubs of this name, the one whose schedule holds this game. Exactly one, or the schedules
  * cannot tell them apart either and the question is left to whatever comes after.
  */
@@ -1633,8 +1658,13 @@ const planOpponent = (
      */
     const pulled = sameName.filter((id) => index.teamsById.get(id)?.gcTeams?.length);
     // Not a name that could be nothing but a slot, which a pulled "Tbd" is a coach's placeholder
-    // for rather than a club anybody plays (`namesNobody`).
-    if (pulled.length === 1 && pulled[0] && !namesNobody(game.opponentName)) {
+    // for rather than a club anybody plays (`namesNobody`); and only a club that played that day.
+    if (
+      pulled.length === 1 &&
+      pulled[0] &&
+      !namesNobody(game.opponentName) &&
+      couldHavePlayed(index, pulled[0], game.date)
+    ) {
       return { teamId: pulled[0], basis: "name" };
     }
     return { create: { placeholder: true }, basis: "created" };
@@ -1672,13 +1702,18 @@ const planOpponent = (
     const sameState = candidate?.gcTeams?.length
       ? !own?.state || !candidate.state || own.state === candidate.state
       : stateFits(own?.state, pullerStates(index, only));
-    if (sameState || corroborates(index, ownTeamId, only, game)) {
+    if (
+      (sameState || corroborates(index, ownTeamId, only, game)) &&
+      couldHavePlayed(index, only, game.date)
+    ) {
       return { teamId: only, basis: "name" };
     }
   }
 
-  // Several of that name: the one something beyond the name agrees with.
-  const corroborated = sameName.filter((id) => corroborates(index, ownTeamId, id, game));
+  // Several of that name: the one something beyond the name agrees with, that played that day.
+  const corroborated = sameName.filter(
+    (id) => corroborates(index, ownTeamId, id, game) && couldHavePlayed(index, id, game.date)
+  );
   if (corroborated.length === 1 && corroborated[0]) {
     return { teamId: corroborated[0], basis: "name" };
   }
@@ -3130,6 +3165,17 @@ const isoDayFrom = (date: string, days: number): string | undefined => {
   const at = Date.parse(`${date}T00:00:00Z`);
   return Number.isNaN(at) ? undefined : new Date(at + days * 86_400_000).toISOString().slice(0, 10);
 };
+
+/**
+ * A game's day and the day either side of it: where a club's own schedule has to have a game for a
+ * name to put one on the club. Two clubs' schedules can date one game a day apart — a late start
+ * read across midnight, a date typed a day off — and the collapse joins those copies later
+ * (`dayApartStrength`), so a row named a day off the club's own copy of it is left for that.
+ */
+const aroundDay = (date: string): string[] =>
+  [date, isoDayFrom(date, -1), isoDayFrom(date, 1)].filter(
+    (day): day is string => day !== undefined
+  );
 
 /**
  * Whether the collapse could yet read a club's own row against another club, that no row of the
@@ -5567,6 +5613,15 @@ export const reclaimMisfiled = (
  * club's schedule has not scored yet, whose row the move let join the club's own copy of the game.
  * Met on either club's own schedules alone, where one misfile can vouch for another, five of those
  * records stayed further from their own schedules'.
+ *
+ * And any row filed by name onto a pulled club whose own schedules have no game that day or the day
+ * either side (`unlisted`): the double check the user asked for on 28 September 2026, a name being
+ * where to look rather than who played. An Illinois club's 8 August loss to "Eagles" sat on the
+ * Eagles of Independence, Kentucky, whose own schedule opened on 3 September. On the pool of 26
+ * September 2026 at 18:40 the tidy took 23,282 rows off, and 4,700 single-link records changed: 4,395
+ * toward GameChanger's own record, 3,094 onto it, and 278 away, 106 off it — 191 of those a club
+ * whose GameChanger record counts more games than its own rows in the pool, a game the pull did not
+ * bring back that the name had stood in for.
  */
 export const resettleOffLevel = (
   state: GcImportState
@@ -5662,6 +5717,18 @@ export const resettleOffLevel = (
     const own = ownWordNow();
     if (within(own.levels.get(clubId), typed, 1)) return false;
     return date === undefined || !own.days.get(clubId)?.has(date);
+  };
+
+  /**
+   * A pulled club whose own schedules have no game that day: it did not play that day, so it did
+   * not play this game, whatever the name says. The check a name needs before it files a row onto
+   * a club (`refileStandIns`, `planOpponent`), asked here of the rows a name filed before it was
+   * asked. A row with no day has nothing to be checked against, and stays.
+   */
+  const unlisted = (clubId: string, date: string | undefined): boolean => {
+    if (date === undefined) return false;
+    const days = ownWordNow().days.get(clubId);
+    return !aroundDay(date).some((day) => days?.has(day));
   };
 
   /**
@@ -5786,8 +5853,23 @@ export const resettleOffLevel = (
         : { ...game, teamBId: slot.id };
     }
     const farOff = !levelFits(levels.get(namedId), level);
-    if (!farOff && !twoOff(namedId, typed, game.date) && !unvouched(namedId, moverId)) {
-      return game;
+    const offByRule = farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
+    if (!offByRule && !unlisted(namedId, game.date)) return game;
+
+    /*
+     * A club whose name reads as a slot's ("USSSA Cactus Classic") is the one a row names only by
+     * being the one pulled club that carries it, which the import no longer reads as that club
+     * where it did not play that day (`planOpponent`). The row goes to a slot, as the import files
+     * it, and out of every rating.
+     */
+    if (!offByRule && isPlaceholderName(named.name)) {
+      const slot = buildScoutTeam(named.name, used, { placeholder: true });
+      used.add(slot.id);
+      added.push(slot);
+      resettled += 1;
+      return namedId === game.teamAId
+        ? { ...game, teamAId: slot.id }
+        : { ...game, teamBId: slot.id };
     }
 
     const pool = poolKeyOf(game.ageGroupId);
@@ -5830,7 +5912,7 @@ export const resettleOffLevel = (
 
 /**
  * Files a stand-in's rows onto the one pulled club of that name in the puller's state, or failing
- * any there, across a border.
+ * any there, across a border — where that club's own schedules have a game that day.
  *
  * A stand-in is a name a schedule wrote down before — or instead of — the club being pulled. Once
  * the whole pool is in, most of them have a pulled namesake, and where exactly one of those is in
@@ -5863,18 +5945,6 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
   });
   if (clubs.size === 0) return { state, refiled: 0 };
 
-  /** The levels each name's pulled clubs play at, by pool. */
-  const levelsByName = new Map<string, Set<number>>();
-  state.teams.forEach((team) => {
-    const key = teamNameKey(team.name);
-    team.gcTeams?.forEach((link) => {
-      if (link.ageLevel === undefined) return;
-      const at = `${poolKeyOf(link.ageGroupId)}\u0000${key}`;
-      const bucket = levelsByName.get(at);
-      if (bucket) bucket.add(link.ageLevel);
-      else levelsByName.set(at, new Set([link.ageLevel]));
-    });
-  });
   /** Each pulled club's days with a row of its own schedules, read only once a refile asks. */
   let ownDays: Set<string> | undefined;
   const listsThatDay = (clubId: string, date: string | undefined): boolean => {
@@ -5895,7 +5965,9 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
       });
       ownDays = days;
     }
-    return date !== undefined && ownDays.has(`${clubId}\u0000${date}`);
+    return (
+      date !== undefined && aroundDay(date).some((day) => ownDays!.has(`${clubId}\u0000${day}`))
+    );
   };
 
   let refiled = 0;
@@ -5907,7 +5979,9 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     if (!standIn || !puller?.gcTeams?.length || !puller.state) return game;
     const level = (standIn === a ? game.ageLevelA : game.ageLevelB) ?? levelOf.get(game.ageGroupId);
     const slot = `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}\u0000${level}`;
-    const namesakes = clubs.get(slot) ?? [];
+    // Never the club on the row's other side: a squad naming its own club's other squad ("Texas
+    // Takeover" on Texas Takeover 10U's own schedule) would be filed as playing itself.
+    const namesakes = (clubs.get(slot) ?? []).filter((club) => club.id !== puller.id);
     const inState = namesakes.filter((club) => club.state === puller.state);
     // Two in the state: the one in the puller's own town, if exactly one is.
     const pullerTown = townKey(puller.city);
@@ -5924,20 +5998,16 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     if (chosen.length !== 1) return game;
     const club = chosen[0]!;
     /*
-     * Where the name is a club's at another level within reach too, the name does not say which
-     * squad it was, and a club whose own schedules list nothing that day is not told apart by the
-     * game either. Rows `resettleOffLevel` takes off a club two levels from the age typed are that
-     * shape: filed onto the namesake at the typed age, 38 of the 40 clubs that took one on the pool
-     * of 26 September 2026 moved away from GameChanger's own record, and on the 129 where the
-     * namesake listed nothing that day this leaves them standing against the name.
+     * ...and only a club whose own schedules have a game that day. A name is where to look, not
+     * who played: the club it points at either played that day or did not play this game, and its
+     * own schedule says which (`resettleOffLevel` takes off a row filed on one that did not). This
+     * was asked only where the name was a club's at another level within reach too; everywhere else
+     * the name alone decided, and on the pool of 26 September 2026 an Illinois club's 8 August loss
+     * to "Eagles" sat on the Eagles of Independence, Kentucky, the one Eagles at 9U across the
+     * border, whose own schedule opened on 3 September. Refiled onto a club that has no game that
+     * day, the row would only be taken off again on the next pass.
      */
-    const levelsOfName = levelsByName.get(
-      `${poolKeyOf(game.ageGroupId)}\u0000${teamNameKey(standIn.name)}`
-    );
-    const otherLevelInReach = [...(levelsOfName ?? [])].some(
-      (at) => level !== undefined && at !== level && Math.abs(at - level) <= PLAYS_UP_TO
-    );
-    if (otherLevelInReach && !listsThatDay(club.id, game.date)) return game;
+    if (!listsThatDay(club.id, game.date)) return game;
     refiled += 1;
     return standIn === a ? { ...game, teamAId: club.id } : { ...game, teamBId: club.id };
   });
@@ -6936,8 +7006,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       that club's own backs, taken off it
  *  19 — a copy a row of its own day could be and went into none of left to no row a day off; and
  *       a row that named its opponent by the club's picture never moved off it on a name
+ *  20 — a row filed by name onto a pulled club whose own schedules have no game that day taken
+ *       off it, and a name no longer filing a row onto such a club, at arrival or in the refile
  */
-const TIDY_RULES_VERSION = 19;
+const TIDY_RULES_VERSION = 20;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

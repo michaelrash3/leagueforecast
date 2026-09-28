@@ -137,6 +137,22 @@ const toledo = club(
     city: "Toledo",
   }
 );
+/**
+ * Toledo with games the days before the two fixtures below. A name files a game onto a pulled club
+ * only where its own schedule has one that day or the day either side, so these are what let
+ * Toledo take the Stix's "Hurricanes" by the name, as it did before the real club was pulled.
+ */
+const toledoPlaying = club(
+  TOLEDO,
+  "Hurricanes 9U",
+  "OH",
+  [
+    played("t-0913", "Mud Hens 9U", "2026-09-13", 4, 3),
+    played("t-0919", "Mud Hens 9U", "2026-09-19", 5, 1),
+    played("t-1003", "Mud Hens 9U", "2026-10-03", 2, 2),
+  ],
+  { city: "Toledo" }
+);
 
 describe("the Stix and the Hurricanes, 20 September 2026", () => {
   /*
@@ -146,7 +162,7 @@ describe("the Stix and the Hurricanes, 20 September 2026", () => {
    * clubs that had met had no game between them.
    */
   it("is one game between the two clubs when each end was filed against a stand-in", () => {
-    const folded = fold([toledo, hurricanes(), stix()]);
+    const folded = fold([toledoPlaying, hurricanes(), stix()]);
     expect(standIns(folded).sort()).toEqual(["Hurricanes", "Stix"]);
 
     const pool = tidyPool(folded).state;
@@ -167,7 +183,7 @@ describe("the Stix and the Hurricanes, 20 September 2026", () => {
    * vouch for the row did not name the Stix the way GameChanger lists them.
    */
   it("takes the result off a namesake when the real club's schedule holds it against a stand-in", () => {
-    const folded = fold([toledo, stix(), hurricanes()]);
+    const folded = fold([toledoPlaying, stix(), hurricanes()]);
     expect(onDay(folded, pulled(folded, TOLEDO).id, DAY)).toHaveLength(1);
 
     const pool = tidyPool(folded).state;
@@ -181,23 +197,42 @@ describe("the Stix and the Hurricanes, 20 September 2026", () => {
     expect(standIns(pool)).toEqual([]);
   });
 
+  /*
+   * And with Toledo's own schedule empty around the 20th, the name never put the Stix's row on
+   * Toledo at all: it waited against a stand-in, which the real Hurricanes took on when pulled.
+   */
+  it("never files the row on a namesake whose own schedule has no game near that day", () => {
+    for (const order of [
+      [toledo, stix(), hurricanes()],
+      [toledo, hurricanes(), stix()],
+    ]) {
+      const folded = fold(order);
+      expect(onDay(folded, pulled(folded, TOLEDO).id, DAY)).toEqual([]);
+      const pool = tidyPool(folded).state;
+      const day = onDay(pool, pulled(pool, STIX).id, DAY);
+      expect(day).toHaveLength(1);
+      expect([day[0]!.teamAId, day[0]!.teamBId]).toContain(pulled(pool, HURRICANES).id);
+      expect(standIns(pool)).toEqual([]);
+    }
+  });
+
   it("leaves the namesake's row alone when the real club's schedule gives another result", () => {
     // Two games, or two scorekeepers who disagree: either way not evidence the row is misfiled.
-    const pool = tidyPool(fold([toledo, stix(), hurricanes({ score: [2, 12] })])).state;
+    const pool = tidyPool(fold([toledoPlaying, stix(), hurricanes({ score: [2, 12] })])).state;
     expect(onDay(pool, pulled(pool, TOLEDO).id, DAY)).toHaveLength(1);
     expect(standIns(pool)).toEqual(["Stix"]);
   });
 
   it("leaves the namesake's row alone on two results that contradict at two different times", () => {
     // At another time a contradicting result is as likely a second game as this one scored apart.
-    const pool = tidyPool(fold([toledo, stix(), hurricanes({ score: [3, 13] })])).state;
+    const pool = tidyPool(fold([toledoPlaying, stix(), hurricanes({ score: [3, 13] })])).state;
     expect(onDay(pool, pulled(pool, TOLEDO).id, DAY)).toHaveLength(1);
   });
 
   it("leaves the namesake's row alone on an unscored game at two different times", () => {
     const pool = tidyPool(
       fold([
-        toledo,
+        toledoPlaying,
         club(STIX, "Cincy Stix 9U Navy", "OH", [
           played(
             "s-1004",
