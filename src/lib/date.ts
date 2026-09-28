@@ -46,10 +46,47 @@ export const normalizeDateInput = (value: string) => {
   return "";
 };
 
-export const parseDateValue = (date: string) => {
+/**
+ * The month a League Standings season's year turns in, read off its own "M/D" dates: the first
+ * month after the longest run of months it plays nothing in, so a fall league that plays on into
+ * January starts in its autumn and a summer league running into August starts in its June. A
+ * season inside one calendar year starts at its own first month, which orders it exactly as the
+ * calendar does. Where two runs tie there is nothing to say which ends the year, and the calendar's
+ * order is kept; so it is with no dates, or games in every month.
+ */
+export const seasonStartMonth = (dates: Iterable<string | undefined>): number => {
+  const played = new Set<number>();
+  for (const date of dates) {
+    const normalized = normalizeDateInput(date ?? "");
+    if (normalized) played.add(Number(normalized.split("/")[0]));
+  }
+  if (played.size === 0 || played.size === 12) return 1;
+  const months = [...played].sort((a, b) => a - b);
+  let start = 1;
+  let longest = -1;
+  months.forEach((month, index) => {
+    const next = months[(index + 1) % months.length] ?? month;
+    // Months from this one to the next played, round the year: 12 when only one month is played.
+    const gap = (next - month + 12) % 12 || 12;
+    if (gap > longest || (gap === longest && next < start)) {
+      longest = gap;
+      start = next;
+    }
+  });
+  return start;
+};
+
+/**
+ * A League Standings date as a number to order by. The dates carry no year, so each is read in one
+ * fixed year — except a month before `startMonth` (`seasonStartMonth`), which is read in the year
+ * after it: a season that turns at New Year puts its January after its December rather than first.
+ */
+export const parseDateValue = (date: string, startMonth = 1) => {
   const normalized = normalizeDateInput(date);
   if (!normalized) return Number.POSITIVE_INFINITY;
-  const parsed = Date.parse(`${normalized}/${DEFAULT_SEASON_YEAR}`);
+  const month = Number(normalized.split("/")[0]);
+  const year = month < startMonth ? DEFAULT_SEASON_YEAR + 1 : DEFAULT_SEASON_YEAR;
+  const parsed = Date.parse(`${normalized}/${year}`);
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 };
 

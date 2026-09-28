@@ -50,6 +50,16 @@ separate teams.
 
 See [Team Rankings](#team-rankings) below for how the two connect.
 
+**A season over New Year.** League Standings writes a date as "M/D", with no year,
+and put every season in the order of one calendar year: a fall league that plays on
+into January had its January first, and gave a January game as a team's next one.
+A season is now ordered by its own dates. Its year turns in the month after the
+longest run of months it plays nothing in (`seasonStartMonth`), so November to
+January reads in that order everywhere a season is put in order — the next game,
+the schedule, form and the Gold-odds trend, the timeline, the backtest and the
+simulation's walk through the results — and a summer league running into August
+starts in its June. A season inside one calendar year is ordered exactly as before.
+
 ## Features
 
 | Area                 | Highlights                                                                                                                                              |

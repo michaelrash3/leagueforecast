@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { scenarioSeason, type ScenarioPick } from "../../lib/scenario";
-import { formatGameDate, parseDateValue } from "../../lib/date";
+import { formatGameDate, parseDateValue, seasonStartMonth } from "../../lib/date";
 import { displayName, recordText } from "../../lib/format";
 import { useSimulationOdds } from "../../hooks/useSimulationWorker";
 import type {
@@ -66,10 +66,13 @@ export function PlayoffMachine({
     const names = new Map(teams.map((team) => [team.id, displayName(team.name)]));
     return (id: string) => names.get(id) ?? id;
   }, [teams]);
-  const games = useMemo(
-    () => [...remainingGames].sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date)),
-    [remainingGames]
-  );
+  // In the season's own order, which turns over New Year when its schedule does (`seasonStartMonth`).
+  const games = useMemo(() => {
+    const start = seasonStartMonth(matchups.map((game) => game.date));
+    return [...remainingGames].sort(
+      (a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start)
+    );
+  }, [remainingGames, matchups]);
   // A pick on a game that has since been played is the real result's to settle, not the pick's.
   const livePicks = useMemo(() => {
     const open = new Set(remainingGames.map((game) => game.id));

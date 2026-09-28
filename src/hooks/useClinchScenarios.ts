@@ -19,6 +19,8 @@ export type ClinchScenarioInputs = {
   liveTeams: Team[];
   settings: Settings;
   remainingGames: Matchup[];
+  /** The month the season's year turns in (`seasonStartMonth`), so "next" follows its own order. */
+  seasonStart?: number;
   /** How many qualify. Zero in a league with no postseason, every team in an all-in one. */
   goldCutoff: number;
   /** Only a "cut" league has a line to be inside or outside of; see `App`'s own note. */
@@ -60,6 +62,7 @@ export function useClinchScenarios({
   liveTeams,
   settings,
   remainingGames,
+  seasonStart = 1,
   goldCutoff,
   hasCutLine,
   dashboardById,
@@ -68,13 +71,13 @@ export function useClinchScenarios({
   const nextGameByTeam = useMemo(() => {
     const map = new Map<string, Matchup>();
     [...remainingGames]
-      .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
+      .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart))
       .forEach((game) => {
         if (!map.has(game.away)) map.set(game.away, game);
         if (!map.has(game.home)) map.set(game.home, game);
       });
     return map;
-  }, [remainingGames]);
+  }, [remainingGames, seasonStart]);
 
   const isTeamNextGame = useCallback(
     (teamId: string, game: Matchup) => nextGameByTeam.get(teamId)?.id === game.id,

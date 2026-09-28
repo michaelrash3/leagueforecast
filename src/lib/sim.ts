@@ -1,4 +1,4 @@
-import { parseDateValue } from "./date";
+import { parseDateValue, seasonStartMonth } from "./date";
 import { wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
@@ -405,8 +405,10 @@ export const calculateTeams = (
   let leagueKs = 0;
   let leagueInnings = 0;
 
+  // The season's own order, which turns over New Year when its schedule does.
+  const start = seasonStartMonth(matchups.map((game) => game.date));
   [...matchups]
-    .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
+    .sort((a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start))
     .forEach((game) => {
       const log = logs[game.id];
       if (!log || !isFinal(log)) return;

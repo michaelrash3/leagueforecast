@@ -1,5 +1,5 @@
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
-import { parseDateValue } from "./date";
+import { parseDateValue, seasonStartMonth } from "./date";
 import { attachAdjustedRatings, calculateTeams, predictGame } from "./sim";
 import { buildPredictionEngine } from "./predictionEngine";
 import { isFinal } from "./util";
@@ -47,8 +47,11 @@ export const backtestPredictions = (
   settings: Settings,
   bucketSize = 0.1
 ): BacktestResult => {
+  // The season's own order, which turns over New Year when its schedule does.
+  const start = seasonStartMonth(matchups.map((game) => game.date));
   const ordered = [...matchups].sort(
-    (a, b) => parseDateValue(a.date) - parseDateValue(b.date) || a.id.localeCompare(b.id)
+    (a, b) =>
+      parseDateValue(a.date, start) - parseDateValue(b.date, start) || a.id.localeCompare(b.id)
   );
   const progressiveLogs: Record<string, GameLog> = {};
   const rows: Array<{

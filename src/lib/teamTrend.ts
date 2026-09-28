@@ -5,7 +5,7 @@
  * Recent form is a short window off the end of the schedule, so it moves fast by design; the
  * thresholds are what it takes for a move to be worth pointing out rather than noise.
  */
-import { formatGameDate, parseDateValue } from "./date";
+import { formatGameDate, parseDateValue, seasonStartMonth } from "./date";
 import type { GameLog, Matchup } from "./types";
 import { blankLog, isFinal, parseNumber } from "./util";
 
@@ -38,7 +38,9 @@ export type TeamTrendSummary = {
   headline: string;
 };
 
-export const gameSortValue = (game: Matchup) => parseDateValue(game.date);
+/** Where a game falls in its season, whose year turns in `startMonth` (`seasonStartMonth`). */
+export const gameSortValue = (game: Matchup, startMonth = 1) =>
+  parseDateValue(game.date, startMonth);
 
 export const averageRecent = (values: number[], window: number) => {
   if (!values.length) return null;
@@ -63,11 +65,12 @@ export const buildTeamTrendSummary = (
   logs: Record<string, GameLog>,
   runsOnly: boolean
 ): TeamTrendSummary => {
+  const start = seasonStartMonth(matchups.map((game) => game.date));
   const games = matchups
     .filter((game) => game.away === teamId || game.home === teamId)
     .filter((game) => isFinal(logs[game.id]))
     .sort((a, b) => {
-      const dateDiff = gameSortValue(a) - gameSortValue(b);
+      const dateDiff = gameSortValue(a, start) - gameSortValue(b, start);
       return dateDiff === 0 ? a.id.localeCompare(b.id) : dateDiff;
     })
     .map<TeamTrendGame>((game, index) => {

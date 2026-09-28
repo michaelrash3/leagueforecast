@@ -1,5 +1,6 @@
 import { attachAdjustedRatings, calculateTeams, simulationSeed } from "./sim";
 import { buildPredictionEngine, playedOn, type ExternalResult } from "./predictionEngine";
+import { seasonStartMonth } from "./date";
 import { isFinal } from "./util";
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 
@@ -46,6 +47,11 @@ export const buildTrendStates = (
   }
 ): TrendState[] => {
   const outside = options.externalResults ?? [];
+  // The season's own order where no squad year places it, over the outside results' days too.
+  const start = seasonStartMonth([
+    ...matchups.map((game) => game.date),
+    ...outside.map((result) => result.date),
+  ]);
   const drawn = completedGames.slice(-options.states);
   /*
    * Where the drawn window starts in the whole season. Everything before it happened and counts
@@ -61,7 +67,7 @@ export const buildTrendStates = (
    */
   let through = Number.NEGATIVE_INFINITY;
   completedGames.slice(0, before).forEach((game) => {
-    const at = playedOn(game.date, options.squadYear);
+    const at = playedOn(game.date, options.squadYear, start);
     if (Number.isFinite(at)) through = Math.max(through, at);
   });
 
@@ -74,12 +80,12 @@ export const buildTrendStates = (
       if (allowed.has(game.id) && log) stateLogs[game.id] = log;
     });
     const asOf = calculateTeams(teams, matchups, stateLogs, options.settings);
-    const at = playedOn(completedGames[before + index - 1]?.date, options.squadYear);
+    const at = playedOn(completedGames[before + index - 1]?.date, options.squadYear, start);
     if (Number.isFinite(at)) through = Math.max(through, at);
     const played =
       index === drawn.length
         ? outside
-        : outside.filter((result) => playedOn(result.date, options.squadYear) <= through);
+        : outside.filter((result) => playedOn(result.date, options.squadYear, start) <= through);
     const engine = buildPredictionEngine(
       asOf,
       matchups,

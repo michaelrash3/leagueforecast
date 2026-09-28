@@ -1,6 +1,6 @@
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
-import { normalizeDateInput, parseDateValue } from "./date";
+import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
 import { buildOpponentAdjustedRatings } from "./powerRating";
 
@@ -138,8 +138,13 @@ const tierForData = (
  * before) and an ISO day is read as the day it is, so the two compare as the days they were.
  * Undated is +Infinity, as `parseDateValue` has it.
  */
-export const playedOn = (date: string | undefined, squadYear?: number): number => {
-  if (squadYear === undefined) return parseDateValue(date ?? "");
+export const playedOn = (
+  date: string | undefined,
+  squadYear?: number,
+  /** Where no squad year is known, the month the season's year turns in (`seasonStartMonth`). */
+  startMonth = 1
+): number => {
+  if (squadYear === undefined) return parseDateValue(date ?? "", startMonth);
   const trimmed = (date ?? "").trim();
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
     ? trimmed
@@ -158,10 +163,10 @@ export const playedOn = (date: string | undefined, squadYear?: number): number =
  * where it always sorted, since it cannot be placed and read as the newest it would set the trend.
  */
 const byDayIn =
-  (squadYear: number | undefined) =>
+  (squadYear: number | undefined, startMonth: number) =>
   (a: { date: string }, b: { date: string }): number => {
     const dayOf = (date: string) => {
-      const value = playedOn(date, squadYear);
+      const value = playedOn(date, squadYear, startMonth);
       return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
     };
     return dayOf(a.date) - dayOf(b.date) || 0;
@@ -240,7 +245,15 @@ export const buildPredictionEngine = (
    */
   squadYear?: number
 ): PredictionEngineResult => {
-  const byDay = byDayIn(squadYear);
+  // Read over the outside results' days too: an October tournament before a November-to-January
+  // league is the start of its year, not the newest thing in it.
+  const byDay = byDayIn(
+    squadYear,
+    seasonStartMonth([
+      ...matchups.map((game) => game.date),
+      ...externalResults.map((result) => result.date),
+    ])
+  );
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
   const futureGames = matchups.filter((game) => !isFinal(logs[game.id]));
