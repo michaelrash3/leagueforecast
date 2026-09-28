@@ -5,7 +5,14 @@ import type { GcImportState, GcSeasonPairing, GcTwinSquad } from "../../lib/game
 import { describeTidy, GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gameChangerImport";
 import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
-import { loadKeptApart, saveKeptApart, storedGamesByYear } from "../../lib/teamRankingsStorage";
+import {
+  loadKeptApart,
+  loadRealClubs,
+  saveKeptApart,
+  saveRealClubs,
+  storedGamesByYear,
+} from "../../lib/teamRankingsStorage";
+import { IMPLAUSIBLE_MARGIN, isImplausibleScore, ratedMargin } from "../../lib/teamRankings";
 import { keepApart as apartAfter, isKeptApart } from "../../lib/keptApart";
 import type { PoolLists } from "../../workers/tidyProtocol";
 import { isDatedAhead } from "../../lib/deletedGames";
@@ -39,15 +46,23 @@ type PoolHealthCardProps = {
    * Throws these rows out and remembers them, so the next pull of the same schedule does not file
    * them again. See `deletedGames.ts` for why a deletion has to be remembered rather than done.
    */
-  onDropGames: (ids: readonly string[]) => Promise<boolean>;
+  onDropGames: (ids: readonly string[], why?: GamesDropped) => Promise<boolean>;
   /**
    * Throws a club out: the team, every row it is in, and its GameChanger ids, so a pull refuses
    * its schedule rather than rebuilding it. See `deletedGames.ts`.
    */
   onDropClub: (club: UnrealClub) => Promise<boolean>;
+  /**
+   * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
+   * and leaves the list (`ScoutGame.scoreConfirmed`).
+   */
+  onConfirmScore: (gameId: string) => Promise<boolean>;
   /** Opens a club's own panel, for a list that names clubs to look at. */
   onOpenTeam?: (teamId: string) => void;
 };
+
+/** Why a list's rows are being thrown out, which is what the question before it says. */
+export type GamesDropped = "ahead" | "implausible";
 
 const count = (value: number) => value.toLocaleString();
 
@@ -87,6 +102,7 @@ export function PoolHealthCard({
   onMergeTeams,
   onDropGames,
   onDropClub,
+  onConfirmScore,
   onOpenTeam,
 }: PoolHealthCardProps) {
   /*
@@ -158,7 +174,38 @@ export function PoolHealthCard({
    * its record that is impossible is what says whether it is a club at all — "Test team" with 68
    * of 68 is not one; a side with 3 of 40 has some wrong dates on it.
    */
-  const unreal = useMemo(() => unrealClubs(pool, todayIsoDay()), [pool]);
+  const suspected = useMemo(() => unrealClubs(pool, todayIsoDay()), [pool]);
+  /**
+   * The clubs the user has said are real, by GameChanger id, which stay off the list below: an
+   * answer given once, as a club thrown out stays thrown out.
+   */
+  const [realClubs, setRealClubs] = useState(() => loadRealClubs());
+  const unreal = useMemo(
+    () =>
+      suspected.filter(
+        (club) =>
+          !(club.gcTeamIds.length > 0 ? club.gcTeamIds : [club.teamId]).some((id) =>
+            realClubs.has(id)
+          )
+      ),
+    [suspected, realClubs]
+  );
+
+  /**
+   * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
+   * each is here to be deleted or vouched for (`isImplausibleScore`).
+   */
+  const implausible = useMemo(
+    () =>
+      pool.games
+        .filter(isImplausibleScore)
+        .map((game) => ({ game, margin: Math.abs(ratedMargin(game) ?? 0) }))
+        .sort(
+          (a, b) => b.margin - a.margin || (a.game.date ?? "").localeCompare(b.game.date ?? "")
+        ),
+    [pool.games]
+  );
+  const [allImplausible, setAllImplausible] = useState(false);
 
   /**
    * The rows themselves, the worst club's first: each row sits where the club that filed it sits
@@ -249,10 +296,45 @@ export function PoolHealthCard({
     if (datedAhead.length === 0) return;
     setDropping("games");
     try {
-      await onDropGames(datedAhead.map((game) => game.id));
+      await onDropGames(
+        datedAhead.map((game) => game.id),
+        "ahead"
+      );
     } finally {
       setDropping(null);
     }
+  };
+
+  /** Throws out the games won by more than thirty runs, these ones or all of them. */
+  const dropImplausible = async (ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    setDropping(ids.length === 1 ? ids[0]! : "implausible");
+    try {
+      await onDropGames(ids, "implausible");
+    } finally {
+      setDropping(null);
+    }
+  };
+
+  /** Counts a game won by more than thirty runs after all, because the user says it was real. */
+  const confirmScore = async (gameId: string) => {
+    setDropping(gameId);
+    try {
+      await onConfirmScore(gameId);
+    } finally {
+      setDropping(null);
+    }
+  };
+
+  /**
+   * Takes a club off the list for good because the user says it is real: remembered by its
+   * GameChanger ids, as a club thrown out is, so the next pull does not put it back.
+   */
+  const confirmClub = (club: UnrealClub) => {
+    const next = new Set(realClubs);
+    (club.gcTeamIds.length > 0 ? club.gcTeamIds : [club.teamId]).forEach((id) => next.add(id));
+    saveRealClubs(next);
+    setRealClubs(next);
   };
 
   /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
@@ -538,8 +620,9 @@ export function PoolHealthCard({
             <strong>{count(datedAhead.length)}</strong>{" "}
             {datedAhead.length === 1 ? "game carries" : "games carry"} a score on a date still to
             come. A game cannot be scored early — a schedule opened ahead of time comes back without
-            one — so each of these is a wrong date or an invention, and every one of them is
-            counting in a record and a rating right now.
+            one — so each of these is a wrong date or an invention. None of them counts toward a
+            record or a rating, but each stays in the pool, and comes back on the next pull, until
+            it is deleted.
           </p>
           <ul className="mt-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             {aheadWorstFirst.slice(0, 6).map(({ game, filer, gcId }) => (
@@ -587,7 +670,8 @@ export function PoolHealthCard({
                 Deleting the rows while the club that files them is still in the pull list only
                 lasts until the next run. A club that is all impossible games is not a club:
                 deleting one takes its whole schedule with it and refuses its GameChanger id from
-                then on.
+                then on. A club you know is real can be taken off this list instead, for good; its
+                games dated ahead still count for nothing.
               </p>
               <ul className="mt-2 space-y-1">
                 {(allClubs ? unreal : unreal.slice(0, 12)).map((club) => (
@@ -619,6 +703,14 @@ export function PoolHealthCard({
                       className={`${button.ghost} text-xs`}
                     >
                       {dropping === club.teamId ? "Deleting…" : "Delete club"}
+                    </button>{" "}
+                    <button
+                      type="button"
+                      onClick={() => confirmClub(club)}
+                      disabled={dropping !== null}
+                      className={`${button.ghost} text-xs`}
+                    >
+                      It&rsquo;s real
                     </button>
                   </li>
                 ))}
@@ -644,6 +736,91 @@ export function PoolHealthCard({
             schedule does not file it again. A date corrected on GameChanger does not bring it back
             either — if one of these turns out to be a real game, add it by hand.
           </p>
+        </div>
+      )}
+
+      {implausible.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Won by more than {IMPLAUSIBLE_MARGIN} runs
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(implausible.length)}</strong>{" "}
+            {implausible.length === 1 ? "game has" : "games have"} one side winning by more than{" "}
+            {IMPLAUSIBLE_MARGIN} runs — {count(Math.round(implausible[0]!.margin))} at the most. A
+            margin like that is almost always a typo or a game that never happened, so none of these
+            counts toward a rating or a record. Delete the ones that are not real; if one really was
+            played that way, say so and it counts.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {(allImplausible ? implausible : implausible.slice(0, 12)).map(({ game }) => {
+              const filer = filedBy(game, clubsByGcId(pool.teams))[0] ?? game.teamAId;
+              const gcId = pool.teams.find((team) => team.id === filer)?.gcTeams?.[0]?.teamId;
+              return (
+                <li key={game.id} className="text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {game.date ?? "No date"}
+                  </span>
+                  {" — "}
+                  {teamName(game.teamAId)} {game.teamAScore}–{game.teamBScore}{" "}
+                  {teamName(game.teamBId)}
+                  {gcId && (
+                    <>
+                      {" · "}
+                      <a
+                        href={gcTeamPageUrl(gcId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline hover:text-slate-950 dark:hover:text-white"
+                      >
+                        {teamName(filer)}&rsquo;s schedule
+                      </a>
+                    </>
+                  )}{" "}
+                  <button
+                    type="button"
+                    onClick={() => void dropImplausible([game.id])}
+                    disabled={dropping !== null || pullLive}
+                    className={`${button.ghost} text-xs`}
+                  >
+                    {dropping === game.id ? "Working…" : "Delete"}
+                  </button>{" "}
+                  <button
+                    type="button"
+                    onClick={() => void confirmScore(game.id)}
+                    disabled={dropping !== null || pullLive}
+                    className={`${button.ghost} text-xs`}
+                  >
+                    It&rsquo;s real
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {implausible.length > 12 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {allImplausible
+                ? `All ${count(implausible.length)}, the widest first. `
+                : `Drawing 12 of ${count(implausible.length)}, the widest first. `}
+              <button
+                type="button"
+                onClick={() => setAllImplausible((shown) => !shown)}
+                className="underline hover:text-slate-950 dark:hover:text-white"
+              >
+                {allImplausible ? "Show the widest 12" : `Show all ${count(implausible.length)}`}
+              </button>
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => void dropImplausible(implausible.map(({ game }) => game.id))}
+            disabled={dropping !== null || pullLive}
+            className={`${button.ghost} mt-3 text-sm`}
+          >
+            {dropping === "implausible"
+              ? "Deleting…"
+              : `Delete all ${plural(implausible.length, "game")}`}
+          </button>
         </div>
       )}
 

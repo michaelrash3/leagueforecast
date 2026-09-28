@@ -37,9 +37,32 @@ export const LEAGUE_GAME_PREFIX = "league_";
 export const playsItself = (game: ScoutGame): boolean => game.teamAId === game.teamBId;
 
 /**
+ * The most runs a side can win a game by and have it believed. Past this the score is suspected of
+ * being made up (`isImplausibleScore`): the pool of 26 September held 144 such games among 149,809
+ * scored, 19 of them won by more than 100 runs and one by 9,999. Only the rating cap held them to
+ * an 8-run win each; uncapped, one of them put a club with no other result at the top of the 9U
+ * board. Thirty is the user's line, and it sits past nearly every real game: one in eighty is won
+ * by more than 20.
+ */
+export const IMPLAUSIBLE_MARGIN = 30;
+
+/**
+ * A score suspected of being made up: won by more than `IMPLAUSIBLE_MARGIN` runs, read as the
+ * rating reads a margin (`ratedMargin`), and not the very margin the user vouched for
+ * (`scoreConfirmed`). A vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. It
+ * counts toward nothing (`countsTowardRating`) and Pool Health lists it, to be deleted or vouched
+ * for.
+ */
+export const isImplausibleScore = (game: ScoutGame): boolean => {
+  const margin = ratedMargin(game);
+  if (margin === undefined || Math.abs(margin) <= IMPLAUSIBLE_MARGIN) return false;
+  return game.scoreConfirmed !== margin;
+};
+
+/**
  * Whether a game feeds the ratings and records: it has to have been played, not be one of the
- * cross-age tournament games kept only for the record, and not be dated in a day that has not
- * happened yet. Every ranking calculation goes through this, so there is one answer to the
+ * cross-age tournament games kept only for the record, not be dated in a day that has not
+ * happened yet, and not carry a score suspected of being made up (`isImplausibleScore`). Every ranking calculation goes through this, so there is one answer to the
  * question rather than four filters that can drift apart.
  *
  * The date is here because "played" used to mean nothing more than "both scores are numbers", and
@@ -59,7 +82,8 @@ export const countsTowardRating = (game: ScoutGame, today: string = todayIsoDay(
   isScoutGamePlayed(game) &&
   game.excluded !== true &&
   !playsItself(game) &&
-  !isDatedAhead(game, today);
+  !isDatedAhead(game, today) &&
+  !isImplausibleScore(game);
 
 export const scoreOf = (game: ScoutGame, teamId: string): number | undefined =>
   game.teamAId === teamId ? game.teamAScore : game.teamBScore;

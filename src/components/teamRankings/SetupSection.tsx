@@ -8,7 +8,7 @@ import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import type { ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { ModelCheckCard } from "./ModelCheckCard";
-import { PoolHealthCard } from "./PoolHealthCard";
+import { PoolHealthCard, type GamesDropped } from "./PoolHealthCard";
 import { AgelessReviewCard } from "./AgelessReviewCard";
 import type { AgelessAnswered } from "../../lib/agelessTriage";
 import type { AgeUnknownList } from "../../lib/ageUnknown";
@@ -59,7 +59,8 @@ type SetupSectionProps = {
     onTidied: (outcome: TidyOutcome) => void;
     onMergeTeams: (fromTeamId: string, intoTeamId: string) => Promise<boolean>;
     /** Throws these rows out and remembers them, so a re-pull does not file them again. */
-    onDropGames: (ids: readonly string[]) => Promise<boolean>;
+    onDropGames: (ids: readonly string[], why?: GamesDropped) => Promise<boolean>;
+    onConfirmScore: (gameId: string) => Promise<boolean>;
     /** Throws a club out: the team, its rows, and its GameChanger ids. */
     onDropClub: (club: UnrealClub) => Promise<boolean>;
     /** Opens a club's own panel from a list the card shows. */
@@ -217,6 +218,7 @@ export function SetupSection({
         onMergeTeams={poolHealth.onMergeTeams}
         onDropGames={poolHealth.onDropGames}
         onDropClub={poolHealth.onDropClub}
+        onConfirmScore={poolHealth.onConfirmScore}
         onOpenTeam={poolHealth.onOpenTeam}
       />
 

@@ -1841,6 +1841,24 @@ follow the same order, the worst club's first, and every club and every row link
 filing club's GameChanger page, so investigating one is a click rather than a search. Past the
 first twelve clubs, "Show all" lists the rest.
 
+A club on that list that you know is real can be taken off it: **It's real** remembers its
+GameChanger ids beside the clubs thrown out (`loadRealClubs`), backed up with them, so the next
+pull does not put it back. Its games dated ahead still count for nothing; only the question is
+answered.
+
+**A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
+9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
+than 30, 19 of them by more than 100. The rating cap held each to an 8-run win; uncapped, one
+of them put a club with no other result at the top of the 9U board. Now such a game counts
+toward no rating or record (`isImplausibleScore`, read as the rating reads a margin, both
+clubs' reports together), and Pool health lists it, widest first, to be deleted — remembered,
+as a row dated ahead is — or vouched for with **It's real**, which keeps the margin vouched for
+(`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
+vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. Thirty is the user's line;
+one game in eighty is won by more than 20. On that pool 253 clubs' records change, and the 9U
+board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
+all.
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at
