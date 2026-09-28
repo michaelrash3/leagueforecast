@@ -3078,10 +3078,13 @@ it either way.
    ```sh
    PROJECT=your-project-id
    gcloud config set project "$PROJECT"
+   # Cloud Billing too: every functions deploy runs Firebase's extensions step, which
+   # reads the project's plan through it, and the deploy account cannot turn it on.
    gcloud services enable iam.googleapis.com cloudresourcemanager.googleapis.com \
      compute.googleapis.com cloudfunctions.googleapis.com cloudbuild.googleapis.com \
      artifactregistry.googleapis.com run.googleapis.com eventarc.googleapis.com \
-     pubsub.googleapis.com cloudscheduler.googleapis.com storage.googleapis.com
+     pubsub.googleapis.com cloudscheduler.googleapis.com storage.googleapis.com \
+     cloudbilling.googleapis.com
    SA="github-deploy@$PROJECT.iam.gserviceaccount.com"
    gcloud iam service-accounts create github-deploy --display-name "GitHub deploy"
    for ROLE in roles/firebase.admin roles/cloudfunctions.admin roles/run.admin \
@@ -3149,6 +3152,17 @@ for ROLE in roles/pubsub.editor roles/eventarc.admin; do
     --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
     --role "$ROLE" --condition=None > /dev/null
 done
+# What a project's first event-triggered function needs, which the deploy grants
+# itself only if it may change the project's roles, and the deploy account may not.
+NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member "serviceAccount:service-$NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/iam.serviceAccountTokenCreator --condition=None > /dev/null
+for ROLE in roles/run.invoker roles/eventarc.eventReceiver; do
+  gcloud projects add-iam-policy-binding "$PROJECT" \
+    --member "serviceAccount:$NUMBER-compute@developer.gserviceaccount.com" \
+    --role "$ROLE" --condition=None > /dev/null
+done
 # The topic, which budgets may publish to.
 gcloud pubsub topics create billing-cap
 gcloud pubsub topics add-iam-policy-binding billing-cap \
@@ -3157,7 +3171,6 @@ gcloud pubsub topics add-iam-policy-binding billing-cap \
 # The budget: a dollar a month on this project, emailing at half and at all of it,
 # and publishing every reading to the topic. A budget names its project by number.
 BILLING=$(gcloud billing projects describe "$PROJECT" --format='value(billingAccountName)')
-NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
 gcloud billing budgets create --billing-account "${BILLING#billingAccounts/}" \
   --display-name "Hard stop" --budget-amount 1.00USD \
   --filter-projects "projects/$NUMBER" \
