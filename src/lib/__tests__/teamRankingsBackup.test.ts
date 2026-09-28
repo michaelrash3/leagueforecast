@@ -223,6 +223,14 @@ describe("teamRankingsCsvSections", () => {
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
   });
 
+  it("round-trips a win by more than thirty runs the user said is real", () => {
+    const vouched: TeamRankingsBackup = {
+      ...backup,
+      games: [{ ...games[0]!, teamAScore: 31, teamBScore: 0, scoreConfirmed: true }],
+    };
+    expect(parseTeamRankingsCsv(teamRankingsCsvSections(vouched))).toEqual(vouched);
+  });
+
   // A score typed by hand is any number the score cell takes, and it is written into side B's row.
   it("round-trips a folded row and the other club's score that are not whole numbers", () => {
     const typed: TeamRankingsBackup = {
@@ -321,14 +329,14 @@ describe("teamRankingsCsvSections", () => {
         "Game ID,Age Group ID,Age Group,Date,Team A ID,Team A,Team A Score,Team B ID,Team B",
         "Team B Score,Event,Note,Excluded,Season,Team A Age,Team B Age,Source Team ID,Source Game ID",
         "Also From,Start,Also Rows,Team B Reported,Score From Team B,Score From Second Listing",
-        "Withdrawn,Named By Picture",
+        "Withdrawn,Named By Picture,Score Confirmed Real",
       ].join(",")
     );
     // The trailing empty cells are a game nothing was ever folded into, which is nearly all of them,
     // a game with no start, and one only its own club's schedule scored, and scored on its own row,
-    // whose opponent was not named by its picture.
-    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,$/);
-    expect(lines[2]).toMatch(/,,,,,,,,,,,,,$/);
+    // whose opponent was not named by its picture, and whose score nobody had to vouch for.
+    expect(lines[1]).toMatch(/,Spring 2028,10,11,gsUthn4XoIxS,59cdce43,,,,,,,,,$/);
+    expect(lines[2]).toMatch(/,,,,,,,,,,,,,,$/);
   });
 });
 
@@ -810,6 +818,11 @@ describe("the JSON backup", () => {
     };
     const back = parseTeamRankingsJson(teamRankingsJson(withAnswers, SAVED_AT));
     expect(back!.answers).toEqual(withAnswers.answers);
+    // And the clubs said to be real, where the file carries them.
+    const vouched = { ...withAnswers, answers: { ...withAnswers.answers, realClubs: ["gcR"] } };
+    expect(parseTeamRankingsJson(teamRankingsJson(vouched, SAVED_AT))!.answers).toEqual(
+      vouched.answers
+    );
   });
 
   // Written a row at a time like the archives, so the pieces still have to join into one file.

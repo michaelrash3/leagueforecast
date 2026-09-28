@@ -10,6 +10,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadRealClubs,
   loadTooYoungClubs,
   resetTeamRankingsStore,
   saveAgeUnknown,
@@ -17,6 +18,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveRealClubs,
   saveTooYoungClubs,
 } from "../teamRankingsStorage";
 import { nameAge } from "../namedAges";
@@ -32,6 +34,7 @@ const anEveningOfAnswers = () => {
   saveDeletedGames(new Set(["gc_a_1"]));
   saveKeptApart(keepApart(new Set<string>(), "A", "B"));
   saveAgeUnknown([{ teamId: "still", firstSeen: NOW, lastTried: NOW, tries: 2 }]);
+  saveRealClubs(new Set(["vouched"]));
 };
 
 /** A store of its own, so this file's answers are not somebody else's. */
@@ -78,6 +81,22 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadDeletedGames()]).toEqual(["gc_a_1"]);
     expect([...loadKeptApart()]).toEqual([apartKey("A", "B")]);
     expect(loadAgeUnknown().map((one) => one.teamId)).toEqual(["still"]);
+    expect([...loadRealClubs()]).toEqual(["vouched"]);
+  });
+
+  /*
+   * A file written before the clubs said to be real were kept carries the rest of the block without
+   * them. That silence leaves what is stored alone, as a file with no block at all does.
+   */
+  it("leaves the clubs said to be real alone when the file predates them", () => {
+    anEveningOfAnswers();
+    const backup = readTeamRankingsBackup();
+    const { realClubs: _real, ...older } = backup.answers!;
+
+    writeTeamRankingsBackup({ ...backup, answers: older });
+    expect([...loadRealClubs()]).toEqual(["vouched"]);
+    writeTeamRankingsBackup({ ...backup, answers: { ...older, realClubs: [] } });
+    expect([...loadRealClubs()]).toEqual([]);
   });
 
   /*

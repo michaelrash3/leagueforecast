@@ -110,6 +110,8 @@ const SCORE_FROM_B = 2;
 const SCORE_FROM_TWIN = 4;
 /** `ScoutGame.withdrawn`: side A's schedule no longer lists the row the game stands on. */
 const WITHDRAWN = 8;
+/** `ScoutGame.scoreConfirmed`: the user has said a win by more than thirty runs is real. */
+const SCORE_CONFIRMED = 16;
 
 /**
  * A game as stored. Fixed positions, trailing nothings trimmed off the end — most games are a
@@ -180,7 +182,8 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       (game.excluded ? EXCLUDED : 0) |
         (game.scoreFromB ? SCORE_FROM_B : 0) |
         (game.scoreFromTwin ? SCORE_FROM_TWIN : 0) |
-        (game.withdrawn ? WITHDRAWN : 0),
+        (game.withdrawn ? WITHDRAWN : 0) |
+        (game.scoreConfirmed ? SCORE_CONFIRMED : 0),
       game.ageLevelA ?? null,
       game.ageLevelB ?? null,
       seasons.index(game.season),
@@ -278,6 +281,7 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
   if (flags & SCORE_FROM_B) game.scoreFromB = true;
   if (flags & SCORE_FROM_TWIN) game.scoreFromTwin = true;
   if (flags & WITHDRAWN) game.withdrawn = true;
+  if (flags & SCORE_CONFIRMED) game.scoreConfirmed = true;
 
   const levelA = num(row[7]);
   const levelB = num(row[8]);
@@ -746,6 +750,7 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(entry.scoreFromB === true ? { scoreFromB: true } : {}),
         ...(entry.scoreFromTwin === true ? { scoreFromTwin: true } : {}),
         ...(entry.withdrawn === true ? { withdrawn: true } : {}),
+        ...(entry.scoreConfirmed === true ? { scoreConfirmed: true as const } : {}),
         ...(isString(entry.namedByAvatar) ? { namedByAvatar: entry.namedByAvatar } : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),

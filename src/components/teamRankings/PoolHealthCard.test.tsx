@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,6 +9,7 @@ import {
   team,
 } from "../../test/teamRankingsHarness";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
+import { loadDeletedGames, loadRealClubs, loadScoutGames } from "../../lib/teamRankingsStorage";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Setup" }));
@@ -311,6 +312,23 @@ describe("the impossible games, worst club first", () => {
     expect(screen.getAllByRole("link", { name: "Wrong Dates’s schedule" })).toHaveLength(1);
   });
 
+  it("takes a club said to be real off the list, for good", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    const listed = () => {
+      const clubs = screen.getByRole("heading", { name: /The clubs they belong to/ })
+        .nextElementSibling?.nextElementSibling as HTMLElement;
+      return [...clubs.querySelectorAll("li > span.font-bold")].map((one) => one.textContent);
+    };
+    const row = screen.getByText("Invented Nine").closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "It’s real" }));
+    expect(listed()).toEqual(["Wrong Dates"]);
+    // Remembered by its GameChanger id, as a club thrown out is, so a pull does not put it back.
+    expect([...loadRealClubs()]).toEqual(["gcINVENT0001"]);
+  });
+
   it("shows every club when asked, past the first twelve", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool(12));
@@ -320,5 +338,91 @@ describe("the impossible games, worst club first", () => {
     expect(screen.queryByText("Extra 9")).toBeNull();
     await user.click(screen.getByRole("button", { name: /Show all 14/ }));
     expect(screen.getByText("Extra 9")).toBeInTheDocument();
+  });
+});
+
+describe("games won by more than thirty runs", () => {
+  const filedAs = (id: string) => ({
+    source: { kind: "gamechanger" as const, teamId: "gcBIG0000001", gameId: id },
+  });
+  const pool = () => ({
+    ageGroups: [ageGroup(10, 2027)],
+    teams: [
+      team("S-BIG", "Big Scores", {
+        state: "OH",
+        gcTeams: [{ teamId: "gcBIG0000001", name: "Big Scores", ageGroupId: "ag_10u_2027" }],
+      }),
+      team("S-VIC", "Victims", { state: "OH" }),
+      team("S-OTH", "Others", { state: "OH" }),
+    ],
+    games: [
+      game("typo", "ag_10u_2027", "S-BIG", "S-VIC", 9999, 0, {
+        date: seasonDate(2027),
+        ...filedAs("typo"),
+      }),
+      game("rout", "ag_10u_2027", "S-BIG", "S-OTH", 31, 0, {
+        date: seasonDate(2027),
+        ...filedAs("rout"),
+      }),
+      // Thirty exactly is a result, however lopsided.
+      game("line", "ag_10u_2027", "S-OTH", "S-VIC", 30, 0, { date: seasonDate(2027) }),
+      game("close", "ag_10u_2027", "S-VIC", "S-OTH", 5, 4, { date: seasonDate(2027) }),
+    ],
+  });
+
+  const section = () =>
+    screen.getByRole("heading", { name: "Won by more than 30 runs" }).parentElement as HTMLElement;
+  const rows = () => within(section()).getAllByRole("listitem");
+
+  /** A club's record off the board, which reads only what counts. */
+  const recordOf = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(screen.getByRole("tab", { name: "Rankings" }));
+    const more = screen.queryByRole("button", { name: /show all \d+ teams/i });
+    if (more) await user.click(more);
+    const row = within(screen.getByRole("table")).getByRole("button", { name }).closest("tr");
+    const cells = within(row as HTMLElement)
+      .getAllByRole("cell")
+      .map((cell) => cell.textContent?.trim());
+    await openSetup(user);
+    return cells[2];
+  };
+
+  it("lists them widest first, leaves thirty alone, and counts none of them", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toHaveTextContent("Big Scores 9999–0 Victims");
+    expect(rows()[1]).toHaveTextContent("Big Scores 31–0 Others");
+    expect(section()).toHaveTextContent("9,999 at the most");
+    // The Victims' 9,999-run loss is not a result: they are 1-1, the 30-0 loss and the 5-4 win.
+    expect(await recordOf(user, "Victims")).toBe("1-1");
+  });
+
+  it("counts one said to be real, and takes it off the list", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    await user.click(within(rows()[1]!).getByRole("button", { name: "It’s real" }));
+    expect(rows()).toHaveLength(1);
+    expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(true);
+    // The 31-0 counts now, and the 9,999-0 still does not.
+    expect(await recordOf(user, "Big Scores")).toBe("1-0");
+  });
+
+  it("deletes one, and remembers it so the next pull does not file it again", async () => {
+    const user = userEvent.setup();
+    const { requestConfirmation } = renderTeamRankings(pool());
+    await openSetup(user);
+
+    await user.click(within(rows()[0]!).getByRole("button", { name: "Delete" }));
+    expect(requestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringMatching(/more than 30 runs/) })
+    );
+    expect(rows()).toHaveLength(1);
+    expect(loadScoutGames().some((one) => one.id === "typo")).toBe(false);
+    expect([...loadDeletedGames()].some((id) => id.endsWith("typo"))).toBe(true);
   });
 });

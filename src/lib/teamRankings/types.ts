@@ -253,6 +253,12 @@ export type ScoutGame = {
    */
   withdrawn?: boolean;
   /**
+   * The user has said this score is real, though one side won by more than `IMPLAUSIBLE_MARGIN`
+   * runs: without it such a game is suspected of being made up and counts for nothing
+   * (`isImplausibleScore`), and Pool Health lists it to be deleted or vouched for.
+   */
+  scoreConfirmed?: true;
+  /**
    * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
    * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
    * the row that way, and by a later pull of a row already here whose picture names the club it is

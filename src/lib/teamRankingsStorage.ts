@@ -168,6 +168,12 @@ const GC_DELETED_KEY = "league_forecast_gc_deleted_v1";
  */
 const GC_DROPPED_CLUBS_KEY = "league_forecast_gc_dropped_clubs_v1";
 /**
+ * The clubs the user has said are real, by GameChanger team id, which Pool Health then stops
+ * listing as suspect. The other side of the dropped clubs and kept the same way, for the same
+ * reason: the answer is about a club GameChanger will hand back unchanged on the next pull.
+ */
+const GC_REAL_CLUBS_KEY = "league_forecast_gc_real_clubs_v1";
+/**
  * The ids GameChanger says are below the youngest level ranked here.
  *
  * Kept apart from the dropped clubs because it is a different kind of thing: that list is a record
@@ -409,6 +415,7 @@ const POOL_KEYS = [
   GC_APART_KEY,
   GC_DELETED_KEY,
   GC_DROPPED_CLUBS_KEY,
+  GC_REAL_CLUBS_KEY,
   GC_TOO_YOUNG_KEY,
   GC_NAMED_AGES_KEY,
   GC_ORG_MEMBERSHIP_KEY,
@@ -1354,6 +1361,12 @@ export const loadDroppedClubs = (): Set<string> =>
 
 export const saveDroppedClubs = (clubs: DeletedClubs): boolean =>
   writeValue(GC_DROPPED_CLUBS_KEY, deletedClubsList(clubs));
+
+/** The clubs the user has said are real, by GameChanger team id: no longer listed as suspect. */
+export const loadRealClubs = (): Set<string> => coerceDeletedClubs(readValue(GC_REAL_CLUBS_KEY));
+
+export const saveRealClubs = (clubs: ReadonlySet<string>): boolean =>
+  writeValue(GC_REAL_CLUBS_KEY, deletedClubsList(clubs));
 
 export const loadTooYoungClubs = (): Set<string> =>
   coerceTooYoungClubs(readValue(GC_TOO_YOUNG_KEY));

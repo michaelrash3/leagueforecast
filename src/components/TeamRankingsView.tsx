@@ -15,6 +15,7 @@ import {
   findDuplicateGame,
   isRankedAgeLevel,
   isScoutGamePlayed,
+  IMPLAUSIBLE_MARGIN,
   mergeScoutTeams,
   MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
@@ -111,6 +112,7 @@ import type { AgelessAnswered } from "../lib/agelessTriage";
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
 import { withoutClub, type UnrealClub } from "../lib/unrealClubs";
+import type { GamesDropped } from "./teamRankings/PoolHealthCard";
 import {
   estimateBackupBytes,
   formatBytes,
@@ -1191,12 +1193,19 @@ export function TeamRankingsView({
    * it costs is that a refused pool write leaves the rows tombstoned but present — the next tidy
    * or pull settles that, and it is the safer way round.
    */
-  const dropGames = async (ids: readonly string[]): Promise<boolean> => {
+  const dropGames = async (
+    ids: readonly string[],
+    why: GamesDropped = "ahead"
+  ): Promise<boolean> => {
     if (ids.length === 0) return false;
+    const games = `${ids.length} game${ids.length === 1 ? "" : "s"}`;
     const confirmed = await requestConfirmation({
-      title: `Delete ${ids.length} game${ids.length === 1 ? "" : "s"}?`,
-      message:
-        "Each one carries a score on a date still to come, so it cannot be a result. The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.",
+      title: `Delete ${games}?`,
+      message: `${
+        why === "ahead"
+          ? "Each one carries a score on a date still to come, so it cannot be a result."
+          : `Each one has a side winning by more than ${IMPLAUSIBLE_MARGIN} runs, which no real game ends with.`
+      } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
@@ -1204,9 +1213,31 @@ export function TeamRankingsView({
     saveDeletedGames(forgetGames(loadDeletedGames(), scoringRowsOf(wholePoolGames, ids)));
     const kept = wholePoolGames.filter((game) => !drop.has(game.id));
     if (kept.length !== wholePoolGames.length) persistAllGames(kept);
-    showToast(`Deleted ${ids.length} game${ids.length === 1 ? "" : "s"} dated ahead.`, {
-      tone: "success",
-    });
+    showToast(
+      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by more than ${IMPLAUSIBLE_MARGIN}`}.`,
+      { tone: "success" }
+    );
+    return true;
+  };
+
+  /**
+   * Counts a game won by more than `IMPLAUSIBLE_MARGIN` runs, because the user says it really was
+   * played that way (`ScoutGame.scoreConfirmed`). Nothing to ask first: it is undone by deleting
+   * the game, and it asks only that the rating believe a score the user has looked at.
+   */
+  const confirmScore = async (gameId: string): Promise<boolean> => {
+    const game = wholePoolGames.find((entry) => entry.id === gameId);
+    if (!game) return false;
+    persistAllGames(
+      wholePoolGames.map((entry) =>
+        entry.id === gameId ? { ...entry, scoreConfirmed: true as const } : entry
+      )
+    );
+    const nameOf = (id: string) => allKnown.teams.find((team) => team.id === id)?.name ?? id;
+    showToast(
+      `${nameOf(game.teamAId)} ${game.teamAScore}–${game.teamBScore} ${nameOf(game.teamBId)} counts now.`,
+      { tone: "success" }
+    );
     return true;
   };
 
@@ -2249,6 +2280,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onMergeTeams: mergeInto,
                 onDropGames: dropGames,
                 onDropClub: dropClub,
+                onConfirmScore: confirmScore,
                 onOpenTeam: openListedTeam,
               }}
               /*

@@ -18,6 +18,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadRealClubs,
   loadScoutGames,
   loadScoutTeams,
   loadTooYoungClubs,
@@ -28,6 +29,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveRealClubs,
   saveScoutTeams,
   saveTooYoungClubs,
 } from "./teamRankingsStorage";
@@ -94,6 +96,11 @@ export type BackupAnswers = {
   deletedGames: string[];
   keptApart: string[];
   ageUnknown: AgeUnknownList;
+  /**
+   * The clubs said to be real, by GameChanger id. Absent from files written before it was kept,
+   * which leaves what is stored alone rather than clearing it.
+   */
+  realClubs?: string[];
 };
 
 /** `AgeGroup.seasonIds` is a list inside one cell; a semicolon keeps it out of CSV quoting. */
@@ -175,6 +182,8 @@ const GAME_HEADERS = [
    * lost it.
    */
   "Named By Picture",
+  /** You said this win by more than thirty runs is real, so it counts; see `isImplausibleScore`. */
+  "Score Confirmed Real",
 ];
 
 /**
@@ -204,6 +213,7 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
     deletedGames: [...loadDeletedGames()].sort(),
     keptApart: [...loadKeptApart()].sort(),
     ageUnknown: loadAgeUnknown(),
+    realClubs: [...loadRealClubs()].sort(),
   },
 });
 
@@ -232,6 +242,9 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
         saveDeletedGames(coerceDeletedGames(backup.answers.deletedGames)),
         saveKeptApart(coerceKeptApart(backup.answers.keptApart)),
         saveAgeUnknown(coerceAgeUnknown(backup.answers.ageUnknown)),
+        backup.answers.realClubs === undefined
+          ? true
+          : saveRealClubs(coerceDeletedClubs(backup.answers.realClubs)),
       ].every(Boolean)
     : true;
   return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers;
@@ -247,6 +260,7 @@ export const coerceBackupAnswers = (raw: unknown): BackupAnswers | undefined => 
     deletedGames: [...coerceDeletedGames(raw.deletedGames)].sort(),
     keptApart: [...coerceKeptApart(raw.keptApart)].sort(),
     ageUnknown: coerceAgeUnknown(raw.ageUnknown),
+    ...("realClubs" in raw ? { realClubs: [...coerceDeletedClubs(raw.realClubs)].sort() } : {}),
   };
 };
 
@@ -404,6 +418,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       yesNo(game.scoreFromTwin),
       yesNo(game.withdrawn),
       game.namedByAvatar ?? "",
+      yesNo(game.scoreConfirmed),
     ]
       .map(csvEscape)
       .join(",")
@@ -557,6 +572,7 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
     parts.push(`,"tooYoungClubs":${JSON.stringify(answers.tooYoungClubs)}`);
     parts.push(`,"deletedGames":${JSON.stringify(answers.deletedGames)}`);
     parts.push(`,"keptApart":${JSON.stringify(answers.keptApart)}`);
+    if (answers.realClubs) parts.push(`,"realClubs":${JSON.stringify(answers.realClubs)}`);
     parts.push(',"ageUnknown":[');
     answers.ageUnknown.forEach((row, at) => {
       parts.push(`${at === 0 ? "" : ","}${JSON.stringify(row)}`);
@@ -799,6 +815,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
         ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
         ...(isYes(cell("Withdrawn")) ? { withdrawn: true as const } : {}),
+        ...(isYes(cell("Score Confirmed Real")) ? { scoreConfirmed: true as const } : {}),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),
         ...(ageLevelB === undefined ? {} : { ageLevelB }),
