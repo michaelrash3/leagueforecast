@@ -65,9 +65,9 @@ describe("the what-if panel", () => {
       name: /What a win or a loss against Club 2/,
     });
     const rows = within(answer).getAllByRole("row").slice(1);
-    // One rung per whole run up to the cap, which is what one game can carry.
-    expect(rows).toHaveLength(8);
-    expect(within(answer).getByText(/8 runs or more/)).toBeInTheDocument();
+    // One rung per whole run up to the cap of 12, which is what one game can carry.
+    expect(rows).toHaveLength(12);
+    expect(within(answer).getByText(/12 runs or more/)).toBeInTheDocument();
     expect(
       within(answer)
         .getAllByRole("columnheader")

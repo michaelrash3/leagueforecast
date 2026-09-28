@@ -32,9 +32,10 @@ import type { ScoutRankingRow } from "./teamRankings";
  *
  * What it costs, and it is a real cost: an archived table cannot be recomputed. Change how ratings
  * are worked out and every live page changes with it while the archives keep the numbers they were
- * archived with. That is what "final" means, and it is the reason the card says which version of
- * the model stands behind each one — a table from a different model is not wrong, but it is not
- * comparable either.
+ * archived with. That is what "final" means. A table from a different model is not wrong, but it
+ * is not comparable either, and nothing on the card says which model made one beyond the day it
+ * was frozen: tables frozen before `RATING_CAP` moved from 8 to 12, on 28 September 2026, were
+ * rated with a cap of 8 and an older win-chance curve.
  */
 
 /**

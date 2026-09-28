@@ -200,10 +200,11 @@ export function ModelCheckCard({
                 What the run cap is costing
               </h3>
               <p className="mt-1 text-slate-500 dark:text-slate-400">
-                The most one game may swing a rating. {RATING_CAP} is what it is set to, and unlike
-                the League Standings cap — which is a rule of your league — nothing measured put it
-                there. The last row caps nothing at all, which is the row that asks whether having a
-                cap is earning anything rather than which cap is best.
+                The most one game may swing a rating. {RATING_CAP} is what it is set to. Unlike the
+                League Standings cap, which is a rule of your league, it was chosen by measurement:
+                on a nationwide pool it predicted games better than 8 did. The rows below check it
+                again on this pool. The last row caps nothing at all, which is the row that asks
+                whether having a cap is earning anything rather than which cap is best.
               </p>
               <p className="mt-1 text-slate-500 dark:text-slate-400">
                 Every row is fitted at its own cap and then scored against the same target: the

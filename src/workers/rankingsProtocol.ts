@@ -89,10 +89,10 @@ export type WhatIfRequest = {
 /**
  * One run of Setup's model check, against the pool the worker already holds.
  *
- * One run, not the eleven: the worker answers one message at a time, and a board refit asked for
- * while the whole check ran waited for all of it, about 15 s on a nationwide year. Asked a run at
- * a time, the refit waits for one. The page's rated games in order are the same for every run and
- * are kept between them.
+ * One run, not the whole check: the worker answers one message at a time, and a board refit asked
+ * for while the whole check ran waited for all of it, about 15 s on a nationwide year. Asked a run
+ * at a time, the refit waits for one. The page's rated games in order are the same for every run
+ * and are kept between them.
  */
 export type ModelCheckRequest = {
   kind: "model-check";

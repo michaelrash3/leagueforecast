@@ -127,7 +127,16 @@ describe("the what-if curve", () => {
    */
   it("is this, to the digit", () => {
     const curve = curveFor(fixture())!;
+    /*
+     * With `RATING_CAP` at 12 the curve runs to twelve either way. The rows from -8 to 8 and the
+     * rating at 3 are the numbers pinned when the cap was 8, to the digit: this pool's games never
+     * reach eight, so the fit is the same one and the cap only adds the rows past it.
+     */
     expect(curve.points.map((point) => [point.margin, point.rank])).toEqual([
+      [-12, 111],
+      [-11, 110],
+      [-10, 109],
+      [-9, 107],
       [-8, 104],
       [-7, 103],
       [-6, 101],
@@ -144,6 +153,10 @@ describe("the what-if curve", () => {
       [6, 31],
       [7, 26],
       [8, 21],
+      [9, 17],
+      [10, 14],
+      [11, 13],
+      [12, 7],
     ]);
     expect(curve.winRecord).toBe("7-5");
     expect(curve.lossRecord).toBe("6-6");
@@ -152,9 +165,9 @@ describe("the what-if curve", () => {
   });
 
   /*
-   * The curve is two fits and fourteen straight lines. This is the assertion that the lines are
-   * where the fits would have been: both ends and a point in the middle, each against a board
-   * built by actually playing the game.
+   * The curve is three fits and the rungs worked out between them. This is the assertion that the
+   * rungs are where the fits would have been: both ends and a point either side of the middle,
+   * each against a board built by actually playing the game.
    */
   it("lands where a real re-fit lands, at both ends and in between", () => {
     const curve = curveFor(fixture())!;
@@ -188,7 +201,7 @@ describe("the what-if curve", () => {
     const curve = curveFor(fixture())!;
     // Some single margin may well leave the club exactly where it stands. What cannot happen is
     // the whole curve sitting on the live rank, which is precisely what a dropped hypothetical
-    // looks like: sixteen identical answers.
+    // looks like: one identical answer at every margin.
     const live = liveRank();
     expect(curve.points.every((point) => point.rank === live)).toBe(false);
     expect(curve.points[0]!.rank).toBeGreaterThan(live);

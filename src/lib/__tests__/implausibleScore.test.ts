@@ -3,6 +3,7 @@ import {
   countsTowardRating,
   IMPLAUSIBLE_MARGIN,
   isImplausibleScore,
+  RATING_CAP,
   type ScoutGame,
 } from "../teamRankings";
 
@@ -32,6 +33,14 @@ describe("a score suspected of being made up", () => {
     expect(isImplausibleScore(game(0, 0, { teamAScore: undefined, teamBScore: undefined }))).toBe(
       false
     );
+  });
+
+  it("sits past the rating cap, so a win by the cap still counts", () => {
+    // The what-if's top rung is a win by the cap, and the method panel's example is a win by the
+    // cap and twelve more; a line at or inside either would make them scores nobody believes.
+    expect(IMPLAUSIBLE_MARGIN).toBeGreaterThan(RATING_CAP);
+    expect(countsTowardRating(game(RATING_CAP, 0), TODAY)).toBe(true);
+    expect(countsTowardRating(game(RATING_CAP + 12, 0), TODAY)).toBe(true);
   });
 
   it("is read as the rating reads a margin, both clubs' reports together", () => {
