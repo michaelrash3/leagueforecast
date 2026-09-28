@@ -1,6 +1,7 @@
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
-import { parseDateValue } from "./date";
+import { normalizeDateInput, parseDateValue } from "./date";
+import { dateInSquadYear } from "./teamRankings/seasons";
 import { buildOpponentAdjustedRatings } from "./powerRating";
 import { resolveMaxRunDifferential } from "./sim";
 
@@ -127,20 +128,45 @@ const tierForData = (
 };
 
 /**
+ * When a game was played, as a number, for putting a league's own games and its Team Rankings
+ * results in one order.
+ *
+ * League Standings writes "M/D" and Team Rankings an ISO day. With no year, both are read in one
+ * calendar year (`parseDateValue`), which is all a league on its own has. That put a spring
+ * league's autumn tournaments after its May games: recent form weighed September as the newest,
+ * and every point on the Gold-odds trend but the last left the autumn out. Given the squad year the
+ * season is linked to, a league date is placed in it (`dateInSquadYear`, August onward in the year
+ * before) and an ISO day is read as the day it is, so the two compare as the days they were.
+ * Undated is +Infinity, as `parseDateValue` has it.
+ */
+export const playedOn = (date: string | undefined, squadYear?: number): number => {
+  if (squadYear === undefined) return parseDateValue(date ?? "");
+  const trimmed = (date ?? "").trim();
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? trimmed
+    : dateInSquadYear(normalizeDateInput(trimmed), squadYear);
+  const value = iso ? Date.parse(iso) : Number.NaN;
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+};
+
+/**
  * Oldest first by the day played, for walking a team's games in order.
  *
  * Not by the text: league dates are "M/D" and Team Rankings' are ISO, so as strings "9/12" came
  * before "9/5", every October day before every September one, and every tournament game before
  * every league game. Recent form then weighed games that were not the last ones played, and from a
- * team's first October game the Trend column read its September. The year is dropped, as
- * everywhere else in the league: a league date has none to compare. An undated game stays first,
+ * team's first October game the Trend column read its September. An undated game stays first,
  * where it always sorted, since it cannot be placed and read as the newest it would set the trend.
  */
-const dayOf = (date: string) => {
-  const value = parseDateValue(date);
-  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
-};
-const byDay = (a: { date: string }, b: { date: string }) => dayOf(a.date) - dayOf(b.date) || 0;
+const byDayIn =
+  (squadYear: number | undefined) =>
+  (a: { date: string }, b: { date: string }): number => {
+    const dayOf = (date: string) => {
+      const value = playedOn(date, squadYear);
+      return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+    };
+    return dayOf(a.date) - dayOf(b.date) || 0;
+  };
 
 const confidenceTier = (score: number): ConfidenceTier =>
   score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
@@ -169,8 +195,15 @@ export const buildPredictionEngine = (
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   settings?: Pick<Settings, "maxRunDifferential" | "pitchMode" | "autoRunDiffCap">,
-  externalResults: ExternalResult[] = []
+  externalResults: ExternalResult[] = [],
+  /**
+   * The squad year the season is linked to in Team Rankings, which places the league's "M/D" dates
+   * among the outside results' ISO days (`playedOn`). Without one, both are read in one calendar
+   * year, as a league with nothing linked has always been.
+   */
+  squadYear?: number
 ): PredictionEngineResult => {
+  const byDay = byDayIn(squadYear);
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
   const futureGames = matchups.filter((game) => !isFinal(logs[game.id]));

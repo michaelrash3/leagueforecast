@@ -547,8 +547,16 @@ export default function App() {
   });
 
   const predictionEngine = useMemo(
-    () => buildPredictionEngine(baseTeams, matchups, deferredLogs, settings, externalResults),
-    [baseTeams, matchups, deferredLogs, settings, externalResults]
+    () =>
+      buildPredictionEngine(
+        baseTeams,
+        matchups,
+        deferredLogs,
+        settings,
+        externalResults,
+        scoutBridge.squadYear
+      ),
+    [baseTeams, matchups, deferredLogs, settings, externalResults, scoutBridge.squadYear]
   );
 
   /**
@@ -671,9 +679,19 @@ export default function App() {
       settings,
       // The results the Gold % column is rated with, so the line ends where the column is.
       externalResults,
+      squadYear: scoutBridge.squadYear,
     });
     return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
-  }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings, externalResults]);
+  }, [
+    teams,
+    matchups,
+    deferredLogs,
+    completedGames,
+    goldCutoff,
+    settings,
+    externalResults,
+    scoutBridge.squadYear,
+  ]);
   const trendMap = useSimulationTrend(trendInput);
 
   const bracketInput = useMemo(

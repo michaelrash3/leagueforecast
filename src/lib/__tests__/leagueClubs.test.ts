@@ -174,7 +174,7 @@ describe("the league's own game, pulled under another name", () => {
     ];
     const fixtures = [{ away: "Trash Pandas", home: "Cincinnati Angels- Red", date: "9/18" }];
     const tournament = played("gc_tp_2", "ag_9", "S-TP", "S-ANG9", 4, 6, "2026-09-06");
-    const { results } = leagueScoutBridge(
+    const { results, squadYear } = leagueScoutBridge(
       "fall",
       ageGroups,
       roster,
@@ -186,5 +186,7 @@ describe("the league's own game, pulled under another name", () => {
     expect(results).toEqual([
       { home: "L-TP", away: "L-ANG", homeMargin: -2, date: "2026-09-06", neutral: true },
     ]);
+    // The year that places the league's "9/18" beside the tournament's ISO day in the forecast.
+    expect(squadYear).toBe(2027);
   });
 });
