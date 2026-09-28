@@ -1655,16 +1655,13 @@ export function TeamRankingsView({
     [showToast, requestConfirmation, undoClearedPass]
   );
 
+  /**
+   * Deletes a club off the list of clubs that may not be real: the club, every row it is in, and
+   * its GameChanger ids, which a later pull then refuses. At once, without asking: the user, going
+   * down a list of 9,999-0 winners, said on 28 September 2026 to take the dialog away and that they
+   * would take their chances.
+   */
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
-    const where = [club.city, club.state].filter(Boolean).join(", ");
-    const confirmed = await requestConfirmation({
-      title: `Delete ${club.name}?`,
-      message: `${club.ahead} of its ${club.played} played games are on days that have not happened${
-        where ? `, and it is listed in ${where}` : ""
-      }. The club, all ${club.gameIds.length} of its rows and its GameChanger id go, and pulling that id again will be refused.`,
-      confirmLabel: "Delete the club",
-    });
-    if (!confirmed) return false;
     if (club.gcTeamIds.length > 0) {
       // Into the view's state as well as storage, so a list pasted in this session skips it too.
       const next = forgetClubs(loadDroppedClubs(), club.gcTeamIds);

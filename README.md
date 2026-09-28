@@ -1962,7 +1962,8 @@ vouched for is listed whether or not anything of its is dated ahead, charged to 
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
 with a red pill saying how many; the clubs with results dated ahead follow in their old order.
-The list is its own section now, so it shows when nothing is dated ahead at all.
+The list is its own section now, so it shows when nothing is dated ahead at all. **Delete club**
+acts at once, without a dialog, as the user asked the same day.
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
