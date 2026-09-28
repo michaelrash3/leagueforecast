@@ -409,8 +409,9 @@ describe("a row #270 folded with no mark, read again on its schedule's next pull
         markAfter(
           row("a1", "Marlins 9U", "18:00", [7, 3]),
           undefined,
-          // A game of their own, so a later pull finds them by name.
-          club("gcM", "Marlins 9U", [row("m1", "Cubs 9U", "11:00", [1, 1], "2026-09-19")])
+          // A game of their own that day, so a later pull finds them by name: a name files a row
+          // onto a pulled club only where its own schedule has a game that day or either side.
+          club("gcM", "Marlins 9U", [row("m1", "Cubs 9U", "11:00", [1, 1])])
         )
       ).toBeUndefined();
     });

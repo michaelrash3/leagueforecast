@@ -162,8 +162,11 @@ describe("a club somebody merged by hand", () => {
   const hurricanes = club("bKpjvY5AVqOV", "Hurricanes", "OH", [
     played("h-0920", "Stix", DAY, 2, 13, "2026-09-20T17:00:00.000Z"),
   ]);
+  // Toledo plays the day before as well, so two Hurricanes could have played the Stix and the
+  // name leaves the Stix's row against a stand-in, which is what the hand merge below is made on.
   const toledo = club("gcTOLEDOHUR1", "Hurricanes 9U", "OH", [
     played("t-0913", "Mud Hens 9U", "2026-09-13", 4, 3),
+    played("t-0919", "Mud Hens 9U", "2026-09-19", 5, 1),
   ]);
   const black = club("gcHURBLACK01", "Hurricanes", "OH", [], { city: "Dayton" });
 

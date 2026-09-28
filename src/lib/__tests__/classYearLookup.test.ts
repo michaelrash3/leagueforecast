@@ -53,10 +53,11 @@ describe("an opponent named by graduating class", () => {
   });
 
   it("still finds a club pulled under the name at the page's level", () => {
-    // Listed at 10U though its class reads 11U: the club the 10U schedules played.
+    // Listed at 10U though its class reads 11U: the club the 10U schedules played. It has a game
+    // of its own that day, which a name needs of a pulled club before it files a row onto it.
     const state = pull(
       schedule("gcNWNC0000001", "NWNC Elite 2034", 10, "NC", [
-        ["n1", "2026-08-02", "Some Other Club", 4, 2],
+        ["n1", "2026-08-28", "Some Other Club", 4, 2],
       ]),
       schedule("gcROWAN000001", "Rowan Rangers 10U", 10, "NC", [
         ["w1", "2026-08-28", "NWNC Elite 2034", 3, 7],

@@ -881,6 +881,26 @@ give a start time they have to agree on it, which is what tells the halves of a
 doubleheader apart. A day with two clubs that could both be the answer is left
 alone.
 
+**A name is checked against the club's own schedule.** GameChanger gives an opponent as the words
+a coach typed and nothing else, so a name is where to look, not who played. A game goes on a pulled
+club by its name only where that club's own schedule has a game that day or the day either side —
+the day either side because two schedules can date one game a day apart, and the collapse joins
+those (**A day apart**). Every road a name takes asks it: the import's match (`planOpponent`), the
+refile of a stand-in's rows (`refileStandIns`), and the tidy, which takes a row a name filed onto a
+club whose own schedule has no game near that day off it, onto a stand-in of the name, or a slot
+where the club's name reads as a weekend (`resettleOffLevel`). The game itself and the picture are
+not names and are not asked: a club whose own schedule holds the fixture, or whose picture the row
+carries, is that club. A club whose schedule came back empty has no game on any day, so a neighbour's
+game against it stands against a stand-in of its name. The user asked for this check on 28
+September 2026, when an Illinois club's 8 August loss to "Eagles" sat on the Eagles of Independence,
+Kentucky — the one 9U Eagles across Illinois's border — whose own schedule opened on 3 September,
+so the page said 1-3 where GameChanger says 1-2. On the backup of 26 September 2026 at 18:40 the
+tidy took 23,282 rows off pulled clubs, claimed 717 more into the other club's copy than before, and
+changed 4,700 single-link records: 4,395 toward GameChanger's own record, 3,094 of them onto it, and
+278 away, 106 of those off it. Of the 278, 191 are clubs whose GameChanger record counts more games
+than their own schedule's rows in the pool hold: a game the pull did not bring back, which the name
+had stood in for.
+
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
 club's schedule somewhere — under whatever its coach typed for the other club. The import files a
@@ -1333,7 +1353,7 @@ caller that does not ask, such as a tab still running an older copy of the app.
 |                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A team pulled by id               | _is_ that id. GameChanger mints a new one every season, so a club's Fall and Spring squads arrive as two teams and stay two until somebody pairs them.                                                                                                                                                                                                                                                                                                                                       |
-| An opponent                       | has no id — GameChanger never gives one, and its picture is different on every listing, so it identifies nobody. The game itself is matched first: a club whose own schedule holds this fixture is the club, by the same result or the same start time, though not two results more than four runs apart. Failing that, the name — at that level, in that season year, and in the puller's own state, since nine opponents in ten are; a sole namesake in another state waits as a stand-in. |
+| An opponent                       | has no id — GameChanger never gives one, and its picture is different on every listing, so it identifies nobody. The game itself is matched first: a club whose own schedule holds this fixture is the club, by the same result or the same start time, though not two results more than four runs apart. Failing that, the name — at that level, in that season year, and in the puller's own state, since nine opponents in ten are; a sole namesake in another state waits as a stand-in. And a name puts a game on a pulled club only where that club's own schedule has a game that day or the day either side: a name is where to look, not who played. |
 | A stand-in                        | is a name a schedule wrote down and nobody has pulled. One per name, level and state: a "Red Sox" named by clubs in ten states is ten stand-ins, not one club they all played.                                                                                                                                                                                                                                                                                                               |
 | A club already here as a stand-in | is adopted rather than duplicated when its own turn comes: the stand-in its own schedule confirms, else the one at its level whose namers are in its state. In a full pull nearly every team appears as somebody's opponent first.                                                                                                                                                                                                                                                           |
 
@@ -1397,7 +1417,9 @@ start and score, since a lookup by name cost 6 s a pass); a stand-in's rows
 are filed onto the one club of that name in the puller's state (two in the state:
 the one in the puller's own town; none in the state: the one in a bordering state, if exactly one
 is — on the stand-in fixtures export of 22 September 2026 that was the club the game itself named
-1,174 times in 1,240); two ids are one
+1,174 times in 1,240), and only where that club's own schedule has a game that day or the day
+either side; a row a name filed onto a pulled club whose own schedule has none is taken off it onto
+a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
 one state, under one listing name; and two clubs' copies of one game are one game as
 **One game on two clubs' schedules** sets out, kept once with the other side's score
