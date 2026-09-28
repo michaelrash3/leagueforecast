@@ -2253,6 +2253,19 @@ last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a w
 tiebreak keeps the team in" — rather than claim either. Once nothing is left to
 play, the table's own rank answers.
 
+## Playoff machine
+
+"If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a
+panel for it. Each game left can be settled by hand — the away side, the home side,
+or **Sim** to leave it to the model — and the table below it is the season with
+those games played: records, places and the cut line from the same code as the real
+standings, with the league's own tiebreakers, and Gold % simulated over the games
+still unpicked (`scenarioSeason`). A pick plays out at the model's expected score,
+turned round where the pick goes against the model, because run differential breaks
+ties and a winner alone does not give one; a score can be typed instead. Ratings are
+not refitted on made-up results, so the rest of the page does not move, and nothing
+is saved: the picks go when the page does.
+
 ## Our team
 
 The Dashboard leads with one team, picked there, for the questions asked at the

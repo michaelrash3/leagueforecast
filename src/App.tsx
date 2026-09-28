@@ -48,6 +48,7 @@ import {
 } from "./lib/preferences";
 import { ourTeamSummary } from "./lib/ourTeam";
 import { OurTeamCard } from "./components/league/OurTeamCard";
+import { PlayoffMachine } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -2691,6 +2692,22 @@ export default function App() {
                 retryForecastStory={forecastStory.retry}
                 forecastStoryWaiting={forecastStory.waiting}
                 askForecastStory={forecastStory.ask}
+                playoffMachine={
+                  <PlayoffMachine
+                    teams={teams}
+                    matchups={matchups}
+                    logs={deferredLogs}
+                    settings={settings}
+                    liveTeams={liveTeams}
+                    ratings={predictionEngine.ratings}
+                    remainingGames={remainingGames}
+                    cutoff={goldCutoff}
+                    hasCutLine={hasCutLine}
+                    currentRows={dashboardRows}
+                    oddsSeed={oddsSeed}
+                    iterations={SIM_ITERATIONS}
+                  />
+                }
               />
             ) : activeView === "settings" ? (
               <div className="space-y-6">
