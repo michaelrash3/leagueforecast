@@ -188,7 +188,13 @@ export const idsPlayingAround = (games: readonly ScoutGame[], today: string): Se
       const day = record.date ?? game.date;
       if (day && days.has(day)) playing.add(record.teamId);
     });
-    if (game.date && days.has(game.date)) game.alsoFrom?.forEach((id) => playing.add(id));
+    // A schedule on record with no row of it kept is read at the copy's day; one with a row, at
+    // the row's own, since the fold records a schedule in both.
+    if (game.date && days.has(game.date)) {
+      game.alsoFrom?.forEach((id) => {
+        if (!game.alsoRows?.some((record) => record.teamId === id)) playing.add(id);
+      });
+    }
   });
   return playing;
 };

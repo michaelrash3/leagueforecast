@@ -48,6 +48,12 @@ describe("the teams playing within a day of today", () => {
         game("g4", "2026-09-20", {
           alsoRows: [{ teamId: "FoldedToday1", gameId: "x4", date: "2026-09-28" }],
         }),
+        // And a folded row dated a week back is not playing because its copy is dated today,
+        // though the fold records its schedule in both.
+        game("g7", "2026-09-28", {
+          alsoRows: [{ teamId: "FoldedLastWk", gameId: "x7", date: "2026-09-21" }],
+          alsoFrom: ["FoldedLastWk"],
+        }),
         game("g5", "2026-09-25", {
           source: { kind: "gamechanger", teamId: "LastFriday01", gameId: "x5" },
         }),
