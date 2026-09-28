@@ -272,8 +272,19 @@ describe("what an empty list says of a pasted id", () => {
     expect(said).toMatch(/^The app has no record of that GameChanger id\./);
     // A pull that refused it for its season keeps no record, so both are possible.
     expect(said).toContain("a season that was not ticked");
-    expect(said).toContain("with its season ticked");
+    // The two seasons the pull's picker always offers, so the advice can be followed.
+    expect(said).toContain("with this season and last ticked");
     // Twelve letters, but a name: no digit, and no capital past the first letter.
     expect(noMatchText("Thunderbolts", explain)).toBe("No team matches that.");
+  });
+
+  it("claims only its own list in a picker that cannot look an id up", () => {
+    // Same team as and the league's club picker search fewer clubs and pass no lookup.
+    expect(noMatchText("bKpjvY5AVqOV")).toBe(
+      "No team in this list is linked to that GameChanger id."
+    );
+    expect(noMatchText("https://web.gc.com/teams/gcWAIT000001")).toBe(
+      "No team in this list is linked to that GameChanger id."
+    );
   });
 });

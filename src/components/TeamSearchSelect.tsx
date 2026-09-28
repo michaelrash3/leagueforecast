@@ -126,7 +126,13 @@ export const gcIdsInSearch = (query: string): string[] => {
  * Not that it was never pulled, which it said until the user pasted an id and was told so on 28
  * September 2026: a pull that turns a team away for its season, as a high school or adult side,
  * or for a request that failed keeps no record of it past that run, so the app cannot tell those
- * from an id nobody asked for. Pulling it alone, with its season ticked, is what settles it.
+ * from an id nobody asked for. Pulling it alone is what settles it, with this season and last
+ * ticked, the two the pull's picker always offers: a team from an older one is refused, and the
+ * run says so.
+ *
+ * And only where `explainGcId` is given, which is Find a team's search of the whole pool. A picker
+ * over fewer clubs (Same team as, the league's club picker) can say only that none of its own
+ * carries the id: it may be on a club outside that list, or on one of the lists the app keeps.
  */
 export const noMatchText = (
   query: string,
@@ -140,9 +146,10 @@ export const noMatchText = (
   const pasted =
     /gc\.com\/teams\/[A-Za-z0-9]{12}/.test(query) ||
     ids.some((id) => /\d/.test(id) || /[A-Z]/.test(id.slice(1)));
-  return pasted
-    ? "The app has no record of that GameChanger id. It has not been pulled, or it was unlinked from a club here, or a pull turned it away without keeping one: a season that was not ticked, a high school or adult side, or a request that failed. Pull it on its own in Pull from GameChanger, with its season ticked, and the run says which."
-    : "No team matches that.";
+  if (!pasted) return "No team matches that.";
+  return explainGcId
+    ? "The app has no record of that GameChanger id. It has not been pulled, or it was unlinked from a club here, or a pull turned it away without keeping one: a season that was not ticked, a high school or adult side, or a request that failed. Pull it on its own in Pull from GameChanger with this season and last ticked, and the run files it or says why not."
+    : "No team in this list is linked to that GameChanger id.";
 };
 
 /**
