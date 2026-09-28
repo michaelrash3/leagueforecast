@@ -27,6 +27,8 @@ import {
   isPlaceholderName,
   type AgeGroup,
   type FoldedRow,
+  GC_AGE_SOURCES,
+  type GcAgeSource,
   type GcTeamLink,
   type ScoutGame,
   type ScoutGameSource,
@@ -428,7 +430,8 @@ type TeamRow = (number | string | null | CompactLink[])[];
 
 /**
  * 0 gc id, 1 name, 2 age group, 3 season, 4 season year, 5 age level, 6 avatar, 7 w, 8 l, 9 t,
- * 10 importedAt, 11 staff (indexes into `p`), 12 player count, 13 counted at.
+ * 10 importedAt, 11 staff (indexes into `p`), 12 player count, 13 counted at, 14 GameChanger's own
+ * age field, 15 which rule filed it at its level (`GcAgeSource`).
  *
  * Slots are only ever appended. A reader that predates the last three finds the first eleven
  * exactly where it expects them and ignores the rest, which is why adding them did not need a
@@ -468,6 +471,8 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
         staff.length > 0 ? staff : null,
         link.playerCount ?? null,
         link.countedAt ?? null,
+        link.ageLabel ?? null,
+        link.ageFrom ?? null,
       ]);
     });
     const row: TeamRow = [
@@ -493,6 +498,10 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
     r: rows,
   };
 };
+
+/** A stored age source, or nothing for anything this app does not write. */
+const ageSourceOf = (raw: unknown): GcAgeSource | undefined =>
+  GC_AGE_SOURCES.find((source) => source === raw);
 
 const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
   if (!Array.isArray(row)) return null;
@@ -530,6 +539,10 @@ const decodeLink = (row: unknown, pool: CompactTeams): GcTeamLink | null => {
   if (playerCount !== undefined) link.playerCount = playerCount;
   const countedAt = str(row[13]);
   if (countedAt) link.countedAt = countedAt;
+  const ageLabel = str(row[14]);
+  if (ageLabel) link.ageLabel = ageLabel;
+  const ageFrom = ageSourceOf(row[15]);
+  if (ageFrom) link.ageFrom = ageFrom;
   return link;
 };
 
@@ -635,6 +648,8 @@ export const coerceGcTeamLink = (raw: unknown): GcTeamLink | null => {
     ...(isNumber(raw.playerCount) ? { playerCount: raw.playerCount } : {}),
     ...(isString(raw.countedAt) ? { countedAt: raw.countedAt } : {}),
     ...(isString(raw.importedAt) ? { importedAt: raw.importedAt } : {}),
+    ...(isString(raw.ageLabel) && raw.ageLabel ? { ageLabel: raw.ageLabel } : {}),
+    ...(ageSourceOf(raw.ageFrom) ? { ageFrom: ageSourceOf(raw.ageFrom)! } : {}),
   };
 };
 

@@ -1260,7 +1260,7 @@ export function TeamRankingsView({
   const setTeamAge = (teamId: string, level: number) => {
     if (selectedYear === undefined) return;
     const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    const change = setClubAge(before, teamId, level, selectedYear);
+    const change = setClubAge(before, teamId, level, selectedYear, "you");
     if (!change) return;
     const previousNamed = loadNamedAges();
     let named = previousNamed;
@@ -1317,7 +1317,7 @@ export function TeamRankingsView({
     setNamedAges(named);
     saveNamedAges(named);
     const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    const change = was === undefined ? null : setClubAge(before, teamId, was, selectedYear);
+    const change = was === undefined ? null : setClubAge(before, teamId, was, selectedYear, null);
     if (change) saveClubAge(before, change);
     showToast(
       change

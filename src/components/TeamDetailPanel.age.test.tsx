@@ -183,3 +183,43 @@ describe("finding a club by its GameChanger link", () => {
     expect(list()).toHaveTextContent("No team here is linked to that GameChanger page.");
   });
 });
+
+describe("why a club is filed at its age", () => {
+  const sourced = (link: Record<string, unknown>): Pool => {
+    const base = pool();
+    return {
+      ...base,
+      teams: base.teams.map((one) =>
+        one.id === "S-HIVE"
+          ? { ...one, gcTeams: one.gcTeams?.map((entry) => ({ ...entry, ...link })) }
+          : one
+      ),
+    };
+  };
+
+  it("says which rule filed it and what GameChanger's own age field says", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(sourced({ ageFrom: "list" }));
+    const panel = await openHive(user);
+    expect(panel).toHaveTextContent(
+      "filed at 8U, from its league or organization on your list; GameChanger gives no age"
+    );
+  });
+
+  it("names GameChanger's field when that is what answered", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(sourced({ ageFrom: "gamechanger", ageLabel: "8U" }));
+    const panel = await openHive(user);
+    expect(panel).toHaveTextContent(`filed at 8U, from GameChanger's age field ("8U")`);
+  });
+
+  it("says it was set by you once it is, and nothing it cannot know", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    const panel = await openHive(user);
+    await user.selectOptions(within(panel).getByLabelText("Age"), "9");
+    await user.click(within(panel).getByRole("button", { name: "Set age" }));
+    expect(panel).toHaveTextContent("filed at 9U, set by you");
+    expect(panel).not.toHaveTextContent("GameChanger gives no age");
+  });
+});

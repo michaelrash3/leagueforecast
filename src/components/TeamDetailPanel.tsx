@@ -11,6 +11,8 @@ import {
   teamNameKey,
   teamRecordInPool,
   type AgeGroup,
+  type GcAgeSource,
+  type GcTeamLink,
   type ScoutGame,
   type ScoutTeam,
   type SeasonSegment,
@@ -66,6 +68,36 @@ type TeamDetailPanelProps = {
   /** Teams this one could be folded into: everyone else on the page, likeliest club first. */
   mergeCandidates: MergeCandidate[];
   onClose: () => void;
+};
+
+/** Which rule of the import filed a link at its level, as the link line says it. */
+const AGE_SOURCE_TEXT: Record<GcAgeSource, string> = {
+  you: "set by you",
+  gamechanger: "from GameChanger's age field",
+  name: "from its name",
+  list: "from its league or organization on your list",
+  opponents: "from its opponents' names",
+  pool: "from where its opponents are filed",
+  fixtures: "from the clubs its games were against",
+};
+
+/**
+ * Where a link's level came from, and what GameChanger's own age field says. Only for a link
+ * pulled since the source was recorded (`GcTeamLink.ageFrom`): before that there is nothing to
+ * say, and an absent field would read as GameChanger giving none when it was only never kept.
+ */
+const ageSourceLine = (link: GcTeamLink): string => {
+  if (link.ageFrom === undefined) return "";
+  const field = link.ageLabel ? `"${link.ageLabel}"` : "";
+  if (link.ageFrom === "gamechanger") {
+    return `, ${AGE_SOURCE_TEXT.gamechanger}${field ? ` (${field})` : ""}`;
+  }
+  // Set on the panel, over a link that may be older than the field was kept: say it only if known.
+  if (link.ageFrom === "you") {
+    return `, ${AGE_SOURCE_TEXT.you}${field ? `; GameChanger's age field says ${field}` : ""}`;
+  }
+  const said = field ? `GameChanger's age field says ${field}` : "GameChanger gives no age";
+  return `, ${AGE_SOURCE_TEXT[link.ageFrom]}; ${said}`;
 };
 
 /** A team the picker can offer, with a line about why it is near the top when there is one. */
@@ -311,7 +343,9 @@ export function TeamDetailPanel({
                 <span className="text-xs text-slate-500 dark:text-slate-400">
                   {gcSeasonLabel(link) || "season unknown"}
                   {/* Where the app filed it, which GameChanger's page need not have said. */}
-                  {link.ageLevel === undefined ? "" : ` · filed at ${link.ageLevel}U`}
+                  {link.ageLevel === undefined
+                    ? ""
+                    : ` · filed at ${link.ageLevel}U${ageSourceLine(link)}`}
                   {link.staff?.length ? ` · ${link.staff.join(", ")}` : ""}
                 </span>
                 {(link.record || link.importedAt) && (

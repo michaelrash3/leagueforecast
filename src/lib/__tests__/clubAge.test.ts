@@ -151,3 +151,18 @@ describe("setting the age a club plays at", () => {
     expect(setClubAge(state(), club.id, 9.5, 2027)).toBeNull();
   });
 });
+
+describe("what the links say decided the level", () => {
+  it("says you when somebody sets it, and nothing once it is handed back", () => {
+    const set = setClubAge(state(), club.id, 9, 2027, "you");
+    const link = set?.teams.find((one) => one.id === club.id)?.gcTeams?.[0];
+    expect(link).toMatchObject({ ageLevel: 9, ageFrom: "you" });
+
+    const back = setClubAge(set!, club.id, 8, 2027, null);
+    const after = back?.teams.find((one) => one.id === club.id)?.gcTeams?.[0];
+    expect(after?.ageLevel).toBe(8);
+    expect(after && "ageFrom" in after).toBe(false);
+    // Last year's id keeps whatever it had.
+    expect(back?.teams.find((one) => one.id === club.id)?.gcTeams?.[1]).toEqual(club.gcTeams?.[1]);
+  });
+});

@@ -165,6 +165,15 @@ A person outranks all five. A level named by hand stands in until GameChanger's 
 answer _changes_, and one set on a club's panel stands until it is taken back — see **Naming an
 age**.
 
+**The panel says which of them answered.** Each GameChanger link records the rule that filed it
+(`GcTeamLink.ageFrom`: GameChanger's age field, the name, a league or organization on your list,
+the opponents' names, where its opponents are filed, the clubs its games identify, or you) and
+GameChanger's own age field verbatim (`ageLabel`), and the link line reads "filed at 8U, from its
+league or organization on your list; GameChanger gives no age". The user asked on 28 September 2026
+why a club whose name carries no age was filed at 8U, and nothing stored could say: the rules
+that read opponents' names only run when nothing above them answered, so it was the age field or
+the list, and which one was lost. A link pulled before this says nothing until its next pull.
+
 #### High school squads are left out
 
 A varsity or JV side plays other varsity and JV sides. Its whole schedule is the
