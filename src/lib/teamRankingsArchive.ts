@@ -101,6 +101,17 @@ export type ArchiveEntry = {
   teams: number;
 };
 
+/**
+ * A stored half, or nothing for a value that is not one.
+ *
+ * Both readers of a stored archive — the season's rows and the index that lists it — go through
+ * this, because a reader that copies a whitelist of fields drops whatever it forgets: the half was
+ * written by `archiveSeason` and `archiveEntryOf` and read back by neither, so an archived half
+ * lost its fall or spring tag on every load and every backup restore.
+ */
+export const archivedSegment = (raw: unknown): SeasonSegment | undefined =>
+  SEASON_SEGMENT_ORDER.find((segment) => segment === raw);
+
 export const archiveEntryOf = (season: ArchivedSeason): ArchiveEntry => ({
   id: season.id,
   name: season.name,
@@ -438,6 +449,7 @@ export const coerceArchivedSeason = (raw: unknown): ArchivedSeason | null => {
     name: value.name,
     ...(typeof value.ageLevel === "number" ? { ageLevel: value.ageLevel } : {}),
     ...(typeof value.year === "number" ? { year: value.year } : {}),
+    ...(archivedSegment(value.segment) ? { segment: archivedSegment(value.segment)! } : {}),
     archivedAt: str(value.archivedAt) ?? "",
     fromGames: num(value.fromGames),
     fromTeams: num(value.fromTeams),

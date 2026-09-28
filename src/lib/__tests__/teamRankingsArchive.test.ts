@@ -16,6 +16,7 @@ import {
   type ArchivedSeason,
 } from "../teamRankingsArchive";
 import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
+import { coerceArchiveIndex } from "../teamRankingsStorage";
 
 const groups: AgeGroup[] = [
   { id: "ag_9_2026", name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: [] },
@@ -155,6 +156,27 @@ describe("reading an archive back", () => {
     const { teams, games } = pool();
     const kept = archiveSeason(groups[0]!, teams, games, groups, "2026-09-17T00:00:00.000Z");
     expect(coerceArchivedSeason(JSON.parse(JSON.stringify(kept)))).toEqual(kept);
+  });
+
+  it("keeps which half of the year it is", () => {
+    const { teams, games } = pool();
+    const half = archiveSeason(
+      groups[0]!,
+      teams,
+      games,
+      groups,
+      "2026-09-17T00:00:00.000Z",
+      "fall"
+    );
+    expect(half.segment).toBe("fall");
+    const read = coerceArchivedSeason(JSON.parse(JSON.stringify(half)));
+    expect(read?.segment).toBe("fall");
+    expect(read).toEqual(half);
+    // And the list of archives keeps it too, read back as the card reads it.
+    expect(coerceArchiveIndex(JSON.parse(JSON.stringify([archiveEntryOf(half)])))[0]?.segment).toBe(
+      "fall"
+    );
+    expect(coerceArchivedSeason({ ...half, segment: "summer" })?.segment).toBeUndefined();
   });
 
   it("is null for something that is not one, rather than a throw", () => {
