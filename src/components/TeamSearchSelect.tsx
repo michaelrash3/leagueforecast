@@ -21,6 +21,11 @@ export type TeamSearchOption = {
    * entirely. Everything with no priority sorts alphabetically, as it always has.
    */
   priority?: number;
+  /**
+   * The GameChanger team ids the club is known by. A search holding one of them, bare or inside a
+   * link to the team's page, finds the club that id is linked to and nothing else.
+   */
+  gcIds?: readonly string[];
 };
 
 /** Drawn at once. Past this the answer is to type more, not to scroll further. */
@@ -81,11 +86,34 @@ const matchesTerms = (option: TeamSearchOption, terms: SearchTerms): boolean => 
  * something about, and they go first: the alphabet is the right default precisely because nothing
  * usually knows better, and the wrong one when something does.
  */
+/**
+ * The GameChanger team ids a search names: the id in a link to a team's page, or a word that has
+ * the shape of one (twelve letters and digits).
+ *
+ * An id is what somebody holding a GameChanger page has, and until this a pasted one found nothing,
+ * since names were all a search read: the user asked on 28 September 2026 why the team attached to
+ * an id could not be found. A twelve-letter word is only taken as an id where a club carries it
+ * exactly, so "Thunderbolts" still searches as a name.
+ */
+export const gcIdsInSearch = (query: string): string[] => {
+  const ids = new Set<string>();
+  for (const match of query.matchAll(/gc\.com\/teams\/([A-Za-z0-9]{12})/g)) ids.add(match[1]!);
+  query.split(/\s+/).forEach((word) => {
+    if (/^[A-Za-z0-9]{12}$/.test(word)) ids.add(word);
+  });
+  return [...ids];
+};
+
 export const matchTeamOptions = (
   options: readonly TeamSearchOption[],
   query: string,
   limit: number = TEAM_SEARCH_LIMIT
 ): { shown: TeamSearchOption[]; total: number } => {
+  const ids = gcIdsInSearch(query);
+  if (ids.length > 0) {
+    const linked = options.filter((option) => option.gcIds?.some((id) => ids.includes(id)));
+    if (linked.length > 0) return { shown: linked.slice(0, limit), total: linked.length };
+  }
   const terms = searchTerms(query);
   const searching = terms.words.length > 0 || terms.states.length > 0;
   const sorted = options
@@ -261,7 +289,9 @@ export function TeamSearchSelect({
         >
           {shown.length === 0 && (
             <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
-              No team matches that.
+              {/^\s*\S*gc\.com\/teams\/[A-Za-z0-9]{12}/.test(query)
+                ? "No team here is linked to that GameChanger page. It has not been pulled, or it was pulled onto another team and unlinked."
+                : "No team matches that."}
             </li>
           )}
           {shown.map((option, index) => {

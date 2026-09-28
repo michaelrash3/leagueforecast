@@ -4042,6 +4042,8 @@ export type ScoutLinkCandidate = {
   ageLevel?: number;
   /** Who coaches it (`coachesOf`), which a person linking their own league's team usually knows. */
   coaches?: string[];
+  /** Its GameChanger ids, so a pasted id or link finds it in the picker. */
+  gcIds?: string[];
 };
 
 /**
@@ -4123,6 +4125,7 @@ export const scoutLinkCandidates = (
       ...(team.state ? { state: team.state } : {}),
       ...(ageLevel === undefined ? {} : { ageLevel }),
       ...(coaches.length > 0 ? { coaches } : {}),
+      ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
       sharedOpponents: shared,
       games: count,
     });

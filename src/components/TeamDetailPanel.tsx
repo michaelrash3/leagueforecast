@@ -127,6 +127,9 @@ export function TeamDetailPanel({
           id: candidate.id,
           label: candidate.name,
           ...(coaches.length > 0 ? { coaches } : {}),
+          ...(candidate.gcTeams?.length
+            ? { gcIds: candidate.gcTeams.map((link) => link.teamId) }
+            : {}),
           // The caller hands these club-first; the index keeps that order through the picker's own
           // alphabetical sort, which would otherwise bury the answer among thousands of names.
           ...(candidate.clubHint ? { priority: index } : {}),

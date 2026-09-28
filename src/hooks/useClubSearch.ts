@@ -146,6 +146,8 @@ export function useClubSearch({
           label: team.name,
           ...(detail ? { detail } : {}),
           ...(coaches.length > 0 ? { coaches } : {}),
+          // Its GameChanger ids, so a pasted id or link finds it (`gcIdsInSearch`).
+          ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
         },
       ];
     });

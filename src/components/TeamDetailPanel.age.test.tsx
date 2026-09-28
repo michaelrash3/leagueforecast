@@ -116,7 +116,9 @@ describe("setting a club's age on its panel", () => {
     expect(panel).toHaveTextContent("You set this club to 9U; the app had filed it at 8U.");
 
     // The toast's undo puts back exactly what was there.
-    const undo = harness.showToast.mock.calls[harness.showToast.mock.calls.length - 1]?.[1] as { onAction: () => void };
+    const undo = harness.showToast.mock.calls[harness.showToast.mock.calls.length - 1]?.[1] as {
+      onAction: () => void;
+    };
     act(() => undo.onAction());
     expect(hive()?.gcTeams?.[0]).toMatchObject({ ageGroupId: u8.id, ageLevel: 8 });
     expect([pageOf("g1"), pageOf("g2")]).toEqual([u8.id, u8.id]);
@@ -157,5 +159,27 @@ describe("setting a club's age on its panel", () => {
     expect(
       within(screen.getByRole("table")).getByRole("button", { name: "Example Hive *Fall Ball*" })
     ).toBeInTheDocument();
+  });
+});
+
+describe("finding a club by its GameChanger link", () => {
+  it("offers the club an id is linked to, and says so when no club carries it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    const list = () =>
+      document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+
+    await user.click(box);
+    await user.type(box, "https://web.gc.com/teams/gcHIVEFALL26");
+    expect(
+      within(list())
+        .getAllByRole("option")
+        .map((one) => one.textContent)
+    ).toEqual([expect.stringContaining("Example Hive *Fall Ball*")]);
+
+    await user.clear(box);
+    await user.type(box, "https://web.gc.com/teams/gcNOBODY0000");
+    expect(list()).toHaveTextContent("No team here is linked to that GameChanger page.");
   });
 });

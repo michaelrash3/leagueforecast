@@ -56,6 +56,7 @@ const optionFor = (candidate: ScoutLinkCandidate): TeamSearchOption => {
     ...(detail ? { detail } : {}),
     // Who coaches it: the one thing about a club in your own league you are sure to know.
     ...(candidate.coaches?.length ? { coaches: candidate.coaches } : {}),
+    ...(candidate.gcIds?.length ? { gcIds: candidate.gcIds } : {}),
   };
 };
 
@@ -154,6 +155,7 @@ function ScoutLinkPanelInner({
               label: club.name,
               ...(detail ? { detail } : {}),
               ...(coaches.length > 0 ? { coaches } : {}),
+              ...(club.gcTeams?.length ? { gcIds: club.gcTeams.map((link) => link.teamId) } : {}),
             };
           })
         : [],
