@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildPredictionEngine } from "../predictionEngine";
+import { buildOpponentAdjustedRatings } from "../powerRating";
+import { buildPredictionEngine, type ExternalResult } from "../predictionEngine";
 import { calculateTeams } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
@@ -147,5 +148,111 @@ describe("home/away is a coin flip at this level", () => {
       { home: "WOL", away: "S-TRAVEL", homeMargin: -6, neutral: true },
     ]);
     expect(warm.dataQuality.tier).not.toBe("Insufficient");
+  });
+});
+
+describe("buildPredictionEngine with no cap on the run differential", () => {
+  // Falcons win by 5 and by 14; Wolves beat Comets by 3. The 14 is past every cap on offer.
+  const final = (awayRuns: string, homeRuns: string): GameLog => ({
+    awayRuns,
+    homeRuns,
+    awayHits: "",
+    homeHits: "",
+    awayK: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const played: Record<string, GameLog> = {
+    "1": final("9", "4"),
+    "2": final("16", "2"),
+    "3": final("6", "3"),
+  };
+  const games = matchups.slice(0, 3);
+  const engineAt = (maxRunDifferential: number) => {
+    const settings = { ...DEFAULT_SETTINGS, autoRunDiffCap: false, maxRunDifferential };
+    return buildPredictionEngine(
+      calculateTeams(teams, games, played, settings),
+      games,
+      played,
+      settings
+    );
+  };
+  const ratingsOf = (result: ReturnType<typeof buildPredictionEngine>) =>
+    Object.fromEntries(result.powerRatings.map((row) => [row.teamId, row.rating]));
+
+  it("rates on the margins as played, not on none at all", () => {
+    // "No cap" is stored as 0, which the standings read as no cap and the fit read as a cap of
+    // zero runs: every margin clamped to nothing, every rating 0.00, the table in alphabetical
+    // order and every forecast pulled toward a coin flip.
+    const uncapped = ratingsOf(engineAt(0));
+    const asPlayed = buildOpponentAdjustedRatings(
+      ["FAL", "WOL", "COM"],
+      [
+        { home: "WOL", away: "FAL", homeMargin: -5, neutral: true },
+        { home: "COM", away: "FAL", homeMargin: -14, neutral: true },
+        { home: "COM", away: "WOL", homeMargin: -3, neutral: true },
+      ],
+      { cap: Infinity }
+    );
+    for (const id of ["FAL", "WOL", "COM"]) {
+      expect(uncapped[id]).toBeCloseTo(asPlayed.ratings.get(id) ?? NaN, 9);
+    }
+    expect(engineAt(0).powerRatings[0]?.teamId).toBe("FAL");
+  });
+
+  it("credits the 14-run win beyond what a 10-run cap allows", () => {
+    expect(ratingsOf(engineAt(0)).FAL).toBeGreaterThan(ratingsOf(engineAt(10)).FAL ?? Infinity);
+  });
+});
+
+describe("buildPredictionEngine placing a spring league among last autumn's tournaments", () => {
+  // Falcons lose five tournament games by 6 in September and October 2026, then win five league
+  // games by 6 in April and May 2027: a spring league in squad year 2027, climbing.
+  const final = (awayRuns: string, homeRuns: string): GameLog => ({
+    awayRuns,
+    homeRuns,
+    awayHits: "",
+    homeHits: "",
+    awayK: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const spring: Matchup[] = ["4/11", "4/18", "4/25", "5/2", "5/9"].map((date, at) => ({
+    id: `s${at}`,
+    date,
+    away: "FAL",
+    home: at % 2 === 0 ? "WOL" : "COM",
+  }));
+  const played = Object.fromEntries(spring.map((game) => [game.id, final("8", "2")]));
+  const autumn: ExternalResult[] = [
+    "2026-09-06",
+    "2026-09-13",
+    "2026-09-20",
+    "2026-09-27",
+    "2026-10-04",
+  ].map((date, at) => ({
+    home: `S-OUT${at}`,
+    away: "FAL",
+    homeMargin: 6,
+    date,
+    neutral: true,
+  }));
+  const falconsIn = (squadYear?: number) =>
+    buildPredictionEngine(
+      calculateTeams(teams, spring, played, DEFAULT_SETTINGS),
+      spring,
+      played,
+      DEFAULT_SETTINGS,
+      autumn,
+      squadYear
+    ).powerRatings.find((row) => row.teamId === "FAL");
+
+  it("reads the league's spring as the newest games, not last autumn", () => {
+    // Without a year both read as one calendar year, and October came after May.
+    const falcons = falconsIn(2027);
+    expect(falcons?.recentForm).toBeCloseTo(6, 9);
+    expect(falcons?.trend).toBe("Up");
   });
 });

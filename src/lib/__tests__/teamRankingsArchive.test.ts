@@ -265,6 +265,25 @@ describe("freezing a whole squad year", () => {
     expect(done.droppedTeams).toBe(6);
   });
 
+  it("keeps next year's pulled clubs that have no games yet", () => {
+    // The autumn after a spring: next year's clubs are pulled, linked, and have not played. They
+    // are not last year's to take, and with them went the ids the daily refresh pulls.
+    const { teams, games } = yearPool();
+    const fresh: ScoutTeam = {
+      id: "N-FRESH",
+      name: "Freshmen",
+      gcTeams: [{ teamId: "gcFRESH", name: "Freshmen", ageGroupId: "ag_9_2027" }],
+    };
+    const done = archiveSquadYear(
+      2026,
+      { teams, games },
+      { ageGroups: yearGroups, teams: [...teams, fresh], games },
+      "2026-09-17T00:00:00.000Z"
+    );
+    expect(done.state.teams.map((team) => team.id).sort()).toEqual(["N-A", "N-FRESH", "N-NEXT"]);
+    expect(done.droppedTeams).toBe(6);
+  });
+
   it("reports the games that went without a table, rather than losing them quietly", () => {
     const { teams, games } = yearPool();
     const done = archiveSquadYear(

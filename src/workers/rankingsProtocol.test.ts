@@ -8,6 +8,7 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import { whatIfCurve } from "../lib/scoutWhatIf";
+import { ranksAsOf } from "../lib/rankMovement";
 
 const groups: AgeGroup[] = [
   { id: "u10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
@@ -180,5 +181,48 @@ describe("the what-if branch", () => {
     expect(before?.kind === "rankings" && before.rows).toEqual(
       after?.kind === "rankings" && after.rows
     );
+  });
+});
+
+describe("last week's places, from the pool the worker holds", () => {
+  const movement = (id: number, asOf: string, revision = 1) =>
+    ({
+      kind: "movement",
+      id,
+      ageGroupId: "u10",
+      ageGroups: groups,
+      asOf,
+      pool: { revision },
+    }) satisfies WorkerRequest;
+
+  it("fits the year as it stood that day, as ranksAsOf does", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle(movement(2, "2026-09-12"));
+    const answer = posted[1];
+    expect(answer?.kind).toBe("movement");
+    if (answer?.kind !== "movement") return;
+    expect(answer.asOf).toBe("2026-09-12");
+    expect(answer.ranks).toEqual(ranksAsOf("u10", teams, games, groups, undefined, "2026-09-12"));
+  });
+
+  it("answers again from what it kept rather than refitting", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle(movement(2, "2026-09-12"));
+    handle(movement(3, "2026-09-12"));
+    const [, first, second] = posted;
+    if (first?.kind !== "movement" || second?.kind !== "movement") throw new Error("no answer");
+    // The same object: kept, not fitted a second time.
+    expect(second.ranks).toBe(first.ranks);
+  });
+
+  it("asks for the pool like any other request, and posts nothing once cancelled", () => {
+    const { posted, handle } = harness();
+    handle(movement(1, "2026-09-12"));
+    expect(posted).toEqual([{ kind: "pool-needed", id: 1, revision: 1 }]);
+    handle({ kind: "cancel", id: 2 });
+    handle({ ...movement(2, "2026-09-12"), pool: shipment(1) });
+    expect(posted).toHaveLength(1);
   });
 });

@@ -184,18 +184,14 @@ const loadTeamsFor = (seasonId: string): TeamBase[] =>
 const loadMatchupsFor = (seasonId: string): Matchup[] =>
   coerceMatchups(parseJson(safeGet(seasonKey(seasonId, "matchups"))), loadTeamsFor(seasonId));
 const loadLogsFor = (seasonId: string): Record<string, GameLog> =>
-  coerceLogs(
-    parseJson(safeGet(seasonKey(seasonId, "logs"))),
-    loadMatchupsFor(seasonId),
-    loadSettingsFor(seasonId)
-  );
+  coerceLogs(parseJson(safeGet(seasonKey(seasonId, "logs"))), loadMatchupsFor(seasonId));
 
 export const loadTeams = (): TeamBase[] => loadTeamsFor(activeId());
 export const loadMatchups = (): Matchup[] => loadMatchupsFor(activeId());
 export const loadLogs = (): Record<string, GameLog> => loadLogsFor(activeId());
 export const loadSettings = (): Settings => loadSettingsFor(activeId());
 export const loadBracketLogs = (): Record<string, GameLog> =>
-  coerceLogs(parseJson(safeGet(seasonKey(activeId(), "bracketLogs"))), [], loadSettings());
+  coerceLogs(parseJson(safeGet(seasonKey(activeId(), "bracketLogs"))), []);
 
 /**
  * Read a *specific* season's data without switching the active season. Used by features (e.g.
@@ -207,7 +203,7 @@ export const loadLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   loadLogsFor(seasonId);
 export const loadSettingsForSeason = (seasonId: string): Settings => loadSettingsFor(seasonId);
 export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
-  coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), [], loadSettingsFor(seasonId));
+  coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), []);
 
 /** Writes one of the active season's keys and marks the season changed. */
 const saveActive = (dataKey: DataKey, value: unknown): boolean => {
@@ -289,6 +285,16 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
     name: name.trim() || `Season ${seasons.length + 1}`,
     createdAt: nowIso(),
   };
+  /*
+   * The copy's label is its own name, as `createSeason` seeds it. The switcher renames a season to
+   * match its label, so a copy left holding the original's was renamed back to it the first time
+   * it was opened. Everything else in the settings is copied as it was.
+   */
+  const settings = parseJson(safeGet(seasonKey(newId, "settings")));
+  safeSet(
+    seasonKey(newId, "settings"),
+    JSON.stringify({ ...(isRecord(settings) ? settings : {}), seasonLabel: meta.name })
+  );
   writeSeasons([...seasons, meta]);
   return meta;
 };

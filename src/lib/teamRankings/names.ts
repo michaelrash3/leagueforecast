@@ -393,6 +393,41 @@ export const isPlaceholderName = (name: string): boolean => {
   return /^(to be (determined|announced)|winner of\b|loser of\b|game \d+|seed \d+)/.test(value);
 };
 
+/** The round words `ROUND_WORDS` starts on, as a whole name and nothing more. */
+const WHOLE_ROUND =
+  /^(?:tournament|tourney|playoffs?|championships?|bracket(?: play)?|pool play|scrimmage|practice|double ?header|dh|semis?|semi-?finals?|finals?|consolation|elimination)$/;
+
+/**
+ * A name that is a slot and could not be anything else: the whole of it a slot word, a round, an
+ * age, or "TBD" with nothing after it but when.
+ *
+ * Narrower than `isPlaceholderName` on purpose. That reads a name as a slot, and then lets the one
+ * pulled club carrying the name have it, because a club really can call its squad "Miami Bulldogs
+ * Tournament", "TBC" is Tampa Bay Cobras and "Game 7 Sports" is a club. These cannot be. GameChanger
+ * does hold teams called "Tbd", "Practice", "Scrimmage" and "14U" — a coach's way of holding a date
+ * — and a nationwide pull fetches them like any other. Filed on one, every undecided game in the
+ * country joins one club: a Puerto Rico club's and an Ohio club's "TBD" sat on a Washington "Tbd".
+ * On the backup of 26 September 2026 at 18:40 there were 31 of them, holding 35 rows other clubs'
+ * schedules had filed on them. Their own schedules are left alone; a name like this only ever
+ * names a slot on somebody else's.
+ */
+export const namesNobody = (name: string): boolean => {
+  const raw = name.trim();
+  if (!raw) return true;
+  if (/^(?:\d{1,2}\s*u|u\s*\d{1,2})$/i.test(raw)) return true;
+  const value = cleanTeamName(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s{2,}/g, " ");
+  if (!value) return true;
+  if (PLACEHOLDER_NAMES.has(value) && value !== "tbc") return true;
+  if (WHOLE_ROUND.test(value)) return true;
+  // "TBD- 08/04/26, 5:00 PM": the slot and when it is, which is all GameChanger appends to one.
+  if (/^(?:tbd|tba)\b[\s\d/:,@–-]*(?:[ap]\.?m\.?)?[\s\d/:,@–-]*$/.test(value)) return true;
+  return /^(?:to be (?:determined|announced)|winner of\b|loser of\b)/.test(value);
+};
+
 /** Levenshtein distance, capped short-circuit free — names here are at most a line long. */
 const editDistance = (a: string, b: string): number => {
   if (a === b) return 0;

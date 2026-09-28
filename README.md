@@ -52,19 +52,20 @@ See [Team Rankings](#team-rankings) below for how the two connect.
 
 ## Features
 
-| Area                 | Highlights                                                                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                     |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                           |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                       |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                 |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                   |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                     |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                     |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail. |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                            |
+| Area                 | Highlights                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
+| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
+| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Our team**         | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
+| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
+| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
+| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
+| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
+| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
+| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
+| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
 
 ## Architecture
 
@@ -250,6 +251,22 @@ rated against the whole country and then listed together, so the second-best tea
 in the state is #2. The full table is behind a toggle, for finding one particular
 team in a pool of thousands.
 
+Above both, the team marked as yours (★) gets a card of its own: its place in the
+whole table and among its own state's clubs, its record and rating, and its next
+game with the chance to win it (`myTeamGlance`). "Where are we ranked?" is asked at
+every field, and without the card the only answer was Show all and a hundred rows
+at a time. The card reads only what the page already has, so it costs nothing.
+
+**Movement since last week.** The national board and the card mark how far each
+club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club that was
+not ranked then. A board keeps no history, so last week's is fitted again from the
+games played by then (`ranksAsOf`), once the board on screen is up, in the rankings
+worker for a large pool. That fit gives every page of the year at once and only its
+places are kept, a number a club, rather than a second year's fit of about 44 MB. A
+result posted since for a game played before that day is counted in it, so last week
+recomputed can differ from what was on screen then. In the first week of a half there
+is no board a week ago and nothing is marked.
+
 ### Scouting report
 
 Pick a team and it answers two questions. **Next up** is the games still on that
@@ -259,6 +276,27 @@ the date, the opponent's rank, the projected margin and a win probability. An
 opponent nobody has pulled has no rating, and the row says "not rated here yet"
 rather than inventing one. Below it, the same projection against every ranked
 team on the page, which is the question to ask before entering a tournament.
+
+**Compare with** sets a second club beside the report's (`compareClubs`): the
+games the two played against each other, every club both have played with each
+one's score against it ("we beat the Bears by 5, they beat them by 1"), and each
+side's best wins and worst losses by the rank of who it was against, and its last
+five. It reads the games the board counts, in the half it is showing, each score as
+that club's own schedule gave it. The projection is one number; this is the
+evidence it is made of. Names and scores only.
+
+**Tournament field** plays a weekend out before it is played. Build the field by
+name, or from the report team's own next opponents in one press, choose pools and
+a bracket of two, four or eight, and the event is simulated 2,000 times on the
+board's ratings (`simulateTournament`). The field is drawn into pools by snaking
+down the ratings, as organisers do; each pool plays a round robin; the clubs with
+the most pool wins go to a single-elimination bracket seeded on those wins; each
+game is won with the scouting report's chance. Ties on wins are drawn, because a
+tournament's run-differential rules are its own. The panel gives the field's
+strength (average rating and rank, and its best club) and each club's chance to
+win its pool, reach the final and win, marking as a guess a club whose rating was
+worked out against a different set of teams from most of the field. Fields are
+saved in this browser by name, per age group.
 
 The projection is the rating difference, capped at 14 runs, put through a
 logistic curve; no home-field term, because at this level which side is "home" is
@@ -487,6 +525,17 @@ opponent that dozens of unrelated clubs had all played, and the model would read
 that as evidence about how they compare to each other. Slots are not ranked,
 never offered as a name to log a game against, and never matched to a real club
 that looks similar.
+
+A slot is not a club even when GameChanger has a club of that name. Coaches make
+teams called "Tbd", "Practice", "Scrimmage" or "14U" to hold a date, and a
+nationwide pull fetches them like any other; filed on one, every undecided game in
+the country joined it, so a Puerto Rico club's "TBD" and an Ohio club's sat on one
+Washington "Tbd". A name that could be nothing but a slot — the whole of it a slot
+word, a round, an age, or "TBD" and when — is filed as a slot whoever carries the
+name (`namesNobody`), and the tidy takes rows filed on such a club by name off it
+again: 25 rows on the backup of 26 September 2026. The club's own schedule is left
+alone. A longer name still goes to the one pulled club that carries it, since a
+club really can call its squad "Miami Bulldogs Tournament".
 
 **One fixture listed twice on a club's own schedule.** GameChanger does this: the
 same game arrives under two game ids, with the opponent spelled two ways —
@@ -2225,6 +2274,31 @@ last Gold Bracket spot; the tiebreakers decide", or "after 1 more loss, only a w
 tiebreak keeps the team in" — rather than claim either. Once nothing is left to
 play, the table's own rank answers.
 
+## Playoff machine
+
+"If we beat the Bears and the Comets lose, where are we?" The Forecast tab has a
+panel for it. Each game left can be settled by hand — the away side, the home side,
+or **Sim** to leave it to the model — and the table below it is the season with
+those games played: records, places and the cut line from the same code as the real
+standings, with the league's own tiebreakers, and Gold % simulated over the games
+still unpicked (`scenarioSeason`). A pick plays out at the model's expected score,
+turned round where the pick goes against the model, because run differential breaks
+ties and a winner alone does not give one; a score can be typed instead. Ratings are
+not refitted on made-up results, so the rest of the page does not move, and nothing
+is saved: the picks go when the page does.
+
+## Our team
+
+The Dashboard leads with one team, picked there, for the questions asked at the
+field: where are we, what are our chances, who is next. The card gives its place
+and record, its Gold % and how far the last result moved it (the last step of the
+trend line), its next game with the chance of winning it and the seed a win or a
+loss leaves, the magic number once few enough games remain to work it out exactly,
+and **Enter a score**, which opens the Schedule on that team's games. The pick is
+this browser's, one per season (`readOurTeam`), and deliberately not a setting:
+settings travel in a shared link, and a parent's team is not the coach's they send
+the standings to. It is not in a backup either, for the same reason.
+
 ## Settings
 
 | Setting               | Effect                                                                                                                                                                    |
@@ -2330,10 +2404,13 @@ What it closes is the whole-year case, which is the one that loses a season.
 card takes one baseball year at a time — every age on it, because they are rated together
 and taking one page would quietly change the tables of the rest. **Archive** freezes each
 page's final tables, a half at a time, and then lets the games go. **Delete** keeps nothing
-(`deleteSquadYear`): the year's pages, every stored game filed under them, the clubs that
-played in no other year, and any tables already archived from it. A club that also plays in
-another year stays, since one copy of a club is how a rename reaches both years, but loses
-the GameChanger ids filed under the deleted pages: those ids are that year's squads, and a
+(`deleteSquadYear`): the year's pages, every stored game filed under them, the clubs no
+other year holds, and any tables already archived from it. Either way a club goes only when
+the year was all there was of it (`clubOutlivesYear`): next year's clubs, pulled and linked
+but not yet played, are next year's and stay. Keeping only the clubs a remaining game named
+took them too, 124 on a real backup, and with their ids went the daily refresh of their
+schedules. A club another year holds stays, since one copy of a club is how a rename reaches
+both years, but a delete takes the GameChanger ids filed under the deleted pages: those ids are that year's squads, and a
 link left to a page that is gone would be the one trace of the year still in the pool. A
 page that carried a squad on from one of the year's pages stops doing so. League Standings
 keeps its seasons either way; only the links from the deleted pages go, so their fixtures

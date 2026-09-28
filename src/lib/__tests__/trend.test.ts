@@ -235,3 +235,69 @@ describe("a league game that GameChanger also has", () => {
     expect(inSegment("9/13", 2027, "fall")).toBe(false);
   });
 });
+
+describe("the Gold-odds trend for a spring league with autumn tournaments", () => {
+  // Squad year 2027: F played its tournaments in September 2026, before a league that starts in
+  // April 2027. Every point on the line comes after them.
+  const spring: Matchup[] = ["4/11", "4/18", "4/25", "5/2"].map((date, at) => ({
+    id: `s${at}`,
+    date,
+    away: bases[at]!.id,
+    home: "F",
+  }));
+  const logs: Record<string, GameLog> = Object.fromEntries(
+    spring.map((game) => [
+      game.id,
+      {
+        awayRuns: "5",
+        awayHits: "",
+        awayK: "",
+        homeRuns: "4",
+        homeHits: "",
+        homeK: "",
+        innings: "6",
+        isFinal: true,
+      },
+    ])
+  );
+  const autumn: ExternalResult[] = [
+    { home: "F", away: "OUT-1", homeMargin: 8, date: "2026-09-12", neutral: true },
+    { home: "F", away: "OUT-2", homeMargin: 8, date: "2026-09-19", neutral: true },
+  ];
+
+  it("rates every point, the first included, on the autumn already played", () => {
+    const options = { states: 4, goldCutoff: 2, settings, squadYear: 2027 };
+    const rated = buildTrendStates(bases, spring, logs, spring, {
+      ...options,
+      externalResults: autumn,
+    });
+    const plain = buildTrendStates(bases, spring, logs, spring, options);
+    const ratingOfF = (teams: (typeof rated)[number]["teams"]) =>
+      teams.find((team) => team.id === "F")?.adjustedRating;
+    // Read in one calendar year, September came after May and no point but the last had them.
+    expect(ratingOfF(rated[0]!.teams)).toBeGreaterThan(ratingOfF(plain[0]!.teams)!);
+  });
+
+  it("leaves a spring result out of the points before its day, and in the ones after", () => {
+    // Played on 28 April 2027, between the league's 4/25 and 5/2.
+    const late: ExternalResult = {
+      home: "F",
+      away: "OUT-3",
+      homeMargin: 8,
+      date: "2027-04-28",
+      neutral: true,
+    };
+    const options = { states: 4, goldCutoff: 2, settings, squadYear: 2027 };
+    const without = buildTrendStates(bases, spring, logs, spring, {
+      ...options,
+      externalResults: autumn,
+    });
+    const withLate = buildTrendStates(bases, spring, logs, spring, {
+      ...options,
+      externalResults: [...autumn, late],
+    });
+    // The third point has reached 4/25, and the result was not played by then.
+    expect(withLate[2]!.teams).toEqual(without[2]!.teams);
+    expect(withLate[3]!.teams).not.toEqual(without[3]!.teams);
+  });
+});

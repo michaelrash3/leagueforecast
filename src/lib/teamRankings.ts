@@ -60,6 +60,7 @@ import {
   isRankedAgeLevel,
   rankingPoolGroupIds,
   squadYearForGcSeason,
+  squadYearForLeagueSeason,
   type SeasonSegment,
 } from "./teamRankings/seasons";
 import {
@@ -3561,6 +3562,12 @@ export type LeagueScoutBridge = {
   linkedCount: number;
   /** `results.length`, named so the UI does not have to explain what it is counting. */
   countedResults: number;
+  /**
+   * The squad year the season is linked to, which is what places the league's "M/D" dates among
+   * the results' ISO days when the forecast puts them in order (`playedOn`). Absent when no page
+   * claiming the season has a year.
+   */
+  squadYear?: number;
 };
 
 /** Who each league team is, as `linkLeagueTeams` settles it, and the lookups built on the way. */
@@ -3971,12 +3978,14 @@ export const leagueScoutBridge = (
         neutral: true as const,
       }));
 
+  const squadYear = squadYearForLeagueSeason(seasonId, ageGroups);
   return {
     results,
     seasonLinked,
     rows,
     linkedCount: rows.filter((row) => row.how === "picked" || row.how === "guessed").length,
     countedResults: results.length,
+    ...(squadYear !== undefined ? { squadYear } : {}),
   };
 };
 

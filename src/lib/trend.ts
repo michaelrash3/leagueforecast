@@ -1,6 +1,5 @@
 import { attachAdjustedRatings, calculateTeams, simulationSeed } from "./sim";
-import { buildPredictionEngine, type ExternalResult } from "./predictionEngine";
-import { parseDateValue } from "./date";
+import { buildPredictionEngine, playedOn, type ExternalResult } from "./predictionEngine";
 import { isFinal } from "./util";
 import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 
@@ -42,6 +41,8 @@ export const buildTrendStates = (
     settings: Settings;
     /** Team Rankings results, as the forecast reads them (`buildPredictionEngine`). */
     externalResults?: ExternalResult[];
+    /** The squad year the season is linked to, which places its dates among theirs (`playedOn`). */
+    squadYear?: number;
   }
 ): TrendState[] => {
   const outside = options.externalResults ?? [];
@@ -55,12 +56,12 @@ export const buildTrendStates = (
   /*
    * The latest day the season has reached by each point: its own game's, or, for a game logged
    * with no date, the last day before it that has one. Read as its own date, an undated game is
-   * the end of time (`parseDateValue`), and a point in the middle of the chart took every outside
+   * the end of time (`playedOn`), and a point in the middle of the chart took every outside
    * result the season will ever hold, the ones played after it included.
    */
   let through = Number.NEGATIVE_INFINITY;
   completedGames.slice(0, before).forEach((game) => {
-    const at = parseDateValue(game.date ?? "");
+    const at = playedOn(game.date, options.squadYear);
     if (Number.isFinite(at)) through = Math.max(through, at);
   });
 
@@ -73,13 +74,20 @@ export const buildTrendStates = (
       if (allowed.has(game.id) && log) stateLogs[game.id] = log;
     });
     const asOf = calculateTeams(teams, matchups, stateLogs, options.settings);
-    const at = parseDateValue(completedGames[before + index - 1]?.date ?? "");
+    const at = playedOn(completedGames[before + index - 1]?.date, options.squadYear);
     if (Number.isFinite(at)) through = Math.max(through, at);
     const played =
       index === drawn.length
         ? outside
-        : outside.filter((result) => parseDateValue(result.date ?? "") <= through);
-    const engine = buildPredictionEngine(asOf, matchups, stateLogs, options.settings, played);
+        : outside.filter((result) => playedOn(result.date, options.squadYear) <= through);
+    const engine = buildPredictionEngine(
+      asOf,
+      matchups,
+      stateLogs,
+      options.settings,
+      played,
+      options.squadYear
+    );
     built.push({
       teams: attachAdjustedRatings(asOf, engine.ratings),
       remaining: matchups.filter((game) => !isFinal(stateLogs[game.id])),

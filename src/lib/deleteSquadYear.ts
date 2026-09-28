@@ -3,25 +3,26 @@
  *
  * The other way a year leaves is archiving it, which freezes its tables before the games go. This
  * is for a year nobody wants a record of — pulled by mistake, or simply done with — and it takes
- * everything the year is made of: its pages, every stored game filed under them, the clubs that
- * played in no other year, and the year's archived tables if it has any.
+ * everything the year is made of: its pages, every stored game filed under them, the clubs no other
+ * year holds, and the year's archived tables if it has any.
  *
  * A whole year rather than a page, for the reason archiving gives: every age on a year is rated
  * together, so taking one page would quietly change the tables of the pages left behind.
  *
- * A club that also plays in another year stays, because a team is not owned by a page — one copy
- * of a club is the only way a rename in one year is a rename in both. What it loses is what tied
- * it to this year: the GameChanger ids filed under the year's pages. GameChanger mints an id per
- * team per season, so those ids *are* this year's squads, and a link left pointing at a page that
- * no longer exists would be the one trace of the year still in the pool.
+ * A club another year holds stays, whether by a game there or by an id pulled as that year's squad
+ * before it has played, because a team is not owned by a page: one copy of a club is the only way
+ * a rename in one year is a rename in both. What it loses is what tied it to this year: the
+ * GameChanger ids filed under the year's pages. GameChanger mints an id per team per season, so
+ * those ids *are* this year's squads, and a link left pointing at a page that no longer exists
+ * would be the one trace of the year still in the pool.
  *
  * League Standings keeps its own seasons; this does not reach into them. The pages carried the
  * links to them, and those links go with the pages, so the league's fixtures stop feeding a
  * ranking for the year. The ids come back so the caller can say which seasons that is.
  */
 
-import { ageGroupYear, filedTeamIds, type AgeGroup } from "./teamRankings";
-import type { ArchiveEntry, StoredPool } from "./teamRankingsArchive";
+import { ageGroupYear, type AgeGroup } from "./teamRankings";
+import { clubOutlivesYear, type ArchiveEntry, type StoredPool } from "./teamRankingsArchive";
 
 export type SquadYearDeletion = {
   /** The pool with the year gone. */
@@ -30,9 +31,9 @@ export type SquadYearDeletion = {
   pages: string[];
   /** Stored games the delete takes. League fixtures are not among them — they were never stored. */
   droppedGames: number;
-  /** Clubs no remaining game mentions. */
+  /** Clubs the year was all there was of (`clubOutlivesYear`). */
   droppedTeams: number;
-  /** Clubs that stay, because they play in another year, and lose the ids filed under this one. */
+  /** Clubs that stay, because another year holds them, and lose the ids filed under this one. */
   unlinkedTeams: number;
   /** The league seasons the year's pages were attached to, which stop feeding rankings. */
   leagueSeasonIds: string[];
@@ -68,14 +69,10 @@ export const deleteSquadYear = (
   const going = new Set(ofYear.map((group) => group.id));
 
   const games = stored.games.filter((game) => !going.has(game.ageGroupId));
-  // A team a claimed row was filed against is still where that row goes back (`filedTeamIds`).
-  const wanted = new Set([
-    ...games.flatMap((game) => [game.teamAId, game.teamBId]),
-    ...filedTeamIds(games),
-  ]);
+  const outlives = clubOutlivesYear(stored, going);
   let unlinkedTeams = 0;
   const teams = stored.teams.flatMap((team) => {
-    if (!wanted.has(team.id)) return [];
+    if (!outlives(team)) return [];
     const links = team.gcTeams;
     if (!links?.some((link) => going.has(link.ageGroupId))) return [team];
     unlinkedTeams += 1;

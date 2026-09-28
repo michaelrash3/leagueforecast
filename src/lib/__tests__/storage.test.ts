@@ -13,7 +13,9 @@ import {
   loadTeams,
   loadTeamsForSeason,
   renameSeason,
+  saveLogs,
   saveMatchups,
+  saveSettings,
   saveTeams,
   setActiveSeason,
 } from "../storage";
@@ -124,6 +126,32 @@ describe("storage hardening", () => {
   });
 });
 
+describe("a final across a reload", () => {
+  it("stays final under a full box score with its strikeouts left blank", () => {
+    // Machine pitch under the full box score is where a final without strikeouts used to be read
+    // back as not final: the Scoreboard showed it Scheduled and the standings lost the game.
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    saveMatchups([{ id: "g1", date: "2026-05-01", away: "A", home: "B" }]);
+    saveSettings({ ...loadSettings(), pitchMode: "machine", scoreDetail: "full" });
+    const final = {
+      awayRuns: "7",
+      awayHits: "",
+      awayK: "",
+      homeRuns: "4",
+      homeHits: "",
+      homeK: "",
+      innings: "6",
+      isFinal: true,
+    };
+    saveLogs({ g1: final });
+
+    expect(loadLogs()).toEqual({ g1: final });
+  });
+});
+
 describe("multi-season storage", () => {
   it("migrates legacy flat data into a default season", () => {
     backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
@@ -155,6 +183,22 @@ describe("multi-season storage", () => {
     // The original season is untouched.
     setActiveSeason(first.id);
     expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+  });
+
+  it("names a duplicate's own label after the duplicate, not the season it copied", () => {
+    // The season switcher renames a season to match its label, so a copy that kept the original's
+    // label was renamed back to the original's name the first time it was opened: two seasons of
+    // one name, and no telling which was the copy.
+    const first = listSeasons()[0]!;
+    saveSettings({ ...loadSettings(), seasonLabel: "Spring 2026", goldCutoff: 5 });
+
+    const copy = duplicateSeason(first.id, "Spring 2026 (what if)");
+    setActiveSeason(copy!.id);
+    expect(loadSettings().seasonLabel).toBe("Spring 2026 (what if)");
+    // Everything else in the settings is the copy's to keep.
+    expect(loadSettings().goldCutoff).toBe(5);
+    setActiveSeason(first.id);
+    expect(loadSettings().seasonLabel).toBe("Spring 2026");
   });
 
   it("duplicates a season's data into a new independent copy", () => {

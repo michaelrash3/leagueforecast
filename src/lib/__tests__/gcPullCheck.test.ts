@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ADVICE, checkSchedule, checkTeamResponse, verdict } from "../gcPullCheck";
 import type { GcGame, GcTeamSchedule } from "../gameChangerApi";
 
@@ -91,6 +91,26 @@ describe("what one real pull proves", () => {
     };
     expect(statusOf(checkSchedule(schedule([game]), "2026-09-17"), "Scores")).toBe("pass");
     expect(statusOf(checkSchedule(schedule([game]), "2026-09-19"), "Scores")).toBe("warn");
+  });
+
+  it("left to its own clock, takes today as the reader's day, not UTC's", () => {
+    // A game tonight in Chicago, checked at nine: UTC is already on the 19th, which made tonight's
+    // unscored game one that "was played before today".
+    vi.stubEnv("TZ", "America/Chicago");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-19T02:00:00Z"));
+    try {
+      const tonight: GcGame = {
+        id: "g1",
+        date: "2026-09-18",
+        opponentName: "Naperville Bandits",
+        status: "scheduled",
+      };
+      expect(statusOf(checkSchedule(schedule([tonight])), "Scores")).toBe("pass");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("notices a game with no opponent and one with no date", () => {

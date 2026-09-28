@@ -1,4 +1,5 @@
 import type { GcFetchErrorReason, GcTeamResponse, GcTeamSchedule } from "./gameChangerApi";
+import { todayIsoDay } from "./date";
 
 /**
  * Reading what came back from one real GameChanger pull.
@@ -54,7 +55,7 @@ export const checkTeamResponse = (
   teamId: string,
   response: GcTeamResponse,
   /** Today, as "2026-09-16" — what "already played" is measured against. */
-  today: string = new Date().toISOString().slice(0, 10)
+  today: string = todayIsoDay()
 ): PullCheck[] => {
   if (!response.ok) {
     return [
@@ -122,7 +123,7 @@ const scoresCheck = (
  */
 export const checkSchedule = (
   schedule: GcTeamSchedule,
-  today: string = new Date().toISOString().slice(0, 10)
+  today: string = todayIsoDay()
 ): PullCheck[] => {
   const { profile, games } = schedule;
   const played = games.filter(

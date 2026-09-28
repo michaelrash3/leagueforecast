@@ -209,6 +209,40 @@ export type ShownPool = { teams: ScoutTeam[]; games: ScoutGame[] };
 export type StoredPool = { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] };
 
 /**
+ * Whether a club outlives a year's pages going: every club does but the ones that year was all
+ * there was of.
+ *
+ * A club goes when the year held it — a game filed under the year's pages, or a GameChanger id
+ * pulled as one of its squads — and nothing that stays does: no game left, and no id on a page
+ * that is still there. Keeping only the clubs a remaining game names, as this once did, also took
+ * next year's clubs that had been pulled and had not played yet. On a real backup, archiving 2026
+ * would have taken 124 of them, every one linked to a 2027 page with an empty autumn schedule, and
+ * the daily refresh would never have pulled those schedules again.
+ *
+ * An id on a page already gone counts for nothing: an archive leaves the ids its clubs were pulled
+ * as, and a page that no longer exists is not a year the club plays in.
+ */
+export const clubOutlivesYear = (
+  stored: StoredPool,
+  going: ReadonlySet<string>
+): ((team: ScoutTeam) => boolean) => {
+  const staying = new Set(
+    stored.ageGroups.filter((group) => !going.has(group.id)).map((group) => group.id)
+  );
+  // A team a claimed row was filed against is still where that row goes back (`filedTeamIds`).
+  const named = (games: ScoutGame[]) =>
+    new Set([...games.flatMap((game) => [game.teamAId, game.teamBId]), ...filedTeamIds(games)]);
+  const wanted = named(stored.games.filter((game) => !going.has(game.ageGroupId)));
+  const held = named(stored.games.filter((game) => going.has(game.ageGroupId)));
+  return (team) => {
+    if (wanted.has(team.id)) return true;
+    const links = team.gcTeams ?? [];
+    if (links.some((link) => staying.has(link.ageGroupId))) return true;
+    return !held.has(team.id) && !links.some((link) => going.has(link.ageGroupId));
+  };
+};
+
+/**
  * Freezes a whole squad year's tables and takes the year out of the live pool.
  *
  * A squad year, not a page, because a page is not fitted on its own: every group sharing a season
@@ -245,7 +279,7 @@ export const archiveSquadYear = (
   state: StoredPool;
   /** Stored games the delete takes. League fixtures are not among them — they were never stored. */
   droppedGames: number;
-  /** Teams no remaining stored game mentions. */
+  /** Clubs the year was all there was of (`clubOutlivesYear`). */
   droppedTeams: number;
   /** The pages whose games went without a table of their own, and how many each held. */
   unranked: Array<{ name: string; games: number }>;
@@ -294,12 +328,7 @@ export const archiveSquadYear = (
 
   const going = new Set(ofYear.map((group) => group.id));
   const remaining = stored.games.filter((game) => !going.has(game.ageGroupId));
-  // A team a claimed row was filed against is still where that row goes back (`filedTeamIds`).
-  const wanted = new Set([
-    ...remaining.flatMap((game) => [game.teamAId, game.teamBId]),
-    ...filedTeamIds(remaining),
-  ]);
-  const keptTeams = stored.teams.filter((team) => wanted.has(team.id));
+  const keptTeams = stored.teams.filter(clubOutlivesYear(stored, going));
 
   // A frozen game the stored pool never held came from the league, so the table is now its record.
   const onDisk = new Set(stored.games.map((game) => game.id));

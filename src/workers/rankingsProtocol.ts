@@ -19,6 +19,7 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
+import { ranksAsOf } from "../lib/rankMovement";
 
 /**
  * What crosses between the page and the rankings worker, and what the worker does with it.
@@ -102,9 +103,25 @@ export type ModelCheckRequest = {
   pool: PoolShipment;
 };
 
+/**
+ * Every club's place on its page as the board stood on `asOf` (`ranksAsOf`), for "since last
+ * week". Asked once the board is up, because it is a second fit of the year and the board is what
+ * the reader is waiting for.
+ */
+export type MovementRequest = {
+  kind: "movement";
+  id: number;
+  ageGroupId: string;
+  ageGroups: AgeGroup[];
+  segment?: SeasonSegment;
+  asOf: string;
+  pool: PoolShipment;
+};
+
 export type CancelRequest = { kind: "cancel"; id: number };
 
-export type WorkerRequest = RankingsRequest | WhatIfRequest | ModelCheckRequest | CancelRequest;
+export type WorkerRequest =
+  RankingsRequest | WhatIfRequest | ModelCheckRequest | MovementRequest | CancelRequest;
 
 export type RankingsResponse = {
   kind: "rankings";
@@ -134,11 +151,19 @@ export type ModelCheckResponse = {
   elapsedMs: number;
 };
 
+export type MovementResponse = {
+  kind: "movement";
+  id: number;
+  asOf: string;
+  ranks: Record<string, number>;
+  elapsedMs: number;
+};
+
 /** The worker does not hold the revision the request named; ship it and ask again. */
 export type PoolNeededResponse = { kind: "pool-needed"; id: number; revision: number };
 
 export type WorkerResponse =
-  RankingsResponse | WhatIfResponse | ModelCheckResponse | PoolNeededResponse;
+  RankingsResponse | WhatIfResponse | ModelCheckResponse | MovementResponse | PoolNeededResponse;
 
 type HeldPool = { revision: number; teams: ScoutTeam[]; games: ScoutGame[] };
 
@@ -181,6 +206,11 @@ export const createRankingsHandler = (
   let yearFit: { key: string; fit: ScoutYearFit } | null = null;
   /** The page's rated games in order, for the model check's runs; see `ModelCheckRequest`. */
   let checked: { key: string; games: BacktestGames } | null = null;
+  /**
+   * Last week's places, for every page of the year: one refit per pool, day and half rather than
+   * one per page switch, and only the numbers kept, not the fit (`ranksAsOf`).
+   */
+  let lastWeek: { key: string; ranks: Record<string, number> } | null = null;
   const pageRows = (request: RankingsRequest, pool: HeldPool): ScoutRankingRow[] => {
     const today = todayIsoDay();
     const key = yearFitKey(request, pool.revision, today);
@@ -253,6 +283,40 @@ export const createRankingsHandler = (
       );
       if (!canceled.has(request.id)) {
         post({ kind: "model-check", id: request.id, result, elapsedMs: now() - start });
+      }
+      canceled.delete(request.id);
+      return;
+    }
+
+    if (request.kind === "movement") {
+      const key = JSON.stringify([
+        held.revision,
+        rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
+        request.segment ?? "",
+        request.asOf,
+        request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
+      ]);
+      if (lastWeek?.key !== key) {
+        lastWeek = {
+          key,
+          ranks: ranksAsOf(
+            request.ageGroupId,
+            held.teams,
+            held.games,
+            request.ageGroups,
+            request.segment,
+            request.asOf
+          ),
+        };
+      }
+      if (!canceled.has(request.id)) {
+        post({
+          kind: "movement",
+          id: request.id,
+          asOf: request.asOf,
+          ranks: lastWeek.ranks,
+          elapsedMs: now() - start,
+        });
       }
       canceled.delete(request.id);
       return;

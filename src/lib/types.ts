@@ -243,6 +243,8 @@ export type UndoSnapshot = {
   matchups: Matchup[];
   logs: Record<string, GameLog>;
   bracketLogs?: Record<string, GameLog>;
+  /** Present only on a snapshot taken before something that replaced the settings. */
+  settings?: Settings;
   label: string;
   timestamp: number;
 };

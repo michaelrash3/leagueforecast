@@ -39,7 +39,16 @@ import {
   isPoolUnavailable,
   onPoolWriteError,
 } from "./lib/teamRankingsStorage";
-import { readSummaryMode, writeSummaryMode, type SummaryMode } from "./lib/preferences";
+import {
+  readOurTeam,
+  readSummaryMode,
+  writeOurTeam,
+  writeSummaryMode,
+  type SummaryMode,
+} from "./lib/preferences";
+import { ourTeamSummary } from "./lib/ourTeam";
+import { OurTeamCard } from "./components/league/OurTeamCard";
+import { PlayoffMachine } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -132,7 +141,7 @@ import {
 } from "./lib/teamStats";
 import { buildDemoSeason } from "./lib/demoSeason";
 import { buildTeamTrendSummary } from "./lib/teamTrend";
-import { blankLog, clamp, isFinal } from "./lib/util";
+import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
 import { DashboardView } from "./components/league/DashboardView";
@@ -547,8 +556,16 @@ export default function App() {
   });
 
   const predictionEngine = useMemo(
-    () => buildPredictionEngine(baseTeams, matchups, deferredLogs, settings, externalResults),
-    [baseTeams, matchups, deferredLogs, settings, externalResults]
+    () =>
+      buildPredictionEngine(
+        baseTeams,
+        matchups,
+        deferredLogs,
+        settings,
+        externalResults,
+        scoutBridge.squadYear
+      ),
+    [baseTeams, matchups, deferredLogs, settings, externalResults, scoutBridge.squadYear]
   );
 
   /**
@@ -671,9 +688,19 @@ export default function App() {
       settings,
       // The results the Gold % column is rated with, so the line ends where the column is.
       externalResults,
+      squadYear: scoutBridge.squadYear,
     });
     return { teamIds, states: built, iterations: TREND_ITERATIONS, cutoff: goldCutoff, settings };
-  }, [teams, matchups, deferredLogs, completedGames, goldCutoff, settings, externalResults]);
+  }, [
+    teams,
+    matchups,
+    deferredLogs,
+    completedGames,
+    goldCutoff,
+    settings,
+    externalResults,
+    scoutBridge.squadYear,
+  ]);
   const trendMap = useSimulationTrend(trendInput);
 
   const bracketInput = useMemo(
@@ -1444,8 +1471,8 @@ export default function App() {
    * action would risk filling storage for nothing.
    */
   const readSeasonForUndo = useCallback(
-    () => ({ teams, matchups, logs, bracketLogs }),
-    [teams, matchups, logs, bracketLogs]
+    () => ({ teams, matchups, logs, bracketLogs, settings }),
+    [teams, matchups, logs, bracketLogs, settings]
   );
 
   const applySeasonFromUndo = useCallback(
@@ -1454,6 +1481,7 @@ export default function App() {
       setMatchups(season.matchups);
       setLogs(season.logs);
       setBracketLogs(season.bracketLogs);
+      if (season.settings) setSettings(season.settings);
       closeTeamData();
     },
     [closeTeamData]
@@ -1716,18 +1744,7 @@ export default function App() {
     setLogs((prev) => {
       const log = prev[gameId];
       if (!log) return prev;
-      return {
-        ...prev,
-        [gameId]: {
-          ...log,
-          awayRuns: log.homeRuns,
-          awayHits: log.homeHits,
-          awayK: log.homeK,
-          homeRuns: log.awayRuns,
-          homeHits: log.awayHits,
-          homeK: log.awayK,
-        },
-      };
+      return { ...prev, [gameId]: swappedLog(log) };
     });
   };
 
@@ -1744,7 +1761,7 @@ export default function App() {
       if (!confirmed) return;
     }
     const demo = buildDemoSeason();
-    captureUndo("Load demo season");
+    captureUndo("Load demo season", { withSettings: true });
     setTeams(demo.teams);
     setMatchups(demo.matchups);
     setLogs(demo.logs);
@@ -1859,6 +1876,47 @@ export default function App() {
     [selectedTeam, matchups, logs, runsOnly]
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
+
+  /*
+   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season id,
+   * so a season switch reads the pick made for that season rather than carrying one across.
+   */
+  const [ourTeamPick, setOurTeamPick] = useState(() => ({
+    seasonId: activeSeasonId,
+    teamId: readOurTeam(activeSeasonId),
+  }));
+  const ourTeamId =
+    ourTeamPick.seasonId === activeSeasonId ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+  const pickOurTeam = useCallback(
+    (teamId: string | null) => {
+      writeOurTeam(activeSeasonId, teamId);
+      setOurTeamPick({ seasonId: activeSeasonId, teamId });
+    },
+    [activeSeasonId]
+  );
+  const ourTeam = useMemo(() => {
+    const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
+    if (!team) return null;
+    const magic =
+      hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
+        ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
+        : undefined;
+    return ourTeamSummary(team, dashboardRows.length, {
+      hasCutLine,
+      swings: nextTwoSwingGames(team.id),
+      ...(magic ? { magic } : {}),
+    });
+  }, [
+    ourTeamId,
+    dashboardById,
+    dashboardRows,
+    hasCutLine,
+    remainingGames,
+    goldCutoff,
+    settings,
+    nextTwoSwingGames,
+  ]);
   const currentLeader = dashboardRows[0];
 
   const selectedTeamDetail = useMemo(() => {
@@ -2104,10 +2162,12 @@ export default function App() {
       confirmLabel: "Load snapshot",
     }).then((ok) => {
       if (ok) {
-        captureUndo("Load shared snapshot");
+        captureUndo("Load shared snapshot", { withSettings: true });
         setTeams(sharedSnapshot.teams);
         setMatchups(sharedSnapshot.matchups);
         setLogs(sharedSnapshot.logs);
+        // A link carries no bracket, and the one here was scored between the teams just replaced.
+        setBracketLogs({});
         setSettings(sharedSnapshot.settings);
         if (sharedUiState.view) setActiveView(sharedUiState.view);
         if (sharedUiState.teamId) setSelectedTeamId(sharedUiState.teamId);
@@ -2508,6 +2568,17 @@ export default function App() {
                 teamsById={liveById}
                 matchups={matchups}
                 setActiveView={setActiveView}
+                ourTeam={
+                  <OurTeamCard
+                    summary={ourTeam}
+                    teams={teams}
+                    onPick={pickOurTeam}
+                    onEnterScore={(teamId) => {
+                      setScoreboardTeamFilter(teamId);
+                      setActiveView("games");
+                    }}
+                  />
+                }
               />
             ) : activeView === "power" ? (
               <PowerRatingsView engine={predictionEngine} />
@@ -2621,6 +2692,22 @@ export default function App() {
                 retryForecastStory={forecastStory.retry}
                 forecastStoryWaiting={forecastStory.waiting}
                 askForecastStory={forecastStory.ask}
+                playoffMachine={
+                  <PlayoffMachine
+                    teams={teams}
+                    matchups={matchups}
+                    logs={deferredLogs}
+                    settings={settings}
+                    liveTeams={liveTeams}
+                    ratings={predictionEngine.ratings}
+                    remainingGames={remainingGames}
+                    cutoff={goldCutoff}
+                    hasCutLine={hasCutLine}
+                    currentRows={dashboardRows}
+                    oddsSeed={oddsSeed}
+                    iterations={SIM_ITERATIONS}
+                  />
+                }
               />
             ) : activeView === "settings" ? (
               <div className="space-y-6">

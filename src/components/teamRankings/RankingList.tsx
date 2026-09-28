@@ -1,4 +1,5 @@
 import type { ScoutRankingRow } from "../../lib/teamRankings";
+import type { Movement } from "../../lib/rankMovement";
 import { pill } from "../../styles/tokens";
 
 /**
@@ -7,16 +8,48 @@ import { pill } from "../../styles/tokens";
  */
 export const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
+/**
+ * "▲3", "▼5" or "new": how far a club has moved since last week, as a reader says it. Nothing for a
+ * club that has not moved, which is most of a board in a quiet week.
+ */
+export function MovementMark({ movement }: { movement: Movement | undefined }) {
+  if (movement === undefined || movement === 0) return null;
+  if (movement === "new") {
+    return (
+      <span
+        className="text-xs font-semibold text-slate-500 dark:text-slate-400"
+        title="Not ranked a week ago"
+      >
+        new
+      </span>
+    );
+  }
+  const up = movement > 0;
+  return (
+    <span
+      className={`text-xs font-bold ${up ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}
+      aria-label={`${up ? "up" : "down"} ${Math.abs(movement)} since last week`}
+      title={`${up ? "Up" : "Down"} ${Math.abs(movement)} since last week`}
+    >
+      {up ? "▲" : "▼"}
+      {Math.abs(movement)}
+    </span>
+  );
+}
+
 /** A ranked list: place, team with its town under the name, record and rating. */
 export function RankingList({
   rows,
   onOpen,
   placeOf,
+  movementOf,
 }: {
   rows: ScoutRankingRow[];
   onOpen: (teamId: string) => void;
   /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
   placeOf: (teamId: string) => string | undefined;
+  /** How far each row has moved since last week, where the list's places are the page's own. */
+  movementOf?: (row: ScoutRankingRow) => Movement | undefined;
 }) {
   return (
     <ol className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -47,8 +80,11 @@ export function RankingList({
               )}
             </span>
           </span>
-          <span className="shrink-0 text-slate-500 dark:text-slate-400">
-            {row.record} · {formatRating(row.rating)}
+          <span className="flex shrink-0 items-center gap-2 text-slate-500 dark:text-slate-400">
+            {movementOf && <MovementMark movement={movementOf(row)} />}
+            <span>
+              {row.record} · {formatRating(row.rating)}
+            </span>
           </span>
         </li>
       ))}

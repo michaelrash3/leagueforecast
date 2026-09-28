@@ -88,10 +88,52 @@ describe("deleting a squad year", () => {
     expect(done.state.teams.some((team) => team.id === "S-Y")).toBe(false);
   });
 
-  it("takes the clubs that played in no other year", () => {
+  it("takes the clubs no other year holds", () => {
     const done = deleteSquadYear(2026, pool(), []);
     expect(done.state.teams.map((team) => team.id)).toEqual(["S-A", "S-N"]);
     expect(done.droppedTeams).toBe(3);
+  });
+
+  /*
+   * Pulled for next year and not played yet: an autumn schedule is often empty for weeks. Keeping
+   * only the clubs a remaining game names took every one of them — 124 on a real backup — and with
+   * their ids gone the daily refresh never pulled their schedules again.
+   */
+  it("keeps next year's pulled clubs that have no games yet", () => {
+    const stored = pool();
+    stored.teams.push(
+      { id: "S-F", name: "Freshmen", gcTeams: [link("gcFRES2027", "ag_9u_2027")] },
+      {
+        id: "S-G",
+        name: "Graduates",
+        gcTeams: [link("gcGRAD2026", "ag_9u_2026"), link("gcGRAD2027", "ag_9u_2027")],
+      }
+    );
+    const done = deleteSquadYear(2026, stored, []);
+    expect(done.state.teams.find((team) => team.id === "S-F")).toEqual(
+      stored.teams[stored.teams.length - 2]
+    );
+    // In both years with no game in either: it stays, as its 2027 squad, like Aces do.
+    expect(done.state.teams.find((team) => team.id === "S-G")?.gcTeams).toEqual([
+      link("gcGRAD2027", "ag_9u_2027"),
+    ]);
+    expect(done.droppedTeams).toBe(3);
+  });
+
+  it("leaves alone a club the year never held", () => {
+    // No game and no id anywhere: nothing ties it to 2026, so taking 2026 is no reason to take it.
+    const stored = pool();
+    stored.teams.push({ id: "S-H", name: "Handmade" });
+    const done = deleteSquadYear(2026, stored, []);
+    expect(done.state.teams.some((team) => team.id === "S-H")).toBe(true);
+  });
+
+  it("still takes a club whose only id is on a page already gone and whose games were this year's", () => {
+    // An archive leaves the ids a club was pulled as; a page that no longer exists holds nothing.
+    const stored = pool();
+    stored.teams[2] = { id: "S-C", name: "Cougars", gcTeams: [link("gcCOUG2025", "ag_9u_2025")] };
+    const done = deleteSquadYear(2026, stored, []);
+    expect(done.state.teams.some((team) => team.id === "S-C")).toBe(false);
   });
 
   it("keeps a team a claimed row in another year's game was filed against", () => {

@@ -6,7 +6,7 @@
  * state that everything else reads and the handlers that write it, which is how the file got to
  * eight and a half thousand lines and why a bug in the plumbing was so easy to miss.
  */
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { backtestPredictions } from "../../lib/backtest";
 import { buildBracketProjection } from "../../lib/bracket";
 import { goldCutLineSnapshot, type ClinchingPathNote } from "../../lib/clinchingPaths";
@@ -108,6 +108,8 @@ export function ModelView(props: {
   retryForecastStory: () => void;
   forecastStoryWaiting: boolean;
   askForecastStory: () => void;
+  /** Pick winners of the games left and see the table (`PlayoffMachine`). */
+  playoffMachine?: ReactNode;
 }) {
   const {
     goldCutoff,
@@ -292,6 +294,8 @@ export function ModelView(props: {
           cardClassName={card}
         />
       )}
+
+      {props.playoffMachine}
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">

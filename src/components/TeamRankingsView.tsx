@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { lastBackupTakenAt, noteBackupTaken } from "../lib/lastBackup";
 import { reloadApp, resetApp } from "../lib/resetApp";
+import { myTeamGlance } from "../lib/myTeamGlance";
+import { movementOf } from "../lib/rankMovement";
+import { compareClubs } from "../lib/clubCompare";
+import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
   ageGroupLevel,
@@ -8,6 +12,7 @@ import {
   buildScoutingReport,
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
+  countedInWindow,
   dedupeLeagueFixtures,
   leagueStandIns,
   deriveLeagueScoutGames,
@@ -36,6 +41,7 @@ import {
   type AgeGroupSeason,
   type LeagueSeasonSnapshot,
   type ScoutGame,
+  type ScoutRankingRow,
   type ScoutTeam,
   type SeasonSegment,
 } from "../lib/teamRankings";
@@ -759,6 +765,7 @@ export function TeamRankingsView({
     whatIf,
     askWhatIf,
     checkModel,
+    lastWeek,
   } = useRankingsWorker({
     ageGroupId: selectedAgeGroupId,
     teams: allKnown.teams,
@@ -870,6 +877,24 @@ export function TeamRankingsView({
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
   /** Opponents asked for by name in the scouting report, beyond the two lists it shows by default. */
   const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>([]);
+
+  /**
+   * A club to set beside the report's team (`compareClubs`): their meetings, the clubs both have
+   * played, and each one's best wins, worst losses and latest results, off the games this board
+   * counts in the half it is showing.
+   */
+  const [compareId, setCompareId] = useState("");
+  const comparison = useMemo(() => {
+    if (!compareId || !reportForId || compareId === reportForId) return null;
+    return compareClubs(
+      reportForId,
+      compareId,
+      poolGames,
+      rankings,
+      (teamId) => teamNameById.get(teamId) ?? "Unknown team",
+      (game) => countedInWindow(game, ageGroups, selectedSegment)
+    );
+  }, [compareId, reportForId, poolGames, rankings, teamNameById, ageGroups, selectedSegment]);
   const report = useMemo(
     () =>
       reportForId
@@ -895,6 +920,40 @@ export function TeamRankingsView({
     return buildUpcomingSchedule(reportForId, rankings, poolGames, allKnown.teams, today);
   }, [reportForId, rankings, poolGames, allKnown.teams, today]);
   const reportRow = rankings.find((row) => row.teamId === reportForId) ?? null;
+
+  /** How far a row on this page's national board has moved since last week. */
+  const boardMovement = useCallback(
+    (row: ScoutRankingRow) =>
+      movementOf(row.teamId, row.overallRank ?? row.rank, lastWeek?.ranks ?? null),
+    [lastWeek]
+  );
+
+  /** The team marked as yours, where it stands on this page and what it plays next. */
+  const myTeam = useMemo(() => {
+    if (myTeamId === undefined) return null;
+    const stateById = new Map(rankedTeams.map((team) => [team.id, team.state]));
+    const upcoming =
+      myTeamId === reportForId
+        ? upcomingRows
+        : buildUpcomingSchedule(myTeamId, rankings, poolGames, allKnown.teams, today);
+    return myTeamGlance(
+      rankings,
+      myTeamId,
+      (teamId) => stateById.get(teamId),
+      upcoming,
+      lastWeek?.ranks ?? null
+    );
+  }, [
+    lastWeek,
+    myTeamId,
+    reportForId,
+    upcomingRows,
+    rankings,
+    rankedTeams,
+    poolGames,
+    allKnown.teams,
+    today,
+  ]);
 
   /**
    * The fixture whose what-if is open, if any. One at a time: two would be two tables.
@@ -1843,10 +1902,10 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     /*
      * Whether the pool was tidy before this, checked before anything changes.
      *
-     * What survives an archive is a subset of what was there — whole pages removed, and the teams
-     * no remaining game mentions, which is the one thing a tidy would have done anyway. So a tidy
-     * pool stays tidy, and stamping the smaller one saves a full worker pass over three hundred
-     * thousand games for nothing. An untidy pool leaves the stamp alone, so the tidy still comes.
+     * What survives an archive is a subset of what was there — whole pages removed, with their
+     * games and the clubs the year was all there was of — and taking things away leaves a tidy
+     * nothing new to do. So a tidy pool stays tidy, and stamping the smaller one saves a full
+     * worker pass over three hundred thousand games for nothing. An untidy pool leaves the stamp alone, so the tidy still comes.
      */
     const wasTidy = loadTidyStamp() === poolSignature(stored);
     const done = archiveSquadYear(year, shown, stored, new Date().toISOString());
@@ -1922,8 +1981,8 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
   };
 
   /**
-   * Deletes a whole squad year with nothing kept: its pages, their stored games, the clubs that
-   * played in no other year, the GameChanger ids filed under it, and its archived tables.
+   * Deletes a whole squad year with nothing kept: its pages, their stored games, the clubs no
+   * other year holds, the GameChanger ids filed under it, and its archived tables.
    *
    * The same writes as `archiveYear` in the same order — games while the pages that name them
    * are still stored, then the pages — without the archive in front of them. The archived tables
@@ -1946,7 +2005,7 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     if (done.pages.length > 0) {
       lines.push(
         `${done.pages.length} page${done.pages.length === 1 ? "" : "s"}: ${done.pages.join(", ")}.`,
-        `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} that played in no other year.`
+        `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} with nothing in any other year.`
       );
     }
     if (done.unlinkedTeams > 0) {
@@ -2105,6 +2164,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               hasGamesFiledHere={hasGamesFiledHere}
               onOpenTeam={setOpenTeamId}
               onMarkMine={setMyTeam}
+              myTeam={myTeam}
+              movementOf={boardMovement}
               onRemoveTeam={removeTeamById}
             />
           )}
@@ -2242,6 +2303,19 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 )
               }
               whatIfDeclineFor={whatIfDeclineFor}
+              compareId={compareId}
+              onCompareChange={setCompareId}
+              comparison={comparison}
+            />
+          )}
+          {section === "scouting" && rankings.length > 0 && (
+            <TournamentPanel
+              key={selectedAgeGroupId}
+              ageGroupId={selectedAgeGroupId}
+              rankings={rankings}
+              reportForId={reportForId}
+              upcomingRows={upcomingRows}
+              placeOf={placeOf}
             />
           )}
 
