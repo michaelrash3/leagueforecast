@@ -22,25 +22,25 @@ const fixtureIndex = () => buildStaffIndex(parseGcTeamList(listCsv).entries);
 
 describe("reading a name two spreadsheets can agree on", () => {
   it("ignores case, spacing and the punctuation in a name", () => {
-    expect(staffKey("  Eric   VARELA ")).toBe("eric varela");
-    expect(staffKey("Cyndee O'Varela")).toBe(staffKey("Cyndee OVarela"));
-    expect(staffKey("Sam Wilson, Jr.")).toBe("sam wilson jr");
+    expect(staffKey("  Avery   MOCKLEY ")).toBe("avery mockley");
+    expect(staffKey("Dana O'Mockley")).toBe(staffKey("Dana OMockley"));
+    expect(staffKey("Blake Mockford, Jr.")).toBe("blake mockford jr");
   });
 });
 
 describe("two teams that are one club", () => {
   it("finds a club whose names say nothing", () => {
     const index = fixtureIndex();
-    // "27/28 HD" and "HD 2029", both Albuquerque, both run by Eric Varela and Sam Wilson. No
+    // "27/28 HD" and "HD 2029", both Albuquerque, both run by Avery Mockley and Blake Mockford. No
     // name-matching rule could ever join those two strings.
-    expect(sharedStaff(HD_18U, HD_16U, index).sort()).toEqual(["eric varela", "sam wilson"]);
+    expect(sharedStaff(HD_18U, HD_16U, index).sort()).toEqual(["avery mockley", "blake mockford"]);
     expect(clubAffinity(HD_18U, HD_16U, index)).toBe("strong");
   });
 
   it("calls one shared coach a hint and not a match", () => {
     const index = fixtureIndex();
-    // Sam Wilson coaches an Albuquerque team and an Anchorage one. Same name, nothing else.
-    expect(sharedStaff(HD_18U, DRILLERS_11U, index)).toEqual(["sam wilson"]);
+    // Blake Mockford coaches an Albuquerque team and an Anchorage one. Same name, nothing else.
+    expect(sharedStaff(HD_18U, DRILLERS_11U, index)).toEqual(["blake mockford"]);
     expect(clubAffinity(HD_18U, DRILLERS_11U, index)).toBe("weak");
   });
 
@@ -50,19 +50,19 @@ describe("two teams that are one club", () => {
   });
 
   it("has nothing to say about a team whose staff nobody listed", () => {
-    const index = buildStaffIndex([{ teamId: "A" }, { teamId: "B", staff: ["Eric Varela"] }]);
+    const index = buildStaffIndex([{ teamId: "A" }, { teamId: "B", staff: ["Avery Mockley"] }]);
     expect(clubAffinity("A", "B", index)).toBe("none");
   });
 });
 
-describe("the officer on every team's staff", () => {
+describe("the jory on every team's staff", () => {
   const withOfficer = (teamCount: number) =>
     buildStaffIndex([
-      { teamId: "blue-devils", staff: ["Josh Taksier", "Alejandro Delgado"] },
-      { teamId: "tb-sharks", staff: ["Francisco Brito", "Alejandro Delgado"] },
+      { teamId: "blue-devils", staff: ["Finley Mockton", "Gray Mockwick"] },
+      { teamId: "tb-sharks", staff: ["Harper Mockmore", "Gray Mockwick"] },
       ...Array.from({ length: teamCount }, (_, index) => ({
         teamId: `other-${index}`,
-        staff: ["Alejandro Delgado"],
+        staff: ["Gray Mockwick"],
       })),
     ]);
 
@@ -80,15 +80,15 @@ describe("the officer on every team's staff", () => {
 
   it("does not drag down the other names on the same card", () => {
     const index = buildStaffIndex([
-      { teamId: "a", staff: ["Eric Varela", "Sam Wilson", "Officer"] },
-      { teamId: "b", staff: ["Eric Varela", "Sam Wilson", "Officer"] },
+      { teamId: "a", staff: ["Avery Mockley", "Blake Mockford", "Jory"] },
+      { teamId: "b", staff: ["Avery Mockley", "Blake Mockford", "Jory"] },
       ...Array.from({ length: ORG_WIDE_TEAM_COUNT }, (_, index) => ({
         teamId: `x${index}`,
-        staff: ["Officer"],
+        staff: ["Jory"],
       })),
     ]);
-    // The officer drops out; the two real coaches still make it a club.
-    expect(sharedStaff("a", "b", index).sort()).toEqual(["eric varela", "sam wilson"]);
+    // The jory drops out; the two real coaches still make it a club.
+    expect(sharedStaff("a", "b", index).sort()).toEqual(["avery mockley", "blake mockford"]);
     expect(clubAffinity("a", "b", index)).toBe("strong");
   });
 });
@@ -134,7 +134,7 @@ describe("everyone who looks like the same club", () => {
       teamId: `t${index}`,
       staff: [`Coach ${index}`],
     }));
-    const index = buildStaffIndex([{ teamId: "mine", staff: ["Only Me"] }, ...many]);
+    const index = buildStaffIndex([{ teamId: "mine", staff: ["Kit Dummyley"] }, ...many]);
     const started = Date.now();
     expect(clubRelations("mine", index)).toEqual([]);
     expect(Date.now() - started).toBeLessThan(50);
@@ -145,7 +145,7 @@ describe("what the team list carries through", () => {
   it("reads the staff off the export", () => {
     const { entries } = parseGcTeamList(listCsv);
     const hd = entries.find((entry) => entry.teamId === HD_18U);
-    expect(hd?.staff).toEqual(["Eric Varela", "Sam Wilson", "Trevor Garcia"]);
+    expect(hd?.staff).toEqual(["Avery Mockley", "Blake Mockford", "Casey Mockwell"]);
   });
 
   it("reads the roster size off the export", () => {
@@ -165,9 +165,9 @@ describe("what the team list carries through", () => {
 describe("one squad, or two teams of one club", () => {
   const index = () =>
     buildStaffIndex([
-      { teamId: "a", staff: ["Eric Varela", "Sam Wilson"] },
-      { teamId: "b", staff: ["Eric Varela", "Sam Wilson"] },
-      { teamId: "one-coach", staff: ["Eric Varela"] },
+      { teamId: "a", staff: ["Avery Mockley", "Blake Mockford"] },
+      { teamId: "b", staff: ["Avery Mockley", "Blake Mockford"] },
+      { teamId: "one-coach", staff: ["Avery Mockley"] },
     ]);
 
   type Squad = { ageLevel?: number; season?: { season: string; year: number } };

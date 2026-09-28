@@ -21,15 +21,15 @@ const pool = () => ({
   teams: [
     team("S-HD1", "Hidden Duke", {
       state: "NM",
-      gcTeams: [link("gc-hd1", { staff: ["Eric Varela", "Sam Wilson"] })],
+      gcTeams: [link("gc-hd1", { staff: ["Avery Mockley", "Blake Mockford"] })],
     }),
     team("S-HD2", "HD 2029", {
       state: "NM",
-      gcTeams: [link("gc-hd2", { staff: ["Eric Varela", "Sam Wilson", "Cyndee Varela"] })],
+      gcTeams: [link("gc-hd2", { staff: ["Avery Mockley", "Blake Mockford", "Dana Mockley"] })],
     }),
     team("S-ONE", "Anchorage Drillers", {
       state: "AK",
-      gcTeams: [link("gc-one", { staff: ["Sam Wilson", "Kendall Wilson"] })],
+      gcTeams: [link("gc-one", { staff: ["Blake Mockford", "Oakley Mockford"] })],
     }),
     team("S-NONE", "Unrelated Club", { state: "TX", gcTeams: [link("gc-none")] }),
   ],
@@ -80,7 +80,7 @@ describe("finding the same club in the merge picker", () => {
     renderTeamRankings(pool());
     const panel = await openTeam(user, "Hidden Duke");
 
-    // Sam Wilson coaches in Albuquerque and Anchorage. Same name, nothing else.
+    // Blake Mockford coaches in Albuquerque and Anchorage. Same name, nothing else.
     const drillers = (await openMergePicker(user, panel)).find((option) =>
       option.textContent?.includes("Anchorage Drillers")
     );
@@ -127,7 +127,7 @@ describe("a GameChanger page that may not be a team", () => {
       ...short,
       teams: short.teams.map((entry) =>
         entry.id === "S-HD1"
-          ? { ...entry, gcTeams: [link("gc-hd1", { staff: ["Eric Varela"], playerCount: 6 })] }
+          ? { ...entry, gcTeams: [link("gc-hd1", { staff: ["Avery Mockley"], playerCount: 6 })] }
           : entry
       ),
     });
@@ -156,6 +156,6 @@ describe("a GameChanger page that may not be a team", () => {
     renderTeamRankings(pool());
     const panel = await openTeam(user, "Hidden Duke");
 
-    expect(within(panel).getByText(/Eric Varela, Sam Wilson/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Avery Mockley, Blake Mockford/)).toBeInTheDocument();
   });
 });

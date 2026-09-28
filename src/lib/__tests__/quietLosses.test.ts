@@ -109,7 +109,7 @@ describe("a stored team, read back", () => {
             teamId: "xFkSEXq8zoxB",
             name: "Ambush 9U",
             ageGroupId: "ag9",
-            staff: ["Ali Castle", "Crystal Akers"],
+            staff: ["Ezra Sampleby", "Fable Sampleton"],
             playerCount: 12,
             countedAt: "2026-09-17T17:02:00.000Z",
           },
@@ -118,7 +118,7 @@ describe("a stored team, read back", () => {
     ]);
 
     expect(team?.gcTeams?.[0]).toMatchObject({
-      staff: ["Ali Castle", "Crystal Akers"],
+      staff: ["Ezra Sampleby", "Fable Sampleton"],
       playerCount: 12,
       countedAt: "2026-09-17T17:02:00.000Z",
     });

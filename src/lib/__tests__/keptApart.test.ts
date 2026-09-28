@@ -63,7 +63,7 @@ const squad = (
       ageLevel: level,
       season,
       seasonYear: year,
-      staff: ["Nick Brodbeck", "Peter Boudreau"],
+      staff: ["Lark Dummywell", "Merit Dummyby"],
     },
   ],
 });

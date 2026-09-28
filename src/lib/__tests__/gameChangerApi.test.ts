@@ -118,7 +118,7 @@ describe("parseGcTeamList", () => {
     const { entries } = parseGcTeamList(
       [
         "Team Name,Team ID,Age Group,Season",
-        '"101 Baseball Bros 9U Fall 2026 • Staff: Eric Deskins • 10 players",gK5JSTKGwRYz,9U,Fall 2026',
+        '"101 Baseball Bros 9U Fall 2026 • Staff: Avery Stubmore • 10 players",gK5JSTKGwRYz,9U,Fall 2026',
       ].join("\n")
     );
     expect(entries).toHaveLength(1);
@@ -558,7 +558,7 @@ describe("normalizeGcTeamProfile", () => {
       // body, which is the only thing that says whether "Majors" is an age or a skill class, and
       // the coaches, which are the strongest club-matching signal the app has.
       ngb: ["usssa"],
-      staff: ["Noochie Varner", "Jordan Fox", "Tyler Coons"],
+      staff: ["Quinn Stubwell", "Reese Stubby", "Sage Stubton"],
     });
   });
 
@@ -570,9 +570,9 @@ describe("normalizeGcTeamProfile", () => {
   it("keeps the coaches the profile names, tidied the way a pasted cell is", () => {
     const doubled = normalizeGcTeamProfile({
       ...profileFixture,
-      staff: ["Noochie  Varner", "NOOCHIE VARNER", "", 7, "Jordan Fox"],
+      staff: ["Quinn  Stubwell", "QUINN STUBWELL", "", 7, "Reese Stubby"],
     });
-    expect(doubled?.staff).toEqual(["Noochie Varner", "Jordan Fox"]);
+    expect(doubled?.staff).toEqual(["Quinn Stubwell", "Reese Stubby"]);
     const none = normalizeGcTeamProfile({ ...profileFixture, staff: [] });
     expect(none?.staff).toBeUndefined();
   });
@@ -1213,7 +1213,7 @@ describe("the organization columns on a team row", () => {
     expect(legends.leagues).toEqual([{ name: "NKB 10 Majors", orgId: "TYhyg71UbyM9" }]);
     expect(legends.tournaments).toBeUndefined();
     // The columns that already worked still do.
-    expect(legends.staff).toEqual(["Coach Smith"]);
+    expect(legends.staff).toEqual(["Parker Fakemore"]);
     expect(legends.ageLevel).toBe(10);
   });
 

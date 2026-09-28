@@ -31,7 +31,7 @@ const entry = (
   id: string,
   gcId: string,
   extra: Partial<ScoutTeam> = {},
-  staff = ["Ali Castle", "Crystal Akers"]
+  staff = ["Ezra Sampleby", "Fable Sampleton"]
 ): ScoutTeam =>
   team(id, "Ambush 9U", {
     city: "Prestonsburg",
@@ -162,8 +162,8 @@ describe("a club in the pool twice over", () => {
       ...pool,
       // Different coaches, which is the one thing an A and a B squad do not share.
       teams: [
-        entry("shell", "gcShell00000", {}, ["Dana Hall", "Rory Estes"]),
-        entry("real", "gcReal000000", {}, ["Marie Ochoa", "Glenn Tapp"]),
+        entry("shell", "gcShell00000", {}, ["Tatum Stubson", "Umber Stubwick"]),
+        entry("real", "gcReal000000", {}, ["Gale Sampleson", "Hollis Samplewick"]),
         entry("other", "gcOther00000", { name: "NV Stars 9U", city: "Ashland" }),
       ],
       games: [
