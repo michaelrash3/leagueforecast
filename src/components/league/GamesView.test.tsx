@@ -116,8 +116,8 @@ describe("finding the game you came to enter", () => {
 
 describe("today", () => {
   beforeEach(() => {
-    // The view reads the clock once, in UTC, to work out what "today" is; a fixture dated to a
-    // real day would pass or fail depending on the day the suite runs.
+    // The view reads the clock to work out what "today" is; a fixture dated to a real day would
+    // pass or fail depending on the day the suite runs.
     // `shouldAdvanceTime` so user-event's own waits still resolve; only the clock is pinned.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-05-01T12:00:00Z"));
@@ -145,6 +145,58 @@ describe("today", () => {
      */
     expect(document.getElementById("game-card-g-today")).not.toBeNull();
     expect(document.getElementById("game-card-g-later")).toBeNull();
+  });
+
+  /*
+   * Today is the day on the wall where the phone is. Read in UTC it turned over at 8 in the
+   * evening on the East Coast in summer and 7 in Chicago, so a coach entering a night game's score
+   * after dinner pressed Today and got tomorrow's games.
+   */
+  it("is the day where the reader is, not the day in UTC", async () => {
+    vi.stubEnv("TZ", "America/Chicago");
+    try {
+      // Nine at night on 1 May in Chicago, which is already 2 May in UTC.
+      vi.setSystemTime(new Date("2026-05-02T02:00:00Z"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderGamesView({
+        teams,
+        scoreboardGames: [
+          matchup("g-tonight", "t1", "t2", "5/1"),
+          matchup("g-tomorrow", "t2", "t1", "5/2"),
+        ],
+      });
+
+      await user.click(screen.getByRole("button", { name: "Today" }));
+
+      expect(document.getElementById("game-card-g-tonight")).not.toBeNull();
+      expect(document.getElementById("game-card-g-tomorrow")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("is the day the button is pressed, however long the page has been open", async () => {
+    vi.stubEnv("TZ", "America/Chicago");
+    try {
+      vi.setSystemTime(new Date("2026-05-01T17:00:00Z"));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderGamesView({
+        teams,
+        scoreboardGames: [
+          matchup("g-first", "t1", "t2", "5/1"),
+          matchup("g-second", "t2", "t1", "5/2"),
+        ],
+      });
+      // Left open overnight, as a phone at a two-day tournament is.
+      vi.setSystemTime(new Date("2026-05-02T15:00:00Z"));
+
+      await user.click(screen.getByRole("button", { name: "Today" }));
+
+      expect(document.getElementById("game-card-g-second")).not.toBeNull();
+      expect(document.getElementById("game-card-g-first")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

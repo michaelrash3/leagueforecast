@@ -16,7 +16,7 @@ import React, {
   useState,
 } from "react";
 import { buildBracketProjection, type BracketGameProjection } from "../../lib/bracket";
-import { formatGameDate, formatGameDateLong, normalizeDateInput } from "../../lib/date";
+import { formatGameDate, formatGameDateLong, normalizeDateInput, toMMDD } from "../../lib/date";
 import { displayName, teamAbbr } from "../../lib/format";
 import {
   RUN_SCORE_CAP,
@@ -346,11 +346,13 @@ export function GamesView({
   const homeId = useId();
   const filterId = useId();
   const [quickFilter, setQuickFilter] = useState<"all" | "open" | "today">("all");
-
-  const todayKey = useMemo(() => {
-    const now = new Date();
-    return `${now.getUTCMonth() + 1}/${now.getUTCDate()}`;
-  }, []);
+  /*
+   * The day Today means, read off the reader's own clock when the button is pressed. It was once
+   * read in UTC, which turned over at 8 in the evening on the East Coast in summer, so a score
+   * entered after dinner met tomorrow's games; and read once on mount, so a phone left open through
+   * a two-day tournament kept Saturday all of Sunday.
+   */
+  const [todayKey, setTodayKey] = useState("");
 
   const handleToggleFinal = useCallback(
     (gameId: string) => {
@@ -550,7 +552,10 @@ export function GamesView({
           </button>
           <button
             type="button"
-            onClick={() => setQuickFilter("today")}
+            onClick={() => {
+              setTodayKey(toMMDD(new Date()));
+              setQuickFilter("today");
+            }}
             className={tab(quickFilter === "today")}
           >
             Today
