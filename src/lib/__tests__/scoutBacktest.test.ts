@@ -717,8 +717,8 @@ describe("what the run cap is costing", () => {
 
   /**
    * Every fourth game becomes a rout, which is what a cap exists for and what the plain synthetic
-   * pool has none of: its margins are the difference between two strengths spanning four runs, so
-   * they never reach eight and no cap from eight up ever bites.
+   * pool has none of: the first side is always the weaker, and its score is floored at nothing
+   * against the other's six, so no margin is wider than six and no cap from eight up ever bites.
    */
   const withRouts = (
     pool: { teams: ScoutTeam[]; games: ScoutGame[] },

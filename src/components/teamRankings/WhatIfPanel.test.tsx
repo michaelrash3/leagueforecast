@@ -80,8 +80,9 @@ describe("the what-if panel", () => {
   });
 
   it("says which way each result moves you in words, not in colour", async () => {
-    // 2 of 40 wins at the projected margin move a club DOWN and 9 of 40 losses move it UP, so a
-    // green win column above a fallen rank would teach the reader the feature is broken.
+    // With the cap at 8, 2 of 40 wins at the projected margin moved a club DOWN and 9 of 40 losses
+    // moved it UP, so a green win column above a fallen rank would teach the reader the feature is
+    // broken.
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderTeamRankings(pool());
     await openScouting(user);

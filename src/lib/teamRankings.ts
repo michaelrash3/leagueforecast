@@ -85,15 +85,15 @@ import {
  * The most run-differential any single game can contribute. A 20-0 counts as a 12-0: without a cap
  * one blowout against a weak team would outweigh a season of close wins against strong ones.
  *
- * It was 8, and 8 looked best only because the win-chance curve it was judged with had been tuned
- * for 8. On the pool of 26 September, fitted as the board would have been on 13, 19 and 20
- * September and scored on the 22,700, 17,100 and 8,200 decided games between ranked clubs after
- * each, 12 with the curve re-fitted to it (`matchupOddsSpread`) lowered the log loss at every cut
- * (0.6042 to 0.6012, 0.5980 to 0.5949, 0.5864 to 0.5842) and called the same share of winners
- * (67.1, 67.5 and 68.8%, each within 0.1 of a point). Of that year's 149,500 rated games 31.7%
- * were decided by more than 8 and 12.9% by more than 12, so 12 still stops a rout counting in
- * full: moving to it kept 20 of the 9U top 25, and 201 of the 250 places in the ten pages' top
- * 25s, where no cap at all kept 13 and 147.
+ * It was 8. The model check's margin error already read 12 better (`pairedImprovement`), and on win
+ * chances 8 looked best only because the curve it was judged with had been tuned for 8. On the pool
+ * of 26 September, fitted as the board would have been on 13, 19 and 20 September and scored on the
+ * 22,700, 17,100 and 8,200 decided games between ranked clubs after each, 12 with the curve
+ * re-fitted to it (`matchupOddsSpread`) lowered the log loss at every cut (0.6042 to 0.6012, 0.5980
+ * to 0.5949, 0.5864 to 0.5842) and called the same share of winners (67.1, 67.5 and 68.8%, each
+ * within 0.1 of a point). Of that year's 149,500 rated games 31.7% were decided by more than 8 and
+ * 12.9% by more than 12, so 12 still stops a rout counting in full: moving to it kept 20 of the 9U
+ * top 25, and 201 of the 250 places in the ten pages' top 25s, where no cap at all kept 13 and 147.
  *
  * Exported because the app explains its own ranking to the reader, and a number quoted in prose
  * that has drifted from the number in the maths is worse than not quoting it.
@@ -2684,11 +2684,11 @@ export const leagueStandIns = (
  * prediction about anything. It is two unrelated numbers subtracted.
  *
  * On the real pool this is not an edge case. 9U 2027's autumn holds 15,629 clubs in 2,107 pieces,
- * the largest with 28.4% of them, and 39 of the national top 100 sit outside it — one of them off
- * an island of twelve clubs. And it is a different problem from a thin record: `The Chill Dogs
- * 17-5` was seventh in the nation on 22 games off an island of 21, which no amount of evidence
- * discounting touches, because the games are real and the rating is well determined. It is well
- * determined *relative to twenty other clubs*.
+ * the largest with 28.4% of them, and on the board with the cap at 8, 39 of the national top 100
+ * sat outside it — one of them off an island of twelve clubs. And it is a different problem from a
+ * thin record: `The Chill Dogs 17-5` was seventh in the nation on 22 games off an island of 21,
+ * which no amount of evidence discounting touches, because the games are real and the rating is
+ * well determined. It is well determined *relative to twenty other clubs*.
  *
  * Returned as a lookup rather than a list of sets, because every caller wants "which piece is this
  * club in, and how big is it".

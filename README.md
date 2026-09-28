@@ -350,8 +350,8 @@ Texas Edge Black, 5-0 against clubs, from #24 to #23.
 Nothing in the panel is coloured by outcome. Winning is not always good news and
 losing is not always bad: a narrow loss to a much stronger club can lift a thinly
 played side, because the table rates who you played and one more game is one more
-thing the rating stands on. Measured on a 40-club pool, a side with three games that
-loses by two to the best club in it goes from #31 to #27.
+thing the rating stands on. Measured on a 40-club pool with the cap then at eight, a side
+with three games that loses by two to the best club in it goes from #31 to #27.
 
 The hypothetical is fitted as if the game were played today. That is deliberate and
 the alternative is worse: older games count for less, so a result dated weeks ahead
@@ -2073,7 +2073,7 @@ plain run differential.
 **Where the twelve came from, and how to check it.** The case for _having_ a cap
 is plain — without one a 20-0 against a weak club outweighs a season of close
 wins against strong ones — but the case for _eight_, which the rating used until
-28 September 2026, was never made here. It was inherited from League Standings,
+the end of September 2026, was never made here. It was inherited from League Standings,
 where the cap is a rule of the league (coach and machine pitch carry a
 per-inning run limit), and applied flat from 8U to 18U even though the same
 settings put player pitch at twelve. Setup's **Check the model** card sweeps it:
