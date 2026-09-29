@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/workflows/gc-reach.yml"
       - "scripts/gcReach.ts"
+      - "scripts/cloudPool.ts"
 
 permissions:
   contents: read
@@ -59,8 +60,25 @@ jobs:
             echo "Pulls go to the Vercel function (/api/gc-team)."
           fi
           key=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.apiKey);')
-          if printf '%s' "$code" | grep -qF "$key"; then
+          if grep -qF "$key" <<< "$code"; then
             echo "The live site signs in with the project's own key."
           else
             echo "The live site does not carry the project's key yet."
           fi
+
+  # The user's own teams, read out of the cloud copy with the Firebase key GitHub keeps for deploys
+  # (`scripts/cloudPool.ts`, read only): tonight's rota worked out as the Refresh button does, and a
+  # spread of it asked of GameChanger at the app's pace, to say what a night of them would take.
+  # The day is the user's, not the server's.
+  cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: npm run gc:reach -- --cloud 1000
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TZ: America/New_York

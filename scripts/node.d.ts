@@ -10,6 +10,11 @@ declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
 }
 
+declare module "node:crypto" {
+  type Sign = { update: (data: string) => Sign; sign: (key: string, encoding: "base64") => string };
+  export function createSign(algorithm: string): Sign;
+}
+
 declare module "node:zlib" {
   export function gzipSync(data: string): Uint8Array;
 }
