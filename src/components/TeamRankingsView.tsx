@@ -369,16 +369,20 @@ export function TeamRankingsView({
    * which is what it showed between saves anyway — and the panel's own progress is what moves.
    * The moment the run releases the pool this catches up, once.
    */
-  const [settled, setSettled] = useState({ revision: poolRevision, live: false });
-  if (settled.live !== pullLive || (!pullLive && settled.revision !== poolRevision)) {
-    /*
-     * Followed during render rather than in an effect, the way `GameDateInput` follows its value:
-     * React applies a set made here before painting, so no read below is ever made against a
-     * revision that is about to be replaced — and no frame shows the pool from before the run.
-     */
-    setSettled({ live: pullLive, revision: pullLive ? settled.revision : poolRevision });
-  }
-  const settledRevision = settled.revision;
+  const [pullStartedOn, setPullStartedOn] = useState<number | null>(null);
+  /*
+   * Only the revision a running pull started on is kept, set once as the pull starts and cleared
+   * as it ends; otherwise the revision is the pool's own, read as it is. Following it with a set
+   * during render, as this once did, threw that render away and ran the view again, and where the
+   * teams and the revision change together (every tidy, and every pull's last save) the first pass
+   * had already rebuilt everything hanging off the teams against the old games: the whole view,
+   * twice. On the 114,500-team pool of 29 September 2026 the freeze after a tidy on open lands
+   * went from 6.85 s to 3.74 s without it. The two sets left change nothing a render reads, so the
+   * pass either repeats finds every memo as it was.
+   */
+  if (pullLive && pullStartedOn === null) setPullStartedOn(poolRevision);
+  if (!pullLive && pullStartedOn !== null) setPullStartedOn(null);
+  const settledRevision = pullLive ? (pullStartedOn ?? poolRevision) : poolRevision;
   /**
    * The season on screen's games, and only those.
    *
@@ -520,8 +524,23 @@ export function TeamRankingsView({
    */
   const { tidy: tidyInWorker } = usePoolTidy();
   const tidyingRef = useRef(false);
+  /**
+   * Whether the page's first board has come back, or there is none to wait for: what the tidy on
+   * open waits on. Handing the tidy the pool is a second copy of all of it made on the page's own
+   * thread (1.1 s on the pool of 29 September 2026) just as the rankings ask for theirs, so the rows
+   * came up later for it: 10.1 s rather than 9.1 on a pool the tidy has nothing to do to, and 9.9
+   * rather than 8.4 on one it had. The tidy now starts once they are up; it takes a quarter of a
+   * minute and more in its worker either way, and nothing on the page waits on it. A board that
+   * never comes back, which should not happen, holds it up for a minute at most.
+   */
+  const [boardShown, setBoardShown] = useState(false);
   useEffect(() => {
-    if (storedGameCount === 0 || tidyingRef.current) return;
+    if (boardShown) return;
+    const timer = setTimeout(() => setBoardShown(true), 60_000);
+    return () => clearTimeout(timer);
+  }, [boardShown]);
+  useEffect(() => {
+    if (storedGameCount === 0 || tidyingRef.current || !boardShown) return;
     /*
      * A pull still running tidies when it finishes, and a tidy already going is the same work; both
      * write the whole pool, so the one that finished first would be overwritten by the other.
@@ -570,6 +589,7 @@ export function TeamRankingsView({
     ageGroups,
     scoutTeams,
     storedGameCount,
+    boardShown,
     pullProgress,
     persistAgeGroups,
     persistTeams,
@@ -819,6 +839,8 @@ export function TeamRankingsView({
      */
     ...(selectedSegment === undefined ? {} : { segment: selectedSegment }),
   });
+  // Once, as the first board settles; nothing a render reads changes with it.
+  if (!boardShown && !rankingsStale) setBoardShown(true);
 
   /**
    * The teams behind the rows on this page. Taken from the rows rather than from the games filed

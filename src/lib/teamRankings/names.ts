@@ -218,28 +218,53 @@ export const nameFitter = (): ((a: string, b: string) => boolean) => {
 const normalizeName = teamNameKey;
 
 /**
+ * A team's name key, worked out once for each team object: a team is replaced rather than edited,
+ * so the object stands for the version of its name. Looking a league team up by name used to work
+ * out the key of every club in the pool on every look, and the League Standings seasons carried
+ * onto the page look a dozen teams up on every open: on the 114,500-team pool of 29 September 2026
+ * that was most of the 741 ms `allKnown` took, which the first board waits on.
+ */
+const nameKeyByTeam = new WeakMap<ScoutTeam, string>();
+const nameKeyOf = (team: ScoutTeam): string => {
+  let key = nameKeyByTeam.get(team);
+  if (key === undefined) {
+    key = normalizeName(team.name);
+    nameKeyByTeam.set(team, key);
+  }
+  return key;
+};
+
+/**
  * Case-insensitive, age-label-insensitive name match against the pool; creates a new team if none
  * matches. A team stored before age labels were stripped ("Velocirabbits 9U") is healed in place on
  * its next match, so old entries converge without a migration.
+ *
+ * `ids`, where a caller looking many names up in one pass keeps it, is every id `teams` holds, and
+ * a team made here is added to it: without it, each new team counts the whole pool's ids again.
  */
 export const resolveOrCreateTeam = (
   name: string,
-  teams: ScoutTeam[]
+  teams: ScoutTeam[],
+  ids?: Set<string>
 ): { teams: ScoutTeam[]; teamId: string } => {
   const display = cleanTeamName(name);
   const key = normalizeName(name);
+  const mint = (): string => {
+    if (!ids) return mintScoutTeamId(display, teams);
+    const minted = mintScoutTeamIdFrom(display, ids);
+    ids.add(minted);
+    return minted;
+  };
   // A placeholder names nobody, so two of them are not the same team and must never be matched
   // onto one another. Each gets a slot of its own, marked as one.
   if (isPlaceholderName(name)) {
-    const minted = mintScoutTeamId(display, teams);
+    const minted = mint();
     return {
       teams: [...teams, { id: minted, name: display, placeholder: true }],
       teamId: minted,
     };
   }
-  const existingIndex = teams.findIndex(
-    (team) => !team.placeholder && normalizeName(team.name) === key
-  );
+  const existingIndex = teams.findIndex((team) => !team.placeholder && nameKeyOf(team) === key);
 
   if (existingIndex >= 0) {
     const existing = teams[existingIndex]!;
@@ -251,7 +276,7 @@ export const resolveOrCreateTeam = (
     return { teams: next, teamId: existing.id };
   }
 
-  const uniqueId = mintScoutTeamId(display, teams);
+  const uniqueId = mint();
   return { teams: [...teams, { id: uniqueId, name: display }], teamId: uniqueId };
 };
 

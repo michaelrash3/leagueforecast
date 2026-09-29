@@ -295,6 +295,9 @@ export const deriveLeagueScoutGames = (
   clubByLeagueTeam: Map<string, Map<string, string>>;
 } => {
   let teams = scoutTeams;
+  // Every id `teams` holds, counted once when a league team is first looked up by name and kept in
+  // step as teams are made, for `resolveOrCreateTeam`.
+  let teamIds: Set<string> | undefined;
   const games: ScoutGame[] = [];
   const pickedClubIds = new Set<string>();
   const namedClubIds = new Set<string>();
@@ -330,7 +333,8 @@ export const deriveLeagueScoutGames = (
         }
         const name = leagueNameById.get(leagueId);
         if (!name) return null;
-        const result = resolveOrCreateTeam(name, teams);
+        teamIds ??= new Set(teams.map((team) => team.id));
+        const result = resolveOrCreateTeam(name, teams, teamIds);
         teams = result.teams;
         resolvedIdByLeagueId.set(leagueId, result.teamId);
         return result.teamId;
