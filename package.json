@@ -20,7 +20,8 @@
     "test:rules": "npx --yes firebase-tools@15 emulators:exec --only firestore --project demo-league-forecast \"vitest run --project lib src/lib/cloud/__tests__/firestoreRules.test.ts\"",
     "verify:gc": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/verify-gc-pull.ts",
     "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts",
-    "ageless:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/agelessSweep.ts"
+    "ageless:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/agelessSweep.ts",
+    "gc:reach": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/gcReach.ts"
   },
   "dependencies": {
     "firebase": "^12.19.0",
