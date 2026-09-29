@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-  ageFromLeagueNames,
-  ageFromOrgName,
   parseGcOrgList,
   parseGcTeamList,
   squadYearsForGcSeason,
+  withListed,
   type GcTeamListEntry,
   type GcTeamProfile,
 } from "../lib/gameChangerApi";
@@ -16,7 +15,7 @@ import {
   withOrgAges,
   type OrgMembership,
 } from "../lib/orgMembership";
-import { inventedFromOutcomes, isDeletedClub, type DeletedClubs } from "../lib/deletedGames";
+import { isDeletedClub, type DeletedClubs } from "../lib/deletedGames";
 import {
   heldSnapshot,
   holdingNow,
@@ -92,22 +91,11 @@ import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
 import {
   AGE_UNKNOWN_MAX_TRIES,
   describeAgeUnknown,
-  updateAgeUnknown,
   withRulesMoved,
   type AgeUnknownList,
 } from "../lib/ageUnknown";
-import {
-  isTooYoungClub,
-  rememberTooYoung,
-  tooYoungFromOutcomes,
-  type TooYoungClubs,
-} from "../lib/tooYoungClubs";
-import {
-  forgetRefused,
-  isRefusedClub,
-  rememberRefused,
-  type RefusedClubs,
-} from "../lib/refusedClubs";
+import { isTooYoungClub, type TooYoungClubs } from "../lib/tooYoungClubs";
+import { forgetRefused, isRefusedClub, type RefusedClubs } from "../lib/refusedClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
 import { TidyProgressView } from "./teamRankings/TidyProgressView";
 import { listCoverage, unpulledClubs } from "../lib/unpulledClubs";
@@ -120,14 +108,12 @@ import {
   loadScoutGamesForPages,
   saveRefreshCadence,
   loadPullLog,
-  saveAgeUnknown,
   savePullLog,
   saveTidyStamp,
   type PoolHolding,
   loadDeletedGames,
   loadDroppedClubs,
   loadTooYoungClubs,
-  saveTooYoungClubs,
   loadRefusedClubs,
   saveRefusedClubs,
   loadOrgMembership,
@@ -136,6 +122,7 @@ import {
   saveKeptApart,
 } from "../lib/teamRankingsStorage";
 import { keepApart as apartAfter } from "../lib/keptApart";
+import { settleRunLists } from "../lib/pullLists";
 import {
   liveSummary,
   pullSummaryCsv,
@@ -1156,37 +1143,11 @@ export function GameChangerImportPanel({
           if (result.ok) {
             const entry = claimed.get(teamId);
             /*
-             * What the user's own list knows and GameChanger's payload does not: the roster size
-             * as their export recorded it, and the leagues the team plays in — the API has no
-             * route from a team to its leagues at all. Attached here, where both halves are in
-             * hand, so the link the import records carries them and the age a league names can
-             * file a team GameChanger left ageless.
+             * What the user's own list knows and GameChanger's payload does not, attached here,
+             * where both halves are in hand, so the link the import records carries it and the age
+             * a league names can file a team GameChanger left ageless (`withListed`).
              */
-            /*
-             * The league the list says they play in, and failing that the organization they sit
-             * under. The organization is the weaker of the two — a crawl types every organization
-             * the same way, so a tournament and a league are one word apart — which is why
-             * `ageFromOrgName` refuses event-sounding names and spans, and why it only answers
-             * where the league said nothing.
-             */
-            /*
-             * And failing both, the Organizations file: the age the organizations it put this team
-             * under agree on. It reaches a team the list does not describe at all — one the rota
-             * is asking about again because it is waiting on an age — which is most of the point.
-             */
-            const leagueAge =
-              ageFromLeagueNames(entry?.leagues) ??
-              ageFromOrgName(entry?.org?.name) ??
-              orgAges.get(teamId);
-            const listed =
-              entry?.staff?.length || entry?.playerCount !== undefined || leagueAge !== undefined
-                ? {
-                    ...(entry?.staff?.length ? { staff: entry.staff } : {}),
-                    ...(entry?.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
-                    ...(leagueAge === undefined ? {} : { ageLevel: leagueAge }),
-                  }
-                : undefined;
-            const schedule = listed ? { ...result.schedule, listed } : result.schedule;
+            const schedule = withListed(result.schedule, entry, orgAges.get(teamId));
             const outcome = importer.add(schedule);
             outcomesRef.current.push(outcome);
             track(() => tracker?.imported(outcome));
@@ -1281,57 +1242,18 @@ export function GameChangerImportPanel({
         }
       }
 
-      /*
-       * Teams nobody could age go on the list; teams that were filed come off it. Done for every
-       * run, not just the catch-up one, because any run can answer the question for a team it
-       * fetched: the opponent names that settle an age are read off that team's own schedule, so
-       * whichever run happens to pull it is the run that can answer it.
-       */
-      const nextAgeless = updateAgeUnknown(loadAgeUnknown(), outcomesRef.current, nowIso());
-      setAgeless(nextAgeless);
-      /*
-       * Checked, because this write is the one that can fail quietly. Without IndexedDB the whole
-       * pool lives in localStorage, where a list this size does not fit: the write throws, the
-       * store catches it and answers false, and every answer the run learned is gone with nothing
-       * said. `onPoolWriteError` does not cover it — that fires on the IndexedDB path only.
-       */
-      if (!saveAgeUnknown(nextAgeless)) {
+      // The waiting list, the refusals and the too-young, written; this only shows them.
+      const lists = settleRunLists(outcomesRef.current, nowIso());
+      setAgeless(lists.ageless);
+      if (!lists.agelessSaved) {
         showToast("The list of teams waiting on an age could not be saved — storage is full.", {
           tone: "error",
         });
       }
-
-      /*
-       * And the ones GameChanger says are too young to rank. Remembered so the next export does
-       * not spend two requests each rediscovering it: a nationwide list carries thousands of them,
-       * the paste can only skip the rows that name an age themselves, and every other one is a
-       * fetch whose answer never changes. Safe to keep for good — a GameChanger id is minted per
-       * team per season, so this cannot hold a club down as it ages up.
-       */
-      /*
-       * And every team it turned away for good or as another season's, so the next paste of the
-       * same list leaves them out rather than asking GameChanger again (`refusedClubs.ts`).
-       */
-      const heldRefusals = loadRefusedClubs();
-      const nextRefused = rememberRefused(heldRefusals, outcomesRef.current);
-      if (nextRefused !== heldRefusals) {
-        setRefused(nextRefused);
-        saveRefusedClubs(nextRefused);
-      }
-
-      const learnedTooYoung = tooYoungFromOutcomes(outcomesRef.current);
-      if (learnedTooYoung.length > 0) {
-        const nextTooYoung = rememberTooYoung(loadTooYoungClubs(), learnedTooYoung);
-        setTooYoung(nextTooYoung);
-        saveTooYoungClubs(nextTooYoung);
-      }
-
-      /*
-       * And the ones whose whole schedule was results on days that have not happened. Thrown out
-       * like a club somebody deleted by hand, so the refusal outlasts the dates that gave it away.
-       */
-      const invented = inventedFromOutcomes(outcomesRef.current);
-      if (invented.length > 0) onInvented(invented);
+      if (lists.refused) setRefused(lists.refused);
+      if (lists.tooYoung) setTooYoung(lists.tooYoung);
+      // Thrown out like a club somebody deleted by hand, which is the page's to do.
+      if (lists.invented.length > 0) onInvented(lists.invented);
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that
