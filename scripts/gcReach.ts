@@ -22,23 +22,10 @@
 import { gzipSync } from "node:zlib";
 import handler, { clearProfileCache } from "../api/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
-import { withRulesMoved } from "../src/lib/ageUnknown.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { gcGameListFrom } from "../src/lib/gameChangerApi.ts";
-import { dueRefresh, idsPlayingAround } from "../src/lib/gameChangerSchedule.ts";
-import { orgAgesByTeam, withOrgAges } from "../src/lib/orgMembership.ts";
-import { segmentOn } from "../src/lib/teamRankings/seasons.ts";
-import {
-  loadAgeGroups,
-  loadAgeUnknown,
-  loadDroppedClubs,
-  loadNamedAges,
-  loadOrgMembership,
-  loadRefreshCadence,
-  loadRefreshLog,
-  loadScoutGames,
-  loadScoutTeams,
-} from "../src/lib/teamRankingsStorage.ts";
+import { storedRota } from "../src/lib/cloud/cloudRunner.ts";
+import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "../src/lib/teamRankingsStorage.ts";
 import { loadCloudPool } from "./cloudPool.ts";
 
 declare const process: {
@@ -238,19 +225,7 @@ const tonightsTeams = async (): Promise<string[] | null> => {
   const teams = loadScoutTeams();
   const games = loadScoutGames();
   const ageGroups = loadAgeGroups();
-  const ageless = loadAgeUnknown();
-  const membership = loadOrgMembership();
-  const due = dueRefresh(now, loadRefreshLog(), ageGroups, teams, {
-    seasonYear: segmentOn(today).year,
-    ageless,
-    cadence: loadRefreshCadence(),
-    namedAges: withRulesMoved(
-      withOrgAges(loadNamedAges(), orgAgesByTeam(membership), membership.savedAt),
-      ageless
-    ),
-    refused: loadDroppedClubs(),
-    playing: idsPlayingAround(games, today),
-  });
+  const due = storedRota(now);
   console.log(
     `  ${teams.length} teams, ${games.length} games, ${ageGroups.length} age groups. Due on ${today} (${due.cadence} cadence): ${due.teamIds.length} teams${
       due.heldBack > 0 ? `, ${due.heldBack} more held back as pulled lately` : ""

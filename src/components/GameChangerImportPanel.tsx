@@ -7,7 +7,12 @@ import {
   type GcTeamListEntry,
   type GcTeamProfile,
 } from "../lib/gameChangerApi";
-import { BATCH_SIZE, fetchGcTeams } from "../lib/gameChangerClient";
+import {
+  BATCH_SIZE,
+  fetchGcTeams,
+  PULL_CONCURRENCY,
+  PULL_MAX_CONCURRENCY,
+} from "../lib/gameChangerClient";
 import type { NamedAges } from "../lib/namedAges";
 import {
   mergeOrgMembership,
@@ -243,24 +248,6 @@ export const saveEvery = (games: number): number => {
 };
 
 /**
- * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
- * connections open to one host, so this is the real parallelism of the pull; the batching is what
- * lets it be worth anything. A throttled answer holds every worker back rather than this one, so
- * the cost of being wrong here is a slower pull rather than lost teams.
- */
-const CONCURRENCY = 8;
-/**
- * Workers the pull may grow to while the route stays clean.
- *
- * Eight was a guess made when nobody knew what GameChanger would take, and it held a nationwide
- * pull to around two thousand teams a minute — most of an hour for a hundred thousand. Rather than
- * replace it with a bigger guess, the client starts at eight and adds a worker for every ten
- * batches that come back without a hold, stopping for good at the first sign of pushback. This is
- * only where it stops climbing.
- */
-const MAX_CONCURRENCY = 24;
-
-/**
  * Seconds one batch request takes, end to end.
  *
  * A round assumption rather than a measurement, and labelled as one. A batch is ten teams, whose
@@ -280,7 +267,7 @@ const SECONDS_PER_BATCH = 1;
  */
 const estimatedMinutes = (fresh: number): number => {
   const requests = Math.ceil(fresh / BATCH_SIZE);
-  const seconds = (requests / CONCURRENCY) * SECONDS_PER_BATCH;
+  const seconds = (requests / PULL_CONCURRENCY) * SECONDS_PER_BATCH;
   return Math.max(1, Math.ceil(seconds / 60));
 };
 
@@ -930,8 +917,8 @@ export function GameChangerImportPanel({
       track(() => {
         tracker?.beginSegment(session.startedAt, ids);
         tracker?.config({
-          concurrency: CONCURRENCY,
-          maxConcurrency: MAX_CONCURRENCY,
+          concurrency: PULL_CONCURRENCY,
+          maxConcurrency: PULL_MAX_CONCURRENCY,
           batchSize: BATCH_SIZE,
           saveEvery: saveEvery(heldRef.current.state.games.length),
         });
@@ -1115,8 +1102,8 @@ export function GameChangerImportPanel({
       >();
 
       await fetchGcTeams(ids, {
-        concurrency: CONCURRENCY,
-        maxConcurrency: MAX_CONCURRENCY,
+        concurrency: PULL_CONCURRENCY,
+        maxConcurrency: PULL_MAX_CONCURRENCY,
         // Merged into the run's config, so the report says what the pool grew to.
         onConcurrency: (workers) => track(() => tracker?.config({ workers })),
         signal: controller.signal,
