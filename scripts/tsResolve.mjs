@@ -15,6 +15,15 @@ const HAS_EXTENSION = /\.[cm]?[jt]sx?$|\.json$/i;
 
 export async function resolve(specifier, context, nextResolve) {
   const relative = specifier.startsWith("./") || specifier.startsWith("../");
+  // `api/` names its imports `.js` for Vercel's compiler, as TypeScript lets it for a `.ts` file:
+  // the file Node finds under that name is the `.ts` one beside it.
+  if (relative && context.parentURL && /\.js$/i.test(specifier)) {
+    const named = new URL(specifier, context.parentURL);
+    const typed = new URL(specifier.replace(/\.js$/i, ".ts"), context.parentURL);
+    if (!existsSync(fileURLToPath(named)) && existsSync(fileURLToPath(typed))) {
+      return nextResolve(typed.href, context);
+    }
+  }
   if (relative && context.parentURL && !HAS_EXTENSION.test(specifier)) {
     const base = new URL(specifier, context.parentURL).href;
     for (const suffix of SUFFIXES) {

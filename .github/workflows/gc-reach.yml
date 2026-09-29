@@ -1,0 +1,29 @@
+# Does GameChanger answer the app's pull from one of GitHub's servers, as it answers the Firebase
+# proxy? Asked before a nightly pull is built to run here, and again by hand whenever it matters
+# (`scripts/gcReach.ts`). It runs the proxy's own handler against real public teams, and prints
+# counts, sizes and timings only: this repository is public, and so are its Actions logs.
+name: GameChanger from GitHub
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/gc-reach.yml"
+      - "scripts/gcReach.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  reach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: the handler and what it imports are the app's own files, run by Node as they
+      # are (`scripts/tsRegister.mjs`).
+      - run: npm run gc:reach -- --rounds 10
