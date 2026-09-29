@@ -29,7 +29,7 @@ import {
   type DeviceCloudState,
   type UploadBatch,
 } from "./cloudState";
-import { markTaken } from "./cloudGuard";
+import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
 import type { CloudAccount, FirebaseCloud } from "./firebaseCloud";
 
@@ -534,6 +534,10 @@ const settleLocked = async (
   const meetings = new Set<Area>();
   for (const area of areas) {
     if (area === "pool" && poolBusy) continue;
+    // A tab that read this area before another tab took a copy in holds values older than what
+    // is stored: sent, they would undo what that tab took (a deletion brought back, say). It
+    // sends nothing of the area, and is told to reload (`cloudGuard.ts`).
+    if (!mayWrite(area)) continue;
     const plan = await planArea({
       manifest,
       state: { met: state.met, hashes: state.hashes, dirty: owed },
@@ -1263,6 +1267,20 @@ export const bringBack = async (group: string): Promise<void> => {
     if (bringing.length === 0) {
       notice = "That version is no longer kept.";
       setStatus(savedStatus(account));
+      return;
+    }
+    // A pull or a tidy holds the pool in memory and writes it back as it goes: brought back
+    // under it, the version would be overwritten, or would overwrite the job's work.
+    if (
+      bringing.some((part) => areaOf(part.key) === "pool") &&
+      (isPoolBusy() || (await poolJobElsewhere()))
+    ) {
+      setStatus({
+        kind: "error",
+        account,
+        message:
+          "Team Rankings is being pulled or tidied. Bring this version back once that has finished.",
+      });
       return;
     }
     const owed = owedChanges();

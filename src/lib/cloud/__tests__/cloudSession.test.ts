@@ -839,6 +839,58 @@ describe("bringing a kept version back", () => {
     await session.preparePool();
     expect(laptop.values.get(TEAMS)).toEqual(["phone's edit"]);
   });
+
+  it("waits for a pull to finish before bringing Team Rankings back", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, TEAMS, ["phone's edit"]);
+    later();
+    await open(laptop);
+    edit(laptop, TEAMS, ["laptop's pull"]);
+    await session.saveNow();
+    await open(phone);
+    await session.preparePool();
+    const version = sky.manifest()?.version;
+    const [kept] = session.cloudKept();
+    pull.live = true;
+    await session.bringBack(kept?.group ?? "");
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("pull"),
+    });
+    expect(sky.manifest()?.version).toBe(version);
+    expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
+  });
+});
+
+describe("a tab that read its pool before another tab took a copy in", () => {
+  // Without a word from the other tab (no BroadcastChannel), the stale tab still holds a key the
+  // copy since deleted, and its own record no longer names it: it must not send it back up.
+  it("sends none of its old pool, so a deletion it missed is not undone", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, CADENCE, "daily");
+    await session.saveNow();
+    await open(phone);
+    await session.preparePool();
+    expect(phone.values.get(CADENCE)).toBe("daily");
+    // The laptop takes the cadence out of the copy.
+    await open(laptop);
+    edit(laptop, CADENCE, null);
+    await session.saveNow();
+    // Another tab on the phone takes that in: the phone's record and token move on, while this
+    // tab's own view of the pool still holds the cadence.
+    await open(phone);
+    const record = loadCloudState();
+    const { [CADENCE]: _gone, ...hashes } = record.hashes;
+    phone.storage.setItem(
+      "league_forecast_cloud_v2",
+      JSON.stringify({ ...record, hashes, version: sky.manifest()?.version })
+    );
+    phone.storage.setItem("league_forecast_cloud_taken_pool", "another-tab");
+    await session.lookAgain({ forced: true });
+    expect(await cloudValue(CADENCE)).toBeNull();
+  });
 });
 
 describe("a browser wiped by Delete everything", () => {
