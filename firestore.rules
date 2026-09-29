@@ -16,8 +16,9 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == "google.com";
     }
 
-    // The copy itself, `copies/main` and its `chunks`. Nothing else in the database is open, the
-    // first version's `cloud/` included.
+    // The copy itself, `copies/main` and its `chunks`, and the pulls a device leaves beside it for
+    // the cloud to run, `copies/main/jobs`. Nothing else in the database is open, the first
+    // version's `cloud/` included.
     match /copies/{document=**} {
       allow read, write: if signedInWithGoogle();
     }

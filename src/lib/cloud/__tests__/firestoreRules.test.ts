@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
+  Bytes,
   connectFirestoreEmulator,
   doc,
   getDoc,
@@ -12,6 +13,7 @@ import { CHUNK_BYTES } from "../cloudPack";
 import { commitChanges, fetchValues } from "../cloudEngine";
 import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
 import { firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
+import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 
 /*
  * The rules that open the cloud copy to Google sign-in and to nothing else, tried against a real
@@ -187,4 +189,31 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     const fetched = await fetchValues({ store: firestoreStore(as(OWNER)), parts: manifest.parts });
     expect(fetched.ok && fetched.values.get("teams")).toBe(noise);
   }, 60_000);
+
+  it("take a pull a Google sign-in leaves beside the copy, and give it to no one else", async () => {
+    const job = "0123456789abcdef0123456789abcdef";
+    const packed = await packJobList([{ teamId: "gcACES000001" }]);
+    const sent = newPullJob({
+      list: packed.list,
+      seasonYears: [2027],
+      timeZone: "America/New_York",
+      device: "phone",
+      now: "2026-09-29T12:00:00.000Z",
+    });
+    const owner = as(OWNER);
+    await setDoc(doc(owner, jobPiecePath(job, 0)), {
+      data: Bytes.fromUint8Array(packed.pieces[0]!),
+    });
+    await setDoc(doc(owner, jobPath(job)), sent);
+    // Read back as the function reads it, by another device of the same person.
+    const laptop = as(LAPTOP);
+    expect(coercePullJob((await getDoc(doc(laptop, jobPath(job)))).data())).toEqual(sent);
+    expect((await getDoc(doc(laptop, jobPiecePath(job, 0)))).get("data").toUint8Array()).toEqual(
+      packed.pieces[0]
+    );
+    for (const outsider of [as(null), as({ uid: "anon", provider: "anonymous" })]) {
+      await expect(getDoc(doc(outsider, jobPath(job)))).rejects.toMatchObject(REFUSED);
+      await expect(setDoc(doc(outsider, jobPath(job)), sent)).rejects.toMatchObject(REFUSED);
+    }
+  });
 });

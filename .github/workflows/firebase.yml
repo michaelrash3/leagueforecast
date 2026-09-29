@@ -1,6 +1,10 @@
 # The Firebase project: the functions (`functions/`) and the Firestore rules (`firestore.rules`).
 # Both are tested on every change to them and deployed on merge once the project is connected.
 #
+# The pulls in the cloud (`startPull`, `runPull`) are deployed too once the CLOUD_PULLS variable
+# is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
+# one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
+#
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
 # The rules open the cloud copy of the app's data to Google sign-in and nothing else; see README,
@@ -15,12 +19,10 @@ on:
     paths:
       - "functions/**"
       - "api/gc-team.ts"
-      - "src/lib/gameChangerApi.ts"
-      - "src/lib/apiShared.ts"
-      - "src/lib/ttlCache.ts"
-      - "src/lib/firebaseProxy.ts"
-      - "src/lib/billingCap.ts"
-      - "src/lib/cloud/**"
+      - "scripts/handlerFetch.ts"
+      # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
+      # a function left on older rules than the app would stamp the copy with them.
+      - "src/lib/**"
       - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
@@ -29,12 +31,10 @@ on:
     paths:
       - "functions/**"
       - "api/gc-team.ts"
-      - "src/lib/gameChangerApi.ts"
-      - "src/lib/apiShared.ts"
-      - "src/lib/ttlCache.ts"
-      - "src/lib/firebaseProxy.ts"
-      - "src/lib/billingCap.ts"
-      - "src/lib/cloud/**"
+      - "scripts/handlerFetch.ts"
+      # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
+      # a function left on older rules than the app would stamp the copy with them.
+      - "src/lib/**"
       - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
@@ -54,9 +54,12 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm ci --prefix functions
-      - run: npm run build --prefix functions
-      # The built bundle, run as Cloud Functions will run it: a fake request, no network.
-      - run: npm run smoke --prefix functions
+      # The built bundle, run as Cloud Functions will run it: a fake request, no network. Built
+      # with the pulls in the cloud, and then without, as a project not yet set up for them has it.
+      - run: npm run build --prefix functions && npm run smoke --prefix functions
+        env:
+          CLOUD_PULLS: "on"
+      - run: npm run build --prefix functions && npm run smoke --prefix functions
       # The rules, tried against the Firestore emulator by the app's own Firestore code: an owner,
       # a second account and a signed-out browser, each doing what the app does and what it must
       # not. The emulator wants Java 21, which the runner carries beside its default.
@@ -75,14 +78,22 @@ jobs:
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls out
+          # until it is on.
+          CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
         run: |
           if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
             echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
             exit 0
+          fi
+          only="functions,firestore:rules"
+          if [ "$CLOUD_PULLS" != "on" ]; then
+            only="functions:gcTeam,functions:billingCap,firestore:rules"
+            echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
           fi
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
-          npx --yes firebase-tools@15 deploy --only functions,firestore:rules --project "$PROJECT" --non-interactive --force
+          npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force

@@ -10,7 +10,15 @@ import {
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
-import { firestoreRestStore, type FirestoreValue } from "../firestoreRest";
+import {
+  FirestoreError,
+  firestoreFieldsOf,
+  firestoreRestDocuments,
+  firestoreRestStore,
+  type FirestoreValue,
+} from "../firestoreRest";
+import { newPullJob, packJobList } from "../pullJobs";
+import { restJobDocs } from "../pullJobRunner";
 
 /*
  * The cloud copy through Firestore's REST API (`firestoreRestStore`), as the nightly refresh on
@@ -64,9 +72,25 @@ const fakeFirestore = () => {
       return found ? reply(200, found) : reply(404, { error: { status: "NOT_FOUND" } });
     }
     if (method === "PATCH") {
-      clock += 1;
       const body = JSON.parse(String(init?.body)) as { fields: Record<string, FirestoreValue> };
-      docs.set(path, { fields: body.fields, updateTime: `t${clock}` });
+      const current = docs.get(path);
+      if (url.searchParams.get("currentDocument.exists") === "true" && !current) {
+        return reply(404, { error: { status: "NOT_FOUND" } });
+      }
+      // With a mask, the fields it names are set from the body, or removed where the body has
+      // none, and every other field is kept.
+      const mask = url.searchParams.getAll("updateMask.fieldPaths");
+      const fields =
+        mask.length === 0
+          ? body.fields
+          : Object.fromEntries(
+              [
+                ...Object.entries(current?.fields ?? {}).filter(([name]) => !mask.includes(name)),
+                ...Object.entries(body.fields).filter(([name]) => mask.includes(name)),
+              ].sort(([a], [b]) => a.localeCompare(b))
+            );
+      clock += 1;
+      docs.set(path, { fields, updateTime: `t${clock}` });
       return reply(200, {});
     }
     if (method === "DELETE") {
@@ -207,5 +231,78 @@ describe("the cloud copy through Firestore's REST API", () => {
     expect((await reader.readManifest())?.version).toBe(1);
     await expect(reader.putChunk("x-0", new Uint8Array([1]))).rejects.toThrow(/to read/);
     await expect(reader.deleteChunk("x-0")).rejects.toThrow(/to read/);
+  });
+});
+
+describe("a pull's job through Firestore's REST API", () => {
+  const JOB = "0123456789abcdef0123456789abcdef";
+
+  it("reads the job and its list, and changes only the fields a leg sets", async () => {
+    const firestore = fakeFirestore();
+    const packed = await packJobList([{ teamId: "gcACES000001" }, { teamId: "gcBEARS00001" }]);
+    const job = newPullJob({
+      list: packed.list,
+      seasonYears: [2027],
+      timeZone: "America/New_York",
+      device: "phone",
+      now: "2026-09-29T12:00:00.000Z",
+    });
+    // As the device leaves it: the list's pieces, then the job.
+    packed.pieces.forEach((piece, index) =>
+      firestore.docs.set(`copies/main/jobs/${JOB}/pieces/${index}`, {
+        fields: firestoreFieldsOf({ data: piece }),
+        updateTime: "t0",
+      })
+    );
+    firestore.docs.set(`copies/main/jobs/${JOB}`, {
+      fields: firestoreFieldsOf(job),
+      updateTime: "t0",
+    });
+    const jobs = restJobDocs(
+      firestoreRestDocuments({
+        projectId: "proj",
+        token: async () => "a-token",
+        fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      })
+    );
+
+    expect(await jobs.read(JOB)).toEqual(job);
+    expect(await jobs.piece(JOB, 0)).toEqual(packed.pieces[0]);
+    expect(await jobs.piece(JOB, packed.pieces.length)).toBeNull();
+    // A piece that holds anything but bytes is no piece.
+    firestore.docs.set(`copies/main/jobs/${JOB}/pieces/9`, {
+      fields: firestoreFieldsOf({ data: "not bytes" }),
+      updateTime: "t0",
+    });
+    expect(await jobs.piece(JOB, 9)).toBeNull();
+    expect(await jobs.read("f".repeat(32))).toBeNull();
+
+    await jobs.update(JOB, {
+      status: "running",
+      progress: { done: 1, total: 2, failed: 0 },
+      error: "tried again",
+    });
+    expect(await jobs.read(JOB)).toEqual({
+      ...job,
+      status: "running",
+      progress: { done: 1, total: 2, failed: 0 },
+      error: "tried again",
+    });
+    // A field set to null is cleared, as the job's type has it, not left as it was.
+    await jobs.update(JOB, { error: null });
+    expect((await jobs.read(JOB))?.error).toBeNull();
+  });
+
+  it("never makes again a job deleted while a leg ran", async () => {
+    const firestore = fakeFirestore();
+    const jobs = restJobDocs(
+      firestoreRestDocuments({
+        projectId: "proj",
+        token: async () => "a-token",
+        fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      })
+    );
+    await expect(jobs.update(JOB, { status: "done" })).rejects.toBeInstanceOf(FirestoreError);
+    expect(firestore.docs.size).toBe(0);
   });
 });
