@@ -2,12 +2,31 @@
 // block, so the config is defined through `vitest/config` instead. It is Vite's `defineConfig`
 // with the test options typed on top; every Vite option below is unchanged.
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
+
+/**
+ * Writes the page's Content-Security-Policy for this build: `index.html`'s, plus the origins the
+ * build's own settings talk to (`src/lib/contentPolicy.ts`). Read from the environment Vite loaded,
+ * which is the one the bundle is built from, so the two cannot disagree.
+ */
+const contentPolicy = (): Plugin => {
+  let env: Record<string, string> = {};
+  return {
+    name: "league-forecast:content-policy",
+    configResolved: (config) => {
+      env = config.env;
+    },
+    transformIndexHtml: (html) => widenPolicyInHtml(html, env),
+  };
+};
 
 export default defineConfig({
   plugins: [
     react(),
+    contentPolicy(),
     VitePWA({
       /*
        * A new version waits to be let in rather than taking over.

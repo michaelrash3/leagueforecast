@@ -35,11 +35,14 @@ jobs:
       # The GameChanger proxy's address is a build setting (`gcProxyEndpoint`), and Vite fills in
       # `import.meta.env.VITE_…` only where the read is written out whole. Read any other way it
       # passes every unit test, which run with an `import.meta.env` of their own, and the setting
-      # never reaches a browser. So build once with it set and look for it in the bundle.
-      - name: The proxy setting reaches the bundle
+      # never reaches a browser. So build once with it set and look for it in the bundle, and in
+      # the page's content policy, without which the browser refuses every call to it
+      # (`src/lib/contentPolicy.ts`).
+      - name: The proxy setting reaches the bundle and the page's policy
         run: |
           VITE_GC_PROXY_URL=https://proxy.example.invalid/gcTeam npx vite build --outDir "$RUNNER_TEMP/dist-proxy"
           grep -rlq "proxy.example.invalid/gcTeam" --include="*.js" "$RUNNER_TEMP/dist-proxy"
+          grep -q "connect-src 'self' https://proxy.example.invalid" "$RUNNER_TEMP/dist-proxy/index.html"
       # One browser, one smoke spec, against the build above: a season loads, a score moves the
       # standings, and the backup carries it. The unit suites cover the pieces; this covers the wiring.
       - run: npx playwright install --with-deps chromium
