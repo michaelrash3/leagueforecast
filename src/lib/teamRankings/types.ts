@@ -294,8 +294,10 @@ export type ScoutGame = {
   /**
    * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
    * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
-   * the row that way, and by a later pull of a row already here whose picture names the club it is
-   * filed against. A tidy rule that moves a row off a club on its name alone leaves it on this one
+   * the row that way, by a later pull of a row already here whose picture names the club it is
+   * filed against, and by the user folding the stand-in the row was filed against into a pulled
+   * club ("Same team as", `mergeScoutTeams`), which is the user saying who played. A tidy rule
+   * that moves a row off a club on its name alone leaves it on this one
    * — a club across the country is a club a travelling team plays, when GameChanger says so. Only
    * while the row still names this club: a club merged into another takes it along
    * (`withFiledRepointed`), a pull whose picture names another pulled club takes it off, and a pull

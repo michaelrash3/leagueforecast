@@ -4385,6 +4385,16 @@ export const mergeScoutTeams = (
     return { teams, games, droppedGames: 0, collapsedGames: 0 };
   }
 
+  /*
+   * A team known only by a name — a stand-in, a slot, one made by hand — folded into a pulled club
+   * is the user saying who played those games, which is an identity, where the name was a guess: its
+   * rows name the club from here on, as a row whose picture names a club does
+   * (`ScoutGame.namedByAvatar`), and no tidy rule moves one of those on a name. Folded with no mark,
+   * a row went back to a stand-in at the next tidy wherever the club's own schedule had no game that
+   * day (`resettleOffLevel`), as the two stand-ins of "513 Force - Bouley" folded into the pulled
+   * club on the pool of 29 September 2026 did.
+   */
+  const identifies = !removed.gcTeams?.length && Boolean(survivor.gcTeams?.length);
   const repointed: ScoutGame[] = [];
   let droppedGames = 0;
   games.forEach((game) => {
@@ -4402,8 +4412,9 @@ export const mergeScoutTeams = (
     }
     const moved =
       teamAId === game.teamAId && teamBId === game.teamBId ? game : { ...game, teamAId, teamBId };
+    const named = identifies ? namingSurvivor(game, moved, fromId, intoId) : moved;
     // A row claimed from the team folded away was filed against the survivor.
-    repointed.push(withFiledRepointed(moved, (id) => (id === fromId ? intoId : id)));
+    repointed.push(withFiledRepointed(named, (id) => (id === fromId ? intoId : id)));
   });
 
   const linkedIds = new Set((survivor.gcTeams ?? []).map((link) => link.teamId));
@@ -4438,6 +4449,35 @@ export const mergeScoutTeams = (
     games: settledOnMerge(removed, intoId, games, collapsed.games),
     droppedGames,
     collapsedGames: collapsed.collapsed,
+  };
+};
+
+/**
+ * `moved`, the game `before` repointed off the stand-in `fromId`, with each row of it that named
+ * the stand-in marked as naming `intoId` (`ScoutGame.namedByAvatar`, `FoldedRow.namedByAvatar`):
+ * the row the game stands on where the stand-in was a side, and each folded row that faced it. The
+ * same game when neither did.
+ */
+const namingSurvivor = (
+  before: ScoutGame,
+  moved: ScoutGame,
+  fromId: string,
+  intoId: string
+): ScoutGame => {
+  const stands =
+    before.source !== undefined && (before.teamAId === fromId || before.teamBId === fromId);
+  const faced = (record: FoldedRow) =>
+    (record.onSideB ? before.teamAId : before.teamBId) === fromId;
+  const alsoRows = moved.alsoRows?.some(faced)
+    ? moved.alsoRows.map((record) =>
+        faced(record) ? { ...record, namedByAvatar: intoId } : record
+      )
+    : undefined;
+  if (!stands && !alsoRows) return moved;
+  return {
+    ...moved,
+    ...(stands ? { namedByAvatar: intoId } : {}),
+    ...(alsoRows ? { alsoRows } : {}),
   };
 };
 
