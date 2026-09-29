@@ -1,7 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRankingsWorker } from "./useRankingsWorker";
-import type { AgeGroup, ScoutGame, ScoutTeam } from "../lib/teamRankings";
+import { loadSavedBoard, resetSavedBoard, saveBoard } from "../lib/savedBoard";
+import type { AgeGroup, ScoutGame, ScoutRankingRow, ScoutTeam } from "../lib/teamRankings";
 import type {
   RankingsRequest,
   WhatIfRequest,
@@ -55,6 +56,9 @@ const games: ScoutGame[] = Array.from({ length: 40 }, (_, i) => ({
 const fits = (worker: FakeWorker): RankingsRequest[] =>
   worker.posted.filter((message): message is RankingsRequest => message.kind === "rankings");
 
+/** The newest of a list: the worker made last, or the request posted last. */
+const last = <T,>(items: readonly T[]): T => items[items.length - 1]!;
+
 const whatIfs = (worker: FakeWorker): WhatIfRequest[] =>
   worker.posted.filter((message): message is WhatIfRequest => message.kind === "what-if");
 
@@ -76,7 +80,12 @@ const settle = () => {
   });
 };
 
-type Props = { ageGroupId: string; games?: ScoutGame[]; segment?: "fall" | "spring" };
+type Props = {
+  ageGroupId: string;
+  games?: ScoutGame[];
+  segment?: "fall" | "spring";
+  myTeamId?: string;
+};
 const render = (initial: Props) =>
   renderHook(
     (props: Props) =>
@@ -86,6 +95,7 @@ const render = (initial: Props) =>
         games: props.games ?? games,
         ageGroups: groups,
         ...(props.segment === undefined ? {} : { segment: props.segment }),
+        ...(props.myTeamId === undefined ? {} : { myTeamId: props.myTeamId }),
       }),
     { initialProps: initial }
   );
@@ -94,6 +104,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   FakeWorker.instances = [];
   vi.stubGlobal("Worker", FakeWorker);
+  resetSavedBoard();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -268,5 +279,106 @@ describe("when the hook asks its worker for a what-if", () => {
     // answer about this one, and showing them for even a moment would be showing the wrong table.
     act(() => result.current.askWhatIf({ ...ask, gameId: "after" }));
     expect(result.current.whatIf.status).toBe("working");
+  });
+});
+
+/*
+ * The first fit after an open is seconds of work on a nationwide pool. The board last fitted is kept
+ * (`savedBoard.ts`) and shown until this open's own fit lands, marked stale as any refit is, and
+ * only on the page it was fitted for.
+ */
+describe("opening on the board last fitted", () => {
+  const row = (teamId: string, rank: number, rating: number): ScoutRankingRow =>
+    ({ teamId, teamName: teamId, rank, rating }) as ScoutRankingRow;
+  const lastVisit = [row("S-1", 1, 4.2), row("S-2", 2, 1.1)];
+
+  /** A visit that fits `page` and leaves, keeping its board. */
+  const visit = (page: Props, rows: ScoutRankingRow[]) => {
+    const { unmount } = render(page);
+    settle();
+    const worker = last(FakeWorker.instances);
+    act(() => {
+      worker.reply({ kind: "rankings", id: last(fits(worker)).id, rows, elapsedMs: 1 });
+    });
+    unmount();
+  };
+
+  it("shows last visit's rows at once, stale, until its own fit replaces them", () => {
+    visit({ ageGroupId: "u10" }, lastVisit);
+
+    const { result } = render({ ageGroupId: "u10" });
+    expect(result.current.rows).toEqual(lastVisit);
+    expect(result.current.stale).toBe(true);
+
+    settle();
+    const worker = last(FakeWorker.instances);
+    const fresh = [row("S-2", 1, 3.3), row("S-1", 2, 2.2)];
+    act(() => {
+      worker.reply({ kind: "rankings", id: last(fits(worker)).id, rows: fresh, elapsedMs: 1 });
+    });
+    expect(result.current.rows).toEqual(fresh);
+    expect(result.current.stale).toBe(false);
+  });
+
+  it("shows no board kept for another page, half or club", () => {
+    visit({ ageGroupId: "u10" }, lastVisit);
+    for (const other of [
+      { ageGroupId: "u11" },
+      { ageGroupId: "u10", segment: "fall" as const },
+      { ageGroupId: "u10", myTeamId: "S-3" },
+    ]) {
+      const { result, unmount } = render(other);
+      expect(result.current.rows).toEqual([]);
+      unmount();
+    }
+  });
+
+  it("keeps the latest board only", () => {
+    visit({ ageGroupId: "u10" }, lastVisit);
+    visit({ ageGroupId: "u11" }, [row("S-9", 1, 0.5)]);
+    expect(render({ ageGroupId: "u11" }).result.current.rows).toEqual([row("S-9", 1, 0.5)]);
+    expect(render({ ageGroupId: "u10" }).result.current.rows).toEqual([]);
+  });
+
+  it("reads a kept board back, on the next open, as it was written", async () => {
+    const kept = new Map<string, unknown>();
+    const io = {
+      get: async (key: string) => kept.get(key) ?? null,
+      set: async (key: string, value: unknown) => {
+        kept.set(key, structuredClone(value));
+        return true;
+      },
+    };
+    saveBoard({ ageGroupId: "u11" }, lastVisit, io);
+    // A new open: nothing in memory until the store is read.
+    resetSavedBoard();
+    expect(render({ ageGroupId: "u11" }).result.current.rows).toEqual([]);
+    await loadSavedBoard(io);
+    expect(render({ ageGroupId: "u11" }).result.current.rows).toEqual(lastVisit);
+  });
+
+  it("opens on nothing when what the store holds is not a board", async () => {
+    const here = JSON.stringify(["u10", "", ""]);
+    for (const held of [
+      null,
+      "board",
+      { page: 3, rows: [] },
+      { page: here, rows: "rows" },
+      // This page's, but rows that are not a board's rows.
+      { page: here, rows: [{ rank: 1, rating: 2, teamName: "Aces" }] },
+      { page: here, rows: [{ teamId: "S-1", rank: "1", rating: 2, teamName: "Aces" }] },
+    ]) {
+      await loadSavedBoard({ get: async () => held, set: async () => true });
+      const { result, unmount } = render({ ageGroupId: "u10" });
+      expect(result.current.rows).toEqual([]);
+      unmount();
+    }
+    await loadSavedBoard({
+      get: async () => {
+        throw new Error("store gone");
+      },
+      set: async () => true,
+    });
+    expect(render({ ageGroupId: "u10" }).result.current.rows).toEqual([]);
   });
 });

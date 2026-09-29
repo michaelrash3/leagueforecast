@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTeamRankingsStore } from "./lib/teamRankingsStorage";
+import { loadSavedBoard } from "./lib/savedBoard";
 import { bootCloud } from "./lib/cloud/cloudSession";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
 import "./index.css";
@@ -68,8 +69,11 @@ listenForTakes();
  * swapping it in under whoever is looking. `bootCloud` never throws and waits on the network for a
  * few seconds at most (`STARTUP_WAIT_MS`, `STARTUP_TAKE_MS`); a browser that has never signed in
  * never runs Firebase at all. Team Rankings' pool is brought in when Team Rankings opens.
+ *
+ * The board Team Rankings last showed is read beside the pool, from the same store, so the page
+ * can open on it while its own fit runs (`savedBoard.ts`).
  */
-initTeamRankingsStore()
+Promise.all([initTeamRankingsStore(), loadSavedBoard()])
   .catch(() => undefined)
   .then(() => bootCloud(showBootLine))
   .catch(() => undefined)
