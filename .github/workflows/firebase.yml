@@ -1,10 +1,11 @@
-# The Firebase functions (`functions/`): built and smoke-tested on every change to them, and
-# deployed on merge once the project is connected.
+# The Firebase project: the functions (`functions/`) and the Firestore rules (`firestore.rules`).
+# Both are tested on every change to them and deployed on merge once the project is connected.
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
-# Until the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret are set the deploy
-# step says so and passes, so this workflow is never red for want of an account.
+# The rules are what keep the cloud copy of the app's data one account's; see README, "Your data
+# on every device". Until the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret
+# are set the deploy step says so and passes, so this workflow is never red for want of an account.
 name: Firebase functions
 
 on:
@@ -18,6 +19,8 @@ on:
       - "src/lib/ttlCache.ts"
       - "src/lib/firebaseProxy.ts"
       - "src/lib/billingCap.ts"
+      - "src/lib/cloud/**"
+      - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
   pull_request:
@@ -30,6 +33,8 @@ on:
       - "src/lib/ttlCache.ts"
       - "src/lib/firebaseProxy.ts"
       - "src/lib/billingCap.ts"
+      - "src/lib/cloud/**"
+      - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
   workflow_dispatch:
@@ -51,6 +56,18 @@ jobs:
       - run: npm run build --prefix functions
       # The built bundle, run as Cloud Functions will run it: a fake request, no network.
       - run: npm run smoke --prefix functions
+      # The rules, tried against the Firestore emulator by the app's own Firestore code: an owner,
+      # a second account and a signed-out browser, each doing what the app does and what it must
+      # not. The emulator wants Java 21, which the runner carries beside its default.
+      - run: npm ci
+      - name: Firestore rules
+        run: |
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
+          java -version
+          npm run test:rules
 
       - name: Deploy
         if: github.event_name != 'pull_request'
@@ -67,4 +84,4 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
-          npx --yes firebase-tools@15 deploy --only functions --project "$PROJECT" --non-interactive --force
+          npx --yes firebase-tools@15 deploy --only functions,firestore:rules --project "$PROJECT" --non-interactive --force

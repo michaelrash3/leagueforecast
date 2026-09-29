@@ -38,6 +38,29 @@ export type SeasonMeta = {
   updatedAt?: string;
 };
 
+/**
+ * Told whenever a season, the list of them or the active one changes, so the cloud copy
+ * (`cloudSession.ts`) knows it owes a save. Not for the undo snapshots: those are scratch for one
+ * action on one device, and the cloud copy leaves them out as a backup does.
+ */
+let leagueWriteListener: (() => void) | null = null;
+
+export const onLeagueWrite = (handler: (() => void) | null): void => {
+  leagueWriteListener = handler;
+};
+
+const isUndoKey = (key: string): boolean =>
+  key.endsWith(`_undo_v${V}`) || key === `league_undo_snapshot_v${V}`;
+
+const noteLeagueWrite = (key: string): void => {
+  if (!leagueWriteListener || isUndoKey(key)) return;
+  try {
+    leagueWriteListener();
+  } catch {
+    /* the cloud copy is a courtesy; the write is the job */
+  }
+};
+
 const safeGet = (key: string): string | null => {
   try {
     return localStorage.getItem(key);
@@ -45,9 +68,16 @@ const safeGet = (key: string): string | null => {
     return null;
   }
 };
+/*
+ * A write of what is already stored is not a change to the cloud copy. The app writes every
+ * season value back as it opens, the same text it has just read, and each of those would otherwise
+ * be a save to send on every start.
+ */
 const safeSet = (key: string, value: string): boolean => {
   try {
+    const changed = localStorage.getItem(key) !== value;
     localStorage.setItem(key, value);
+    if (changed) noteLeagueWrite(key);
     return true;
   } catch {
     return false;
@@ -55,7 +85,9 @@ const safeSet = (key: string, value: string): boolean => {
 };
 const safeRemove = (key: string) => {
   try {
+    const held = localStorage.getItem(key) !== null;
     localStorage.removeItem(key);
+    if (held) noteLeagueWrite(key);
   } catch {
     /* ignore */
   }
@@ -97,9 +129,9 @@ const readSeasons = (): SeasonMeta[] => {
 };
 
 /**
- * Marks a season as changed now. Called by every save of its data, so the list carries the one
- * fact about freshness League Standings never had: not when a season was made, but when it was
- * last touched. The undo snapshot is not a change to the season and does not call this.
+ * Marks a season as changed now. Called by every save that changes its data, so the list carries
+ * the one fact about freshness League Standings never had: not when a season was made, but when it
+ * was last touched. The undo snapshot is not a change to the season and does not call this.
  */
 const touchSeason = (id: string): void => {
   const seasons = readSeasons();
@@ -205,11 +237,19 @@ export const loadSettingsForSeason = (seasonId: string): Settings => loadSetting
 export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), []);
 
-/** Writes one of the active season's keys and marks the season changed. */
+/**
+ * Writes one of the active season's keys and marks the season changed, if it did. The app writes
+ * every value back as it opens, the same text it has just read. Stamped, that made each opening
+ * look like an edit: the Settings panel's "changed since the last backup" was true of any season
+ * merely looked at, and the cloud copy would have been sent again every time.
+ */
 const saveActive = (dataKey: DataKey, value: unknown): boolean => {
   const id = activeId();
-  const ok = safeSet(seasonKey(id, dataKey), JSON.stringify(value));
-  if (ok) touchSeason(id);
+  const key = seasonKey(id, dataKey);
+  const text = JSON.stringify(value);
+  const changed = safeGet(key) !== text;
+  const ok = safeSet(key, text);
+  if (ok && changed) touchSeason(id);
   return ok;
 };
 export const saveTeams = (teams: TeamBase[]) => saveActive("teams", teams);

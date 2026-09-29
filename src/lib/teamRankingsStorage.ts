@@ -286,6 +286,26 @@ const announceChange = () => {
   });
 };
 
+/**
+ * Told of every write this tab makes to a key the cloud copy holds (`isCloudPoolKey`), so the copy
+ * knows it owes a save. One listener: the cloud session (`cloudSession.ts`), when this browser
+ * keeps a cloud copy at all.
+ */
+let cloudWriteListener: ((key: string) => void) | null = null;
+
+export const onCloudPoolWrite = (handler: ((key: string) => void) | null): void => {
+  cloudWriteListener = handler;
+};
+
+const noteCloudWrite = (key: string): void => {
+  if (!cloudWriteListener || !isCloudPoolKey(key)) return;
+  try {
+    cloudWriteListener(key);
+  } catch {
+    /* the cloud copy is a courtesy; the write is the job */
+  }
+};
+
 /** How this tab tells the others. Set up by `initTeamRankingsStore`; silent until then. */
 let broadcast: PoolBroadcast = SILENT_BROADCAST;
 /**
@@ -466,7 +486,11 @@ const writeValue = (key: string, value: unknown): boolean => {
   if (poolUnavailable) return false;
   // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
   // to send: the value is already shared and the notification comes free.
-  if (!usingIdb) return safeSet(key, JSON.stringify(value));
+  if (!usingIdb) {
+    const saved = safeSet(key, JSON.stringify(value));
+    if (saved) noteCloudWrite(key);
+    return saved;
+  }
   cache.set(key, value);
   /*
    * Deleted before it is set, so the queue is a log of writes in the order they were made rather
@@ -482,12 +506,14 @@ const writeValue = (key: string, value: unknown): boolean => {
   // Announced on acceptance rather than after the flush. A tab told a moment early re-reads and
   // finds either the new value or the old one; a tab told late can have written over it by then.
   broadcast.post(key);
+  noteCloudWrite(key);
   return true;
 };
 
 const forgetValue = (key: string): void => {
   if (!usingIdb) {
     safeRemove(key);
+    noteCloudWrite(key);
     return;
   }
   cache.set(key, null);
@@ -496,6 +522,7 @@ const forgetValue = (key: string): void => {
   pendingWrites.set(key, null);
   void flushWrites();
   broadcast.post(key);
+  noteCloudWrite(key);
 };
 
 /**
@@ -1416,8 +1443,11 @@ export const saveOrgMembership = (membership: OrgMembership): boolean =>
  */
 const putBlob = async (key: string, value: unknown): Promise<boolean> => {
   if (poolUnavailable) return false;
-  if (!usingIdb) return safeSet(key, JSON.stringify(value));
-  return (activeIo ?? browserIo).set(key, value);
+  const saved = usingIdb
+    ? await (activeIo ?? browserIo).set(key, value)
+    : safeSet(key, JSON.stringify(value));
+  if (saved) noteCloudWrite(key);
+  return saved;
 };
 
 const getBlob = async (key: string): Promise<unknown> => {
@@ -1428,11 +1458,9 @@ const getBlob = async (key: string): Promise<unknown> => {
 
 const dropBlob = async (key: string): Promise<void> => {
   if (poolUnavailable) return;
-  if (!usingIdb) {
-    safeRemove(key);
-    return;
-  }
-  await (activeIo ?? browserIo).set(key, null);
+  if (usingIdb) await (activeIo ?? browserIo).set(key, null);
+  else safeRemove(key);
+  noteCloudWrite(key);
 };
 
 /** The usable entries out of a stored index; anything that is not a list yields none. */
@@ -1544,4 +1572,67 @@ export const replaceArchivedSeasons = async (seasons: ArchivedSeason[]): Promise
   await Promise.all(going.map((entry) => dropBlob(archiveRowsKey(entry.id))));
   if (!writeValue(GC_ARCHIVE_KEY, [])) return false;
   return (await saveArchivedSeasons(seasons)) !== null;
+};
+
+/**
+ * The keys a cloud copy of this browser holds (`cloud/`), less the three that mean something only
+ * on the device that wrote them: an interrupted pull's place, which is resumed where it ran, and
+ * the two large records read only to explain or undo a run there (the pull's own record, and the
+ * last bulk pass over the waiting list).
+ */
+const CLOUD_LOCAL_ONLY: ReadonlySet<string> = new Set([GC_PULL_KEY, GC_TRACK_KEY, GC_CLEARED_KEY]);
+
+/** Whether a key travels with the cloud copy: a pool key, a year's games, or an archive's rows. */
+export const isCloudPoolKey = (key: string): boolean =>
+  (isPoolKey(key) && !CLOUD_LOCAL_ONLY.has(key)) || key.startsWith(ARCHIVE_ROWS_PREFIX);
+
+/** Every key this browser would put in its cloud copy now: each one it holds a value for. */
+export const cloudPoolKeys = (): string[] => {
+  const held = (key: string) => {
+    const value = readValue(key);
+    return value !== null && value !== undefined;
+  };
+  return [
+    ...POOL_KEYS.filter((key) => !CLOUD_LOCAL_ONLY.has(key) && held(key)),
+    ...gamesShardKeys().filter(held),
+    ...loadArchiveIndex().map((entry) => archiveRowsKey(entry.id)),
+  ];
+};
+
+/** A key's stored value for the cloud copy: from the cache, or from the store for an archive. */
+export const readCloudPoolValue = async (key: string): Promise<unknown> =>
+  key.startsWith(ARCHIVE_ROWS_PREFIX) ? getBlob(key) : readValue(key);
+
+/**
+ * Lays values from the cloud copy over this browser's, null taking a key away, and waits for them
+ * to reach the store. Says whether all of them did. Keys the cloud copy does not hold are left
+ * alone, whatever they are called.
+ */
+export const applyCloudPoolValues = async (
+  values: ReadonlyMap<string, unknown>
+): Promise<boolean> => {
+  let ok = true;
+  for (const [key, value] of values) {
+    if (!isCloudPoolKey(key)) continue;
+    if (key.startsWith(ARCHIVE_ROWS_PREFIX)) {
+      if (value === null) await dropBlob(key);
+      else if (!(await putBlob(key, value))) ok = false;
+    } else if (value === null) forgetValue(key);
+    else if (!writeValue(key, value)) ok = false;
+  }
+  return (await flushPoolWrites()) && ok;
+};
+
+/**
+ * Whether the pool holds no team, read off the stored rows without decoding them: a cloud copy
+ * asks it of a browser at startup, where decoding a nationwide pool to count it would cost seconds.
+ * A format it does not recognise counts as holding teams, since the answer decides whether this
+ * browser's data may be replaced without asking.
+ */
+export const poolHoldsNoTeams = (): boolean => {
+  const raw = readValue(TEAMS_KEY);
+  if (raw === null || raw === undefined) return true;
+  if (Array.isArray(raw)) return raw.length === 0;
+  if (isRecord(raw) && Array.isArray(raw.r)) return raw.r.length === 0;
+  return false;
 };
