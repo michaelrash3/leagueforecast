@@ -38,10 +38,12 @@ const memoryStorage = () => {
   };
 };
 
+/** The account the rules name as the copy's owner. */
+const OWNER_UID = "owner-1";
+
 /** One Firestore, shared by every device in a test. */
 const firestore = () => {
   let manifest: CloudManifest | null = null;
-  let owner: string | null = null;
   const chunks = new Map<string, Uint8Array>();
   const store: CloudStore = {
     readManifest: async () => (manifest ? structuredClone(manifest) : null),
@@ -64,11 +66,7 @@ const firestore = () => {
         current = null;
       },
       onAccount: () => () => undefined,
-      claim: async () => {
-        if (!current) return "someone-else";
-        owner ??= current.uid;
-        return owner === current.uid ? "mine" : "someone-else";
-      },
+      owns: async () => current?.uid === OWNER_UID,
       store,
     };
   };
@@ -101,7 +99,7 @@ const device = (entries: Record<string, unknown>) => {
   return { local, values };
 };
 
-const ME: CloudAccount = { uid: "owner-1", email: "owner@example.test" };
+const ME: CloudAccount = { uid: OWNER_UID, email: "owner@example.test" };
 const CONFIG = { apiKey: "k", authDomain: "d", projectId: "p", appId: "a" };
 
 let reloads = 0;

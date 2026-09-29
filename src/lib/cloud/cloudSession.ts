@@ -593,9 +593,9 @@ export const saveNow = async (replace = false): Promise<void> => {
   await exclusively(() => saveLocked(current, account, replace ? "replace" : "auto"));
 };
 
-/** Whose the copy is, as this account finds it; false leaves the status saying why. */
+/** Whether the copy is this account's; false leaves the status saying why. */
 const owns = async (current: Session, account: CloudAccount): Promise<boolean> => {
-  if ((await current.cloud.claim()) === "mine") return true;
+  if (await current.cloud.owns()) return true;
   setStatus({ kind: "not-owner", account });
   return false;
 };
@@ -608,8 +608,8 @@ const owns = async (current: Session, account: CloudAccount): Promise<boolean> =
  * since opening on the old data and then replacing it would be worse. Another tab already at work
  * on the copy is left to it: this one opens at once, and hears if that tab takes a copy in.
  *
- * No claim is made here. This browser claimed the copy when it signed in, and the rules refuse the
- * read below to any account that is not the owner, which ends in `error`.
+ * Nothing is claimed here, or anywhere: the rules name the copy's owner, and refuse the read below
+ * to any other account, which ends in `error`.
  *
  * `onProgress` is for a line of text while nothing else is on screen.
  */
@@ -730,7 +730,7 @@ export const lookAgain = async (): Promise<void> => {
   }
 };
 
-/** Signs in, claims the copy if nobody has, and brings this browser in step with it. */
+/** Signs in, checks the copy is this account's, and brings this browser in step with it. */
 export const signInToCloud = async (): Promise<void> => {
   try {
     const current = await loadSession();

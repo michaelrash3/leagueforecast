@@ -57,6 +57,13 @@ describe("the header's cloud button", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("is not drawn in a browser that keeps no copy, where anyone with a link could press it", () => {
+    const { container } = render(
+      <CloudButton status={{ kind: "signed-out" }} onOpen={vi.fn()} className="inline-flex" />
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("says where the copy stands, and opens the panel", async () => {
     const onOpen = vi.fn();
     render(<CloudButton status={saved({ owed: true })} onOpen={onOpen} className="inline-flex" />);
