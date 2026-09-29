@@ -2,7 +2,7 @@ import { coerceBackup } from "../backup";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere, watchPull } from "../pullSession";
-import { configuredFirebase, type FirebaseWebConfig } from "./cloudConfig";
+import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "./cloudConfig";
 import { DATA_SCHEMA, type KeptPart } from "./cloudManifest";
 import {
   commitChanges,
@@ -71,7 +71,7 @@ export type KeptVersion = {
 };
 
 export type CloudStatus =
-  /** This build has no Firebase setting: the feature is not there to offer. */
+  /** No Firebase project to keep a copy in: the feature is not there to offer. */
   | { kind: "off" }
   /** This browser keeps no copy and never has: signing in is offered in Settings only. */
   | { kind: "none" }
@@ -161,7 +161,7 @@ let stopSession: (() => void) | null = null;
 let openCloud: (config: FirebaseWebConfig) => Promise<FirebaseCloud> = async (config) =>
   (await import("./firebaseCloud")).openFirebaseCloud(config);
 let local: LocalSource = appLocalSource;
-let config: () => FirebaseWebConfig | null = configuredFirebase;
+let config: () => FirebaseWebConfig | null = () => FIREBASE_WEB_CONFIG;
 let reload: () => void = reloadWhenFree;
 let now: () => number = () => Date.now();
 let roomFor: (bytes: number) => Promise<boolean> = async (bytes) => {

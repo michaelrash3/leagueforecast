@@ -39,7 +39,7 @@ const panel = (status: CloudStatus, { onClose = vi.fn(), kept = [] as KeptVersio
 };
 
 describe("the header's cloud button", () => {
-  it("is not drawn by a build with no Firebase setting", () => {
+  it("is not drawn while the cloud is off", () => {
     const { container } = render(
       <CloudButton status={{ kind: "off" }} onOpen={vi.fn()} className="inline-flex" />
     );
@@ -229,7 +229,7 @@ function Harness({ status }: { status: CloudStatus }) {
 }
 
 describe("when the panel shows", () => {
-  it("opens on the button, and never in a build with no Firebase setting", async () => {
+  it("opens on the button, and never while the cloud is off", async () => {
     const { rerender } = render(<Harness status={saved()} />);
     expect(screen.queryByText("panel open")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Cloud copy/ }));

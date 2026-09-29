@@ -356,7 +356,7 @@ export default function App() {
   /*
    * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
    * changes are listened for once the app is on screen, and where it stands is the header button.
-   * A build with no Firebase setting has neither, and this is inert.
+   * With no Firebase project to keep a copy in (`cloudConfig`) there is neither, and this is inert.
    */
   useEffect(() => startCloudSession(), []);
   const cloud = useSyncExternalStore(subscribeCloud, cloudStatus);
@@ -2427,7 +2427,12 @@ export default function App() {
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-sm font-black text-white dark:bg-white dark:text-slate-950">
                   LF
                 </div>
-                <h1 className="text-2xl font-black tracking-[-0.04em] text-slate-950 dark:text-white">
+                {/*
+                 * A size smaller on a phone, where the title row also holds the cloud button and the
+                 * theme toggle: at its full size on a 360px screen the title took a second line once
+                 * the cloud button joined the row, 28px more of the first screen.
+                 */}
+                <h1 className="text-xl font-black tracking-[-0.04em] text-slate-950 sm:text-2xl dark:text-white">
                   League Forecast
                 </h1>
                 {/*

@@ -62,8 +62,8 @@ const DOT: Record<Tone, string> = {
 
 /**
  * The header's cloud button: where the cloud copy stands, as a dot on a cloud, and the way into the
- * panel that says more, signing in included. Not drawn at all by a build with no Firebase setting,
- * which has no cloud copy to offer. Settings offers the same panel (`SettingsView`).
+ * panel that says more, signing in included. Not drawn at all while the cloud is off, with no
+ * Firebase project to keep a copy in. Settings offers the same panel (`SettingsView`).
  */
 export function CloudButton({
   status,

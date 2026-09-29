@@ -1,6 +1,6 @@
 // With its extension, unlike the rest of `src`: `vite.config.ts` loads this file, and Vite's own
 // config loader resolves an import only as written.
-import { parseFirebaseConfig } from "./cloud/cloudConfig.ts";
+import type { FirebaseWebConfig } from "./cloud/cloudConfig.ts";
 
 /**
  * The page's Content-Security-Policy, widened at build time for what the build talks to beyond its
@@ -16,13 +16,14 @@ import { parseFirebaseConfig } from "./cloud/cloudConfig.ts";
  *
  * What each setting adds, and nothing more:
  * - `VITE_GC_PROXY_URL`: its origin, to `connect-src`.
- * - `VITE_FIREBASE_CONFIG`: Firestore and the two sign-in APIs to `connect-src`; Google's loader
- *   for the sign-in frame (`apis.google.com`) to `script-src`; and the project's own auth domain to
- *   `frame-src`, where that frame and the sign-in popup's answer come from.
+ * - `firebase`, the project the cloud copy lives in (`FIREBASE_WEB_CONFIG`): Firestore and the two
+ *   sign-in APIs to `connect-src`; Google's loader for the sign-in frame (`apis.google.com`) to
+ *   `script-src`; and the project's own auth domain to `frame-src`, where that frame and the
+ *   sign-in popup's answer come from.
  */
 export type PolicySettings = {
   VITE_GC_PROXY_URL?: string | undefined;
-  VITE_FIREBASE_CONFIG?: string | undefined;
+  firebase?: FirebaseWebConfig | null | undefined;
 };
 
 /**
@@ -72,9 +73,9 @@ export const widenPolicy = (base: string, settings: PolicySettings): string => {
   const proxy = httpsOrigin(settings.VITE_GC_PROXY_URL);
   if (proxy) add("connect-src", [proxy]);
 
-  const firebase = parseFirebaseConfig(settings.VITE_FIREBASE_CONFIG);
+  const firebase = settings.firebase;
   const authOrigin = firebase ? httpsOrigin(`https://${firebase.authDomain}`) : null;
-  if (firebase && authOrigin) {
+  if (authOrigin) {
     add("connect-src", FIREBASE_CONNECT);
     add("script-src", FIREBASE_SCRIPT);
     add("frame-src", [authOrigin]);
