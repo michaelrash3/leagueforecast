@@ -53,7 +53,9 @@ const isUndoKey = (key: string): boolean =>
   key.endsWith(`_undo_v${V}`) || key === `league_undo_snapshot_v${V}`;
 
 const noteLeagueWrite = (key: string): void => {
-  if (!leagueWriteListener || isUndoKey(key)) return;
+  // The season a device has open is that device's own, like its theme: switching it is no change
+  // to the league, and the cloud copy does not carry it (`cloudLocal.ts`).
+  if (!leagueWriteListener || isUndoKey(key) || key === ACTIVE_KEY) return;
   try {
     leagueWriteListener();
   } catch {
@@ -413,7 +415,14 @@ export const replaceLeagueSnapshot = (snapshot: LeagueSnapshot): boolean => {
     write("settings", season.settings);
   });
 
-  const meta = snapshot.seasons.map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+  // Each season's last-changed time goes back with it: dropped, a restored or cloud-taken league
+  // would never be the same value it was, and the next comparison would call it changed.
+  const meta = snapshot.seasons.map(({ id, name, createdAt, updatedAt }) => ({
+    id,
+    name,
+    createdAt,
+    ...(updatedAt ? { updatedAt } : {}),
+  }));
   if (!writeSeasons(meta)) ok = false;
   // A pointer at a season the backup does not carry would leave the app on an empty season.
   const active = meta.some((season) => season.id === snapshot.activeSeasonId)

@@ -3,6 +3,7 @@ import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import {
   chooseCopy,
   loadNewer,
+  restartCloud,
   retryCloud,
   saveNow,
   signInToCloud,
@@ -18,6 +19,7 @@ export type CloudActions = {
   choose: (winner: "cloud" | "device") => void;
   loadNewer: () => void;
   retry: () => void;
+  restart: () => void;
 };
 
 /** What each button does: the session's own calls, wrapped so none is handed a click event. */
@@ -28,7 +30,14 @@ const SESSION_ACTIONS: CloudActions = {
   choose: (winner) => void chooseCopy(winner),
   loadNewer: () => loadNewer(),
   retry: () => void retryCloud(),
+  restart: () => void restartCloud(),
 };
+
+/** A size for people: "61.4 MB", "830 KB". */
+export const sizeOf = (bytes: number): string =>
+  bytes >= 1_000_000
+    ? `${(bytes / 1_000_000).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1_000))} KB`;
 
 /** "just now", "5 minutes ago", "today at 3:42 PM", "Sep 27 at 3:42 PM". */
 export const savedWhen = (iso: string | undefined, now = new Date()): string => {
@@ -192,6 +201,16 @@ function Body({
               Download a backup of this browser first
             </button>
           </div>
+          {status.cloudOnly.labels.length > 0 && (
+            <p
+              role="alert"
+              className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold leading-6 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              The cloud copy has {status.cloudOnly.labels.join(" and ")} this browser does not (
+              {sizeOf(status.cloudOnly.bytes)}). Keeping this browser&apos;s data would remove it
+              from the cloud.
+            </p>
+          )}
           <Note>Nothing is saved or replaced until you choose.</Note>
         </>
       );
@@ -200,12 +219,36 @@ function Body({
         <>
           <Account email={status.account.email} />
           <Line>
-            Another device saved newer data {savedWhen(status.cloudSavedAt, now)}. This browser has
-            no changes of its own waiting, so loading it loses nothing.
+            Another device saved newer data {savedWhen(status.cloudSavedAt, now)}.{" "}
+            {status.owed
+              ? "The changes made here are kept, and are sent once it has loaded."
+              : "This browser has no changes of its own waiting, so loading it loses nothing."}
           </Line>
           <div>
             <button type="button" onClick={actions.loadNewer} className={button.primary}>
               Load it now
+            </button>
+          </div>
+        </>
+      );
+    case "gone":
+      return (
+        <>
+          <Account email={status.account.email} />
+          <Line>
+            The cloud copy is gone: deleted in the Firebase console, most likely. Nothing in this
+            browser has been changed.
+          </Line>
+          <Line>
+            Starting it again from here makes this browser&apos;s data the cloud copy. Every other
+            device is then asked which copy it wants, rather than taking this one unasked.
+          </Line>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={actions.restart} className={button.dark}>
+              Start it again from this browser
+            </button>
+            <button type="button" onClick={actions.signOut} className={button.ghost}>
+              Sign out
             </button>
           </div>
         </>

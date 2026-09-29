@@ -4,14 +4,20 @@ import type { CloudManifest } from "../cloudManifest";
 import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
 
 /*
- * The cloud session end to end, with Firebase and the browser's stores stood in for: signing in
- * for the first time, a second device taking the copy, the question when two copies differ, saves
- * held back while a pull runs, and a change made during a save still being owed after it.
+ * The cloud session end to end, with Firebase, the browser's stores and its other tabs stood in
+ * for: signing in for the first time, a second device taking the copy, merging changes made on two
+ * devices, the question when they changed the same thing, saves held back while a pull runs here
+ * or in another tab, and a device that cannot read its own storage syncing nothing.
  */
 
-const pull = vi.hoisted(() => ({ live: false, listeners: new Set<() => void>() }));
+const pull = vi.hoisted(() => ({
+  live: false,
+  elsewhere: false,
+  listeners: new Set<() => void>(),
+}));
 vi.mock("../../pullSession", () => ({
-  isPullLive: () => pull.live,
+  isPoolBusy: () => pull.live,
+  poolJobElsewhere: async () => pull.elsewhere,
   watchPull: (listener: () => void) => {
     pull.listeners.add(listener);
     return () => pull.listeners.delete(listener);
@@ -66,7 +72,16 @@ const firestore = () => {
       store,
     };
   };
-  return { as, manifest: () => manifest, store };
+  return {
+    as,
+    manifest: () => manifest,
+    store,
+    /** The copy deleted in the console. */
+    wipe: () => {
+      manifest = null;
+      chunks.clear();
+    },
+  };
 };
 
 const device = (entries: Record<string, unknown>) => {
@@ -81,6 +96,7 @@ const device = (entries: Record<string, unknown>) => {
       });
       return true;
     },
+    usable: () => true,
   };
   return { local, values };
 };
@@ -89,6 +105,7 @@ const ME: CloudAccount = { uid: "owner-1", email: "owner@example.test" };
 const CONFIG = { apiKey: "k", authDomain: "d", projectId: "p", appId: "a" };
 
 let reloads = 0;
+let announced = 0;
 const connect = (
   cloud: FirebaseCloud,
   local: ReturnType<typeof device>,
@@ -102,6 +119,12 @@ const connect = (
     reload: () => {
       reloads += 1;
     },
+    tabs: {
+      announce: () => {
+        announced += 1;
+      },
+      listen: () => () => undefined,
+    },
   });
 };
 
@@ -113,8 +136,10 @@ const switchDevice = () => {
 
 beforeEach(() => {
   pull.live = false;
+  pull.elsewhere = false;
   pull.listeners.clear();
   reloads = 0;
+  announced = 0;
   switchDevice();
 });
 
@@ -124,8 +149,39 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const league = { activeSeasonId: "s1", seasons: [{ id: "s1", teams: ["Hawks"] }] };
+const league = { seasons: [{ id: "s1", teams: ["Hawks"] }] };
 const teams = { r: [["t1", "Hawks"]] };
+
+/** The laptop signs in with data, then the phone signs in holding nothing and takes it. */
+const twoDevices = async () => {
+  const sky = firestore();
+  const laptop = device({ league, teams });
+  connect(sky.as(ME), laptop);
+  await session.signInToCloud();
+  const laptopStorage = localStorage;
+  switchDevice();
+  const phone = device({});
+  connect(sky.as(ME), phone);
+  await session.signInToCloud();
+  const phoneStorage = localStorage;
+  reloads = 0;
+  /** Makes `which` the device the session runs as, with its own storage. */
+  const on = (which: "laptop" | "phone") => {
+    session.resetCloudSession();
+    vi.stubGlobal("localStorage", which === "laptop" ? laptopStorage : phoneStorage);
+    connect(sky.as(ME), which === "laptop" ? laptop : phone);
+    announced = 0;
+  };
+  /** A change made on `which` and saved, with the app open there. */
+  const saveOn = async (which: "laptop" | "phone", key: string, value: unknown) => {
+    on(which);
+    await session.bootCloud();
+    (which === "laptop" ? laptop : phone).values.set(key, value);
+    session.noteChange(key);
+    await session.saveNow();
+  };
+  return { sky, laptop, phone, on, saveOn };
+};
 
 describe("signing in for the first time", () => {
   it("sends everything from a device with data to an empty cloud", async () => {
@@ -135,23 +191,17 @@ describe("signing in for the first time", () => {
     await session.signInToCloud();
     expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
     expect(loadCloudState()).toMatchObject({ enabled: true, version: 1, dirty: {} });
+    expect(loadCloudState().copy).toBe(sky.manifest()?.copy);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
   });
 
   it("brings the copy to a device with nothing, and reloads to show it", async () => {
-    const sky = firestore();
-    connect(sky.as(ME), device({ league, teams }));
-    await session.signInToCloud();
-
-    switchDevice();
-    const phone = device({});
-    connect(sky.as(ME), phone);
-    await session.signInToCloud();
+    const { phone } = await twoDevices();
     expect(Object.fromEntries(phone.values)).toEqual({ league, teams });
-    expect(reloads).toBe(1);
+    expect(loadCloudState().version).toBe(1);
   });
 
-  it("asks which copy wins when both have different data", async () => {
+  it("asks which copy wins when both have different data, saying what the cloud would lose", async () => {
     const sky = firestore();
     connect(sky.as(ME), device({ league, teams }));
     await session.signInToCloud();
@@ -160,7 +210,11 @@ describe("signing in for the first time", () => {
     const other = device({ league: { mine: true } });
     connect(sky.as(ME), other);
     await session.signInToCloud();
-    expect(session.cloudStatus()).toMatchObject({ kind: "choose", firstTime: true });
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "choose",
+      firstTime: true,
+      cloudOnly: { labels: ["Team Rankings data"] },
+    });
     // Nothing moved in either direction while the question is open.
     expect(other.values.get("league")).toEqual({ mine: true });
     expect(sky.manifest()?.version).toBe(1);
@@ -241,81 +295,128 @@ describe("the answer to which copy wins", () => {
 
   it("this device's replaces the cloud copy", async () => {
     const { sky } = await conflicted();
+    const copy = sky.manifest()?.copy;
     await session.chooseCopy("device");
-    expect(sky.manifest()?.version).toBe(2);
+    expect(sky.manifest()).toMatchObject({ version: 2, copy });
     expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league"]);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
   });
 
-  it("the cloud's replaces this device's, and the page reloads", async () => {
+  it("the cloud's replaces this device's, the page reloads, and other tabs are told", async () => {
     const { other } = await conflicted();
     await session.chooseCopy("cloud");
     expect(Object.fromEntries(other.values)).toEqual({ league, teams });
     expect(reloads).toBe(1);
+    expect(announced).toBe(1);
+  });
+
+  it("keeps a change made while the cloud's copy downloads owed", async () => {
+    const { sky } = await conflicted();
+    const getChunk = sky.store.getChunk;
+    sky.store.getChunk = async (id) => {
+      // An edit lands in the middle of the download.
+      session.noteChange("teams");
+      return getChunk(id);
+    };
+    await session.chooseCopy("cloud");
+    expect(Object.keys(loadCloudState().dirty)).toEqual(["teams"]);
   });
 });
 
 describe("opening the app on a device that keeps a copy", () => {
   it("takes another device's save before anything is drawn, without a reload", async () => {
-    const sky = firestore();
-    const laptop = device({ league, teams });
-    connect(sky.as(ME), laptop);
-    await session.signInToCloud();
+    const { phone, on, saveOn } = await twoDevices();
+    await saveOn("laptop", "league", { seasons: [{ id: "s2" }] });
 
-    switchDevice();
-    const phone = device({});
-    connect(sky.as(ME), phone);
-    await session.signInToCloud();
-    const phoneStorage = localStorage;
-    reloads = 0;
-
-    // The laptop changes the league and saves.
-    session.resetCloudSession();
-    vi.stubGlobal("localStorage", memoryStorage());
-    connect(sky.as(ME), laptop);
-    await session.signInToCloud();
-    laptop.values.set("league", { ...league, activeSeasonId: "s2" });
-    session.noteChange("league");
-    await session.saveNow();
-    expect(sky.manifest()?.version).toBe(2);
-
-    // The phone opens the app.
-    session.resetCloudSession();
-    vi.stubGlobal("localStorage", phoneStorage);
-    connect(sky.as(ME), phone);
+    on("phone");
     const lines: string[] = [];
     await session.bootCloud((line) => lines.push(line));
-    expect(phone.values.get("league")).toEqual({ ...league, activeSeasonId: "s2" });
+    expect(phone.values.get("league")).toEqual({ seasons: [{ id: "s2" }] });
     expect(reloads).toBe(0);
+    expect(announced).toBe(1);
     expect(lines.some((line) => line.startsWith("Loading your data from the cloud"))).toBe(true);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
   });
 
-  it("asks rather than replacing changes made here that were never saved", async () => {
-    const sky = firestore();
-    const laptop = device({ league, teams });
-    connect(sky.as(ME), laptop);
-    await session.signInToCloud();
-    const laptopStorage = localStorage;
+  it("merges when the two devices changed different things", async () => {
+    const { sky, laptop, on, saveOn } = await twoDevices();
+    await saveOn("phone", "teams", { r: [] });
 
-    // Another device takes the copy and saves a change.
-    switchDevice();
-    const phone = device({});
-    connect(sky.as(ME), phone);
-    await session.signInToCloud();
-    phone.values.set("teams", { r: [] });
-    session.noteChange("teams");
-    await session.saveNow();
-
-    // The laptop had a change of its own it never sent.
-    session.resetCloudSession();
-    vi.stubGlobal("localStorage", laptopStorage);
-    connect(sky.as(ME), laptop);
-    laptop.values.set("league", { ...league, activeSeasonId: "unsent" });
+    // The laptop changed the seasons and never sent them.
+    on("laptop");
+    laptop.values.set("league", { seasons: ["unsent"] });
     session.noteChange("league");
+    session.resetCloudSession();
+    connect(sky.as(ME), laptop);
     await session.bootCloud();
-    expect(session.cloudStatus()).toMatchObject({ kind: "choose", firstTime: false });
-    expect(laptop.values.get("league")).toEqual({ ...league, activeSeasonId: "unsent" });
+    expect(laptop.values.get("teams")).toEqual({ r: [] });
+    expect(laptop.values.get("league")).toEqual({ seasons: ["unsent"] });
+    expect(Object.keys(loadCloudState().dirty)).toEqual(["league"]);
+
+    // Version 1 was the laptop's first save, 2 the phone's teams, 3 the laptop's seasons.
+    await session.saveNow();
+    expect(sky.manifest()?.version).toBe(3);
+    expect(loadCloudState()).toMatchObject({ version: 3, dirty: {} });
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
+  });
+
+  it("asks when both changed the same thing, and changes nothing until answered", async () => {
+    const { sky, laptop, on, saveOn } = await twoDevices();
+    await saveOn("phone", "league", { seasons: ["phone"] });
+
+    on("laptop");
+    laptop.values.set("league", { seasons: ["laptop"] });
+    session.noteChange("league");
+    session.resetCloudSession();
+    connect(sky.as(ME), laptop);
+    await session.bootCloud();
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "choose",
+      firstTime: false,
+      cloudOnly: { labels: [], bytes: 0 },
+    });
+    expect(laptop.values.get("league")).toEqual({ seasons: ["laptop"] });
+    expect(sky.manifest()?.version).toBe(2);
+  });
+
+  it("stops at a copy that is gone, and starts it again only when asked", async () => {
+    const { sky, laptop, on } = await twoDevices();
+    const oldCopy = sky.manifest()?.copy;
+    sky.wipe();
+
+    on("laptop");
+    await session.bootCloud();
+    expect(session.cloudStatus()).toMatchObject({ kind: "gone" });
+    expect(sky.manifest()).toBeNull();
+    laptop.values.set("league", { seasons: ["edited"] });
+    session.noteChange("league");
+    await session.saveNow();
+    expect(sky.manifest()).toBeNull();
+
+    await session.restartCloud();
+    expect(sky.manifest()).toMatchObject({ version: 1 });
+    expect(sky.manifest()?.copy).not.toBe(oldCopy);
+
+    // The phone knew the old copy: it is asked, not handed the new one.
+    on("phone");
+    await session.bootCloud();
+    expect(session.cloudStatus()).toMatchObject({ kind: "choose", firstTime: true });
+  });
+
+  it("syncs nothing from a browser that cannot read its own storage", async () => {
+    const { sky, laptop, on } = await twoDevices();
+    on("laptop");
+    laptop.local.usable = () => false;
+    laptop.values.delete("teams");
+    await session.bootCloud();
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("not syncing"),
+    });
+    session.noteChange("league");
+    await session.saveNow();
+    expect(sky.manifest()?.version).toBe(1);
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
   });
 
   it("says signed out, and touches nothing, when the account is gone", async () => {
@@ -341,26 +442,11 @@ describe("opening the app on a device that keeps a copy", () => {
 describe("opening the app on a slow connection", () => {
   /** The phone keeps a copy at version 1, and the laptop has since saved version 2. */
   const behind = async () => {
-    const sky = firestore();
-    const laptop = device({ league, teams });
-    connect(sky.as(ME), laptop);
-    await session.signInToCloud();
-    switchDevice();
-    const phone = device({});
-    connect(sky.as(ME), phone);
-    await session.signInToCloud();
-    const phoneStorage = localStorage;
-    session.resetCloudSession();
-    vi.stubGlobal("localStorage", memoryStorage());
-    connect(sky.as(ME), laptop);
-    await session.signInToCloud();
-    laptop.values.set("league", { ...league, activeSeasonId: "s2" });
-    session.noteChange("league");
-    await session.saveNow();
-    session.resetCloudSession();
-    vi.stubGlobal("localStorage", phoneStorage);
+    const devices = await twoDevices();
+    await devices.saveOn("laptop", "league", { seasons: [{ id: "s2" }] });
+    devices.on("phone");
     reloads = 0;
-    return { sky, phone };
+    return devices;
   };
 
   /** The cloud as the phone reaches it, with the copy's contents held back until `release`. */
@@ -399,7 +485,7 @@ describe("opening the app on a slow connection", () => {
     release();
     await vi.advanceTimersByTimeAsync(0);
     // The app is open by now, so the newer copy is offered, not swapped in under it.
-    expect(session.cloudStatus()).toMatchObject({ kind: "newer" });
+    expect(session.cloudStatus()).toMatchObject({ kind: "newer", owed: false });
     expect(phone.values.get("league")).toEqual(league);
     expect(reloads).toBe(0);
   });
@@ -415,7 +501,7 @@ describe("opening the app on a slow connection", () => {
     release();
     await vi.advanceTimersByTimeAsync(0);
     await booting;
-    expect(phone.values.get("league")).toEqual({ ...league, activeSeasonId: "s2" });
+    expect(phone.values.get("league")).toEqual({ seasons: [{ id: "s2" }] });
     expect(reloads).toBe(0);
 
     session.resetCloudSession();
@@ -426,33 +512,25 @@ describe("opening the app on a slow connection", () => {
     expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
   });
 
-  it("sends everything again when the cloud copy is gone, once the app is open rather than before", async () => {
+  it("sends a first copy once the app is open, not before", async () => {
     const sky = firestore();
     const laptop = device({ league, teams });
     connect(sky.as(ME), laptop);
+    // Signed in, but the first save never happened (the tab closed under it).
     await session.signInToCloud();
-    // The copy is gone (deleted in the console), and this browser still keeps one.
+    sky.wipe();
+    localStorage.setItem(
+      "league_forecast_cloud_v1",
+      JSON.stringify({ ...loadCloudState(), version: null, copy: null, hashes: {} })
+    );
     session.resetCloudSession();
-    const cloud = sky.as(ME);
-    let releasePut = () => {};
-    const putGate = new Promise<void>((resolve) => (releasePut = resolve));
-    const slowCloud = {
-      ...cloud,
-      store: {
-        ...cloud.store,
-        readManifest: async () => null,
-        putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
-          await putGate;
-          return cloud.store.putChunk(id, data);
-        },
-        commitManifest: async () => true,
-      },
-    };
-    connect(slowCloud, laptop);
+    connect(sky.as(ME), laptop);
+    vi.useFakeTimers();
     await session.bootCloud();
-    expect(session.cloudStatus()).toMatchObject({ kind: "working" });
-    releasePut();
-    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "saved" }));
+    expect(sky.manifest()).toBeNull();
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.waitFor(() => expect(sky.manifest()).toMatchObject({ version: 1 }));
   });
 });
 
@@ -468,7 +546,7 @@ describe("saving what changed", () => {
   it("waits for a quiet moment, then saves", async () => {
     const { sky, laptop } = await signedIn();
     vi.useFakeTimers();
-    laptop.values.set("league", { ...league, activeSeasonId: "later" });
+    laptop.values.set("league", { seasons: ["later"] });
     session.noteChange("league");
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: true });
     await vi.advanceTimersByTimeAsync(session.SAVE_DELAY_MS - 1);
@@ -512,9 +590,22 @@ describe("saving what changed", () => {
     stop();
   });
 
+  it("holds back while a pull runs in another tab", async () => {
+    const { sky, laptop } = await signedIn();
+    pull.elsewhere = true;
+    laptop.values.set("teams", { r: [] });
+    session.noteChange("teams");
+    await session.saveNow();
+    expect(sky.manifest()?.version).toBe(1);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", waitingForPull: true });
+    pull.elsewhere = false;
+    await session.saveNow();
+    expect(sky.manifest()?.version).toBe(2);
+  });
+
   it("keeps a change made while a save was running owed", async () => {
     const { sky, laptop } = await signedIn();
-    laptop.values.set("league", { ...league, activeSeasonId: "first" });
+    laptop.values.set("league", { seasons: ["first"] });
     session.noteChange("league");
     const read = laptop.local.read;
     laptop.local.read = async (key) => {
@@ -528,25 +619,26 @@ describe("saving what changed", () => {
     expect(Object.keys(loadCloudState().dirty)).toEqual(["league"]);
   });
 
-  it("stops at the question when another device saved first", async () => {
+  it("offers another device's save when it finds one while saving, and keeps its own owed", async () => {
     const { sky, laptop } = await signedIn();
     await sky.store.commitManifest(1, { ...sky.manifest()!, version: 2 });
-    laptop.values.set("league", { ...league, activeSeasonId: "late" });
+    laptop.values.set("league", { seasons: ["late"] });
     session.noteChange("league");
     await session.saveNow();
-    expect(session.cloudStatus()).toMatchObject({ kind: "choose" });
+    expect(session.cloudStatus()).toMatchObject({ kind: "newer", owed: true });
     expect(sky.manifest()?.version).toBe(2);
+    expect(Object.keys(loadCloudState().dirty)).toEqual(["league"]);
   });
 
   it("owes nothing and sends nothing once signed out, and keeps this device's data", async () => {
     const { sky, laptop } = await signedIn();
     await session.signOutOfCloud();
-    laptop.values.set("league", { ...league, activeSeasonId: "offline" });
+    laptop.values.set("league", { seasons: ["offline"] });
     session.noteChange("league");
     await session.saveNow();
     expect(sky.manifest()?.version).toBe(1);
-    expect(loadCloudState()).toMatchObject({ enabled: false, dirty: {} });
-    expect(laptop.values.get("league")).toEqual({ ...league, activeSeasonId: "offline" });
+    expect(loadCloudState()).toMatchObject({ enabled: false, dirty: {}, copy: null });
+    expect(laptop.values.get("league")).toEqual({ seasons: ["offline"] });
     expect(session.cloudStatus()).toEqual({ kind: "signed-out" });
   });
 });
@@ -559,8 +651,14 @@ describe("another device's save, found while the app is open", () => {
     await session.signInToCloud();
     await sky.store.commitManifest(1, { ...sky.manifest()!, version: 2, updatedAt: "later" });
     await session.lookAgain();
-    expect(session.cloudStatus()).toMatchObject({ kind: "newer", cloudSavedAt: "later" });
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "newer",
+      cloudSavedAt: "later",
+      owed: false,
+    });
     expect(laptop.values.get("league")).toEqual(league);
+    session.noteChange("league");
+    expect(session.cloudStatus()).toMatchObject({ kind: "newer", owed: true });
     session.loadNewer();
     expect(reloads).toBe(1);
   });

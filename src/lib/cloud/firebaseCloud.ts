@@ -59,18 +59,38 @@ export type FirebaseCloud = {
 const accountOf = (user: User | null): CloudAccount | null =>
   user ? { uid: user.uid, email: user.email } : null;
 
+/** Thrown for a manifest this build cannot read, which is never to be taken for no copy at all. */
+export class UnreadableCopyError extends Error {
+  constructor() {
+    super(
+      "The cloud copy was saved by a newer version of the app, or is damaged. Reload to update the app; nothing here has been changed."
+    );
+    this.name = "UnreadableCopyError";
+  }
+}
+
 /** The copy's documents in one Firestore database, as the sync engine reads and writes them. */
 export const firestoreStore = (db: Firestore): CloudStore => ({
   readManifest: async () => {
     const snap = await getDoc(doc(db, MANIFEST));
-    return snap.exists() ? coerceManifest(snap.data()) : null;
+    if (!snap.exists()) return null;
+    const manifest = coerceManifest(snap.data());
+    if (!manifest) throw new UnreadableCopyError();
+    return manifest;
   },
   commitManifest: (expected, next) =>
     runTransaction(db, async (tx) => {
       const snap = await tx.get(doc(db, MANIFEST));
-      const current = snap.exists() ? coerceManifest(snap.data()) : null;
-      if ((current?.version ?? null) !== expected) return false;
+      if (expected === null) {
+        // The first copy: only if there is still none at all, readable or not.
+        if (snap.exists()) return false;
+      } else {
+        const current = snap.exists() ? coerceManifest(snap.data()) : null;
+        if (current?.version !== expected) return false;
+      }
       tx.set(doc(db, MANIFEST), {
+        format: next.format,
+        copy: next.copy,
         version: next.version,
         updatedAt: next.updatedAt,
         device: next.device,

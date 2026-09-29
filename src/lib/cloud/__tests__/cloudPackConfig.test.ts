@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hashValue, packValue, unpackChunks } from "../cloudPack";
 import { parseFirebaseConfig } from "../cloudConfig";
-import { coerceManifest } from "../cloudManifest";
+import { coerceManifest, MANIFEST_FORMAT } from "../cloudManifest";
 
 /*
  * The small parts of keeping data in the cloud: a value's fingerprint and packing, the Firebase
@@ -61,23 +61,40 @@ describe("the Firebase setting as it is pasted", () => {
 
 describe("a manifest from Firestore", () => {
   const hash = "a".repeat(64);
+  const stored = {
+    format: MANIFEST_FORMAT,
+    copy: "copy-a",
+    version: 3,
+    updatedAt: "2026-09-28T23:00:00.000Z",
+    device: "d1",
+    parts: [{ key: "league", hash, bytes: 10, chunks: 1 }],
+  };
 
   it("is read as stored", () => {
-    const raw = {
-      version: 3,
-      updatedAt: "2026-09-28T23:00:00.000Z",
-      device: "d1",
-      parts: [{ key: "league", hash, bytes: 10, chunks: 1 }],
-    };
-    expect(coerceManifest(raw)).toEqual(raw);
+    expect(coerceManifest(stored)).toEqual(stored);
   });
 
   it("is nothing when it could name the wrong pieces", () => {
     expect(coerceManifest(null)).toBeNull();
-    expect(coerceManifest({ version: "3", parts: [] })).toBeNull();
+    expect(coerceManifest({ ...stored, version: "3" })).toBeNull();
     expect(
-      coerceManifest({ version: 1, parts: [{ key: "league", hash: "short", chunks: 1 }] })
+      coerceManifest({ ...stored, parts: [{ key: "league", hash: "short", chunks: 1 }] })
     ).toBeNull();
-    expect(coerceManifest({ version: 1, parts: [{ key: "league", hash, chunks: 0 }] })).toBeNull();
+    expect(coerceManifest({ ...stored, parts: [{ key: "league", hash, chunks: 0 }] })).toBeNull();
+    expect(
+      coerceManifest({
+        ...stored,
+        parts: [
+          { key: "league", hash, chunks: 1 },
+          { key: "league", hash, chunks: 1 },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  it("is nothing without the copy it belongs to, or in a layout newer than this build's", () => {
+    expect(coerceManifest({ ...stored, copy: "" })).toBeNull();
+    expect(coerceManifest({ ...stored, format: undefined })).toBeNull();
+    expect(coerceManifest({ ...stored, format: MANIFEST_FORMAT + 1 })).toBeNull();
   });
 });

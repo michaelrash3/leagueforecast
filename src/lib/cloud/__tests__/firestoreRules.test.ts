@@ -11,8 +11,8 @@ import {
 } from "firebase/firestore/lite";
 import { CHUNK_BYTES } from "../cloudPack";
 import { sendLocal, takeCloud, type LocalSource, type SyncState } from "../cloudEngine";
-import { chunkId, type CloudManifest } from "../cloudManifest";
-import { claimCopy, firestoreStore } from "../firebaseCloud";
+import { chunkId, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
+import { claimCopy, firestoreStore, UnreadableCopyError } from "../firebaseCloud";
 
 /*
  * The rules that keep the cloud copy one account's, tried against a real Firestore: the emulator
@@ -54,12 +54,15 @@ const memory = (
       }
       return true;
     },
+    usable: () => true,
   };
 };
 
-const fresh: SyncState = { version: null, hashes: {}, dirty: {} };
+const fresh: SyncState = { version: null, copy: null, hashes: {}, dirty: {} };
 
 const manifestOf = (version: number): CloudManifest => ({
+  format: MANIFEST_FORMAT,
+  copy: "copy-a",
   version,
   updatedAt: "2026-09-28T00:00:00.000Z",
   device: "d",
@@ -145,7 +148,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       state: fresh,
       device: "phone",
       now: "2026-09-28T00:00:00.000Z",
-      replace: true,
+      mode: "first",
     });
     expect(sent).toMatchObject({ ok: true, uploaded: 2 });
 
@@ -160,6 +163,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
         state: fresh,
         manifest: manifest as CloudManifest,
         now: "2026-09-28T00:01:00.000Z",
+        mode: "update",
       })
     ).toMatchObject({ ok: true, downloaded: 2 });
     expect(Object.fromEntries(laptop.map)).toEqual(Object.fromEntries(phone.map));
@@ -182,6 +186,18 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     expect((await store.readManifest())?.version).toBe(2);
   });
 
+  it("never take a manifest this build cannot read for no copy at all", async () => {
+    await claimCopy(as("owner"), "owner");
+    const owner = as("owner");
+    // A later build's layout, as this one would find it.
+    await setDoc(doc(owner, "cloud/manifest"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
+    const store = firestoreStore(owner);
+    await expect(store.readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
+    // Nor write a first copy over it.
+    expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
+    expect((await getDoc(doc(owner, "cloud/manifest"))).get("format")).toBe(MANIFEST_FORMAT + 1);
+  });
+
   it("fit a value too large for one document into several", async () => {
     await claimCopy(as("owner"), "owner");
     // Random text, so gzip cannot shrink it under one piece.
@@ -197,14 +213,14 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       state: fresh,
       device: "phone",
       now: "2026-09-28T00:00:00.000Z",
-      replace: true,
+      mode: "first",
     });
     expect(result.ok).toBe(true);
     const store = firestoreStore(as("owner"));
     const manifest = (await store.readManifest()) as CloudManifest;
     expect(manifest.parts[0]?.chunks).toBeGreaterThan(1);
     const back = memory();
-    await takeCloud({ store, local: back, state: fresh, manifest, now: "later" });
+    await takeCloud({ store, local: back, state: fresh, manifest, now: "later", mode: "update" });
     expect(back.map.get("teams")).toBe(noise);
   }, 60_000);
 });

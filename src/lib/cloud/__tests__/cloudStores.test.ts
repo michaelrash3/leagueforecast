@@ -14,7 +14,16 @@ import {
   saveScoutTeams,
   type PoolStoreIo,
 } from "../../teamRankingsStorage";
-import { onLeagueWrite, readLeagueSnapshot, saveTeams, saveUndoSnapshot } from "../../storage";
+import {
+  createSeason,
+  getActiveSeasonId,
+  listSeasons,
+  onLeagueWrite,
+  readLeagueSnapshot,
+  saveTeams,
+  saveUndoSnapshot,
+  setActiveSeason,
+} from "../../storage";
 import { ARCHIVE_VERSION, type ArchivedSeason } from "../../teamRankingsArchive";
 import { appLocalSource, LEAGUE_PART, localHoldsNothing } from "../cloudLocal";
 import type { GcPullProgress } from "../../gameChangerPull";
@@ -150,18 +159,32 @@ describe("a copy from the cloud", () => {
       new Map<string, unknown>([
         [TEAMS_KEY, teams],
         [`${ROWS_PREFIX}arc_2026_9u`, archived],
-        // Never taken from a copy, whatever it holds.
-        [PULL_KEY, { ids: ["theirs"] }],
       ])
     );
     expect(ok).toBe(true);
     expect(fresh.store.get(TEAMS_KEY)).toEqual(io.store.get(TEAMS_KEY));
     expect(await readCloudPoolValue(TEAMS_KEY)).toEqual(teams);
-    expect(fresh.store.has(PULL_KEY)).toBe(false);
     expect(poolHoldsNoTeams()).toBe(false);
 
     await applyCloudPoolValues(new Map([[TEAMS_KEY, null]]));
     expect(cloudPoolKeys()).not.toContain(TEAMS_KEY);
+  });
+
+  it("is refused whole when it carries a key this build does not keep, before writing any", async () => {
+    const io = await withPool();
+    const teams = io.store.get(TEAMS_KEY);
+    const pull = io.store.get(PULL_KEY);
+    const ok = await applyCloudPoolValues(
+      new Map<string, unknown>([
+        [TEAMS_KEY, null],
+        // A pull's place is never the copy's, and a newer build's key is none of this one's.
+        [PULL_KEY, { ids: ["theirs"] }],
+      ])
+    );
+    expect(ok).toBe(false);
+    expect(await readCloudPoolValue(TEAMS_KEY)).not.toBeNull();
+    expect(io.store.get(TEAMS_KEY)).toEqual(teams);
+    expect(io.store.get(PULL_KEY)).toEqual(pull);
   });
 });
 
@@ -183,7 +206,16 @@ describe("League Standings in the cloud copy", () => {
     saveTeams([{ id: "t1", name: "Hawks" } as never]);
     expect(noticed).not.toHaveBeenCalled();
     saveTeams([{ id: "t1", name: "Owls" } as never]);
-    expect(noticed).toHaveBeenCalledTimes(1);
+    expect(noticed).toHaveBeenCalled();
+  });
+
+  it("is not noticed when this device opens another season, which is its own affair", () => {
+    const other = createSeason("Spring");
+    const noticed = vi.fn();
+    onLeagueWrite(noticed);
+    setActiveSeason(other.id);
+    expect(getActiveSeasonId()).toBe(other.id);
+    expect(noticed).not.toHaveBeenCalled();
   });
 
   it("travels as every season, and a malformed one is refused", async () => {
@@ -192,6 +224,8 @@ describe("League Standings in the cloud copy", () => {
       typeof readLeagueSnapshot
     >;
     expect(snapshot.seasons[0]?.teams.map((team) => team.name)).toEqual(["Hawks"]);
+    // Which season a device has open is not the copy's.
+    expect(snapshot).not.toHaveProperty("activeSeasonId");
 
     backing.clear();
     expect(readLeagueSnapshot().seasons[0]?.teams).toEqual([]);
@@ -200,6 +234,25 @@ describe("League Standings in the cloud copy", () => {
 
     expect(await appLocalSource.apply(new Map([[LEAGUE_PART, { nonsense: 1 }]]))).toBe(false);
     expect(readLeagueSnapshot().seasons[0]?.teams.map((team) => team.name)).toEqual(["Hawks"]);
+  });
+
+  it("keeps the season this device has open, and each season's last-changed time", async () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    setActiveSeason(second.id);
+    saveTeams([{ id: "t2", name: "Owls" } as never]);
+    const snapshot = (await appLocalSource.read(LEAGUE_PART)) as ReturnType<
+      typeof readLeagueSnapshot
+    >;
+    const stamped = snapshot.seasons.find((season) => season.id === second.id)?.updatedAt;
+    expect(stamped).toBeDefined();
+
+    setActiveSeason(first.id);
+    expect(await appLocalSource.apply(new Map([[LEAGUE_PART, snapshot]]))).toBe(true);
+    expect(getActiveSeasonId()).toBe(first.id);
+    expect(listSeasons().find((season) => season.id === second.id)?.updatedAt).toBe(stamped);
+    // Read back, it is the same value it arrived as, so it is not a change to send again.
+    expect(await appLocalSource.read(LEAGUE_PART)).toEqual(snapshot);
   });
 
   it("refuses a copy whose seasons are malformed before writing any of its pool", async () => {
@@ -213,6 +266,23 @@ describe("League Standings in the cloud copy", () => {
     );
     expect(ok).toBe(false);
     expect(await readCloudPoolValue(TEAMS_KEY)).toEqual(before);
+  });
+
+  it("leaves the seasons as they were when the copy's pool has a key this build does not keep", async () => {
+    await withPool();
+    saveTeams([{ id: "t1", name: "Hawks" } as never]);
+    const snapshot = (await appLocalSource.read(LEAGUE_PART)) as ReturnType<
+      typeof readLeagueSnapshot
+    >;
+    saveTeams([{ id: "t1", name: "Owls" } as never]);
+    const ok = await appLocalSource.apply(
+      new Map<string, unknown>([
+        [LEAGUE_PART, snapshot],
+        [PULL_KEY, { ids: ["theirs"] }],
+      ])
+    );
+    expect(ok).toBe(false);
+    expect(readLeagueSnapshot().seasons[0]?.teams.map((team) => team.name)).toEqual(["Owls"]);
   });
 
   it("counts toward whether this browser holds anything", async () => {

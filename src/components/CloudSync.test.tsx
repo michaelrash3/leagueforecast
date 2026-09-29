@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CloudStatus } from "../lib/cloud/cloudSession";
 import { CloudButton, useCloudPanel } from "./CloudButton";
-import { CloudPanel, savedWhen, type CloudActions } from "./CloudPanel";
+import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
 
 /*
  * The cloud copy's header button and panel, as views of a status: what each status says, which
@@ -18,11 +18,12 @@ const saved = (over: Partial<Extract<CloudStatus, { kind: "saved" }>> = {}): Clo
   waitingForPull: false,
   ...over,
 });
-const asking: CloudStatus = {
+const asking: Extract<CloudStatus, { kind: "choose" }> = {
   kind: "choose",
   account: ME,
   firstTime: true,
   cloudSavedAt: "2026-09-28T11:00:00Z",
+  cloudOnly: { labels: [], bytes: 0 },
 };
 
 const panel = (status: CloudStatus, onBackup = vi.fn(), onClose = vi.fn()) => {
@@ -33,6 +34,7 @@ const panel = (status: CloudStatus, onBackup = vi.fn(), onClose = vi.fn()) => {
     choose: vi.fn(),
     loadNewer: vi.fn(),
     retry: vi.fn(),
+    restart: vi.fn(),
   };
   render(
     <CloudPanel
@@ -114,10 +116,46 @@ describe("the cloud panel", () => {
   });
 
   it("offers another device's newer save", async () => {
-    const actions = panel({ kind: "newer", account: ME, cloudSavedAt: "2026-09-28T11:30:00Z" });
+    const actions = panel({
+      kind: "newer",
+      account: ME,
+      cloudSavedAt: "2026-09-28T11:30:00Z",
+      owed: false,
+    });
     expect(screen.getByText(/saved newer data 30 minutes ago/)).toBeInTheDocument();
+    expect(screen.getByText(/loading it loses nothing/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Load it now" }));
     expect(actions.loadNewer).toHaveBeenCalledTimes(1);
+  });
+
+  it("says this browser's own changes are kept when it loads another device's", () => {
+    panel({ kind: "newer", account: ME, cloudSavedAt: "2026-09-28T11:30:00Z", owed: true });
+    expect(screen.getByText(/changes made here are kept/)).toBeInTheDocument();
+    expect(screen.queryByText(/loses nothing/)).toBeNull();
+  });
+
+  it("warns what keeping this browser's data would take out of the cloud", () => {
+    panel({
+      ...asking,
+      cloudOnly: { labels: ["Team Rankings data"], bytes: 61_400_000 },
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /has Team Rankings data this browser does not \(61\.4 MB\)/
+    );
+  });
+
+  it("says nothing of the kind when this browser holds everything the copy does", () => {
+    panel(asking);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("starts a copy that is gone again only when asked", async () => {
+    const actions = panel({ kind: "gone", account: ME });
+    expect(screen.getByText(/cloud copy is gone/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start it again from this browser" }));
+    expect(actions.restart).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
   it("says the copy is another account's, and offers to sign out", async () => {
@@ -197,6 +235,14 @@ describe("when the panel shows", () => {
     expect(screen.getByText("panel open")).toBeInTheDocument();
     rerender(<Harness status={{ kind: "off" }} />);
     expect(screen.queryByText("panel open")).toBeNull();
+  });
+});
+
+describe("a size, as the panel says it", () => {
+  it("is megabytes to one place, or kilobytes, never zero", () => {
+    expect(sizeOf(61_400_000)).toBe("61.4 MB");
+    expect(sizeOf(830_000)).toBe("830 KB");
+    expect(sizeOf(12)).toBe("1 KB");
   });
 });
 

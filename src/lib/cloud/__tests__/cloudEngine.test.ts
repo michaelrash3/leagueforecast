@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { chunkId, decideOnOpen, type CloudManifest } from "../cloudManifest";
+import {
+  changedOnBothSides,
+  chunkId,
+  decideOnOpen,
+  MANIFEST_FORMAT,
+  type CloudManifest,
+} from "../cloudManifest";
 import {
   matchesCloud,
   sendLocal,
@@ -7,13 +13,14 @@ import {
   withoutSent,
   type CloudStore,
   type LocalSource,
+  type SaveMode,
   type SyncState,
 } from "../cloudEngine";
 import { CHUNK_BYTES, hashValue } from "../cloudPack";
 
 /*
  * Keeping this browser's data in the cloud: what is sent, what is fetched, and above all what is
- * never overwritten without somebody choosing to. Firestore and the browser's stores are stood in
+ * never lost without somebody choosing to lose it. Firestore and the browser's stores are stood in
  * for by maps; the rules are the same ones the app runs.
  */
 
@@ -72,170 +79,209 @@ const device = (entries: Record<string, unknown>) => {
       });
       return true;
     }),
+    usable: () => true,
   };
   return { local, values, reads };
 };
 
-const fresh: SyncState = { version: null, hashes: {}, dirty: {} };
+const fresh: SyncState = { version: null, copy: null, hashes: {}, dirty: {} };
 const NOW = "2026-09-28T23:00:00.000Z";
 
-const league = { activeSeasonId: "s1", seasons: [{ id: "s1", name: "Fall", teams: ["Hawks"] }] };
+const league = { seasons: [{ id: "s1", name: "Fall", teams: ["Hawks"] }] };
 const teams = { v: 3, names: ["Hawks", "Owls", "Rays"] };
+const games2027 = { v: 1, rows: [["g1", "Hawks", "Owls"]] };
+
+const save = (
+  sky: ReturnType<typeof cloud>,
+  local: LocalSource,
+  state: SyncState,
+  mode: SaveMode,
+  name = "laptop"
+) => sendLocal({ store: sky.store, local, state, device: name, now: NOW, mode });
+
+/** A copy saved by a laptop holding three values, and the laptop's state after. */
+const saved = async () => {
+  const sky = cloud();
+  const laptop = device({ league, teams, games2027 });
+  const first = await save(sky, laptop.local, fresh, "first");
+  if (!first.ok) throw new Error("the first save did not land");
+  sky.calls.put = 0;
+  sky.calls.del = 0;
+  laptop.reads.length = 0;
+  return { sky, laptop, state: first.state };
+};
 
 describe("the first save from a device with data", () => {
-  it("sends every value and names each in the manifest", async () => {
-    const sky = cloud();
-    const laptop = device({ league, teams });
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: fresh,
+  it("sends every value, names each, and starts a copy of its own", async () => {
+    const { sky, state } = await saved();
+    const manifest = sky.manifest();
+    expect(manifest).toMatchObject({
+      format: MANIFEST_FORMAT,
+      version: 1,
       device: "laptop",
-      now: NOW,
+      updatedAt: NOW,
     });
-    if (!result.ok) throw new Error("the save did not land");
-    expect(sky.manifest()).toMatchObject({ version: 1, device: "laptop", updatedAt: NOW });
-    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
-    expect(result.state).toMatchObject({ version: 1, dirty: {}, syncedAt: NOW });
-    expect(result.state.hashes.teams).toBe(await hashValue(teams));
-    expect(result.uploaded).toBe(2);
+    expect(manifest?.copy).toMatch(/.{8,}/);
+    expect(manifest?.parts.map((part) => part.key)).toEqual(["league", "teams", "games2027"]);
+    expect(state).toMatchObject({ version: 1, copy: manifest?.copy, dirty: {}, syncedAt: NOW });
+    expect(state.hashes.teams).toBe(await hashValue(teams));
+  });
+
+  it("is refused when another device made the first copy first", async () => {
+    const { sky } = await saved();
+    const phone = device({ league: { seasons: [] } });
+    expect(await save(sky, phone.local, fresh, "first", "phone")).toEqual({
+      ok: false,
+      reason: "moved",
+    });
+    expect(sky.manifest()?.device).toBe("laptop");
   });
 });
 
 describe("a later save", () => {
-  const saved = async () => {
-    const sky = cloud();
-    const laptop = device({ league, teams });
-    const first = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: fresh,
-      device: "laptop",
-      now: NOW,
-    });
-    if (!first.ok) throw new Error("the first save did not land");
-    sky.calls.put = 0;
-    laptop.reads.length = 0;
-    return { sky, laptop, state: first.state };
-  };
-
-  it("reads and sends only what changed here", async () => {
+  it("reads and sends only what changed here, and carries the rest as it is", async () => {
     const { sky, laptop, state } = await saved();
-    laptop.values.set("league", { ...league, activeSeasonId: "s2" });
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...state, dirty: { league: 5 } },
-      device: "laptop",
-      now: NOW,
-    });
-    if (!result.ok) throw new Error("the save did not land");
+    laptop.values.set("league", { seasons: [] });
+    const result = await save(sky, laptop.local, { ...state, dirty: { league: 5 } }, "patch");
+    expect(result).toMatchObject({ ok: true, sent: { league: 5 }, uploaded: 1 });
     expect(laptop.reads).toEqual(["league"]);
-    expect(result.uploaded).toBe(1);
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams", "games2027"]);
     expect(sky.manifest()?.version).toBe(2);
-    expect(result.sent).toEqual({ league: 5 });
+  });
+
+  it("never drops a value only because this device cannot find it", async () => {
+    // A device whose Team Rankings store did not open lists nothing but its seasons.
+    const { sky, laptop, state } = await saved();
+    laptop.values.delete("teams");
+    laptop.values.delete("games2027");
+    laptop.values.set("league", { seasons: [] });
+    const before = sky.manifest()!;
+    const result = await save(sky, laptop.local, { ...state, dirty: { league: 5 } }, "patch");
+    expect(result.ok).toBe(true);
+    const after = sky.manifest()!;
+    expect(after.parts.map((part) => part.key)).toEqual(["league", "teams", "games2027"]);
+    expect(after.parts.find((part) => part.key === "teams")).toEqual(
+      before.parts.find((part) => part.key === "teams")
+    );
+    for (const part of after.parts) expect(sky.chunks.has(chunkId(part.hash, 0))).toBe(true);
+  });
+
+  it("sends nothing when a value this device lists cannot be read", async () => {
+    const { sky, laptop, state } = await saved();
+    const read = laptop.local.read;
+    laptop.local.read = async (key) => (key === "teams" ? null : read(key));
+    await expect(
+      save(sky, laptop.local, { ...state, dirty: { teams: 1, league: 2 } }, "patch")
+    ).rejects.toThrow(/could not read/);
+    expect(sky.manifest()?.version).toBe(1);
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams", "games2027"]);
+  });
+
+  it("drops a value this device recorded removing, and the pieces only it named", async () => {
+    const { sky, laptop, state } = await saved();
+    const gone = sky.manifest()!.parts.find((part) => part.key === "games2027")!;
+    laptop.values.delete("games2027");
+    const result = await save(sky, laptop.local, { ...state, dirty: { games2027: 7 } }, "patch");
+    expect(result.ok).toBe(true);
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
+    expect(sky.chunks.has(chunkId(gone.hash, 0))).toBe(false);
   });
 
   it("writes no manifest when nothing is actually different", async () => {
     const { sky, laptop, state } = await saved();
     sky.calls.commit = 0;
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...state, dirty: { league: 7 } },
-      device: "laptop",
-      now: NOW,
-    });
-    if (!result.ok) throw new Error("the save did not land");
-    expect(sky.calls.commit).toBe(0);
-    expect(sky.calls.put).toBe(0);
-    expect(result.state.version).toBe(1);
-  });
-
-  it("drops a key this device no longer holds, and the pieces only it named", async () => {
-    const { sky, laptop, state } = await saved();
-    const oldTeams = sky.manifest()?.parts.find((part) => part.key === "teams");
-    laptop.values.delete("teams");
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...state, dirty: { teams: 9 } },
-      device: "laptop",
-      now: NOW,
-    });
-    if (!result.ok) throw new Error("the save did not land");
-    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league"]);
-    expect(sky.chunks.has(chunkId(oldTeams!.hash, 0))).toBe(false);
+    const result = await save(sky, laptop.local, { ...state, dirty: { teams: 3 } }, "patch");
+    expect(result).toMatchObject({ ok: true, uploaded: 0, sent: { teams: 3 } });
+    expect(sky.calls).toMatchObject({ commit: 0, put: 0 });
   });
 
   it("overwrites nothing when another device saved since", async () => {
     const { sky, laptop, state } = await saved();
     sky.moveOn();
-    laptop.values.set("league", { ...league, activeSeasonId: "s3" });
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...state, dirty: { league: 3 } },
-      device: "laptop",
-      now: NOW,
+    laptop.values.set("league", { seasons: [] });
+    expect(await save(sky, laptop.local, { ...state, dirty: { league: 1 } }, "patch")).toEqual({
+      ok: false,
+      reason: "moved",
     });
-    expect(result).toEqual({ ok: false, reason: "moved" });
     expect(sky.calls.put).toBe(0);
-    expect(sky.manifest()?.version).toBe(2);
   });
 
-  it("overwrites nothing when the other device's save lands mid-send", async () => {
+  it("overwrites nothing on a copy it never met, whatever its version", async () => {
     const { sky, laptop, state } = await saved();
+    laptop.values.set("league", { seasons: [] });
+    const elsewhere = { ...state, copy: "another-copy", dirty: { league: 1 } };
+    expect(await save(sky, laptop.local, elsewhere, "patch")).toEqual({
+      ok: false,
+      reason: "moved",
+    });
+  });
+
+  it("finds nothing to patch when the copy is gone", async () => {
+    const { sky, laptop, state } = await saved();
+    const empty = cloud();
+    expect(await save(empty, laptop.local, { ...state, dirty: { league: 1 } }, "patch")).toEqual({
+      ok: false,
+      reason: "gone",
+    });
+    expect(sky.manifest()).not.toBeNull();
+  });
+
+  it("clears away the pieces of a save that lands too late", async () => {
+    const { sky, laptop, state } = await saved();
+    laptop.values.set("league", { seasons: [{ id: "s9", name: "New" }] });
     const commit = sky.store.commitManifest;
     sky.store.commitManifest = async (expected, next) => {
       sky.moveOn();
       return commit(expected, next);
     };
-    laptop.values.set("league", { ...league, activeSeasonId: "s4" });
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...state, dirty: { league: 4 } },
-      device: "laptop",
-      now: NOW,
-    });
+    const result = await save(sky, laptop.local, { ...state, dirty: { league: 1 } }, "patch");
     expect(result).toEqual({ ok: false, reason: "moved" });
+    expect(sky.calls.put).toBeGreaterThan(0);
+    const named = new Set(
+      sky
+        .manifest()!
+        .parts.flatMap((part) =>
+          Array.from({ length: part.chunks }, (_, at) => chunkId(part.hash, at))
+        )
+    );
+    expect([...sky.chunks.keys()].every((id) => named.has(id))).toBe(true);
   });
 
-  it("replaces the cloud copy when that is the answer somebody chose", async () => {
+  it("reads everything it sends before the first piece goes", async () => {
     const { sky, laptop, state } = await saved();
-    sky.moveOn();
-    laptop.values.set("league", { ...league, activeSeasonId: "mine" });
-    const result = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state,
-      device: "laptop",
-      now: NOW,
-      replace: true,
-    });
+    const order: string[] = [];
+    const read = laptop.local.read;
+    laptop.local.read = async (key) => {
+      order.push(`read ${key}`);
+      return read(key);
+    };
+    const put = sky.store.putChunk;
+    sky.store.putChunk = async (id, data) => {
+      order.push("put");
+      return put(id, data);
+    };
+    laptop.values.set("league", { seasons: [] });
+    laptop.values.set("teams", { v: 4 });
+    await save(sky, laptop.local, { ...state, dirty: { league: 1, teams: 2 } }, "patch");
+    expect(order.slice(0, 2)).toEqual(["read league", "read teams"]);
+    expect(order.lastIndexOf("read teams")).toBeLessThan(order.indexOf("put"));
+  });
+
+  it("replaces the copy with this device's data when that is the answer somebody chose", async () => {
+    const { sky, state } = await saved();
+    const copy = sky.manifest()!.copy;
+    const phone = device({ league: { seasons: [] } });
+    const result = await save(sky, phone.local, { ...fresh, dirty: {} }, "replace", "phone");
     expect(result.ok).toBe(true);
-    expect(sky.manifest()?.version).toBe(3);
+    expect(sky.manifest()).toMatchObject({ copy, version: 2, device: "phone" });
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league"]);
+    expect(state.version).toBe(1);
   });
 });
 
 describe("taking the cloud copy", () => {
-  const withCopy = async () => {
-    const sky = cloud();
-    const laptop = device({ league, teams });
-    const first = await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: fresh,
-      device: "laptop",
-      now: NOW,
-    });
-    if (!first.ok) throw new Error("the first save did not land");
-    return { sky, laptop, laptopState: first.state };
-  };
-
   it("brings every value to a device that has none", async () => {
-    const { sky } = await withCopy();
+    const { sky } = await saved();
     const phone = device({});
     const result = await takeCloud({
       store: sky.store,
@@ -243,94 +289,129 @@ describe("taking the cloud copy", () => {
       state: fresh,
       manifest: sky.manifest()!,
       now: NOW,
+      mode: "update",
     });
-    expect(result).toMatchObject({ ok: true, downloaded: 2 });
-    expect(Object.fromEntries(phone.values)).toEqual({ league, teams });
+    expect(result).toMatchObject({ ok: true, downloaded: 3 });
+    expect(Object.fromEntries(phone.values)).toEqual({ league, teams, games2027 });
   });
 
-  it("fetches only what changed, and removes what the cloud copy no longer holds", async () => {
-    const { sky, laptop, laptopState } = await withCopy();
-    const phone = device({});
-    const took = await takeCloud({
-      store: sky.store,
-      local: phone.local,
-      state: fresh,
-      manifest: sky.manifest()!,
-      now: NOW,
-    });
-    if (!took.ok) throw new Error("the phone did not take the copy");
-
-    // The laptop renames a season and drops the teams.
-    laptop.values.set("league", { ...league, activeSeasonId: "s9" });
-    laptop.values.delete("teams");
-    await sendLocal({
-      store: sky.store,
-      local: laptop.local,
-      state: { ...laptopState, dirty: { league: 1, teams: 1 } },
-      device: "laptop",
-      now: NOW,
-    });
-
+  it("fetches only what changed, and removes what the copy dropped of what this device synced", async () => {
+    const { sky, laptop, state } = await saved();
+    const phone = device({ league, teams, games2027, localOnly: { mine: true } });
+    const phoneState = state;
+    laptop.values.set("teams", { v: 4 });
+    laptop.values.delete("games2027");
+    await save(sky, laptop.local, { ...state, dirty: { teams: 1, games2027: 2 } }, "patch");
     sky.calls.get = 0;
-    const again = await takeCloud({
+    const result = await takeCloud({
       store: sky.store,
       local: phone.local,
-      state: took.state,
+      state: phoneState,
       manifest: sky.manifest()!,
       now: NOW,
+      mode: "update",
     });
-    expect(again).toMatchObject({ ok: true, downloaded: 1 });
+    expect(result).toMatchObject({ ok: true, downloaded: 1 });
     expect(sky.calls.get).toBe(1);
-    expect(Object.fromEntries(phone.values)).toEqual({
-      league: { ...league, activeSeasonId: "s9" },
+    expect(phone.values.get("teams")).toEqual({ v: 4 });
+    expect(phone.values.has("games2027")).toBe(false);
+    // Never synced, so never the copy's to take away.
+    expect(phone.values.get("localOnly")).toEqual({ mine: true });
+  });
+
+  it("leaves what this device changed and has not sent, and keeps it owed", async () => {
+    const { sky, laptop, state } = await saved();
+    laptop.values.set("teams", { v: 4 });
+    await save(sky, laptop.local, { ...state, dirty: { teams: 1 } }, "patch");
+    const phone = device({ league: { seasons: ["mine"] }, teams, games2027 });
+    const result = await takeCloud({
+      store: sky.store,
+      local: phone.local,
+      state: { ...state, dirty: { league: 9 } },
+      manifest: sky.manifest()!,
+      now: NOW,
+      mode: "update",
     });
+    expect(result).toMatchObject({ ok: true, state: { version: 2, dirty: { league: 9 } } });
+    expect(phone.values.get("league")).toEqual({ seasons: ["mine"] });
+    expect(phone.values.get("teams")).toEqual({ v: 4 });
+  });
+
+  it("makes this device the copy exactly when that is the answer somebody chose", async () => {
+    const { sky } = await saved();
+    const phone = device({ league: { seasons: ["mine"] }, localOnly: 1 });
+    const result = await takeCloud({
+      store: sky.store,
+      local: phone.local,
+      state: { ...fresh, dirty: { league: 9 } },
+      manifest: sky.manifest()!,
+      now: NOW,
+      mode: "replace",
+    });
+    expect(result).toMatchObject({ ok: true, state: { dirty: {} } });
+    expect(Object.fromEntries(phone.values)).toEqual({ league, teams, games2027 });
+  });
+
+  it("knows no fingerprints of a copy it never met, and fetches all of it", async () => {
+    const { sky, state } = await saved();
+    const phone = device({ league, teams, games2027 });
+    sky.calls.get = 0;
+    await takeCloud({
+      store: sky.store,
+      local: phone.local,
+      state: { ...state, copy: "another-copy" },
+      manifest: sky.manifest()!,
+      now: NOW,
+      mode: "update",
+    });
+    expect(sky.calls.get).toBe(3);
   });
 
   it("changes nothing on this device when a piece is missing", async () => {
-    const { sky } = await withCopy();
-    sky.chunks.clear();
-    const phone = device({ league: { mine: true } });
+    const { sky } = await saved();
+    sky.chunks.delete(chunkId(sky.manifest()!.parts[1]!.hash, 0));
+    const phone = device({ league: { seasons: ["mine"] } });
     const result = await takeCloud({
       store: sky.store,
       local: phone.local,
       state: fresh,
       manifest: sky.manifest()!,
       now: NOW,
+      mode: "replace",
     });
     expect(result).toEqual({ ok: false, reason: "missing" });
     expect(phone.local.apply).not.toHaveBeenCalled();
-    expect(Object.fromEntries(phone.values)).toEqual({ league: { mine: true } });
+    expect(phone.values.get("league")).toEqual({ seasons: ["mine"] });
   });
 
-  it("fetches a key changed here again, whatever its old fingerprint", async () => {
-    const { sky, laptopState } = await withCopy();
-    const laptop2 = device({ league: { edited: "here" }, teams });
+  it("says so when this device will not store what arrived", async () => {
+    const { sky } = await saved();
+    const phone = device({});
+    phone.local.apply = vi.fn(async () => false);
     const result = await takeCloud({
       store: sky.store,
-      local: laptop2.local,
-      state: { ...laptopState, dirty: { league: 2 } },
+      local: phone.local,
+      state: fresh,
       manifest: sky.manifest()!,
       now: NOW,
+      mode: "update",
     });
-    expect(result).toMatchObject({ ok: true, downloaded: 1 });
-    expect(laptop2.values.get("league")).toEqual(league);
+    expect(result).toEqual({ ok: false, reason: "refused" });
   });
 });
 
 describe("a value larger than one document", () => {
   it("goes up in pieces and comes back whole", async () => {
-    // Text that does not compress to nothing: each entry differs.
-    const big = Array.from(
-      { length: 180_000 },
-      (_, at) => `club-${at * 7919}-${(at * 104729) % 9973}`
-    );
     const sky = cloud();
-    const laptop = device({ big });
-    await sendLocal({ store: sky.store, local: laptop.local, state: fresh, device: "a", now: NOW });
-    const part = sky.manifest()!.parts[0]!;
-    expect(part.chunks).toBeGreaterThan(1);
-    expect(sky.chunks.get(chunkId(part.hash, 0))!.length).toBeLessThanOrEqual(CHUNK_BYTES);
-
+    const bytes = new Uint8Array(CHUNK_BYTES * 2);
+    for (let at = 0; at < bytes.length; at += 65_536) {
+      crypto.getRandomValues(bytes.subarray(at, at + 65_536));
+    }
+    const noise = Array.from(bytes, (byte) => byte.toString(36)).join("");
+    const laptop = device({ teams: noise });
+    const result = await save(sky, laptop.local, fresh, "first");
+    expect(result.ok).toBe(true);
+    expect(sky.manifest()?.parts[0]?.chunks).toBeGreaterThan(1);
     const phone = device({});
     await takeCloud({
       store: sky.store,
@@ -338,62 +419,94 @@ describe("a value larger than one document", () => {
       state: fresh,
       manifest: sky.manifest()!,
       now: NOW,
+      mode: "update",
     });
-    expect(phone.values.get("big")).toEqual(big);
+    expect(phone.values.get("teams")).toBe(noise);
   });
 });
 
 describe("what a device does when the app opens", () => {
-  const manifest = (version: number): CloudManifest => ({
-    version,
+  const manifest: CloudManifest = {
+    format: MANIFEST_FORMAT,
+    copy: "copy-a",
+    version: 3,
     updatedAt: NOW,
-    device: "x",
+    device: "laptop",
     parts: [],
-  });
-  const at = (version: number | null, dirty: Record<string, number> = {}) => ({ version, dirty });
+  };
+  const met = { version: 3, copy: "copy-a", dirty: {} };
 
-  it("sends its data to an empty cloud, and has nothing to do with none", () => {
-    expect(decideOnOpen(null, at(null), false)).toBe("send-local");
-    expect(decideOnOpen(null, at(null), true)).toBe("in-step");
-  });
-
-  it("takes the cloud copy when it has nothing of its own", () => {
-    expect(decideOnOpen(manifest(4), at(null), true)).toBe("take-cloud");
+  it("sends its data as the first copy, or has nothing to do with none", () => {
+    expect(decideOnOpen(null, fresh, false)).toBe("send-local");
+    expect(decideOnOpen(null, fresh, true)).toBe("in-step");
   });
 
-  it("asks when its own data and the cloud's have never met", () => {
-    expect(decideOnOpen(manifest(4), at(null), false)).toBe("choose");
+  it("stops at a copy that is gone, rather than starting it again unasked", () => {
+    expect(decideOnOpen(null, met, false)).toBe("gone");
+    expect(decideOnOpen(null, { ...met, dirty: { league: 1 } }, true)).toBe("gone");
+  });
+
+  it("takes a copy it never met when it holds nothing, and meets it otherwise", () => {
+    expect(decideOnOpen(manifest, fresh, true)).toBe("take-cloud");
+    expect(decideOnOpen(manifest, fresh, false)).toBe("meet");
+    // A copy started again is not a later version of the one it knew.
+    expect(decideOnOpen(manifest, { ...met, copy: "copy-old" }, false)).toBe("meet");
+    expect(decideOnOpen({ ...manifest, version: 1 }, { ...met, copy: "copy-old" }, true)).toBe(
+      "take-cloud"
+    );
   });
 
   it("keeps step, sends its changes, or takes another device's", () => {
-    expect(decideOnOpen(manifest(4), at(4), false)).toBe("in-step");
-    expect(decideOnOpen(manifest(4), at(4, { league: 1 }), false)).toBe("send-local");
-    expect(decideOnOpen(manifest(5), at(4), false)).toBe("take-cloud");
+    expect(decideOnOpen(manifest, met, false)).toBe("in-step");
+    expect(decideOnOpen(manifest, { ...met, dirty: { league: 1 } }, false)).toBe("send-local");
+    expect(decideOnOpen(manifest, { ...met, version: 2 }, false)).toBe("take-cloud");
   });
 
-  it("asks when both have changed since they last met", () => {
-    expect(decideOnOpen(manifest(5), at(4, { league: 1 }), false)).toBe("choose");
+  it("merges when both have changed since they last met", () => {
+    expect(decideOnOpen(manifest, { ...met, version: 2, dirty: { league: 1 } }, false)).toBe(
+      "merge"
+    );
+  });
+});
+
+describe("the values changed on both sides", () => {
+  const part = (key: string, hash: string) => ({ key, hash, bytes: 1, chunks: 1 });
+  const manifest: CloudManifest = {
+    format: MANIFEST_FORMAT,
+    copy: "copy-a",
+    version: 5,
+    updatedAt: NOW,
+    device: "laptop",
+    parts: [part("league", "a".repeat(64)), part("teams", "c".repeat(64))],
+  };
+  const known = { league: "a".repeat(64), teams: "b".repeat(64), games: "d".repeat(64) };
+
+  it("are none when each side changed something different", () => {
+    expect(changedOnBothSides(manifest, known, { league: 1 })).toEqual([]);
+  });
+
+  it("are the values both changed, a value the copy dropped counting as changed there", () => {
+    expect(changedOnBothSides(manifest, known, { teams: 1, league: 2 })).toEqual(["teams"]);
+    expect(changedOnBothSides(manifest, known, { games: 1 })).toEqual(["games"]);
   });
 });
 
 describe("the changes a save leaves owed", () => {
   it("are the ones made since it read them", () => {
-    expect(withoutSent({ league: 5, teams: 8, ages: 2 }, { league: 5, teams: 6 })).toEqual({
-      teams: 8,
-      ages: 2,
-    });
+    expect(withoutSent({ league: 5, teams: 9 }, { league: 5, teams: 8 })).toEqual({ teams: 9 });
+    expect(withoutSent({ league: 5 }, {})).toEqual({ league: 5 });
   });
 });
 
 describe("a device meeting the cloud copy for the first time", () => {
   it("need not choose when its data is the cloud's already", async () => {
-    const sky = cloud();
-    const laptop = device({ league, teams });
-    await sendLocal({ store: sky.store, local: laptop.local, state: fresh, device: "a", now: NOW });
-    expect(await matchesCloud(device({ league, teams }).local, sky.manifest()!)).toBe(true);
-    expect(await matchesCloud(device({ league }).local, sky.manifest()!)).toBe(false);
-    expect(await matchesCloud(device({ league, teams: { v: 4 } }).local, sky.manifest()!)).toBe(
-      false
+    const { sky } = await saved();
+    expect(await matchesCloud(device({ league, teams, games2027 }).local, sky.manifest()!)).toBe(
+      true
     );
+    expect(await matchesCloud(device({ league, teams }).local, sky.manifest()!)).toBe(false);
+    expect(
+      await matchesCloud(device({ league, teams, games2027: { v: 2 } }).local, sky.manifest()!)
+    ).toBe(false);
   });
 });

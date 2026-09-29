@@ -19,6 +19,8 @@ export const cloudSummary = (status: CloudStatus): string => {
       return "Your cloud copy needs an answer";
     case "newer":
       return "Newer data saved from another device";
+    case "gone":
+      return "Your cloud copy is gone";
     case "not-owner":
       return "This cloud copy belongs to another account";
     case "error":
@@ -38,6 +40,7 @@ const toneOf = (status: CloudStatus): Tone | null => {
     case "newer":
       return "waiting";
     case "choose":
+    case "gone":
     case "not-owner":
     case "error":
       return "attention";

@@ -60,6 +60,7 @@ export const loadCloudState = (): DeviceCloudState => {
       typeof stored.version === "number" && Number.isInteger(stored.version)
         ? stored.version
         : null,
+    copy: typeof stored.copy === "string" && stored.copy ? stored.copy : null,
     hashes: stringsOf(stored.hashes),
     dirty: numbersOf(stored.dirty),
     ...(typeof stored.syncedAt === "string" ? { syncedAt: stored.syncedAt } : {}),

@@ -1611,9 +1611,12 @@ export const readCloudPoolValue = async (key: string): Promise<unknown> =>
 export const applyCloudPoolValues = async (
   values: ReadonlyMap<string, unknown>
 ): Promise<boolean> => {
+  // A key this build does not keep, from a copy a newer build saved: refused whole, before
+  // anything is written. Skipped, it would be recorded as taken, and this device's next save
+  // would drop it from the copy for everyone.
+  if (poolUnavailable || [...values.keys()].some((key) => !isCloudPoolKey(key))) return false;
   let ok = true;
   for (const [key, value] of values) {
-    if (!isCloudPoolKey(key)) continue;
     if (key.startsWith(ARCHIVE_ROWS_PREFIX)) {
       if (value === null) await dropBlob(key);
       else if (!(await putBlob(key, value))) ok = false;
