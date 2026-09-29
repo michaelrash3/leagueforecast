@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
   connectFirestoreEmulator,
-  deleteDoc,
   doc,
   getDoc,
   getFirestore,
@@ -12,28 +11,48 @@ import {
 import { CHUNK_BYTES } from "../cloudPack";
 import { sendLocal, takeCloud, type LocalSource, type SyncState } from "../cloudEngine";
 import { chunkId, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
-import { claimCopy, firestoreStore, UnreadableCopyError } from "../firebaseCloud";
+import { OWNER_STAND_IN } from "../cloudOwner";
+import { firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
 
 /*
  * The rules that keep the cloud copy one account's, tried against a real Firestore: the emulator
  * that `npm run test:rules` starts, which loads `firestore.rules` from `firebase.json` just as a
  * deploy does. The ordinary run has no emulator to talk to and skips all of it.
  *
- * Each "account" is its own Firebase app holding the emulator's stand-in for a signed-in token,
- * which the rules read as `request.auth` exactly as they read a real one.
+ * The rules as the repository holds them name a stand-in owner (`OWNER_STAND_IN`), which is who the
+ * owner is here. Each "account" is its own Firebase app holding the emulator's stand-in for a
+ * signed-in token, which the rules read as `request.auth` exactly as they read a real one.
  */
 const HOST = import.meta.env.FIRESTORE_EMULATOR_HOST;
 const PROJECT = "demo-league-forecast";
 
 const apps: FirebaseApp[] = [];
 
-/** Firestore as the account `uid` sees it, or as a browser nobody has signed in to. */
-const as = (uid: string | null): Firestore => {
+type Account = { uid: string; email?: string; verified?: boolean };
+
+const OWNER: Account = { uid: "owner", email: OWNER_STAND_IN, verified: true };
+const MALLORY: Account = { uid: "mallory", email: "mallory@example.com", verified: true };
+
+/** Firestore as `account` sees it, or as a browser nobody has signed in to. */
+const as = (account: Account | null): Firestore => {
   const app = initializeApp({ projectId: PROJECT, apiKey: "demo-key" }, `app-${apps.length}`);
   apps.push(app);
   const db = getFirestore(app);
   const [host = "127.0.0.1", port = "8085"] = (HOST ?? "").split(":");
-  connectFirestoreEmulator(db, host, Number(port), uid ? { mockUserToken: { sub: uid } } : {});
+  connectFirestoreEmulator(
+    db,
+    host,
+    Number(port),
+    account
+      ? {
+          mockUserToken: {
+            sub: account.uid,
+            ...(account.email === undefined ? {} : { email: account.email }),
+            ...(account.verified === undefined ? {} : { email_verified: account.verified }),
+          },
+        }
+      : {}
+  );
   return db;
 };
 
@@ -69,6 +88,16 @@ const manifestOf = (version: number): CloudManifest => ({
   parts: [],
 });
 
+/** Every way into the copy an account could try: read, write, list and delete. */
+const expectShutOut = async (db: Firestore): Promise<void> => {
+  const store = firestoreStore(db);
+  await expect(store.readManifest()).rejects.toMatchObject(REFUSED);
+  await expect(store.commitManifest(null, manifestOf(1))).rejects.toMatchObject(REFUSED);
+  await expect(store.putChunk("a-0", new Uint8Array([1, 2, 3]))).rejects.toMatchObject(REFUSED);
+  await expect(store.getChunk("a-0")).rejects.toMatchObject(REFUSED);
+  await expect(store.deleteChunk("a-0")).rejects.toMatchObject(REFUSED);
+};
+
 beforeEach(async () => {
   if (!HOST) return;
   await fetch(`http://${HOST}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, {
@@ -82,68 +111,51 @@ afterAll(async () => {
 
 describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () => {
   it("give a browser nobody has signed in to nothing at all", async () => {
-    await claimCopy(as("owner"), "owner");
-    const nobody = as(null);
-    await expect(getDoc(doc(nobody, "config/owner"))).rejects.toMatchObject(REFUSED);
-    await expect(firestoreStore(nobody).readManifest()).rejects.toMatchObject(REFUSED);
-    await expect(
-      setDoc(doc(nobody, "cloud/manifest"), { version: 1, updatedAt: "", device: "", parts: [] })
-    ).rejects.toMatchObject(REFUSED);
-    expect(await claimCopy(nobody, null)).toBe("someone-else");
+    await expectShutOut(as(null));
   });
 
-  it("let no account near the copy before one has claimed it", async () => {
-    const owner = as("owner");
-    await expect(firestoreStore(owner).readManifest()).rejects.toMatchObject(REFUSED);
+  it("give any other Google account nothing, and signing in claims nothing", async () => {
+    await expectShutOut(as(MALLORY));
+    // The first design's claim: a document naming whoever signed in first. Nobody may write one,
+    // and it would mean nothing if they could.
     await expect(
-      firestoreStore(owner).putChunk("a-0", new Uint8Array([1, 2, 3]))
+      setDoc(doc(as(MALLORY), "config/owner"), { uid: "mallory", claimedAt: "now" })
     ).rejects.toMatchObject(REFUSED);
-    await expect(firestoreStore(owner).commitManifest(null, manifestOf(1))).rejects.toMatchObject(
+    await expect(getDoc(doc(as(MALLORY), "config/owner"))).rejects.toMatchObject(REFUSED);
+    await expectShutOut(as(MALLORY));
+  });
+
+  it("tell an account whether the copy is its own, by a look that changes nothing", async () => {
+    expect(await ownsCopy(as(OWNER))).toBe(true);
+    expect(await ownsCopy(as(MALLORY))).toBe(false);
+    expect(await ownsCopy(as(null))).toBe(false);
+    expect(await firestoreStore(as(OWNER)).readManifest()).toBeNull();
+  });
+
+  it("refuse the owner's address when nothing vouches for it", async () => {
+    await expectShutOut(as({ uid: "typed", email: OWNER_STAND_IN, verified: false }));
+    await expectShutOut(as({ uid: "typed", email: OWNER_STAND_IN }));
+    await expectShutOut(as({ uid: "owner" }));
+  });
+
+  it("know the owner however the address is capitalised", async () => {
+    const store = firestoreStore(as({ ...OWNER, email: OWNER_STAND_IN.toUpperCase() }));
+    expect(await store.readManifest()).toBeNull();
+  });
+
+  it("open nothing but the copy, even to the owner", async () => {
+    const owner = as(OWNER);
+    await expect(setDoc(doc(owner, "config/owner"), { uid: "owner" })).rejects.toMatchObject(
       REFUSED
     );
-  });
-
-  it("let an account claim the copy only for itself, and only as the claim the app writes", async () => {
-    const mallory = as("mallory");
-    const at = "2026-09-28T00:00:00.000Z";
-    await expect(
-      setDoc(doc(mallory, "config/owner"), { uid: "owner", claimedAt: at })
-    ).rejects.toMatchObject(REFUSED);
-    await expect(
-      setDoc(doc(mallory, "config/owner"), { uid: "mallory", claimedAt: at, admin: true })
-    ).rejects.toMatchObject(REFUSED);
-    await expect(
-      setDoc(doc(mallory, "config/owner"), { uid: "mallory", claimedAt: 1 })
-    ).rejects.toMatchObject(REFUSED);
-    await setDoc(doc(mallory, "config/owner"), { uid: "mallory", claimedAt: at });
-  });
-
-  it("hand the copy to the first account to sign in, for good", async () => {
-    const owner = as("owner");
-    const mallory = as("mallory");
-    expect(await claimCopy(owner, "owner")).toBe("mine");
-    expect(await claimCopy(mallory, "mallory")).toBe("someone-else");
-    // The same account on another device is still the owner.
-    expect(await claimCopy(as("owner"), "owner")).toBe("mine");
-
-    const at = "2026-09-28T00:00:00.000Z";
-    await expect(
-      setDoc(doc(mallory, "config/owner"), { uid: "mallory", claimedAt: at })
-    ).rejects.toMatchObject(REFUSED);
-    await expect(deleteDoc(doc(mallory, "config/owner"))).rejects.toMatchObject(REFUSED);
-    // Not even the owner can hand it on or let it go from the app.
-    await expect(
-      setDoc(doc(owner, "config/owner"), { uid: "owner", claimedAt: at })
-    ).rejects.toMatchObject(REFUSED);
-    await expect(deleteDoc(doc(owner, "config/owner"))).rejects.toMatchObject(REFUSED);
-    expect((await getDoc(doc(owner, "config/owner"))).get("uid")).toBe("owner");
+    await expect(setDoc(doc(owner, "elsewhere/doc"), { x: 1 })).rejects.toMatchObject(REFUSED);
+    await expect(getDoc(doc(owner, "elsewhere/doc"))).rejects.toMatchObject(REFUSED);
   });
 
   it("carry the owner's data from one device to another, and nobody else's way", async () => {
-    await claimCopy(as("owner"), "owner");
     const phone = memory({ league: { seasons: [{ name: "Spring" }] }, teams: [["a", "Hawks"]] });
     const sent = await sendLocal({
-      store: firestoreStore(as("owner")),
+      store: firestoreStore(as(OWNER)),
       local: phone,
       state: fresh,
       device: "phone",
@@ -152,7 +164,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     });
     expect(sent).toMatchObject({ ok: true, uploaded: 2 });
 
-    const laptopStore = firestoreStore(as("owner"));
+    const laptopStore = firestoreStore(as(OWNER));
     const manifest = await laptopStore.readManifest();
     expect(manifest?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
     const laptop = memory();
@@ -168,7 +180,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     ).toMatchObject({ ok: true, downloaded: 2 });
     expect(Object.fromEntries(laptop.map)).toEqual(Object.fromEntries(phone.map));
 
-    const mallory = firestoreStore(as("mallory"));
+    const mallory = firestoreStore(as(MALLORY));
     const piece = chunkId((manifest as CloudManifest).parts[0]?.hash ?? "", 0);
     await expect(mallory.readManifest()).rejects.toMatchObject(REFUSED);
     await expect(mallory.getChunk(piece)).rejects.toMatchObject(REFUSED);
@@ -178,8 +190,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   });
 
   it("refuse a save onto a copy that moved on, in one step with the read", async () => {
-    await claimCopy(as("owner"), "owner");
-    const store = firestoreStore(as("owner"));
+    const store = firestoreStore(as(OWNER));
     expect(await store.commitManifest(null, manifestOf(1))).toBe(true);
     expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
     expect(await store.commitManifest(1, manifestOf(2))).toBe(true);
@@ -187,8 +198,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   });
 
   it("never take a manifest this build cannot read for no copy at all", async () => {
-    await claimCopy(as("owner"), "owner");
-    const owner = as("owner");
+    const owner = as(OWNER);
     // A later build's layout, as this one would find it.
     await setDoc(doc(owner, "cloud/manifest"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
     const store = firestoreStore(owner);
@@ -199,7 +209,6 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   });
 
   it("fit a value too large for one document into several", async () => {
-    await claimCopy(as("owner"), "owner");
     // Random text, so gzip cannot shrink it under one piece.
     const bytes = new Uint8Array(CHUNK_BYTES * 2);
     for (let at = 0; at < bytes.length; at += 65_536) {
@@ -208,7 +217,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     const noise = Array.from(bytes, (byte) => byte.toString(36)).join("");
     const big = memory({ teams: noise });
     const result = await sendLocal({
-      store: firestoreStore(as("owner")),
+      store: firestoreStore(as(OWNER)),
       local: big,
       state: fresh,
       device: "phone",
@@ -216,7 +225,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       mode: "first",
     });
     expect(result.ok).toBe(true);
-    const store = firestoreStore(as("owner"));
+    const store = firestoreStore(as(OWNER));
     const manifest = (await store.readManifest()) as CloudManifest;
     expect(manifest.parts[0]?.chunks).toBeGreaterThan(1);
     const back = memory();

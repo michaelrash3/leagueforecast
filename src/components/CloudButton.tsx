@@ -59,7 +59,8 @@ const DOT: Record<Tone, string> = {
 /**
  * The header's cloud button: where the cloud copy stands, as a dot on a cloud, and the way into the
  * panel that says more. Not drawn at all by a build with no Firebase setting, which has no cloud
- * copy to offer.
+ * copy to offer, nor in a browser that keeps no copy: the site is public, and the header of
+ * everyone who opens a shared link is no place to offer signing in to the owner's data.
  */
 export function CloudButton({
   status,
@@ -71,7 +72,7 @@ export function CloudButton({
   /** Where it sits: the caller's display and size, as for the theme switch beside it. */
   className: string;
 }) {
-  if (status.kind === "off") return null;
+  if (status.kind === "off" || status.kind === "signed-out") return null;
   const tone = toneOf(status);
   const summary = cloudSummary(status);
   return (

@@ -30,15 +30,13 @@ import { coerceManifest } from "./cloudManifest";
  * it does every file the build makes.) `firestore/lite` rather than the full SDK: this reads and
  * writes documents and never listens to them, and lite is a fraction the size.
  *
- * The layout, and what `firestore.rules` lets through:
- * - `config/owner`: the account the copy belongs to, `{ uid, claimedAt }`. Created once by the
- *   first account to sign in, and never changed after.
- * - `cloud/manifest`: what the copy is made of (`CloudManifest`). Owner only.
- * - `cloud/manifest/chunks/{hash-n}`: the pieces, each `{ data: Bytes }`. Owner only.
+ * The layout, and what `firestore.rules` lets through, to the one account the rules name
+ * (`cloudOwner.ts`) and to nobody else:
+ * - `cloud/manifest`: what the copy is made of (`CloudManifest`).
+ * - `cloud/manifest/chunks/{hash-n}`: the pieces, each `{ data: Bytes }`.
  */
 const MANIFEST = "cloud/manifest";
 const CHUNKS = "cloud/manifest/chunks";
-const OWNER = "config/owner";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -49,10 +47,10 @@ export type FirebaseCloud = {
   signOut: () => Promise<void>;
   onAccount: (listener: (account: CloudAccount | null) => void) => () => void;
   /**
-   * Whose the copy is. The first account to ask claims it; the rules refuse a second claim, so an
-   * account that finds one already made is told the copy is somebody else's.
+   * Whether the copy is the signed-in account's. The rules name its owner and refuse every other
+   * account even a look, so a look answers it; signing in claims nothing.
    */
-  claim: () => Promise<"mine" | "someone-else">;
+  owns: () => Promise<boolean>;
   store: CloudStore;
 };
 
@@ -111,25 +109,14 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
   },
 });
 
-const ownerIs = async (db: Firestore, uid: string): Promise<boolean | null> => {
-  const snap = await getDoc(doc(db, OWNER));
-  return snap.exists() ? snap.get("uid") === uid : null;
-};
-
-/** `FirebaseCloud.claim` for the account `uid` signed in to `db`, or for nobody. */
-export const claimCopy = async (
-  db: Firestore,
-  uid: string | null
-): Promise<"mine" | "someone-else"> => {
-  if (!uid) return "someone-else";
-  const known = await ownerIs(db, uid);
-  if (known !== null) return known ? "mine" : "someone-else";
+/** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs. */
+export const ownsCopy = async (db: Firestore): Promise<boolean> => {
   try {
-    await setDoc(doc(db, OWNER), { uid, claimedAt: new Date().toISOString() });
-    return "mine";
-  } catch {
-    // Refused: another account claimed it between the read and the write.
-    return (await ownerIs(db, uid)) === true ? "mine" : "someone-else";
+    await getDoc(doc(db, MANIFEST));
+    return true;
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "permission-denied") return false;
+    throw error;
   }
 };
 
@@ -145,7 +132,7 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     signIn: async () => accountOf((await signInWithPopup(auth, new GoogleAuthProvider())).user),
     signOut: () => signOut(auth),
     onAccount: (listener) => onAuthStateChanged(auth, (user) => listener(accountOf(user))),
-    claim: () => claimCopy(db, auth.currentUser?.uid ?? null),
+    owns: () => ownsCopy(db),
     store: firestoreStore(db),
   };
 };
