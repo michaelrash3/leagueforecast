@@ -86,9 +86,7 @@ import {
   saveArchivedSeasons,
   forgetArchivedSeason,
   saveRefreshLog,
-  addScoutGames,
   saveScoutGames,
-  saveScoutGamesForGroups,
   saveScoutGamesForYear,
   saveScoutTeams,
   saveTidyStamp,
@@ -106,6 +104,7 @@ import {
   saveAgelessCleared,
   clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
+import { persistPool } from "../lib/poolPersist";
 import {
   forgetClubs,
   forgetGames,
@@ -2459,39 +2458,18 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
-                const savedGroups = saveAgeGroups(next.ageGroups);
-                const savedTeams = saveScoutTeams(next.teams);
                 /*
-                 * The games go wherever the panel says it is holding. Only the whole-pool save can
-                 * spare a year, because it is the only one that decides what every year should
-                 * hold; the other two are scoped to what the caller named and leave the rest of
-                 * the pool alone by construction.
+                 * A pull never empties a squad year, so it names none. If storage reports one
+                 * spared, the panel is holding a pool it was not given — which is the bug this
+                 * whole path once had, now a message instead of a deletion (`persistPool`).
                  */
-                let savedGames = true;
-                if (holding?.kind === "pages") {
-                  savedGames = saveScoutGamesForGroups(holding.ageGroupIds, next.games);
-                } else if (holding?.kind === "additions") {
-                  savedGames = addScoutGames(next.games);
-                } else {
-                  /*
-                   * A pull never empties a squad year, so it names none. If storage reports one
-                   * spared, the panel is holding a pool it was not given — which is the bug this
-                   * whole path once had, now a message instead of a deletion.
-                   *
-                   * A spared year counts as a refusal, not a partial success. The panel stops the
-                   * pull on a false, which is what should happen: it is holding a pool the store
-                   * will not take, so everything it fetches from here cannot be kept either.
-                   */
-                  const whole = saveScoutGames(next.games);
-                  if (whole.spared.length > 0)
-                    showToast(sparedYears(whole.spared), { tone: "error" });
-                  savedGames = whole.written && whole.spared.length === 0;
-                }
+                const { saved, spared } = persistPool(next, holding);
+                if (spared.length > 0) showToast(sparedYears(spared), { tone: "error" });
                 setAgeGroups(next.ageGroups);
                 setScoutTeams(next.teams);
                 bumpPool();
                 onDataChange?.();
-                return savedGroups && savedTeams && savedGames;
+                return saved;
               }}
               onSaveProgress={(progress) => {
                 setPullProgress(progress);

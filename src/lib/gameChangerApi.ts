@@ -577,6 +577,39 @@ export const ageFromLeagueNames = (
   return levels.size === 1 ? [...levels][0] : undefined;
 };
 
+/**
+ * `schedule` with what the user's own list knows of the team and GameChanger's payload does not
+ * (`GcTeamSchedule.listed`): the roster size and the staff as the export recorded them, and the age
+ * the list implies. A pull in the browser and a pull run in the cloud both file a fetched team
+ * through this, so neither can file one differently.
+ *
+ * The age is the league the list says the team plays in, failing that the organization it sits
+ * under, and failing both `orgAge`, the age the Organizations file's organizations the team is under
+ * agree on (`orgAgesByTeam`). The organization's name is the weaker of the first two: a crawl types
+ * every organization the same way, so a tournament and a league are one word apart, which is why
+ * `ageFromOrgName` refuses event-sounding names and spans and only answers where the league said
+ * nothing. The Organizations file reaches a team the list does not describe at all — one the rota
+ * is asking about again because it is waiting on an age — which is most of the point of it.
+ */
+export const withListed = (
+  schedule: GcTeamSchedule,
+  entry: GcTeamListEntry | undefined,
+  orgAge: number | undefined
+): GcTeamSchedule => {
+  const ageLevel = ageFromLeagueNames(entry?.leagues) ?? ageFromOrgName(entry?.org?.name) ?? orgAge;
+  if (!entry?.staff?.length && entry?.playerCount === undefined && ageLevel === undefined) {
+    return schedule;
+  }
+  return {
+    ...schedule,
+    listed: {
+      ...(entry?.staff?.length ? { staff: entry.staff } : {}),
+      ...(entry?.playerCount === undefined ? {} : { playerCount: entry.playerCount }),
+      ...(ageLevel === undefined ? {} : { ageLevel }),
+    },
+  };
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
