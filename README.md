@@ -3017,6 +3017,107 @@ device's change is built on rather than written over: a club it threw out in
 the meantime is not filed. A copy that keeps moving through three tries is left
 as it was, with nothing of the run's left in it.
 
+### A pasted list, pulled in the cloud
+
+A device signed in to the cloud copy can hand a pasted list to a Firebase
+function and close the tab. The device's side of this, the button and the
+notice when the pull is done, is the next step; this part is the cloud's.
+
+**The job.** The device writes the list beside the copy, where the rules already
+let it write (`src/lib/cloud/pullJobs.ts`):
+
+- `copies/main/jobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
+  fingerprinted as the copy's values are, so a list is never pulled half from one
+  upload and half from another.
+- `copies/main/jobs/{jobId}` holds the job, written last. It carries the squad
+  years to file into, the device's time zone (the day the importer and the day
+  log keep, since Google's servers keep their own), and everything the device
+  shows while it waits: the stage, the teams asked so far, and the tally.
+
+The device then calls `startPull` with the job's id. That function is open to any
+Google sign-in, as the copy is, and queues the job's first leg.
+
+**Legs.** A list is pulled in legs of 25,000 teams (`pullJobRunner.ts`). Each leg
+is a Cloud Tasks task, and `runPull` runs it: it loads the copy, pulls the leg's
+teams through the same runner as the nightly refresh (`runCloudPull`), saves, adds
+what it did to the job's tally, and queues the next leg. Legs are needed for two
+reasons. A task has at most half an hour. And the answers for a nationwide list,
+all at once, would not fit beside the pool in the function's memory. A leg the
+size of the nightly refresh on 29 September 2026 took 101 s and held 3.5 GB at
+its end on one of GitHub's servers, so a leg of 25,000 is a few minutes.
+
+**One leg at a time.** Legs run one at a time on one instance with 8 GiB and two
+processors. Each leg runs in a worker thread capped at 5,120 MB of heap, which
+leaves the rest of the 8 GiB for the bytes a heap does not count. A leg that runs
+out of memory ends as an error the function can see, rather than taking the
+instance down with it. Before starting the worker, the function sets the job's
+time zone: a worker cannot change its own zone, but one started after its parent
+changes it keeps the new one.
+
+**Sent twice, run once.** A leg's task is named for its job and leg, so queueing
+it twice queues it once. A leg the job already counts as done does not run
+again, and if a leg's reply was lost before it queued the next, the next copy of
+it queues that one.
+
+**Stopping and failing.** Every ten seconds a leg writes how far it has got and
+looks for the device asking it to stop. When it is asked, it files what it has
+fetched, saves, and queues nothing more. If GameChanger stops answering, the job
+ends after that leg, with what came saved. A leg that fails is tried twice more,
+two minutes apart and then longer. On the third failure the job is marked failed
+with the reason, whether the leg could say so itself or its worker died first.
+Some jobs fail at once, with nothing tried again:
+
+- a list whose pieces do not unpack;
+- a copy saved by a newer build or tidied by newer rules;
+- no copy at all.
+
+**Cost.** The project's budget is a dollar a month with a hard stop (below).
+Google's published free tier for functions gives 360,000 GiB-seconds and 180,000
+processor-seconds each month. A three-minute leg on 8 GiB and two processors
+spends about 1,440 of the first and 360 of the second. So a 250,000-team list, ten
+legs, should stay well within it. That is worked out from the published tier, not
+measured on this project; the first real pull's usage will say.
+
+### Pulls in the cloud: the one-time setup
+
+The two functions run as an account of their own, `pull-runner`. It may read and
+write Firestore, queue a task, and send one to `runPull`, and nothing else. The
+project needs Cloud Tasks turned on, which the deploy account is not allowed to do
+itself. Until both are done and the `CLOUD_PULLS` variable says so, the functions
+are built without these two (`functions/build.mjs`), and the Firebase workflow
+deploys the rest and says why. Leaving them out of the build is what keeps that
+deploy working: the Firebase CLI asks for every API any function in the build
+needs, whatever it was told to deploy, and it cannot turn Cloud Tasks on itself.
+
+1. Open [Cloud Shell](https://console.cloud.google.com/?cloudshell=true) in the
+   project and paste this, with your project's id in the first line:
+
+   ```sh
+   PROJECT=your-project-id
+   gcloud config set project "$PROJECT"
+   # Cloud Tasks, which carries each leg of a pull to the function that runs it.
+   gcloud services enable cloudtasks.googleapis.com
+   # The pulls' own account: Firestore, queueing a leg, and sending it to runPull.
+   gcloud iam service-accounts create pull-runner --display-name "Pulls in the cloud"
+   RUNNER="pull-runner@$PROJECT.iam.gserviceaccount.com"
+   for ROLE in roles/datastore.user roles/cloudtasks.enqueuer roles/run.invoker; do
+     gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$RUNNER" \
+       --role "$ROLE" --condition=None > /dev/null
+   done
+   # A leg queues the next as itself, so it may act as itself.
+   gcloud iam service-accounts add-iam-policy-binding "$RUNNER" \
+     --member "serviceAccount:$RUNNER" --role roles/iam.serviceAccountUser > /dev/null
+   # The deploy account makes the queue.
+   gcloud projects add-iam-policy-binding "$PROJECT" \
+     --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
+     --role roles/cloudtasks.queueAdmin --condition=None > /dev/null
+   ```
+
+2. In GitHub, **Settings → Secrets and variables → Actions → Variables → New
+   repository variable**: name `CLOUD_PULLS`, value `on`.
+3. **Actions → Firebase functions → Run workflow** on `main`. When it is green,
+   the Firebase console's **Functions** page lists `startPull` and `runPull`.
+
 ### The nightly refresh on GitHub
 
 The Refresh button, pressed on the cloud copy by one of GitHub's servers

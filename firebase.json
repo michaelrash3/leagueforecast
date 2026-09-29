@@ -4,7 +4,7 @@
       "source": "functions",
       "codebase": "default",
       "runtime": "nodejs24",
-      "ignore": ["node_modules", "src", "smoke.mjs", ".gitignore", "*.log"],
+      "ignore": ["node_modules", "src", "build.mjs", "smoke.mjs", ".gitignore", "*.log"],
       "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
     }
   ],

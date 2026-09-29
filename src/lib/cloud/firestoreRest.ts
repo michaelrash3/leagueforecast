@@ -3,7 +3,8 @@ import { coerceManifest, type CloudManifest } from "./cloudManifest";
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
- * the nightly refresh on one of GitHub's servers (README, "The nightly refresh on GitHub"). The
+ * the nightly refresh on one of GitHub's servers (README, "The nightly refresh on GitHub"), and a
+ * pasted list pulled by a Firebase function (README, "A pasted list, pulled in the cloud"). The
  * browser uses Firebase's own SDK (`firebaseCloud.ts`); this writes the same documents the same
  * way, so either reads what the other saved:
  * - `copies/main`: the manifest, its fields as the SDK sets them;
@@ -118,22 +119,15 @@ export class FirestoreError extends Error {
   }
 }
 
-/**
- * The copy's store through the REST API of `projectId`'s default database. `token` is asked for
- * each request, so a job longer than a token's hour can hand a new one. Read only unless
- * `writable`: then the write calls reject, which a pull that saves nothing never makes.
- */
-export const firestoreRestStore = ({
-  projectId,
-  token,
-  writable,
-  fetchImpl = fetch,
-}: {
+type RestAccess = {
   projectId: string;
+  /** Asked for each request, so a job longer than a token's hour can hand a new one. */
   token: () => Promise<string>;
-  writable: boolean;
   fetchImpl?: typeof fetch;
-}): CloudStore => {
+};
+
+/** Requests to `projectId`'s default database, signed with `token`. */
+const restClient = ({ projectId, token, fetchImpl = fetch }: RestAccess) => {
   const database = `projects/${projectId}/databases/(default)`;
   const documents = `https://firestore.googleapis.com/v1/${database}/documents`;
   const call = async (url: string, init: RequestInit = {}): Promise<Response> =>
@@ -150,6 +144,51 @@ export const firestoreRestStore = ({
     if (!response.ok) throw new FirestoreError(response.status, `reading ${path}`);
     return (await response.json()) as FirestoreDocument;
   };
+  return { database, documents, call, read };
+};
+
+/**
+ * Any document by its path, for what is not the copy itself: a pull a device left for the cloud to
+ * run (`pullJobs.ts`). Its fields as plain values, bytes as bytes.
+ */
+export type FirestoreRestDocuments = {
+  read: (path: string) => Promise<Record<string, unknown> | null>;
+  /**
+   * Sets the fields `patch` names and leaves the rest, on a document that must already be there:
+   * a pull deleted from the console is not made again by the job still running it.
+   */
+  update: (path: string, patch: Record<string, unknown>) => Promise<void>;
+};
+
+export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
+  const { documents, call, read } = restClient(access);
+  return {
+    read: async (path) => {
+      const found = await read(path);
+      return found ? fieldsOf(found.fields ?? {}) : null;
+    },
+    update: async (path, patch) => {
+      const mask = Object.keys(patch)
+        .filter((name) => patch[name] !== undefined)
+        .map((name) => `updateMask.fieldPaths=${encodeURIComponent(name)}`);
+      const response = await call(
+        `${documents}/${path}?${[...mask, "currentDocument.exists=true"].join("&")}`,
+        { method: "PATCH", body: JSON.stringify({ fields: firestoreFieldsOf(patch) }) }
+      );
+      if (!response.ok) throw new FirestoreError(response.status, `updating ${path}`);
+    },
+  };
+};
+
+/**
+ * The copy's store through the REST API of `projectId`'s default database. Read only unless
+ * `writable`: then the write calls reject, which a pull that saves nothing never makes.
+ */
+export const firestoreRestStore = ({
+  writable,
+  ...access
+}: RestAccess & { writable: boolean }): CloudStore => {
+  const { database, documents, call, read } = restClient(access);
   const chunkPath = (id: string) => `${CHUNKS}/${encodeURIComponent(id)}`;
   const refuse = () => Promise.reject(new Error("This store was opened to read, not to write."));
   return {
