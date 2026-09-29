@@ -75,8 +75,11 @@ import { LEAGUE_PART } from "./cloudPlan";
 
 /** What to pull. */
 export type CloudPullJob =
-  /** The teams the Refresh button would pull today, worked out from the copy's own settings. */
-  | { kind: "rota"; force?: boolean }
+  /**
+   * The teams the Refresh button would pull today, worked out from the copy's own settings. With a
+   * `limit`, only the first that many, for a trial run; the day is then not logged as refreshed.
+   */
+  | { kind: "rota"; force?: boolean; limit?: number }
   /** A pasted list, as the device that sent it filtered it, filed in these squad years only. */
   | { kind: "list"; entries: readonly GcTeamListEntry[]; seasonYears: readonly number[] };
 
@@ -90,6 +93,11 @@ export type CloudPullDeps = {
   signal?: AbortSignal;
   /** Told as each stage begins, for a job's progress. Counts only. */
   onStage?: (stage: CloudPullStage) => void;
+  /**
+   * Keep the values the run replaces as an earlier version of the copy, which any device can
+   * bring back from its cloud panel (`KeptPart`). An unattended job's way back from a bad night.
+   */
+  keep?: boolean;
 };
 
 export type CloudPullStage =
@@ -337,9 +345,11 @@ export const runCloudPull = async (
 
   const due = job.kind === "rota" ? storedRota(deps.now(), job.force) : null;
   const dropped = loadDroppedClubs();
-  const ids = (due ? due.teamIds : job.kind === "list" ? job.entries.map((e) => e.teamId) : [])
+  const wanted = (due ? due.teamIds : job.kind === "list" ? job.entries.map((e) => e.teamId) : [])
     .filter((teamId, at, all) => all.indexOf(teamId) === at)
     .filter((teamId) => !isDeletedClub(dropped, teamId));
+  const limit = job.kind === "rota" ? job.limit : undefined;
+  const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
   if (ids.length === 0) return { ...result, end: "nothing-due" };
 
@@ -361,7 +371,11 @@ export const runCloudPull = async (
   result.answered = [...answers.values()].filter((answer) => answer.ok).length;
   result.failed = answers.size - result.answered;
   const stopped = deps.signal?.aborted === true;
-  const complete = !gaveUp && !stopped && ids.every((teamId) => answers.has(teamId));
+  const complete =
+    !gaveUp &&
+    !stopped &&
+    ids.length === wanted.length &&
+    ids.every((teamId) => answers.has(teamId));
   result.end = gaveUp ? "gave-up" : stopped ? "stopped" : "finished";
 
   for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
@@ -392,6 +406,7 @@ export const runCloudPull = async (
       store: deps.store,
       base: copy.manifest,
       changes,
+      ...(deps.keep ? { keepReplaced: changes.map((change) => change.key) } : {}),
       device: deps.device,
       now: now.toISOString(),
     });

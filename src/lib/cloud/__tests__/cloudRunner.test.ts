@@ -326,6 +326,58 @@ describe("a pull run on the cloud copy", () => {
     expect(loadRefreshLog()["9"]).toBe(localDayKey(new Date(day)));
   });
 
+  it("pulls only the first teams due on a trial run, and leaves the day unlogged", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud, () => saveRefreshCadence("daily"));
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    const day = "2026-10-02T07:17:00.000Z";
+    const asked: string[][] = [];
+    const trial = await runCloudPull(
+      { kind: "rota", limit: 1 },
+      deps(cloud, day, {
+        fetchTeams: async (ids, options) => {
+          asked.push(ids);
+          return answering()(ids, options);
+        },
+      })
+    );
+    expect(asked.map((ids) => ids.length)).toEqual([1]);
+    expect(trial).toMatchObject({ end: "finished", asked: 1 });
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect(loadRefreshLog()["9"]).toBeUndefined();
+  });
+
+  it("keeps what it replaced as an earlier version any device can bring back, when asked to", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const first = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    expect(cloud.manifest()?.kept).toEqual([]);
+    const before = cloud.manifest()!;
+    // The next night's run changes the games and the teams, and keeps what they were.
+    schedules.set(
+      ACES,
+      schedule(ACES, "Aces", [game("a1", "Bears", 5, 3), game("a2", "Cubs", 1, 2)])
+    );
+    try {
+      const again = await runCloudPull(
+        list,
+        deps(cloud, "2026-09-30T07:17:00.000Z", { keep: true })
+      );
+      expect(again.version).toBe((first.version ?? 0) + 1);
+    } finally {
+      schedules.set(ACES, schedule(ACES, "Aces", [game("a1", "Bears", 5, 3)]));
+    }
+    const kept = cloud.manifest()!.kept;
+    expect(kept.length).toBeGreaterThan(0);
+    kept.forEach((part) => {
+      expect(part.why).toBe("replaced");
+      // The very value the copy held before, pieces and all.
+      expect(before.parts.find((entry) => entry.key === part.key)?.hash).toBe(part.hash);
+    });
+    expect(new Set(kept.map((part) => part.group)).size).toBe(1);
+  });
+
   it("files the same answers onto a copy another device saved meanwhile, keeping its change", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
