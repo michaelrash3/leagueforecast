@@ -3,9 +3,10 @@
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
-# The rules are what keep the cloud copy of the app's data one account's; see README, "Your data
-# on every device". Until the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret
-# are set the deploy step says so and passes, so this workflow is never red for want of an account.
+# The rules open the cloud copy of the app's data to Google sign-in and nothing else; see README,
+# "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
+# FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
+# never red for want of an account.
 name: Firebase functions
 
 on:
@@ -74,19 +75,10 @@ jobs:
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          CLOUD_OWNER_EMAIL: ${{ secrets.CLOUD_OWNER_EMAIL }}
         run: |
           if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
             echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
             exit 0
-          fi
-          # The rules name a stand-in owner no account can be; the owner's own address is written
-          # over it here, from a secret, so it never sits in the repository. Without the secret the
-          # stand-in stays, and the cloud copy is closed to every account.
-          if [ -n "$CLOUD_OWNER_EMAIL" ]; then
-            node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/pinCloudOwner.ts
-          else
-            echo "::notice::The cloud copy is closed to every account until the CLOUD_OWNER_EMAIL secret is set (README, 'Your data on every device')."
           fi
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT

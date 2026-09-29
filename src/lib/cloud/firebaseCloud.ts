@@ -30,13 +30,16 @@ import { coerceManifest } from "./cloudManifest";
  * it does every file the build makes.) `firestore/lite` rather than the full SDK: this reads and
  * writes documents and never listens to them, and lite is a fraction the size.
  *
- * The layout, and what `firestore.rules` lets through, to the one account the rules name
- * (`cloudOwner.ts`) and to nobody else:
- * - `cloud/manifest`: what the copy is made of (`CloudManifest`).
- * - `cloud/manifest/chunks/{hash-n}`: the pieces, each `{ data: Bytes }`.
+ * The layout, and what `firestore.rules` lets through to whoever signs in with Google, and to
+ * nobody else:
+ * - `copies/main`: what the copy is made of (`CloudManifest`).
+ * - `copies/main/chunks/{upload-n}`: the pieces, each `{ data: Bytes }`.
+ *
+ * The first version kept its copy under `cloud/`, in a layout nothing reads any more; the rules
+ * refuse everyone there, and anything left in it is ignored.
  */
-const MANIFEST = "cloud/manifest";
-const CHUNKS = "cloud/manifest/chunks";
+const MANIFEST = "copies/main";
+const CHUNKS = "copies/main/chunks";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -47,8 +50,8 @@ export type FirebaseCloud = {
   signOut: () => Promise<void>;
   onAccount: (listener: (account: CloudAccount | null) => void) => () => void;
   /**
-   * Whether the copy is the signed-in account's. The rules name its owner and refuse every other
-   * account even a look, so a look answers it; signing in claims nothing.
+   * Whether the signed-in account may open the copy. The rules refuse a sign-in they do not let in
+   * even a look, so a look answers it, and changes nothing.
    */
   owns: () => Promise<boolean>;
   store: CloudStore;
@@ -84,15 +87,18 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
         if (snap.exists()) return false;
       } else {
         const current = snap.exists() ? coerceManifest(snap.data()) : null;
-        if (current?.version !== expected) return false;
+        if (current?.version !== expected.version || current.copy !== expected.copy) return false;
       }
       tx.set(doc(db, MANIFEST), {
         format: next.format,
+        schema: next.schema,
         copy: next.copy,
         version: next.version,
+        save: next.save,
         updatedAt: next.updatedAt,
         device: next.device,
         parts: next.parts.map((part) => ({ ...part })),
+        kept: next.kept.map((part) => ({ ...part })),
       });
       return true;
     }),
@@ -109,7 +115,7 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
   },
 });
 
-/** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs. */
+/** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs to open. */
 export const ownsCopy = async (db: Firestore): Promise<boolean> => {
   try {
     await getDoc(doc(db, MANIFEST));

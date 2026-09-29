@@ -20,6 +20,7 @@ import {
   importGcSchedule,
   describeTidy,
   poolSignature,
+  stampFromNewerRules,
   refileStandIns,
   resolveSlotGames,
   claimFiledRows,
@@ -4066,6 +4067,20 @@ describe("poolSignature", () => {
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
     expect(poolSignature(empty)).toBe("r20|0|0|0|");
+  });
+
+  /*
+   * A pool that came through the cloud copy from a device on a newer build carries that build's
+   * stamp. This build's older rules would undo some of what the newer ones did, and the two devices
+   * would then tidy the pool back and forth between them, each time sending the whole of it.
+   */
+  it("tells a stamp left by newer tidy rules, which an older build leaves alone", () => {
+    const rules = Number(/^r(\d+)\|/.exec(poolSignature(empty))?.[1]);
+    expect(stampFromNewerRules(`r${rules + 1}|1|2|1|`)).toBe(true);
+    expect(stampFromNewerRules(`r${rules}|1|2|1|`)).toBe(false);
+    expect(stampFromNewerRules(`r${rules - 1}|1|2|1|`)).toBe(false);
+    expect(stampFromNewerRules(null)).toBe(false);
+    expect(stampFromNewerRules("not a stamp")).toBe(false);
   });
 });
 

@@ -40,7 +40,10 @@ export function SettingsView({
   loadDemoSeason,
   summaryMode,
   onSummaryMode,
+  onOpenCloud,
 }: {
+  /** Opens the cloud copy's panel; absent in a build with no Firebase setting. */
+  onOpenCloud?: () => void;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   teamsCount: number;
@@ -552,6 +555,26 @@ export function SettingsView({
             </button>
           </div>
         </div>
+
+        {onOpenCloud && (
+          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Your data on every device
+            </h3>
+            <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Keep a copy of everything here in the cloud, and every phone, laptop or tablet you
+              sign in on with Google opens on the same data.
+            </p>
+            <div className="mt-4">
+              <button
+                onClick={onOpenCloud}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                Your cloud copy
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

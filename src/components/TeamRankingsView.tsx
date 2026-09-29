@@ -57,6 +57,7 @@ import {
   describeTidy,
   poolSignature,
   poolSignatureOf,
+  stampFromNewerRules,
   type GcImportState,
   type PoolTidy,
   latestImportedAt,
@@ -530,7 +531,8 @@ export function TeamRankingsView({
       { ageGroups: ageGroups.length, teams: scoutTeams.length, games: storedGameCount },
       latestImportedAt(scoutTeams)
     );
-    if (stamp === loadTidyStamp()) return;
+    const stored = loadTidyStamp();
+    if (stamp === stored || stampFromNewerRules(stored)) return;
     tidyingRef.current = true;
     // Only now, with work to do: every year, for the one pass that has to see them together.
     const pool: GcImportState = { ageGroups, teams: scoutTeams, games: loadScoutGames() };

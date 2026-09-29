@@ -4,7 +4,9 @@ import {
   cloudPoolKeys,
   initTeamRankingsStore,
   onCloudPoolWrite,
+  flushPoolWrites,
   poolHoldsNoTeams,
+  poolKeysNotStored,
   readCloudPoolValue,
   resetTeamRankingsStore,
   saveAgeGroups,
@@ -16,16 +18,21 @@ import {
 } from "../../teamRankingsStorage";
 import {
   createSeason,
+  deleteSeason,
   getActiveSeasonId,
   listSeasons,
   onLeagueWrite,
   readLeagueSnapshot,
+  replaceLeagueSnapshot,
   saveTeams,
   saveUndoSnapshot,
   setActiveSeason,
 } from "../../storage";
+import { resetApp } from "../../resetApp";
+import { markTaken, onStaleWrite, resetCloudGuard } from "../cloudGuard";
+import { CLOUD_STATE_KEY, loadCloudState, markCloudDirty, owedChanges } from "../cloudState";
 import { ARCHIVE_VERSION, type ArchivedSeason } from "../../teamRankingsArchive";
-import { appLocalSource, LEAGUE_PART, localHoldsNothing } from "../cloudLocal";
+import { appLocalSource, LEAGUE_PART } from "../cloudLocal";
 import type { GcPullProgress } from "../../gameChangerPull";
 
 /*
@@ -62,6 +69,7 @@ beforeEach(() => {
   onCloudPoolWrite(null);
   onLeagueWrite(null);
   backing.clear();
+  resetCloudGuard();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => backing.get(key) ?? null,
     setItem: (key: string, value: string) => void backing.set(key, value),
@@ -285,11 +293,155 @@ describe("League Standings in the cloud copy", () => {
     expect(readLeagueSnapshot().seasons[0]?.teams.map((team) => team.name)).toEqual(["Owls"]);
   });
 
-  it("counts toward whether this browser holds anything", async () => {
+  it("counts as holding nothing until a season has anything in it", async () => {
     const io = fakeIo();
     await initTeamRankingsStore(io);
-    expect(localHoldsNothing()).toBe(true);
+    expect(appLocalSource.empty("league")).toBe(true);
+    expect(appLocalSource.empty("pool")).toBe(true);
     saveTeams([{ id: "t1", name: "Hawks" } as never]);
-    expect(localHoldsNothing()).toBe(false);
+    expect(appLocalSource.empty("league")).toBe(false);
+  });
+
+  // A squad year archived, and its teams tidied away: the archive's tables cannot be made again,
+  // so a pool that holds one is not nothing, and meeting a copy must keep it rather than drop it.
+  it("counts a pool that holds only archived seasons as holding something", async () => {
+    await initTeamRankingsStore(fakeIo());
+    expect(appLocalSource.empty("pool")).toBe(true);
+    await saveArchivedSeasons([archived]);
+    expect(appLocalSource.empty("pool")).toBe(false);
+  });
+
+  it("keeps this device on its open season when a merge gave that season a new id", async () => {
+    saveTeams([{ id: "t1", name: "Hawks" } as never]);
+    const open = getActiveSeasonId();
+    const snapshot = (await appLocalSource.read(LEAGUE_PART)) as ReturnType<
+      typeof readLeagueSnapshot
+    >;
+    const moved = {
+      seasons: snapshot.seasons.map((season) =>
+        season.id === open ? { ...season, id: "season-7" } : season
+      ),
+    };
+    expect(
+      await appLocalSource.apply(new Map([[LEAGUE_PART, moved]]), {
+        renamed: { [open]: "season-7" },
+      })
+    ).toBe(true);
+    expect(getActiveSeasonId()).toBe("season-7");
+  });
+});
+
+describe("the cloud copy's own values arriving", () => {
+  it("are not changes made here, in the pool or the seasons", async () => {
+    await withPool();
+    saveTeams([{ id: "t1", name: "Hawks" } as never]);
+    const arriving = {
+      activeSeasonId: getActiveSeasonId(),
+      seasons: readLeagueSnapshot().seasons.map((season) => ({
+        ...season,
+        teams: [{ id: "t1", name: "Owls" }],
+      })),
+    };
+    const pool = vi.fn();
+    const seasons = vi.fn();
+    onCloudPoolWrite(pool);
+    onLeagueWrite(seasons);
+    await applyCloudPoolValues(new Map([[TEAMS_KEY, [["a", "Hawks"]]]]));
+    replaceLeagueSnapshot(arriving, { fromCloud: true });
+    expect(readLeagueSnapshot().seasons[0]?.teams.map((team) => team.name)).toEqual(["Owls"]);
+    expect(pool).not.toHaveBeenCalled();
+    expect(seasons).not.toHaveBeenCalled();
+    // An edit a moment later is.
+    saveTeams([{ id: "t9", name: "Wrens" } as never]);
+    expect(seasons).toHaveBeenCalled();
+  });
+});
+
+describe("a tab that read its data before another tab took a copy in", () => {
+  it("may not write the seasons or the pool back over it, and is told to reload", async () => {
+    await withPool();
+    saveTeams([{ id: "t1", name: "Hawks" } as never]);
+    const stale = vi.fn();
+    onStaleWrite(stale);
+    // Another tab takes a copy in: its token changes under this one.
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+    backing.set("league_forecast_cloud_taken_pool", "another-tab");
+    const before = readLeagueSnapshot().seasons[0]?.teams;
+    expect(saveTeams([{ id: "t1", name: "Stale" } as never])).toBe(false);
+    expect(readLeagueSnapshot().seasons[0]?.teams).toEqual(before);
+    expect(saveScoutTeams([{ id: "z", name: "Stale" }])).toBe(false);
+    expect(stale).toHaveBeenCalledWith("league");
+    expect(stale).toHaveBeenCalledWith("pool");
+    onStaleWrite(null);
+  });
+
+  it("may not take a season's data away, nor file an archive's rows, over it either", async () => {
+    const io = await withPool();
+    const spring = createSeason("Spring");
+    setActiveSeason(spring.id);
+    saveTeams([{ id: "t1", name: "Hawks" } as never]);
+    const teams = () =>
+      readLeagueSnapshot().seasons.find((season) => season.id === spring.id)?.teams;
+    const before = teams();
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+    backing.set("league_forecast_cloud_taken_pool", "another-tab");
+    // The list of seasons cannot be written, and neither can the season's data be removed: a
+    // season whose data went while the list kept naming it would open empty.
+    deleteSeason(spring.id);
+    expect(teams()).toEqual(before);
+    expect(await saveArchivedSeasons([{ ...archived, id: "arc_2026_10u" }])).toBeNull();
+    expect(io.store.has(`${ROWS_PREFIX}arc_2026_10u`)).toBe(false);
+  });
+
+  it("may still write after taking a copy in itself, before anything read it", () => {
+    markTaken("league", true);
+    expect(saveTeams([{ id: "t1", name: "Fresh" } as never])).toBe(true);
+    markTaken("league", false);
+    expect(saveTeams([{ id: "t1", name: "Stale" } as never])).toBe(false);
+  });
+});
+
+describe("a pool write the store refuses", () => {
+  it("is known, until a write of the key lands", async () => {
+    const io = fakeIo();
+    let refuse = true;
+    await initTeamRankingsStore({
+      ...io,
+      set: async (key, value) => {
+        if (refuse && key === TEAMS_KEY) return false;
+        return io.set(key, value);
+      },
+    });
+    saveScoutTeams([{ id: "a", name: "Hawks" }]);
+    await flushPoolWrites();
+    expect(poolKeysNotStored().has(TEAMS_KEY)).toBe(true);
+    refuse = false;
+    saveScoutTeams([{ id: "a", name: "Hawks" }]);
+    await flushPoolWrites();
+    expect(poolKeysNotStored().has(TEAMS_KEY)).toBe(false);
+  });
+});
+
+describe("wiping the browser with Delete everything", () => {
+  it("forgets the cloud copy before a key goes, so no removal is owed to it", async () => {
+    await withPool();
+    backing.set(
+      CLOUD_STATE_KEY,
+      JSON.stringify({
+        enabled: true,
+        device: "d",
+        uid: "owner-1",
+        met: {},
+        hashes: {},
+        uploads: [],
+      })
+    );
+    markCloudDirty(TEAMS_KEY);
+    expect(Object.keys(owedChanges())).toEqual([TEAMS_KEY]);
+    onCloudPoolWrite(markCloudDirty);
+    await resetApp();
+    expect(loadCloudState().uid).toBeNull();
+    expect(owedChanges()).toEqual({});
+    onCloudPoolWrite(null);
   });
 });

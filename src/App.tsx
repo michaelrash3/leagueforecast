@@ -15,6 +15,7 @@ import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
+import { CloudPoolGate } from "./components/CloudPoolGate";
 import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
@@ -2584,13 +2585,15 @@ export default function App() {
             className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
-              <TeamRankingsView
-                seasons={seasons.all}
-                showToast={showToast}
-                requestConfirmation={requestConfirmation}
-                onDataChange={noteScoutChange}
-                onCommands={setRankingsCommands}
-              />
+              <CloudPoolGate status={cloud}>
+                <TeamRankingsView
+                  seasons={seasons.all}
+                  showToast={showToast}
+                  requestConfirmation={requestConfirmation}
+                  onDataChange={noteScoutChange}
+                  onCommands={setRankingsCommands}
+                />
+              </CloudPoolGate>
             </Suspense>
           </main>
         ) : (
@@ -2783,6 +2786,7 @@ export default function App() {
                   onPick={setScoutLink}
                 />
                 <SettingsView
+                  onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
                   settings={settings}
                   setSettings={setSettings}
                   teamsCount={teams.length}
@@ -2929,12 +2933,7 @@ export default function App() {
             )}
             {showTour && <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />}
             {cloudPanel.showing && (
-              <CloudPanel
-                status={cloud}
-                open={cloudPanel.showing}
-                onClose={cloudPanel.hide}
-                onBackup={exportBackup}
-              />
+              <CloudPanel status={cloud} open={cloudPanel.showing} onClose={cloudPanel.hide} />
             )}
           </Suspense>
         }

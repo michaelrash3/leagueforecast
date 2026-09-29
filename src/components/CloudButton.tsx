@@ -7,22 +7,26 @@ export const cloudSummary = (status: CloudStatus): string => {
   switch (status.kind) {
     case "off":
       return "";
+    case "none":
+      return "Sign in to keep your data on every device";
     case "signed-out":
-      return "Keep your data in the cloud";
+      return "Signed out of your cloud copy";
     case "connecting":
       return "Connecting to your cloud copy";
     case "working":
       return status.label.replace(/…$/, "");
     case "saved":
+      if (status.newer.length > 0) return "Newer data saved from another device";
+      if (status.waiting === "storage" || status.waiting === "unreadable") {
+        return "Some changes cannot be saved to the cloud";
+      }
       return status.owed ? "Changes waiting to save to the cloud" : "Saved to the cloud";
-    case "choose":
-      return "Your cloud copy needs an answer";
-    case "newer":
-      return "Newer data saved from another device";
     case "gone":
       return "Your cloud copy is gone";
     case "not-owner":
       return "This cloud copy belongs to another account";
+    case "update":
+      return "Update the app to keep saving to the cloud";
     case "error":
       return "Your cloud copy has a problem";
   }
@@ -36,12 +40,12 @@ const toneOf = (status: CloudStatus): Tone | null => {
     case "working":
       return "busy";
     case "saved":
-      return status.owed ? "waiting" : "good";
-    case "newer":
-      return "waiting";
-    case "choose":
+      if (status.waiting === "storage" || status.waiting === "unreadable") return "attention";
+      return status.owed || status.newer.length > 0 ? "waiting" : "good";
+    case "signed-out":
     case "gone":
     case "not-owner":
+    case "update":
     case "error":
       return "attention";
     default:
@@ -58,9 +62,8 @@ const DOT: Record<Tone, string> = {
 
 /**
  * The header's cloud button: where the cloud copy stands, as a dot on a cloud, and the way into the
- * panel that says more. Not drawn at all by a build with no Firebase setting, which has no cloud
- * copy to offer, nor in a browser that keeps no copy: the site is public, and the header of
- * everyone who opens a shared link is no place to offer signing in to the owner's data.
+ * panel that says more, signing in included. Not drawn at all by a build with no Firebase setting,
+ * which has no cloud copy to offer. Settings offers the same panel (`SettingsView`).
  */
 export function CloudButton({
   status,
@@ -72,7 +75,7 @@ export function CloudButton({
   /** Where it sits: the caller's display and size, as for the theme switch beside it. */
   className: string;
 }) {
-  if (status.kind === "off" || status.kind === "signed-out") return null;
+  if (status.kind === "off") return null;
   const tone = toneOf(status);
   const summary = cloudSummary(status);
   return (
@@ -106,20 +109,11 @@ export function CloudButton({
   );
 }
 
-/**
- * Whether the cloud panel is showing. The button opens it; and it opens by itself when the cloud
- * copy asks which copy wins, once each time it asks, since nothing is saved until that is answered
- * and the question would otherwise wait unseen behind a red dot.
- */
+/** Whether the cloud panel is showing: opened by the header button, or from Settings. */
 export function useCloudPanel(status: CloudStatus) {
   const [open, setOpen] = useState(false);
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const asking = status.kind === "choose" ? `${status.firstTime}|${status.cloudSavedAt}` : null;
-  const showing = status.kind !== "off" && (open || (asking !== null && dismissed !== asking));
+  const showing = status.kind !== "off" && open;
   const show = useCallback(() => setOpen(true), []);
-  const hide = useCallback(() => {
-    setOpen(false);
-    setDismissed(asking);
-  }, [asking]);
+  const hide = useCallback(() => setOpen(false), []);
   return { showing, show, hide };
 }
