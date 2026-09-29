@@ -18,6 +18,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadAgeRightClubs,
   loadRealClubs,
   loadScoutGames,
   loadScoutTeams,
@@ -29,6 +30,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveAgeRightClubs,
   saveRealClubs,
   saveScoutTeams,
   saveTooYoungClubs,
@@ -101,6 +103,11 @@ export type BackupAnswers = {
    * which leaves what is stored alone rather than clearing it.
    */
   realClubs?: string[];
+  /**
+   * The clubs said to play at another age on purpose, by GameChanger id (Pool health's "It plays
+   * up"). Absent from files written before it was kept, with the same meaning as `realClubs`.
+   */
+  ageRightClubs?: string[];
 };
 
 /** `AgeGroup.seasonIds` is a list inside one cell; a semicolon keeps it out of CSV quoting. */
@@ -217,6 +224,7 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
     keptApart: [...loadKeptApart()].sort(),
     ageUnknown: loadAgeUnknown(),
     realClubs: [...loadRealClubs()].sort(),
+    ageRightClubs: [...loadAgeRightClubs()].sort(),
   },
 });
 
@@ -248,6 +256,9 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
         backup.answers.realClubs === undefined
           ? true
           : saveRealClubs(coerceDeletedClubs(backup.answers.realClubs)),
+        backup.answers.ageRightClubs === undefined
+          ? true
+          : saveAgeRightClubs(coerceDeletedClubs(backup.answers.ageRightClubs)),
       ].every(Boolean)
     : true;
   return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers;
@@ -264,6 +275,9 @@ export const coerceBackupAnswers = (raw: unknown): BackupAnswers | undefined => 
     keptApart: [...coerceKeptApart(raw.keptApart)].sort(),
     ageUnknown: coerceAgeUnknown(raw.ageUnknown),
     ...("realClubs" in raw ? { realClubs: [...coerceDeletedClubs(raw.realClubs)].sort() } : {}),
+    ...("ageRightClubs" in raw
+      ? { ageRightClubs: [...coerceDeletedClubs(raw.ageRightClubs)].sort() }
+      : {}),
   };
 };
 
@@ -576,6 +590,9 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
     parts.push(`,"deletedGames":${JSON.stringify(answers.deletedGames)}`);
     parts.push(`,"keptApart":${JSON.stringify(answers.keptApart)}`);
     if (answers.realClubs) parts.push(`,"realClubs":${JSON.stringify(answers.realClubs)}`);
+    if (answers.ageRightClubs) {
+      parts.push(`,"ageRightClubs":${JSON.stringify(answers.ageRightClubs)}`);
+    }
     parts.push(',"ageUnknown":[');
     answers.ageUnknown.forEach((row, at) => {
       parts.push(`${at === 0 ? "" : ","}${JSON.stringify(row)}`);

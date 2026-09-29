@@ -821,8 +821,11 @@ describe("the JSON backup", () => {
     };
     const back = parseTeamRankingsJson(teamRankingsJson(withAnswers, SAVED_AT));
     expect(back!.answers).toEqual(withAnswers.answers);
-    // And the clubs said to be real, where the file carries them.
-    const vouched = { ...withAnswers, answers: { ...withAnswers.answers, realClubs: ["gcR"] } };
+    // And the clubs said to be real, and to play up, where the file carries them.
+    const vouched = {
+      ...withAnswers,
+      answers: { ...withAnswers.answers, realClubs: ["gcR"], ageRightClubs: ["gcUp"] },
+    };
     expect(parseTeamRankingsJson(teamRankingsJson(vouched, SAVED_AT))!.answers).toEqual(
       vouched.answers
     );

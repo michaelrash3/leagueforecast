@@ -1269,7 +1269,7 @@ lists, about a second on those pools. Nothing is changed for you: **Set 9U** fil
 age the evidence points to and holds it there through later pulls, exactly as setting it on the
 club's own panel does (games moved, with an undo), in the squad year it was read in whichever year
 the board is showing; **It plays up** (or down) says the age it has is right, remembered against its
-GameChanger ids so it is not asked again.
+GameChanger ids (`loadAgeRightClubs`), and backed up with the real clubs, so it is not asked again.
 
 ### Names
 
