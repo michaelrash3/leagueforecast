@@ -92,7 +92,11 @@ describe("clubs filed at the wrong age", () => {
     const { user, list } = await checkThePool();
     await user.click(within(list).getByRole("button", { name: "It plays up" }));
 
-    expect(screen.queryByTestId("pool-wrong-age")).toBeNull();
+    const kept = () => screen.getByTestId("pool-wrong-age");
+    expect(within(kept()).queryByRole("button", { name: "It plays up" })).toBeNull();
+    expect(kept()).toHaveTextContent(
+      "1 club you said plays at the age it is filed at is kept off this list."
+    );
     expect([...loadAgeRightClubs()]).toEqual(["gchorn"]);
     expect(loadScoutTeams().find((entry) => entry.id === "horn")?.gcTeams?.[0]?.ageGroupId).toBe(
       now8.id
@@ -100,6 +104,24 @@ describe("clubs filed at the wrong age", () => {
 
     await user.click(screen.getByRole("button", { name: "Look again" }));
     await screen.findByRole("button", { name: "Look again" });
-    expect(screen.queryByTestId("pool-wrong-age")).toBeNull();
+    expect(within(kept()).queryByRole("button", { name: "It plays up" })).toBeNull();
+  });
+
+  it("are asked about again once the answer is taken back", async () => {
+    const { user, list } = await checkThePool();
+    await user.click(within(list).getByRole("button", { name: "It plays up" }));
+
+    await user.click(
+      within(screen.getByTestId("pool-wrong-age")).getByRole("button", { name: "Show them" })
+    );
+    const said = screen.getByRole("list", { name: "Clubs you said are at the right age" });
+    expect(said).toHaveTextContent("Hornets");
+    await user.click(within(said).getByRole("button", { name: "Put it back" }));
+
+    expect([...loadAgeRightClubs()]).toEqual([]);
+    expect(
+      within(screen.getByTestId("pool-wrong-age")).getByRole("button", { name: "It plays up" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/kept off this list/)).toBeNull();
   });
 });

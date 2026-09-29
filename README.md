@@ -1292,6 +1292,8 @@ age the evidence points to and holds it there through later pulls, exactly as se
 club's own panel does (games moved, with an undo), in the squad year it was read in whichever year
 the board is showing; **It plays up** (or down) says the age it has is right, remembered against its
 GameChanger ids (`loadAgeRightClubs`), and backed up with the real clubs, so it is not asked again.
+Under the list a line says how many clubs it is keeping off on that answer; **Show them** names
+them, and **Put it back** forgets the answer, and the club is listed again.
 
 ### Names
 
@@ -2082,7 +2084,9 @@ first twelve clubs, "Show all" lists the rest.
 A club on that list that you know is real can be taken off it: **It's real** remembers its
 GameChanger ids beside the clubs thrown out (`loadRealClubs`), backed up with them, so the next
 pull does not put it back. Its games dated ahead still count for nothing; only the question is
-answered.
+answered. An answer given by mistake can be taken back: a line under the list says how many
+clubs it is keeping off on your word, **Show them** names them, and **Put it back** puts one on
+the list again, where it was.
 
 **A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
 9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
