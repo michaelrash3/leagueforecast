@@ -129,6 +129,24 @@ export const MAX_REFUSALS = 3;
 /** How long every worker is held off after a refusal, while the count decides whether to stop. */
 export const DEFAULT_REFUSED_HOLD_MS = 5_000;
 
+/**
+ * Requests in flight at once, each one asking for ten teams. A browser holds only a handful of
+ * connections open to one host, so this is the real parallelism of the pull; the batching is what
+ * lets it be worth anything. A throttled answer holds every worker back rather than this one, so
+ * the cost of being wrong here is a slower pull rather than lost teams.
+ */
+export const PULL_CONCURRENCY = 8;
+/**
+ * Workers the pull may grow to while the route stays clean.
+ *
+ * Eight was a guess made when nobody knew what GameChanger would take, and it held a nationwide
+ * pull to around two thousand teams a minute — most of an hour for a hundred thousand. Rather than
+ * replace it with a bigger guess, the client starts at eight and adds a worker for every ten
+ * batches that come back without a hold, stopping for good at the first sign of pushback. This is
+ * only where it stops climbing.
+ */
+export const PULL_MAX_CONCURRENCY = 24;
+
 /** Failures that a second try can fix; a missing team or a bad id will fail the same way again. */
 const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "timeout"]);
 

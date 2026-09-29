@@ -2984,6 +2984,39 @@ should be the copy.
 Sign-in opens Google in a pop-up, so a browser that blocks pop-ups has to allow
 them for the site.
 
+### Pulls in the cloud
+
+A pull can run on the cloud copy rather than in a browser tab
+(`src/lib/cloud/cloudRunner.ts`): no tab has to stay open for an hour, and a
+device finds the pulled teams in the copy the next time it looks. It is the
+pull the browser runs, not a second one. It reads the copy's Team Rankings into
+the app's own pool store held in memory, as a device taking in a copy does;
+asks GameChanger for the teams through the same client, at the same pace (8
+requests at once, growing to 24 while nothing pushes back); and files every
+answer through the same importer, with the same things the pasted list knows
+about a team (`withListed`). Then it runs the same whole-pool tidy, stamped so
+no device tidies it again, saves the pool the same way (`persistPool`), and
+keeps the same lists a pull ends with (`settleRunLists`): the teams waiting on
+an age, the teams turned away, the too-young, and the invented clubs thrown
+out. A list is filed only in the squad years it was sent for, and a club the
+copy has thrown out is never asked about. The Refresh rota is worked out as the
+button works it out, from the copy's own cadence, day log and waiting list
+(`storedRota`), and the day is logged only when every team due was asked about.
+
+It sends back only the values whose content changed, compared with what it read,
+field order aside: the same age group made by the importer and read back
+through storage lists its fields in two orders, and compared by the stored
+fingerprint alone, a pull that changed nothing sent the age groups again and
+every device took a copy that was not new. League Standings and archived
+seasons are neither read nor written. A copy saved by a newer build, or tidied
+by newer rules, is left alone.
+
+GameChanger is asked once. Where another device saved while the answers were
+coming in, the copy is read again and the same answers filed onto it, so the
+device's change is built on rather than written over: a club it threw out in
+the meantime is not filed. A copy that keeps moving through three tries is left
+as it was, with nothing of the run's left in it.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

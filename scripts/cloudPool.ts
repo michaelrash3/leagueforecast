@@ -5,19 +5,14 @@
  *
  * Read only. It signs in as that key, reads the copy's manifest and the pool's pieces through
  * Firestore's REST API, and lays them into the app's own pool store held in memory, as a device
- * taking in a cloud copy does (`applyCloudPoolValues`), so everything after reads the pool through
- * the app's own loaders. League Standings and archived seasons are not read: a pull needs neither.
+ * taking in a cloud copy does (`loadPoolFrom`), so everything after reads the pool through the
+ * app's own loaders. League Standings and archived seasons are not read: a pull needs neither.
  * Nothing is fetched from npm; the key signs its own request with Node's crypto.
  */
 import { createSign } from "node:crypto";
-import { fetchValues, type CloudStore } from "../src/lib/cloud/cloudEngine.ts";
-import { coerceManifest, type CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
-import { LEAGUE_PART } from "../src/lib/cloud/cloudPlan.ts";
-import {
-  applyCloudPoolValues,
-  initTeamRankingsStore,
-  type PoolStoreIo,
-} from "../src/lib/teamRankingsStorage.ts";
+import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
+import { coerceManifest } from "../src/lib/cloud/cloudManifest.ts";
+import { loadPoolFrom, type LoadedCopy } from "../src/lib/cloud/cloudRunner.ts";
 
 type ServiceAccount = { client_email: string; private_key: string; project_id: string };
 
@@ -122,30 +117,7 @@ const restStore = (account: ServiceAccount, token: string): CloudStore => {
   };
 };
 
-/** The store in memory, empty until the cloud's values are laid in. */
-const memoryIo = (): PoolStoreIo => {
-  const values = new Map<string, unknown>();
-  return {
-    keys: async () => [...values.keys()],
-    get: async (key) => values.get(key),
-    set: async (key, value) => {
-      values.set(key, value);
-      return true;
-    },
-    remove: async (key) => {
-      values.delete(key);
-    },
-    readLocal: () => null,
-    clearLocal: () => undefined,
-  };
-};
-
-export type CloudPool = {
-  manifest: CloudManifest;
-  /** The pool's pieces read, and their size as stored. */
-  keys: number;
-  bytes: number;
-};
+export type CloudPool = LoadedCopy;
 
 /**
  * Reads the cloud copy's pool into the app's pool store, in memory, so the app's loaders
@@ -161,24 +133,4 @@ export const loadCloudPool = async (keyJson: string): Promise<CloudPool | null> 
     throw new Error("FIREBASE_SERVICE_ACCOUNT is not a service account key's JSON.");
   }
   return loadPoolFrom(restStore(account, await accessToken(account)));
-};
-
-/** The same, from any store holding a cloud copy: the seam a run without the key is tried on. */
-export const loadPoolFrom = async (store: CloudStore): Promise<CloudPool | null> => {
-  const manifest = await store.readManifest();
-  if (!manifest) return null;
-  const parts = manifest.parts.filter(
-    (part) => part.key !== LEAGUE_PART && !part.key.includes("_archive_rows_")
-  );
-  const fetched = await fetchValues({ store, parts });
-  if (!fetched.ok) throw new Error("A piece of the cloud copy's pool is missing or damaged.");
-  await initTeamRankingsStore(memoryIo());
-  if (!(await applyCloudPoolValues(fetched.values))) {
-    throw new Error("The cloud copy holds a pool key this build does not keep.");
-  }
-  return {
-    manifest,
-    keys: parts.length,
-    bytes: parts.reduce((sum, part) => sum + part.bytes, 0),
-  };
 };
