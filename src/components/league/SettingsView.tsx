@@ -562,8 +562,8 @@ export function SettingsView({
               Your data on every device
             </h3>
             <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Keep a copy of everything here in the cloud, locked to your Google account, and every
-              phone, laptop or tablet you sign in on opens on the same data.
+              Keep a copy of everything here in the cloud, and every phone, laptop or tablet you
+              sign in on with Google opens on the same data.
             </p>
             <div className="mt-4">
               <button

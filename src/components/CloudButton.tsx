@@ -6,8 +6,9 @@ import { focusRing } from "../styles/tokens";
 export const cloudSummary = (status: CloudStatus): string => {
   switch (status.kind) {
     case "off":
-    case "none":
       return "";
+    case "none":
+      return "Sign in to keep your data on every device";
     case "signed-out":
       return "Signed out of your cloud copy";
     case "connecting":
@@ -61,10 +62,8 @@ const DOT: Record<Tone, string> = {
 
 /**
  * The header's cloud button: where the cloud copy stands, as a dot on a cloud, and the way into the
- * panel that says more. Not drawn at all by a build with no Firebase setting, which has no cloud
- * copy to offer, nor in a browser that has never kept one: the site is public, and the header of
- * everyone who opens a shared link is no place to offer signing in to the owner's data. Settings
- * offers it instead (`SettingsView`).
+ * panel that says more, signing in included. Not drawn at all by a build with no Firebase setting,
+ * which has no cloud copy to offer. Settings offers the same panel (`SettingsView`).
  */
 export function CloudButton({
   status,
@@ -76,7 +75,7 @@ export function CloudButton({
   /** Where it sits: the caller's display and size, as for the theme switch beside it. */
   className: string;
 }) {
-  if (status.kind === "off" || status.kind === "none") return null;
+  if (status.kind === "off") return null;
   const tone = toneOf(status);
   const summary = cloudSummary(status);
   return (

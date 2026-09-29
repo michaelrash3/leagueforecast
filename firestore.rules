@@ -1,31 +1,25 @@
 rules_version = '2';
 
-// Who may read and write the cloud copy of League Forecast's data: one Google account, named here
-// by its email address, and nobody else. See README, "Your data on every device"; the tests are
+// Who may read and write the cloud copy of League Forecast's data: whoever signs in with Google.
+// See README, "Your data on every device"; the tests are
 // src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
 //
-// The address in this file is a stand-in no sign-in can carry: `.invalid` is a domain reserved
-// never to exist. The deploy writes the owner's own address over it from the CLOUD_OWNER_EMAIL
-// secret (`firebase.yml`, `src/lib/cloud/cloudOwner.ts`), so the address never sits in this public
-// repository, and a deploy without the secret leaves the copy closed to every account.
-//
-// Signing in claims nothing. The first version let the first account to sign in claim the copy for
-// good, and anyone who opened the site could have been that account; it also let any signed-in
-// account read the claim, which was a read billed to this project on every request refused.
+// The site has one user, and its owner chose Google sign-in as the whole of the lock, with no
+// address pinned here or in a secret: any Google account that signs in can read and change the
+// copy. A browser nobody has signed in to gets nothing, and nothing but the copy is open to anyone.
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Google marks the address of every account it signs in as verified; the check keeps out an
-    // address typed into some other way of signing in, were one ever turned on.
-    function isOwner() {
+    // Signed in, and with Google. A way of signing in that needs no Google account (anonymous, or
+    // an address and a password), were one ever turned on in the console, opens nothing.
+    function signedInWithGoogle() {
       return request.auth != null
-        && request.auth.token.email_verified == true
-        && request.auth.token.email.lower() == "cloud-owner@example.invalid";
+        && request.auth.token.firebase.sign_in_provider == "google.com";
     }
 
-    // The copy itself, `copies/main` and its `chunks`: the owner's alone. Nothing else in the
-    // database is open to anyone, the first version's `cloud/` included.
+    // The copy itself, `copies/main` and its `chunks`. Nothing else in the database is open, the
+    // first version's `cloud/` included.
     match /copies/{document=**} {
-      allow read, write: if isOwner();
+      allow read, write: if signedInWithGoogle();
     }
   }
 }

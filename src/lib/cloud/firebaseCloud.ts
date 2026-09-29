@@ -30,8 +30,8 @@ import { coerceManifest } from "./cloudManifest";
  * it does every file the build makes.) `firestore/lite` rather than the full SDK: this reads and
  * writes documents and never listens to them, and lite is a fraction the size.
  *
- * The layout, and what `firestore.rules` lets through, to the one account the rules name
- * (`cloudOwner.ts`) and to nobody else:
+ * The layout, and what `firestore.rules` lets through to whoever signs in with Google, and to
+ * nobody else:
  * - `copies/main`: what the copy is made of (`CloudManifest`).
  * - `copies/main/chunks/{upload-n}`: the pieces, each `{ data: Bytes }`.
  *
@@ -50,8 +50,8 @@ export type FirebaseCloud = {
   signOut: () => Promise<void>;
   onAccount: (listener: (account: CloudAccount | null) => void) => () => void;
   /**
-   * Whether the copy is the signed-in account's. The rules name its owner and refuse every other
-   * account even a look, so a look answers it; signing in claims nothing.
+   * Whether the signed-in account may open the copy. The rules refuse a sign-in they do not let in
+   * even a look, so a look answers it, and changes nothing.
    */
   owns: () => Promise<boolean>;
   store: CloudStore;
@@ -115,7 +115,7 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
   },
 });
 
-/** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs. */
+/** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs to open. */
 export const ownsCopy = async (db: Firestore): Promise<boolean> => {
   try {
     await getDoc(doc(db, MANIFEST));

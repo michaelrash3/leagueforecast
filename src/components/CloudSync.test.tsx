@@ -46,11 +46,15 @@ describe("the header's cloud button", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("is not drawn in a browser that has never kept a copy, where anyone with a link could press it", () => {
-    const { container } = render(
-      <CloudButton status={{ kind: "none" }} onOpen={vi.fn()} className="inline-flex" />
+  it("offers sign-in in a browser that has never kept a copy", async () => {
+    const onOpen = vi.fn();
+    render(<CloudButton status={{ kind: "none" }} onOpen={onOpen} className="inline-flex" />);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Cloud copy: Sign in to keep your data on every device",
+      })
     );
-    expect(container).toBeEmptyDOMElement();
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it("says where the copy stands, and opens the panel", async () => {

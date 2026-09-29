@@ -86,7 +86,7 @@ const Account = ({ email }: { email: string | null }) => (
 );
 
 const SIGN_IN_PITCH =
-  "Sign in with Google to keep a copy of everything here, your League Standings seasons and the Team Rankings pool, in a cloud copy that only your account can open. Sign in the same way on your phone, your laptop or anywhere else, and each one opens on the same data. Changes save by themselves.";
+  "Sign in with Google to keep a copy of everything here, your League Standings seasons and the Team Rankings pool, in your Firebase project's cloud. Sign in the same way on your phone, your laptop or anywhere else, and each one opens on the same data. Changes save by themselves.";
 
 /** One kept version, with the button that brings it back, asked twice. */
 function KeptRow({

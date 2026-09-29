@@ -2763,27 +2763,18 @@ before sections existed, and every hand-made one, still imports unchanged.
 
 A browser can keep a copy of everything in the cloud, so the app opens on the
 same data on a phone, a laptop and anywhere else. It is one copy, in the
-Firebase project's Firestore, and it belongs to one Google account, named by
-its address in `firestore.rules`. Every other account, and a signed-out
-browser, is refused anything at all.
+Firebase project's Firestore, and signing in with Google is the whole of the
+lock: any Google account that signs in can read and change it, and a browser
+nobody has signed in to is refused anything at all. The site has one user, who
+chose that over pinning the copy to one address kept in a secret; were anyone
+else ever to use the site, `firestore.rules` is where to name the one account.
+A way of signing in that needs no Google account (anonymous, or an address and
+a password), were one ever turned on in the console, opens nothing.
 
-The address is not in this repository, which is public. The rules here name a
-stand-in no account can be (`cloud-owner@example.invalid`: `.invalid` is
-reserved never to exist). The deploy writes the owner's address over it from
-the `CLOUD_OWNER_EMAIL` secret (`scripts/pinCloudOwner.ts`), and without the
-secret the copy stays closed to everyone.
-
-Signing in claims nothing. The first version let the first account to sign in
-claim the copy for good, and on a public site that could have been anyone with
-a link. It also let any signed-in account read the claim, which cost this
-project a billed read on every refused request.
-
-The way in is **Settings → Your data on every device → Your cloud copy**, which
-signs in with Google. After that it saves and loads by itself, and the header's
-cloud button shows where the copy stands. A browser that keeps no copy shows no
-button, since the header of everyone who opens a shared link is no place to
-offer signing in to the owner's data. A build without the Firebase setting shows
-neither and never runs Firebase.
+The header's cloud button signs in, and after that shows where the copy stands;
+**Settings → Your data on every device** opens the same panel. From then on it
+saves and loads by itself. A build without the Firebase setting shows neither
+and never runs Firebase.
 
 **What travels.** Every League Standings season, as one value, and the Team
 Rankings pool key by key, as it is stored: the teams, the age groups, each
@@ -2923,20 +2914,15 @@ writes.
    keep the data private. `parseFirebaseConfig` reads the block as the console
    shows it, just its braces, or JSON. The build also widens the page's
    content policy for Firestore and Google sign-in (`src/lib/contentPolicy.ts`).
-3. In GitHub, add the repository secret `CLOUD_OWNER_EMAIL`: the address of
-   the Google account the copy belongs to.
-4. The rules deploy with the functions on merge (`firebase.yml`). The deploy
-   writes the secret's address into them, and without it the copy stays closed
-   to every account. The rules are tested there against the Firestore emulator
-   first, with the stand-in as the owner (`npm run test:rules` locally; it
-   needs Java 21).
-5. Sign in first on the device that holds the data, so its copy becomes the
+3. The rules deploy with the functions on merge (`firebase.yml`), tested there
+   against the Firestore emulator first (`npm run test:rules` locally; it needs
+   Java 21).
+4. Sign in first on the device that holds the data, so its copy becomes the
    cloud's; then on the others.
 
-To hand the copy to another account, change the secret and deploy the rules
-again: **Actions → Firebase functions → Run workflow**. To start the copy over,
-delete the `copies` collection in the Firestore console, then use **Start it
-again from this browser** on the device whose data should be the copy.
+To start the copy over, delete the `copies` collection in the Firestore
+console, then use **Start it again from this browser** on the device whose data
+should be the copy.
 Sign-in opens Google in a pop-up, so a browser that blocks pop-ups has to allow
 them for the site.
 
