@@ -177,6 +177,12 @@ const GC_DROPPED_CLUBS_KEY = "league_forecast_gc_dropped_clubs_v1";
  */
 const GC_REAL_CLUBS_KEY = "league_forecast_gc_real_clubs_v1";
 /**
+ * The clubs the user has said are filed at the right age, by GameChanger team id, which Pool
+ * Health then stops listing as filed at the wrong one: a club that really does play up or down.
+ * Kept like the real clubs, for the same reason: the ids come back unchanged on the next pull.
+ */
+const GC_AGE_RIGHT_KEY = "league_forecast_gc_age_right_v1";
+/**
  * The ids GameChanger says are below the youngest level ranked here.
  *
  * Kept apart from the dropped clubs because it is a different kind of thing: that list is a record
@@ -459,6 +465,7 @@ const POOL_KEYS = [
   GC_DELETED_KEY,
   GC_DROPPED_CLUBS_KEY,
   GC_REAL_CLUBS_KEY,
+  GC_AGE_RIGHT_KEY,
   GC_TOO_YOUNG_KEY,
   GC_REFUSED_KEY,
   GC_NAMED_AGES_KEY,
@@ -1425,6 +1432,12 @@ export const loadRealClubs = (): Set<string> => coerceDeletedClubs(readValue(GC_
 
 export const saveRealClubs = (clubs: ReadonlySet<string>): boolean =>
   writeValue(GC_REAL_CLUBS_KEY, deletedClubsList(clubs));
+
+/** The clubs the user has said are filed at the right age, by GameChanger team id. */
+export const loadAgeRightClubs = (): Set<string> => coerceDeletedClubs(readValue(GC_AGE_RIGHT_KEY));
+
+export const saveAgeRightClubs = (clubs: ReadonlySet<string>): boolean =>
+  writeValue(GC_AGE_RIGHT_KEY, deletedClubsList(clubs));
 
 export const loadTooYoungClubs = (): Set<string> =>
   coerceTooYoungClubs(readValue(GC_TOO_YOUNG_KEY));

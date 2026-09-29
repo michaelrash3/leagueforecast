@@ -6,8 +6,10 @@ import { describeTidy, GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gameChangerIm
 import type { PoolHealth } from "../../lib/poolHealth";
 import { squadYearHoldings } from "../../lib/poolHealth";
 import {
+  loadAgeRightClubs,
   loadKeptApart,
   loadRealClubs,
+  saveAgeRightClubs,
   saveKeptApart,
   saveRealClubs,
   storedGamesByYear,
@@ -15,6 +17,7 @@ import {
 import { IMPLAUSIBLE_MARGIN, isImplausibleScore, ratedMargin } from "../../lib/teamRankings";
 import { keepApart as apartAfter, isKeptApart } from "../../lib/keptApart";
 import type { PoolLists } from "../../workers/tidyProtocol";
+import type { WrongAgeClub } from "../../lib/wrongAge";
 import { isDatedAhead } from "../../lib/deletedGames";
 import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
@@ -59,6 +62,11 @@ type PoolHealthCardProps = {
   onConfirmScore: (gameId: string) => Promise<boolean>;
   /** Opens a club's own panel, for a list that names clubs to look at. */
   onOpenTeam?: (teamId: string) => void;
+  /**
+   * Files a club at another level in a squad year and holds it there, as its own panel does
+   * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.
+   */
+  onSetAge?: (teamId: string, level: number, year: number) => boolean;
 };
 
 /** Why a list's rows are being thrown out, which is what the question before it says. */
@@ -104,6 +112,7 @@ export function PoolHealthCard({
   onDropClub,
   onConfirmScore,
   onOpenTeam,
+  onSetAge,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -147,6 +156,18 @@ export function PoolHealthCard({
   const [twins, setTwins] = useState<GcTwinSquad[] | null>(null);
   /** Clubs holding one game twice: two counted games within the hour with one result. */
   const [twice, setTwice] = useState<CountedTwice[] | null>(null);
+  /** Clubs whose name and opponents say they play at another age than they are filed at. */
+  const [wrongAge, setWrongAge] = useState<WrongAgeClub[] | null>(null);
+  const [allWrongAge, setAllWrongAge] = useState(false);
+  /**
+   * The clubs the user has said are filed at the right age, by GameChanger id: a club that really
+   * does play up or down. An answer given once, as a club vouched for as real is.
+   */
+  const [ageRight, setAgeRight] = useState(() => loadAgeRightClubs());
+  const misfiled = useMemo(
+    () => wrongAge?.filter((club) => !club.gcTeamIds.some((id) => ageRight.has(id))) ?? null,
+    [wrongAge, ageRight]
+  );
   const [merging, setMerging] = useState<string | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
 
@@ -245,6 +266,7 @@ export function PoolHealthCard({
     setDuplicates(lists.duplicates.filter(offered));
     setTwins(lists.twins.filter(offered));
     setTwice(lists.twice);
+    setWrongAge(lists.wrongAge);
   };
 
   const look = async () => {
@@ -290,6 +312,24 @@ export function PoolHealthCard({
 
   const teamName = (teamId: string) =>
     pool.teams.find((team) => team.id === teamId)?.name ?? teamId;
+
+  /**
+   * Files a listed club at the age its evidence points to, and takes it off the list if that
+   * happened. The level is pinned, as setting it on the club's panel does, so the next pull keeps
+   * it there.
+   */
+  const setAge = (club: WrongAgeClub) => {
+    if (!onSetAge?.(club.teamId, club.suggested, club.year)) return;
+    setWrongAge((current) => (current ?? []).filter((entry) => entry.teamId !== club.teamId));
+  };
+
+  /** The age it is filed at is right: it plays up or down. Remembered against its GameChanger ids. */
+  const ageIsRight = (club: WrongAgeClub) => {
+    const next = new Set(ageRight);
+    club.gcTeamIds.forEach((id) => next.add(id));
+    saveAgeRightClubs(next);
+    setAgeRight(next);
+  };
 
   /** Throws out every row scored on a day that has not happened. The caller asks first. */
   const dropDatedAhead = async () => {
@@ -1046,6 +1086,96 @@ export function PoolHealthCard({
             Nothing is changed for you. Open a club to see both games. Where the opponent is one
             squad set up twice on GameChanger, the list of those above offers to fold the two once
             they post the same games; the file names both entries of every one.
+          </p>
+        </div>
+      )}
+
+      {misfiled && misfiled.length > 0 && (
+        <div
+          className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800"
+          data-testid="pool-wrong-age"
+        >
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Filed at the wrong age?
+          </h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <strong>{count(misfiled.length)}</strong> pulled{" "}
+            {misfiled.length === 1 ? "club is" : "clubs are"} filed at one age in{" "}
+            {misfiled[0]?.year} and {misfiled.length === 1 ? "plays" : "play"} another.
+            GameChanger&apos;s age field decides the board a club sits on, and a club that sets it
+            wrong sits on the wrong board all season: every game against the age it really plays
+            reads as playing up or down, and its rating carries an edge it never earned. Listed on
+            evidence, not a guess — its squad&apos;s name and most of its opponents, or its
+            opponents alone, week after week.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {(allWrongAge ? misfiled : misfiled.slice(0, 12)).map((club) => {
+              const up = club.suggested > club.filed;
+              return (
+                <li key={club.teamId} className="text-xs text-slate-500 dark:text-slate-400">
+                  {onOpenTeam ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenTeam(club.teamId)}
+                      className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {club.name}
+                    </button>
+                  ) : (
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {club.name}
+                    </span>
+                  )}
+                  {club.state ? ` · ${club.state}` : ""}{" "}
+                  <span className={pill("amber")}>
+                    filed {club.filed}U, plays {club.suggested}U
+                  </span>{" "}
+                  {club.reason === "name"
+                    ? `its name says ${club.suggested}U; ${club.opponentsAtSuggested} of ${plural(club.opponentsKnown, "opponent")} at ${club.suggested}U`
+                    : `${club.opponentsAtSuggested} of ${plural(club.opponentsKnown, "opponent")} at ${club.suggested}U, over ${plural(club.weeks, "week")}`}{" "}
+                  {onSetAge && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAge(club)}
+                        disabled={pullLive}
+                        className={`${button.ghost} text-xs`}
+                      >
+                        Set {club.suggested}U
+                      </button>{" "}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => ageIsRight(club)}
+                    className={`${button.ghost} text-xs`}
+                  >
+                    {up ? "It plays up" : "It plays down"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {misfiled.length > 12 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {allWrongAge
+                ? `All ${count(misfiled.length)}, the furthest off first. `
+                : `Drawing 12 of ${count(misfiled.length)}, the furthest off first. `}
+              <button
+                type="button"
+                onClick={() => setAllWrongAge((shown) => !shown)}
+                className="underline hover:text-slate-950 dark:hover:text-white"
+              >
+                {allWrongAge ? "Show the first 12" : `Show all ${count(misfiled.length)}`}
+              </button>
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Nothing is changed for you. <strong>Set</strong> files the club at that age for the year
+            and holds it there through later pulls, as setting it on the club&apos;s own panel does,
+            with an undo. <strong>It plays up</strong> (or down) says the age it is filed at is
+            right, and is remembered against its GameChanger ids, so it is not asked again. A club
+            whose age was set by hand is never listed.
           </p>
         </div>
       )}

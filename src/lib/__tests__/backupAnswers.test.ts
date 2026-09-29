@@ -5,6 +5,7 @@ import {
   writeTeamRankingsBackup,
 } from "../teamRankingsBackup";
 import {
+  loadAgeRightClubs,
   loadAgeUnknown,
   loadDeletedGames,
   loadDroppedClubs,
@@ -13,6 +14,7 @@ import {
   loadRealClubs,
   loadTooYoungClubs,
   resetTeamRankingsStore,
+  saveAgeRightClubs,
   saveAgeUnknown,
   saveDeletedGames,
   saveDroppedClubs,
@@ -35,6 +37,7 @@ const anEveningOfAnswers = () => {
   saveKeptApart(keepApart(new Set<string>(), "A", "B"));
   saveAgeUnknown([{ teamId: "still", firstSeen: NOW, lastTried: NOW, tries: 2 }]);
   saveRealClubs(new Set(["vouched"]));
+  saveAgeRightClubs(new Set(["playsUp"]));
 };
 
 /** A store of its own, so this file's answers are not somebody else's. */
@@ -82,6 +85,7 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadKeptApart()]).toEqual([apartKey("A", "B")]);
     expect(loadAgeUnknown().map((one) => one.teamId)).toEqual(["still"]);
     expect([...loadRealClubs()]).toEqual(["vouched"]);
+    expect([...loadAgeRightClubs()]).toEqual(["playsUp"]);
   });
 
   /*
@@ -97,6 +101,18 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadRealClubs()]).toEqual(["vouched"]);
     writeTeamRankingsBackup({ ...backup, answers: { ...older, realClubs: [] } });
     expect([...loadRealClubs()]).toEqual([]);
+  });
+
+  // The same for the clubs said to play at another age on purpose, kept after the real clubs.
+  it("leaves the clubs said to play up alone when the file predates them", () => {
+    anEveningOfAnswers();
+    const backup = readTeamRankingsBackup();
+    const { ageRightClubs: _right, ...older } = backup.answers!;
+
+    writeTeamRankingsBackup({ ...backup, answers: older });
+    expect([...loadAgeRightClubs()]).toEqual(["playsUp"]);
+    writeTeamRankingsBackup({ ...backup, answers: { ...older, ageRightClubs: [] } });
+    expect([...loadAgeRightClubs()]).toEqual([]);
   });
 
   /*

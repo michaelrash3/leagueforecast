@@ -13,6 +13,8 @@ import { countedTwice, type CountedTwice } from "../lib/countedTwice";
 import { unpulledClubs, type UnpulledClub } from "../lib/unpulledClubs";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import type { AgeGroup } from "../lib/teamRankings";
+import { segmentOn } from "../lib/teamRankings/seasons";
+import { filedAtWrongAge, type WrongAgeClub } from "../lib/wrongAge";
 import {
   decodePoolGames,
   decodePoolTeams,
@@ -98,18 +100,22 @@ export type InspectResponse = {
 };
 
 /**
- * The four lists Pool health shows under its numbers: the clubs worth pulling, one club twice in a
- * season, one squad on GameChanger twice, and a club holding one game twice.
+ * The lists Pool health shows under its numbers: the clubs worth pulling, one club twice in a
+ * season, one squad on GameChanger twice, a club holding one game twice, and the clubs that look
+ * filed at the wrong age in the squad year being played.
  *
- * Worked out in the worker, beside the numbers. Each walks the whole pool, and the page did all
- * four after the worker's answer arrived, on the pool the worker had just unpacked and thrown away:
- * on the 18:40 pool a second long task of 2.4 s after each press, 12 to 13 s at a phone's speed.
+ * Worked out in the worker, beside the numbers. Each walks the whole pool, and the page did the
+ * first four after the worker's answer arrived, on the pool the worker had just unpacked and thrown
+ * away: on the 18:40 pool a second long task of 2.4 s after each press, 12 to 13 s at a phone's
+ * speed. The wrong-age list adds 0.9 to 1.1 s on the 26 and 28 September pools, off the page's
+ * thread.
  */
 export type PoolLists = {
   toPull: UnpulledClub[];
   duplicates: GcSeasonPairing[];
   twins: GcTwinSquad[];
   twice: CountedTwice[];
+  wrongAge: WrongAgeClub[];
 };
 
 export const poolLists = (state: GcImportState, apart: KeptApart, today: string): PoolLists => ({
@@ -119,6 +125,7 @@ export const poolLists = (state: GcImportState, apart: KeptApart, today: string)
   ),
   twins: proposeTwinSquads(state.teams, state.games, apart),
   twice: countedTwice(state.teams, state.games, today),
+  wrongAge: filedAtWrongAge(state, segmentOn(today).year),
 });
 export type WorkerResponse = TidyResponse | InspectResponse | TidyProgressResponse;
 
