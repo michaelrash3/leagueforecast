@@ -7,12 +7,15 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   Suspense,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
+import { CloudButton, useCloudPanel } from "./components/CloudButton";
+import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
@@ -228,6 +231,9 @@ const VIEW_ORDER: ActiveView[] = [
 const CommandPalette = lazy(() =>
   import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette }))
 );
+const CloudPanel = lazy(() =>
+  import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
+);
 const ShortcutsHelp = lazy(() =>
   import("./components/ShortcutsHelp").then((module) => ({ default: module.ShortcutsHelp }))
 );
@@ -346,6 +352,14 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  /*
+   * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
+   * changes are listened for once the app is on screen, and where it stands is the header button.
+   * A build with no Firebase setting has neither, and this is inert.
+   */
+  useEffect(() => startCloudSession(), []);
+  const cloud = useSyncExternalStore(subscribeCloud, cloudStatus);
+  const cloudPanel = useCloudPanel(cloud);
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -2420,7 +2434,14 @@ export default function App() {
                  * the controls it fell to a row of its own on a phone whenever the season's name was
                  * long, and on Team Rankings always: 54px of the first screen for one button.
                  */}
-                {themeToggle("ml-auto inline-flex h-10 w-10 shrink-0 lg:hidden")}
+                <div className="ml-auto flex shrink-0 items-center gap-2 lg:hidden">
+                  <CloudButton
+                    status={cloud}
+                    onOpen={cloudPanel.show}
+                    className="inline-flex h-10 w-10 shrink-0"
+                  />
+                  {themeToggle("inline-flex h-10 w-10 shrink-0")}
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div
@@ -2489,6 +2510,11 @@ export default function App() {
                     Reload update
                   </button>
                 )}
+                <CloudButton
+                  status={cloud}
+                  onOpen={cloudPanel.show}
+                  className="hidden h-11 w-11 lg:inline-flex"
+                />
                 {themeToggle("hidden p-3 lg:inline-flex")}
               </div>
             </div>
@@ -2882,7 +2908,7 @@ export default function App() {
         {
           /*
             Guarded by the open flags as well as rendered lazily: each of these returns null when
-            closed, so rendering them unconditionally would fetch all three on page load and show
+            closed, so rendering them unconditionally would fetch every one on page load and show
             nothing. There is no fallback because there is nothing on screen to hold a place for —
             an overlay simply appears a frame later than it used to.
           */
@@ -2902,6 +2928,14 @@ export default function App() {
               />
             )}
             {showTour && <OnboardingTour open={showTour} onClose={() => setShowTour(false)} />}
+            {cloudPanel.showing && (
+              <CloudPanel
+                status={cloud}
+                open={cloudPanel.showing}
+                onClose={cloudPanel.hide}
+                onBackup={exportBackup}
+              />
+            )}
           </Suspense>
         }
         {confirmState && (

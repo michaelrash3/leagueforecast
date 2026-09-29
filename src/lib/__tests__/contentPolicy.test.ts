@@ -11,11 +11,18 @@ const directive = (policy: string, name: string): string[] | undefined =>
     .find(([first]) => first === name)
     ?.slice(1);
 
+const FIREBASE = `const firebaseConfig = {
+  apiKey: "demo-key",
+  authDomain: "demo-project.firebaseapp.com",
+  projectId: "demo-project",
+  appId: "1:1:web:1"
+};`;
+
 describe("the page's content policy", () => {
   it("is index.html's, to the character, for a build with nothing configured", () => {
     expect(BASE).toContain("connect-src 'self'");
     expect(widenPolicy(BASE, {})).toBe(BASE);
-    expect(widenPolicy(BASE, { VITE_GC_PROXY_URL: "" })).toBe(BASE);
+    expect(widenPolicy(BASE, { VITE_GC_PROXY_URL: "", VITE_FIREBASE_CONFIG: "" })).toBe(BASE);
   });
 
   it("lets pulls reach a proxy on another origin, and changes nothing else", () => {
@@ -49,6 +56,42 @@ describe("the page's content policy", () => {
       VITE_GC_PROXY_URL: "https://Proxy.Example:8443/gcTeam?x=1",
     });
     expect(directive(policy, "connect-src")).toEqual(["'self'", "https://proxy.example:8443"]);
+  });
+
+  it("lets a build that keeps a cloud copy sign in to Google and reach Firestore", () => {
+    const policy = widenPolicy(BASE, { VITE_FIREBASE_CONFIG: FIREBASE });
+    expect(directive(policy, "connect-src")).toEqual([
+      "'self'",
+      "https://firestore.googleapis.com",
+      "https://identitytoolkit.googleapis.com",
+      "https://securetoken.googleapis.com",
+    ]);
+    expect(directive(policy, "script-src")).toEqual(["'self'", "https://apis.google.com"]);
+    // Not in the base: it starts from what it fell back to, the page's own origin.
+    expect(directive(BASE, "frame-src")).toBeUndefined();
+    expect(directive(policy, "frame-src")).toEqual([
+      "'self'",
+      "https://demo-project.firebaseapp.com",
+    ]);
+    expect(directive(policy, "default-src")).toEqual(directive(BASE, "default-src"));
+  });
+
+  it("adds nothing for a Firebase setting missing what sign-in needs", () => {
+    const half = FIREBASE.replace(/authDomain: "[^"]*",/, "");
+    expect(widenPolicy(BASE, { VITE_FIREBASE_CONFIG: half })).toBe(BASE);
+    const broken = FIREBASE.replace("demo-project.firebaseapp.com", "demo project.example");
+    expect(widenPolicy(BASE, { VITE_FIREBASE_CONFIG: broken })).toBe(BASE);
+  });
+
+  it("holds both at once, each source once", () => {
+    const policy = widenPolicy(BASE, {
+      VITE_GC_PROXY_URL: "https://firestore.googleapis.com/somewhere",
+      VITE_FIREBASE_CONFIG: FIREBASE,
+    });
+    const connect = directive(policy, "connect-src") ?? [];
+    expect(connect.filter((source) => source === "https://firestore.googleapis.com")).toHaveLength(
+      1
+    );
   });
 
   it("names a source once, however often it is asked for", () => {
