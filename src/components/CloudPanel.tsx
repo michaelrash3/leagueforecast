@@ -284,7 +284,8 @@ function Body({
               </h3>
               <Note>
                 When two devices change the same thing, the later change is kept and so is the
-                other, here. A device joining the copy keeps its own Team Rankings here too.
+                other, here. A device joining the copy keeps its own Team Rankings here too, and the
+                nightly refresh keeps the Team Rankings it replaced, so a bad night can be undone.
               </Note>
               <ul className="flex flex-col gap-2">
                 {kept.map((version) => (

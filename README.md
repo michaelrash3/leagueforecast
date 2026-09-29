@@ -3017,6 +3017,30 @@ device's change is built on rather than written over: a club it threw out in
 the meantime is not filed. A copy that keeps moving through three tries is left
 as it was, with nothing of the run's left in it.
 
+### The nightly refresh on GitHub
+
+The Refresh button, pressed on the cloud copy by one of GitHub's servers
+(`.github/workflows/nightly.yml`, `scripts/nightly.ts`), so every device opens on
+teams pulled overnight. It opens the copy with the Firebase key GitHub already
+keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`), through Firestore's REST API
+(`firestoreRestStore`), which writes the same documents the app's SDK does and
+replaces the manifest only if it is still the document it read: the commit
+carries the read's update time as a precondition. GameChanger is asked through
+the proxy's own handler in the same process (`scripts/handlerFetch.ts`), so the
+run pays for nothing but GitHub's minutes; GameChanger answers GitHub's servers,
+1,000 of the user's teams in 5.3 s on 29 September 2026, about 11,400 a minute.
+The day is the user's (`TZ=America/New_York`), which is what the rota and the day
+log are kept in, and nothing is installed: the app's own files run as they are.
+
+What it replaces it keeps, as an earlier version of the copy: the cloud panel's
+**Earlier versions** lists it, and **Bring back** undoes a bad night on every
+device. Six are kept, for 30 days at most.
+
+It runs by hand until it has been watched: **Actions → Nightly refresh → Run
+workflow**, with `dry-run` (everything but the save, and what the save would
+have been) or `live`, and a limit of teams for a trial. The log carries counts,
+sizes and timings only, since this repository's Actions logs are public.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

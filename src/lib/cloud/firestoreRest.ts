@@ -1,0 +1,225 @@
+import type { CloudStore } from "./cloudEngine";
+import { coerceManifest, type CloudManifest } from "./cloudManifest";
+
+/**
+ * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
+ * the nightly refresh on one of GitHub's servers (README, "The nightly refresh on GitHub"). The
+ * browser uses Firebase's own SDK (`firebaseCloud.ts`); this writes the same documents the same
+ * way, so either reads what the other saved:
+ * - `copies/main`: the manifest, its fields as the SDK sets them;
+ * - `copies/main/chunks/{upload-n}`: each piece, `{ data: Bytes }`.
+ *
+ * A service account's token is what it signs in with, which Firestore's rules do not apply to: the
+ * key is the permission. The manifest is replaced only if it is still the document this read, which
+ * is the REST form of the SDK's transaction (`commitManifest`): the commit carries the read
+ * document's update time as a precondition, and Firestore refuses it if anything wrote the
+ * document since.
+ */
+
+/** A value as Firestore's REST API writes it, one type tag to a value. */
+export type FirestoreValue = {
+  nullValue?: null;
+  booleanValue?: boolean;
+  integerValue?: string;
+  doubleValue?: number;
+  timestampValue?: string;
+  stringValue?: string;
+  bytesValue?: string;
+  arrayValue?: { values?: FirestoreValue[] };
+  mapValue?: { fields?: Record<string, FirestoreValue> };
+};
+
+type FirestoreDocument = { fields?: Record<string, FirestoreValue>; updateTime?: string };
+
+const bytesOf = (base64: string): Uint8Array =>
+  Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+
+const base64Of = (bytes: Uint8Array): string => {
+  let text = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(text);
+};
+
+/** Firestore's typed JSON as plain values, bytes as bytes. */
+export const plainOf = (value: FirestoreValue): unknown => {
+  if (value.mapValue) return fieldsOf(value.mapValue.fields ?? {});
+  if (value.arrayValue) return (value.arrayValue.values ?? []).map(plainOf);
+  if (value.integerValue !== undefined) return Number(value.integerValue);
+  if (value.doubleValue !== undefined) return value.doubleValue;
+  if (value.booleanValue !== undefined) return value.booleanValue;
+  if (value.stringValue !== undefined) return value.stringValue;
+  if (value.timestampValue !== undefined) return value.timestampValue;
+  if (value.bytesValue !== undefined) return bytesOf(value.bytesValue);
+  return null;
+};
+
+export const fieldsOf = (fields: Record<string, FirestoreValue>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, plainOf(value)]));
+
+/**
+ * A plain value as Firestore's typed JSON, the way the SDK types it: a safe integer as an integer,
+ * any other number as a double, and a field whose value is undefined left out.
+ */
+export const firestoreValueOf = (value: unknown): FirestoreValue => {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === "boolean") return { booleanValue: value };
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && !Object.is(value, -0)
+      ? { integerValue: String(value) }
+      : { doubleValue: value };
+  }
+  if (typeof value === "string") return { stringValue: value };
+  if (value instanceof Uint8Array) return { bytesValue: base64Of(value) };
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? { arrayValue: { values: value.map(firestoreValueOf) } }
+      : { arrayValue: {} };
+  }
+  return { mapValue: { fields: firestoreFieldsOf(value as Record<string, unknown>) } };
+};
+
+export const firestoreFieldsOf = (
+  record: Record<string, unknown>
+): Record<string, FirestoreValue> =>
+  Object.fromEntries(
+    Object.entries(record)
+      .filter(([, value]) => value !== undefined)
+      .map(([name, value]) => [name, firestoreValueOf(value)])
+  );
+
+/** The manifest's fields as the app's SDK sets them (`firestoreStore`). */
+const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
+  firestoreFieldsOf({
+    format: next.format,
+    schema: next.schema,
+    copy: next.copy,
+    version: next.version,
+    save: next.save,
+    updatedAt: next.updatedAt,
+    device: next.device,
+    parts: next.parts.map((part) => ({ ...part })),
+    kept: next.kept.map((part) => ({ ...part })),
+  });
+
+const MANIFEST = "copies/main";
+const CHUNKS = "copies/main/chunks";
+
+/** Thrown for a Firestore answer that is neither the document nor its absence. */
+export class FirestoreError extends Error {
+  // A plain field, not a constructor parameter property: Node runs the scripts that use this by
+  // stripping types, which cannot turn a parameter property into an assignment.
+  readonly status: number;
+  constructor(status: number, what: string) {
+    super(`Firestore answered HTTP ${status} ${what}.`);
+    this.name = "FirestoreError";
+    this.status = status;
+  }
+}
+
+/**
+ * The copy's store through the REST API of `projectId`'s default database. `token` is asked for
+ * each request, so a job longer than a token's hour can hand a new one. Read only unless
+ * `writable`: then the write calls reject, which a pull that saves nothing never makes.
+ */
+export const firestoreRestStore = ({
+  projectId,
+  token,
+  writable,
+  fetchImpl = fetch,
+}: {
+  projectId: string;
+  token: () => Promise<string>;
+  writable: boolean;
+  fetchImpl?: typeof fetch;
+}): CloudStore => {
+  const database = `projects/${projectId}/databases/(default)`;
+  const documents = `https://firestore.googleapis.com/v1/${database}/documents`;
+  const call = async (url: string, init: RequestInit = {}): Promise<Response> =>
+    fetchImpl(url, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${await token()}`,
+        ...(init.body ? { "content-type": "application/json" } : {}),
+      },
+    });
+  const read = async (path: string): Promise<FirestoreDocument | null> => {
+    const response = await call(`${documents}/${path}`);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new FirestoreError(response.status, `reading ${path}`);
+    return (await response.json()) as FirestoreDocument;
+  };
+  const chunkPath = (id: string) => `${CHUNKS}/${encodeURIComponent(id)}`;
+  const refuse = () => Promise.reject(new Error("This store was opened to read, not to write."));
+  return {
+    readManifest: async () => {
+      const found = await read(MANIFEST);
+      if (!found) return null;
+      const manifest = coerceManifest(fieldsOf(found.fields ?? {}));
+      if (!manifest) throw new Error("The cloud copy's manifest is not one this build can read.");
+      return manifest;
+    },
+    commitManifest: !writable
+      ? refuse
+      : async (expected, next) => {
+          const found = await read(MANIFEST);
+          if (expected === null) {
+            if (found) return false;
+          } else {
+            const current = found ? coerceManifest(fieldsOf(found.fields ?? {})) : null;
+            if (current?.version !== expected.version || current.copy !== expected.copy) {
+              return false;
+            }
+          }
+          const response = await call(`${documents}:commit`, {
+            method: "POST",
+            body: JSON.stringify({
+              writes: [
+                {
+                  update: {
+                    name: `${database}/documents/${MANIFEST}`,
+                    fields: manifestFields(next),
+                  },
+                  currentDocument:
+                    found?.updateTime !== undefined
+                      ? { updateTime: found.updateTime }
+                      : { exists: false },
+                },
+              ],
+            }),
+          });
+          if (response.ok) return true;
+          // The precondition failed: something saved the manifest after it was read, or made the
+          // first copy. Any other refusal is a fault, not another device's save.
+          const answer = (await response.json().catch(() => null)) as {
+            error?: { status?: string };
+          } | null;
+          const why = answer?.error?.status;
+          if (why === "FAILED_PRECONDITION" || why === "ALREADY_EXISTS") return false;
+          throw new FirestoreError(response.status, "saving the manifest");
+        },
+    putChunk: !writable
+      ? refuse
+      : async (id, data) => {
+          const response = await call(`${documents}/${chunkPath(id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ fields: { data: { bytesValue: base64Of(data) } } }),
+          });
+          if (!response.ok) throw new FirestoreError(response.status, `writing piece ${id}`);
+        },
+    getChunk: async (id) => {
+      const found = await read(chunkPath(id));
+      const data = found?.fields?.data;
+      return data?.bytesValue !== undefined ? bytesOf(data.bytesValue) : null;
+    },
+    deleteChunk: !writable
+      ? refuse
+      : async (id) => {
+          const response = await call(`${documents}/${chunkPath(id)}`, { method: "DELETE" });
+          if (!response.ok && response.status !== 404) {
+            throw new FirestoreError(response.status, `deleting piece ${id}`);
+          }
+        },
+  };
+};

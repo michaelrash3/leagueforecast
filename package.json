@@ -21,7 +21,8 @@
     "verify:gc": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/verify-gc-pull.ts",
     "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts",
     "ageless:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/agelessSweep.ts",
-    "gc:reach": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/gcReach.ts"
+    "gc:reach": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/gcReach.ts",
+    "nightly": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/nightly.ts"
   },
   "dependencies": {
     "firebase": "^12.19.0",

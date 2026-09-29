@@ -1,0 +1,55 @@
+# The nightly refresh (README, "The nightly refresh on GitHub"): the Refresh button pressed on the
+# cloud copy by one of GitHub's servers (`scripts/nightly.ts`), so every device opens on teams
+# pulled overnight. Run by hand first, a dry run and then a live trial of a few teams, and put on
+# the clock once those have been read. It prints counts, sizes and timings only: this repository is
+# public, and so are its Actions logs.
+name: Nightly refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run does everything but save; live saves to the cloud copy"
+        type: choice
+        options: [dry-run, live]
+        default: dry-run
+      limit:
+        description: "Only the first this many teams due (blank for every one)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One at a time: two runs saving the same copy would only make each other file again.
+concurrency:
+  group: nightly-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: everything it runs is the app's own files, run by Node as they are
+      # (`scripts/tsRegister.mjs`).
+      - name: Refresh the cloud copy
+        run: |
+          args=()
+          if [ "$MODE" = "live" ]; then args+=(--live); fi
+          if [ -n "$LIMIT" ]; then args+=(--limit "$LIMIT"); fi
+          npm run nightly -- "${args[@]}"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # The user's day, which is what the rota and the day log are kept in.
+          TZ: America/New_York
+          # The whole pool is held at once; measured at about 4.3 GB on the pool of 29 September
+          # 2026, on a runner with 16 GB.
+          NODE_OPTIONS: --max-old-space-size=12288
+          # A run on the clock is live; one by hand is what was chosen.
+          MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
+          LIMIT: ${{ inputs.limit }}
