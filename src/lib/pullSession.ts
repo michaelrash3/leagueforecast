@@ -72,6 +72,48 @@ const announce = (): void => {
   listeners.forEach((listener) => listener());
 };
 
+/**
+ * The Web Lock a job holds while it runs. The slot above is this tab's alone; the lock is how
+ * another tab of the same browser tells that the pool is being rewritten here (`poolJobElsewhere`),
+ * so its cloud copy is not saved from the middle of it.
+ */
+export const POOL_JOB_LOCK = "league_forecast_pool_job";
+let jobLockWanted = false;
+let releaseJobLock: (() => void) | null = null;
+
+const holdJobLock = (): void => {
+  jobLockWanted = true;
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks?.request) return;
+  void locks
+    .request(POOL_JOB_LOCK, { ifAvailable: true }, (lock) =>
+      lock && jobLockWanted
+        ? new Promise<void>((resolve) => {
+            releaseJobLock = resolve;
+          })
+        : undefined
+    )
+    .catch(() => undefined);
+};
+
+const dropJobLock = (): void => {
+  jobLockWanted = false;
+  releaseJobLock?.();
+  releaseJobLock = null;
+};
+
+/** Whether a pull or a tidy is rewriting the pool in another tab of this browser. */
+export const poolJobElsewhere = async (): Promise<boolean> => {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (live || !locks?.query) return false;
+  try {
+    const { held = [] } = await locks.query();
+    return held.some((lock) => lock.name === POOL_JOB_LOCK);
+  } catch {
+    return false;
+  }
+};
+
 const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
   if (live) return null;
   live = {
@@ -84,6 +126,7 @@ const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
   if (live.tracker) lastTracker = live.tracker;
   // A new tidy starts from nothing; a pull leaves the last tidy's report where it was.
   if (kind === "tidy") tidyWatch = NO_TIDY;
+  holdJobLock();
   announce();
   return live;
 };
@@ -95,6 +138,7 @@ const claim = (kind: PoolJobKind, startedAt: string): PullSession | null => {
 const release = (session: PullSession): void => {
   if (live !== session) return;
   live = null;
+  dropJobLock();
   announce();
 };
 
@@ -161,6 +205,7 @@ export const forceReleasePool = (): void => {
   live?.controller.abort();
   if (!live) return;
   live = null;
+  dropJobLock();
   announce();
 };
 
@@ -193,6 +238,7 @@ export const watchPull = (listener: () => void): (() => void) => {
 export const resetPullSession = (): void => {
   tidyWatch = NO_TIDY;
   live = null;
+  dropJobLock();
   lastTracker = null;
   listeners.clear();
 };

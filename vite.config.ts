@@ -83,8 +83,11 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: ({ request }) =>
-              ["script", "style", "worker"].includes(request.destination),
+            // This origin's own files only. Signing in to keep a cloud copy loads Google's script
+            // for the sign-in frame, at an address that changes every time it is asked for; kept
+            // here, each one would be another entry in a cache nothing ever reads back.
+            urlPattern: ({ request, sameOrigin }) =>
+              sameOrigin && ["script", "style", "worker"].includes(request.destination),
             handler: "StaleWhileRevalidate",
             options: { cacheName: "assets" },
           },

@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// Who may read and write the cloud copy of League Forecast's data: one Google account, the first
+// to sign in, and nobody else. Everything not allowed here is refused, and that includes every
+// account at all until one has claimed the copy. See README, "Your data on every device"; the
+// tests are src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Reading a document that does not exist is an error in a rule, and an error refuses: before
+    // anyone has claimed the copy, this is false for every account.
+    function isOwner() {
+      return signedIn()
+        && get(/databases/$(database)/documents/config/owner).data.uid == request.auth.uid;
+    }
+
+    // Whose the copy is. Any signed-in account may read it, so a second account can be told the
+    // copy is somebody else's rather than failing on a refusal it cannot explain. Created once, by
+    // the account it names; never changed or removed from the app. Handing the copy to another
+    // account is done in the Firebase console, by deleting this document.
+    match /config/owner {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'claimedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.claimedAt is string;
+    }
+
+    // The copy itself, `cloud/manifest` and its `chunks`: the owner's alone.
+    match /cloud/{document=**} {
+      allow read, write: if isOwner();
+    }
+  }
+}

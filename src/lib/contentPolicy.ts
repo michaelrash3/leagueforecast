@@ -1,3 +1,7 @@
+// With its extension, unlike the rest of `src`: `vite.config.ts` loads this file, and Vite's own
+// config loader resolves an import only as written.
+import { parseFirebaseConfig } from "./cloud/cloudConfig.ts";
+
 /**
  * The page's Content-Security-Policy, widened at build time for what the build talks to beyond its
  * own origin.
@@ -10,10 +14,15 @@
  * policy is now written from the same settings the bundle is built from (`vite.config.ts`), and CI
  * reads it back out of a build.
  *
- * `VITE_GC_PROXY_URL` adds its origin to `connect-src`, and nothing else changes.
+ * What each setting adds, and nothing more:
+ * - `VITE_GC_PROXY_URL`: its origin, to `connect-src`.
+ * - `VITE_FIREBASE_CONFIG`: Firestore and the two sign-in APIs to `connect-src`; Google's loader
+ *   for the sign-in frame (`apis.google.com`) to `script-src`; and the project's own auth domain to
+ *   `frame-src`, where that frame and the sign-in popup's answer come from.
  */
 export type PolicySettings = {
   VITE_GC_PROXY_URL?: string | undefined;
+  VITE_FIREBASE_CONFIG?: string | undefined;
 };
 
 /**
@@ -29,6 +38,13 @@ const httpsOrigin = (raw: string | undefined): string | null => {
   const host = match?.[1];
   return host ? `https://${host.toLowerCase()}${match?.[2] ?? ""}` : null;
 };
+
+const FIREBASE_CONNECT = [
+  "https://firestore.googleapis.com",
+  "https://identitytoolkit.googleapis.com",
+  "https://securetoken.googleapis.com",
+];
+const FIREBASE_SCRIPT = ["https://apis.google.com"];
 
 /** Each directive's sources, in the order written, from a policy's text. */
 const parse = (policy: string): Map<string, string[]> =>
@@ -55,6 +71,14 @@ export const widenPolicy = (base: string, settings: PolicySettings): string => {
 
   const proxy = httpsOrigin(settings.VITE_GC_PROXY_URL);
   if (proxy) add("connect-src", [proxy]);
+
+  const firebase = parseFirebaseConfig(settings.VITE_FIREBASE_CONFIG);
+  const authOrigin = firebase ? httpsOrigin(`https://${firebase.authDomain}`) : null;
+  if (firebase && authOrigin) {
+    add("connect-src", FIREBASE_CONNECT);
+    add("script-src", FIREBASE_SCRIPT);
+    add("frame-src", [authOrigin]);
+  }
 
   return [...directives].map(([name, sources]) => [name, ...sources].join(" ")).join("; ");
 };

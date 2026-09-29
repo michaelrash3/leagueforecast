@@ -30,6 +30,26 @@ describe("when a season last changed", () => {
     expect(listSeasons().find((season) => season.id === other.id)?.updatedAt).toBeUndefined();
   });
 
+  it("is not moved by a save of what the season already holds", () => {
+    vi.useFakeTimers();
+    try {
+      setActiveSeason(listSeasons()[0]!.id);
+      vi.setSystemTime(new Date("2026-09-01T10:00:00.000Z"));
+      saveLogs({});
+      const first = listSeasons()[0]?.updatedAt;
+      expect(first).toBe("2026-09-01T10:00:00.000Z");
+
+      vi.setSystemTime(new Date("2026-09-02T10:00:00.000Z"));
+      saveLogs({});
+      expect(listSeasons()[0]?.updatedAt).toBe(first);
+
+      saveLogs({ g1: { homeScore: 3, awayScore: 1 } } as never);
+      expect(listSeasons()[0]?.updatedAt).toBe("2026-09-02T10:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("survives a re-read of the list", () => {
     setActiveSeason(listSeasons()[0]!.id);
     saveSettings({ ...DEFAULT_SETTINGS });

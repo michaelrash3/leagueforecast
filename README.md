@@ -2759,6 +2759,120 @@ written before this shipped — leaves the live pool exactly as it is.
 A CSV with no section markers is treated as all schedule, so every CSV exported
 before sections existed, and every hand-made one, still imports unchanged.
 
+### Your data on every device
+
+A browser can keep a copy of everything in the cloud, so the app opens on the
+same data on a phone, a laptop and anywhere else. It is one copy, in the
+Firebase project's Firestore, and it belongs to one Google account: the first
+to sign in claims it, and `firestore.rules` refuses every other account, and a
+signed-out browser, anything at all. The header's cloud button signs in and
+shows where the copy stands; after that it saves and loads by itself. A build
+without the Firebase setting has no button and never runs Firebase.
+
+**What travels.** Every League Standings season, as one value, and the Team
+Rankings pool key by key, as it is stored: the teams, the age groups, each
+squad year's games, the archive and each archived season's rows. So a pull that
+changes this year's games sends this year's games. Four things stay on the
+device that wrote them. The theme, the mode and the season a device has open are
+its own, like any preference; carried in the copy, switching seasons on a phone
+would collide with scores entered on the laptop. An undo snapshot is scratch
+state for one action. A pull's own place (its progress, what it tracks, what it
+cleared) belongs to the browser running the pull.
+
+**What is never lost.** A value leaves the copy only because a device recorded
+removing it, and leaves a device only because the copy dropped a value that
+device had synced; never because one side merely does not hold it. A save sends
+what changed here and carries everything else in the copy as it stands, so a
+browser whose Team Rankings storage failed to open, or which cannot read a
+value, cannot take it out of the copy. Such a browser syncs nothing at all until
+it can read its storage again, and a value it lists but cannot read stops the
+save rather than going missing from it.
+
+**How it is stored.** Each value is gzipped JSON, in pieces of at most
+900,000 bytes, since a Firestore document holds a MiB. A value is fingerprinted
+by the SHA-256 of its JSON, so a device can tell its copy is the cloud's without
+downloading it. A manifest names every value's fingerprint and carries a
+version, a layout number and the id of the copy it belongs to. A save goes on
+only if the version is still the one this device last saw, on the copy it last
+saw: committed in a transaction, so two devices saving at once cannot both win.
+A manifest in a layout newer than the build reading it is refused, never taken
+for no copy at all. Pieces no manifest names any more are deleted after the
+save, and so are the pieces of a save that lost the race.
+
+**When it saves.** Twenty seconds after the last change, so a burst of edits
+is one save, and only what changed travels. Not during a pull or a tidy, in
+this tab or any other (a job holds a Web Lock the other tabs can see): a pull
+writes the pool every couple of thousand teams, and the copy is saved once,
+when it has finished. A change is recorded as owed in storage, not memory, so
+one made just before a tab closed is still sent the next time the app opens. It
+is also sent when the page is left, where the browser allows it. Every save,
+load and decision runs under one lock across the browser's tabs, and a tab that
+takes a copy in tells the others, which reload rather than write their old data
+back.
+
+**When it loads.** Before the app draws. A browser that keeps a copy asks the
+cloud for it at startup, waits at most four seconds in all
+(`STARTUP_WAIT_MS`), and takes a newer copy before anything is on screen. Past
+four seconds the app opens on what it has. Once the app is open it looks again
+every ten minutes and on coming back to the tab. A newer copy found then is
+offered (**Load it now**), never swapped in under whoever is looking.
+
+**When it merges, and when it asks.** When this browser has changes the cloud
+never saw and another device saved in the meantime, the two are merged if they
+changed different things: the seasons on the phone and the pool on the laptop,
+say. This browser takes the other's changes at its next start and then sends
+its own. The panel asks **which copy wins** only when both changed the same
+thing, or when this browser signs in for the first time holding data that
+differs from the cloud's. Beside the question are:
+
+- a **Download a backup of this browser first** link;
+- a warning, with its size, when keeping this browser's data would take
+  something out of the copy that this browser does not have.
+
+A browser that holds nothing takes the cloud copy without being asked. Two
+copies that turn out to be the same (one restored from one backup, say) are
+simply recorded as in step.
+
+**When the copy is gone.** A browser that has synced before and finds no copy
+(deleted in the console) does not start one again by itself, since that would
+hand every other device whatever the first browser to open happened to hold. It
+says so, and **Start it again from this browser** makes a new copy. A new copy
+has a new id, so every other device is asked about it rather than taking it for
+a later version of the one it knew.
+
+**Free.** The largest pool measured, 115,588 teams and 245,021 games, is
+61.4 MB stored and 20.3 MB gzipped: about 23 pieces. Firestore's free tier is
+1 GiB stored, 50,000 reads and 20,000 writes a day, and 10 GiB a month out. A
+whole-copy download is 23 reads, plus one each for the rule that checks the
+owner. An ordinary save is a few writes.
+
+**Setting it up**, once per Firebase project:
+
+1. In the Firebase console:
+   - **Authentication → Sign-in method → Google**: enable it, with a support
+     email.
+   - **Authentication → Settings → Authorized domains**: add the site's domain.
+   - **Firestore**: create the `(default)` database (Standard edition,
+     production mode).
+   - **Project settings → Your apps**: register a web app and copy its
+     `firebaseConfig`.
+2. In Vercel, set `VITE_FIREBASE_CONFIG` to that block. It is not secret:
+   every visitor's browser downloads the same values, and the rules are what
+   keep the data private. `parseFirebaseConfig` reads the block as the console
+   shows it, just its braces, or JSON. The build also widens the page's
+   content policy for Firestore and Google sign-in (`src/lib/contentPolicy.ts`).
+3. The rules deploy with the functions on merge (`firebase.yml`), and are
+   tested there against the Firestore emulator (`npm run test:rules` locally;
+   it needs Java 21).
+4. Sign in first on the device that holds the data, so its copy becomes the
+   cloud's; then on the others.
+
+To hand the copy to another account, delete `config/owner` in the Firestore
+console; the next account to sign in claims it. To start the copy over, delete
+`cloud/manifest` and its `chunks` as well, then use **Start it again from this
+browser** on the device whose data should be the copy. Sign-in opens Google in
+a pop-up, so a browser that blocks pop-ups has to allow them for the site.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

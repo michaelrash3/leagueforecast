@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTeamRankingsStore } from "./lib/teamRankingsStorage";
+import { bootCloud } from "./lib/cloud/cloudSession";
 import "./index.css";
 
 const mount = () => {
@@ -40,7 +41,28 @@ const askToKeepStorage = (): void => {
   }
 };
 
+/**
+ * A line of text in the empty page while the cloud copy is fetched, before the app is drawn over
+ * it (React clears what the root holds as it mounts).
+ */
+const showBootLine = (text: string): void => {
+  const root = document.getElementById("root");
+  if (!root) return;
+  const line = document.createElement("p");
+  line.className = "p-6 text-sm font-semibold text-slate-600";
+  line.textContent = text;
+  root.replaceChildren(line);
+};
+
+/*
+ * Then, for a browser that keeps a cloud copy, that copy: a newer one saved from another device is
+ * brought in before the app draws, so it opens on the latest data rather than swapping it in under
+ * whoever is looking. `bootCloud` never throws and waits on the network for a few seconds at most
+ * (`STARTUP_WAIT_MS`); a browser that has never signed in never runs Firebase at all.
+ */
 initTeamRankingsStore()
+  .catch(() => undefined)
+  .then(() => bootCloud(showBootLine))
   .catch(() => undefined)
   .finally(() => {
     mount();
