@@ -1,13 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { CloudStatus } from "../lib/cloud/cloudSession";
+import type { CloudStatus, KeptVersion } from "../lib/cloud/cloudSession";
 import { CloudButton, useCloudPanel } from "./CloudButton";
 import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
 
 /*
- * The cloud copy's header button and panel, as views of a status: what each status says, which
- * button calls which action, and when the panel opens without being asked.
+ * The cloud copy's header button and panel, as views of a status: what each status says, and which
+ * button calls which action. Nothing here asks which copy wins: changes on two devices are merged,
+ * and whatever a merge had to replace is listed to be brought back.
  */
 const ME = { uid: "owner-1", email: "owner@example.test" };
 const NOW = new Date("2026-09-28T12:00:00Z");
@@ -15,36 +16,24 @@ const saved = (over: Partial<Extract<CloudStatus, { kind: "saved" }>> = {}): Clo
   kind: "saved",
   account: ME,
   owed: false,
-  waitingForPull: false,
+  newer: [],
   ...over,
 });
-const asking: Extract<CloudStatus, { kind: "choose" }> = {
-  kind: "choose",
-  account: ME,
-  firstTime: true,
-  cloudSavedAt: "2026-09-28T11:00:00Z",
-  cloudOnly: { labels: [], bytes: 0 },
-};
 
-const panel = (status: CloudStatus, onBackup = vi.fn(), onClose = vi.fn()) => {
+const panel = (status: CloudStatus, { onClose = vi.fn(), kept = [] as KeptVersion[] } = {}) => {
   const actions: CloudActions = {
     signIn: vi.fn(),
     save: vi.fn(),
     signOut: vi.fn(),
-    choose: vi.fn(),
     loadNewer: vi.fn(),
     retry: vi.fn(),
     restart: vi.fn(),
+    bringBack: vi.fn(),
+    dismissNotice: vi.fn(),
+    reloadApp: vi.fn(),
   };
   render(
-    <CloudPanel
-      status={status}
-      open
-      onClose={onClose}
-      onBackup={onBackup}
-      actions={actions}
-      now={NOW}
-    />
+    <CloudPanel status={status} open onClose={onClose} actions={actions} kept={kept} now={NOW} />
   );
   return actions;
 };
@@ -57,9 +46,9 @@ describe("the header's cloud button", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("is not drawn in a browser that keeps no copy, where anyone with a link could press it", () => {
+  it("is not drawn in a browser that has never kept a copy, where anyone with a link could press it", () => {
     const { container } = render(
-      <CloudButton status={{ kind: "signed-out" }} onOpen={vi.fn()} className="inline-flex" />
+      <CloudButton status={{ kind: "none" }} onOpen={vi.fn()} className="inline-flex" />
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -73,18 +62,33 @@ describe("the header's cloud button", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("asks to be looked at when the copy needs an answer", () => {
-    render(<CloudButton status={asking} onOpen={vi.fn()} className="inline-flex" />);
+  it("says when another device saved newer data, and when this one was signed out", () => {
+    const { rerender } = render(
+      <CloudButton status={saved({ newer: ["league"] })} onOpen={vi.fn()} className="inline-flex" />
+    );
     expect(
-      screen.getByRole("button", { name: "Cloud copy: Your cloud copy needs an answer" })
+      screen.getByRole("button", { name: "Cloud copy: Newer data saved from another device" })
+    ).toBeInTheDocument();
+    rerender(
+      <CloudButton status={{ kind: "signed-out" }} onOpen={vi.fn()} className="inline-flex" />
+    );
+    expect(
+      screen.getByRole("button", { name: "Cloud copy: Signed out of your cloud copy" })
     ).toBeInTheDocument();
   });
 });
 
 describe("the cloud panel", () => {
-  it("offers sign-in to a browser that keeps no copy", async () => {
-    const actions = panel({ kind: "signed-out" });
+  it("offers sign-in to a browser that has never kept a copy", async () => {
+    const actions = panel({ kind: "none" });
     expect(screen.getByRole("dialog", { name: "Your data on every device" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    expect(actions.signIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks a browser that was signed out to sign in again, keeping what changed", async () => {
+    const actions = panel({ kind: "signed-out" });
+    expect(screen.getByText(/anything changed here meanwhile is saved then/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(actions.signIn).toHaveBeenCalledTimes(1);
   });
@@ -98,62 +102,59 @@ describe("the cloud panel", () => {
     expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("saves waiting changes on request, but not while a pull runs", async () => {
+  it("saves waiting changes on request", async () => {
     const actions = panel(saved({ owed: true }));
     await userEvent.click(screen.getByRole("button", { name: "Save now" }));
     expect(actions.save).toHaveBeenCalledTimes(1);
   });
 
   it("holds Save now while a pull runs, and says why", () => {
-    panel(saved({ owed: true, waitingForPull: true }));
-    expect(screen.getByText(/will save once the pull finishes/)).toBeInTheDocument();
+    panel(saved({ owed: true, waiting: "pull" }));
+    expect(screen.getByText(/will save once the pull or tidy finishes/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save now" })).toBeDisabled();
   });
 
-  it("asks which copy wins, and offers a backup of this browser first", async () => {
-    const onBackup = vi.fn();
-    const actions = panel(asking, onBackup);
-    expect(screen.getByText(/both hold data, and it is not the same/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Download a backup/ }));
-    expect(onBackup).toHaveBeenCalledTimes(1);
-    await userEvent.click(screen.getByRole("button", { name: /Use the cloud copy/ }));
-    expect(actions.choose).toHaveBeenLastCalledWith("cloud");
-    await userEvent.click(screen.getByRole("button", { name: /Keep this browser's data/ }));
-    expect(actions.choose).toHaveBeenLastCalledWith("device");
+  it("says when a change here could not be stored, and so is not in the cloud", () => {
+    panel(saved({ owed: true, waiting: "storage" }));
+    expect(screen.getByText(/could not be stored on this device/)).toBeInTheDocument();
   });
 
-  it("offers another device's newer save", async () => {
-    const actions = panel({
-      kind: "newer",
-      account: ME,
-      cloudSavedAt: "2026-09-28T11:30:00Z",
-      owed: false,
-    });
-    expect(screen.getByText(/saved newer data 30 minutes ago/)).toBeInTheDocument();
-    expect(screen.getByText(/loading it loses nothing/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Load it now" }));
+  it("offers another device's newer changes, and loads them on request", async () => {
+    const actions = panel(saved({ newer: ["league"] }));
+    expect(screen.getByText(/Another device changed League Standings/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Load them now" }));
     expect(actions.loadNewer).toHaveBeenCalledTimes(1);
   });
 
-  it("says this browser's own changes are kept when it loads another device's", () => {
-    panel({ kind: "newer", account: ME, cloudSavedAt: "2026-09-28T11:30:00Z", owed: true });
-    expect(screen.getByText(/changes made here are kept/)).toBeInTheDocument();
-    expect(screen.queryByText(/loses nothing/)).toBeNull();
+  it("says what a merge settled, until it has been read", async () => {
+    const actions = panel(saved({ notice: "The later change was kept." }));
+    expect(screen.getByText("The later change was kept.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "OK" }));
+    expect(actions.dismissNotice).toHaveBeenCalledTimes(1);
   });
 
-  it("warns what keeping this browser's data would take out of the cloud", () => {
-    panel({
-      ...asking,
-      cloudOnly: { labels: ["Team Rankings data"], bytes: 61_400_000 },
+  it("lists kept versions, and brings one back only when asked twice", async () => {
+    const actions = panel(saved(), {
+      kept: [
+        {
+          group: "g1",
+          keptAt: "2026-09-28T11:30:00Z",
+          why: "lost",
+          fromHere: true,
+          what: ["Team Rankings"],
+          bytes: 2_100_000,
+        },
+      ],
     });
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      /has Team Rankings data this browser does not \(61\.4 MB\)/
-    );
-  });
-
-  it("says nothing of the kind when this browser holds everything the copy does", () => {
-    panel(asking);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByText(/This device's own Team Rankings, kept 30 minutes ago \(2\.1 MB\)/)
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Bring back…" }));
+    expect(actions.bringBack).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep what is there" }));
+    await userEvent.click(screen.getByRole("button", { name: "Bring back…" }));
+    await userEvent.click(screen.getByRole("button", { name: "Bring it back" }));
+    expect(actions.bringBack).toHaveBeenCalledWith("g1");
   });
 
   it("starts a copy that is gone again only when asked", async () => {
@@ -161,8 +162,6 @@ describe("the cloud panel", () => {
     expect(screen.getByText(/cloud copy is gone/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Start it again from this browser" }));
     expect(actions.restart).toHaveBeenCalledTimes(1);
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
   it("says the copy is another account's, and offers to sign out", async () => {
@@ -170,6 +169,13 @@ describe("the cloud panel", () => {
     expect(screen.getByText(/belongs to a different Google account/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(actions.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for an update when a newer version of the app saved the copy", async () => {
+    const actions = panel({ kind: "update", account: ME });
+    expect(screen.getByText(/saved by a newer version of the app/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Reload" }));
+    expect(actions.reloadApp).toHaveBeenCalledTimes(1);
   });
 
   it("shows what went wrong, with a way to try again", async () => {
@@ -199,7 +205,7 @@ describe("the cloud panel", () => {
 
   it("closes on Escape from inside it, once", () => {
     const onClose = vi.fn();
-    panel({ kind: "signed-out" }, vi.fn(), onClose);
+    panel({ kind: "none" }, { onClose });
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -219,25 +225,9 @@ function Harness({ status }: { status: CloudStatus }) {
 }
 
 describe("when the panel shows", () => {
-  it("opens by itself for the question, once each time it is asked", async () => {
-    const { rerender } = render(<Harness status={saved()} />);
-    expect(screen.queryByText("panel open")).toBeNull();
-
-    rerender(<Harness status={asking} />);
-    expect(screen.getByText("panel open")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "hide" }));
-    expect(screen.queryByText("panel open")).toBeNull();
-
-    // The same question, read again: it stays where it was put.
-    rerender(<Harness status={{ ...asking }} />);
-    expect(screen.queryByText("panel open")).toBeNull();
-    // Asked afresh, after another save: it opens again.
-    rerender(<Harness status={{ ...asking, cloudSavedAt: "2026-09-28T11:45:00Z" }} />);
-    expect(screen.getByText("panel open")).toBeInTheDocument();
-  });
-
   it("opens on the button, and never in a build with no Firebase setting", async () => {
     const { rerender } = render(<Harness status={saved()} />);
+    expect(screen.queryByText("panel open")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Cloud copy/ }));
     expect(screen.getByText("panel open")).toBeInTheDocument();
     rerender(<Harness status={{ kind: "off" }} />);

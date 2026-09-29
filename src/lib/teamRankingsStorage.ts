@@ -32,6 +32,7 @@ import {
   type ArchiveEntry,
 } from "./teamRankingsArchive";
 import { idbDelete, idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
+import { mayWrite } from "./cloud/cloudGuard";
 import {
   listenForLocalPoolWrites,
   openPoolBroadcast,
@@ -354,6 +355,16 @@ let flushing = false;
 /** Whether everything queued since the last check actually landed. */
 let landed = true;
 
+/**
+ * Keys whose latest write the store refused, until one lands. The cache already holds the refused
+ * value, so a cloud save reading it would send data this browser does not actually have, and then
+ * record it as synced; the save leaves these keys owed instead (`poolKeysNotStored`).
+ */
+const refusedKeys = new Set<string>();
+
+/** Keys whose latest write did not reach the store. */
+export const poolKeysNotStored = (): ReadonlySet<string> => refusedKeys;
+
 const flushWrites = async (): Promise<void> => {
   if (flushing) return;
   flushing = true;
@@ -363,8 +374,12 @@ const flushWrites = async (): Promise<void> => {
       pendingWrites.clear();
       for (const [key, value] of batch) {
         const ok = await (activeIo ?? browserIo).set(key, value);
-        if (ok) continue;
+        if (ok) {
+          refusedKeys.delete(key);
+          continue;
+        }
         landed = false;
+        refusedKeys.add(key);
         // A handler that throws must not take the rest of the batch down with it.
         try {
           reportWriteError?.(key);
@@ -481,14 +496,20 @@ const readValue = (key: string): unknown => {
  * write that then fails is reported through `onPoolWriteError`. On `localStorage` it is the old
  * answer: whether it actually landed.
  */
-const writeValue = (key: string, value: unknown): boolean => {
+/*
+ * Both take `quiet` for the cloud copy's own values arriving, which are no change made here. And
+ * both refuse a key the cloud copy carries from a tab that read the pool before another tab took a
+ * newer copy in (`cloudGuard.ts`): its values would go back over the newer ones.
+ */
+const writeValue = (key: string, value: unknown, quiet = false): boolean => {
   // Refused rather than written somewhere nothing will read it back.
   if (poolUnavailable) return false;
+  if (isCloudPoolKey(key) && !mayWrite("pool")) return false;
   // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
   // to send: the value is already shared and the notification comes free.
   if (!usingIdb) {
     const saved = safeSet(key, JSON.stringify(value));
-    if (saved) noteCloudWrite(key);
+    if (saved && !quiet) noteCloudWrite(key);
     return saved;
   }
   cache.set(key, value);
@@ -506,14 +527,15 @@ const writeValue = (key: string, value: unknown): boolean => {
   // Announced on acceptance rather than after the flush. A tab told a moment early re-reads and
   // finds either the new value or the old one; a tab told late can have written over it by then.
   broadcast.post(key);
-  noteCloudWrite(key);
+  if (!quiet) noteCloudWrite(key);
   return true;
 };
 
-const forgetValue = (key: string): void => {
+const forgetValue = (key: string, quiet = false): void => {
+  if (isCloudPoolKey(key) && !mayWrite("pool")) return;
   if (!usingIdb) {
     safeRemove(key);
-    noteCloudWrite(key);
+    if (!quiet) noteCloudWrite(key);
     return;
   }
   cache.set(key, null);
@@ -522,7 +544,7 @@ const forgetValue = (key: string): void => {
   pendingWrites.set(key, null);
   void flushWrites();
   broadcast.post(key);
-  noteCloudWrite(key);
+  if (!quiet) noteCloudWrite(key);
 };
 
 /**
@@ -1441,12 +1463,13 @@ export const saveOrgMembership = (membership: OrgMembership): boolean =>
  * this module: the caller is about to delete the games this blob replaces, and must not do that on
  * an acknowledgement that turns out to be wrong.
  */
-const putBlob = async (key: string, value: unknown): Promise<boolean> => {
+const putBlob = async (key: string, value: unknown, quiet = false): Promise<boolean> => {
   if (poolUnavailable) return false;
+  if (isCloudPoolKey(key) && !mayWrite("pool")) return false;
   const saved = usingIdb
     ? await (activeIo ?? browserIo).set(key, value)
     : safeSet(key, JSON.stringify(value));
-  if (saved) noteCloudWrite(key);
+  if (saved && !quiet) noteCloudWrite(key);
   return saved;
 };
 
@@ -1456,11 +1479,12 @@ const getBlob = async (key: string): Promise<unknown> => {
   return (await (activeIo ?? browserIo).get(key)) ?? null;
 };
 
-const dropBlob = async (key: string): Promise<void> => {
+const dropBlob = async (key: string, quiet = false): Promise<void> => {
   if (poolUnavailable) return;
+  if (isCloudPoolKey(key) && !mayWrite("pool")) return;
   if (usingIdb) await (activeIo ?? browserIo).set(key, null);
   else safeRemove(key);
-  noteCloudWrite(key);
+  if (!quiet) noteCloudWrite(key);
 };
 
 /** The usable entries out of a stored index; anything that is not a list yields none. */
@@ -1618,12 +1642,14 @@ export const applyCloudPoolValues = async (
   let ok = true;
   for (const [key, value] of values) {
     if (key.startsWith(ARCHIVE_ROWS_PREFIX)) {
-      if (value === null) await dropBlob(key);
-      else if (!(await putBlob(key, value))) ok = false;
-    } else if (value === null) forgetValue(key);
-    else if (!writeValue(key, value)) ok = false;
+      if (value === null) await dropBlob(key, true);
+      else if (!(await putBlob(key, value, true))) ok = false;
+    } else if (value === null) forgetValue(key, true);
+    else if (!writeValue(key, value, true)) ok = false;
   }
-  return (await flushPoolWrites()) && ok;
+  return (
+    (await flushPoolWrites()) && ok && [...values.keys()].every((key) => !refusedKeys.has(key))
+  );
 };
 
 /**

@@ -22,9 +22,9 @@ service cloud.firestore {
         && request.auth.token.email.lower() == "cloud-owner@example.invalid";
     }
 
-    // The copy itself, `cloud/manifest` and its `chunks`: the owner's alone. Nothing else in the
-    // database is open to anyone.
-    match /cloud/{document=**} {
+    // The copy itself, `copies/main` and its `chunks`: the owner's alone. Nothing else in the
+    // database is open to anyone, the first version's `cloud/` included.
+    match /copies/{document=**} {
       allow read, write: if isOwner();
     }
   }

@@ -9,8 +9,8 @@ import {
   type Firestore,
 } from "firebase/firestore/lite";
 import { CHUNK_BYTES } from "../cloudPack";
-import { sendLocal, takeCloud, type LocalSource, type SyncState } from "../cloudEngine";
-import { chunkId, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
+import { commitChanges, fetchValues } from "../cloudEngine";
+import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
 import { OWNER_STAND_IN } from "../cloudOwner";
 import { firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
 
@@ -58,35 +58,29 @@ const as = (account: Account | null): Firestore => {
 
 const REFUSED = { code: "permission-denied" };
 
-const memory = (
-  entries: Record<string, unknown> = {}
-): LocalSource & { map: Map<string, unknown> } => {
-  const map = new Map(Object.entries(entries));
-  return {
-    map,
-    keys: () => [...map.keys()],
-    read: async (key) => map.get(key) ?? null,
-    apply: async (values) => {
-      for (const [key, value] of values) {
-        if (value === null) map.delete(key);
-        else map.set(key, value);
-      }
-      return true;
-    },
-    usable: () => true,
-  };
-};
-
-const fresh: SyncState = { version: null, copy: null, hashes: {}, dirty: {} };
-
 const manifestOf = (version: number): CloudManifest => ({
   format: MANIFEST_FORMAT,
+  schema: DATA_SCHEMA,
   copy: "copy-a",
   version,
+  save: `save-${version}`,
   updatedAt: "2026-09-28T00:00:00.000Z",
   device: "d",
   parts: [],
+  kept: [],
 });
+
+const firstCopy = async (db: Firestore, values: Record<string, unknown>) => {
+  const result = await commitChanges({
+    store: firestoreStore(db),
+    base: null,
+    changes: Object.entries(values).map(([key, value]) => ({ key, value, at: 1 })),
+    device: "phone",
+    now: "2026-09-28T00:00:00.000Z",
+  });
+  if (!result.ok) throw new Error("first copy refused");
+  return result.manifest;
+};
 
 /** Every way into the copy an account could try: read, write, list and delete. */
 const expectShutOut = async (db: Firestore): Promise<void> => {
@@ -153,59 +147,45 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   });
 
   it("carry the owner's data from one device to another, and nobody else's way", async () => {
-    const phone = memory({ league: { seasons: [{ name: "Spring" }] }, teams: [["a", "Hawks"]] });
-    const sent = await sendLocal({
-      store: firestoreStore(as(OWNER)),
-      local: phone,
-      state: fresh,
-      device: "phone",
-      now: "2026-09-28T00:00:00.000Z",
-      mode: "first",
-    });
-    expect(sent).toMatchObject({ ok: true, uploaded: 2 });
-
+    const values = { league: { seasons: [{ name: "Spring" }] }, teams: [["a", "Hawks"]] };
+    const sent = await firstCopy(as(OWNER), values);
     const laptopStore = firestoreStore(as(OWNER));
-    const manifest = await laptopStore.readManifest();
-    expect(manifest?.parts.map((part) => part.key)).toEqual(["league", "teams"]);
-    const laptop = memory();
-    expect(
-      await takeCloud({
-        store: laptopStore,
-        local: laptop,
-        state: fresh,
-        manifest: manifest as CloudManifest,
-        now: "2026-09-28T00:01:00.000Z",
-        mode: "update",
-      })
-    ).toMatchObject({ ok: true, downloaded: 2 });
-    expect(Object.fromEntries(laptop.map)).toEqual(Object.fromEntries(phone.map));
+    const manifest = (await laptopStore.readManifest()) as CloudManifest;
+    expect(manifest.parts.map((part) => part.key)).toEqual(["league", "teams"]);
+    expect(manifest.save).toBe(sent.save);
+    const fetched = await fetchValues({ store: laptopStore, parts: manifest.parts });
+    expect(fetched.ok && Object.fromEntries(fetched.values)).toEqual(values);
 
     const mallory = firestoreStore(as(MALLORY));
-    const piece = chunkId((manifest as CloudManifest).parts[0]?.hash ?? "", 0);
+    const piece = chunkId(manifest.parts[0]?.id ?? "", 0);
     await expect(mallory.readManifest()).rejects.toMatchObject(REFUSED);
     await expect(mallory.getChunk(piece)).rejects.toMatchObject(REFUSED);
     await expect(mallory.putChunk(piece, new Uint8Array([0]))).rejects.toMatchObject(REFUSED);
     await expect(mallory.deleteChunk(piece)).rejects.toMatchObject(REFUSED);
-    await expect(mallory.commitManifest(1, manifestOf(2))).rejects.toMatchObject(REFUSED);
+    await expect(
+      mallory.commitManifest({ version: 1, copy: manifest.copy }, manifestOf(2))
+    ).rejects.toMatchObject(REFUSED);
   });
 
-  it("refuse a save onto a copy that moved on, in one step with the read", async () => {
+  it("refuse a save onto a copy that moved on, or onto another copy, in one step with the read", async () => {
     const store = firestoreStore(as(OWNER));
     expect(await store.commitManifest(null, manifestOf(1))).toBe(true);
     expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
-    expect(await store.commitManifest(1, manifestOf(2))).toBe(true);
+    expect(await store.commitManifest({ version: 1, copy: "copy-a" }, manifestOf(2))).toBe(true);
+    expect(await store.commitManifest({ version: 1, copy: "copy-a" }, manifestOf(3))).toBe(false);
+    expect(await store.commitManifest({ version: 2, copy: "copy-b" }, manifestOf(3))).toBe(false);
     expect((await store.readManifest())?.version).toBe(2);
   });
 
   it("never take a manifest this build cannot read for no copy at all", async () => {
     const owner = as(OWNER);
     // A later build's layout, as this one would find it.
-    await setDoc(doc(owner, "cloud/manifest"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
+    await setDoc(doc(owner, "copies/main"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
     const store = firestoreStore(owner);
     await expect(store.readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
     // Nor write a first copy over it.
     expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
-    expect((await getDoc(doc(owner, "cloud/manifest"))).get("format")).toBe(MANIFEST_FORMAT + 1);
+    expect((await getDoc(doc(owner, "copies/main"))).get("format")).toBe(MANIFEST_FORMAT + 1);
   });
 
   it("fit a value too large for one document into several", async () => {
@@ -215,21 +195,9 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       crypto.getRandomValues(bytes.subarray(at, at + 65_536));
     }
     const noise = Array.from(bytes, (byte) => byte.toString(36)).join("");
-    const big = memory({ teams: noise });
-    const result = await sendLocal({
-      store: firestoreStore(as(OWNER)),
-      local: big,
-      state: fresh,
-      device: "phone",
-      now: "2026-09-28T00:00:00.000Z",
-      mode: "first",
-    });
-    expect(result.ok).toBe(true);
-    const store = firestoreStore(as(OWNER));
-    const manifest = (await store.readManifest()) as CloudManifest;
+    const manifest = await firstCopy(as(OWNER), { teams: noise });
     expect(manifest.parts[0]?.chunks).toBeGreaterThan(1);
-    const back = memory();
-    await takeCloud({ store, local: back, state: fresh, manifest, now: "later", mode: "update" });
-    expect(back.map.get("teams")).toBe(noise);
+    const fetched = await fetchValues({ store: firestoreStore(as(OWNER)), parts: manifest.parts });
+    expect(fetched.ok && fetched.values.get("teams")).toBe(noise);
   }, 60_000);
 });

@@ -32,11 +32,14 @@ import { coerceManifest } from "./cloudManifest";
  *
  * The layout, and what `firestore.rules` lets through, to the one account the rules name
  * (`cloudOwner.ts`) and to nobody else:
- * - `cloud/manifest`: what the copy is made of (`CloudManifest`).
- * - `cloud/manifest/chunks/{hash-n}`: the pieces, each `{ data: Bytes }`.
+ * - `copies/main`: what the copy is made of (`CloudManifest`).
+ * - `copies/main/chunks/{upload-n}`: the pieces, each `{ data: Bytes }`.
+ *
+ * The first version kept its copy under `cloud/`, in a layout nothing reads any more; the rules
+ * refuse everyone there, and anything left in it is ignored.
  */
-const MANIFEST = "cloud/manifest";
-const CHUNKS = "cloud/manifest/chunks";
+const MANIFEST = "copies/main";
+const CHUNKS = "copies/main/chunks";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -84,15 +87,18 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
         if (snap.exists()) return false;
       } else {
         const current = snap.exists() ? coerceManifest(snap.data()) : null;
-        if (current?.version !== expected) return false;
+        if (current?.version !== expected.version || current.copy !== expected.copy) return false;
       }
       tx.set(doc(db, MANIFEST), {
         format: next.format,
+        schema: next.schema,
         copy: next.copy,
         version: next.version,
+        save: next.save,
         updatedAt: next.updatedAt,
         device: next.device,
         parts: next.parts.map((part) => ({ ...part })),
+        kept: next.kept.map((part) => ({ ...part })),
       });
       return true;
     }),

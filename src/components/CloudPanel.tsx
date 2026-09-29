@@ -1,7 +1,9 @@
-import { useId, useRef, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import {
-  chooseCopy,
+  bringBack,
+  cloudKept,
+  dismissCloudNotice,
   loadNewer,
   restartCloud,
   retryCloud,
@@ -9,6 +11,7 @@ import {
   signInToCloud,
   signOutOfCloud,
   type CloudStatus,
+  type KeptVersion,
 } from "../lib/cloud/cloudSession";
 import { button } from "../styles/tokens";
 
@@ -16,10 +19,12 @@ export type CloudActions = {
   signIn: () => void;
   save: () => void;
   signOut: () => void;
-  choose: (winner: "cloud" | "device") => void;
   loadNewer: () => void;
   retry: () => void;
   restart: () => void;
+  bringBack: (group: string) => void;
+  dismissNotice: () => void;
+  reloadApp: () => void;
 };
 
 /** What each button does: the session's own calls, wrapped so none is handed a click event. */
@@ -27,10 +32,12 @@ const SESSION_ACTIONS: CloudActions = {
   signIn: () => void signInToCloud(),
   save: () => void saveNow(),
   signOut: () => void signOutOfCloud(),
-  choose: (winner) => void chooseCopy(winner),
-  loadNewer: () => loadNewer(),
+  loadNewer: () => void loadNewer(),
   retry: () => void retryCloud(),
   restart: () => void restartCloud(),
+  bringBack: (group) => void bringBack(group),
+  dismissNotice: () => dismissCloudNotice(),
+  reloadApp: () => window.location.reload(),
 };
 
 /** A size for people: "61.4 MB", "830 KB". */
@@ -59,39 +66,121 @@ const Line = ({ children }: { children: ReactNode }) => (
   <p className="text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200">{children}</p>
 );
 
+const Box = ({ tone, children }: { tone: "info" | "alert"; children: ReactNode }) => (
+  <div
+    role={tone === "alert" ? "alert" : "status"}
+    className={`rounded-lg px-3 py-2 text-sm font-semibold leading-6 ${
+      tone === "alert"
+        ? "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200"
+        : "bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-100"
+    }`}
+  >
+    {children}
+  </div>
+);
+
 const Account = ({ email }: { email: string | null }) => (
   <Line>
     Signed in as <strong className="font-black">{email ?? "your Google account"}</strong>.
   </Line>
 );
 
+const SIGN_IN_PITCH =
+  "Sign in with Google to keep a copy of everything here, your League Standings seasons and the Team Rankings pool, in a cloud copy that only your account can open. Sign in the same way on your phone, your laptop or anywhere else, and each one opens on the same data. Changes save by themselves.";
+
+/** One kept version, with the button that brings it back, asked twice. */
+function KeptRow({
+  version,
+  now,
+  onBringBack,
+}: {
+  version: KeptVersion;
+  now: Date;
+  onBringBack: (group: string) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  const whose =
+    version.why === "lost"
+      ? version.fromHere
+        ? "This device's own"
+        : "Another device's own"
+      : "The cloud copy's";
+  return (
+    <li className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        {whose} {version.what.join(" and ")}, kept {savedWhen(version.keptAt, now)} (
+        {sizeOf(version.bytes)})
+      </p>
+      {asking ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Bring this back on every device? What is there now is kept in its place.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setAsking(false);
+              onBringBack(version.group);
+            }}
+            className={button.dark}
+          >
+            Bring it back
+          </button>
+          <button type="button" onClick={() => setAsking(false)} className={button.ghost}>
+            Keep what is there
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAsking(true)}
+          className="mt-1 text-sm font-black text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-100"
+        >
+          Bring back…
+        </button>
+      )}
+    </li>
+  );
+}
+
 function Body({
   status,
   actions,
-  onBackup,
+  kept,
   now,
 }: {
   status: CloudStatus;
   actions: CloudActions;
-  onBackup: () => void;
+  kept: readonly KeptVersion[];
   now: Date;
 }) {
   switch (status.kind) {
     case "off":
       return null;
+    case "none":
+      return (
+        <>
+          <Line>{SIGN_IN_PITCH}</Line>
+          <Note>
+            Sign in first on the device that holds your data. Another device signing in afterwards
+            adds its seasons to the copy, and keeps its own Team Rankings aside where they can be
+            brought back.
+          </Note>
+          <div>
+            <button type="button" onClick={actions.signIn} className={button.primary}>
+              Sign in with Google
+            </button>
+          </div>
+        </>
+      );
     case "signed-out":
       return (
         <>
           <Line>
-            Sign in with Google to keep a copy of everything here, your League Standings seasons and
-            the Team Rankings pool, in cloud storage of your own. Sign in the same way on your
-            phone, your laptop or anywhere else, and each one opens on the same data. Changes save
-            by themselves.
+            This browser keeps a cloud copy of your data, but is signed out, so nothing is being
+            saved to it. Sign in again with the same Google account; anything changed here meanwhile
+            is saved then.
           </Line>
-          <Note>
-            Only the Google account that signs in first can ever read or change the copy. Sign in
-            first on the device that holds your data.
-          </Note>
           <div>
             <button type="button" onClick={actions.signIn} className={button.primary}>
               Sign in with Google
@@ -126,24 +215,55 @@ function Body({
         </>
       );
     }
-    case "saved":
+    case "saved": {
+      const waiting =
+        status.waiting === "pull"
+          ? "Changes are waiting, and will save once the pull or tidy finishes."
+          : status.waiting === "storage"
+            ? "Some Team Rankings changes could not be stored on this device (it may be full), so they are not saved to the cloud yet."
+            : status.waiting === "unreadable"
+              ? "Some Team Rankings data here could not be read, so it is not saved to the cloud yet. Reloading the page usually brings it back."
+              : "Changes are waiting, and will save in a few seconds.";
+      const newerLeague = status.newer.includes("league");
+      const newerPool = status.newer.includes("pool");
       return (
         <>
           <Account email={status.account.email} />
           <Line>
-            {status.owed
-              ? status.waitingForPull
-                ? "Changes are waiting, and will save once the pull finishes."
-                : "Changes are waiting, and will save in a few seconds."
+            {status.owed || status.waiting
+              ? waiting
               : status.syncedAt
                 ? `Everything is saved. Last saved ${savedWhen(status.syncedAt, now)}.`
                 : "Everything is saved."}
           </Line>
+          {(newerLeague || newerPool) && (
+            <Box tone="info">
+              {newerLeague
+                ? "Another device changed League Standings. "
+                : "Another device changed Team Rankings. "}
+              They arrive here when you leave this page or come back to it, or now:
+              <div className="mt-2">
+                <button type="button" onClick={actions.loadNewer} className={button.primary}>
+                  Load them now
+                </button>
+              </div>
+            </Box>
+          )}
+          {status.notice && (
+            <Box tone="info">
+              {status.notice}
+              <div className="mt-2">
+                <button type="button" onClick={actions.dismissNotice} className={button.ghost}>
+                  OK
+                </button>
+              </div>
+            </Box>
+          )}
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={actions.save}
-              disabled={!status.owed || status.waitingForPull}
+              disabled={!status.owed || status.waiting === "pull"}
               className={button.dark}
             >
               Save now
@@ -154,83 +274,33 @@ function Body({
           </div>
           <Note>
             Signing out leaves everything in this browser as it is. It only stops saving to the
-            cloud.
+            cloud{status.owed ? "; the changes still waiting are saved when you sign in again" : ""}
+            .
           </Note>
-        </>
-      );
-    case "choose":
-      return (
-        <>
-          <Line>
-            {status.firstTime
-              ? "This browser and your cloud copy both hold data, and it is not the same."
-              : "Another device saved to the cloud since this browser last did, and this browser has changes of its own."}
-          </Line>
-          <Line>
-            The cloud copy was saved {savedWhen(status.cloudSavedAt, now)}. Which one should every
-            device use from now on?
-          </Line>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => actions.choose("cloud")}
-              className={`${button.dark} text-left`}
-            >
-              Use the cloud copy
-              <span className="block text-xs font-semibold opacity-80">
-                Replaces what this browser holds
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => actions.choose("device")}
-              className={`${button.ghost} text-left`}
-            >
-              Keep this browser&apos;s data
-              <span className="block text-xs font-semibold opacity-80">
-                Replaces the cloud copy
-              </span>
-            </button>
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={onBackup}
-              className="text-sm font-black text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-100"
-            >
-              Download a backup of this browser first
-            </button>
-          </div>
-          {status.cloudOnly.labels.length > 0 && (
-            <p
-              role="alert"
-              className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold leading-6 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-            >
-              The cloud copy has {status.cloudOnly.labels.join(" and ")} this browser does not (
-              {sizeOf(status.cloudOnly.bytes)}). Keeping this browser&apos;s data would remove it
-              from the cloud.
-            </p>
+          {kept.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-black text-slate-950 dark:text-slate-100">
+                Earlier versions, kept for 30 days
+              </h3>
+              <Note>
+                When two devices change the same thing, the later change is kept and so is the
+                other, here. A device joining the copy keeps its own Team Rankings here too.
+              </Note>
+              <ul className="flex flex-col gap-2">
+                {kept.map((version) => (
+                  <KeptRow
+                    key={version.group}
+                    version={version}
+                    now={now}
+                    onBringBack={actions.bringBack}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
-          <Note>Nothing is saved or replaced until you choose.</Note>
         </>
       );
-    case "newer":
-      return (
-        <>
-          <Account email={status.account.email} />
-          <Line>
-            Another device saved newer data {savedWhen(status.cloudSavedAt, now)}.{" "}
-            {status.owed
-              ? "The changes made here are kept, and are sent once it has loaded."
-              : "This browser has no changes of its own waiting, so loading it loses nothing."}
-          </Line>
-          <div>
-            <button type="button" onClick={actions.loadNewer} className={button.primary}>
-              Load it now
-            </button>
-          </div>
-        </>
-      );
+    }
     case "gone":
       return (
         <>
@@ -241,7 +311,7 @@ function Body({
           </Line>
           <Line>
             Starting it again from here makes this browser&apos;s data the cloud copy. Every other
-            device is then asked which copy it wants, rather than taking this one unasked.
+            device then adds its seasons to it, and keeps its own Team Rankings aside.
           </Line>
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={actions.restart} className={button.dark}>
@@ -259,7 +329,7 @@ function Body({
           <Line>
             This cloud copy belongs to a different Google account
             {status.account.email ? `, not ${status.account.email}` : ""}. Sign out, then sign in
-            with the account that set it up.
+            with the account it belongs to.
           </Line>
           <div>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
@@ -268,16 +338,26 @@ function Body({
           </div>
         </>
       );
+    case "update":
+      return (
+        <>
+          <Account email={status.account.email} />
+          <Line>
+            Your cloud copy was saved by a newer version of the app. Reload to update this one;
+            nothing here has been changed, and nothing is saved until it is updated.
+          </Line>
+          <div>
+            <button type="button" onClick={actions.reloadApp} className={button.primary}>
+              Reload
+            </button>
+          </div>
+        </>
+      );
     case "error":
       return (
         <>
           {status.account && <Account email={status.account.email} />}
-          <p
-            role="alert"
-            className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold leading-6 text-red-800 dark:bg-red-950/40 dark:text-red-200"
-          >
-            {status.message}
-          </p>
+          <Box tone="alert">{status.message}</Box>
           <div className="flex flex-wrap gap-3">
             {status.account ? (
               <>
@@ -307,16 +387,15 @@ export function CloudPanel({
   status,
   open,
   onClose,
-  onBackup,
   actions = SESSION_ACTIONS,
+  kept = cloudKept(),
   now = new Date(),
 }: {
   status: CloudStatus;
   open: boolean;
   onClose: () => void;
-  /** Downloads a full backup of this browser, offered before choosing to replace it. */
-  onBackup: () => void;
   actions?: CloudActions;
+  kept?: readonly KeptVersion[];
   now?: Date;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,7 +439,7 @@ export function CloudPanel({
           </button>
         </div>
         <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto px-4 py-4">
-          <Body status={status} actions={actions} onBackup={onBackup} now={now} />
+          <Body status={status} actions={actions} kept={kept} now={now} />
         </div>
       </div>
     </div>

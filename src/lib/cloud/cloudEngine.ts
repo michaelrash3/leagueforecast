@@ -1,21 +1,20 @@
 import {
   chunkId,
   chunkIdsOf,
+  DATA_SCHEMA,
+  keptStill,
   MANIFEST_FORMAT,
+  randomId,
   type CloudManifest,
+  type KeptPart,
   type ManifestPart,
 } from "./cloudManifest";
-import { hashValue, packValue, unpackChunks } from "./cloudPack";
+import { DamagedValueError, hashJson, packHashed, unpackChunks } from "./cloudPack";
 
 /**
- * Moving this browser's data to the cloud copy and back, with the two stores it moves between
- * handed in, so every rule here is tested against stand-ins (`cloudEngine.test.ts`) rather than
- * against Firestore.
- *
- * The rule everything here keeps: a value leaves the cloud copy only because a device recorded
- * removing it, and leaves a device only because the copy dropped a value that device had synced.
- * Never because one side merely does not hold it. A device whose storage failed to open, or that
- * cannot read a value, holds less than it should, and that must not travel.
+ * Moving values to the cloud copy and back, with the store handed in, so every rule here is tested
+ * against a stand-in (`cloudEngine.test.ts`) rather than against Firestore. What to move, and when,
+ * is `cloudPlan.ts` and `cloudSession.ts`; this only moves it, one commit at a time.
  */
 
 /** The cloud copy's store: Firestore in the app (`firebaseCloud.ts`). */
@@ -23,333 +22,329 @@ export type CloudStore = {
   /** The manifest, or null when there is none. Throws on one it cannot read, never nulls it. */
   readManifest: () => Promise<CloudManifest | null>;
   /**
-   * Replaces the manifest only if it is still at `expected` (null: there must be none), and says
-   * whether it did. A transaction in Firestore; the one write that decides which copy is current.
+   * Replaces the manifest only if it is still the version and copy this device read (null: there
+   * must be none at all), and says whether it did. A transaction in Firestore; the one write that
+   * decides which copy is current.
    */
-  commitManifest: (expected: number | null, next: CloudManifest) => Promise<boolean>;
+  commitManifest: (
+    expected: { version: number; copy: string } | null,
+    next: CloudManifest
+  ) => Promise<boolean>;
   putChunk: (id: string, data: Uint8Array<ArrayBuffer>) => Promise<void>;
-  /** A piece, or null when it is not there (a copy that moved on while it was being read). */
+  /** A piece, or null when it is not there. */
   getChunk: (id: string) => Promise<Uint8Array | null>;
   deleteChunk: (id: string) => Promise<void>;
 };
 
-/** This browser's data, as the cloud copy sees it: stored keys and their values. */
-export type LocalSource = {
-  /** Every key this device keeps in the cloud and holds a value for now. */
-  keys: () => string[];
-  /** A key's value; null for a key this device does not hold. */
-  read: (key: string) => Promise<unknown>;
-  /**
-   * Writes these values, null removing a key, without counting them as changes made here. Writes
-   * nothing, and says so, if any of it is not a value this device knows how to hold; otherwise
-   * says whether all of it landed.
-   */
-  apply: (values: ReadonlyMap<string, unknown>) => Promise<boolean>;
-  /**
-   * Whether this device's stores can be read at all. One that cannot holds less than it has, and
-   * syncs nothing until it can.
-   */
-  usable: () => boolean;
-};
-
-/** What this device knows of the cloud copy, kept between visits (`cloudState.ts`). */
-export type SyncState = {
-  /** The manifest version this device last matched, or null if it never has. */
-  version: number | null;
-  /** Which copy that was (`CloudManifest.copy`). */
-  copy: string | null;
-  /** Each key's fingerprint as of that version. */
-  hashes: Record<string, string>;
-  /**
-   * The keys changed here since, each with when. A time rather than a flag, so a save can take
-   * away exactly the changes it sent and leave one made while it was sending.
-   */
-  dirty: Record<string, number>;
-  syncedAt?: string;
-};
-
 export type Progress = (done: number, total: number) => void;
 
-/** How many pieces of one value travel at once. */
+/** How many pieces travel at once, each way. */
 const PARALLEL_CHUNKS = 4;
 
-const newCopyId = (): string => {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+/** Thrown by a store call that takes longer than it should: a stalled request, not a slow one. */
+export class CloudTimeoutError extends Error {
+  constructor(what: string) {
+    super(`The cloud took too long to answer (${what}).`);
+    this.name = "CloudTimeoutError";
+  }
+}
+
+const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new CloudTimeoutError(what)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+
+/**
+ * `store` with a limit on every call. Firestore's lite SDK sets none: a request the network drops
+ * without closing waits for ever, and with it everything waiting on this device's lock.
+ */
+export const timedStore = (
+  store: CloudStore,
+  limits: { manifest: number; chunk: number } = { manifest: 20_000, chunk: 90_000 }
+): CloudStore => ({
+  readManifest: () => timed(store.readManifest(), limits.manifest, "reading the copy"),
+  commitManifest: (expected, next) =>
+    timed(store.commitManifest(expected, next), limits.manifest, "saving the copy"),
+  putChunk: (id, data) => timed(store.putChunk(id, data), limits.chunk, "sending a piece"),
+  getChunk: (id) => timed(store.getChunk(id), limits.chunk, "fetching a piece"),
+  deleteChunk: (id) => timed(store.deleteChunk(id), limits.chunk, "tidying a piece"),
+});
+
+/** A few at a time, in order of starting, each awaited: `work` for every item. */
+const inBatches = async <T>(items: readonly T[], work: (item: T) => Promise<void>) => {
+  for (let at = 0; at < items.length; at += PARALLEL_CHUNKS) {
+    await Promise.all(items.slice(at, at + PARALLEL_CHUNKS).map(work));
   }
 };
 
-const fingerprints = (manifest: CloudManifest): Record<string, string> =>
-  Object.fromEntries(manifest.parts.map((part) => [part.key, part.hash]));
+/** A value to put in the copy, or null to take its key out. */
+export type Change = {
+  key: string;
+  value: unknown;
+  /** When it changed on this device, in ms: what a later change on another device is set against. */
+  at: number;
+};
 
-/** The state after a copy is matched: its version, copy and fingerprints. */
-const matched = (
-  manifest: CloudManifest,
-  dirty: Record<string, number>,
-  now: string
-): SyncState => ({
-  version: manifest.version,
-  copy: manifest.copy,
-  hashes: fingerprints(manifest),
-  dirty,
-  syncedAt: now,
-});
+export type CommitResult =
+  | {
+      ok: true;
+      /** The manifest now current, whether this commit wrote it or found nothing to change. */
+      manifest: CloudManifest;
+      /** Each changed key's fingerprint as stored, or null for a key taken out. */
+      sent: Record<string, string | null>;
+      /** How many values had to be uploaded, rather than named from pieces already stored. */
+      uploaded: number;
+    }
+  /** Another device saved, or made the first copy, since `base` was read. Nothing was changed. */
+  | { ok: false; reason: "moved" };
 
-/** Takes away the changes that were sent, keeping any made to a key since it was read. */
-export const withoutSent = (
-  dirty: Readonly<Record<string, number>>,
-  sent: Readonly<Record<string, number>>
-): Record<string, number> =>
-  Object.fromEntries(Object.entries(dirty).filter(([key, at]) => sent[key] !== at));
+const partKey = (part: ManifestPart): string => `${part.key}\n${part.hash}\n${part.id}`;
+const keptKey = (part: KeptPart): string => `${partKey(part)}\n${part.group}\n${part.why}`;
 
-const sameParts = (a: readonly ManifestPart[], b: readonly ManifestPart[]): boolean => {
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
   if (a.length !== b.length) return false;
-  const byKey = new Map(a.map((part) => [part.key, part.hash]));
-  return b.every((part) => byKey.get(part.key) === part.hash);
+  const seen = new Set(a);
+  return b.every((one) => seen.has(one));
 };
 
 /**
- * How a save goes:
- * - `patch`: the changes recorded here (`SyncState.dirty`), onto the copy this device last saw.
- *   Every other value in the copy is carried as it is, whether this device holds it or not; a
- *   recorded change to a key this device no longer holds removes it.
- * - `first`: this device's whole data, as the first copy there is. Refused if one appeared.
- * - `replace`: this device's whole data in place of the copy there is. The user's answer, in this
- *   device's favour, to which copy wins; the one save that can take a value out of the copy
- *   because this device does not hold it.
- */
-export type SaveMode = "patch" | "first" | "replace";
-
-export type SendResult =
-  /**
-   * `sent` is the changes this save covered. The caller takes them away from the changes it has
-   * recorded since (`withoutSent`), which keeps any made while the save was running.
-   */
-  | { ok: true; state: SyncState; sent: Record<string, number>; uploaded: number }
-  /**
-   * `moved`: another device saved since this one last looked, or made the first copy first.
-   * `gone`: a patch found no copy to patch.
-   */
-  | { ok: false; reason: "moved" | "gone" };
-
-/**
- * Sends this device's copy, or its changes, to the cloud.
+ * One commit to the cloud copy, onto `base`, the manifest this device read (null: a first copy,
+ * where there must be none). In one step, it can:
+ * - `changes`: put values in the copy, or take keys out of it;
+ * - `keepReplaced`: keep the copy's current value of these keys before a change here replaces it
+ *   (a later change on this device winning over another device's);
+ * - `keepLost`: keep these values of this device's that the copy's will replace here (another
+ *   device's later change winning, or this device's data from before it joined the copy);
+ * - `restore`: make a kept settlement current again, keeping what it replaces in turn.
  *
- * Only what the cloud does not already have travels: a value is fingerprinted, and one whose
- * fingerprint is already stored is named, not sent. Everything to send is read before the first
- * piece goes, so the copy is one moment's data rather than a mixture from either side of a write
- * that lands while it uploads. The manifest goes last, and only onto the copy this device expected;
- * otherwise nothing is overwritten, the pieces this save uploaded for nothing are cleared away,
- * and the answer is `moved`.
- *
- * Pieces the old manifest named and the new one does not are deleted afterwards, as best it can: a
- * piece left behind costs a little storage and nothing else.
+ * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
+ * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
+ * sent, so pieces a save left behind can be found and cleared. The manifest goes last, and only
+ * onto the version and copy read; if that moved on, this save's own pieces are cleared and the
+ * answer is `moved`. A commit whose reply was lost is recognised by its save id. The pieces the old
+ * manifest named and the new one does not are deleted afterwards, as best it can.
  */
-export const sendLocal = async ({
+export const commitChanges = async ({
   store,
-  local,
-  state,
+  base,
+  copy,
+  changes = [],
+  keepReplaced = [],
+  keepLost = [],
+  restore,
   device,
   now,
-  mode,
+  onUploads,
   onProgress,
 }: {
   store: CloudStore;
-  local: LocalSource;
-  state: SyncState;
+  base: CloudManifest | null;
+  /** For a first copy: the id to give it. A new one at random when absent. */
+  copy?: string;
+  changes?: readonly Change[];
+  keepReplaced?: readonly string[];
+  keepLost?: readonly Change[];
+  restore?: string;
   device: string;
   now: string;
-  mode: SaveMode;
+  onUploads?: (chunkIds: string[]) => void;
   onProgress?: Progress;
-}): Promise<SendResult> => {
-  const manifest = await store.readManifest();
-  if (mode === "patch") {
-    if (!manifest) return { ok: false, reason: "gone" };
-    if (manifest.copy !== state.copy || manifest.version !== state.version) {
-      return { ok: false, reason: "moved" };
-    }
-  }
-  if (mode === "first" && manifest) return { ok: false, reason: "moved" };
-
-  const sent = { ...state.dirty };
-  const held = new Set(local.keys());
-  const keys = mode === "patch" ? Object.keys(sent) : [...held];
-  const values = new Map<string, unknown>();
-  for (const key of keys) {
-    const value = await local.read(key);
-    // Listed and yet not readable is a read that failed, not a value removed: nothing is sent
-    // rather than a copy short of it.
-    if ((value === null || value === undefined) && held.has(key)) {
-      throw new Error("This browser could not read all of its data, so nothing was saved.");
-    }
-    values.set(key, value);
-  }
-
-  const parts = new Map<string, ManifestPart>(
-    mode === "patch" && manifest ? manifest.parts.map((part) => [part.key, part]) : []
-  );
-  const storedHashes = new Set((manifest?.parts ?? []).map((part) => part.hash));
-  const uploadedIds: string[] = [];
+}): Promise<CommitResult> => {
+  const parts = new Map((base?.parts ?? []).map((part) => [part.key, part]));
+  const stored = new Map<string, ManifestPart>();
+  for (const part of [...(base?.parts ?? []), ...(base?.kept ?? [])]) stored.set(part.hash, part);
+  const group = randomId();
+  const newKept: KeptPart[] = [];
+  const uploads: string[] = [];
+  const sent: Record<string, string | null> = {};
   let uploaded = 0;
+  const total = changes.length + keepLost.length;
   let done = 0;
-  for (const [key, value] of values) {
-    done += 1;
-    if (value === null || value === undefined) {
-      // A patch removing what this device recorded removing; a whole copy leaving out what it
-      // does not hold.
-      parts.delete(key);
-      onProgress?.(done, values.size);
-      continue;
-    }
-    const packed = await packValue(value);
-    if (!storedHashes.has(packed.hash)) {
-      // A few at a time: one by one leaves a phone's connection idle between pieces, and all at
-      // once asks it to hold a nationwide pool's worth of requests open together.
-      for (let at = 0; at < packed.chunks.length; at += PARALLEL_CHUNKS) {
-        await Promise.all(
-          packed.chunks.slice(at, at + PARALLEL_CHUNKS).map((chunk, offset) => {
-            const id = chunkId(packed.hash, at + offset);
-            uploadedIds.push(id);
-            return store.putChunk(id, chunk);
-          })
-        );
-      }
-      storedHashes.add(packed.hash);
-      uploaded += 1;
-    }
-    parts.set(key, { key, hash: packed.hash, bytes: packed.bytes, chunks: packed.chunks.length });
-    onProgress?.(done, values.size);
+
+  /** The stored part for a value: named from pieces already there, or uploaded. */
+  const partFor = async (change: Change): Promise<ManifestPart> => {
+    const hashed = await hashJson(change.value);
+    const known = stored.get(hashed.hash);
+    const meta = {
+      key: change.key,
+      hash: hashed.hash,
+      bytes: hashed.bytes,
+      at: change.at,
+      by: device,
+    };
+    if (known) return { ...meta, chunks: known.chunks, id: known.id };
+    const chunks = await packHashed(hashed);
+    const id = randomId();
+    const ids = chunks.map((_, index) => chunkId(id, index));
+    uploads.push(...ids);
+    onUploads?.([...uploads]);
+    await inBatches(
+      chunks.map((chunk, index) => [ids[index] ?? chunkId(id, index), chunk] as const),
+      ([chunkName, chunk]) => store.putChunk(chunkName, chunk)
+    );
+    uploaded += 1;
+    const part = { ...meta, chunks: chunks.length, id };
+    stored.set(part.hash, part);
+    return part;
+  };
+
+  for (const key of keepReplaced) {
+    const current = parts.get(key);
+    if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced" });
   }
+  for (const lost of keepLost) {
+    if (lost.value !== null && lost.value !== undefined) {
+      newKept.push({ ...(await partFor(lost)), group, keptAt: now, why: "lost" });
+    }
+    done += 1;
+    onProgress?.(done, total);
+  }
+  for (const change of changes) {
+    if (change.value === null || change.value === undefined) {
+      parts.delete(change.key);
+      sent[change.key] = null;
+    } else {
+      const part = await partFor(change);
+      parts.set(change.key, part);
+      sent[change.key] = part.hash;
+    }
+    done += 1;
+    onProgress?.(done, total);
+  }
+
+  let kept = base?.kept ?? [];
+  if (restore) {
+    const bringing = kept.filter((part) => part.group === restore);
+    kept = kept.filter((part) => part.group !== restore);
+    for (const { group: _group, keptAt: _keptAt, why: _why, ...part } of bringing) {
+      const current = parts.get(part.key);
+      if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced" });
+      parts.set(part.key, { ...part, at: Date.parse(now), by: device });
+      sent[part.key] = part.hash;
+    }
+  }
+  kept = keptStill([...kept, ...newKept], now);
 
   const nextParts = [...parts.values()];
-  // Nothing different: owe nothing, and spend no write on a manifest that says the same thing.
-  if (manifest && sameParts(manifest.parts, nextParts)) {
-    return { ok: true, state: matched(manifest, {}, now), sent, uploaded };
+  if (
+    base &&
+    sameSet(base.parts.map(partKey), nextParts.map(partKey)) &&
+    sameSet(base.kept.map(keptKey), kept.map(keptKey))
+  ) {
+    // Nothing different: spend no write on a manifest that says the same thing.
+    return { ok: true, manifest: base, sent, uploaded };
   }
 
   const next: CloudManifest = {
     format: MANIFEST_FORMAT,
-    copy: manifest?.copy ?? newCopyId(),
-    version: (manifest?.version ?? 0) + 1,
+    schema: Math.max(base?.schema ?? DATA_SCHEMA, DATA_SCHEMA),
+    copy: base?.copy ?? copy ?? randomId(),
+    version: (base?.version ?? 0) + 1,
+    save: randomId(),
     updatedAt: now,
     device,
     parts: nextParts,
+    kept,
   };
-  if (!(await store.commitManifest(manifest?.version ?? null, next))) {
-    await clearUnnamed(store, uploadedIds);
-    return { ok: false, reason: "moved" };
+  let committed = await store.commitManifest(
+    base ? { version: base.version, copy: base.copy } : null,
+    next
+  );
+  if (!committed) {
+    // A commit that landed, whose reply was lost and retried, reads as refused: found by its id.
+    let current: CloudManifest | null | undefined;
+    try {
+      current = await store.readManifest();
+    } catch {
+      current = undefined;
+    }
+    if (current?.save === next.save) {
+      committed = true;
+    } else {
+      // These pieces are this save's alone, by name, so a copy that is not this save's cannot be
+      // naming them. Without an answer that it is not, they stay, recorded, for `sweepUploads`.
+      if (current !== undefined) {
+        await inBatches(uploads, (id) => store.deleteChunk(id).catch(() => undefined));
+      }
+      return { ok: false, reason: "moved" };
+    }
   }
 
-  const kept = chunkIdsOf(next);
-  for (const id of chunkIdsOf(manifest)) {
-    if (kept.has(id)) continue;
-    await store.deleteChunk(id).catch(() => undefined);
-  }
-  return { ok: true, state: matched(next, {}, now), sent, uploaded };
+  const named = chunkIdsOf(next);
+  const orphans = [...chunkIdsOf(base)].filter((id) => !named.has(id));
+  await inBatches(orphans, (id) => store.deleteChunk(id).catch(() => undefined));
+  return { ok: true, manifest: next, sent, uploaded };
 };
 
 /**
- * After a save that did not land: the pieces it uploaded, less any the copy that did land names
- * (the same value saved from another device is the same pieces).
+ * Pieces a save uploaded and never committed, the page closed or the save cut off before its
+ * manifest went: every recorded name the current manifest does not use. Their names are the
+ * interrupted upload's own, so none can belong to a value the copy names.
  */
-const clearUnnamed = async (store: CloudStore, ids: readonly string[]): Promise<void> => {
-  if (ids.length === 0) return;
-  let named: Set<string>;
-  try {
-    named = chunkIdsOf(await store.readManifest());
-  } catch {
-    return;
-  }
-  for (const id of ids) {
-    if (!named.has(id)) await store.deleteChunk(id).catch(() => undefined);
-  }
+export const sweepUploads = async (
+  store: CloudStore,
+  manifest: CloudManifest | null,
+  recorded: readonly string[]
+): Promise<void> => {
+  const named = chunkIdsOf(manifest);
+  await inBatches(
+    recorded.filter((id) => !named.has(id)),
+    (id) => store.deleteChunk(id).catch(() => undefined)
+  );
 };
 
-/**
- * How a copy is taken:
- * - `update`: the copy's changes since this device last met it. What this device changed and has
- *   not sent is left for it to send; a value the copy dropped is removed here only if this device
- *   had synced it; a value this device holds that the copy never had is left alone.
- * - `replace`: this device becomes the copy exactly. The user's answer, in the cloud's favour, to
- *   which copy wins.
- */
-export type TakeMode = "update" | "replace";
-
-export type TakeResult =
-  | { ok: true; state: SyncState; downloaded: number }
+export type FetchResult =
+  | { ok: true; values: Map<string, unknown> }
   /**
-   * `missing`: a piece was not there (the copy moved on while it was being read). `refused`: this
-   * device would not store it: out of space, or a value it does not know how to hold.
+   * `missing`: a piece is not there. `damaged`: the pieces do not make the value the manifest
+   * names. Either way nothing arrived, and nothing has been written.
    */
-  | { ok: false; reason: "missing" | "refused" };
+  | { ok: false; reason: "missing" | "damaged"; key: string };
 
 /**
- * Makes this device's data the cloud copy's, in the way `mode` says.
- *
- * A value whose fingerprint this device already holds, and has not changed since, is not fetched.
- * Nothing is written until every value has arrived and unpacked, so a copy that fails to download
- * leaves this device exactly as it was.
+ * The values of `parts`, downloaded, unpacked and each checked against its fingerprint. Everything
+ * arrives before anything is returned, so a take that fails part way writes nothing.
  */
-export const takeCloud = async ({
+export const fetchValues = async ({
   store,
-  local,
-  state,
-  manifest,
-  now,
-  mode,
+  parts,
   onProgress,
 }: {
   store: CloudStore;
-  local: LocalSource;
-  state: SyncState;
-  manifest: CloudManifest;
-  now: string;
-  mode: TakeMode;
+  parts: readonly ManifestPart[];
   onProgress?: Progress;
-}): Promise<TakeResult> => {
-  // Fingerprints are only this device's own for the copy it met; for another copy it knows none.
-  const known = state.copy === manifest.copy ? state.hashes : {};
-  const owed = mode === "update" ? state.dirty : {};
-  const wanted = manifest.parts.filter(
-    (part) => !(part.key in owed) && !(known[part.key] === part.hash && !(part.key in state.dirty))
-  );
+}): Promise<FetchResult> => {
   const values = new Map<string, unknown>();
-  for (const [index, part] of wanted.entries()) {
-    const chunks = await Promise.all(
-      Array.from({ length: part.chunks }, (_, at) => store.getChunk(chunkId(part.hash, at)))
+  for (const [index, part] of parts.entries()) {
+    const chunks: (Uint8Array | null)[] = new Array<Uint8Array | null>(part.chunks).fill(null);
+    await inBatches(
+      Array.from({ length: part.chunks }, (_, at) => at),
+      async (at) => {
+        chunks[at] = await store.getChunk(chunkId(part.id, at));
+      }
     );
-    if (chunks.some((chunk) => chunk === null)) return { ok: false, reason: "missing" };
-    values.set(part.key, await unpackChunks(chunks as Uint8Array[]));
-    onProgress?.(index + 1, wanted.length);
+    if (chunks.some((chunk) => chunk === null)) {
+      return { ok: false, reason: "missing", key: part.key };
+    }
+    try {
+      values.set(part.key, await unpackChunks(chunks as Uint8Array[], part.hash));
+    } catch (error) {
+      if (error instanceof DamagedValueError) {
+        return { ok: false, reason: "damaged", key: part.key };
+      }
+      throw error;
+    }
+    onProgress?.(index + 1, parts.length);
   }
-  const named = new Set(manifest.parts.map((part) => part.key));
-  const leaving =
-    mode === "replace"
-      ? local.keys().filter((key) => !named.has(key))
-      : Object.keys(known).filter((key) => !named.has(key) && !(key in owed));
-  for (const key of leaving) values.set(key, null);
-  if (values.size > 0 && !(await local.apply(values))) return { ok: false, reason: "refused" };
-  return { ok: true, state: matched(manifest, { ...owed }, now), downloaded: wanted.length };
-};
-
-/**
- * Whether this device's copy is the cloud's already, without sending or fetching anything: every
- * key it holds has the fingerprint the manifest names, and it holds every key the manifest names.
- * For a device meeting a cloud copy for the first time, which need not ask which one wins when
- * they are the same.
- */
-export const matchesCloud = async (
-  local: LocalSource,
-  manifest: CloudManifest
-): Promise<boolean> => {
-  const keys = local.keys();
-  if (keys.length !== manifest.parts.length) return false;
-  const byKey = new Map(manifest.parts.map((part) => [part.key, part.hash]));
-  for (const key of keys) {
-    const hash = byKey.get(key);
-    if (!hash || hash !== (await hashValue(await local.read(key)))) return false;
-  }
-  return true;
+  return { ok: true, values };
 };

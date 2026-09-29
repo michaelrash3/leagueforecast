@@ -4,6 +4,7 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTeamRankingsStore } from "./lib/teamRankingsStorage";
 import { bootCloud } from "./lib/cloud/cloudSession";
+import { listenForTakes } from "./lib/cloud/cloudTabs";
 import "./index.css";
 
 const mount = () => {
@@ -55,10 +56,18 @@ const showBootLine = (text: string): void => {
 };
 
 /*
- * Then, for a browser that keeps a cloud copy, that copy: a newer one saved from another device is
- * brought in before the app draws, so it opens on the latest data rather than swapping it in under
- * whoever is looking. `bootCloud` never throws and waits on the network for a few seconds at most
- * (`STARTUP_WAIT_MS`); a browser that has never signed in never runs Firebase at all.
+ * Before anything reads storage, this tab starts listening for another tab taking a copy in from
+ * the cloud: whether or not this one is signed in, it reloads then, rather than write what it read
+ * back over the newer data (`cloudTabs.ts`).
+ */
+listenForTakes();
+
+/*
+ * Then, for a browser that keeps a cloud copy, that copy's League Standings: another device's
+ * newer seasons are brought in before the app draws, so it opens on the latest data rather than
+ * swapping it in under whoever is looking. `bootCloud` never throws and waits on the network for a
+ * few seconds at most (`STARTUP_WAIT_MS`, `STARTUP_TAKE_MS`); a browser that has never signed in
+ * never runs Firebase at all. Team Rankings' pool is brought in when Team Rankings opens.
  */
 initTeamRankingsStore()
   .catch(() => undefined)

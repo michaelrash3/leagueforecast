@@ -7123,6 +7123,17 @@ export const poolSignatureOf = (
 ): string =>
   `r${TIDY_RULES_VERSION}|${counts.ageGroups}|${counts.teams}|${counts.games}|${latestImport ?? ""}`;
 
+/**
+ * Whether a stored stamp was written by tidy rules newer than this build's. Such a pool is left
+ * alone: this build's older rules would undo some of what the newer ones did, and with the cloud
+ * copy carrying the pool between devices, a device on each build would take the other's pool and
+ * tidy it back, every time either opened, each time re-sending the whole pool.
+ */
+export const stampFromNewerRules = (stamp: string | null): boolean => {
+  const rules = /^r(\d+)\|/.exec(stamp ?? "");
+  return rules !== null && Number(rules[1]) > TIDY_RULES_VERSION;
+};
+
 export const poolSignature = (state: GcImportState): string =>
   poolSignatureOf(
     { ageGroups: state.ageGroups.length, teams: state.teams.length, games: state.games.length },

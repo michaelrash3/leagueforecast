@@ -15,6 +15,7 @@
  */
 
 import { emptyPoolStore, type EmptiedPool } from "./teamRankingsStorage";
+import { forgetCloudCopyHere } from "./cloud/cloudState";
 
 /** What every key this app writes to `localStorage` begins with. */
 export const APP_KEY_PREFIXES = ["league_", "lf_", "nkb_"] as const;
@@ -35,8 +36,13 @@ export const forgetAppKeys = (storage: Storage): number => {
  * there saying the pool lives in IndexedDB is what lets a second try find whatever the first left,
  * and a reset that emptied League Standings but not the pool would be neither the old app nor a new
  * one.
+ *
+ * Before either, this browser stops keeping a cloud copy. The reset empties this browser, as its
+ * dialog says, and nothing else: with the copy still kept, every key it removed was a change owed
+ * to the cloud, and a reset that stopped part way would have sent the removals to every device.
  */
 export const resetApp = async (storage: Storage = localStorage): Promise<EmptiedPool> => {
+  forgetCloudCopyHere();
   const pool = await emptyPoolStore();
   if (pool === "done") forgetAppKeys(storage);
   return pool;

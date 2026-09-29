@@ -1,5 +1,6 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
+import { mayWrite } from "./cloud/cloudGuard";
 
 type DataKey = "teams" | "matchups" | "logs" | "bracketLogs" | "settings" | "undo";
 
@@ -52,10 +53,18 @@ export const onLeagueWrite = (handler: (() => void) | null): void => {
 const isUndoKey = (key: string): boolean =>
   key.endsWith(`_undo_v${V}`) || key === `league_undo_snapshot_v${V}`;
 
+/**
+ * The keys the cloud copy carries. The season a device has open is that device's own, like its
+ * theme: switching it is no change to the league, and the cloud copy does not carry it
+ * (`cloudLocal.ts`). An undo snapshot is scratch for one action on one device.
+ */
+const isShared = (key: string): boolean => !isUndoKey(key) && key !== ACTIVE_KEY;
+
+/** Writes that are the cloud copy arriving, not changes made here: counted while one runs. */
+let arriving = 0;
+
 const noteLeagueWrite = (key: string): void => {
-  // The season a device has open is that device's own, like its theme: switching it is no change
-  // to the league, and the cloud copy does not carry it (`cloudLocal.ts`).
-  if (!leagueWriteListener || isUndoKey(key) || key === ACTIVE_KEY) return;
+  if (!leagueWriteListener || arriving > 0 || !isShared(key)) return;
   try {
     leagueWriteListener();
   } catch {
@@ -75,9 +84,14 @@ const safeGet = (key: string): string | null => {
  * season value back as it opens, the same text it has just read, and each of those would otherwise
  * be a save to send on every start.
  */
+/*
+ * A tab that read its seasons before another tab took a newer copy in may not write them
+ * (`cloudGuard.ts`): its values are older than what is stored, and would go back over it.
+ */
 const safeSet = (key: string, value: string): boolean => {
   try {
     const changed = localStorage.getItem(key) !== value;
+    if (changed && isShared(key) && !mayWrite("league")) return false;
     localStorage.setItem(key, value);
     if (changed) noteLeagueWrite(key);
     return true;
@@ -88,6 +102,7 @@ const safeSet = (key: string, value: string): boolean => {
 const safeRemove = (key: string) => {
   try {
     const held = localStorage.getItem(key) !== null;
+    if (held && isShared(key) && !mayWrite("league")) return;
     localStorage.removeItem(key);
     if (held) noteLeagueWrite(key);
   } catch {
@@ -395,10 +410,22 @@ export const readLeagueSnapshot = (): LeagueSnapshot => {
  * cleared first, so a season absent from the backup does not survive the restore. Refuses an
  * empty season list rather than leaving the app with no season to open.
  */
-export const replaceLeagueSnapshot = (snapshot: LeagueSnapshot): boolean => {
+export const replaceLeagueSnapshot = (
+  snapshot: LeagueSnapshot,
+  { fromCloud = false }: { fromCloud?: boolean } = {}
+): boolean => {
   ensureInitialized();
   if (!snapshot.seasons.length) return false;
+  // The cloud copy's own seasons arriving are no change made here, and owe it nothing.
+  if (fromCloud) arriving += 1;
+  try {
+    return replaceSeasons(snapshot);
+  } finally {
+    if (fromCloud) arriving -= 1;
+  }
+};
 
+const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
   readSeasons().forEach((season) => {
     DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(season.id, dataKey)));
   });
