@@ -27,3 +27,40 @@ jobs:
       # No install: the handler and what it imports are the app's own files, run by Node as they
       # are (`scripts/tsRegister.mjs`).
       - run: npm run gc:reach -- --rounds 10
+
+  # Where the live site sends its pulls: a build with VITE_GC_PROXY_URL set names the Firebase
+  # proxy in its page's policy and its script (`contentPolicy.ts`, `gcProxyEndpoint`), and one
+  # without calls the Vercel function at /api/gc-team, which Vercel bills in CPU. And whether the
+  # live site signs in with the project's own key (`FIREBASE_WEB_CONFIG`).
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Where the live site sends its pulls
+        run: |
+          site=https://leagueforecast.vercel.app
+          page=$(curl -fsS "$site/")
+          echo "The live page may connect to: $(printf '%s' "$page" | grep -o "connect-src[^;\"]*")"
+          entry=$(printf '%s' "$page" | grep -o '/assets/index-[^"]*\.js' | head -1)
+          code=$(curl -fsS "$site$entry")
+          # The pull code may sit in a chunk loaded later, so every chunk the entry names is read.
+          for chunk in $(printf '%s' "$code" | grep -o 'assets/[A-Za-z0-9_.-]*\.js' | sort -u); do
+            code="$code
+          $(curl -fsS "$site/$chunk")"
+          done
+          proxies=$(printf '%s' "$code" | grep -o 'https://[a-z0-9.-]*\(cloudfunctions\.net\|run\.app\)[^"`]*' | sort -u)
+          if [ -n "$proxies" ]; then
+            echo "Pulls go to the Firebase proxy: $proxies"
+          else
+            echo "Pulls go to the Vercel function (/api/gc-team)."
+          fi
+          key=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.apiKey);')
+          if printf '%s' "$code" | grep -qF "$key"; then
+            echo "The live site signs in with the project's own key."
+          else
+            echo "The live site does not carry the project's key yet."
+          fi
