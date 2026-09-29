@@ -383,6 +383,52 @@ describe("resolveOrCreateTeam", () => {
     expect(result.teamId).toBe("S-VELO");
     expect(result.teams[0]!.name).toBe("VelociRabbits");
   });
+
+  it("finds and makes the same teams whether or not the caller keeps the pool's ids", () => {
+    // A pool with a name twice (the first is the one found), stand-ins, a name stored with its age
+    // label, and names whose ids would collide; then names found, healed, and made, in turn.
+    const pool: ScoutTeam[] = [
+      team("S-ICEC", "Ice Cats"),
+      team("S-ICEC2", "ice cats 9U"),
+      { id: "S-TBD", name: "TBD", placeholder: true },
+      team("S-VELO", "VelociRabbits 9U"),
+      ...Array.from({ length: 200 }, (_, at) => team(`S-T${at}`, `Team ${at % 150} Blue`)),
+    ];
+    const names = [
+      "ICE CATS",
+      "Ice Castles",
+      "Ice Castles 10u",
+      "velocirabbits",
+      "TBD",
+      "TBD",
+      "Team 7 Blue 11U",
+      "Team 149 blue",
+      "Thunder Hawks",
+      "Thunder Hawks",
+      "Thunder  Hawkes",
+      "Team 150 Blue",
+    ];
+    const lookUp = (keepIds: boolean) => {
+      let teams = pool;
+      const ids = keepIds ? new Set(teams.map((entry) => entry.id)) : undefined;
+      const found = names.map((name) => {
+        const result = resolveOrCreateTeam(name, teams, ids);
+        teams = result.teams;
+        return result.teamId;
+      });
+      return { found, teams };
+    };
+    const without = lookUp(false);
+    expect(lookUp(true)).toEqual(without);
+    // What finding by name has always meant: the first club, stand-ins aside, of the name's key.
+    expect(without.found.slice(0, 1)).toEqual(["S-ICEC"]);
+    expect(without.found[3]).toBe("S-VELO");
+    expect(without.found[6]).toBe("S-T7");
+    expect(without.found[7]).toBe("S-T149");
+    expect(without.found[4]).not.toBe(without.found[5]);
+    expect(without.found[8]).toBe(without.found[9]);
+    expect(new Set(without.teams.map((entry) => entry.id)).size).toBe(without.teams.length);
+  });
 });
 
 describe("isScoutGamePlayed", () => {

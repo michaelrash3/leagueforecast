@@ -1486,8 +1486,11 @@ and **Ask again** forgets them. It is a cache of GameChanger's answers, like the
 too-young list beside it, and stays out of backups.
 
 **The tidy runs by itself.** At the end of every pull, and whenever the app opens
-on a pool whose shape differs from the one it last tidied, the whole pool is
-gone over until a pass finds nothing more: games outside their squad year are
+on a pool whose shape differs from the one it last tidied (once the page's first
+board is up, since handing the tidy the pool is a copy of all of it on the page's
+own thread, and made while the board was being asked for it held the rows back
+by 1.5 s on a nationwide pool), the whole pool is gone over until a pass finds
+nothing more: games outside their squad year are
 deleted; a stand-in is settled by the other club's schedule (a mirrored result
 settles it even when the two coaches typed different start times, and two
 results that contradict are folded into one only at the very same start time,

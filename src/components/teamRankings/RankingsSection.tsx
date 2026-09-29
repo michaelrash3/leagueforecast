@@ -162,9 +162,13 @@ export function RankingsSection({
               ? unrankedLevelNote
               : !hasAgeGroups
                 ? "Set up an age group in Setup, then add a game to start ranking teams."
-                : segment && segment.played === 0 && segment.otherPlayed > 0
-                  ? `Nothing has been played in ${segment.name} yet. ${segment.otherName} has ${segment.otherPlayed.toLocaleString()} game${segment.otherPlayed === 1 ? "" : "s"} — the two halves are ranked separately, so this board fills up when the season reaches it.`
-                  : "Add a game in Games to start ranking teams for this age group."}
+                : // The first fit of a large pool takes seconds, and the board is empty until it
+                  // comes back: it is not a page with no games.
+                  rankingsStale
+                  ? "Ranking the teams…"
+                  : segment && segment.played === 0 && segment.otherPlayed > 0
+                    ? `Nothing has been played in ${segment.name} yet. ${segment.otherName} has ${segment.otherPlayed.toLocaleString()} game${segment.otherPlayed === 1 ? "" : "s"} — the two halves are ranked separately, so this board fills up when the season reaches it.`
+                    : "Add a game in Games to start ranking teams for this age group."}
           </p>
         </div>
       ) : (
