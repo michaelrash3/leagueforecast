@@ -2659,6 +2659,59 @@ describe("mergeScoutTeams", () => {
     expect(out.teams.find((t) => t.id === "A")).toBe(teams[0]);
   });
 
+  it("marks each row that named a stand-in folded into a pulled club as naming the club", () => {
+    const standIn: ScoutTeam = { ...team("S", "Aces"), nameOnly: true };
+    const games: ScoutGame[] = [
+      filed("C", "S", 4, 2, { teamId: "gcCubs", gameId: "c1" }),
+      // The Dukes' copy, holding a row of their other schedule that faced the stand-in too.
+      {
+        ...filed("D", "S", 1, 0, { teamId: "gcDukes", gameId: "d1" }),
+        alsoFrom: ["gcDukes2"],
+        alsoRows: [{ teamId: "gcDukes2", gameId: "d2", ownScore: 1, opponentScore: 0 }],
+      },
+      {
+        ...filed("C", "D", 3, 3, { teamId: "gcCubs", gameId: "c2" }),
+        alsoFrom: ["gcDukes"],
+        alsoRows: [
+          { teamId: "gcDukes", gameId: "d3", ownScore: 3, opponentScore: 3, onSideB: true },
+        ],
+      },
+    ];
+    const out = mergeScoutTeams("S", "A", [...teams, standIn, team("D", "Dukes")], games, []);
+    expect(out.games[0]).toMatchObject({ teamBId: "A", namedByAvatar: "A" });
+    expect(out.games[1]).toMatchObject({ teamBId: "A", namedByAvatar: "A" });
+    expect(out.games[1]?.alsoRows?.[0]?.namedByAvatar).toBe("A");
+    // A game the stand-in was not in is left as it was.
+    expect(out.games[2]).toBe(games[2]);
+    // A slot folded into the club is the same word from the user, and so is a team made by hand.
+    const slot: ScoutTeam = { ...team("S", "TBD"), placeholder: true };
+    const fromSlot = mergeScoutTeams("S", "A", [...teams, slot], games.slice(0, 1), []);
+    expect(fromSlot.games[0]?.namedByAvatar).toBe("A");
+    const byHand = mergeScoutTeams("S", "A", [...teams, team("S", "Aces")], games.slice(0, 1), []);
+    expect(byHand.games[0]?.namedByAvatar).toBe("A");
+    // A game entered by hand stands on no schedule's row, so there is no row to mark.
+    const entered = mergeScoutTeams(
+      "S",
+      "A",
+      [...teams, standIn],
+      [game("C", "S", 1, 2, "u9")],
+      []
+    );
+    expect(entered.games[0]?.teamBId).toBe("A");
+    expect(entered.games[0]?.namedByAvatar).toBeUndefined();
+  });
+
+  it("marks nothing when the team folded in was pulled, or the survivor was not", () => {
+    const games = [filed("C", "B", 4, 2, { teamId: "gcCubs", gameId: "c1" })];
+    expect(mergeScoutTeams("B", "A", teams, games, []).games[0]?.namedByAvatar).toBeUndefined();
+    const one: ScoutTeam = { ...team("S", "Aces"), nameOnly: true };
+    const other: ScoutTeam = { ...team("T", "Aces 2"), nameOnly: true };
+    const onOne = [filed("C", "S", 4, 2, { teamId: "gcCubs", gameId: "c1" })];
+    const out = mergeScoutTeams("S", "T", [...teams, one, other], onOne, []);
+    expect(out.games[0]?.teamBId).toBe("T");
+    expect(out.games[0]?.namedByAvatar).toBeUndefined();
+  });
+
   it("is what renameScoutTeam does when the new name is taken", () => {
     const games = [game("B", "C", 4, 9, "u9")];
     const renamed = renameScoutTeam("B", "Aces", teams, games, []);
