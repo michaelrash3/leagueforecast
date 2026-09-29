@@ -76,7 +76,9 @@ test("on a phone every bracket score box sits on screen and the title odds read 
  * own under the season picker whenever the season's name was long — the demo's is — and on Team
  * Rankings always, pushing the page 54px down the first screen: measured from the title, the demo's
  * Standings started at 435.5px and Team Rankings at 151px, against 381.5px and 97px with the toggle
- * in the title row, the logo's size, where it costs nothing.
+ * in the title row, the logo's size, where it costs nothing. The cloud button shares that row, and
+ * beside it the title at its full size took a second line, starting Standings at 409.5px; a size
+ * smaller on a phone it keeps to one, and Standings starts at 379.5px.
  */
 test.describe("the header on a phone", () => {
   test.use({ viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });

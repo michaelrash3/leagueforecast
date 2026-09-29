@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import indexHtml from "../../../index.html?raw";
+import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "../cloud/cloudConfig";
 import { widenPolicy, widenPolicyInHtml } from "../contentPolicy";
 
 const BASE = /http-equiv="Content-Security-Policy"\s+content="([^"]*)"/.exec(indexHtml)?.[1] ?? "";
@@ -11,18 +12,18 @@ const directive = (policy: string, name: string): string[] | undefined =>
     .find(([first]) => first === name)
     ?.slice(1);
 
-const FIREBASE = `const firebaseConfig = {
+const FIREBASE: FirebaseWebConfig = {
   apiKey: "demo-key",
   authDomain: "demo-project.firebaseapp.com",
   projectId: "demo-project",
-  appId: "1:1:web:1"
-};`;
+  appId: "1:1:web:1",
+};
 
 describe("the page's content policy", () => {
   it("is index.html's, to the character, for a build with nothing configured", () => {
     expect(BASE).toContain("connect-src 'self'");
     expect(widenPolicy(BASE, {})).toBe(BASE);
-    expect(widenPolicy(BASE, { VITE_GC_PROXY_URL: "", VITE_FIREBASE_CONFIG: "" })).toBe(BASE);
+    expect(widenPolicy(BASE, { VITE_GC_PROXY_URL: "", firebase: null })).toBe(BASE);
   });
 
   it("lets pulls reach a proxy on another origin, and changes nothing else", () => {
@@ -59,7 +60,7 @@ describe("the page's content policy", () => {
   });
 
   it("lets a build that keeps a cloud copy sign in to Google and reach Firestore", () => {
-    const policy = widenPolicy(BASE, { VITE_FIREBASE_CONFIG: FIREBASE });
+    const policy = widenPolicy(BASE, { firebase: FIREBASE });
     expect(directive(policy, "connect-src")).toEqual([
       "'self'",
       "https://firestore.googleapis.com",
@@ -76,17 +77,24 @@ describe("the page's content policy", () => {
     expect(directive(policy, "default-src")).toEqual(directive(BASE, "default-src"));
   });
 
-  it("adds nothing for a Firebase setting missing what sign-in needs", () => {
-    const half = FIREBASE.replace(/authDomain: "[^"]*",/, "");
-    expect(widenPolicy(BASE, { VITE_FIREBASE_CONFIG: half })).toBe(BASE);
-    const broken = FIREBASE.replace("demo-project.firebaseapp.com", "demo project.example");
-    expect(widenPolicy(BASE, { VITE_FIREBASE_CONFIG: broken })).toBe(BASE);
+  it("opens the frame to the app's own project, the one its sign-in goes to", () => {
+    const policy = widenPolicy(BASE, { firebase: FIREBASE_WEB_CONFIG });
+    expect(directive(policy, "frame-src")).toEqual([
+      "'self'",
+      `https://${FIREBASE_WEB_CONFIG.authDomain}`,
+    ]);
+  });
+
+  it("adds nothing for an auth domain that is not a plain host", () => {
+    for (const authDomain of ["demo project.example", "demo.example; script-src *", ""]) {
+      expect(widenPolicy(BASE, { firebase: { ...FIREBASE, authDomain } })).toBe(BASE);
+    }
   });
 
   it("holds both at once, each source once", () => {
     const policy = widenPolicy(BASE, {
       VITE_GC_PROXY_URL: "https://firestore.googleapis.com/somewhere",
-      VITE_FIREBASE_CONFIG: FIREBASE,
+      firebase: FIREBASE,
     });
     const connect = directive(policy, "connect-src") ?? [];
     expect(connect.filter((source) => source === "https://firestore.googleapis.com")).toHaveLength(

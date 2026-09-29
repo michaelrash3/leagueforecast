@@ -42,7 +42,7 @@ export function SettingsView({
   onSummaryMode,
   onOpenCloud,
 }: {
-  /** Opens the cloud copy's panel; absent in a build with no Firebase setting. */
+  /** Opens the cloud copy's panel; absent while the cloud is off. */
   onOpenCloud?: () => void;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DamagedValueError, hashJson, hashValue, packHashed, unpackChunks } from "../cloudPack";
-import { parseFirebaseConfig } from "../cloudConfig";
+import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "../cloudConfig";
+import type { FirebaseCloud } from "../firebaseCloud";
 import {
   coerceManifest,
   DATA_SCHEMA,
@@ -9,10 +10,11 @@ import {
   MANIFEST_FORMAT,
   type KeptPart,
 } from "../cloudManifest";
+import { memoryCloud } from "./memoryCloud";
 
 /*
  * The small parts of keeping data in the cloud: a value's fingerprint and packing, the Firebase
- * setting as somebody pastes it, and a manifest read back from Firestore.
+ * project the app signs in to, and a manifest read back from Firestore.
  */
 describe("a packed value", () => {
   it("comes back as it went, and says what it is by its content", async () => {
@@ -36,40 +38,49 @@ describe("a packed value", () => {
   });
 });
 
-describe("the Firebase setting as it is pasted", () => {
-  const fields = {
-    apiKey: "AIzaSyExampleExampleExample000000",
-    authDomain: "league-forecast-youth.firebaseapp.com",
-    projectId: "league-forecast-youth",
-    appId: "1:123456789:web:abcdef",
-  };
+describe("the Firebase project the app keeps its copy in", () => {
+  it("is one project's web app, with a key of the form Google issues", () => {
+    const { apiKey, appId, messagingSenderId } = FIREBASE_WEB_CONFIG;
+    // "AIza" and 35 more of these: a key cut short, or carrying a quote or a space from wherever it
+    // was copied, is turned down by sign-in as not valid.
+    expect(apiKey).toMatch(/^AIza[\w-]{35}$/);
+    // The app's id carries its project's number, so settings from two projects do not pass.
+    expect(appId.split(":")[1]).toBe(messagingSenderId);
+  });
 
-  it("reads the console's block, braces and all", () => {
-    const pasted = `const firebaseConfig = {
-  apiKey: "${fields.apiKey}",
-  authDomain: "${fields.authDomain}",
-  projectId: "${fields.projectId}",
-  storageBucket: "league-forecast-youth.firebasestorage.app",
-  messagingSenderId: "123456789",
-  appId: "${fields.appId}",
-  measurementId: "G-XXXX"
-};`;
-    expect(parseFirebaseConfig(pasted)).toEqual({
-      ...fields,
-      storageBucket: "league-forecast-youth.firebasestorage.app",
-      messagingSenderId: "123456789",
+  it("is the one the app offers and signs in with, with nothing set for the build", async () => {
+    const items = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
     });
-  });
-
-  it("reads JSON too", () => {
-    expect(parseFirebaseConfig(JSON.stringify(fields))).toEqual(fields);
-  });
-
-  it("is nothing when a field the app needs is missing", () => {
-    const { appId: _gone, ...rest } = fields;
-    expect(parseFirebaseConfig(JSON.stringify(rest))).toBeNull();
-    expect(parseFirebaseConfig("")).toBeNull();
-    expect(parseFirebaseConfig(undefined)).toBeNull();
+    const session = await import("../cloudSession");
+    try {
+      await session.bootCloud();
+      expect(session.cloudStatus()).toEqual({ kind: "none" });
+      let opened: FirebaseWebConfig | null = null;
+      const cloud: FirebaseCloud = {
+        account: async () => null,
+        // Closed without choosing an account.
+        signIn: async () => null,
+        signOut: async () => undefined,
+        onAccount: () => () => undefined,
+        owns: async () => false,
+        store: memoryCloud().store,
+      };
+      session.setCloudTestHooks({
+        openCloud: async (config) => {
+          opened = config;
+          return cloud;
+        },
+      });
+      await session.signInToCloud();
+      expect(opened).toBe(FIREBASE_WEB_CONFIG);
+    } finally {
+      session.resetCloudSession();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

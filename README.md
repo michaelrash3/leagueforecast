@@ -2773,8 +2773,8 @@ a password), were one ever turned on in the console, opens nothing.
 
 The header's cloud button signs in, and after that shows where the copy stands;
 **Settings → Your data on every device** opens the same panel. From then on it
-saves and loads by itself. A build without the Firebase setting shows neither
-and never runs Firebase.
+saves and loads by itself. A browser nobody has signed in on never downloads
+Firebase's code.
 
 **What travels.** Every League Standings season, as one value, and the Team
 Rankings pool key by key, as it is stored: the teams, the age groups, each
@@ -2916,11 +2916,14 @@ writes.
      production mode).
    - **Project settings → Your apps**: register a web app and copy its
      `firebaseConfig`.
-2. In Vercel, set `VITE_FIREBASE_CONFIG` to that block. It is not secret:
-   every visitor's browser downloads the same values, and the rules are what
-   keep the data private. `parseFirebaseConfig` reads the block as the console
-   shows it, just its braces, or JSON. The build also widens the page's
-   content policy for Firestore and Google sign-in (`src/lib/contentPolicy.ts`).
+2. Put its values in `FIREBASE_WEB_CONFIG` (`src/lib/cloud/cloudConfig.ts`).
+   They are not secret: every visitor's browser downloads the same values, and
+   the rules are what keep the data private. They were a Vercel setting
+   (`VITE_FIREBASE_CONFIG`) until the site, built from it, sent Google a key
+   sign-in turned down as not valid, which nothing outside Vercel's dashboard
+   could explain; in the source, every build has the values the repository
+   shows. The build widens the page's content policy for Firestore and Google
+   sign-in from the same values (`src/lib/contentPolicy.ts`).
 3. The rules deploy with the functions on merge (`firebase.yml`), tested there
    against the Firestore emulator first (`npm run test:rules` locally; it needs
    Java 21).

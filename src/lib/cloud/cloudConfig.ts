@@ -3,7 +3,7 @@
  *
  * None of this is secret. The console hands it to any page that asks, the app's bundle carries it
  * for anyone to read, and what keeps the data private is the Firestore rules (`firestore.rules`),
- * which let one signed-in account and nobody else near it. See README, "Your data on every device".
+ * which open the copy to a Google sign-in and nothing else. See README, "Your data on every device".
  */
 export type FirebaseWebConfig = {
   apiKey: string;
@@ -14,45 +14,21 @@ export type FirebaseWebConfig = {
   messagingSenderId?: string;
 };
 
-const REQUIRED = ["apiKey", "authDomain", "projectId", "appId"] as const;
-const OPTIONAL = ["storageBucket", "messagingSenderId"] as const;
-
 /**
- * Reads the setting as whoever set it is likely to have pasted it: the block the Firebase console
- * shows (`const firebaseConfig = { apiKey: "…", … };`, keys unquoted), just its braces, or JSON.
- * Null unless every field the app needs is there, so a half-pasted value switches the feature off
- * rather than failing on the first sign-in.
+ * The project this app keeps its copy in, written here rather than read from a build setting.
+ *
+ * It was a Vercel setting (`VITE_FIREBASE_CONFIG`), and the site built from it sent Google a key
+ * the sign-in service rejected ("API key not valid"), still after the setting was entered again,
+ * with nothing outside Vercel's dashboard able to show what the build had been given. These are the
+ * web app's settings as Firebase reports them for the project, and this key was accepted by the
+ * same sign-in service when tried from outside the site. Kept in the source, every build gets
+ * exactly these, and a change to them is a reviewed commit.
  */
-export const parseFirebaseConfig = (raw: string | undefined): FirebaseWebConfig | null => {
-  if (!raw) return null;
-  const found: Partial<Record<(typeof REQUIRED)[number] | (typeof OPTIONAL)[number], string>> = {};
-  for (const key of [...REQUIRED, ...OPTIONAL]) {
-    const match = new RegExp(`(?:^|[\\s{,])["']?${key}["']?\\s*:\\s*["']([^"']*)["']`).exec(raw);
-    const value = match?.[1]?.trim();
-    if (value) found[key] = value;
-  }
-  const { apiKey, authDomain, projectId, appId } = found;
-  if (!apiKey || !authDomain || !projectId || !appId) return null;
-  return {
-    apiKey,
-    authDomain,
-    projectId,
-    appId,
-    ...(found.storageBucket ? { storageBucket: found.storageBucket } : {}),
-    ...(found.messagingSenderId ? { messagingSenderId: found.messagingSenderId } : {}),
-  };
+export const FIREBASE_WEB_CONFIG: FirebaseWebConfig = {
+  apiKey: "AIzaSyBwv4yv7iKeTH-Vc8cuGANrXZ7kJ7qXDi0",
+  authDomain: "league-forecast-youth.firebaseapp.com",
+  projectId: "league-forecast-youth",
+  storageBucket: "league-forecast-youth.firebasestorage.app",
+  messagingSenderId: "528218953059",
+  appId: "1:528218953059:web:a614601c1b924b1ed9af56",
 };
-
-/**
- * The build's setting. Written out whole, as `configuredProxy` is and for the same reason: Vite
- * substitutes `import.meta.env.VITE_…` only where it appears literally, and a Node script, which
- * has no `import.meta.env`, lands in the catch and reads none.
- */
-export function configuredFirebase(): FirebaseWebConfig | null {
-  try {
-    const value: unknown = import.meta.env.VITE_FIREBASE_CONFIG;
-    return typeof value === "string" ? parseFirebaseConfig(value) : null;
-  } catch {
-    return null;
-  }
-}

@@ -5,12 +5,14 @@ import { defineConfig } from "vitest/config";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { FIREBASE_WEB_CONFIG } from "./src/lib/cloud/cloudConfig.ts";
 import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
 
 /**
  * Writes the page's Content-Security-Policy for this build: `index.html`'s, plus the origins the
- * build's own settings talk to (`src/lib/contentPolicy.ts`). Read from the environment Vite loaded,
- * which is the one the bundle is built from, so the two cannot disagree.
+ * build talks to (`src/lib/contentPolicy.ts`). The proxy is read from the environment Vite loaded,
+ * which is the one the bundle is built from, and the Firebase project from the module the bundle
+ * imports it from, so neither can disagree with what the page does.
  */
 const contentPolicy = (): Plugin => {
   let env: Record<string, string> = {};
@@ -19,7 +21,11 @@ const contentPolicy = (): Plugin => {
     configResolved: (config) => {
       env = config.env;
     },
-    transformIndexHtml: (html) => widenPolicyInHtml(html, env),
+    transformIndexHtml: (html) =>
+      widenPolicyInHtml(html, {
+        VITE_GC_PROXY_URL: env.VITE_GC_PROXY_URL,
+        firebase: FIREBASE_WEB_CONFIG,
+      }),
   };
 };
 
