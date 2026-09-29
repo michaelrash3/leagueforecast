@@ -27,6 +27,7 @@ import {
   saveLeagueBase,
   settleOwed,
   type DeviceCloudState,
+  type UploadBatch,
 } from "./cloudState";
 import { markTaken } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
@@ -126,6 +127,13 @@ const STARTUP_HINT_MS = 400;
 const LOCK_WAIT_MS = 45_000;
 /** The longest a failing save or look waits before trying again. */
 const MAX_BACKOFF_MS = 30 * 60_000;
+/**
+ * How long a save's uploaded pieces are left alone before a later save may clear them as never
+ * committed. A commit given up on here can still land: Firestore lets a transaction run for 270
+ * seconds. Cleared sooner, a commit that landed late would name pieces already gone, and every
+ * other device would find the copy missing a part.
+ */
+export const SWEEP_AFTER_MS = 10 * 60_000;
 
 const LOCK = "league_forecast_cloud";
 
@@ -144,6 +152,8 @@ let drawn = false;
 let poolOpen = false;
 /** Whether Team Rankings is on screen, so the pool can no longer arrive under it. */
 let poolShown = false;
+/** The pool being brought in step before Team Rankings draws, while it is. */
+let poolPreparing: Promise<void> | null = null;
 let lastInput = 0;
 let stopSession: (() => void) | null = null;
 
@@ -196,6 +206,7 @@ export const resetCloudSession = (): void => {
   drawn = false;
   poolOpen = false;
   poolShown = false;
+  poolPreparing = null;
   lastInput = 0;
   stopSession?.();
   stopSession = null;
@@ -354,6 +365,52 @@ const leagueOf = (raw: unknown): LeagueValue | null => {
   return parsed?.kind === "full" ? { seasons: parsed.backup.seasons } : null;
 };
 
+/**
+ * Whether this browser still keeps the record a settlement began with: not signed out, and not
+ * wiped by Delete everything, in this tab or another, while it ran. Asked after this device's
+ * values are read and before anything is sent, and again before anything is written here: values
+ * read from a wiped store would go to every device as the user's data, and a copy written into a
+ * wiped store would bring back what the user just deleted.
+ */
+const stillOurs = (state: DeviceCloudState, account: CloudAccount): boolean => {
+  const now = loadCloudState();
+  return now.enabled && now.uid === account.uid && now.device === state.device;
+};
+
+/**
+ * The record of one save's uploads, kept in the device's standing as a batch: noted as the pieces
+ * go up, stamped again when the save ends however it ends, and dropped once its commit is known.
+ */
+const uploadRecord = () => {
+  let first: string | undefined;
+  const isMine = (batch: UploadBatch) => first !== undefined && batch.ids[0] === first;
+  return {
+    note: (ids: string[]) => {
+      first = ids[0];
+      const state = loadCloudState();
+      saveCloudState({
+        ...state,
+        uploads: [...state.uploads.filter((batch) => !isMine(batch)), { ids, at: now() }],
+      });
+    },
+    /** The save is over: a commit it gave up on could land for a while yet, counted from now. */
+    stamp: () => {
+      if (first === undefined) return;
+      const state = loadCloudState();
+      saveCloudState({
+        ...state,
+        uploads: state.uploads.map((batch) => (isMine(batch) ? { ...batch, at: now() } : batch)),
+      });
+    },
+    /** The batches still to clear, less this save's, whose commit landed. */
+    without: (batches: readonly UploadBatch[]): UploadBatch[] =>
+      batches.filter((batch) => !isMine(batch)),
+  };
+};
+
+/** Whether `value` reads back as League Standings with a season in it, as every device must. */
+const holdsSeasons = (value: unknown): boolean => (leagueOf(value)?.seasons.length ?? 0) > 0;
+
 /** How long to wait before trying again after `failures` failures in a row. */
 const backoff = (): number => Math.min(60_000 * 2 ** Math.max(0, failures - 1), MAX_BACKOFF_MS);
 
@@ -399,6 +456,9 @@ type Merged = {
  * device's changes and keeps whatever a settlement is about to replace; then what arrived is
  * written here, less any key changed here while it downloaded, which is settled next time. So a
  * value is never overwritten here before the version it replaces is safe in the copy.
+ *
+ * Says whether it went as it should: false for a failure worth backing off from, such as a copy
+ * with a piece missing, which every look would otherwise download again up to the missing piece.
  */
 const settleLocked = async (
   current: Session,
@@ -406,26 +466,33 @@ const settleLocked = async (
   areas: readonly Area[],
   mode: ApplyMode,
   attempt = 0
-): Promise<void> => {
+): Promise<boolean> => {
   if (!local.usable()) {
     setStatus({ kind: "error", account, message: UNUSABLE });
-    return;
+    return false;
   }
   let state = loadCloudState();
-  if (!state.enabled || state.uid !== account.uid) return;
+  if (!state.enabled || state.uid !== account.uid) return true;
   const manifest = await current.store.readManifest();
-  if (state.uploads.length > 0) {
-    await sweepUploads(current.store, manifest, state.uploads);
-    state = { ...loadCloudState(), uploads: [] };
+  // Pieces of saves that never committed, once no commit of theirs can still land.
+  const due = state.uploads.filter((batch) => now() - batch.at > SWEEP_AFTER_MS);
+  if (due.length > 0) {
+    await sweepUploads(
+      current.store,
+      manifest,
+      due.flatMap((batch) => batch.ids)
+    );
+    const swept = new Set(due.map((batch) => batch.ids[0]));
+    const after = loadCloudState();
+    state = { ...after, uploads: after.uploads.filter((batch) => !swept.has(batch.ids[0])) };
     saveCloudState(state);
   }
   if (!manifest) {
     if (state.met.league || state.met.pool) {
       setStatus({ kind: "gone", account });
-      return;
+      return true;
     }
-    await firstCopy(current, account, state);
-    return;
+    return firstCopy(current, account, state);
   }
   kept = manifest.kept;
   // Refused before anything is downloaded: a copy from a newer build, or one naming keys this build
@@ -435,17 +502,26 @@ const settleLocked = async (
     manifest.parts.some((part) => part.key !== LEAGUE_PART && !isCloudPoolKey(part.key))
   ) {
     setStatus({ kind: "update", account });
-    return;
+    return false;
   }
 
   const owed = owedChanges();
+  // Each value as this settlement first read it, and its fingerprint: what the plan was made from.
+  const reads = new Map<string, Promise<unknown>>();
+  const readOnce = (key: string): Promise<unknown> => {
+    const known = reads.get(key);
+    if (known) return known;
+    const value = local.read(key);
+    reads.set(key, value);
+    return value;
+  };
   const hashes = new Map<string, Promise<string | null>>();
   const localHash = (key: string): Promise<string | null> => {
     const known = hashes.get(key);
     if (known) return known;
-    const hash = local
-      .read(key)
-      .then((value) => (value === null || value === undefined ? null : hashValue(value)));
+    const hash = readOnce(key).then((value) =>
+      value === null || value === undefined ? null : hashValue(value)
+    );
     hashes.set(key, hash);
     return hash;
   };
@@ -499,7 +575,7 @@ const settleLocked = async (
         message:
           "This device is too short of storage to hold Team Rankings from the cloud. Nothing here was changed.",
       });
-      return;
+      return false;
     }
     setStatus({ kind: "working", account, label: "Loading your data from the cloud…" });
     const result = await fetchValues({
@@ -522,7 +598,7 @@ const settleLocked = async (
             ? "Part of the cloud copy is missing. Nothing here was changed; it will try again."
             : "Part of the cloud copy is damaged. Nothing here was changed; open the app on the device that saved last, so it can save again.",
       });
-      return;
+      return false;
     }
     fetched = result.values;
   }
@@ -539,7 +615,7 @@ const settleLocked = async (
         account,
         message: "League Standings in the cloud copy could not be read. Nothing here was changed.",
       });
-      return;
+      return false;
     }
     const meeting = meetings.has("league");
     const prefer: Prefer = !meeting && (owed[LEAGUE_PART] ?? 0) > part.at ? "local" : "cloud";
@@ -573,6 +649,11 @@ const settleLocked = async (
         waiting = "unreadable";
         continue;
       }
+      // Seasons that would not read back would stop every device taking League Standings at all.
+      if (key === LEAGUE_PART && !holdsSeasons(value)) {
+        waiting = "unreadable";
+        continue;
+      }
       changes.push({ key, value: value ?? null, at });
       sentValues.set(key, value ?? null);
       if (action === "local-wins" && manifest.parts.some((part) => part.key === key)) {
@@ -582,6 +663,10 @@ const settleLocked = async (
       const value = await local.read(key);
       if (value !== null && value !== undefined) keepLost.push({ key, value, at });
     } else if (action === "merge" && merged) {
+      if (!holdsSeasons(merged.value)) {
+        waiting = "unreadable";
+        continue;
+      }
       changes.push({ key, value: merged.value, at: now() });
       sentValues.set(key, merged.value);
       if (merged.conflicts > 0) {
@@ -591,8 +676,12 @@ const settleLocked = async (
     }
   }
 
+  // Everything to send is read. Read from a store wiped since, it is not the user's data at all.
+  if (!stillOurs(state, account)) return true;
+
   let settled = manifest;
   let sent: Record<string, string | null> = {};
+  const batch = uploadRecord();
   if (changes.length > 0 || keepReplaced.length > 0 || keepLost.length > 0) {
     setStatus({ kind: "working", account, label: "Saving to the cloud…" });
     const result = await commitChanges({
@@ -603,7 +692,7 @@ const settleLocked = async (
       keepLost,
       device: state.device,
       now: nowIso(),
-      onUploads: (ids) => saveCloudState({ ...loadCloudState(), uploads: ids }),
+      onUploads: batch.note,
       onProgress: (done, total) =>
         setStatus({
           kind: "working",
@@ -611,16 +700,13 @@ const settleLocked = async (
           label: "Saving to the cloud…",
           progress: [done, total],
         }),
-    });
+    }).finally(batch.stamp);
     if (!result.ok) {
       // Another device saved first: decide again from what is there now. Twice at most, so two
       // devices saving in step cannot keep each other going.
-      if (attempt < 2) {
-        await settleLocked(current, account, areas, mode, attempt + 1);
-        return;
-      }
+      if (attempt < 2) return settleLocked(current, account, areas, mode, attempt + 1);
       setStatus({ kind: "error", account, message: "The cloud copy kept changing. Try again." });
-      return;
+      return false;
     }
     settled = result.manifest;
     sent = result.sent;
@@ -639,11 +725,17 @@ const settleLocked = async (
       arriving.set(key, fetched.has(key) ? fetched.get(key) : null);
     }
   }
-  // A startup take that arrives after the app drew waits to be asked, rather than land under it.
-  if (mode === "boot" && drawn && arriving.size > 0) {
-    arriving.clear();
-    deferred.add("league");
+  // Asked again now the download is done: the app may have drawn around a startup take, Team
+  // Rankings drawn around a gate's (its skip button, or a return to it), or a pull begun meanwhile.
+  // Such an area waits to be asked, rather than land under whoever is looking at it.
+  for (const area of new Set([...arriving.keys()].map(areaOf))) {
+    const busy = area === "pool" && (isPoolBusy() || (await poolJobElsewhere()));
+    if (mayApply(area, mode) && !busy) continue;
+    for (const key of [...arriving.keys()]) if (areaOf(key) === area) arriving.delete(key);
+    deferred.add(area);
   }
+  // Wiped or signed out meanwhile: what arrived is not written into a store the user emptied.
+  if (!stillOurs(state, account)) return true;
   const applied =
     arriving.size === 0 ||
     (await local.apply(arriving, merged ? { renamed: merged.renamed } : undefined));
@@ -672,7 +764,9 @@ const settleLocked = async (
       const hash = cloudHash(key);
       record(key, hash);
       clear();
-      if (key === LEAGUE_PART && hash) leagueShared = { hash, value: await local.read(key) };
+      // The seasons as the plan read them, whose fingerprint is the copy's: read again now, they
+      // could hold an edit made meanwhile, and a base holding it would drop it at the next merge.
+      if (key === LEAGUE_PART && hash) leagueShared = { hash, value: await readOnce(key) };
     } else if (arriving.has(key) && applied) {
       // A merge sent but not written here stays owed, against its old base: merged again next time.
       const hash = action === "merge" ? sent[key] : cloudHash(key);
@@ -702,7 +796,7 @@ const settleLocked = async (
     copy: settled.copy,
     version: settled.version,
     syncedAt: nowIso(),
-    uploads: [],
+    uploads: batch.without(next.uploads),
   });
   if (leagueShared) saveLeagueBase(leagueShared);
 
@@ -713,12 +807,15 @@ const settleLocked = async (
       message:
         "This browser would not store the cloud copy: it may be out of space. Your changes here are kept, and it will try again.",
     });
-    return;
+    return false;
   }
   for (const area of areas) {
     if (!deferred.has(area) && !(area === "pool" && poolBusy)) newer.delete(area);
   }
-  deferred.forEach((area) => newer.add(area));
+  // A pool this page has not opened is not offered: Team Rankings takes it in when it opens.
+  deferred.forEach((area) => {
+    if (area === "league" || poolOpen) newer.add(area);
+  });
   if (merged && merged.conflicts > 0) {
     notice =
       "One part of League Standings was changed differently on two devices. The later change was kept; the other is kept below, and can be brought back.";
@@ -733,11 +830,14 @@ const settleLocked = async (
     announceTaken();
     if (mode === "page") {
       reload();
-      return;
+      return true;
     }
   }
   setStatus(savedStatus(account, waiting));
-  if (owedHere() && !poolBusy) scheduleSave();
+  // Still owed for a reason that waiting 20 seconds will not change (a pull, a refused write, a
+  // failed read) is sent by what ends the wait, not by reading the copy again every 20 seconds.
+  if (owedHere() && !poolBusy && !waiting) scheduleSave();
+  return true;
 };
 
 /**
@@ -748,11 +848,11 @@ const firstCopy = async (
   current: Session,
   account: CloudAccount,
   state: DeviceCloudState
-): Promise<void> => {
+): Promise<boolean> => {
   if (isPoolBusy() || (await poolJobElsewhere())) {
     setStatus(savedStatus(account, "pull"));
     scheduleSave(60_000);
-    return;
+    return true;
   }
   const owed = owedChanges();
   const notStored = local.notStored();
@@ -762,17 +862,20 @@ const firstCopy = async (
     if (notStored.has(key)) continue;
     const value = await local.read(key);
     if (value === null || value === undefined) continue;
+    if (key === LEAGUE_PART && !holdsSeasons(value)) continue;
     changes.push({ key, value, at: owed[key] ?? now() });
     values.set(key, value);
   }
+  if (!stillOurs(state, account)) return true;
   setStatus({ kind: "working", account, label: "Saving to the cloud…" });
+  const batch = uploadRecord();
   const result = await commitChanges({
     store: current.store,
     base: null,
     changes,
     device: state.device,
     now: nowIso(),
-    onUploads: (ids) => saveCloudState({ ...loadCloudState(), uploads: ids }),
+    onUploads: batch.note,
     onProgress: (done, total) =>
       setStatus({
         kind: "working",
@@ -780,11 +883,10 @@ const firstCopy = async (
         label: "Saving to the cloud…",
         progress: [done, total],
       }),
-  });
+  }).finally(batch.stamp);
   if (!result.ok) {
     // Another browser made the first copy first: meet it.
-    await settleLocked(current, account, ["league", "pool"], "none");
-    return;
+    return settleLocked(current, account, ["league", "pool"], "none");
   }
   for (const change of changes) {
     const at = owed[change.key];
@@ -800,12 +902,13 @@ const firstCopy = async (
     copy: result.manifest.copy,
     version: result.manifest.version,
     syncedAt: nowIso(),
-    uploads: [],
+    uploads: batch.without(loadCloudState().uploads),
   });
   const league = hashes[LEAGUE_PART];
   if (league) saveLeagueBase({ hash: league, value: values.get(LEAGUE_PART) });
   kept = result.manifest.kept;
   setStatus(savedStatus(account));
+  return true;
 };
 
 /** Runs `work` for the signed-in owner under the lock, saying what went wrong if it fails. */
@@ -817,13 +920,17 @@ const withSession = async (
   const account = signedIn();
   if (!current || !account || !loadCloudState().enabled) return false;
   try {
+    let outcome: unknown;
     const ran = await exclusively(
       async () => {
-        await work(current, account);
+        outcome = await work(current, account);
       },
       { skip }
     );
-    if (ran) failures = 0;
+    // A settlement that went wrong without throwing (a piece missing, a write refused here) backs
+    // off like one that threw, rather than downloading the copy again at every look.
+    if (ran && outcome === false) failures += 1;
+    else if (ran) failures = 0;
     return ran;
   } catch (error) {
     failures += 1;
@@ -862,12 +969,18 @@ export const scheduleSave = (delay = SAVE_DELAY_MS): void => {
   }, delay);
 };
 
-/** Sends what this browser owes the cloud, taking in what it may as it goes. */
-export const saveNow = async (): Promise<void> => {
+/**
+ * Sends what this browser owes the cloud, taking in what it may as it goes. `asked` is the panel's
+ * Save now: somebody asking may have the page reload onto what arrives, since League Standings
+ * both devices changed cannot be sent before the two are merged here.
+ */
+export const saveNow = async ({ asked = false } = {}): Promise<void> => {
   const ran = await withSession((current, account) =>
-    settleLocked(current, account, ["league", "pool"], quietNow() ? "page" : "none")
+    settleLocked(current, account, ["league", "pool"], asked || quietNow() ? "page" : "none")
   );
-  if (!ran && signedIn() && owedHere()) scheduleSave(failures > 0 ? backoff() : SAVE_DELAY_MS);
+  if ((!ran || failures > 0) && signedIn() && owedHere()) {
+    scheduleSave(failures > 0 ? backoff() : SAVE_DELAY_MS);
+  }
 };
 
 /**
@@ -899,7 +1012,9 @@ export const lookAgain = async ({ forced = false, arriving = false } = {}): Prom
  * `onProgress` is for a line of text while nothing else is on screen.
  */
 export const bootCloud = async (onProgress?: (text: string) => void): Promise<void> => {
-  drawn = false;
+  // Run again after the app drew (Try again, after a sign-in lapsed), a take still may not land
+  // under it: only a first start, before the app draws, takes League Standings in silently.
+  if (!stopSession) drawn = false;
   if (!config()) return;
   const state = loadCloudState();
   if (!state.enabled) {
@@ -1021,12 +1136,18 @@ export const startCloudSession = (): (() => void) => {
  * with nothing on screen to swap it under. Resolves when done, or at once where there is nothing
  * to do; the caller draws either way. Once a page: after that the page's own looks keep it current.
  */
-export const preparePool = async (): Promise<void> => {
-  if (poolOpen) return;
+export const preparePool = (): Promise<void> => {
+  if (poolPreparing) return poolPreparing;
+  if (poolOpen) return Promise.resolve();
   poolOpen = true;
-  if (!signedIn()) return;
-  if (isPoolBusy() || (await poolJobElsewhere())) return;
-  await withSession((current, account) => settleLocked(current, account, ["pool"], "gate"));
+  poolPreparing = (async () => {
+    if (!signedIn()) return;
+    if (isPoolBusy() || (await poolJobElsewhere())) return;
+    await withSession((current, account) => settleLocked(current, account, ["pool"], "gate"));
+  })().finally(() => {
+    poolPreparing = null;
+  });
+  return poolPreparing;
 };
 
 /** Team Rankings is on screen: anything still arriving for the pool waits to be asked for. */
@@ -1037,10 +1158,14 @@ export const poolOnScreen = (): void => {
 
 /**
  * Whether Team Rankings should wait for the pool to be brought in step before it draws: only in a
- * browser signed in to its copy, and only the first time in a page.
+ * browser signed in to its copy, only until it has first drawn in a page, and again on coming back
+ * to it while the first wait is still downloading, rather than drawing on the old pool meanwhile.
  */
 export const poolWantsCloud = (): boolean =>
-  !poolOpen && signedIn() !== null && loadCloudState().enabled;
+  !poolShown &&
+  (!poolOpen || poolPreparing !== null) &&
+  signedIn() !== null &&
+  loadCloudState().enabled;
 
 /** Signs in, checks the copy is this account's, and brings this browser in step with it. */
 export const signInToCloud = async (): Promise<void> => {
@@ -1166,6 +1291,7 @@ export const bringBack = async (group: string): Promise<void> => {
     const keys = new Set(bringing.map((part) => part.key));
     const parts = result.manifest.parts.filter((part) => keys.has(part.key));
     const fetched = await fetchValues({ store: current.store, parts });
+    if (!stillOurs(state, account)) return;
     if (!fetched.ok || !(await local.apply(fetched.values))) {
       // The copy has it; this device takes it when the app next opens.
       notice = "Brought back in the cloud copy. It arrives here when the app next opens.";

@@ -302,6 +302,15 @@ describe("League Standings in the cloud copy", () => {
     expect(appLocalSource.empty("league")).toBe(false);
   });
 
+  // A squad year archived, and its teams tidied away: the archive's tables cannot be made again,
+  // so a pool that holds one is not nothing, and meeting a copy must keep it rather than drop it.
+  it("counts a pool that holds only archived seasons as holding something", async () => {
+    await initTeamRankingsStore(fakeIo());
+    expect(appLocalSource.empty("pool")).toBe(true);
+    await saveArchivedSeasons([archived]);
+    expect(appLocalSource.empty("pool")).toBe(false);
+  });
+
   it("keeps this device on its open season when a merge gave that season a new id", async () => {
     saveTeams([{ id: "t1", name: "Hawks" } as never]);
     const open = getActiveSeasonId();

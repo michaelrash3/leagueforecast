@@ -210,6 +210,43 @@ describe("a save onto the copy", () => {
     });
   });
 
+  /*
+   * The reply lost, the retried transaction finds the version moved on (by this very save), and
+   * before this device reads the copy back to check, another device saves onto it. The copy it
+   * reads names this save's pieces, since the other device's save kept them.
+   */
+  it("leaves the pieces a newer copy still names when its reply was lost and another saved on top", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    const lossy: CloudStore = {
+      ...sky.store,
+      commitManifest: async (expected, next) => {
+        await sky.store.commitManifest(expected, next);
+        const laptop = await commitChanges({
+          store: sky.store,
+          base: sky.manifest(),
+          changes: [change("teams", ["laptop"], 3)],
+          device: "laptop",
+          now: NOW,
+        });
+        if (!laptop.ok) throw new Error("the laptop's save was refused");
+        return false;
+      },
+    };
+    const phone = await commitChanges({
+      store: lossy,
+      base: v1,
+      changes: [change("league", { a: 2 }, 2)],
+      device: "phone",
+      now: NOW,
+    });
+    expect(phone).toEqual({ ok: false, reason: "moved" });
+    expect(await valuesOf(sky.store, sky.manifest() as CloudManifest)).toEqual({
+      league: { a: 2 },
+      teams: ["laptop"],
+    });
+  });
+
   it("keeps its pieces when it cannot tell whether its commit landed", async () => {
     const sky = memoryCloud();
     const v1 = await first(sky.store, { league: { a: 1 } });
@@ -337,6 +374,29 @@ describe("kept versions", () => {
     if (!result.ok) throw new Error("refused");
     expect(result.manifest.parts).toEqual(v1.parts);
     expect(result.manifest.kept).toMatchObject([{ key: "teams", why: "lost", by: "phone", at: 3 }]);
+  });
+
+  it("keeps a value once, however many settlements would keep it again", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { teams: ["cloud's"] });
+    const once = await commitChanges({
+      store: sky.store,
+      base: v1,
+      keepLost: [change("teams", ["this phone's"], 3)],
+      device: "phone",
+      now: NOW,
+    });
+    if (!once.ok) throw new Error("refused");
+    const twice = await commitChanges({
+      store: sky.store,
+      base: once.manifest,
+      keepLost: [change("teams", ["this phone's"], 3)],
+      device: "phone",
+      now: NOW,
+    });
+    if (!twice.ok) throw new Error("refused");
+    expect(twice.manifest.kept).toHaveLength(1);
+    expect(twice.manifest.version).toBe(once.manifest.version);
   });
 
   it("brings a kept version back whole, keeping what it replaces, and uploads nothing", async () => {

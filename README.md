@@ -2796,7 +2796,9 @@ merged, and whatever a merge had to replace is kept.
   held (each device keeps it beside its own): seasons by id, their teams and
   games by id, each game's score, each bracket slot, each setting on its own.
   Scores entered on two devices for different games are both kept. A deletion
-  loses to an edit, so no work is lost to it. Where both devices changed one
+  loses to an edit, so no work is lost to it, across records too: a score
+  entered on one device keeps the game another deleted, and a game its teams.
+  Where both devices changed one
   record differently, the device that changed League Standings last wins it.
   Two seasons that share only an id (every browser's first season is
   `default`) are kept apart: this device's takes a new one.
@@ -2812,8 +2814,9 @@ own joins them to the copy's, merged where they share records. The pool is
 taken whole: a device's own pool is kept in the copy as lost, to be brought back
 if it was the one that mattered, rather than mixed key by key into a pool it was
 never part of. So sign in first on the device that holds the pool. A browser
-holding nothing anybody made (an untouched first season, a pool with no teams)
-simply takes the copy.
+holding nothing anybody made (an untouched first season, a pool with no teams
+and no archived season, whose tables could not be made again) simply takes the
+copy.
 
 **What is never lost.** A value leaves the copy only because a device recorded
 removing it, and leaves a device only because the copy dropped a value that
@@ -2846,8 +2849,11 @@ version, a layout number, a schema number and the id of the copy it belongs to.
   after its commit woke hours later and deleted pieces a newer save had
   uploaded again under the same names. And two devices saving one new value at
   once could delete each other's. Pieces no manifest names any more are
-  deleted after the save; a save that lost the race deletes its own; an upload
-  cut off before its commit is recorded and swept by the next save.
+  deleted after the save; a save that lost the race deletes those of its own no
+  copy names; an upload cut off before its commit is recorded, and cleared by a
+  later save once no commit of its own can still land (ten minutes: Firestore
+  lets a transaction run for 270 seconds, and one given up on here can still
+  land within them).
 - **A copy saved by a newer build is refused, before anything downloads**,
   when its data schema is higher than the build's own (`DATA_SCHEMA`), or it
   holds a key the build does not keep. An older build would otherwise read it,
@@ -2872,7 +2878,8 @@ more for the seasons to arrive (`STARTUP_TAKE_MS`); past either, the app opens
 on what it has and the panel offers the newer seasons (**Load them now**). The
 pool, which can be tens of megabytes, is loaded only when Team Rankings opens,
 before it draws, with **Show this device's copy now** for anyone who would
-rather not wait. Once the app is open it looks again every ten minutes while
+rather not wait; whatever arrives after that waits to be asked for, rather than
+land under a view that has already read the pool. Once the app is open it looks again every ten minutes while
 the page is on screen, at most once a minute, and backs off to half an hour
 after failures. A newer copy found then is taken in when the page is out of
 sight, as someone comes back to it, or after two minutes left alone, and the

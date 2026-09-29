@@ -184,6 +184,44 @@ const mergeFields = <T extends object>(
 const laterOf = (a: string | undefined, b: string | undefined): string | undefined =>
   a === undefined ? b : b === undefined ? a : a > b ? a : b;
 
+type Sides<T> = { base: Keyed<T> | null; local: Keyed<T>; cloud: Keyed<T> };
+
+const sidesOf = <T>(
+  base: SeasonSnapshot | undefined,
+  local: SeasonSnapshot,
+  cloud: SeasonSnapshot,
+  keyed: (season: SeasonSnapshot) => Keyed<T>
+): Sides<T> => ({ base: base ? keyed(base) : null, local: keyed(local), cloud: keyed(cloud) });
+
+/** Whether a merged record is new or changed since the two sides last met. */
+const touched = <T>(sides: Sides<T>, id: string, record: T): boolean =>
+  !same(record, sides.base?.byId.get(id));
+
+/**
+ * Brings back into `merged` the records `needed` that one side deleted and the other still leans
+ * on: the game of a score entered or changed since, the teams of a game added or changed since. A
+ * deletion loses to an edit across records as it does within one (`pick`); merged apart, a score
+ * would outlive its game and be dropped as a stray when the seasons are read back (`coerceLogs`),
+ * and the edit lost with it. A record neither side still holds comes back as the two last had it.
+ * Each goes back where it stood, after the record before it on the side it came from.
+ */
+const restoreNeeded = <T>(
+  merged: { order: string[]; byId: Map<string, T> },
+  needed: Iterable<string>,
+  sides: Sides<T>
+): void => {
+  for (const id of needed) {
+    if (merged.byId.has(id)) continue;
+    const from = [sides.local, sides.cloud, sides.base].find((side) => side?.byId.has(id));
+    const record = from?.byId.get(id);
+    if (!from || record === undefined) continue;
+    merged.byId.set(id, record);
+    const earlier = from.order.slice(0, from.order.indexOf(id)).reverse();
+    const after = earlier.map((one) => merged.order.indexOf(one)).find((at) => at >= 0);
+    merged.order.splice(after === undefined ? 0 : after + 1, 0, id);
+  }
+};
+
 /** One season both sides hold, merged inside: its records, then its name and settings. */
 const mergeSeason = (
   base: SeasonSnapshot | undefined,
@@ -192,26 +230,23 @@ const mergeSeason = (
   prefer: Prefer,
   counter: Counter
 ): SeasonSnapshot => {
-  const teams = mergeKeyed(
-    base ? keyedList(base.teams) : null,
-    keyedList(local.teams),
-    keyedList(cloud.teams),
-    prefer,
-    counter
-  );
-  const matchups = mergeKeyed(
-    base ? keyedList(base.matchups) : null,
-    keyedList(local.matchups),
-    keyedList(cloud.matchups),
-    prefer,
-    counter
-  );
-  const logs = mergeKeyed(
-    base ? keyedRecord(base.logs) : null,
-    keyedRecord(local.logs),
-    keyedRecord(cloud.logs),
-    prefer,
-    counter
+  const teamSides = sidesOf(base, local, cloud, (season) => keyedList(season.teams));
+  const gameSides = sidesOf(base, local, cloud, (season) => keyedList(season.matchups));
+  const logSides = sidesOf(base, local, cloud, (season) => keyedRecord(season.logs));
+  const teams = mergeKeyed(teamSides.base, teamSides.local, teamSides.cloud, prefer, counter);
+  const matchups = mergeKeyed(gameSides.base, gameSides.local, gameSides.cloud, prefer, counter);
+  const logs = mergeKeyed(logSides.base, logSides.local, logSides.cloud, prefer, counter);
+  // The games scores entered since need, and then the teams those games, and games added or
+  // changed since, need.
+  const scored = [...logs.byId].filter(([id, one]) => touched(logSides, id, one)).map(([id]) => id);
+  restoreNeeded(matchups, scored, gameSides);
+  const wanted = new Set(scored);
+  restoreNeeded(
+    teams,
+    [...matchups.byId].flatMap(([id, one]) =>
+      wanted.has(id) || touched(gameSides, id, one) ? [one.away, one.home] : []
+    ),
+    teamSides
   );
   const bracketLogs = mergeKeyed(
     base ? keyedRecord(base.bracketLogs) : null,

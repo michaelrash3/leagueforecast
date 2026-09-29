@@ -30,7 +30,7 @@ export type CloudActions = {
 /** What each button does: the session's own calls, wrapped so none is handed a click event. */
 const SESSION_ACTIONS: CloudActions = {
   signIn: () => void signInToCloud(),
-  save: () => void saveNow(),
+  save: () => void saveNow({ asked: true }),
   signOut: () => void signOutOfCloud(),
   loadNewer: () => void loadNewer(),
   retry: () => void retryCloud(),

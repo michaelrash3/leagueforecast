@@ -130,9 +130,10 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
  * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
  * sent, so pieces a save left behind can be found and cleared. The manifest goes last, and only
- * onto the version and copy read; if that moved on, this save's own pieces are cleared and the
- * answer is `moved`. A commit whose reply was lost is recognised by its save id. The pieces the old
- * manifest named and the new one does not are deleted afterwards, as best it can.
+ * onto the version and copy read; if that moved on, this save's own pieces that no copy names are
+ * cleared and the answer is `moved`. A commit whose reply was lost is recognised by its save id.
+ * The pieces the old manifest named and the new one does not are deleted afterwards, as best it
+ * can. A value the copy already keeps is not kept a second time.
  */
 export const commitChanges = async ({
   store,
@@ -198,13 +199,20 @@ export const commitChanges = async ({
     return part;
   };
 
+  // A value already kept is not kept again: a settlement put off and made again, say, would
+  // otherwise fill the kept versions with copies of one value and push out the ones that differ.
+  const alreadyKept = (part: ManifestPart): boolean =>
+    (base?.kept ?? []).some((one) => one.key === part.key && one.hash === part.hash);
   for (const key of keepReplaced) {
     const current = parts.get(key);
-    if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced" });
+    if (current && !alreadyKept(current)) {
+      newKept.push({ ...current, group, keptAt: now, why: "replaced" });
+    }
   }
   for (const lost of keepLost) {
     if (lost.value !== null && lost.value !== undefined) {
-      newKept.push({ ...(await partFor(lost)), group, keptAt: now, why: "lost" });
+      const part = await partFor(lost);
+      if (!alreadyKept(part)) newKept.push({ ...part, group, keptAt: now, why: "lost" });
     }
     done += 1;
     onProgress?.(done, total);
@@ -271,10 +279,15 @@ export const commitChanges = async ({
     if (current?.save === next.save) {
       committed = true;
     } else {
-      // These pieces are this save's alone, by name, so a copy that is not this save's cannot be
-      // naming them. Without an answer that it is not, they stay, recorded, for `sweepUploads`.
+      // These pieces are this save's alone, by name. A copy that is not this save's names them
+      // only when this save did land, its reply lost, and another device saved onto it before this
+      // read: those stay. Without an answer at all they all stay, recorded, for `sweepUploads`.
       if (current !== undefined) {
-        await inBatches(uploads, (id) => store.deleteChunk(id).catch(() => undefined));
+        const named = chunkIdsOf(current);
+        await inBatches(
+          uploads.filter((id) => !named.has(id)),
+          (id) => store.deleteChunk(id).catch(() => undefined)
+        );
       }
       return { ok: false, reason: "moved" };
     }

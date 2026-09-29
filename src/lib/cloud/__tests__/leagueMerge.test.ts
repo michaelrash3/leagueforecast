@@ -128,6 +128,67 @@ describe("merging League Standings two devices both changed", () => {
     expect(merged.matchups.find((m) => m.id === "g3")?.date).toBe("2026-10-09");
   });
 
+  /*
+   * A deletion loses to an edit across records too. Merged record by record, a score entered for a
+   * game the other side deleted would outlive its game, and be dropped as a stray when the seasons
+   * are read back (`coerceLogs`), with nothing kept: the score lost to a deletion after all.
+   */
+  it("keeps the game of a score entered on one side, where the other deleted the game", () => {
+    const phone = edit(base, "fall", (one) => ({ ...one, logs: { g1: log(5, 3) } }));
+    const laptop = edit(base, "fall", (one) => ({
+      ...one,
+      matchups: one.matchups.filter((m) => m.id !== "g1"),
+    }));
+    const merged = seasonOf(mergeLeague(base, phone, laptop, "cloud").value, "fall");
+    expect(merged.matchups.map((m) => m.id)).toEqual(["g1", "g2", "g3"]);
+    expect(merged.logs).toEqual({ g1: log(5, 3) });
+  });
+
+  it("keeps the teams of a game added on one side, where the other deleted a team", () => {
+    const phone = edit(base, "fall", (one) => ({
+      ...one,
+      matchups: [...one.matchups, game("g4", "t2", "t4", "2026-10-08")],
+      logs: { g4: log(2, 1) },
+    }));
+    const laptop = edit(base, "fall", (one) => ({
+      ...one,
+      teams: one.teams.filter((t) => t.id !== "t4"),
+      matchups: one.matchups.filter((m) => m.away !== "t4" && m.home !== "t4"),
+    }));
+    const merged = seasonOf(mergeLeague(base, phone, laptop, "cloud").value, "fall");
+    expect(merged.teams.map((t) => t.id)).toEqual(["t1", "t2", "t3", "t4"]);
+    // The game only this side still had goes; the one added here, and its score, stay.
+    expect(merged.matchups.map((m) => m.id)).toEqual(["g1", "g3", "g4"]);
+    expect(merged.logs).toEqual({ g4: log(2, 1) });
+  });
+
+  it("keeps the team and game a score leans on, where the other side deleted both", () => {
+    const scored = league(season("fall", { logs: { g2: log(0, 0, false) } }));
+    const phone = edit(scored, "fall", (one) => ({ ...one, logs: { g2: log(4, 4) } }));
+    const laptop = edit(scored, "fall", (one) => ({
+      ...one,
+      teams: one.teams.filter((t) => t.id !== "t3"),
+      matchups: one.matchups.filter((m) => m.away !== "t3" && m.home !== "t3"),
+      logs: {},
+    }));
+    const merged = seasonOf(mergeLeague(scored, phone, laptop, "cloud").value, "fall");
+    expect(merged.teams.map((t) => t.id)).toContain("t3");
+    expect(merged.matchups.map((m) => m.id)).toEqual(["g1", "g2"]);
+    expect(merged.logs).toEqual({ g2: log(4, 4) });
+  });
+
+  it("lets a deleted game take its score along when nobody changed the score", () => {
+    const scored = league(season("fall", { logs: { g1: log(1, 0) } }));
+    const laptop = edit(scored, "fall", (one) => ({
+      ...one,
+      matchups: one.matchups.filter((m) => m.id !== "g1"),
+      logs: {},
+    }));
+    const merged = seasonOf(mergeLeague(scored, scored, laptop, "cloud").value, "fall");
+    expect(merged.matchups.map((m) => m.id)).toEqual(["g2", "g3"]);
+    expect(merged.logs).toEqual({});
+  });
+
   it("deletes a season one side deleted, unless the other side changed it since", () => {
     const withSpring = league(season("fall"), season("spring"));
     const phone = league(season("fall"));

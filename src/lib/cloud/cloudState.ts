@@ -31,9 +31,15 @@ export type DeviceCloudState = {
   /** Each key's fingerprint as of the last time this device and the copy agreed on it. */
   hashes: Record<string, string>;
   syncedAt?: string;
-  /** Pieces uploaded by saves not known to have landed, cleared once the copy is read again. */
-  uploads: string[];
+  /**
+   * Pieces uploaded by saves not known to have landed, a batch per save, with when it was last
+   * known to be under way: cleared by a later save once no commit of theirs can still land.
+   */
+  uploads: UploadBatch[];
 };
+
+/** The pieces one save uploaded, and when (ms) it was last known to be under way. */
+export type UploadBatch = { ids: string[]; at: number };
 
 export const CLOUD_STATE_KEY = "league_forecast_cloud_v2";
 const OWED_PREFIX = "league_forecast_cloud_owed:";
@@ -67,6 +73,13 @@ const readJson = (key: string): unknown => {
   }
 };
 
+const batchOf = (raw: unknown): UploadBatch[] => {
+  if (!isRecord(raw) || !Array.isArray(raw.ids)) return [];
+  const ids = raw.ids.filter((id): id is string => typeof id === "string");
+  const at = typeof raw.at === "number" && Number.isFinite(raw.at) ? raw.at : 0;
+  return ids.length > 0 ? [{ ids, at }] : [];
+};
+
 /** The stored standing, or a fresh one for a browser that has never kept a cloud copy. */
 export const loadCloudState = (): DeviceCloudState => {
   const raw = readJson(CLOUD_STATE_KEY);
@@ -87,9 +100,7 @@ export const loadCloudState = (): DeviceCloudState => {
         : null,
     hashes: stringsOf(stored.hashes),
     ...(typeof stored.syncedAt === "string" ? { syncedAt: stored.syncedAt } : {}),
-    uploads: Array.isArray(stored.uploads)
-      ? stored.uploads.filter((id): id is string => typeof id === "string")
-      : [],
+    uploads: Array.isArray(stored.uploads) ? stored.uploads.flatMap(batchOf) : [],
   };
 };
 

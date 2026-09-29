@@ -30,11 +30,13 @@ vi.mock("../cloudTabs", () => ({
 }));
 
 const session = await import("../cloudSession");
-const { loadCloudState, owedChanges, forgetCloudCopyHere } = await import("../cloudState");
+const { loadCloudState, loadLeagueBase, owedChanges, forgetCloudCopyHere } =
+  await import("../cloudState");
 const { resetCloudGuard } = await import("../cloudGuard");
 const { areaOf } = await import("../cloudPlan");
 const { isEmptyLeague } = await import("../leagueMerge");
 const { fetchValues } = await import("../cloudEngine");
+const { hashValue } = await import("../cloudPack");
 
 const TEAMS = "league_forecast_scout_teams_v1";
 const GROUPS = "league_forecast_scout_age_groups_v1";
@@ -405,6 +407,243 @@ describe("an edit made while a copy downloads", () => {
     await session.loadNewer();
     expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(0, 4) });
     expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(0, 4) });
+  });
+});
+
+/** Holds every download of a piece until `release` is called: a copy arriving slowly. */
+const holdDownloads = (): (() => void) => {
+  const real = sky.store.getChunk;
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sky.store.getChunk = async (id) => {
+    await held;
+    return real(id);
+  };
+  return () => {
+    sky.store.getChunk = real;
+    release();
+  };
+};
+
+/** The kept versions of `key` the copy holds, as values. */
+const keptValues = async (key: string): Promise<unknown[]> => {
+  const parts = (sky.manifest() as CloudManifest).kept.filter((part) => part.key === key);
+  const fetched = await fetchValues({ store: sky.store, parts });
+  return fetched.ok ? [...fetched.values.values()] : ["fetch failed"];
+};
+
+/** A page on screen: what `startCloudSession` listens to, as the test runs outside a browser. */
+const onScreen = () => {
+  const quiet = { addEventListener: () => undefined, removeEventListener: () => undefined };
+  vi.stubGlobal("document", { ...quiet, visibilityState: "visible" });
+  vi.stubGlobal("window", quiet);
+};
+
+describe("Team Rankings drawn before its pool has arrived", () => {
+  it("leaves what arrives to be asked for, so the view's next save keeps the other device's pool", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
+    await session.saveNow();
+    await open(phone);
+    const release = holdDownloads();
+    const preparing = session.preparePool();
+    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "working" }));
+    // "Show this device's copy now": the view draws on the pool this phone has.
+    session.poolOnScreen();
+    release();
+    await preparing;
+    expect(phone.values.get(TEAMS)).toEqual(["laptop pool"]);
+    expect(session.cloudStatus()).toMatchObject({ newer: ["pool"] });
+    // The view, still holding the old pool, saves an edit of it: the later change wins, and the
+    // laptop's pull is kept rather than lost.
+    later();
+    edit(phone, TEAMS, ["laptop pool", "phone's edit"]);
+    await session.saveNow();
+    expect(await cloudValue(TEAMS)).toEqual(["laptop pool", "phone's edit"]);
+    expect(await keptValues(TEAMS)).toEqual([["laptop pool", "laptop's pull"]]);
+  });
+
+  it("waits again for a pool still arriving when Team Rankings is left and opened again", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
+    await session.saveNow();
+    await open(phone);
+    const release = holdDownloads();
+    const preparing = session.preparePool();
+    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "working" }));
+    expect(session.poolWantsCloud()).toBe(true);
+    expect(session.preparePool()).toBe(preparing);
+    release();
+    await preparing;
+    expect(session.poolWantsCloud()).toBe(false);
+    expect(phone.values.get(TEAMS)).toEqual(["laptop pool", "laptop's pull"]);
+  });
+
+  it("is not told of a newer pool when Team Rankings has not been opened here", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
+    await session.saveNow();
+    await open(phone);
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
+    expect(phone.values.get(TEAMS)).toEqual(["laptop pool"]);
+  });
+});
+
+describe("a save cut off waiting for its commit", () => {
+  it("leaves its pieces for as long as the commit could still land, so a late landing is whole", async () => {
+    const { laptop, phone } = await inStep();
+    await open(phone);
+    edit(phone, "league", league(season("fall", { g1: log(4, 4) })));
+    // The commit stalls on the network past its limit, and lands later.
+    const store = sky.store;
+    const real = store.commitManifest;
+    let land: () => void = () => undefined;
+    let landed: Promise<boolean> | null = null;
+    store.commitManifest = (expected, next) => {
+      store.commitManifest = real;
+      landed = new Promise<boolean>((resolve) => {
+        land = () => resolve(real(expected, next));
+      });
+      return landed;
+    };
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const cutOff = session.saveNow();
+    await vi.waitFor(() => expect(landed).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(21_000);
+    await cutOff;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    expect(session.cloudStatus()).toMatchObject({ kind: "error" });
+    // Saving again, the stalled commit lands while the new save uploads.
+    const realPut = store.putChunk;
+    store.putChunk = async (id, data) => {
+      store.putChunk = realPut;
+      land();
+      await landed;
+      return realPut(id, data);
+    };
+    await session.saveNow();
+    later();
+    await open(laptop);
+    expect(await cloudLogs()).toEqual({ g1: log(4, 4) });
+    expect(logsOf(laptop)).toEqual({ g1: log(4, 4) });
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+  });
+});
+
+describe("League Standings found in step while a save runs", () => {
+  it("keep as their base the version the copy holds, not an edit made meanwhile", async () => {
+    const { laptop, phone } = await inStep();
+    const scored = league(season("fall", { g1: log(5, 3) }));
+    await open(laptop);
+    edit(laptop, "league", scored);
+    await session.saveNow();
+    later();
+    // The phone made the same change, and a pool change whose upload the user types through.
+    runAs(phone);
+    edit(phone, "league", scored);
+    edit(phone, TEAMS, ["phone's pool edit"]);
+    const real = sky.store.putChunk;
+    sky.store.putChunk = async (id, data) => {
+      sky.store.putChunk = real;
+      edit(phone, "league", league(season("fall", { g1: log(5, 3), g2: log(1, 7) })));
+      return real(id, data);
+    };
+    await session.signInToCloud();
+    const base = loadLeagueBase();
+    expect(base?.hash).toBe(await hashValue(scored));
+    expect((base?.value as LeagueValue).seasons[0]?.logs).toEqual({ g1: log(5, 3) });
+    // The laptop renames the season; the phone's unsent score survives the merge that follows.
+    later();
+    await open(laptop);
+    edit(laptop, "league", league({ ...season("fall", { g1: log(5, 3) }), name: "Fall ball" }));
+    await session.saveNow();
+    later();
+    await open(phone);
+    await session.saveNow();
+    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(1, 7) });
+  });
+});
+
+describe("League Standings with no season in them", () => {
+  it("are never sent, since no device could take them", async () => {
+    const { laptop } = await inStep();
+    await open(laptop);
+    edit(laptop, "league", { seasons: [] });
+    await session.saveNow();
+    expect(await cloudLogs()).toEqual({});
+    expect(((await cloudValue("league")) as LeagueValue).seasons).toHaveLength(1);
+    expect(session.cloudStatus()).toMatchObject({ waiting: "unreadable" });
+  });
+
+  it("are left out of a first copy", async () => {
+    await laptopFirst({ league: { seasons: [] }, [TEAMS]: ["laptop pool"] });
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
+  });
+});
+
+describe("a copy with a piece missing", () => {
+  it("is not downloaded again at every look: looks back off as saves do", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(
+      laptop,
+      TEAMS,
+      Array.from({ length: 5000 }, (_, i) => `team ${i}`)
+    );
+    edit(laptop, "league_forecast_scout_games_v2:2026", ["games 2026"]);
+    await session.saveNow();
+    const manifest = sky.manifest() as CloudManifest;
+    const games = manifest.parts.find((part) => part.key === "league_forecast_scout_games_v2:2026");
+    sky.chunks.delete(`${games?.id}-0`);
+    await open(phone);
+    await session.preparePool();
+    expect(session.cloudStatus()).toMatchObject({ kind: "error" });
+    const downloads: number[] = [];
+    for (let look = 0; look < 5; look += 1) {
+      later();
+      const before = sky.costs.bytesDown;
+      await session.lookAgain({ arriving: true });
+      downloads.push(sky.costs.bytesDown - before);
+    }
+    expect(downloads.filter((bytes) => bytes > 0).length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("an app already on screen", () => {
+  it("does not take League Standings in under itself when its start is run again", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
+    await session.saveNow();
+    runAs(phone);
+    onScreen();
+    const stop = session.startCloudSession();
+    await session.bootCloud();
+    expect(logsOf(phone)).toEqual({});
+    expect(session.cloudStatus()).toMatchObject({ newer: ["league"] });
+    stop();
+  });
+
+  it("merges and sends League Standings both devices changed when Save now is pressed", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
+    await session.saveNow();
+    // The phone, open since before the laptop saved, enters another game's score.
+    runAs(phone);
+    onScreen();
+    const stop = session.startCloudSession();
+    edit(phone, "league", league(season("fall", { g2: log(1, 7) })));
+    await session.bootCloud();
+    await session.saveNow({ asked: true });
+    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(1, 7) });
+    stop();
   });
 });
 

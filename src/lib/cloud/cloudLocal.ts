@@ -6,6 +6,7 @@ import {
   flushPoolWrites,
   isCloudPoolKey,
   isPoolUnavailable,
+  loadArchiveIndex,
   poolHoldsNoTeams,
   poolKeysNotStored,
   readCloudPoolValue,
@@ -55,11 +56,17 @@ export type LocalSource = {
 
 const leagueNow = () => ({ seasons: readLeagueSnapshot().seasons });
 
+/**
+ * A pool with no teams and no archived season. An archive's tables cannot be made again once its
+ * games are gone, so a pool holding only archives is somebody's work, and meeting a copy keeps it.
+ */
+const poolIsEmpty = (): boolean => poolHoldsNoTeams() && loadArchiveIndex().length === 0;
+
 export const appLocalSource: LocalSource = {
   keys: (area) => (area === "league" ? [LEAGUE_PART] : cloudPoolKeys()),
   read: async (key) => (key === LEAGUE_PART ? leagueNow() : readCloudPoolValue(key)),
   usable: () => !isPoolUnavailable(),
-  empty: (area) => (area === "league" ? isEmptyLeague(leagueNow()) : poolHoldsNoTeams()),
+  empty: (area) => (area === "league" ? isEmptyLeague(leagueNow()) : poolIsEmpty()),
   flush: flushPoolWrites,
   notStored: poolKeysNotStored,
   apply: async (values, { renamed = {} } = {}) => {
