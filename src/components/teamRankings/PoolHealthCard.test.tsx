@@ -327,6 +327,32 @@ describe("the impossible games, worst club first", () => {
     expect(listed()).toEqual(["Wrong Dates"]);
     // Remembered by its GameChanger id, as a club thrown out is, so a pull does not put it back.
     expect([...loadRealClubs()]).toEqual(["gcINVENT0001"]);
+    expect(screen.getByText(/1 club you said is real is kept off this list\./)).toBeInTheDocument();
+  });
+
+  /*
+   * An answer given by mistake, on a club that is plainly made up, was otherwise for good: nothing
+   * on the page took it back.
+   */
+  it("puts a club said to be real back on the list when the answer is taken back", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+
+    const row = screen.getByText("Invented Nine").closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "It’s real" }));
+    await user.click(screen.getByRole("button", { name: "Show them" }));
+    const said = screen.getByRole("list", { name: "Clubs you said are real" });
+    expect(said).toHaveTextContent("Invented Nine");
+    await user.click(within(said).getByRole("button", { name: "Put it back" }));
+
+    expect([...loadRealClubs()]).toEqual([]);
+    const listed = screen.getByRole("heading", { name: /Clubs that may not be real/ })
+      .nextElementSibling?.nextElementSibling as HTMLElement;
+    expect(
+      [...listed.querySelectorAll("li > span.font-bold")].map((one) => one.textContent)
+    ).toEqual(["Invented Nine", "Wrong Dates"]);
+    expect(screen.queryByText(/kept off this list/)).toBeNull();
   });
 
   it("shows every club when asked, past the first twelve", async () => {
