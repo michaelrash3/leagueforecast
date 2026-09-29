@@ -3027,19 +3027,28 @@ keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`), through Firestore's REST API
 replaces the manifest only if it is still the document it read: the commit
 carries the read's update time as a precondition. GameChanger is asked through
 the proxy's own handler in the same process (`scripts/handlerFetch.ts`), so the
-run pays for nothing but GitHub's minutes; GameChanger answers GitHub's servers,
-1,000 of the user's teams in 5.3 s on 29 September 2026, about 11,400 a minute.
-The day is the user's (`TZ=America/New_York`), which is what the rota and the day
-log are kept in, and nothing is installed: the app's own files run as they are.
+run pays for nothing but GitHub's minutes. The day is the user's
+(`TZ=America/New_York`), which is what the rota and the day log are kept in, and
+nothing is installed: the app's own files run as they are.
+
+On 29 September 2026 the rota was 15,793 teams. The dry run answered every one
+of them in 27 s, filed and tidied them in 62 s, and was done in 101 s from
+loading the copy, holding 3.5 GB at the end. A live trial of 50 teams then saved
+into the copy, and the next dry run read the whole copy back.
 
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
 
-It runs by hand until it has been watched: **Actions → Nightly refresh → Run
+It runs every night at 07:17 UTC, which is 3:17 in the morning Eastern in summer
+and 2:17 in winter. A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
-sizes and timings only, since this repository's Actions logs are public.
+sizes and timings only, since this repository's Actions logs are public. A night
+that fails is marked red in Actions, and GitHub emails whoever last changed the
+schedule. GitHub turns off a public repository's schedules after 60 days with no
+activity in it; **Enable workflow** on the workflow's page turns this one back
+on.
 
 ## AI write-ups
 

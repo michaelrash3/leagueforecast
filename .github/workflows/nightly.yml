@@ -1,11 +1,14 @@
 # The nightly refresh (README, "The nightly refresh on GitHub"): the Refresh button pressed on the
 # cloud copy by one of GitHub's servers (`scripts/nightly.ts`), so every device opens on teams
-# pulled overnight. Run by hand first, a dry run and then a live trial of a few teams, and put on
-# the clock once those have been read. It prints counts, sizes and timings only: this repository is
-# public, and so are its Actions logs.
+# pulled overnight. It can also be run by hand, as a dry run or live, with a limit for a trial. It
+# prints counts, sizes and timings only: this repository is public, and so are its Actions logs.
 name: Nightly refresh
 
 on:
+  # 07:17 UTC: 3:17 in the morning Eastern in summer, 2:17 in winter. Off the hour, since GitHub
+  # starts a run late when every repository's is due at once.
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       mode:
