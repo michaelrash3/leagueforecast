@@ -85,6 +85,21 @@ describe("a club whose name disagrees with its filing", () => {
     ]);
   });
 
+  it("reads every squad's name, whichever GameChanger lists first", () => {
+    const horn = club("HORN", "Hornets 8U", "ag8");
+    const both: ScoutTeam = {
+      ...horn,
+      gcTeams: [
+        ...(horn.gcTeams ?? []),
+        { teamId: "gcHORN2", name: "Hornets 9U", ageGroupId: "ag8", season: "fall" },
+      ],
+    };
+    const listed = read([both], [game("HORN", "N1", WEEK1), game("HORN", "N2", WEEK3)]);
+    expect(listed.map((one) => [one.teamId, one.suggested, one.reason])).toEqual([
+      ["HORN", 9, "name"],
+    ]);
+  });
+
   it("reads the age off its squad's GameChanger name when the club's own drops it", () => {
     const squad = { ...club("HORN", "Hornets 9U", "ag8"), name: "Hornets Baseball" };
     const listed = read([squad], [game("HORN", "N1", WEEK1), game("HORN", "N2", WEEK3)]);

@@ -141,13 +141,25 @@ export const filedAtWrongAge = (state: GcImportState, year: number): WrongAgeClu
         weeks: at?.weeks.size ?? 0,
       };
     };
-    const stated = (squadNames.get(teamId) ?? [])
-      .map((name) => nameAge(name, year))
-      .find((age) => age !== undefined);
-    if (stated !== undefined) {
-      const atStated = levels.get(stated)?.opponents.size ?? 0;
-      if (stated !== filed && atStated >= 2 && atStated * 2 > known)
-        out.push(found(stated, "name"));
+    /*
+     * Every age its squads' names state, not the first: any squad's name can be the evidence, and
+     * GameChanger lists a club's squads in no order that means anything, so a squad named at the
+     * filed age listed first hid a later one named at the age its opponents play. At most one age
+     * can hold a strict majority of the opponents.
+     */
+    const stated = new Set(
+      (squadNames.get(teamId) ?? [])
+        .map((name) => nameAge(name, year))
+        .filter((age): age is number => age !== undefined)
+    );
+    if (stated.size > 0) {
+      for (const age of stated) {
+        const atStated = levels.get(age)?.opponents.size ?? 0;
+        if (age !== filed && atStated >= 2 && atStated * 2 > known) {
+          out.push(found(age, "name"));
+          break;
+        }
+      }
       return;
     }
     // The other level most of its opponents are filed at, if one is.
