@@ -81,6 +81,18 @@ conflict, or concurrency rules inside components.
 - Deduplicate events by stable IDs, retain a bounded delivered-event ledger, and aggregate each
   refresh batch into one digest instead of emitting one notification per imported game.
 
+## Phase 2C / 3B — scenarios, explanations, uncertainty, and formats
+
+- The Playoff Machine now saves season-scoped scenarios, applies presets, detects and rebases stale
+  assumptions, duplicates, renames, deletes, and produces bounded preview links that never replace
+  recipient season data without an explicit Apply action.
+- Matchup forecasts expose signed structured factors, sensitivity notes, and 80% run-margin and
+  expected-score ranges. Win probability, evidence confidence, and statistical uncertainty are
+  labeled separately in the reusable “Why?” disclosure.
+- A versioned competition-format model migrates every existing season to equivalent top-N,
+  everyone-qualifies, or regular-season-only behavior and defines group winners, standings-ordered
+  wild cards, byes, reseeding, and single- or double-elimination configuration validation.
+
 ## Dependency-ordered continuation
 
 1. **Refresh scheduling and status integration.** Connect the refresh domain to cloud-runner and

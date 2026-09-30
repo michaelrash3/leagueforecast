@@ -59,7 +59,6 @@ import {
 import { ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
-import { PlayoffMachine } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -260,6 +259,11 @@ const OnboardingTour = lazy(() =>
  */
 const TeamRankingsView = lazy(() =>
   import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
+);
+const PlayoffMachine = lazy(() =>
+  import("./components/league/PlayoffMachine").then((module) => ({
+    default: module.PlayoffMachine,
+  }))
 );
 
 const lazyDashboardView = () =>
@@ -2978,6 +2982,7 @@ export default function App() {
                       askForecastStory={forecastStory.ask}
                       playoffMachine={
                         <PlayoffMachine
+                          key={activeSeasonId}
                           teams={teams}
                           matchups={matchups}
                           logs={deferredLogs}
@@ -2990,6 +2995,7 @@ export default function App() {
                           currentRows={dashboardRows}
                           oddsSeed={oddsSeed}
                           iterations={SIM_ITERATIONS}
+                          seasonId={activeSeasonId}
                         />
                       }
                     />

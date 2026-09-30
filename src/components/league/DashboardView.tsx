@@ -12,6 +12,7 @@ import { EmptyPanel } from "./EmptyPanel";
 import { PowerRatingsView } from "./PowerRatingsView";
 import { button as buttonClasses } from "../../styles/tokens";
 import type { DataQualityFinding } from "../../lib/dataQuality";
+import { ForecastExplanation } from "../ForecastExplanation";
 
 function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
@@ -101,6 +102,7 @@ function PredictionCard({
           Risk: {prediction.riskFactors[0]}
         </p>
       )}
+      <ForecastExplanation prediction={prediction} />
     </article>
   );
 }
