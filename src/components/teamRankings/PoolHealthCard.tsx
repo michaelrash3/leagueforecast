@@ -35,6 +35,11 @@ import {
 import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
 
+export type BulkAgeResult = {
+  changedTeamIds: string[];
+  failed: number;
+};
+
 type PoolHealthCardProps = {
   pool: GcImportState;
   tidyStamp: string;
@@ -67,6 +72,8 @@ type PoolHealthCardProps = {
    * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.
    */
   onSetAge?: (teamId: string, level: number, year: number) => boolean;
+  /** Confirms and files all the evidence-backed suggestions as one saved, undoable change. */
+  onSetAges?: (clubs: readonly WrongAgeClub[]) => Promise<BulkAgeResult | null>;
 };
 
 /** Why a list's rows are being thrown out, which is what the question before it says. */
@@ -113,6 +120,7 @@ export function PoolHealthCard({
   onConfirmScore,
   onOpenTeam,
   onSetAge,
+  onSetAges,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -176,6 +184,7 @@ export function PoolHealthCard({
   const [showKeptAtAge, setShowKeptAtAge] = useState(false);
   const [merging, setMerging] = useState<string | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
+  const [settingAges, setSettingAges] = useState(false);
 
   /**
    * The rows with a score on a day that has not happened.
@@ -331,6 +340,16 @@ export function PoolHealthCard({
   const setAge = (club: WrongAgeClub) => {
     if (!onSetAge?.(club.teamId, club.suggested, club.year)) return;
     setWrongAge((current) => (current ?? []).filter((entry) => entry.teamId !== club.teamId));
+  };
+
+  const setAllAges = async () => {
+    if (!onSetAges || !misfiled?.length) return;
+    setSettingAges(true);
+    const result = await onSetAges(misfiled);
+    setSettingAges(false);
+    if (!result) return;
+    const changed = new Set(result.changedTeamIds);
+    setWrongAge((current) => (current ?? []).filter((entry) => !changed.has(entry.teamId)));
   };
 
   /** The age it is filed at is right: it plays up or down. Remembered against its GameChanger ids. */
@@ -1168,6 +1187,16 @@ export function PoolHealthCard({
                 Listed on evidence, not a guess — its squad&apos;s name and most of its opponents,
                 or its opponents alone, week after week.
               </p>
+              {onSetAge && onSetAges && (
+                <button
+                  type="button"
+                  onClick={() => void setAllAges()}
+                  disabled={pullLive || settingAges}
+                  className={`${button.ghost} mt-2 text-sm`}
+                >
+                  {settingAges ? "Approving…" : "Approve all changes"}
+                </button>
+              )}
               <ul className="mt-2 space-y-1">
                 {(allWrongAge ? misfiled : misfiled.slice(0, 12)).map((club) => {
                   const up = club.suggested > club.filed;
@@ -1198,7 +1227,7 @@ export function PoolHealthCard({
                           <button
                             type="button"
                             onClick={() => setAge(club)}
-                            disabled={pullLive}
+                            disabled={pullLive || settingAges}
                             className={`${button.ghost} text-xs`}
                           >
                             Set {club.suggested}U
