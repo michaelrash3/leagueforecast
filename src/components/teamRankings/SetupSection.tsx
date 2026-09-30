@@ -8,7 +8,7 @@ import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import type { ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { ModelCheckCard } from "./ModelCheckCard";
-import { PoolHealthCard, type GamesDropped } from "./PoolHealthCard";
+import { PoolHealthCard, type BulkAgeResult, type GamesDropped } from "./PoolHealthCard";
 import { AgelessReviewCard } from "./AgelessReviewCard";
 import type { AgelessAnswered } from "../../lib/agelessTriage";
 import type { AgeUnknownList } from "../../lib/ageUnknown";
@@ -67,6 +67,9 @@ type SetupSectionProps = {
     onOpenTeam: (teamId: string) => void;
     /** Files a club at another level in a squad year and holds it there; whether it happened. */
     onSetAge?: (teamId: string, level: number, year: number) => boolean;
+    onSetAges?: (
+      clubs: readonly import("../../lib/wrongAge").WrongAgeClub[]
+    ) => Promise<BulkAgeResult | null>;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -223,6 +226,7 @@ export function SetupSection({
         onConfirmScore={poolHealth.onConfirmScore}
         onOpenTeam={poolHealth.onOpenTeam}
         onSetAge={poolHealth.onSetAge}
+        onSetAges={poolHealth.onSetAges}
       />
 
       <ModelCheckCard
