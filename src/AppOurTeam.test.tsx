@@ -57,7 +57,7 @@ describe("our team on the Dashboard", () => {
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
 
-    const prompt = screen.getByRole("region", { name: "Our team" });
+    const prompt = await screen.findByRole("region", { name: "Our team" });
     await user.selectOptions(within(prompt).getByRole("combobox"), "Aces");
 
     const card = screen.getByRole("region", { name: "Our team" });
@@ -71,10 +71,8 @@ describe("our team on the Dashboard", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
-    await user.selectOptions(
-      within(screen.getByRole("region", { name: "Our team" })).getByRole("combobox"),
-      "Aces"
-    );
+    const ourTeam = await screen.findByRole("region", { name: "Our team" });
+    await user.selectOptions(within(ourTeam).getByRole("combobox"), "Aces");
 
     await user.click(screen.getByRole("button", { name: "Enter a score" }));
 

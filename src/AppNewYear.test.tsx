@@ -56,10 +56,8 @@ describe("a season with games either side of 1 January", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
-    await user.selectOptions(
-      within(screen.getByRole("region", { name: "Our team" })).getByRole("combobox"),
-      "Aces"
-    );
+    const ourTeam = await screen.findByRole("region", { name: "Our team" });
+    await user.selectOptions(within(ourTeam).getByRole("combobox"), "Aces");
     expect(screen.getByRole("region", { name: "Our team" })).toHaveTextContent(
       /Next: 12\/12 vs Comets/
     );
