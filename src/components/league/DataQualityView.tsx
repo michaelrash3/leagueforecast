@@ -12,10 +12,12 @@ export function DataQualityView({
   findings,
   onDismiss,
   onNavigate,
+  onRepair,
 }: {
   findings: readonly DataQualityFinding[];
   onDismiss: (finding: DataQualityFinding) => void;
   onNavigate: (view: ActiveShareView, finding: DataQualityFinding) => void;
+  onRepair: (finding: DataQualityFinding) => void;
 }) {
   const blocking = findings.filter((item) => item.severity === "needs-attention").length;
   const affecting = findings.filter((item) => item.affectsForecast).length;
@@ -72,6 +74,15 @@ export function DataQualityView({
                       )}
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      {item.safeRepair && (
+                        <button
+                          type="button"
+                          className={buttonClasses.primary}
+                          onClick={() => onRepair(item)}
+                        >
+                          Preview repair
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={buttonClasses.ghost}

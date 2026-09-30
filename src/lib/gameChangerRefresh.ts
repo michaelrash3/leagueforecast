@@ -205,6 +205,42 @@ export const recordRefreshFailure = (
 export const refreshIdempotencyKey = (sourceId: string, sourceRevision: string): string =>
   `${encodeURIComponent(sourceId)}@${encodeURIComponent(sourceRevision)}`;
 
+export type RefreshStatusKind =
+  "updated" | "refreshing" | "offline" | "stale" | "retry-scheduled" | "manual-action" | "never";
+export type RefreshStatus = { kind: RefreshStatusKind; label: string; detail?: string };
+
+export const describeRefreshStatus = (
+  source: GcRefreshSourceState | undefined,
+  now: Date,
+  online: boolean,
+  staleAfterMs = 24 * 60 * 60_000
+): RefreshStatus => {
+  if (!online) return { kind: "offline", label: "Offline", detail: "Refresh will resume online." };
+  if (!source) return { kind: "never", label: "Not refreshed yet" };
+  if (source.lease && Date.parse(source.lease.expiresAt) > now.getTime()) {
+    return { kind: "refreshing", label: "Refreshing" };
+  }
+  if (source.failure && PERMANENT_FAILURES.has(source.failure.category)) {
+    return {
+      kind: "manual-action",
+      label: "Manual action required",
+      detail: source.failure.message,
+    };
+  }
+  if (source.nextEligibleAt && Date.parse(source.nextEligibleAt) > now.getTime()) {
+    return {
+      kind: "retry-scheduled",
+      label: "Retry scheduled",
+      detail: `Next automatic refresh ${source.nextEligibleAt}`,
+    };
+  }
+  const success = source.lastSuccessAt ? Date.parse(source.lastSuccessAt) : Number.NaN;
+  if (!Number.isFinite(success) || now.getTime() - success > staleAfterMs) {
+    return { kind: "stale", label: "Refresh is stale", detail: source.failure?.message };
+  }
+  return { kind: "updated", label: "Updated recently", detail: source.lastSuccessAt };
+};
+
 const failureKinds = new Set<GcRefreshFailure>([
   "network",
   "timeout",

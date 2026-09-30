@@ -4,6 +4,7 @@ import {
   canAttemptRefresh,
   classifyGcChanges,
   coerceGcRefreshState,
+  describeRefreshStatus,
   emptyGcRefreshState,
   MAX_REFRESH_RETRIES,
   nextRetryAt,
@@ -104,6 +105,41 @@ describe("bounded refresh backoff", () => {
       consecutiveFailures: 0,
     });
     expect(success.sources["team-1"]?.failure).toBeUndefined();
+  });
+});
+
+describe("refresh status", () => {
+  it("distinguishes offline, refreshing, retry, manual action, stale, and recent states", () => {
+    const recent = {
+      sourceId: "team",
+      changes: [],
+      consecutiveFailures: 0,
+      lastSuccessAt: NOW.toISOString(),
+    };
+    expect(describeRefreshStatus(recent, NOW, false).kind).toBe("offline");
+    expect(
+      describeRefreshStatus(
+        { ...recent, lease: { owner: "a", expiresAt: "2026-09-30T12:01:00.000Z" } },
+        NOW,
+        true
+      ).kind
+    ).toBe("refreshing");
+    expect(
+      describeRefreshStatus({ ...recent, nextEligibleAt: "2026-09-30T12:01:00.000Z" }, NOW, true)
+        .kind
+    ).toBe("retry-scheduled");
+    expect(
+      describeRefreshStatus(
+        { ...recent, failure: { category: "invalid-source", message: "Bad link" } },
+        NOW,
+        true
+      )
+    ).toMatchObject({ kind: "manual-action", detail: "Bad link" });
+    expect(describeRefreshStatus(recent, NOW, true).kind).toBe("updated");
+    expect(
+      describeRefreshStatus({ ...recent, lastSuccessAt: "2026-09-28T12:00:00.000Z" }, NOW, true)
+        .kind
+    ).toBe("stale");
   });
 });
 

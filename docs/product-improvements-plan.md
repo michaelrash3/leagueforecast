@@ -70,6 +70,17 @@ conflict, or concurrency rules inside components.
 - Add a lazy Data Quality view grouped into Needs attention, Worth reviewing, and Information, plus
   a compact Dashboard summary that links to the commissioner workflow.
 
+## Phase 1D / 2B — mobile navigation and notification controls
+
+- On phones, keep Dashboard, Schedule, Standings, and Forecast immediately visible and move
+  secondary destinations into a labeled More menu. Data Quality remains badged when a blocking
+  finding exists; the full roving-tab treatment remains on wider screens.
+- Add versioned, per-browser notification preferences for finals, schedule changes, clinches,
+  eliminations, material forecast movement, and refresh failures. Permission is requested only by
+  the explicit Enable action, with a separate test-notification control.
+- Deduplicate events by stable IDs, retain a bounded delivered-event ledger, and aggregate each
+  refresh batch into one digest instead of emitting one notification per imported game.
+
 ## Dependency-ordered continuation
 
 1. **Refresh scheduling and status integration.** Connect the refresh domain to cloud-runner and

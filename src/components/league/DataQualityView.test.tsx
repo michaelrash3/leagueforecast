@@ -36,6 +36,7 @@ describe("DataQualityView", () => {
         findings={[blocking, review]}
         onDismiss={onDismiss}
         onNavigate={onNavigate}
+        onRepair={vi.fn()}
       />
     );
 
@@ -49,7 +50,9 @@ describe("DataQualityView", () => {
   });
 
   it("collapses empty categories", () => {
-    render(<DataQualityView findings={[]} onDismiss={vi.fn()} onNavigate={vi.fn()} />);
+    render(
+      <DataQualityView findings={[]} onDismiss={vi.fn()} onNavigate={vi.fn()} onRepair={vi.fn()} />
+    );
     expect(screen.queryByRole("heading", { name: /needs attention/i })).not.toBeInTheDocument();
     expect(screen.getByText(/No active findings/)).toBeInTheDocument();
   });

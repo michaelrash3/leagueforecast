@@ -231,6 +231,7 @@ const VIEW_ORDER: ActiveView[] = [
   "dataQuality",
   "settings",
 ];
+const MOBILE_PRIMARY_VIEWS: ActiveView[] = ["dashboard", "games", "standings", "model"];
 
 // ---------- Main app ----------
 
@@ -346,6 +347,7 @@ export const settleSide = (teams: readonly TeamBase[], held: string, fallback: n
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
   const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
   const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
@@ -2684,7 +2686,7 @@ export default function App() {
             <div
               role="tablist"
               aria-label="Main views"
-              className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
+              className="mx-auto hidden max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 md:flex sm:px-6 lg:px-8"
             >
               {VIEW_ORDER.map((view) => (
                 <button
@@ -2707,6 +2709,89 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <nav
+              className="relative mx-auto grid max-w-7xl grid-cols-5 gap-1 px-2 py-1.5 md:hidden"
+              aria-label="League views"
+            >
+              {MOBILE_PRIMARY_VIEWS.map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  aria-current={activeView === view ? "page" : undefined}
+                  onClick={() => {
+                    setMobileMoreOpen(false);
+                    setActiveView(view);
+                  }}
+                  className={`min-h-11 rounded-lg px-1 text-xs font-bold ${
+                    activeView === view
+                      ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                      : "text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {VIEW_LABELS[view]}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-expanded={mobileMoreOpen}
+                aria-controls="mobile-league-more"
+                onClick={() => setMobileMoreOpen((open) => !open)}
+                className={`relative min-h-11 rounded-lg px-1 text-xs font-bold ${
+                  !MOBILE_PRIMARY_VIEWS.includes(activeView)
+                    ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                    : "text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                More
+                {qualityFindings.some((item) => item.severity === "needs-attention") && (
+                  <span
+                    className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500"
+                    aria-label="Data quality needs attention"
+                  />
+                )}
+              </button>
+              {mobileMoreOpen && (
+                <div
+                  id="mobile-league-more"
+                  className="absolute right-2 top-full z-40 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                >
+                  {["power", "teamStats", "dataQuality", "settings"].map((view) => {
+                    const destination = view as ActiveView;
+                    const count =
+                      destination === "dataQuality"
+                        ? qualityFindings.filter((item) => item.severity === "needs-attention")
+                            .length
+                        : 0;
+                    return (
+                      <button
+                        key={destination}
+                        type="button"
+                        className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                        onClick={() => {
+                          setMobileMoreOpen(false);
+                          setActiveView(destination);
+                        }}
+                      >
+                        {VIEW_LABELS[destination]}
+                        {count > 0 && (
+                          <span aria-label={`${count} issues need attention`}>{count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      setShowShortcuts(true);
+                    }}
+                  >
+                    Help and shortcuts
+                  </button>
+                </div>
+              )}
+            </nav>
           </div>
         )}
 
@@ -2912,6 +2997,12 @@ export default function App() {
                     <DataQualityView
                       findings={qualityFindings}
                       onDismiss={dismissQualityFinding}
+                      onRepair={(finding) => {
+                        const duplicateId = finding.gameIds[1];
+                        if (finding.safeRepair === "remove-duplicate" && duplicateId) {
+                          void removeGame(duplicateId);
+                        }
+                      }}
                       onNavigate={(view, finding) => {
                         if (view === "games" && finding.deepLink.teamId) {
                           setScoreboardTeamFilter(finding.deepLink.teamId);
