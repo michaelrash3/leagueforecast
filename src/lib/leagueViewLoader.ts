@@ -15,6 +15,7 @@ const importers: Record<ActiveShareView, LeagueViewImporter> = {
   standings: () => import("../components/league/StandingsView"),
   teamStats: () => import("../components/league/TeamStatsView"),
   model: () => import("../components/league/ModelView"),
+  dataQuality: () => import("../components/league/DataQualityView"),
   settings: () => import("../components/league/SettingsView"),
 };
 

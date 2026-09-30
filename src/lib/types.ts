@@ -149,7 +149,14 @@ export type ModelAggression = "Conservative" | "Balanced" | "Aggressive";
 // "machine" and "coach" both use R/H/K (no walks/errors); only "player" (Kid Pitch) tracks BB/E.
 export type PitchMode = "machine" | "coach" | "player";
 export type ActiveShareView =
-  "dashboard" | "power" | "standings" | "teamStats" | "games" | "model" | "settings";
+  | "dashboard"
+  | "power"
+  | "standings"
+  | "teamStats"
+  | "games"
+  | "model"
+  | "dataQuality"
+  | "settings";
 export type RecapGrouping = "game" | "date" | "week";
 
 export const TIEBREAKER_LABELS: Record<TiebreakerFactor, string> = {

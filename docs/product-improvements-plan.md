@@ -61,6 +61,15 @@ conflict, or concurrency rules inside components.
 - Encode shared scenarios independently of season snapshots, reject invalid or oversized payloads,
   and leave applying an incoming scenario to the explicit preview UI that follows.
 
+## Phase 1C — structured data quality
+
+- Audit league schedules into stable, fingerprinted findings with severity, affected IDs, forecast
+  impact, suggested repairs, safe-repair capability, and Schedule or Settings deep links.
+- Persist non-blocking dismissals per season. A changed fingerprint or increased severity makes the
+  finding visible again rather than hiding a new problem behind an old dismissal.
+- Add a lazy Data Quality view grouped into Needs attention, Worth reviewing, and Information, plus
+  a compact Dashboard summary that links to the commissioner workflow.
+
 ## Dependency-ordered continuation
 
 1. **Refresh scheduling and status integration.** Connect the refresh domain to cloud-runner and

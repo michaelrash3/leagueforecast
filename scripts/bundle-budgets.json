@@ -9,6 +9,7 @@
     "StandingsView": 20000,
     "TeamStatsView": 15000,
     "ModelView": 45000,
+    "DataQualityView": 15000,
     "SettingsView": 25000
   }
 }

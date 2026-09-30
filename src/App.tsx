@@ -19,6 +19,14 @@ import { CloudPoolGate } from "./components/CloudPoolGate";
 import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
+import {
+  auditLeagueData,
+  dismissFinding,
+  loadFindingDismissals,
+  saveFindingDismissals,
+  visibleFindings,
+  type DataQualityFinding,
+} from "./lib/dataQuality";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
@@ -209,6 +217,7 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   teamStats: "League Stats",
   games: "Schedule",
   model: "Forecast",
+  dataQuality: "Data Quality",
   settings: "Settings",
 };
 
@@ -219,6 +228,7 @@ const VIEW_ORDER: ActiveView[] = [
   "standings",
   "teamStats",
   "model",
+  "dataQuality",
   "settings",
 ];
 
@@ -293,6 +303,12 @@ const lazySettingsView = () =>
       default: (module as typeof import("./components/league/SettingsView")).SettingsView,
     }))
   );
+const lazyDataQualityView = () =>
+  lazy(() =>
+    loadLeagueView("dataQuality").then((module) => ({
+      default: (module as typeof import("./components/league/DataQualityView")).DataQualityView,
+    }))
+  );
 
 let DashboardView = lazyDashboardView();
 let PowerRatingsView = lazyPowerRatingsView();
@@ -301,6 +317,7 @@ let StandingsView = lazyStandingsView();
 let TeamStatsView = lazyTeamStatsView();
 let ModelView = lazyModelView();
 let SettingsView = lazySettingsView();
+let DataQualityView = lazyDataQualityView();
 
 /** React.lazy remembers a rejected import, so recovery requires a new wrapper as well as a new request. */
 const resetLazyLeagueView = (view: ActiveView): void => {
@@ -311,6 +328,7 @@ const resetLazyLeagueView = (view: ActiveView): void => {
   else if (view === "standings") StandingsView = lazyStandingsView();
   else if (view === "teamStats") TeamStatsView = lazyTeamStatsView();
   else if (view === "model") ModelView = lazyModelView();
+  else if (view === "dataQuality") DataQualityView = lazyDataQualityView();
   else SettingsView = lazySettingsView();
 };
 
@@ -632,6 +650,29 @@ export default function App() {
     requestConfirmation,
   });
   const activeSeasonId = seasons.activeId;
+  const [findingDismissalRevision, setFindingDismissalRevision] = useState(0);
+  const findingDismissals = useMemo(
+    () => loadFindingDismissals(activeSeasonId),
+    // The revision changes only after this browser dismisses a finding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSeasonId, findingDismissalRevision]
+  );
+  const qualityFindings = useMemo(
+    () =>
+      visibleFindings(
+        auditLeagueData({ teams, matchups, logs: deferredLogs, settings }),
+        findingDismissals
+      ),
+    [teams, matchups, deferredLogs, settings, findingDismissals]
+  );
+  const dismissQualityFinding = useCallback(
+    (item: DataQualityFinding) => {
+      const next = dismissFinding(findingDismissals, item, new Date().toISOString());
+      if (saveFindingDismissals(activeSeasonId, next))
+        setFindingDismissalRevision((value) => value + 1);
+    },
+    [activeSeasonId, findingDismissals]
+  );
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
@@ -1946,6 +1987,7 @@ export default function App() {
     teamStats: null,
     games: null,
     model: null,
+    dataQuality: null,
     settings: null,
   });
 
@@ -2445,6 +2487,12 @@ export default function App() {
               handler: () => setActiveView("model"),
             },
             {
+              combo: "g q",
+              description: "Go to Data Quality",
+              group: "Navigate",
+              handler: () => setActiveView("dataQuality"),
+            },
+            {
               combo: "g e",
               description: "Go to Settings",
               group: "Navigate",
@@ -2713,6 +2761,7 @@ export default function App() {
                       teamsById={liveById}
                       matchups={matchups}
                       setActiveView={setActiveView}
+                      qualityFindings={qualityFindings}
                       ourTeam={
                         <OurTeamCard
                           summary={ourTeam}
@@ -2858,6 +2907,17 @@ export default function App() {
                           iterations={SIM_ITERATIONS}
                         />
                       }
+                    />
+                  ) : activeView === "dataQuality" ? (
+                    <DataQualityView
+                      findings={qualityFindings}
+                      onDismiss={dismissQualityFinding}
+                      onNavigate={(view, finding) => {
+                        if (view === "games" && finding.deepLink.teamId) {
+                          setScoreboardTeamFilter(finding.deepLink.teamId);
+                        }
+                        setActiveView(view);
+                      }}
                     />
                   ) : activeView === "settings" ? (
                     <div className="space-y-6">

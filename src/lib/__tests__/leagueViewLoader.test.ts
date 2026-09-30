@@ -8,6 +8,7 @@ describe("league view prefetch policy", () => {
     expect(likelyLeagueViewAfter("games")).toBeNull();
     expect(likelyLeagueViewAfter("model")).toBeNull();
     expect(likelyLeagueViewAfter("settings")).toBeNull();
+    expect(likelyLeagueViewAfter("dataQuality")).toBeNull();
   });
 });
 

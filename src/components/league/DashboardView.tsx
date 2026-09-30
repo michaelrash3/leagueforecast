@@ -11,6 +11,7 @@ import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { EmptyPanel } from "./EmptyPanel";
 import { PowerRatingsView } from "./PowerRatingsView";
 import { button as buttonClasses } from "../../styles/tokens";
+import type { DataQualityFinding } from "../../lib/dataQuality";
 
 function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
@@ -110,6 +111,7 @@ export function DashboardView({
   teamsById,
   matchups,
   setActiveView,
+  qualityFindings,
   ourTeam,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
@@ -117,6 +119,7 @@ export function DashboardView({
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   setActiveView: (view: ActiveShareView) => void;
+  qualityFindings: readonly DataQualityFinding[];
   /** The team this browser follows, which leads the page (`OurTeamCard`). */
   ourTeam?: ReactNode;
 }) {
@@ -175,7 +178,11 @@ export function DashboardView({
             />
           )}
         </div>
-        <DataQualityPanel engine={engine} />
+        <DataQualityPanel
+          engine={engine}
+          findings={qualityFindings}
+          open={() => setActiveView("dataQuality")}
+        />
       </section>
       <PowerRatingsView engine={engine} compact />
     </div>
@@ -199,16 +206,33 @@ function DataQualityNotes({ notes }: { notes: string[] }) {
   );
 }
 
-function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
+function DataQualityPanel({
+  engine,
+  findings,
+  open,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  findings: readonly DataQualityFinding[];
+  open: () => void;
+}) {
+  const attention = findings.filter((item) => item.severity === "needs-attention").length;
   return (
     <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Data Quality
       </p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
+      <p className="mt-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+        {attention > 0
+          ? `${attention} issue${attention === 1 ? "" : "s"} need attention`
+          : `${findings.length} active finding${findings.length === 1 ? "" : "s"}`}
+      </p>
       <DataQualityNotes
         notes={[...engine.dataQuality.warnings, ...engine.dataQuality.recommendedActions]}
       />
+      <button type="button" className={`${buttonClasses.ghost} mt-4`} onClick={open}>
+        Review data quality
+      </button>
     </aside>
   );
 }
