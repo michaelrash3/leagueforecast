@@ -9,6 +9,7 @@ import {
   coerceScoutTeams,
   initTeamRankingsStore,
   loadAgeGroups,
+  loadGcRefreshState,
   loadPullLog,
   loadPullProgress,
   loadRefreshLog,
@@ -19,6 +20,7 @@ import {
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveGcRefreshState,
   savePullLog,
   savePullProgress,
   saveRefreshLog,
@@ -187,6 +189,12 @@ describe("clearing Team Rankings", () => {
       updatedAt: "2026-09-14T12:00:00.000Z",
     });
     saveRefreshLog({ "9": "2026-09-14" });
+    saveGcRefreshState({
+      version: 1,
+      sources: {
+        gc1: { sourceId: "gc1", changes: [], consecutiveFailures: 0 },
+      },
+    });
   };
 
   /** Nothing of the pool is left — the state of a browser that has never opened Team Rankings. */
@@ -196,6 +204,7 @@ describe("clearing Team Rankings", () => {
     expect(loadScoutGames()).toEqual([]);
     expect(loadPullProgress()).toBeNull();
     expect(loadRefreshLog()).toEqual({});
+    expect(loadGcRefreshState()).toEqual({ version: 1, sources: {} });
   };
 
   it("clears every key the pool is made of", () => {

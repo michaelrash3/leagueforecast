@@ -22,25 +22,42 @@ Global state remains in `App`; lazy views continue receiving the same props.
 Production builds were compared on the same checkout and Node environment. Raw and gzip sizes do
 not include source maps.
 
-| Asset | Before | After |
-| --- | ---: | ---: |
-| Initial application JavaScript | 528.55 kB / 160.87 kB gzip | 240.73 kB / 79.28 kB gzip |
-| CSS | 95.25 kB / 13.96 kB gzip | 95.25 kB / 13.96 kB gzip |
-| Dashboard view | in initial chunk | 5.96 kB / 1.76 kB gzip |
-| Schedule view | in initial chunk | 23.98 kB / 6.62 kB gzip |
-| Forecast view | in initial chunk | 38.99 kB / 7.97 kB gzip |
-| Team Rankings view | 389.37 kB / 115.09 kB gzip | 389.44 kB / 115.08 kB gzip |
+| Asset                          |                     Before |                      After |
+| ------------------------------ | -------------------------: | -------------------------: |
+| Initial application JavaScript | 528.55 kB / 160.87 kB gzip |  240.73 kB / 79.28 kB gzip |
+| CSS                            |   95.25 kB / 13.96 kB gzip |   95.25 kB / 13.96 kB gzip |
+| Dashboard view                 |           in initial chunk |     5.96 kB / 1.76 kB gzip |
+| Schedule view                  |           in initial chunk |    23.98 kB / 6.62 kB gzip |
+| Forecast view                  |           in initial chunk |    38.99 kB / 7.97 kB gzip |
+| Team Rankings view             | 389.37 kB / 115.09 kB gzip | 389.44 kB / 115.08 kB gzip |
 
 The initial application chunk fell by 54.5% raw and 50.4% gzip. Runtime Web Vitals and interaction
 latency require repeatable fixtures and browser instrumentation, so no runtime improvement is
 claimed in this slice.
 
+## Phase 1B — refresh domain foundation
+
+- Persist versioned, per-source refresh state alongside the existing per-level completion log.
+  Existing browsers and cloud copies therefore keep their current cadence and completion history;
+  the detailed state begins empty rather than destructively rewriting the legacy log.
+- Classify new and corrected finals, new and rescheduled fixtures, opponent changes, removals or
+  cancellations, metadata changes, and protected manual-score conflicts with a pure comparison.
+- Give refresh workers expiring ownership leases so overlapping attempts cannot both commit, and
+  stable source/revision idempotency keys so retries identify the same import.
+- Retry transient failures with a bounded one-to-sixteen-minute exponential backoff. Stop after
+  five failures and do not automatically retry invalid, ineligible, unauthenticated, or conflicted
+  sources.
+
+This foundation deliberately does not start a browser or server scheduler yet. The next slice can
+wire the state transitions into the existing cloud runner and import UI without inventing retry,
+conflict, or concurrency rules inside components.
+
 ## Dependency-ordered continuation
 
-1. **Refresh domain foundation.** Add versioned refresh state and pure change classification,
-   source revisions, leases for overlapping pulls, bounded backoff, and idempotency keys. Migrate
-   existing tracked teams without changing their next manual pull. Add import/concurrency tests
-   before scheduling any background work.
+1. **Refresh scheduling and status integration.** Connect the refresh domain to cloud-runner and
+   manual-import completion, then surface last attempt/success, next eligibility, stale, offline,
+   retry, and manual-action states. Add the server-side scheduled entry point only after the same
+   idempotency and lease rules are enforced by its atomic store.
 2. **Calculation dependency map.** Measure render and worker duration with fixed small, medium,
    and large seasons. Gate forecast-only hooks by active view and give worker jobs monotonic IDs so
    obsolete responses cannot win. Preserve header and team-drawer dependencies explicitly.
