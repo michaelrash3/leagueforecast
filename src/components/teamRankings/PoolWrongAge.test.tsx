@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -9,6 +9,7 @@ import {
 } from "../../lib/teamRankingsStorage";
 import type { ScoutTeam } from "../../lib/teamRankings";
 import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRankingsHarness";
+import { beginPull, endPull } from "../../lib/pullSession";
 
 /*
  * Pool health's list of clubs filed at the wrong age, and its two answers: file the club at the
@@ -60,6 +61,64 @@ const checkThePool = async () => {
 };
 
 describe("clubs filed at the wrong age", () => {
+  it("offers one confirmed bulk change and removes the successful rows", async () => {
+    const { user, harness, list } = await checkThePool();
+    const approve = within(list).getByRole("button", { name: "Approve all changes" });
+    await user.click(approve);
+
+    expect(harness.requestConfirmation).toHaveBeenCalledTimes(1);
+    const question = harness.requestConfirmation.mock.calls[0]?.[0] as {
+      title: string;
+      message: string;
+    };
+    expect(question.title).toContain("1 club");
+    expect(question.message).toContain("squad year 2027");
+    expect(question.message).toContain("Each suggested level comes from the evidence displayed");
+    expect(harness.toasts()).toContain(
+      "1 club moved to its suggested age groups; 2 games refiled."
+    );
+    expect(screen.queryByTestId("pool-wrong-age")).toBeNull();
+    expect(loadNamedAges().get("gchorn")).toMatchObject({ level: 9, pinned: true, was: 8 });
+    expect(loadScoutGamesForYear(2027).filter((entry) => entry.id.startsWith("h"))).toHaveLength(2);
+  });
+
+  it("leaves every suggestion untouched when bulk approval is cancelled", async () => {
+    const { user, harness, list } = await checkThePool();
+    harness.requestConfirmation.mockResolvedValueOnce(false);
+    await user.click(within(list).getByRole("button", { name: "Approve all changes" }));
+
+    expect(within(list).getByRole("button", { name: "Set 9U" })).toBeInTheDocument();
+    expect(loadNamedAges().get("gchorn")).toBeUndefined();
+    expect(harness.toasts()).toEqual([]);
+  });
+
+  it("disables bulk approval while a pull is live", async () => {
+    const { list } = await checkThePool();
+    let session: ReturnType<typeof beginPull> = null;
+    act(() => {
+      session = beginPull(new Date().toISOString());
+    });
+    expect(session).not.toBeNull();
+    expect(within(list).getByRole("button", { name: "Approve all changes" })).toBeDisabled();
+    const current = session;
+    if (current) act(() => endPull(current));
+  });
+
+  it("offers one undo snapshot for the complete bulk operation", async () => {
+    const { user, harness, list } = await checkThePool();
+    await user.click(within(list).getByRole("button", { name: "Approve all changes" }));
+    const undoToasts = harness.showToast.mock.calls.filter(
+      (call) => (call[1] as { actionLabel?: string } | undefined)?.actionLabel === "Undo"
+    );
+    expect(undoToasts).toHaveLength(1);
+
+    act(() => (undoToasts[0]?.[1] as { onAction: () => void }).onAction());
+    expect(loadScoutTeams().find((entry) => entry.id === "horn")?.gcTeams?.[0]?.ageGroupId).toBe(
+      now8.id
+    );
+    expect(loadNamedAges().get("gchorn")).toBeUndefined();
+  });
+
   it("are listed with what they are filed at, what they play, and why", async () => {
     const { list } = await checkThePool();
     expect(list).toHaveTextContent("1 pulled club is filed at one age in 2027 and plays another");

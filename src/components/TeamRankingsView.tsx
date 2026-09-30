@@ -129,6 +129,7 @@ import type { AgelessAnswered } from "../lib/agelessTriage";
 const NO_AGELESS: AgeUnknownList = [];
 import { withoutClub, type UnrealClub } from "../lib/unrealClubs";
 import type { GamesDropped } from "./teamRankings/PoolHealthCard";
+import type { WrongAgeClub } from "../lib/wrongAge";
 import {
   estimateBackupBytes,
   formatBytes,

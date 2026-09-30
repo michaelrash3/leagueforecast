@@ -8,7 +8,7 @@ import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import type { ModelCheckAnswer } from "../../lib/scoutBacktest";
 import { ModelCheckCard } from "./ModelCheckCard";
-import { PoolHealthCard, type GamesDropped } from "./PoolHealthCard";
+import { PoolHealthCard, type BulkAgeResult, type GamesDropped } from "./PoolHealthCard";
 import { AgelessReviewCard } from "./AgelessReviewCard";
 import type { AgelessAnswered } from "../../lib/agelessTriage";
 import type { AgeUnknownList } from "../../lib/ageUnknown";

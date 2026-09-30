@@ -35,6 +35,11 @@ import {
 import { TidyProgressView } from "./TidyProgressView";
 import { button, card, pill } from "../../styles/tokens";
 
+export type BulkAgeResult = {
+  changedTeamIds: string[];
+  failed: number;
+};
+
 type PoolHealthCardProps = {
   pool: GcImportState;
   tidyStamp: string;
@@ -1234,7 +1239,7 @@ export function PoolHealthCard({
                           <button
                             type="button"
                             onClick={() => setAge(club)}
-                            disabled={pullLive}
+                            disabled={pullLive || settingAges}
                             className={`${button.ghost} text-xs`}
                           >
                             Set {club.suggested}U
