@@ -1,0 +1,14 @@
+{
+  "initialRawBytes": 260000,
+  "criticalRawBytes": 470000,
+  "cssRawBytes": 100000,
+  "views": {
+    "DashboardView": 10000,
+    "PowerRatingsView": 10000,
+    "GamesView": 30000,
+    "StandingsView": 20000,
+    "TeamStatsView": 15000,
+    "ModelView": 45000,
+    "SettingsView": 25000
+  }
+}
