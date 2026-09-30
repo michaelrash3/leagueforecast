@@ -52,6 +52,15 @@ This foundation deliberately does not start a browser or server scheduler yet. T
 wire the state transitions into the existing cloud runner and import UI without inventing retry,
 conflict, or concurrency rules inside components.
 
+## Phase 2A / 3A — scenario persistence foundation
+
+- Add a versioned, season-scoped scenario format with names, timestamps, selected outcomes,
+  optional scores, and a source schedule fingerprint.
+- Detect assumptions invalidated by completed, removed, or participant-changed games and provide a
+  pure rebase that preserves unaffected picks while reporting every discarded assumption.
+- Encode shared scenarios independently of season snapshots, reject invalid or oversized payloads,
+  and leave applying an incoming scenario to the explicit preview UI that follows.
+
 ## Dependency-ordered continuation
 
 1. **Refresh scheduling and status integration.** Connect the refresh domain to cloud-runner and
