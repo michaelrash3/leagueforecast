@@ -1,6 +1,6 @@
 {
   "initialRawBytes": 260000,
-  "criticalRawBytes": 470000,
+  "criticalRawBytes": 650000,
   "cssRawBytes": 100000,
   "views": {
     "DashboardView": 10000,

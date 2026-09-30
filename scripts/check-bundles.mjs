@@ -2,9 +2,8 @@ import { gzipSync } from "node:zlib";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const assetsDirectory = new URL("../dist/assets/", import.meta.url);
-const budgets = JSON.parse(
-  readFileSync(new URL("./bundle-budgets.json", import.meta.url), "utf8")
-);
+const indexHtml = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
+const budgets = JSON.parse(readFileSync(new URL("./bundle-budgets.json", import.meta.url), "utf8"));
 const files = readdirSync(assetsDirectory).filter(
   (file) => (file.endsWith(".js") || file.endsWith(".css")) && !file.endsWith(".map")
 );
@@ -17,7 +16,8 @@ const measurements = Object.fromEntries(
 
 const findOne = (label, pattern) => {
   const matches = files.filter((file) => pattern.test(file));
-  if (matches.length !== 1) throw new Error(`${label}: expected one emitted asset, found ${matches}`);
+  if (matches.length !== 1)
+    throw new Error(`${label}: expected one emitted asset, found ${matches}`);
   return matches[0];
 };
 
@@ -29,11 +29,21 @@ const views = Object.fromEntries(
     return [view, { file, limit, ...measurements[file] }];
   })
 );
-const criticalFiles = files.filter(
-  (file) =>
-    file === initialApp ||
-    /^(?:react|rolldown-runtime|preload-helper)-[^.]+\.js$/.test(file)
-);
+/*
+ * Vite writes the entry and every dependency needed before the app can start into index.html as
+ * module scripts/modulepreloads. Derive this set from the emitted page rather than guessing chunk
+ * names: shared modules move as the graph changes, and a prefix allowlist silently under-counts.
+ */
+const criticalFiles = [
+  ...new Set(
+    [...indexHtml.matchAll(/(?:src|href)="(?:\.\/|\/)?assets\/([^"?]+\.js)(?:\?[^" ]*)?"/g)]
+      .map((match) => match[1])
+      .filter((file) => files.includes(file))
+  ),
+].sort();
+if (!criticalFiles.includes(initialApp)) {
+  throw new Error(`Initial application chunk ${initialApp} is not referenced by dist/index.html`);
+}
 const criticalRawBytes = criticalFiles.reduce(
   (total, file) => total + measurements[file].rawBytes,
   0

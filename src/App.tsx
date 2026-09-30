@@ -150,7 +150,12 @@ import { HeaderStatCard } from "./components/HeaderStatCard";
 import { TeamDrawer } from "./components/league/TeamDrawer";
 import { EmptyState } from "./components/league/EmptyState";
 import { SeasonManager } from "./components/league/SeasonManager";
-import { likelyLeagueViewAfter, loadLeagueView, prefetchLeagueView } from "./lib/leagueViewLoader";
+import {
+  likelyLeagueViewAfter,
+  loadLeagueView,
+  prefetchLeagueView,
+  resetLeagueViewLoad,
+} from "./lib/leagueViewLoader";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
@@ -246,41 +251,68 @@ const TeamRankingsView = lazy(() =>
   import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
 );
 
-const DashboardView = lazy(() =>
-  loadLeagueView("dashboard").then((module) => ({
-    default: (module as typeof import("./components/league/DashboardView")).DashboardView,
-  }))
-);
-const PowerRatingsView = lazy(() =>
-  loadLeagueView("power").then((module) => ({
-    default: (module as typeof import("./components/league/PowerRatingsView")).PowerRatingsView,
-  }))
-);
-const GamesView = lazy(() =>
-  loadLeagueView("games").then((module) => ({
-    default: (module as typeof import("./components/league/GamesView")).GamesView,
-  }))
-);
-const StandingsView = lazy(() =>
-  loadLeagueView("standings").then((module) => ({
-    default: (module as typeof import("./components/league/StandingsView")).StandingsView,
-  }))
-);
-const TeamStatsView = lazy(() =>
-  loadLeagueView("teamStats").then((module) => ({
-    default: (module as typeof import("./components/league/TeamStatsView")).TeamStatsView,
-  }))
-);
-const ModelView = lazy(() =>
-  loadLeagueView("model").then((module) => ({
-    default: (module as typeof import("./components/league/ModelView")).ModelView,
-  }))
-);
-const SettingsView = lazy(() =>
-  loadLeagueView("settings").then((module) => ({
-    default: (module as typeof import("./components/league/SettingsView")).SettingsView,
-  }))
-);
+const lazyDashboardView = () =>
+  lazy(() =>
+    loadLeagueView("dashboard").then((module) => ({
+      default: (module as typeof import("./components/league/DashboardView")).DashboardView,
+    }))
+  );
+const lazyPowerRatingsView = () =>
+  lazy(() =>
+    loadLeagueView("power").then((module) => ({
+      default: (module as typeof import("./components/league/PowerRatingsView")).PowerRatingsView,
+    }))
+  );
+const lazyGamesView = () =>
+  lazy(() =>
+    loadLeagueView("games").then((module) => ({
+      default: (module as typeof import("./components/league/GamesView")).GamesView,
+    }))
+  );
+const lazyStandingsView = () =>
+  lazy(() =>
+    loadLeagueView("standings").then((module) => ({
+      default: (module as typeof import("./components/league/StandingsView")).StandingsView,
+    }))
+  );
+const lazyTeamStatsView = () =>
+  lazy(() =>
+    loadLeagueView("teamStats").then((module) => ({
+      default: (module as typeof import("./components/league/TeamStatsView")).TeamStatsView,
+    }))
+  );
+const lazyModelView = () =>
+  lazy(() =>
+    loadLeagueView("model").then((module) => ({
+      default: (module as typeof import("./components/league/ModelView")).ModelView,
+    }))
+  );
+const lazySettingsView = () =>
+  lazy(() =>
+    loadLeagueView("settings").then((module) => ({
+      default: (module as typeof import("./components/league/SettingsView")).SettingsView,
+    }))
+  );
+
+let DashboardView = lazyDashboardView();
+let PowerRatingsView = lazyPowerRatingsView();
+let GamesView = lazyGamesView();
+let StandingsView = lazyStandingsView();
+let TeamStatsView = lazyTeamStatsView();
+let ModelView = lazyModelView();
+let SettingsView = lazySettingsView();
+
+/** React.lazy remembers a rejected import, so recovery requires a new wrapper as well as a new request. */
+const resetLazyLeagueView = (view: ActiveView): void => {
+  resetLeagueViewLoad(view);
+  if (view === "dashboard") DashboardView = lazyDashboardView();
+  else if (view === "power") PowerRatingsView = lazyPowerRatingsView();
+  else if (view === "games") GamesView = lazyGamesView();
+  else if (view === "standings") StandingsView = lazyStandingsView();
+  else if (view === "teamStats") TeamStatsView = lazyTeamStatsView();
+  else if (view === "model") ModelView = lazyModelView();
+  else SettingsView = lazySettingsView();
+};
 
 /**
  * One add-game select, settled against the team list it names: the id it holds when that is still
@@ -2668,7 +2700,11 @@ export default function App() {
                 openTour={() => setShowTour(true)}
               />
             ) : (
-              <ErrorBoundary area={`${VIEW_LABELS[activeView]} view`}>
+              <ErrorBoundary
+                key={activeView}
+                area={`${VIEW_LABELS[activeView]} view`}
+                onReset={() => resetLazyLeagueView(activeView)}
+              >
                 <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
                   {activeView === "dashboard" ? (
                     <DashboardView

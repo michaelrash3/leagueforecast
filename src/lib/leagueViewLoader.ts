@@ -24,9 +24,19 @@ export const loadLeagueView = (view: ActiveShareView): Promise<LeagueViewModule>
   const existing = pending.get(view);
   if (existing) return existing;
 
-  const request = importers[view]();
+  const request = importers[view]().catch((error: unknown) => {
+    // React.lazy caches its rejection, but the loader must not: a new lazy generation created by
+    // the recovery action needs to be able to issue a fresh request after connectivity returns.
+    if (pending.get(view) === request) pending.delete(view);
+    throw error;
+  });
   pending.set(view, request);
   return request;
+};
+
+/** Forget a fulfilled or rejected generation before constructing a fresh React.lazy wrapper. */
+export const resetLeagueViewLoad = (view: ActiveShareView): void => {
+  pending.delete(view);
 };
 
 export const likelyLeagueViewAfter = (view: ActiveShareView): ActiveShareView | null => {
@@ -36,8 +46,5 @@ export const likelyLeagueViewAfter = (view: ActiveShareView): ActiveShareView | 
 };
 
 export const prefetchLeagueView = (view: ActiveShareView): void => {
-  void loadLeagueView(view).catch(() => {
-    // A transient chunk failure must be retryable when the user actually navigates there.
-    pending.delete(view);
-  });
+  void loadLeagueView(view).catch(() => undefined);
 };
