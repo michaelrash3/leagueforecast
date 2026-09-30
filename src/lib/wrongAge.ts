@@ -51,6 +51,12 @@ export type WrongAgeClub = {
   weeks: number;
 };
 
+export type WrongAgeBulkResult = {
+  changedTeamIds: string[];
+  failedTeamIds: string[];
+  movedGames: number;
+};
+
 /** The age a club's name states, by the import's own ladder: a bracket's older end first. */
 const nameAge = (name: string, year: number): number | undefined =>
   ageSpanFromName(name)?.high ??

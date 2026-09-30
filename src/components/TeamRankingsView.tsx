@@ -5,6 +5,7 @@ import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge, type ClubAgeState } from "../lib/clubAge";
+import type { WrongAgeBulkResult, WrongAgeClub } from "../lib/wrongAge";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
@@ -1417,6 +1418,91 @@ export function TeamRankingsView({
     return true;
   };
 
+  /** Applies a review as one state transition, one pin save and one undoable result. */
+  const setTeamAges = async (clubs: readonly WrongAgeClub[]): Promise<WrongAgeBulkResult> => {
+    const years = [...new Set(clubs.map((club) => club.year))];
+    const previousNamed = loadNamedAges();
+    const beforeTeams = scoutTeams;
+    const beforeGroups = ageGroups;
+    const beforeGames = new Map(
+      years.map((year) => [year, year === selectedYear ? scoutGames : loadScoutGamesForYear(year)])
+    );
+    let teams = beforeTeams;
+    let groups = beforeGroups;
+    let named = previousNamed;
+    const games = new Map(beforeGames);
+    const changedTeamIds: string[] = [];
+    const failedTeamIds: string[] = [];
+    let movedGames = 0;
+
+    for (const club of clubs) {
+      const currentGames = games.get(club.year) ?? [];
+      const change = setClubAge(
+        { teams, ageGroups: groups, games: currentGames },
+        club.teamId,
+        club.suggested,
+        club.year,
+        "you"
+      );
+      if (!change) {
+        failedTeamIds.push(club.teamId);
+        continue;
+      }
+      const previousTeams = teams;
+      teams = change.teams;
+      groups = change.ageGroups;
+      games.set(club.year, change.games);
+      movedGames += change.moved;
+      changedTeamIds.push(club.teamId);
+      change.gcTeamIds.forEach((gcTeamId) => {
+        const link = previousTeams
+          .find((team) => team.id === club.teamId)
+          ?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
+        const was = previousNamed.get(gcTeamId)?.pinned
+          ? previousNamed.get(gcTeamId)?.was
+          : change.levels[gcTeamId];
+        named = nameAge(named, {
+          teamId: gcTeamId,
+          level: club.suggested,
+          ...(link?.name ? { name: link.name } : {}),
+          namedAt: new Date().toISOString(),
+          pinned: true,
+          ...(was === undefined ? {} : { was }),
+        });
+      });
+    }
+
+    if (changedTeamIds.length) {
+      if (teams !== beforeTeams) persistTeams(teams);
+      if (groups !== beforeGroups) persistAgeGroups(groups);
+      games.forEach((value, year) => {
+        if (value !== beforeGames.get(year)) persistGames(value, year);
+      });
+      setNamedAges(named);
+      saveNamedAges(named);
+      const failure = failedTeamIds.length ? ` ${failedTeamIds.length} could not be changed.` : "";
+      showToast(
+        `${changedTeamIds.length} ${changedTeamIds.length === 1 ? "club" : "clubs"} moved to their suggested age groups; ${movedGames} ${movedGames === 1 ? "game" : "games"} refiled.${failure}`,
+        {
+          tone: failedTeamIds.length ? "undo" : "success",
+          actionLabel: "Undo",
+          onAction: () => {
+            persistTeams(beforeTeams);
+            persistAgeGroups(beforeGroups);
+            beforeGames.forEach((value, year) => persistGames(value, year));
+            setNamedAges(previousNamed);
+            saveNamedAges(previousNamed);
+          },
+        }
+      );
+    } else {
+      showToast(`No clubs were changed; ${failedTeamIds.length} remain for review.`, {
+        tone: "error",
+      });
+    }
+    return { changedTeamIds, failedTeamIds, movedGames };
+  };
+
   /**
    * Takes back an age set on the panel: the pins come off, and each of the club's ids goes back to
    * the level the app had filed it at, until a pull decides again. An id whose earlier level was
@@ -2597,6 +2683,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onConfirmScore: confirmScore,
                 onOpenTeam: openListedTeam,
                 onSetAge: setTeamAge,
+                onSetAges: setTeamAges,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so

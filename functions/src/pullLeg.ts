@@ -20,9 +20,9 @@ export type LegAnswer = { outcome: string } | { error: string };
 const { task, lastTry } = workerData as LegRequest;
 let answer: LegAnswer;
 try {
-  const access = restAccess();
+  const access = restAccess(task.ownerUid);
   const outcome = await runPullLeg(task, {
-    jobs: restJobDocs(firestoreRestDocuments(access)),
+    jobs: restJobDocs(firestoreRestDocuments(access), task.ownerUid),
     store: firestoreRestStore({ ...access, writable: true }),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),

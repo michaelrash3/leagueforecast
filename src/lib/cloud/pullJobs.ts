@@ -8,9 +8,9 @@ import type { CloudPullEnd } from "./cloudRunner";
  * it does whatever else it likes, or nothing at all.
  *
  * It lives beside the copy it pulls into, where the rules already let a signed-in device write:
- * - `copies/main/jobs/{jobId}`: the job, a `PullJob`, which the device writes last and the function
+ * - `users/{uid}/copies/main/jobs/{jobId}`: the job, a `PullJob`, which the device writes last and the function
  *   keeps up to date as it works, so the device reads how far it has got from the one document;
- * - `copies/main/jobs/{jobId}/pieces/{n}`: the list, gzipped JSON in pieces, `{ data: Bytes }`,
+ * - `users/{uid}/copies/main/jobs/{jobId}/pieces/{n}`: the list, gzipped JSON in pieces, `{ data: Bytes }`,
  *   packed as the copy packs a value (`cloudPack.ts`) and checked against its fingerprint on the
  *   way back, so a list is never pulled half from one upload and half from another.
  *
@@ -28,9 +28,7 @@ export const JOB_FORMAT = 1;
  */
 export const LEG_TEAMS = 25_000;
 
-export const jobPath = (jobId: string): string => `copies/main/jobs/${jobId}`;
-export const jobPiecePath = (jobId: string, index: number): string =>
-  `${jobPath(jobId)}/pieces/${index}`;
+export { jobPath, jobPiecePath } from "./cloudPaths";
 
 /** A job's id: `randomId`'s 128 bits, which is also what keeps a task's name from being guessed. */
 export const JOB_ID = /^[0-9a-f]{32}$/;

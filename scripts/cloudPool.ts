@@ -80,7 +80,9 @@ const accountOf = (keyJson: string): ServiceAccount => {
 /** The cloud copy's store for the key's project: read only unless `writable`. */
 export const openCloudStore = (keyJson: string, writable: boolean): CloudStore => {
   const account = accountOf(keyJson);
-  return firestoreRestStore({ projectId: account.project_id, token: tokens(account), writable });
+  const ownerUid = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.FIREBASE_OWNER_UID?.trim();
+  if (!ownerUid) throw new Error("Set FIREBASE_OWNER_UID to the namespace this job may access.");
+  return firestoreRestStore({ projectId: account.project_id, ownerUid, token: tokens(account), writable });
 };
 
 export type CloudPool = LoadedCopy;

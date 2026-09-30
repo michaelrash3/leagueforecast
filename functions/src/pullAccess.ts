@@ -35,14 +35,21 @@ const accessToken = (() => {
 })();
 
 /** Firestore's REST API as the function's own account (`firestoreRest.ts`). */
-export const restAccess = () => ({ projectId: projectId(), token: accessToken });
+export const restAccess = (ownerUid: string) => ({
+  projectId: projectId(),
+  ownerUid,
+  token: accessToken,
+});
 
 /** Queues a leg, named for its job and leg: a leg queued twice is queued once. */
 export const enqueueLeg = async (task: LegTask): Promise<void> => {
   try {
     await getFunctions(adminApp())
       .taskQueue<LegTask>(`locations/${REGION}/functions/runPull`)
-      .enqueue(task, { id: `${task.jobId}-${task.leg}`, dispatchDeadlineSeconds: 1800 });
+      .enqueue(task, {
+        id: `${task.ownerUid}-${task.jobId}-${task.leg}`,
+        dispatchDeadlineSeconds: 1800,
+      });
   } catch (error) {
     if ((error as { code?: unknown }).code === "functions/task-already-exists") return;
     throw error;

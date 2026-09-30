@@ -17,7 +17,7 @@ import {
 import { IMPLAUSIBLE_MARGIN, isImplausibleScore, ratedMargin } from "../../lib/teamRankings";
 import { keepApart as apartAfter, isKeptApart } from "../../lib/keptApart";
 import type { PoolLists } from "../../workers/tidyProtocol";
-import type { WrongAgeClub } from "../../lib/wrongAge";
+import type { WrongAgeBulkResult, WrongAgeClub } from "../../lib/wrongAge";
 import { isDatedAhead } from "../../lib/deletedGames";
 import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "../../lib/unrealClubs";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
@@ -67,6 +67,7 @@ type PoolHealthCardProps = {
    * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.
    */
   onSetAge?: (teamId: string, level: number, year: number) => boolean;
+  onSetAges?: (clubs: readonly WrongAgeClub[]) => Promise<WrongAgeBulkResult>;
 };
 
 /** Why a list's rows are being thrown out, which is what the question before it says. */
@@ -113,6 +114,7 @@ export function PoolHealthCard({
   onConfirmScore,
   onOpenTeam,
   onSetAge,
+  onSetAges,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -176,6 +178,7 @@ export function PoolHealthCard({
   const [showKeptAtAge, setShowKeptAtAge] = useState(false);
   const [merging, setMerging] = useState<string | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
+  const [settingAges, setSettingAges] = useState(false);
 
   /**
    * The rows with a score on a day that has not happened.
@@ -331,6 +334,28 @@ export function PoolHealthCard({
   const setAge = (club: WrongAgeClub) => {
     if (!onSetAge?.(club.teamId, club.suggested, club.year)) return;
     setWrongAge((current) => (current ?? []).filter((entry) => entry.teamId !== club.teamId));
+  };
+
+  const setAllAges = async () => {
+    if (!onSetAges || !misfiled?.length || pullLive || settingAges) return;
+    const years = [...new Set(misfiled.map((club) => club.year))].sort();
+    const targets = [...new Set(misfiled.map((club) => club.suggested))]
+      .sort((a, b) => a - b)
+      .map((level) => `${level}U (${misfiled.filter((club) => club.suggested === level).length})`);
+    if (
+      !window.confirm(
+        `Approve ${plural(misfiled.length, "club")} across squad ${plural(years.length, "year")} ${years.join(", ")} and move them to ${targets.join(", ")}? The proposed levels come from the evidence shown in this review list.`
+      )
+    )
+      return;
+    setSettingAges(true);
+    try {
+      const result = await onSetAges(misfiled);
+      const changed = new Set(result.changedTeamIds);
+      setWrongAge((current) => (current ?? []).filter((entry) => !changed.has(entry.teamId)));
+    } finally {
+      setSettingAges(false);
+    }
   };
 
   /** The age it is filed at is right: it plays up or down. Remembered against its GameChanger ids. */
@@ -1168,6 +1193,17 @@ export function PoolHealthCard({
                 Listed on evidence, not a guess — its squad&apos;s name and most of its opponents,
                 or its opponents alone, week after week.
               </p>
+              {onSetAges && (
+                <button
+                  type="button"
+                  onClick={() => void setAllAges()}
+                  disabled={pullLive || settingAges}
+                  aria-label="Approve all suggested age changes"
+                  className={`${button.primary} mt-3 text-sm`}
+                >
+                  {settingAges ? "Approving changes…" : `Approve all changes (${misfiled.length})`}
+                </button>
+              )}
               <ul className="mt-2 space-y-1">
                 {(allWrongAge ? misfiled : misfiled.slice(0, 12)).map((club) => {
                   const up = club.suggested > club.filed;

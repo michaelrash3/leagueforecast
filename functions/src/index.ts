@@ -115,10 +115,11 @@ export const startPull = !CLOUD_PULLS
         if (request.auth?.token.firebase.sign_in_provider !== "google.com") {
           throw new HttpsError("unauthenticated", "Sign in with Google to pull in the cloud.");
         }
+        const ownerUid = request.auth.uid;
         const jobId = (request.data as { jobId?: unknown } | null)?.jobId;
         const started = await startPullJob(jobId, {
-          jobs: restJobDocs(firestoreRestDocuments(restAccess())),
-          enqueue: enqueueLeg,
+          jobs: restJobDocs(firestoreRestDocuments(restAccess(ownerUid)), ownerUid),
+          enqueue: (task) => enqueueLeg({ ...task, ownerUid }),
         });
         if (!started.ok) {
           throw new HttpsError(
@@ -183,7 +184,11 @@ export const runPull = !CLOUD_PULLS
           logger.warn(said("not a pull's id; nothing done."));
           return;
         }
-        const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
+        if (typeof task.ownerUid !== "string" || task.ownerUid.length === 0) {
+          logger.warn(said("missing owner; nothing done."));
+          return;
+        }
+        const jobs = restJobDocs(firestoreRestDocuments(restAccess(task.ownerUid)), task.ownerUid);
         const job = await jobs.read(task.jobId);
         if (!job) {
           logger.info(said("no such pull; nothing done."));

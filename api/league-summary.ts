@@ -75,6 +75,7 @@ const MAX_GROQ_ATTEMPTS = 3;
 const GROQ_RESERVE_MS = 8_000;
 
 const RATE_LIMIT_MAX_REQUESTS = 12;
+const DAILY_RATE_LIMIT_MAX_REQUESTS = 100;
 /**
  * The health probe gets its own, smaller budget under its own key. It shares
  * the summary limiter's window but not its bucket, so a burst of retries can
@@ -96,7 +97,81 @@ export const clearModelCaches = (): void => {
 const isRateLimited = createRateLimiter(RATE_LIMIT_MAX_REQUESTS);
 
 const sendError = (res: ApiResponse, status: number, payload: LeagueSummaryError) => {
+  res.setHeader("cache-control", "private, no-store, max-age=0");
   res.status(status).json(payload);
+};
+
+type Identity = { uid: string };
+type QuotaAnswer = { allowed: boolean; retryAfter: number };
+let verifyIdentityOverride: ((token: string) => Promise<Identity | null>) | null = null;
+let consumeQuotaOverride: ((uid: string) => Promise<QuotaAnswer>) | null = null;
+
+/** Dependency seams for deterministic security tests; production always uses the durable paths. */
+export const setSummarySecurityTestHooks = (
+  hooks: {
+    verify?: (token: string) => Promise<Identity | null>;
+    quota?: (uid: string) => Promise<QuotaAnswer>;
+  } | null
+): void => {
+  verifyIdentityOverride = hooks?.verify ?? null;
+  consumeQuotaOverride = hooks?.quota ?? null;
+};
+
+const bearer = (req: ApiRequest): string | null => {
+  const raw = req.headers.authorization;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const match = /^Bearer ([A-Za-z0-9._~-]+)$/.exec(value ?? "");
+  return match?.[1] ?? null;
+};
+
+const verifyIdentity = async (token: string): Promise<Identity | null> => {
+  if (verifyIdentityOverride) return verifyIdentityOverride(token);
+  const key = process.env.FIREBASE_WEB_API_KEY?.trim() || process.env.VITE_FIREBASE_API_KEY?.trim();
+  if (!key) throw new Error("Firebase token verification is not configured.");
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idToken: token }),
+      signal: AbortSignal.timeout(5_000),
+    }
+  );
+  if (!response.ok) return null;
+  const body = (await response.json()) as {
+    users?: { localId?: string; providerUserInfo?: { providerId?: string }[] }[];
+  };
+  const user = body.users?.[0];
+  return user?.localId &&
+    user.providerUserInfo?.some((provider) => provider.providerId === "google.com")
+    ? { uid: user.localId }
+    : null;
+};
+
+const consumeQuota = async (uid: string): Promise<QuotaAnswer> => {
+  if (consumeQuotaOverride) return consumeQuotaOverride(uid);
+  const url = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/$/, "");
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) throw new Error("Durable summary quota is not configured.");
+  const minute = Math.floor(Date.now() / 60_000);
+  const day = new Date().toISOString().slice(0, 10);
+  const script =
+    "local a=redis.call('INCR',KEYS[1]); if a==1 then redis.call('EXPIRE',KEYS[1],60) end; local b=redis.call('INCR',KEYS[2]); if b==1 then redis.call('EXPIRE',KEYS[2],172800) end; return {a,b,redis.call('TTL',KEYS[1])}";
+  const response = await fetch(
+    `${url}/eval/${encodeURIComponent(script)}/2/ai:${encodeURIComponent(uid)}:${minute}/ai:${encodeURIComponent(uid)}:${day}`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    }
+  );
+  if (!response.ok) throw new Error("Durable summary quota is unavailable.");
+  const result = (await response.json()) as { result?: number[] };
+  const [short = RATE_LIMIT_MAX_REQUESTS + 1, daily = DAILY_RATE_LIMIT_MAX_REQUESTS + 1, ttl = 60] =
+    result.result ?? [];
+  return {
+    allowed: short <= RATE_LIMIT_MAX_REQUESTS && daily <= DAILY_RATE_LIMIT_MAX_REQUESTS,
+    retryAfter: Math.max(1, ttl),
+  };
 };
 
 /** `req.body` is pre-parsed for JSON content types, but tolerate a raw string. */
@@ -497,6 +572,43 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
   const url = typeof req.url === "string" ? req.url : "";
   const wantsProbe = /[?&]probe=1(&|$)/.test(url);
 
+  // A plain health response is public and contacts nobody. A probe spends provider quota and has
+  // exactly the same authentication and shared-quota boundary as generation.
+  if (wantsProbe) {
+    const token = bearer(req);
+    if (!token) {
+      sendError(res, 401, {
+        error: "Authentication is required to probe providers.",
+        reason: "invalid-request",
+      });
+      return;
+    }
+    let identity: Identity | null;
+    try {
+      identity = await verifyIdentity(token);
+      if (identity && !(await consumeQuota(identity.uid)).allowed) {
+        sendError(res, 429, {
+          error: "Summary quota exhausted. Try again later.",
+          reason: "throttled",
+        });
+        return;
+      }
+    } catch {
+      sendError(res, 503, {
+        error: "Authentication or quota is temporarily unavailable.",
+        reason: "upstream-error",
+      });
+      return;
+    }
+    if (!identity) {
+      sendError(res, 401, {
+        error: "The credential is invalid or expired.",
+        reason: "invalid-request",
+      });
+      return;
+    }
+  }
+
   const health: Record<string, unknown> = {
     endpoint: "league-summary",
     functionDeployed: true,
@@ -603,6 +715,7 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  res.setHeader("cache-control", "private, no-store, max-age=0");
   if (req.method === "GET") {
     await sendHealth(req, res);
     return;
@@ -611,6 +724,62 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   if (req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
     sendError(res, 405, { error: "Use POST.", reason: "invalid-request" });
+    return;
+  }
+
+  const contentType = req.headers["content-type"];
+  const content = Array.isArray(contentType) ? contentType[0] : contentType;
+  if (!content?.toLowerCase().startsWith("application/json")) {
+    sendError(res, 415, { error: "Use application/json.", reason: "invalid-request" });
+    return;
+  }
+  const token = bearer(req);
+  if (!token) {
+    sendError(res, 401, { error: "Authentication is required.", reason: "invalid-request" });
+    return;
+  }
+  let identity: Identity | null;
+  try {
+    identity = await verifyIdentity(token);
+  } catch {
+    sendError(res, 503, {
+      error: "Authentication is temporarily unavailable.",
+      reason: "upstream-error",
+    });
+    return;
+  }
+  if (!identity) {
+    sendError(res, 401, {
+      error: "The credential is invalid or expired.",
+      reason: "invalid-request",
+    });
+    return;
+  }
+
+  const bodyBytes =
+    typeof req.body === "string"
+      ? new TextEncoder().encode(req.body).byteLength
+      : new TextEncoder().encode(JSON.stringify(req.body ?? null)).byteLength;
+  if (bodyBytes > LEAGUE_SUMMARY_LIMITS.requestBytes) {
+    sendError(res, 413, { error: "Request is too large.", reason: "invalid-request" });
+    return;
+  }
+  let quota: QuotaAnswer;
+  try {
+    quota = await consumeQuota(identity.uid);
+  } catch {
+    sendError(res, 503, {
+      error: "The shared quota service is unavailable.",
+      reason: "upstream-error",
+    });
+    return;
+  }
+  if (!quota.allowed) {
+    res.setHeader("retry-after", String(quota.retryAfter));
+    sendError(res, 429, {
+      error: "Summary quota exhausted. Try again later.",
+      reason: "throttled",
+    });
     return;
   }
 
@@ -628,7 +797,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
   // This app's own throttle, not Gemini's, and it fires before any model is
   // attempted — so it gets its own reason rather than reading as a Gemini quota.
-  if (isRateLimited(clientKey(req))) {
+  if (isRateLimited(identity.uid)) {
     sendError(res, 429, {
       error: `Too many summary requests from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit, and no AI model was attempted. Wait a minute and retry.`,
       reason: "throttled",

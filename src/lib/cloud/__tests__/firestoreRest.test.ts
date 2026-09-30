@@ -105,6 +105,7 @@ const fakeFirestore = () => {
 const storeOn = (firestore: ReturnType<typeof fakeFirestore>, writable = true) =>
   firestoreRestStore({
     projectId: "proj",
+    ownerUid: "owner",
     token: async () => "a-token",
     writable,
     fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
@@ -163,14 +164,14 @@ describe("the cloud copy through Firestore's REST API", () => {
     const manifest = await firstCopy(store);
 
     // The manifest's fields typed as the SDK types them: whole numbers as integers.
-    const fields = firestore.docs.get("copies/main")!.fields;
+    const fields = firestore.docs.get("users/owner/copies/main")!.fields;
     expect(fields.version).toEqual({ integerValue: "1" });
     expect(fields.device).toEqual({ stringValue: "nightly" });
     const part = fields.parts!.arrayValue!.values![0]!.mapValue!.fields!;
     expect(part.at).toEqual({ integerValue: "1790000000000" });
     // Each piece a document of its own, holding bytes.
     const pieces = [...firestore.docs.keys()].filter((path) =>
-      path.startsWith("copies/main/chunks/")
+      path.startsWith("users/owner/copies/main/chunks/")
     );
     expect(pieces.length).toBeGreaterThan(0);
     expect(firestore.docs.get(pieces[0]!)!.fields.data!.bytesValue).toMatch(/^[A-Za-z0-9+/]+=*$/);
@@ -194,7 +195,7 @@ describe("the cloud copy through Firestore's REST API", () => {
     const reads = firestore.fetchImpl.getMockImplementation()!;
     firestore.fetchImpl.mockImplementation(async (input, init) => {
       const answer = await reads(input, init);
-      const doc = firestore.docs.get("copies/main");
+      const doc = firestore.docs.get("users/owner/copies/main");
       if ((init?.method ?? "GET") === "GET" && doc) doc.updateTime = "changed-meanwhile";
       return answer;
     });
@@ -249,28 +250,30 @@ describe("a pull's job through Firestore's REST API", () => {
     });
     // As the device leaves it: the list's pieces, then the job.
     packed.pieces.forEach((piece, index) =>
-      firestore.docs.set(`copies/main/jobs/${JOB}/pieces/${index}`, {
+      firestore.docs.set(`users/owner/copies/main/jobs/${JOB}/pieces/${index}`, {
         fields: firestoreFieldsOf({ data: piece }),
         updateTime: "t0",
       })
     );
-    firestore.docs.set(`copies/main/jobs/${JOB}`, {
+    firestore.docs.set(`users/owner/copies/main/jobs/${JOB}`, {
       fields: firestoreFieldsOf(job),
       updateTime: "t0",
     });
     const jobs = restJobDocs(
       firestoreRestDocuments({
         projectId: "proj",
+        ownerUid: "owner",
         token: async () => "a-token",
         fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
-      })
+      }),
+      "owner"
     );
 
     expect(await jobs.read(JOB)).toEqual(job);
     expect(await jobs.piece(JOB, 0)).toEqual(packed.pieces[0]);
     expect(await jobs.piece(JOB, packed.pieces.length)).toBeNull();
     // A piece that holds anything but bytes is no piece.
-    firestore.docs.set(`copies/main/jobs/${JOB}/pieces/9`, {
+    firestore.docs.set(`users/owner/copies/main/jobs/${JOB}/pieces/9`, {
       fields: firestoreFieldsOf({ data: "not bytes" }),
       updateTime: "t0",
     });
@@ -298,9 +301,11 @@ describe("a pull's job through Firestore's REST API", () => {
     const jobs = restJobDocs(
       firestoreRestDocuments({
         projectId: "proj",
+        ownerUid: "owner",
         token: async () => "a-token",
         fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
-      })
+      }),
+      "owner"
     );
     await expect(jobs.update(JOB, { status: "done" })).rejects.toBeInstanceOf(FirestoreError);
     expect(firestore.docs.size).toBe(0);

@@ -2888,8 +2888,8 @@ match stops the load before anything is written.
 **How it is stored.** Each value is gzipped JSON, in pieces of at most
 900,000 bytes, since a Firestore document holds a MiB. A value is fingerprinted
 by the SHA-256 of its JSON, so a device can tell its copy is the cloud's without
-downloading it. A manifest (`copies/main`) names every value's fingerprint and
-the upload that stored its pieces (`copies/main/chunks`), and carries a
+downloading it. A manifest (`users/{uid}/copies/main`) names every value's fingerprint and
+the upload that stored its pieces (`users/{uid}/copies/main/chunks`), and carries a
 version, a layout number, a schema number and the id of the copy it belongs to.
 
 - **A save goes on only if the manifest is still the version this device last
@@ -3033,10 +3033,10 @@ notice when the pull is done, is the next step; this part is the cloud's.
 **The job.** The device writes the list beside the copy, where the rules already
 let it write (`src/lib/cloud/pullJobs.ts`):
 
-- `copies/main/jobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
+- `users/{uid}/copies/main/jobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
   fingerprinted as the copy's values are, so a list is never pulled half from one
   upload and half from another.
-- `copies/main/jobs/{jobId}` holds the job, written last. It carries the squad
+- `users/{uid}/copies/main/jobs/{jobId}` holds the job, written last. It carries the squad
   years to file into, the device's time zone (the day the importer and the day
   log keep, since Google's servers keep their own), and everything the device
   shows while it waits: the stage, the teams asked so far, and the tally.

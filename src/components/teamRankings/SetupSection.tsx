@@ -21,6 +21,7 @@ import { ResetRankingsCard } from "./ResetRankingsCard";
 import { ArchiveSeasonCard, type ArchivableYear } from "./ArchiveSeasonCard";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { card } from "../../styles/tokens";
+import type { WrongAgeBulkResult, WrongAgeClub } from "../../lib/wrongAge";
 
 type SetupSectionProps = {
   seasons: SeasonMeta[];
@@ -67,6 +68,7 @@ type SetupSectionProps = {
     onOpenTeam: (teamId: string) => void;
     /** Files a club at another level in a squad year and holds it there; whether it happened. */
     onSetAge?: (teamId: string, level: number, year: number) => boolean;
+    onSetAges?: (clubs: readonly WrongAgeClub[]) => Promise<WrongAgeBulkResult>;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -223,6 +225,7 @@ export function SetupSection({
         onConfirmScore={poolHealth.onConfirmScore}
         onOpenTeam={poolHealth.onOpenTeam}
         onSetAge={poolHealth.onSetAge}
+        onSetAges={poolHealth.onSetAges}
       />
 
       <ModelCheckCard

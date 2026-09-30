@@ -34,17 +34,17 @@ export type JobDocs = {
 };
 
 /** A job's documents through Firestore's REST API. */
-export const restJobDocs = (docs: FirestoreRestDocuments): JobDocs => ({
-  read: async (jobId) => coercePullJob(await docs.read(jobPath(jobId))),
-  update: (jobId, patch) => docs.update(jobPath(jobId), patch),
+export const restJobDocs = (docs: FirestoreRestDocuments, ownerUid: string): JobDocs => ({
+  read: async (jobId) => coercePullJob(await docs.read(jobPath(ownerUid, jobId))),
+  update: (jobId, patch) => docs.update(jobPath(ownerUid, jobId), patch),
   piece: async (jobId, index) => {
-    const data = (await docs.read(jobPiecePath(jobId, index)))?.data;
+    const data = (await docs.read(jobPiecePath(ownerUid, jobId, index)))?.data;
     return data instanceof Uint8Array ? data : null;
   },
 });
 
 /** What a task carries: the job, and the leg of it to run. */
-export type LegTask = { jobId: string; leg: number };
+export type LegTask = { ownerUid?: string; jobId: string; leg: number };
 
 export type LegDeps = {
   jobs: JobDocs;
@@ -117,7 +117,8 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
   }
   if (job.legsDone > leg) {
     // This leg ran, and its reply may have been lost before the next was queued.
-    if (job.legsDone < job.legs) await deps.enqueue({ jobId, leg: job.legsDone });
+    if (job.legsDone < job.legs)
+      await deps.enqueue({ ownerUid: task.ownerUid, jobId, leg: job.legsDone });
     return "already-ran";
   }
   if (job.legsDone < leg || leg >= job.legs) return "out-of-turn";
@@ -228,7 +229,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       updatedAt: stamp(),
     });
     if (over) return "done";
-    await deps.enqueue({ jobId, leg: legsDone });
+    await deps.enqueue({ ownerUid: task.ownerUid, jobId, leg: legsDone });
     return "next-queued";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

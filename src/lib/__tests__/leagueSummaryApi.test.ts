@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import handler, { clearModelCaches } from "../../../api/league-summary";
+import handler, {
+  clearModelCaches,
+  setSummarySecurityTestHooks,
+} from "../../../api/league-summary";
 import { buildLeagueSummaryRequest } from "../leagueSummaryClient";
 
 /**
@@ -60,9 +63,9 @@ const lists = {
   }),
 };
 
-type Recorded = { statusCode: number; body: unknown };
+type Recorded = { statusCode: number; body: unknown; headers: Record<string, string> };
 const makeRes = () => {
-  const recorded: Recorded = { statusCode: 0, body: undefined };
+  const recorded: Recorded = { statusCode: 0, body: undefined, headers: {} };
   const res = {
     status: (code: number) => {
       recorded.statusCode = code;
@@ -71,11 +74,60 @@ const makeRes = () => {
     json: (body: unknown) => {
       recorded.body = body;
     },
-    setHeader: () => {},
+    setHeader: (name: string, value: string) => {
+      recorded.headers[name.toLowerCase()] = value;
+    },
     end: () => {},
   };
   return { res, recorded };
 };
+
+describe("summary endpoint security boundary", () => {
+  it("rejects missing authentication before contacting a provider", async () => {
+    const calls = stubUpstream(lists);
+    const { res, recorded } = makeRes();
+    const req = makeReq("POST", "/api/league-summary", story);
+    req.headers.authorization = "";
+    await handler(req, res);
+    expect(recorded.statusCode).toBe(401);
+    expect(recorded.headers["cache-control"]).toContain("no-store");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects invalid credentials, content types, and parsed oversized bodies", async () => {
+    const calls = stubUpstream(lists);
+    const invalid = makeReq("POST", "/api/league-summary", story);
+    invalid.headers.authorization = "Bearer invalid";
+    let response = makeRes();
+    await handler(invalid, response.res);
+    expect(response.recorded.statusCode).toBe(401);
+
+    const unsupported = makeReq("POST", "/api/league-summary", story);
+    unsupported.headers["content-type"] = "text/plain";
+    response = makeRes();
+    await handler(unsupported, response.res);
+    expect(response.recorded.statusCode).toBe(415);
+
+    const oversized = makeReq("POST", "/api/league-summary", { text: "x".repeat(200_000) });
+    response = makeRes();
+    await handler(oversized, response.res);
+    expect(response.recorded.statusCode).toBe(413);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("returns predictable shared-quota responses before providers", async () => {
+    setSummarySecurityTestHooks({
+      verify: async () => ({ uid: "owner" }),
+      quota: async () => ({ allowed: false, retryAfter: 37 }),
+    });
+    const calls = stubUpstream(lists);
+    const { res, recorded } = makeRes();
+    await handler(makeReq("POST", "/api/league-summary", story), res);
+    expect(recorded.statusCode).toBe(429);
+    expect(recorded.headers["retry-after"]).toBe("37");
+    expect(calls).toHaveLength(0);
+  });
+});
 
 let nextClient = 0;
 const makeReq = (method: string, url: string, body?: unknown) => {
@@ -84,7 +136,7 @@ const makeReq = (method: string, url: string, body?: unknown) => {
     method,
     url,
     body,
-    headers: {},
+    headers: { authorization: "Bearer valid-token", "content-type": "application/json" },
     socket: { remoteAddress: `10.1.0.${nextClient}` },
   };
 };
@@ -105,6 +157,10 @@ const post = async () => {
 
 beforeEach(() => {
   clearModelCaches();
+  setSummarySecurityTestHooks({
+    verify: async (token) => (token === "valid-token" ? { uid: "owner" } : null),
+    quota: async () => ({ allowed: true, retryAfter: 60 }),
+  });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.stubEnv("GEMINI_API_KEY", "g-key");
   vi.stubEnv("GROQ_API_KEY", "q-key");
@@ -113,6 +169,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSummarySecurityTestHooks(null);
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

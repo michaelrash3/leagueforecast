@@ -1,5 +1,6 @@
 import type { CloudStore } from "./cloudEngine";
 import { coerceManifest, type CloudManifest } from "./cloudManifest";
+import { chunksPath, manifestPath } from "./cloudPaths";
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
@@ -7,8 +8,8 @@ import { coerceManifest, type CloudManifest } from "./cloudManifest";
  * pasted list pulled by a Firebase function (README, "A pasted list, pulled in the cloud"). The
  * browser uses Firebase's own SDK (`firebaseCloud.ts`); this writes the same documents the same
  * way, so either reads what the other saved:
- * - `copies/main`: the manifest, its fields as the SDK sets them;
- * - `copies/main/chunks/{upload-n}`: each piece, `{ data: Bytes }`.
+ * - `users/{uid}/copies/main`: the manifest, its fields as the SDK sets them;
+ * - `users/{uid}/copies/main/chunks/{upload-n}`: each piece, `{ data: Bytes }`.
  *
  * A service account's token is what it signs in with, which Firestore's rules do not apply to: the
  * key is the permission. The manifest is replaced only if it is still the document this read, which
@@ -104,9 +105,6 @@ const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
     kept: next.kept.map((part) => ({ ...part })),
   });
 
-const MANIFEST = "copies/main";
-const CHUNKS = "copies/main/chunks";
-
 /** Thrown for a Firestore answer that is neither the document nor its absence. */
 export class FirestoreError extends Error {
   // A plain field, not a constructor parameter property: Node runs the scripts that use this by
@@ -121,6 +119,8 @@ export class FirestoreError extends Error {
 
 type RestAccess = {
   projectId: string;
+  /** Namespace the service account is permitted to process; never sourced from job contents. */
+  ownerUid: string;
   /** Asked for each request, so a job longer than a token's hour can hand a new one. */
   token: () => Promise<string>;
   fetchImpl?: typeof fetch;
@@ -189,20 +189,21 @@ export const firestoreRestStore = ({
   ...access
 }: RestAccess & { writable: boolean }): CloudStore => {
   const { database, documents, call, read } = restClient(access);
-  const chunkPath = (id: string) => `${CHUNKS}/${encodeURIComponent(id)}`;
+  const manifest = manifestPath(access.ownerUid);
+  const chunkPath = (id: string) => `${chunksPath(access.ownerUid)}/${encodeURIComponent(id)}`;
   const refuse = () => Promise.reject(new Error("This store was opened to read, not to write."));
   return {
     readManifest: async () => {
-      const found = await read(MANIFEST);
+      const found = await read(manifest);
       if (!found) return null;
-      const manifest = coerceManifest(fieldsOf(found.fields ?? {}));
-      if (!manifest) throw new Error("The cloud copy's manifest is not one this build can read.");
-      return manifest;
+      const decoded = coerceManifest(fieldsOf(found.fields ?? {}));
+      if (!decoded) throw new Error("The cloud copy's manifest is not one this build can read.");
+      return decoded;
     },
     commitManifest: !writable
       ? refuse
       : async (expected, next) => {
-          const found = await read(MANIFEST);
+          const found = await read(manifest);
           if (expected === null) {
             if (found) return false;
           } else {
@@ -217,7 +218,7 @@ export const firestoreRestStore = ({
               writes: [
                 {
                   update: {
-                    name: `${database}/documents/${MANIFEST}`,
+                    name: `${database}/documents/${manifest}`,
                     fields: manifestFields(next),
                   },
                   currentDocument:

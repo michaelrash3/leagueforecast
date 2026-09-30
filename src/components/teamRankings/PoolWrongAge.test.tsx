@@ -88,6 +88,26 @@ describe("clubs filed at the wrong age", () => {
     expect(screen.queryByTestId("pool-wrong-age")).toBeNull();
   });
 
+  it("approves the displayed corrections once, after confirmation, with one undo", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user, harness, list } = await checkThePool();
+    const approve = within(list).getByRole("button", { name: "Approve all suggested age changes" });
+    await user.click(approve);
+    await user.click(approve);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0]?.[0]).toContain("squad 1 year 2027");
+    expect(confirm.mock.calls[0]?.[0]).toContain("9U (1)");
+    expect(loadScoutGamesForYear(2027).filter((entry) => entry.id.startsWith("h"))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ ageGroupId: now9.id })])
+    );
+    expect(harness.toasts().filter((toast) => toast.includes("suggested age groups"))).toHaveLength(
+      1
+    );
+    expect(screen.queryByTestId("pool-wrong-age")).toBeNull();
+    confirm.mockRestore();
+  });
+
   it("are left alone, and not asked about again, once their age is said to be right", async () => {
     const { user, list } = await checkThePool();
     await user.click(within(list).getByRole("button", { name: "It plays up" }));

@@ -22,6 +22,7 @@ import {
   type LeagueSummaryResponse,
   type LeagueSummarySeasonContext,
 } from "./leagueSummary";
+import { summaryToken } from "./summaryAuth";
 
 export type LeagueSummaryOutcome =
   | { ok: true; summary: string; model: string; provider: AiProvider }
@@ -239,9 +240,13 @@ export const requestLeagueSummary = async (
   }: { signal?: AbortSignal; fetchImpl?: typeof fetch; endpoint?: string } = {}
 ): Promise<LeagueSummaryOutcome> => {
   try {
+    const token = await summaryToken();
+    if (!token) {
+      return { ok: false, reason: "unconfigured", message: "Sign in to use AI summaries." };
+    }
     const response = await fetchImpl(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify(request),
       signal,
     });

@@ -1,26 +1,17 @@
 rules_version = '2';
 
-// Who may read and write the cloud copy of League Forecast's data: whoever signs in with Google.
-// See README, "Your data on every device"; the tests are
-// src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
-//
-// The site has one user, and its owner chose Google sign-in as the whole of the lock, with no
-// address pinned here or in a secret: any Google account that signs in can read and change the
-// copy. A browser nobody has signed in to gets nothing, and nothing but the copy is open to anyone.
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Signed in, and with Google. A way of signing in that needs no Google account (anonymous, or
-    // an address and a password), were one ever turned on in the console, opens nothing.
-    function signedInWithGoogle() {
+    function isGoogleOwner(uid) {
       return request.auth != null
+        && request.auth.uid == uid
         && request.auth.token.firebase.sign_in_provider == "google.com";
     }
 
-    // The copy itself, `copies/main` and its `chunks`, and the pulls a device leaves beside it for
-    // the cloud to run, `copies/main/jobs`. Nothing else in the database is open, the first
-    // version's `cloud/` included.
-    match /copies/{document=**} {
-      allow read, write: if signedInWithGoogle();
+    // Each identity can reach only its own namespace. The legacy /copies tree deliberately has no
+    // match and is therefore closed after the administrator migration.
+    match /users/{uid}/copies/{document=**} {
+      allow read, write: if isGoogleOwner(uid);
     }
   }
 }

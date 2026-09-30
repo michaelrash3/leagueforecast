@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { registerSummaryToken } from "../summaryAuth";
 import type { RecapItem } from "../insights";
 import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
 import {
@@ -23,6 +24,8 @@ const standings = [
 
 const jsonResponse = (status: number, body: unknown) =>
   ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response;
+
+beforeAll(() => registerSummaryToken(async () => "test-token"));
 
 describe("buildLeagueSummaryRequest", () => {
   it("carries the recap facts through with their impact scores", () => {
