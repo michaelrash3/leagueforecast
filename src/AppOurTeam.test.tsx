@@ -82,7 +82,7 @@ describe("our team on the Dashboard", () => {
       expect(screen.getByRole("tab", { name: "Schedule" })).toHaveAttribute("aria-selected", "true")
     );
     // Only the Aces' games are on the scoreboard: theirs, and not Bears at Comets.
-    expect(document.getElementById("game-card-g3")).not.toBeNull();
+    await waitFor(() => expect(document.getElementById("game-card-g3")).not.toBeNull());
     expect(document.getElementById("game-card-g2")).toBeNull();
   });
 });

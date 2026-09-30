@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -69,8 +69,10 @@ describe("a season with games either side of 1 January", () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
     await user.click(screen.getByRole("tab", { name: "Schedule" }));
-    const cards = [...container.querySelectorAll('[id^="game-card-"]')].map((card) => card.id);
-    expect(cards.filter((id) => id !== "game-card-g1")).toEqual(["game-card-g2", "game-card-g3"]);
+    await waitFor(() => {
+      const cards = [...container.querySelectorAll('[id^="game-card-"]')].map((card) => card.id);
+      expect(cards.filter((id) => id !== "game-card-g1")).toEqual(["game-card-g2", "game-card-g3"]);
+    });
   });
 
   it("puts December's game first in the playoff machine", async () => {
