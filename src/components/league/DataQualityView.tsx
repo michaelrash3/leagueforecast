@@ -50,7 +50,7 @@ export function DataQualityView({
         return (
           <section key={severity} aria-labelledby={`quality-${severity}`}>
             <h3 id={`quality-${severity}`} className="text-xl font-black">
-              {title} <span className="text-slate-500">({items.length})</span>
+              {title} <span className="text-slate-500 dark:text-slate-400">({items.length})</span>
             </h3>
             <div className="mt-3 space-y-3">
               {items.map((item) => (
