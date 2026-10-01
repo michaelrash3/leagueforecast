@@ -1535,6 +1535,45 @@ export function GameChangerImportPanel({
    * not the file.
    */
   const runLog = (): PullRunLog | null => livePullTracker()?.log() ?? lastPullLog() ?? storedLog;
+  const refreshStatus = (() => {
+    const days = Object.values(refreshLog).sort();
+    const last = days[days.length - 1];
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return {
+        label: "Offline",
+        detail: "Automatic refresh will be eligible again when this device is online.",
+      };
+    }
+    if (pullLive)
+      return {
+        label: "Refreshing",
+        detail: stats.total > 0 ? `${stats.done} of ${stats.total} pulled.` : "Starting refresh…",
+      };
+    if (savedProgress?.failures.length) {
+      const retryable = retryableIds(savedProgress).length;
+      return retryable > 0
+        ? {
+            label: "Retry scheduled",
+            detail: `${retryable} source${retryable === 1 ? "" : "s"} can be retried.`,
+          }
+        : {
+            label: "Manual action required",
+            detail: savedProgress.failures[0]?.message ?? "A source needs review.",
+          };
+    }
+    if (due.ageLevels.length === 0)
+      return {
+        label: "Updated recently",
+        detail: last ? `Last successful refresh ${last}.` : "Today's refresh is complete.",
+      };
+    if (last && last < todayIsoDay()) {
+      return { label: "Stale", detail: `Last successful refresh ${last}.` };
+    }
+    return {
+      label: "Next automatic refresh",
+      detail: `${describeDue(due)} Runs when the app or cloud refresh opens.`,
+    };
+  })();
   /*
    * Read again when the button is pressed rather than used from the render that drew it. A run
    * still going is writing to this the whole time, and a file built from the copy that happened to
@@ -1669,6 +1708,14 @@ export function GameChangerImportPanel({
         >
           Close
         </button>
+      </div>
+
+      <div
+        className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900"
+        role="status"
+      >
+        <p className="text-sm font-black">{refreshStatus.label}</p>
+        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{refreshStatus.detail}</p>
       </div>
 
       {phase.kind === "picking" && poolBusy && (
