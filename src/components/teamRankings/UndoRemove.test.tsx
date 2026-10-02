@@ -149,12 +149,11 @@ describe("Undo after Remove team", () => {
 
 describe("Undo after Remove game", () => {
   /*
-   * The day after the game is dated. The Games tab lists a week either side of the last update
-   * (`gamesWindow.ts`), and this pool has never been pulled, so the reader's day is that update.
+   * The day the game is dated. The Games tab lists today's games (`gamesWindow.ts`).
    */
   beforeAll(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date("2026-09-13T12:00:00"));
+    vi.setSystemTime(new Date("2026-09-12T12:00:00"));
   });
   afterAll(() => vi.useRealTimers());
 

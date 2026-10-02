@@ -118,7 +118,7 @@ export function GamesSection({
   onRemoveGame,
 }: GamesSectionProps) {
   /*
-   * Whether every game is listed rather than the week either side of the anchor. Keyed on the page
+   * Whether every game is listed rather than the one day's. Keyed on the page
    * rather than reset in an effect, as the list limit is: another age group opens on its window
    * again by itself.
    */
@@ -129,13 +129,13 @@ export function GamesSection({
     [loggedGames, gamesWindow, keep]
   );
   const listed = showingAll ? loggedGames : windowed.shown;
-  const anchorDay = formatIsoDayShort(gamesWindow.anchor);
-  const windowName =
-    gamesWindow.basis === "pull"
-      ? `the last GameChanger pull (${anchorDay})`
-      : gamesWindow.basis === "today"
-        ? `today (${anchorDay})`
-        : `${anchorDay}, the nearest day this season has games`;
+  const day = formatIsoDayShort(gamesWindow.day);
+  const windowLine =
+    gamesWindow.basis === "today"
+      ? `Today's games (${day})`
+      : gamesWindow.basis === "season-end"
+        ? `This season's last day of games (${day})`
+        : `This season's first day of games (${day})`;
   const hiddenParts = [
     windowed.undated > 0 ? `${windowed.undated.toLocaleString()} undated` : "",
     windowed.needingScore > 0 ? `${windowed.needingScore.toLocaleString()} still need a score` : "",
@@ -143,7 +143,7 @@ export function GamesSection({
 
   /*
    * Keyed on the page and the list rather than reset in an effect: a different age group, or the
-   * switch between the week and every game, starts at the top again by itself, and nothing has to
+   * switch between the day and every game, starts at the top again by itself, and nothing has to
    * fire after render to make it so.
    */
   const listKey = `${ageGroupId}|${showingAll ? "all" : "window"}`;
@@ -286,7 +286,7 @@ export function GamesSection({
             <span>
               {showingAll
                 ? `All ${gamesCount(loggedGames.length)} on this page.`
-                : `Games within a week of ${windowName}. ${windowed.hidden.toLocaleString()} more ${
+                : `${windowLine}. ${windowed.hidden.toLocaleString()} more ${
                     windowed.hidden === 1 ? "is" : "are"
                   } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`}
             </span>
@@ -296,7 +296,9 @@ export function GamesSection({
               className={button.ghost}
             >
               {showingAll
-                ? `Show only games near ${anchorDay}`
+                ? gamesWindow.basis === "today"
+                  ? "Show only today's games"
+                  : `Show only ${day}`
                 : `Show all ${gamesCount(loggedGames.length)}`}
             </button>
           </div>
@@ -424,7 +426,7 @@ export function GamesSection({
         ) : (
           listed.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-              No games within a week of {anchorDay}.
+              {gamesWindow.basis === "today" ? `No games today (${day}).` : `No games on ${day}.`}
             </p>
           )
         )}
