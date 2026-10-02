@@ -103,6 +103,8 @@ const NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
   "no-copy": "There is no cloud copy to pull into.",
   "newer-copy":
     "The cloud copy was saved by a newer version of the app than the one the cloud runs; the pull runs once the cloud has been updated.",
+  "copy-replaced":
+    "The cloud copy was deleted and started again while this pull ran, so nothing it fetched was filed into the new one. Send the list again to pull it there.",
 };
 
 /** Runs `task`'s leg of its job. Throws `TryLegAgain`, or anything else, for a leg to try again. */

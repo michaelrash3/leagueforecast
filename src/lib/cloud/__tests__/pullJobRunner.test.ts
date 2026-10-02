@@ -11,6 +11,7 @@ import {
   saveTidyStamp,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
+import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import { newPullJob, packJobList, type PullJob } from "../pullJobs";
 import {
@@ -400,6 +401,32 @@ describe("a pull the cloud runs a leg at a time", () => {
       status: "failed",
       error: expect.stringMatching(/no cloud/),
     });
+  });
+
+  it("fails a job whose copy was deleted and started again while it pulled", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const replacing: LegDeps["fetchTeams"] = async (ids, options) => {
+      cloud.setManifest(null);
+      const saved = await commitChanges({
+        store: cloud.store,
+        base: null,
+        changes: [{ key: LEAGUE_PART, value: { seasons: [] }, at: 3 }],
+        device: "laptop",
+        now: "2026-09-29T13:00:30.000Z",
+      });
+      if (!saved.ok) throw new Error("start again");
+      return answering()(ids, options);
+    };
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: replacing });
+    expect(await runPullLeg({ jobId: JOB, leg: 0 }, deps)).toBe("failed");
+    expect(jobs.job()).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/started again/),
+    });
+    expect(cloud.manifest()).toMatchObject({ version: 1, parts: [{ key: LEAGUE_PART }] });
   });
 
   it("throws trouble for another try, and fails the job on the last", async () => {

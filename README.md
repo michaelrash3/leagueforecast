@@ -3051,7 +3051,10 @@ GameChanger is asked once. Where another device saved while the answers were
 coming in, the copy is read again and the same answers filed onto it, so the
 device's change is built on rather than written over: a club it threw out in
 the meantime is not filed. A copy that keeps moving through three tries is left
-as it was, with nothing of the run's left in it.
+as it was, with nothing of the run's left in it. A copy deleted and started again
+meanwhile is a different copy, somebody's fresh start, and nothing is filed into
+it: the run ends as replaced, which fails a cloud pull's job and turns the nightly
+red.
 
 ### A pasted list, pulled in the cloud
 

@@ -142,7 +142,12 @@ const main = async (): Promise<void> => {
     console.log("  Nothing in the copy changed, so nothing was saved.");
   }
   console.log(`  Memory at the end: ${mb(process.memoryUsage().rss)}.`);
-  if (result.end === "gave-up" || result.end === "copy-kept-changing" || result.end === "no-copy") {
+  if (
+    result.end === "gave-up" ||
+    result.end === "copy-kept-changing" ||
+    result.end === "copy-replaced" ||
+    result.end === "no-copy"
+  ) {
     process.exitCode = 1;
   }
 };
