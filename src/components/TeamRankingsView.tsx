@@ -306,6 +306,8 @@ export function TeamRankingsView({
     openSegment,
     openYear,
     pickPage,
+    defaultAge,
+    setDefaultAge,
   } = useRankingsPages(ageGroups, today);
 
   /*
@@ -2466,6 +2468,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
     <div className="flex flex-col gap-6">
       <RankingsHeader
         pulledAt={pulledAt}
+        defaultAge={defaultAge}
+        onSetDefaultAge={setDefaultAge}
         ageGroups={ageGroups}
         section={section}
         selectedYear={selectedYear}

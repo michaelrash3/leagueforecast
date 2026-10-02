@@ -94,3 +94,46 @@ export const writeOurTeam = (seasonId: string, teamId: string | null): boolean =
   else all[seasonId] = teamId;
   return safeSet(OUR_TEAM_KEY, JSON.stringify(all));
 };
+
+const DEFAULT_AGE_KEY = "lf_rankings_default_age_v1";
+
+/**
+ * The age group Team Rankings opens on when the URL names none, kept as the group grows up: the
+ * level it was picked at and the squad year it was picked in. A team is a year older every season,
+ * and the user's rule was "If I have 9u as my default in 2027, I will want 10u as my default in
+ * 2028", so the pick is read as a class, `year − level`, whose level in any year is that year less
+ * the class (`defaultLevelIn`).
+ */
+export type DefaultAge = { level: number; year: number };
+
+export const readDefaultAge = (): DefaultAge | null => {
+  try {
+    const parsed: unknown = JSON.parse(safeGet(DEFAULT_AGE_KEY) ?? "null");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const { level, year } = parsed as Record<string, unknown>;
+    return typeof level === "number" &&
+      Number.isInteger(level) &&
+      level > 0 &&
+      typeof year === "number" &&
+      Number.isInteger(year)
+      ? { level, year }
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Keeps `pick` as the default age, or forgets it for `null`. */
+export const writeDefaultAge = (pick: DefaultAge | null): boolean => {
+  if (pick !== null) return safeSet(DEFAULT_AGE_KEY, JSON.stringify(pick));
+  try {
+    localStorage.removeItem(DEFAULT_AGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** The level the default age's class plays at in squad year `year`: 9U in 2027 is 10U in 2028. */
+export const defaultLevelIn = (pick: DefaultAge, year: number): number =>
+  year - (pick.year - pick.level);

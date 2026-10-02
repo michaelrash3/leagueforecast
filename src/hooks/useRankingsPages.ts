@@ -17,6 +17,12 @@ import {
   type SeasonSegment,
 } from "../lib/teamRankings";
 import { DEFAULT_RANKINGS_SECTION, type RankingsSection } from "../lib/rankingsRoute";
+import {
+  defaultLevelIn,
+  readDefaultAge,
+  writeDefaultAge,
+  type DefaultAge,
+} from "../lib/preferences";
 import { useRankingsRoute } from "./useRankingsRoute";
 
 /**
@@ -71,9 +77,52 @@ export const segmentWorthShowing = (
   return played[wanted] < played[other] * HALF_WORTH_SHOWING ? other : wanted;
 };
 
+/**
+ * The page the default age opens on, or nothing without a default or a page for it: its class's
+ * page in the squad year being played, else in the latest year that has one — 9U 2027 still opens
+ * while the 2028 pages have yet to be made. A page with no year has no class to belong to.
+ */
+export const defaultPageFor = (
+  ageGroups: readonly AgeGroup[],
+  pick: DefaultAge | null,
+  today: string
+): string | undefined => {
+  if (pick === null) return undefined;
+  const pageIn = (year: number) =>
+    ageGroups.find(
+      (group) => ageGroupYear(group) === year && ageGroupLevel(group) === defaultLevelIn(pick, year)
+    );
+  const current = pageIn(segmentOn(today).year);
+  if (current) return current.id;
+  const years = [
+    ...new Set(
+      ageGroups.flatMap((group) => {
+        const year = ageGroupYear(group);
+        return year === undefined ? [] : [year];
+      })
+    ),
+  ].sort((a, b) => b - a);
+  for (const year of years) {
+    const page = pageIn(year);
+    if (page) return page.id;
+  }
+  return undefined;
+};
+
 export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
   const { route, push, replace } = useRankingsRoute();
-  const [pickedGroupId, setPickedGroupId] = useState(() => ageGroups[0]?.id ?? "");
+  /** The age group this device opens on when the URL names none (`defaultPageFor`). */
+  const [defaultAge, setDefaultAgeState] = useState(() => readDefaultAge());
+  const defaultPageId = useMemo(
+    () => defaultPageFor(ageGroups, defaultAge, today),
+    [ageGroups, defaultAge, today]
+  );
+  const [pickedGroupId, setPickedGroupId] = useState(() => defaultPageId ?? ageGroups[0]?.id ?? "");
+  /** Keeps `pick` as the default age; it takes effect at the next open, not under the reader. */
+  const setDefaultAge = (pick: DefaultAge | null) => {
+    writeDefaultAge(pick);
+    setDefaultAgeState(pick);
+  };
 
   /** Which area is on screen. Read from the URL, so every section is a link somebody can send. */
   const section = route.section ?? DEFAULT_RANKINGS_SECTION;
@@ -107,7 +156,7 @@ export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
     routeGroupId ??
     (ageGroups.some((group) => group.id === pickedGroupId)
       ? pickedGroupId
-      : (ageGroups[0]?.id ?? ""));
+      : (defaultPageId ?? ageGroups[0]?.id ?? ""));
 
   /**
    * The season years that have a page — the years age groups actually sit in, not a forward run of
@@ -266,5 +315,7 @@ export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
     openYear,
     /** Opens a page without touching the URL — for code that is already navigating some other way. */
     pickPage: setPickedGroupId,
+    defaultAge,
+    setDefaultAge,
   };
 }
