@@ -1,10 +1,14 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import {
+  addCloudMember,
   bringBack,
+  cloudErrorMessage,
   cloudKept,
+  cloudMembers,
   dismissCloudNotice,
   loadNewer,
+  removeCloudMember,
   restartCloud,
   retryCloud,
   saveNow,
@@ -14,6 +18,7 @@ import {
   type KeptVersion,
 } from "../lib/cloud/cloudSession";
 import { button } from "../styles/tokens";
+import { CloudMembers, type MembersApi } from "./CloudMembers";
 
 export type CloudActions = {
   signIn: () => void;
@@ -38,6 +43,14 @@ const SESSION_ACTIONS: CloudActions = {
   bringBack: (group) => void bringBack(group),
   dismissNotice: () => dismissCloudNotice(),
   reloadApp: () => window.location.reload(),
+};
+
+/** The list of who may use the copy, read and changed through the session. */
+const SESSION_MEMBERS: MembersApi = {
+  list: cloudMembers,
+  add: addCloudMember,
+  remove: removeCloudMember,
+  message: cloudErrorMessage,
 };
 
 /** A size for people: "61.4 MB", "830 KB". */
@@ -146,11 +159,13 @@ function KeptRow({
 function Body({
   status,
   actions,
+  members,
   kept,
   now,
 }: {
   status: CloudStatus;
   actions: CloudActions;
+  members: MembersApi;
   kept: readonly KeptVersion[];
   now: Date;
 }) {
@@ -277,6 +292,7 @@ function Body({
             cloud{status.owed ? "; the changes still waiting are saved when you sign in again" : ""}
             .
           </Note>
+          <CloudMembers api={members} />
           {kept.length > 0 && (
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-black text-slate-950 dark:text-slate-100">
@@ -328,9 +344,9 @@ function Body({
       return (
         <>
           <Line>
-            This cloud copy belongs to a different Google account
-            {status.account.email ? `, not ${status.account.email}` : ""}. Sign out, then sign in
-            with the account it belongs to.
+            {status.account.email ?? "This Google account"} is not on the list of accounts that may
+            use this cloud copy. Ask its owner to add it, or sign out and sign in with an account on
+            the list. This browser&apos;s own data is untouched either way.
           </Line>
           <div>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
@@ -389,6 +405,7 @@ export function CloudPanel({
   open,
   onClose,
   actions = SESSION_ACTIONS,
+  members = SESSION_MEMBERS,
   kept = cloudKept(),
   now = new Date(),
 }: {
@@ -396,6 +413,7 @@ export function CloudPanel({
   open: boolean;
   onClose: () => void;
   actions?: CloudActions;
+  members?: MembersApi;
   kept?: readonly KeptVersion[];
   now?: Date;
 }) {
@@ -440,7 +458,7 @@ export function CloudPanel({
           </button>
         </div>
         <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto px-4 py-4">
-          <Body status={status} actions={actions} kept={kept} now={now} />
+          <Body status={status} actions={actions} members={members} kept={kept} now={now} />
         </div>
       </div>
     </div>

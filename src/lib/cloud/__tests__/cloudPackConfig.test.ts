@@ -10,7 +10,7 @@ import {
   MANIFEST_FORMAT,
   type KeptPart,
 } from "../cloudManifest";
-import { memoryCloud } from "./memoryCloud";
+import { memoryCloud, memoryMembers } from "./memoryCloud";
 
 /*
  * The small parts of keeping data in the cloud: a value's fingerprint and packing, the Firebase
@@ -67,6 +67,7 @@ describe("the Firebase project the app keeps its copy in", () => {
         signOut: async () => undefined,
         onAccount: () => () => undefined,
         owns: async () => false,
+        members: memoryMembers([], () => null),
         store: memoryCloud().store,
       };
       session.setCloudTestHooks({

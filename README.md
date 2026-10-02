@@ -2847,13 +2847,24 @@ before sections existed, and every hand-made one, still imports unchanged.
 
 A browser can keep a copy of everything in the cloud, so the app opens on the
 same data on a phone, a laptop and anywhere else. It is one copy, in the
-Firebase project's Firestore, and signing in with Google is the whole of the
-lock: any Google account that signs in can read and change it, and a browser
-nobody has signed in to is refused anything at all. The site has one user, who
-chose that over pinning the copy to one address kept in a secret; were anyone
-else ever to use the site, `firestore.rules` is where to name the one account.
-A way of signing in that needs no Google account (anonymous, or an address and
-a password), were one ever turned on in the console, opens nothing.
+Firebase project's Firestore, open only to the Google accounts on its owner's
+list: anyone else who signs in is turned away and keeps the app with the data in
+their own browser, and a browser nobody has signed in to is refused anything at
+all. A way of signing in that needs no Google account (anonymous, or an address
+and a password), were one ever turned on in the console, opens nothing, and
+neither does an address Google has not verified.
+
+**Who is on the list.** Each account is a document in `members`, named by the
+address it signs in to Google with, in lower case. The owner's own entry,
+`role: "owner"`, is made once by hand in the Firebase console (below); the app
+never changes it, so no click can lock the owner out or hand the list to someone
+else. The owner sees **Who can use the cloud copy** in the panel, adds an
+account there by its address and takes one off with **Remove**; every other
+entry is `role: "member"` with the time it was added. A member reads the copy
+and changes it as the owner does, and reads its own entry and no other. Google
+sign-in alone was the lock until 2 October 2026, when the cloud copy was
+becoming the one place the data lives and any Google account could have read
+and changed it.
 
 The header's cloud button signs in, and after that shows where the copy stands;
 **Settings → Your data on every device** opens the same panel. From then on it
@@ -2987,8 +2998,9 @@ time rather than taking it for a later version of the one it knew.
 1 GiB stored, 50,000 reads and 20,000 writes a day, and 10 GiB a month out. A
 whole-copy download is 23 reads, and a device downloads the pool only while
 Team Rankings is open, and then only the keys that changed; a look is one read.
-The rules read no document of their own to decide. An ordinary save is a few
-writes.
+The rules read the account's entry on the list to decide each request, which
+Firestore bills as one more read: a whole-copy download is then 46. An ordinary
+save is a few writes.
 
 **Setting it up**, once per Firebase project:
 
@@ -3008,11 +3020,17 @@ writes.
    could explain; in the source, every build has the values the repository
    shows. The build widens the page's content policy for Firestore and Google
    sign-in from the same values (`src/lib/contentPolicy.ts`).
-3. The rules deploy with the functions on merge (`firebase.yml`), tested there
+3. **Before the rules deploy**, put yourself on the list: in **Firestore →
+   Data**, start a collection `members`, with a document whose ID is the address
+   you sign in to Google with, in lower case, and one string field, `role`, set
+   to `owner`. Without it the rules turn every account away, yours included,
+   until the document is there. The nightly refresh and the cloud pulls sign in
+   as service accounts, which the rules do not apply to.
+4. The rules deploy with the functions on merge (`firebase.yml`), tested there
    against the Firestore emulator first (`npm run test:rules` locally; it needs
    Java 21).
-4. Sign in first on the device that holds the data, so its copy becomes the
-   cloud's; then on the others.
+5. Sign in first on the device that holds the data, so its copy becomes the
+   cloud's; then on the others. Add anyone else from the panel.
 
 To start the copy over, delete the `copies` collection in the Firestore
 console, then use **Start it again from this browser** on the device whose data

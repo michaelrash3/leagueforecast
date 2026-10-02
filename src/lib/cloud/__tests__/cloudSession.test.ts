@@ -5,7 +5,7 @@ import type { CloudManifest } from "../cloudManifest";
 import type { LocalSource } from "../cloudLocal";
 import type { LeagueValue } from "../leagueMerge";
 import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
-import { memoryCloud, type MemoryCloud } from "./memoryCloud";
+import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
 
 /*
  * The cloud session end to end, with Firebase, the browser's stores and its other tabs stood in
@@ -146,6 +146,10 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
     },
     onAccount: () => () => undefined,
     owns: async () => current?.uid === ME.uid,
+    members: memoryMembers(
+      [{ address: ME.email ?? "", role: "owner" }],
+      () => current?.email ?? null
+    ),
     store: sky.store,
   };
 };
@@ -295,6 +299,42 @@ describe("a second device signing in", () => {
     await session.signInToCloud();
     expect(session.cloudStatus()).toMatchObject({ kind: "not-owner" });
     expect(sky.manifest()?.version).toBe(1);
+  });
+});
+
+describe("the list of who may use the copy", () => {
+  it("is the owner's to read and change, through the session it signed in with", async () => {
+    await laptopFirst();
+    const addresses = async () => (await session.cloudMembers())?.map((member) => member.address);
+    expect(await addresses()).toEqual([ME.email]);
+    await session.addCloudMember("Coach@Example.test");
+    expect(await addresses()).toEqual([ME.email, "coach@example.test"]);
+    await session.removeCloudMember("coach@example.test");
+    expect(await addresses()).toEqual([ME.email]);
+  });
+
+  it("is nothing to an account that is not its owner", async () => {
+    await laptopFirst();
+    runAs(device({}), { uid: "someone-else", email: "someone@example.test" });
+    await session.signInToCloud();
+    expect(session.cloudStatus()).toMatchObject({ kind: "not-owner" });
+    expect(await session.cloudMembers()).toBeNull();
+  });
+
+  it("is not looked for before anyone signs in, and Firebase is not opened to look", async () => {
+    runAs(device({}));
+    const opened = vi.fn(async () => firebaseFor(ME));
+    session.setCloudTestHooks({ openCloud: opened });
+    expect(await session.cloudMembers()).toBeNull();
+    await expect(session.addCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
+    await expect(session.removeCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
+    expect(opened).not.toHaveBeenCalled();
+    // Firebase open, but the sign-in closed without an account: still nobody to ask as.
+    runAs(device({}), null);
+    await session.signInToCloud();
+    expect(await session.cloudMembers()).toBeNull();
+    await expect(session.addCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
+    await expect(session.removeCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
   });
 });
 

@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 import type { SeasonSnapshot } from "../../storage";
 import type { FirebaseCloud } from "../firebaseCloud";
 import type { LeagueValue } from "../leagueMerge";
-import { memoryCloud } from "./memoryCloud";
+import { memoryCloud, memoryMembers } from "./memoryCloud";
 
 /*
  * Delete everything, pressed while a save is on its way: the save must not send what it reads from
@@ -103,6 +103,7 @@ const saveCaughtByReset = async ({
     signOut: async () => undefined,
     onAccount: () => () => undefined,
     owns: async () => true,
+    members: memoryMembers([], () => ME.email),
     store: sky.store,
   };
   session.resetCloudSession();
