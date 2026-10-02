@@ -12,10 +12,9 @@ import {
 } from "../../test/teamRankingsHarness";
 
 /*
- * The Games tab lists a week either side of the newest GameChanger pull, and the rest one click
- * away. The clock is pinned three days after the pull, so the window (22 September to 6 October)
- * is the pull's and not the reader's day: a window centred on the reader's day would keep the
- * game of 8 October and drop the one of 22 September.
+ * The Games tab lists today's games, and the rest one click away. The clock is pinned three days
+ * after the newest pull, so the list is the reader's day and not the pull's: one measured from the
+ * pull would show the game of 29 September and hide both of 2 October.
  */
 const TODAY = "2026-10-02T12:00:00";
 const PULLED = new Date(2026, 8, 29, 12).toISOString();
@@ -46,17 +45,17 @@ const pool = (search = "?section=games"): Pool => ({
     team("S-JAYS", "Jays", { state: "KY" }),
   ],
   games: [
-    game("near-ahead", "ag_10u_2027", "S-OWLS", "S-HAWK", 4, 3, { date: "2026-10-06" }),
-    game("near-pull", "ag_10u_2027", "S-HAWK", "S-WREN", 5, 1, { date: "2026-09-29" }),
-    game("near-behind", "ag_10u_2027", "S-WREN", "S-JAYS", 2, 0, { date: "2026-09-22" }),
-    open("far-ahead", "ag_10u_2027", "S-OWLS", "S-JAYS", "2026-10-08"),
+    open("tomorrow", "ag_10u_2027", "S-OWLS", "S-JAYS", "2026-10-03"),
+    open("today-open", "ag_10u_2027", "S-OWLS", "S-HAWK", "2026-10-02"),
+    game("today-played", "ag_10u_2027", "S-WREN", "S-JAYS", 2, 0, { date: "2026-10-02" }),
+    game("pull-day", "ag_10u_2027", "S-HAWK", "S-WREN", 5, 1, { date: "2026-09-29" }),
     game("far-played", "ag_10u_2027", "S-JAYS", "S-OWLS", 9, 8, { date: "2026-09-12" }),
     open("far-open", "ag_10u_2027", "S-JAYS", "S-HAWK", "2026-09-05"),
     open("undated", "ag_10u_2027", "S-WREN", "S-OWLS"),
     game("other-page", "ag_11u_2027", "S-HAWK", "S-JAYS", 3, 2, { date: "2026-09-01" }),
-    // Last season's page: its last fortnight, not the pull's week, which it has no games in.
+    // Last season's page: its last day with games, since it has no today.
     game("old-last", "ag_10u_2026", "S-OWLS", "S-WREN", 6, 5, { date: "2026-06-20" }),
-    game("old-before", "ag_10u_2026", "S-HAWK", "S-OWLS", 1, 0, { date: "2026-06-14" }),
+    game("old-near", "ag_10u_2026", "S-JAYS", "S-OWLS", 4, 2, { date: "2026-06-18" }),
     game("old-early", "ag_10u_2026", "S-JAYS", "S-WREN", 7, 2, { date: "2026-04-11" }),
   ],
   search,
@@ -69,12 +68,12 @@ const listedDates = () =>
     .queryAllByRole("listitem")
     .map((item) => /\d{4}-\d{2}-\d{2}/.exec(item.textContent ?? "")?.[0] ?? "no date");
 
-describe("the Games tab's week either side of the last pull", () => {
-  it("lists the week either side of the pull, and says what it leaves out", () => {
+describe("the Games tab's games of today", () => {
+  it("lists today's games, and says what it leaves out", () => {
     renderTeamRankings(pool());
-    expect(listedDates()).toEqual(["2026-10-06", "2026-09-29", "2026-09-22"]);
+    expect(listedDates()).toEqual(["2026-10-02", "2026-10-02"]);
     expect(screen.getByTestId("games-window")).toHaveTextContent(
-      "Games within a week of the last GameChanger pull (Tue, Sep 29). 4 more are hidden (1 undated, 1 still need a score)."
+      "Today's games (Fri, Oct 2). 5 more are hidden (1 undated, 1 still need a score)."
     );
   });
 
@@ -83,10 +82,10 @@ describe("the Games tab's week either side of the last pull", () => {
     renderTeamRankings(pool());
     await user.click(screen.getByRole("button", { name: "Show all 7 games" }));
     expect(listedDates()).toEqual([
-      "2026-10-08",
-      "2026-10-06",
+      "2026-10-03",
+      "2026-10-02",
+      "2026-10-02",
       "2026-09-29",
-      "2026-09-22",
       "2026-09-12",
       "2026-09-05",
       "no date",
@@ -106,8 +105,8 @@ describe("the Games tab's week either side of the last pull", () => {
       teamBScore: 4,
     });
 
-    await user.click(screen.getByRole("button", { name: "Show only games near Tue, Sep 29" }));
-    expect(listedDates()).toEqual(["2026-10-06", "2026-09-29", "2026-09-22"]);
+    await user.click(screen.getByRole("button", { name: "Show only today's games" }));
+    expect(listedDates()).toEqual(["2026-10-02", "2026-10-02"]);
   });
 
   it("keeps a game just added on the list, however old its date", async () => {
@@ -124,7 +123,7 @@ describe("the Games tab's week either side of the last pull", () => {
     expect(loadScoutGames().some((entry) => entry.date === "2026-08-15")).toBe(true);
   });
 
-  it("opens another page on its own window, whatever was shown on the last", async () => {
+  it("opens another page on today again, whatever was shown on the last", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderTeamRankings(pool());
     await user.click(screen.getByRole("button", { name: "Show all 7 games" }));
@@ -134,15 +133,15 @@ describe("the Games tab's week either side of the last pull", () => {
       })
     );
     expect(listedDates()).toEqual([]);
-    expect(screen.getByText("No games within a week of Tue, Sep 29.")).toBeInTheDocument();
+    expect(screen.getByText("No games today (Fri, Oct 2).")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show all 1 game" })).toBeInTheDocument();
   });
 
-  it("shows a finished season its own last fortnight", () => {
+  it("shows a finished season its own last day of games", () => {
     renderTeamRankings(pool("?section=games&age=10&year=2026"));
-    expect(listedDates()).toEqual(["2026-06-20", "2026-06-14"]);
+    expect(listedDates()).toEqual(["2026-06-20"]);
     expect(screen.getByTestId("games-window")).toHaveTextContent(
-      "Games within a week of Sat, Jun 20, the nearest day this season has games. 1 more is hidden."
+      "This season's last day of games (Sat, Jun 20). 2 more are hidden."
     );
   });
 });

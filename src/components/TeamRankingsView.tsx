@@ -1186,12 +1186,11 @@ export function TeamRankingsView({
     [scoutGames, selectedAgeGroupId]
   );
   /**
-   * The days the Games tab lists before it is asked for every game: a week either side of the
-   * newest pull (`gamesWindow.ts`).
+   * The day the Games tab lists before it is asked for every game: today (`gamesWindow.ts`).
    */
   const gamesWindow = useMemo(
-    () => gamesWindowFor({ pulledAt, today, year: selectedYear, games: ageGroupManualGames }),
-    [pulledAt, today, selectedYear, ageGroupManualGames]
+    () => gamesWindowFor({ today, year: selectedYear, games: ageGroupManualGames }),
+    [today, selectedYear, ageGroupManualGames]
   );
   /**
    * Games added on this page since it was opened, kept on the list whatever their date, so a game
