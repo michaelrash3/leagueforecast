@@ -7,6 +7,10 @@
  * like the schedule page (the `Accept` versions, `gc-app-name`, origin and referer that page
  * sends), fetch the two JSON bodies in parallel, and hand back one normalized `GcTeamResponse`.
  *
+ * Only the accounts on the cloud copy's list may use it (`memberCheck.ts`): the default export is
+ * the handler behind that list, and `gcTeamHandler` the handler itself, for a job that runs it in
+ * its own process (the nightly refresh, a cloud pull's leg) rather than calling it from outside.
+ *
  * Every failure is a non-200 with the same `ok: false` shape and a machine-readable `reason`, so
  * the import panel can say precisely what went wrong: an id that does not exist, GameChanger
  * throttling, an AWS WAF challenge (the browser sent a WAF token; a server may be challenged
@@ -37,6 +41,8 @@ import {
   type GcTeamResponse,
 } from "../src/lib/gameChangerApi.js";
 import { createTtlCache } from "../src/lib/ttlCache.js";
+import { FIREBASE_WEB_CONFIG } from "../src/lib/cloud/cloudConfig.js";
+import { createMemberCheck, membersOnly } from "../src/lib/memberCheck.js";
 import {
   clientKey,
   createRateLimiter,
@@ -522,7 +528,7 @@ const pullTeamRaw = async (teamId: string, config: UpstreamConfig): Promise<RawP
   };
 };
 
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+export async function gcTeamHandler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     sendError(res, 405, { ok: false, reason: "upstream-error", message: "Use GET.", status: 405 });
@@ -612,3 +618,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   res.setHeader("cache-control", "no-store");
   res.status(200).json(result);
 }
+
+/**
+ * The proxy as it is served, on Vercel and as the Firebase function (`functions/src/index.ts`):
+ * behind the cloud copy's list, so a caller from outside must be signed in with an account on it.
+ * The check is made once per instance and keeps its answers (`createMemberCheck`).
+ */
+export default membersOnly(
+  gcTeamHandler,
+  createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId })
+);

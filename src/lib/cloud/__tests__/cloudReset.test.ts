@@ -102,6 +102,7 @@ const saveCaughtByReset = async ({
     signIn: async () => ME,
     signOut: async () => undefined,
     onAccount: () => () => undefined,
+    idToken: async () => "token-of-owner",
     owns: async () => true,
     members: memoryMembers([], () => ME.email),
     store: sky.store,

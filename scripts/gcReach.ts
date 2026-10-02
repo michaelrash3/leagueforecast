@@ -20,7 +20,7 @@
  * night of them would take can be read off the answer.
  */
 import { gzipSync } from "node:zlib";
-import handler, { clearProfileCache } from "../api/gc-team.ts";
+import { clearProfileCache, gcTeamHandler } from "../api/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { gcGameListFrom } from "../src/lib/gameChangerApi.ts";
@@ -93,7 +93,7 @@ const ask = (ids: readonly string[]): Promise<Sent> =>
       headers: {},
       socket: { remoteAddress: "203.0.113.7" },
     };
-    handler(req, res).catch(reject);
+    gcTeamHandler(req, res).catch(reject);
   });
 
 /** What the handler said of each team: answered (`ok`) or its failure's reason. */

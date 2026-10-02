@@ -55,6 +55,7 @@ export const GC_FETCH_REASON_LABEL: Record<GcFetchErrorReason, string> = {
   network: "Could not reach it",
   unconfigured: "Proxy not deployed",
   timeout: "Timed out",
+  "members-only": "Not signed in with an account on the list",
 };
 
 const reasonLabel = (reason: string): string =>

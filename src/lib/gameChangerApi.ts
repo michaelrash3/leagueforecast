@@ -122,7 +122,9 @@ export type GcFetchErrorReason =
   | "unrecognized"
   | "network"
   | "unconfigured"
-  | "timeout";
+  | "timeout"
+  /** The proxy is for the cloud copy's list, and this browser is not signed in with an account on it. */
+  | "members-only";
 
 export type GcFetchDiagnostics = {
   url?: string;
@@ -304,6 +306,7 @@ export const GC_FETCH_ERROR_REASONS: readonly GcFetchErrorReason[] = [
   "network",
   "unconfigured",
   "timeout",
+  "members-only",
 ];
 
 export const isGcFetchErrorReason = (value: unknown): value is GcFetchErrorReason =>

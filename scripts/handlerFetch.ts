@@ -6,9 +6,11 @@
  * minute on 29 September 2026).
  *
  * Every request is the proxy's, so its limits and its reading of GameChanger's answers are the
- * deployed proxy's too. Here, beside the scripts, so the app's bundle never holds the handler.
+ * deployed proxy's too. Its handler is called directly, past the cloud copy's list
+ * (`memberCheck.ts`): the job is not a caller from outside, and has no account to sign in with.
+ * Here, beside the scripts, so the app's bundle never holds the handler.
  */
-import handler from "../api/gc-team.ts";
+import { gcTeamHandler } from "../api/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
 
 type Sent = { status: number; headers: Record<string, string>; body: string };
@@ -44,7 +46,7 @@ export const handlerFetch =
         headers: {},
         socket: { remoteAddress },
       };
-      handler(req, res).catch(reject);
+      gcTeamHandler(req, res).catch(reject);
     });
     return new Response(sent.body, { status: sent.status, headers: sent.headers });
   };

@@ -145,6 +145,8 @@ import {
   segmentOn,
 } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
+import { cloudStatus, subscribeCloud } from "../lib/cloud/cloudSession";
+import { pullBlockedBy } from "../lib/cloud/pullGate";
 import type { ToastTone } from "../hooks/useToast";
 import { pullSections } from "../lib/pullSections";
 import { button, card, pill } from "../styles/tokens";
@@ -368,6 +370,12 @@ export function GameChangerImportPanel({
    * left somebody staring at a refusal with nothing on screen to explain it.
    */
   const poolBusy = useSyncExternalStore(watchPull, isPoolBusy, () => false);
+  /*
+   * Why this browser cannot pull, when it cannot: the proxy is for the accounts on the cloud
+   * copy's list (`pullGate.ts`). Said above the buttons it turns off, rather than by a run that
+   * stops on its first request. The buttons are the only way in: nothing else calls what they do.
+   */
+  const pullBlock = pullBlockedBy(useSyncExternalStore(subscribeCloud, cloudStatus));
   /*
    * The tidy runs in a worker. It is five passes over every game — half a minute on a nationwide
    * pool — and on the main thread that is half a minute of frozen tab at the very end of an hour
@@ -1110,6 +1118,15 @@ export function GameChangerImportPanel({
         onHold: (ms, source) => track(() => tracker?.hold(ms, source)),
         onBlocked: () => track(() => tracker?.blocked()),
         onSuppressed: (teamId) => track(() => tracker?.suppressed(teamId)),
+        /*
+         * Turned away by the proxy for not being on the cloud copy's list: possible only when the
+         * browser thought otherwise when the run began (taken off the list meanwhile, say). The
+         * teams it asked for stay unsettled, so a resume once signed in asks for them again.
+         */
+        onMembersOnly: (message) => {
+          endReason = "stopped";
+          showToast(message, { tone: "error" });
+        },
         onRefused: (refusals) =>
           track(() => {
             endReason = "gave-up";
@@ -1709,6 +1726,19 @@ export function GameChangerImportPanel({
           )}
         </div>
       )}
+      {/*
+       * Above everything that starts a pull, which is all turned off while it shows. Not while a
+       * pull runs: one that began signed in and is turned away part way stops and says so itself.
+       */}
+      {pullBlock && phase.kind !== "pulling" && (
+        <p
+          role="note"
+          data-testid="gc-pull-blocked"
+          className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          {pullBlock}
+        </p>
+      )}
       {phase.kind === "picking" && (
         <div className="mt-4">
           <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -1762,7 +1792,12 @@ export function GameChangerImportPanel({
             )}
             {due.teamIds.length > 0 && (
               <>
-                <button type="button" onClick={runDue} className={`${button.primary} mt-3`}>
+                <button
+                  type="button"
+                  onClick={runDue}
+                  disabled={pullBlock !== null}
+                  className={`${button.primary} mt-3`}
+                >
                   {cadence === "daily"
                     ? `Refresh all ${due.teamIds.length.toLocaleString()} teams`
                     : `Refresh today's ${due.ageLevels.map((level) => `${level}U`).join(" and ")}`}
@@ -1785,7 +1820,12 @@ export function GameChangerImportPanel({
             )}
             {due.teamIds.length === 0 && forcedCount > 0 && (
               <>
-                <button type="button" onClick={runEverything} className={`${button.ghost} mt-3`}>
+                <button
+                  type="button"
+                  onClick={runEverything}
+                  disabled={pullBlock !== null}
+                  className={`${button.ghost} mt-3`}
+                >
                   Refresh all {forcedCount.toLocaleString()} teams again
                 </button>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -1805,6 +1845,7 @@ export function GameChangerImportPanel({
                   <button
                     type="button"
                     onClick={runAgeless}
+                    disabled={pullBlock !== null}
                     aria-describedby="gc-ageless-why"
                     className={`${button.primary} mt-3`}
                   >
@@ -1848,6 +1889,7 @@ export function GameChangerImportPanel({
                 <button
                   type="button"
                   onClick={recheckRosters}
+                  disabled={pullBlock !== null}
                   className={`${button.ghost} mt-3 text-sm`}
                 >
                   Check{" "}
@@ -1871,7 +1913,12 @@ export function GameChangerImportPanel({
                 {describePull(savedProgress!)} {resumable.length} still to go.
               </p>
               <div className="mt-2 flex flex-wrap gap-3">
-                <button type="button" onClick={resume} className={button.primary}>
+                <button
+                  type="button"
+                  onClick={resume}
+                  disabled={pullBlock !== null}
+                  className={button.primary}
+                >
                   Carry on
                 </button>
                 <button
@@ -2113,7 +2160,9 @@ export function GameChangerImportPanel({
               type="button"
               onClick={startNew}
               disabled={
-                (split.fresh.length === 0 && split.refresh.length === 0) || seasonYears.length === 0
+                (split.fresh.length === 0 && split.refresh.length === 0) ||
+                seasonYears.length === 0 ||
+                pullBlock !== null
               }
               className={button.primary}
             >
@@ -2331,7 +2380,12 @@ export function GameChangerImportPanel({
                 </p>
               )}
               {result.canRetry && (
-                <button type="button" onClick={retry} className={`${button.ghost} mt-3`}>
+                <button
+                  type="button"
+                  onClick={retry}
+                  disabled={pullBlock !== null}
+                  className={`${button.ghost} mt-3`}
+                >
                   Try the unreached ones again
                 </button>
               )}

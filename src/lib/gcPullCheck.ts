@@ -48,6 +48,41 @@ export const ADVICE: Record<GcFetchErrorReason, string> = {
     "The proxy is not deployed or not configured. Check /api/gc-team?probe=1 answers at all.",
   timeout:
     "GameChanger did not answer in time. Usually transient; if every attempt times out, the WAF may be holding the connection open rather than refusing it.",
+  "members-only":
+    "The deployed proxy is for the accounts on the cloud copy's list, and this asked without one's sign-in. That is the lock working: check GameChanger itself through the handler in this process instead.",
+};
+
+/**
+ * What the deployed proxy said to a request carrying no sign-in. It is for the accounts on the
+ * cloud copy's list (`memberCheck.ts`), so the answer worth having is a refusal: one that hands a
+ * stranger GameChanger's data is the lock missing, whatever the rest of the check says.
+ */
+export const checkStrangerRefused = (status: number, body: unknown): PullCheck => {
+  const reason =
+    typeof body === "object" && body !== null && "reason" in body
+      ? String((body as { reason: unknown }).reason)
+      : "";
+  if (status === 401 && reason === "members-only") {
+    return {
+      step: "Strangers",
+      status: "pass",
+      detail: "Turned away a request with no sign-in, as it should: it is for the list's accounts.",
+    };
+  }
+  if (status >= 200 && status < 300) {
+    return {
+      step: "Strangers",
+      status: "fail",
+      detail: "Answered a request with no sign-in: the deployed proxy is open to anyone.",
+      advice:
+        "The proxy should be behind the cloud copy's list. Check the deployment is a build whose api/gc-team.ts default export is membersOnly(...), and that the Firebase function serves that export.",
+    };
+  }
+  return {
+    step: "Strangers",
+    status: "warn",
+    detail: `Answered ${status}${reason ? ` (${reason})` : ""} rather than turning the request away for want of a sign-in.`,
+  };
 };
 
 /** What one team's response proves. */

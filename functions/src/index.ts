@@ -8,22 +8,27 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
-import gcTeamHandler from "../../api/gc-team";
+import gcTeamForMembers from "../../api/gc-team";
 import { capBilling, describeCap } from "../../src/lib/billingCap";
+import { FIREBASE_WEB_CONFIG } from "../../src/lib/cloud/cloudConfig";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
+import { createMemberCheck, MEMBERS_ONLY_MESSAGES } from "../../src/lib/memberCheck";
 import { enqueueLeg, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 
 /**
  * GET /gcTeam?ids=<id,id,…>&raw=1 — the GameChanger proxy, as `/api/gc-team` is on Vercel.
  *
- * Public, as that one is: GameChanger's endpoints need no login and nothing here is secret. A
- * handful of instances at most, each taking many requests at once, since a batch spends its time
- * waiting on GameChanger rather than computing; the per-instance limiter and profile cache in the
- * handler go further with fewer, busier instances.
+ * For the accounts on the cloud copy's list alone, as that one is (`memberCheck.ts`): a caller
+ * sends its Firebase sign-in, and the check asks Firestore for the caller's own entry with it. The
+ * invoker stays public because the check is the app's own, made with the caller's sign-in rather
+ * than with a Google identity of the caller's. A handful of instances at most, each taking many
+ * requests at once, since a batch spends its time waiting on GameChanger rather than computing;
+ * the per-instance limiter, profile cache and list answers go further with fewer, busier
+ * instances.
  */
 export const gcTeam = onRequest(
   {
@@ -34,7 +39,7 @@ export const gcTeam = onRequest(
     concurrency: 40,
     maxInstances: 5,
   },
-  (req, res) => serveGcProxy(req, res, gcTeamHandler)
+  (req, res) => serveGcProxy(req, res, gcTeamForMembers)
 );
 
 /**
@@ -95,10 +100,14 @@ const LEG_TRIES = 3;
  */
 const LEG_HEAP_MB = 5_120;
 
+/** Whether a caller of `startPull` is on the cloud copy's list, asked once per instance. */
+const startPullCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId });
+
 /**
  * POST (callable) `startPull` `{ jobId }`: queues the first leg of a job the signed-in device has
- * written. Signed in with Google, as the rules ask of anything that touches the copy; the job's
- * own document is the rest of the check.
+ * written. For the accounts on the cloud copy's list, as the rules make anything that touches the
+ * copy (`memberCheck.ts`, with the sign-in the call carries); the job's own document is the rest
+ * of the check.
  */
 export const startPull = !CLOUD_PULLS
   ? undefined
@@ -112,8 +121,18 @@ export const startPull = !CLOUD_PULLS
         maxInstances: 2,
       },
       async (request) => {
-        if (request.auth?.token.firebase.sign_in_provider !== "google.com") {
-          throw new HttpsError("unauthenticated", "Sign in with Google to pull in the cloud.");
+        const verdict = await startPullCheck(request.rawRequest.headers.authorization);
+        if (verdict === "unavailable") {
+          throw new HttpsError(
+            "unavailable",
+            "Could not check this account against the cloud copy's list just now. Try again in a minute."
+          );
+        }
+        if (verdict !== "member") {
+          throw new HttpsError(
+            verdict === "signed-out" ? "unauthenticated" : "permission-denied",
+            MEMBERS_ONLY_MESSAGES[verdict]
+          );
         }
         const jobId = (request.data as { jobId?: unknown } | null)?.jobId;
         const started = await startPullJob(jobId, {

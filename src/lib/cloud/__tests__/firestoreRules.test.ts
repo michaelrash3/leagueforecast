@@ -17,6 +17,7 @@ import { commitChanges, fetchValues } from "../cloudEngine";
 import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
 import { firestoreMembers, firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
+import { createMemberCheck } from "../../memberCheck";
 
 /*
  * The rules that open the cloud copy to the Google accounts on its list and to nothing else, and
@@ -346,3 +347,58 @@ describe.skipIf(!HOST)("the list of who may use the copy, on the Firestore emula
     await expect(getDocs(collection(as(null), "members"))).rejects.toMatchObject(REFUSED);
   });
 });
+
+describe.skipIf(!HOST)(
+  "the GameChanger proxy's check against the list, on the Firestore emulator",
+  () => {
+    /**
+     * A sign-in token as the emulator takes one: Firebase's claims, unsigned, which is what the
+     * SDK's own stand-in (`mockUserToken`) sends. Firestore in production checks the signature too.
+     */
+    const tokenOf = (account: Account): string => {
+      const iat = Math.floor(Date.now() / 1000);
+      const encode = (value: unknown) =>
+        btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      return `${encode({ alg: "none", type: "JWT" })}.${encode({
+        iss: `https://securetoken.google.com/${PROJECT}`,
+        aud: PROJECT,
+        iat,
+        exp: iat + 3_600,
+        auth_time: iat,
+        sub: account.uid,
+        user_id: account.uid,
+        ...(account.email === undefined
+          ? {}
+          : { email: account.email, email_verified: account.unverified === undefined }),
+        firebase: { sign_in_provider: account.provider ?? "google.com", identities: {} },
+      })}.`;
+    };
+    const verdictFor = (account: Account | null) =>
+      createMemberCheck({ projectId: PROJECT, origin: `http://${HOST}` })(
+        account ? `Bearer ${tokenOf(account)}` : undefined
+      );
+
+    it("lets in the accounts on the list, whatever case Google hands their address back in", async () => {
+      expect(await verdictFor(OWNER)).toBe("member");
+      expect(await verdictFor(LAPTOP)).toBe("member");
+      expect(await verdictFor({ ...LAPTOP, email: "Laptop@Example.COM" })).toBe("member");
+    });
+
+    it("turns away everyone else, as the rules do", async () => {
+      expect(await verdictFor(STRANGER)).toBe("not-member");
+      expect(await verdictFor({ ...LAPTOP, unverified: true })).toBe("not-member");
+      expect(await verdictFor({ ...LAPTOP, provider: "password" })).toBe("not-member");
+      expect(await verdictFor(null)).toBe("signed-out");
+    });
+
+    it("follows the list: an account put on it is let in, and one taken off is turned away", async () => {
+      await firestoreMembers(as(OWNER), () => OWNER.email ?? null).add(
+        "stranger@example.com",
+        "now"
+      );
+      expect(await verdictFor(STRANGER)).toBe("member");
+      await firestoreMembers(as(OWNER), () => OWNER.email ?? null).remove("laptop@example.com");
+      expect(await verdictFor(LAPTOP)).toBe("not-member");
+    });
+  }
+);
