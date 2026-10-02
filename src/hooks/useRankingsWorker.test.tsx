@@ -288,8 +288,28 @@ describe("when the hook asks its worker for a what-if", () => {
  * only on the page it was fitted for.
  */
 describe("opening on the board last fitted", () => {
-  const row = (teamId: string, rank: number, rating: number): ScoutRankingRow =>
-    ({ teamId, teamName: teamId, rank, rating }) as ScoutRankingRow;
+  /** A whole row, as the worker sends: the saved board keeps nothing less. */
+  const row = (teamId: string, rank: number, rating: number): ScoutRankingRow => ({
+    teamId,
+    teamName: teamId,
+    isMine: false,
+    rank,
+    rating,
+    pointRating: rating + 0.5,
+    record: "3-1",
+    wins: 3,
+    losses: 1,
+    ties: 0,
+    games: 4,
+    rawMargin: 2,
+    strengthOfSchedule: 0.4,
+    sosRank: rank,
+    crossAgeGames: 0,
+    componentSize: 2,
+    componentId: "S-1",
+    comparable: true,
+    fromGameChanger: true,
+  });
   const lastVisit = [row("S-1", 1, 4.2), row("S-2", 2, 1.1)];
 
   /** A visit that fits `page` and leaves, keeping its board. */
@@ -357,6 +377,18 @@ describe("opening on the board last fitted", () => {
     expect(render({ ageGroupId: "u11" }).result.current.rows).toEqual(lastVisit);
   });
 
+  const omit = (whole: ScoutRankingRow, field: keyof ScoutRankingRow): Record<string, unknown> =>
+    Object.fromEntries(Object.entries(whole).filter(([key]) => key !== field));
+
+  it("reads back a row without the fields a row may go without", async () => {
+    const kept = [{ ...row("S-1", 1, 2), overallRank: 4, ageLevel: 10 }, row("S-2", 2, 1)];
+    await loadSavedBoard({
+      get: async () => ({ page: JSON.stringify(["u10", "", ""]), rows: kept }),
+      set: async () => true,
+    });
+    expect(render({ ageGroupId: "u10" }).result.current.rows).toEqual(kept);
+  });
+
   it("opens on nothing when what the store holds is not a board", async () => {
     const here = JSON.stringify(["u10", "", ""]);
     for (const held of [
@@ -366,7 +398,13 @@ describe("opening on the board last fitted", () => {
       { page: here, rows: "rows" },
       // This page's, but rows that are not a board's rows.
       { page: here, rows: [{ rank: 1, rating: 2, teamName: "Aces" }] },
-      { page: here, rows: [{ teamId: "S-1", rank: "1", rating: 2, teamName: "Aces" }] },
+      { page: here, rows: [{ ...row("S-1", 1, 2), rank: "1" }] },
+      // Cut short, or kept by a build whose rows had no `pointRating`: the board reads it on every
+      // row (`formatRating(row.pointRating)`), and threw on this one.
+      { page: here, rows: [row("S-1", 1, 2), omit(row("S-2", 2, 1), "pointRating")] },
+      { page: here, rows: [omit(row("S-1", 1, 2), "fromGameChanger")] },
+      // A field the row may go without is still held to its type when it is there.
+      { page: here, rows: [{ ...row("S-1", 1, 2), ageLevel: "10" }] },
     ]) {
       await loadSavedBoard({ get: async () => held, set: async () => true });
       const { result, unmount } = render({ ageGroupId: "u10" });
