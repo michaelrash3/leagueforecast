@@ -24,6 +24,7 @@ import {
 import { commitChanges, type Change } from "../cloudEngine";
 import { DATA_SCHEMA } from "../cloudManifest";
 import { LEAGUE_PART } from "../cloudPlan";
+import type { CloudManifest } from "../cloudManifest";
 import { loadPoolFrom, memoryIo, runCloudPull, type CloudPullDeps } from "../cloudRunner";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
@@ -408,6 +409,31 @@ describe("a pull run on the cloud copy", () => {
     expect(pulled).toContain(ACES);
     expect(pulled).not.toContain(BEARS);
     expect(cloud.manifest()?.version).toBe(result.version);
+  });
+
+  it("files nothing into a copy deleted and started again while it fetched", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    let fresh: CloudManifest | null = null;
+    // While GameChanger answers, the copy is deleted and somebody starts a new one.
+    const startAgain = async () => {
+      cloud.setManifest(null);
+      const saved = await commitChanges({
+        store: cloud.store,
+        base: null,
+        changes: [{ key: LEAGUE_PART, value: { seasons: ["a fresh start"] }, at: 3 }],
+        device: "laptop",
+        now: "2026-09-29T13:00:30.000Z",
+      });
+      if (!saved.ok) throw new Error("start again");
+      fresh = saved.manifest;
+    };
+    const result = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:01:00.000Z", { fetchTeams: answering(startAgain) })
+    );
+    expect(result).toMatchObject({ end: "copy-replaced", changed: [] });
+    expect(cloud.manifest()).toEqual(fresh);
   });
 
   it("gives up on a copy that keeps moving, writing nothing and leaving no pieces behind", async () => {

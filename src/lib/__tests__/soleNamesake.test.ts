@@ -197,6 +197,20 @@ describe("a stand-in of a name no other club carries", () => {
     expect(refileStandIns(bouley([eightDays])).refiled).toBe(0);
   });
 
+  it("is filed onto a club whose own schedule is empty, the name being all there is", () => {
+    // The Force's schedule pulled empty, as 246 pulled clubs' were on 29 September 2026: no first
+    // game to measure from, on any day of the year, and none coming.
+    const unplayed: GcImportState = { ...bouley([fromKy]), games: [fromKy] };
+    expect(against(refileStandIns(unplayed).state, fromKy.id)).toBe(force.id);
+    const august = row(trace, namedFromKy.id, "2026-08-08");
+    expect(against(refileStandIns({ ...unplayed, games: [august] }).state, august.id)).toBe(
+      force.id
+    );
+    // And a row the import filed on the club by the name stays on it.
+    const filed: GcImportState = { ...bouley([]), games: [{ ...fromKy, teamBId: force.id }] };
+    expect(resettleOffLevel(filed).resettled).toBe(0);
+  });
+
   it("stays a stand-in when the row has no day", () => {
     const { date: _date, ...undated } = fromKy;
     expect(refileStandIns(bouley([undated])).refiled).toBe(0);

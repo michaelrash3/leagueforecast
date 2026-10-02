@@ -120,7 +120,12 @@ export type CloudPullEnd =
   /** The copy was saved by a newer build, or tidied by newer rules: this one leaves it alone. */
   | "newer-copy"
   /** Another device kept saving while this one tried to: nothing was written. */
-  | "copy-kept-changing";
+  | "copy-kept-changing"
+  /**
+   * The copy was deleted and started again while this run fetched. Its answers were for the copy
+   * that is gone, and the new one is somebody's fresh start, so nothing was written to it.
+   */
+  | "copy-replaced";
 
 export type CloudPullResult = {
   end: CloudPullEnd;
@@ -342,6 +347,13 @@ export const runCloudPull = async (
   let copy = await loadPoolFrom(deps.store);
   if (!copy) return { ...result, end: "no-copy" };
   if (tooNew(copy.manifest)) return { ...result, end: "newer-copy" };
+  /*
+   * Which copy the answers are for. A retry files them again onto whatever the copy has become,
+   * which is right when another device saved to it and wrong when it was deleted and started
+   * again: that is a different copy, made by someone who chose to begin afresh, and filing last
+   * night's answers into it would undo the choice.
+   */
+  const startedOn = copy.manifest.copy;
 
   const due = job.kind === "rota" ? storedRota(deps.now(), job.force) : null;
   const dropped = loadDroppedClubs();
@@ -382,6 +394,7 @@ export const runCloudPull = async (
     if (attempt > 0) {
       copy = await loadPoolFrom(deps.store);
       if (!copy) return { ...result, end: "no-copy" };
+      if (copy.manifest.copy !== startedOn) return { ...result, end: "copy-replaced", changed: [] };
       if (tooNew(copy.manifest)) return { ...result, end: "newer-copy" };
       result.replays = attempt;
     }
