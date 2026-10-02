@@ -14,6 +14,7 @@ import { poolSignature } from "../lib/gameChangerImport";
 import { saveLogs, saveMatchups, saveTeams, type SeasonMeta } from "../lib/storage";
 import type { AgeUnknownList } from "../lib/ageUnknown";
 import type { GameLog, Matchup, TeamBase } from "../lib/types";
+import { writeDefaultAge, type DefaultAge } from "../lib/preferences";
 
 /**
  * Renders Team Rankings over a pool you describe, the way a browser would find it.
@@ -43,6 +44,8 @@ export type Pool = {
    * claims it with `seasonIds: ["default"]`. The view reads it on its first render.
    */
   league?: { teams: TeamBase[]; matchups: Matchup[]; logs: Record<string, GameLog> };
+  /** The default age this device kept from an earlier visit (`readDefaultAge`). */
+  defaultAge?: DefaultAge;
 };
 
 export type Harness = RenderResult & {
@@ -113,6 +116,7 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   resetTeamRankingsStore();
   window.localStorage.clear();
   window.history.replaceState(null, "", `/${pool.search ?? ""}`);
+  if (pool.defaultAge) writeDefaultAge(pool.defaultAge);
 
   saveAgeGroups(pool.ageGroups);
   saveScoutTeams(pool.teams);

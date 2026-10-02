@@ -273,6 +273,17 @@ a link to a page that no longer exists leaves the view where it is and the URL i
 corrected rather than obeyed. `?view=` carries the mode too, so a link opens in
 Team Rankings instead of wherever that browser happened to be last.
 
+**A default age.** With no page in the link, Team Rankings opens on the age chosen
+under the age tabs ("Open on 9U by default"), on this device. It is kept as the
+group grows up rather than as one page: the user's rule was "If I have 9u as my
+default in 2027, I will want 10u as my default in 2028", so the pick is read as a
+class, its year less its level, and each season opens that class's page in the
+squad year being played — 10U in 2028, 11U in 2029 (`defaultPageFor`). While a new
+season's pages have yet to be made it opens the latest year that has the class's
+page, and with none, the first stored page as before. A link naming a page still
+wins, and choosing another tab during a visit is unchanged; the default only
+decides where an open lands.
+
 A page leads with a **national top 25** and a **state top 10**, the state being
 yours where it is known and otherwise whichever has the most teams there. The
 place shown in each is the place in _that_ list: a state top ten is ten teams

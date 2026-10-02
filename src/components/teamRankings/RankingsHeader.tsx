@@ -6,11 +6,13 @@ import { agoLabel } from "../../lib/date";
 import {
   ageGroupLevel,
   isRankedAgeLevel,
+  MAX_AGE_LEVEL,
   segmentLabel,
   type AgeGroup,
   type SeasonSegment,
 } from "../../lib/teamRankings";
 import { SEASON_SEGMENTS } from "../../lib/rankingsRoute";
+import { defaultLevelIn, type DefaultAge } from "../../lib/preferences";
 import type { RankingsSection } from "../../lib/rankingsRoute";
 import { SectionNav } from "./SectionNav";
 import { button, card, tab } from "../../styles/tokens";
@@ -33,6 +35,9 @@ type RankingsHeaderProps = {
   onOpenSection: (section: RankingsSection) => void;
   /** When the newest GameChanger schedule in the pool was fetched; null for a pool never pulled into. */
   pulledAt: string | null;
+  /** The age group this device opens on when the URL names none, as it grows up a level a year. */
+  defaultAge: DefaultAge | null;
+  onSetDefaultAge: (pick: DefaultAge | null) => void;
 };
 
 export function RankingsHeader({
@@ -49,7 +54,19 @@ export function RankingsHeader({
   onOpenPage,
   onOpenSection,
   pulledAt,
+  defaultAge,
+  onSetDefaultAge,
 }: RankingsHeaderProps) {
+  /*
+   * The page on screen as a class that ages, for the default-age line: only a page with both a
+   * level and a squad year has one.
+   */
+  const selectedLevel = ageGroupLevel(ageGroups.find((group) => group.id === selectedAgeGroupId));
+  const isDefault =
+    defaultAge !== null &&
+    selectedLevel !== undefined &&
+    selectedYear !== undefined &&
+    defaultLevelIn(defaultAge, selectedYear) === selectedLevel;
   return (
     <div className={`${card} p-5`}>
       <h1 className="text-xl font-black tracking-tight text-slate-950 dark:text-white">
@@ -178,6 +195,38 @@ export function RankingsHeader({
             );
           })}
         </nav>
+      )}
+      {selectedLevel !== undefined && selectedYear !== undefined && (
+        <p
+          className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400"
+          data-testid="default-age"
+        >
+          {isDefault ? (
+            <>
+              <span>
+                Opens on {selectedLevel}U by default
+                {selectedLevel < MAX_AGE_LEVEL
+                  ? `, then ${selectedLevel + 1}U in ${selectedYear + 1}.`
+                  : "."}
+              </span>
+              <button
+                type="button"
+                onClick={() => onSetDefaultAge(null)}
+                className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Clear
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSetDefaultAge({ level: selectedLevel, year: selectedYear })}
+              className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Open on {selectedLevel}U by default
+            </button>
+          )}
+        </p>
       )}
 
       <SectionNav current={section} onSelect={onOpenSection} />
