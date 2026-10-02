@@ -5690,7 +5690,8 @@ type NamedRow = {
  * The pulled club a name can mean and no other, though its own schedules have no game that day:
  * the one pulled club carrying the name at that level in that squad year anywhere, in the namer's
  * state or one bordering it, under a name holding a word no other club's name has
- * (`RARE_WORD_AMONG`), on a day no earlier than a week before its own first game of the year.
+ * (`RARE_WORD_AMONG`), on a day no earlier than a week before its own first game of the year,
+ * where it has one.
  *
  * A name is where to look, not who played, and a club's own schedule says whether it played that
  * day (`refileStandIns`, `unlisted`). But a schedule is written ahead only as far as its coach has
@@ -5702,6 +5703,13 @@ type NamedRow = {
  * rows onto 2,018 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs
  * had each filed against a stand-in for the other were then one game, not two. A second tidy
  * moved nothing.
+ *
+ * A club whose own schedule is empty is held to no first day, since it has none to be held to and
+ * never will: the name is all there is to go on. On the backup of 29 September 246 pulled clubs
+ * had no game of their own anywhere in the pool, each one link already pulled, and other clubs'
+ * schedules named them on 575 rows, 313 of them scored, from August to June. Holding them to a
+ * first day would leave every one of those on a stand-in for good, the rule refusing outright the
+ * one club a name that specific can mean.
  *
  * Both tidy steps that read a club's own days ask this of the same row, and must agree: the refile
  * files the row, and the step that takes a name's rows off a club with no game that day leaves it.
@@ -5771,6 +5779,7 @@ const soleNamesakes = (
     const words = key.split(" ").filter(Boolean);
     const rarest = Math.min(...words.map((word) => holding.get(word) ?? 0));
     if (words.length === 0 || rarest * RARE_WORD_AMONG > names) return undefined;
+    // No first day is no limit: a schedule that is empty says nothing of when the season began.
     const first = firstDay.get(`${club.id}\u0000${pool}`);
     const from = first === undefined ? undefined : isoDayFrom(first, -NAMED_BEFORE_OWN_DAYS);
     if (from !== undefined && date < from) return undefined;
