@@ -40,23 +40,59 @@ const idbIo: SavedBoardIo = { get: idbGet, set: idbSet };
 let held: Saved | null = null;
 
 /**
- * A stored board, or null for anything else. Rows are checked for what the board reads off every
- * one of them, so a board from a build that kept different rows is dropped rather than drawn.
+ * What each field of a row must be. Every field of `ScoutRankingRow`, whether or not the board
+ * draws it today, so a row this check passes is a row the board can read whole: the compiler holds
+ * the list to the type, and a field added to the row fails the build here until it is listed.
+ *
+ * The first check asked only for the id, name, rank and rating, and Codex's review of #340 found
+ * the hole: a row cut short in storage, or kept by a build whose rows lacked `pointRating`, passed,
+ * and the board's `formatRating(row.pointRating)` threw on it.
+ */
+const ROW_FIELDS: {
+  [K in keyof ScoutRankingRow]-?: "string" | "number" | "boolean" | "number?";
+} = {
+  overallRank: "number?",
+  teamId: "string",
+  teamName: "string",
+  isMine: "boolean",
+  rank: "number",
+  rating: "number",
+  pointRating: "number",
+  record: "string",
+  wins: "number",
+  losses: "number",
+  ties: "number",
+  games: "number",
+  rawMargin: "number",
+  strengthOfSchedule: "number",
+  sosRank: "number",
+  ageLevel: "number?",
+  crossAgeGames: "number",
+  componentSize: "number",
+  componentId: "string",
+  comparable: "boolean",
+  fromGameChanger: "boolean",
+};
+
+const isRow = (raw: unknown): raw is ScoutRankingRow =>
+  typeof raw === "object" &&
+  raw !== null &&
+  Object.entries(ROW_FIELDS).every(([field, kind]) => {
+    const value = (raw as Record<string, unknown>)[field];
+    return kind === "number?"
+      ? value === undefined || typeof value === "number"
+      : typeof value === kind;
+  });
+
+/**
+ * A stored board, or null for anything else. Every row is checked for every field a row carries
+ * (`ROW_FIELDS`), so a board from a build that kept different rows is dropped rather than drawn.
  */
 const coerce = (raw: unknown): Saved | null => {
   if (typeof raw !== "object" || raw === null) return null;
   const { page, rows } = raw as { page?: unknown; rows?: unknown };
   if (typeof page !== "string" || !Array.isArray(rows)) return null;
-  const readable = rows.every(
-    (row: unknown) =>
-      typeof row === "object" &&
-      row !== null &&
-      typeof (row as ScoutRankingRow).teamId === "string" &&
-      typeof (row as ScoutRankingRow).teamName === "string" &&
-      typeof (row as ScoutRankingRow).rank === "number" &&
-      typeof (row as ScoutRankingRow).rating === "number"
-  );
-  return readable ? { page, rows: rows as ScoutRankingRow[] } : null;
+  return rows.every(isRow) ? { page, rows } : null;
 };
 
 /** Reads the saved board into memory. Never throws: without one, the page waits for its fit. */

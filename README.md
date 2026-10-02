@@ -3400,9 +3400,11 @@ the deterministic story is shown. To exercise the AI path locally, run
   "Refitting…" until the open's own fit lands, which replaces it. One board is
   kept, on the device, under a key of its own in the pool's IndexedDB store that
   is not a pool key, so it never travels to the cloud copy and goes with a
-  reset; it is shown only on the page, half and "my team" it was fitted for. On
-  the 114,500-team pool of 29 September 2026 the rows came up at 3.9 s rather
-  than 7.8 s, and the fresh board landed when it always had.
+  reset; it is shown only on the page, half and "my team" it was fitted for. A
+  kept board whose rows lack any field a row carries, or hold one of the wrong
+  type, is dropped rather than drawn. On the 114,500-team pool of 29 September
+  2026 the rows came up at 3.9 s rather than 7.8 s, and the fresh board landed
+  when it always had.
 - Every page of a squad year is fitted over the same games, so the rankings
   worker fits a year once and cuts each page from that fit, keyed on the pool,
   its pages, the half, the day and the age groups (not on which team is yours).
