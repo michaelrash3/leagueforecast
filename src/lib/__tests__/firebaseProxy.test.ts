@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import handler, { clearProfileCache } from "../../../api/gc-team";
+import gcTeamForMembers, {
+  clearProfileCache,
+  gcTeamHandler as handler,
+} from "../../../api/gc-team";
 import type { ApiRequest, ApiResponse } from "../apiShared";
 import {
   isGcProxyOrigin,
@@ -86,6 +89,25 @@ describe("which pages may read the proxy", () => {
     await serveGcProxy(request("/", { origin: APP }, "OPTIONS"), res, handler);
     expect(sent.status).toBe(204);
     expect(sent.headers["access-control-allow-methods"]).toBe("GET");
+    // A pull carries its sign-in in Authorization, which a page on another origin may send only
+    // when the preflight's answer names it.
+    expect(sent.headers["access-control-allow-headers"]).toBe("accept, authorization");
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("turns away a pull with no sign-in, in words the app's page can read", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const { res, sent } = respond();
+    await serveGcProxy(
+      request("/gcTeam?ids=gsUthn4XoIxS&raw=1", { origin: APP }),
+      res,
+      gcTeamForMembers
+    );
+    expect(sent.status).toBe(401);
+    expect(sent.headers["access-control-allow-origin"]).toBe(APP);
+    expect(JSON.parse(String(sent.body))).toMatchObject({ ok: false, reason: "members-only" });
+    // Neither GameChanger nor Firestore was asked: there was no sign-in to ask with.
     expect(upstream).not.toHaveBeenCalled();
   });
 });

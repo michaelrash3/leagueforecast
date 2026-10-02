@@ -62,6 +62,11 @@ export type FirebaseCloud = {
   signOut: () => Promise<void>;
   onAccount: (listener: (account: CloudAccount | null) => void) => () => void;
   /**
+   * The signed-in account's Firebase sign-in token, refreshed when it is near its hour's end, or
+   * null when nobody is signed in: what a GameChanger pull carries to the proxy (`memberCheck.ts`).
+   */
+  idToken: () => Promise<string | null>;
+  /**
    * Whether the signed-in account may open the copy. The rules refuse a sign-in they do not let in
    * even a look, so a look answers it, and changes nothing.
    */
@@ -195,6 +200,7 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     signIn: async () => accountOf((await signInWithPopup(auth, new GoogleAuthProvider())).user),
     signOut: () => signOut(auth),
     onAccount: (listener) => onAuthStateChanged(auth, (user) => listener(accountOf(user))),
+    idToken: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
     owns: () => ownsCopy(db),
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),

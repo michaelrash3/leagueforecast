@@ -1443,6 +1443,19 @@ panel can explain. It sends the same `Accept` versions and `gc-app-name` header
 the site does. `GC_EXTRA_HEADERS` takes a JSON object of extra headers for the
 day AWS WAF starts challenging server traffic.
 
+**Only the accounts on the cloud copy's list can pull.** The proxy, on Vercel and
+on Firebase alike, answers a request only when it carries the Firebase sign-in of
+an account on the list (**Your data on every device**), and tells anyone else
+`members-only` with what to do (**The GameChanger proxy on Firebase** says how it
+checks). A browser nobody has signed in to, or one signed in with an account the
+copy turned away, is told at the top of the pull panel, and every button there
+that would start a pull is off, so nothing starts only to stop on its first
+request. A run that began signed in and is turned away part way, by an account
+taken off the list say, stops there, says why, and leaves the teams it had not
+pulled unsettled, so **Carry on** asks for them again once signed back in.
+Everyone else keeps the rest of the app with the data in their own browser, and
+share links.
+
 **The function passes GameChanger's answers through, and the browser reads them.**
 Vercel bills a function by the CPU it keeps busy, and on 28 September 2026 the
 app's Hobby plan ran out of it: four hours of Fluid Active CPU over 443,000 calls,
@@ -2861,7 +2874,8 @@ never changes it, so no click can lock the owner out or hand the list to someone
 else. The owner sees **Who can use the cloud copy** in the panel, adds an
 account there by its address and takes one off with **Remove**; every other
 entry is `role: "member"` with the time it was added. A member reads the copy
-and changes it as the owner does, and reads its own entry and no other. Google
+and changes it as the owner does, and reads its own entry and no other. The same
+list says who may pull from GameChanger (**The GameChanger proxy on Firebase**). Google
 sign-in alone was the lock until 2 October 2026, when the cloud copy was
 becoming the one place the data lives and any Google account could have read
 and changed it.
@@ -3021,9 +3035,10 @@ save is a few writes.
    shows. The build widens the page's content policy for Firestore and Google
    sign-in from the same values (`src/lib/contentPolicy.ts`).
 3. **Before the rules deploy**, put yourself on the list: in **Firestore →
-   Data**, start a collection `members`, with a document whose ID is the address
-   you sign in to Google with, in lower case, and one string field, `role`, set
-   to `owner`. Without it the rules turn every account away, yours included,
+   Data**, start a collection `members` at the top of the database, beside
+   `copies` rather than inside one of its documents, with a document whose ID is
+   the address you sign in to Google with, in lower case, and one string field,
+   `role` (lower case too), set to `owner`. Without it the rules turn every account away, yours included,
    until the document is there. The nightly refresh and the cloud pulls sign in
    as service accounts, which the rules do not apply to.
 4. The rules deploy with the functions on merge (`firebase.yml`), tested there
@@ -3091,8 +3106,9 @@ let it write (`src/lib/cloud/pullJobs.ts`):
   log keep, since Google's servers keep their own), and everything the device
   shows while it waits: the stage, the teams asked so far, and the tally.
 
-The device then calls `startPull` with the job's id. That function is open to any
-Google sign-in, as the copy is, and queues the job's first leg.
+The device then calls `startPull` with the job's id. That function is for the
+accounts on the copy's list, as the copy is, checked as the proxy checks them
+(`memberCheck.ts`), and queues the job's first leg.
 
 **Legs.** A list is pulled in legs of 25,000 teams (`pullJobRunner.ts`). Each leg
 is a Cloud Tasks task, and `runPull` runs it: it loads the copy, pulls the leg's
@@ -3513,6 +3529,38 @@ back. The Vercel function stays deployed either way. CI builds the bundle and ru
 it on a fake request (`functions/smoke.mjs`) on every change to it, and the
 **Firebase functions** workflow deploys it on merge once the project is connected.
 
+**For the list's accounts alone.** Until 2 October 2026 the proxy answered
+anyone: GameChanger's endpoints need no login, and nothing it hands back is
+secret. Its cost is what changed that. The function is billed by the time it
+spends and the bytes it sends, past a free allowance, and the project stops itself
+at a dollar (below), so anybody who found the URL could spend the month's dollar
+and stop every pull with it. Now a request carries the caller's Firebase sign-in
+token (`Authorization: Bearer …`), and the proxy asks Firestore, with that same
+token, for the caller's own entry on the list (`memberCheck.ts`). The rules answer
+that read for a member and refuse it for anyone else, so the list and the rules
+stay the one place that says who is let in, and the proxy holds no key of its own:
+Firestore checks the token's signature, hour and project before the rules run. An
+answer is kept ten minutes, never past the token's own hour, so a pull of
+thousands of teams costs a read or two. A request with no token is turned away
+with a 401 without asking anything, one from an account not on the list with a
+403, both `reason: "members-only"`; one Firestore could not be asked about is a
+503, and kept for no time. `?probe=1` stays open, since it touches nothing
+upstream. The app sends the token itself (`gcAuthorization.ts`, set by the cloud
+session), and the proxy's CORS lets the header through. A turned-away request
+still runs the function, for a few milliseconds and a few hundred bytes, where a
+pull's request waits seconds on GameChanger and sends back schedules.
+
+The nightly refresh and the other jobs on GitHub ask GameChanger through the
+handler in their own process (`gcTeamHandler`), never through the URL, so the
+list does not apply to them. **Verify the GameChanger pull** now asks the
+deployed proxy only what a stranger can: that it is up, and that it turns a
+request with no sign-in away (**Strangers**, a failure if it answers instead). It
+pulls its real teams through the handler in its own process, as the nightly
+does, which proves GameChanger answers GitHub's servers and still sends what the
+app reads, and no longer proves it answers the Firebase function's: the check has
+no account on the list to sign in with. A member's next pull from the app is
+that check, and says `blocked` if Google's servers are ever refused.
+
 **What it costs.** It needs the pay-as-you-go Blaze plan, since the free Spark plan
 runs no functions; Blaze's free monthly allowances are used first. The daily refresh
 of the 26 September pool was 53,254 teams in 5,330 calls, about 160,000 calls a month,
@@ -3569,10 +3617,11 @@ it either way.
 4. Under **Actions**, run **Firebase functions**. Its log ends with the function's
    URL, `Function URL (gcTeam(us-central1)): https://…`.
 5. Under **Actions**, run **Verify the GameChanger pull** with **proxy** set to that
-   URL. It pulls a real team through the function, which is the one thing no test here
-   can: whether GameChanger's firewall lets a Google server through as it does
-   Vercel's. Setting the repository variable `VERIFY_GC_PROXY` to the URL makes the
-   weekly check use it too.
+   URL. It checks the function is up and turns a stranger away (**For the list's
+   accounts alone**, above). Whether GameChanger's firewall lets a Google server
+   through as it does Vercel's is the first pull from the app, signed in, through
+   the function. Setting the repository variable `VERIFY_GC_PROXY` to the URL makes
+   the weekly check use it too.
 6. In the Vercel project, add the environment variable `VITE_GC_PROXY_URL` set to
    that URL, and redeploy. Pulls now go to Firebase; the **Usage** page in the
    Firebase console shows them arrive. Removing the variable and redeploying moves

@@ -16,6 +16,7 @@ import {
   gcProxyEndpoint,
   MAX_REFUSALS,
 } from "../gameChangerClient";
+import { setGcAuthorization } from "../gcAuthorization";
 
 const TEAM_ID = "gsUthn4XoIxS";
 
@@ -720,5 +721,108 @@ describe("where the proxy is", () => {
     expect(await asked()).toMatch(
       /^https:\/\/us-central1-example\.cloudfunctions\.net\/gcTeam\?ids=gsUthn4XoIxS&raw=1$/
     );
+  });
+});
+
+describe("the sign-in a pull carries", () => {
+  afterEach(() => {
+    setGcAuthorization(async () => null);
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the signed-in account's token with every request, and none when nobody is signed in", async () => {
+    const seen: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(new Headers(init?.headers).get("authorization"));
+        return jsonResponse(200, okBody);
+      })
+    );
+    await fetchGcTeam(TEAM_ID);
+    setGcAuthorization(async () => "token-1");
+    await fetchGcTeam(TEAM_ID);
+    await fetchGcTeams([TEAM_ID, "AbCdEfGh1234"], { delayMs: () => 0 });
+    expect(seen).toEqual([null, "Bearer token-1", "Bearer token-1"]);
+  });
+
+  it("sends none when a lookup fails, and leaves the request otherwise as it was", async () => {
+    const fetched = vi.fn(async () => jsonResponse(200, okBody));
+    vi.stubGlobal("fetch", fetched);
+    setGcAuthorization(async () => {
+      throw new Error("no auth");
+    });
+    await fetchGcTeam(TEAM_ID);
+    expect(fetched).toHaveBeenCalledWith(`${GC_TEAM_ENDPOINT}?id=${TEAM_ID}`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: undefined,
+    });
+  });
+
+  it("stops the whole pull when the proxy turns the browser away, and settles nothing", async () => {
+    const ids = Array.from(
+      { length: BATCH_SIZE * 3 },
+      (_, n) => `TeamNumber${String(n).padStart(2, "0")}`
+    );
+    const turnedAway = fakeFetch(() =>
+      jsonResponse(401, {
+        ok: false,
+        reason: "members-only",
+        message: "Sign in with one from the cloud button.",
+        status: 401,
+      })
+    );
+    const onMembersOnly = vi.fn();
+    const onSuppressed = vi.fn();
+    const onProgress = vi.fn();
+    const results = await fetchGcTeams(ids, {
+      fetchImpl: turnedAway,
+      concurrency: 1,
+      delayMs: () => 0,
+      onMembersOnly,
+      onSuppressed,
+      onProgress,
+    });
+    expect(turnedAway.calls).toHaveLength(1);
+    expect(onMembersOnly).toHaveBeenCalledTimes(1);
+    expect(onMembersOnly).toHaveBeenCalledWith("Sign in with one from the cloud button.");
+    expect(onSuppressed).toHaveBeenCalledTimes(BATCH_SIZE);
+    expect(onProgress).not.toHaveBeenCalled();
+    expect(results.size).toBe(0);
+  });
+
+  it("says so once, however many requests were already on their way", async () => {
+    const ids = Array.from(
+      { length: BATCH_SIZE * 6 },
+      (_, n) => `TeamNumber${String(n).padStart(2, "0")}`
+    );
+    // Answered together, so every request in flight comes back turned away before any is read.
+    let open = () => {};
+    const together = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const turnedAway = fakeFetch(async (_url, call) => {
+      if (call === 3) open();
+      await together;
+      return jsonResponse(403, {
+        ok: false,
+        reason: "members-only",
+        message: "Ask the list's owner to add it.",
+        status: 403,
+      });
+    });
+    const onMembersOnly = vi.fn();
+    const onSuppressed = vi.fn();
+    await fetchGcTeams(ids, {
+      fetchImpl: turnedAway,
+      concurrency: 3,
+      delayMs: () => 0,
+      onMembersOnly,
+      onSuppressed,
+    });
+    expect(turnedAway.calls).toHaveLength(3);
+    expect(onMembersOnly).toHaveBeenCalledTimes(1);
+    expect(onSuppressed).toHaveBeenCalledTimes(BATCH_SIZE * 3);
   });
 });

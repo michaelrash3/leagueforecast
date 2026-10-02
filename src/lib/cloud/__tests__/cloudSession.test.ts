@@ -6,6 +6,7 @@ import type { LocalSource } from "../cloudLocal";
 import type { LeagueValue } from "../leagueMerge";
 import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
 import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
+import { gcAuthorization } from "../../gcAuthorization";
 
 /*
  * The cloud session end to end, with Firebase, the browser's stores and its other tabs stood in
@@ -145,6 +146,7 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
       current = null;
     },
     onAccount: () => () => undefined,
+    idToken: async () => (current ? `token-of-${current.uid}` : null),
     owns: async () => current?.uid === ME.uid,
     members: memoryMembers(
       [{ address: ME.email ?? "", role: "owner" }],
@@ -299,6 +301,17 @@ describe("a second device signing in", () => {
     await session.signInToCloud();
     expect(session.cloudStatus()).toMatchObject({ kind: "not-owner" });
     expect(sky.manifest()?.version).toBe(1);
+  });
+});
+
+describe("the sign-in a GameChanger pull carries", () => {
+  it("is the signed-in account's token, and none before signing in or after signing out", async () => {
+    runAs(device({}));
+    expect(await gcAuthorization()).toBeNull();
+    await laptopFirst();
+    expect(await gcAuthorization()).toBe(`token-of-${ME.uid}`);
+    await session.signOutOfCloud();
+    expect(await gcAuthorization()).toBeNull();
   });
 });
 

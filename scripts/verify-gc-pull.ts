@@ -1,10 +1,17 @@
 /**
- * Pulls one real GameChanger team through the deployed proxy and says what it proved.
+ * Checks the deployed GameChanger proxy, then pulls real GameChanger teams and says what it proved.
  *
  * Everything about the import is tested against recorded fixtures. Fixtures prove the code and
  * prove nothing about GameChanger: whether its AWS WAF lets a server through at all, whether
  * today's payload is still the shape the normalizer expects, whether the schedules coming back
- * carry scores. Those need one real request, and this is it.
+ * carry scores. Those need real requests, and these are them.
+ *
+ * The deployed proxy is for the accounts on the cloud copy's list (`memberCheck.ts`), and this
+ * script has none to sign in with. So it asks the deployed proxy two things a stranger can: that
+ * it is up (`?probe=1`), and that it turns a request with no sign-in away. The teams themselves
+ * are pulled through the proxy's own handler in this process (`handlerFetch`), as the nightly
+ * refresh pulls them, which asks GameChanger from wherever this runs: one of GitHub's servers, in
+ * the workflow (`verify-gc.yml`).
  *
  *   npm run verify:gc -- --base https://your-app.vercel.app --id FtEExZwB4b8E
  *
@@ -19,7 +26,13 @@
  */
 
 import type { GcTeamResponse } from "../src/lib/gameChangerApi.ts";
-import { checkTeamResponse, verdict, type PullCheck } from "../src/lib/gcPullCheck.ts";
+import {
+  checkStrangerRefused,
+  checkTeamResponse,
+  verdict,
+  type PullCheck,
+} from "../src/lib/gcPullCheck.ts";
+import { handlerFetch } from "./handlerFetch.ts";
 
 /**
  * The one Node global this script needs. Declared here rather than via `@types/node`, for the same
@@ -64,15 +77,47 @@ const report = (checks: PullCheck[]): void => {
   });
 };
 
-const getJson = async (url: string): Promise<unknown> => {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+/** An answer's status and its JSON, through `fetchImpl`: the network's, or the handler's own. */
+const getJsonVia = async (
+  fetchImpl: typeof fetch,
+  url: string
+): Promise<{ status: number; body: unknown }> => {
+  const response = await fetchImpl(url, { headers: { accept: "application/json" } });
   const text = await response.text();
   try {
-    return JSON.parse(text);
+    return { status: response.status, body: JSON.parse(text) };
   } catch {
     throw new Error(
       `${url} answered ${response.status} with something that is not JSON:\n${text.slice(0, 400)}`
     );
+  }
+};
+
+const getJson = async (url: string): Promise<unknown> =>
+  (await getJsonVia((input, init) => fetch(input, init), url)).body;
+
+/** The proxy's handler in this process: where the teams are pulled from (see the top). */
+const IN_PROCESS = "/api/gc-team";
+
+/**
+ * How long a proxy that answers a stranger is asked again before that counts. A check run on a
+ * push can reach the deployment from before the push, which a slow build keeps serving past the
+ * workflow's wait, and every deployment before 2 October 2026 answered anyone.
+ */
+const STRANGER_TRIES = 5;
+const STRANGER_WAIT_MS = 30_000;
+
+/**
+ * A request with no sign-in, as anybody who found the URL could make. Read whatever comes back:
+ * a host's own login page in front of the function is an answer worth naming, not a crash.
+ */
+const askAsStranger = async (url: string): Promise<{ status: number; body: unknown }> => {
+  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const text = await response.text();
+  try {
+    return { status: response.status, body: JSON.parse(text) };
+  } catch {
+    return { status: response.status, body: null };
   }
 };
 
@@ -95,9 +140,31 @@ const main = async (): Promise<number> => {
   console.log("");
 
   const all: PullCheck[] = [];
+
+  // A request with no sign-in, which the deployed proxy must turn away.
+  const strangerUrl = `${endpoint}?id=${encodeURIComponent(ids[0] ?? SAMPLE_ID)}`;
+  let stranger = await askAsStranger(strangerUrl);
+  for (
+    let tries = 1;
+    tries < STRANGER_TRIES && stranger.status >= 200 && stranger.status < 300;
+    tries += 1
+  ) {
+    console.log(
+      `The proxy answered a request with no sign-in. Asking again in ${STRANGER_WAIT_MS / 1_000} s, in case it is the deployment from before this push.`
+    );
+    await new Promise((resolve) => setTimeout(resolve, STRANGER_WAIT_MS));
+    stranger = await askAsStranger(strangerUrl);
+  }
+  const strangerCheck = checkStrangerRefused(stranger.status, stranger.body);
+  report([strangerCheck]);
+  console.log("");
+  all.push(strangerCheck);
+
+  console.log("Pulling through the proxy's handler in this process\n");
+  const inProcess = handlerFetch();
   for (const id of ids) {
-    const response = (await getJson(`${endpoint}?id=${encodeURIComponent(id)}`)) as
-      GcTeamResponse | undefined;
+    const response = (await getJsonVia(inProcess, `${IN_PROCESS}?id=${encodeURIComponent(id)}`))
+      .body as GcTeamResponse | undefined;
     if (!response || typeof response !== "object" || !("ok" in response)) {
       all.push({
         step: `Pull ${id}`,
@@ -113,8 +180,9 @@ const main = async (): Promise<number> => {
   }
 
   // The batch path is what a real pull uses; a single id never exercises it.
-  const batch = (await getJson(`${endpoint}?ids=${ids.map(encodeURIComponent).join(",")}`)) as
-    { ok?: boolean; teams?: Array<{ teamId: string; result: GcTeamResponse }> } | undefined;
+  const batch = (
+    await getJsonVia(inProcess, `${IN_PROCESS}?ids=${ids.map(encodeURIComponent).join(",")}`)
+  ).body as { ok?: boolean; teams?: Array<{ teamId: string; result: GcTeamResponse }> } | undefined;
   const returned = Array.isArray(batch?.teams) ? batch.teams.length : 0;
   const batchCheck: PullCheck = {
     step: "Batch endpoint",

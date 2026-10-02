@@ -33,6 +33,7 @@ import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
 import type { CloudAccount, FirebaseCloud } from "./firebaseCloud";
 import type { Member } from "./members";
+import { setGcAuthorization } from "../gcAuthorization";
 
 /**
  * Keeping this browser's data in the cloud: the one place that decides when to save, when to take
@@ -212,6 +213,14 @@ export const resetCloudSession = (): void => {
   stopSession?.();
   stopSession = null;
 };
+
+/*
+ * A GameChanger pull carries the signed-in account's token to the proxy, which is for the accounts
+ * on the copy's list (`memberCheck.ts`). Only a session already open is asked: a browser nobody
+ * signed in to has none to give, and must not download Firebase to find that out. An open one
+ * gives whatever Firebase says of who is signed in, which is none after signing out.
+ */
+setGcAuthorization(async () => (session ? session.cloud.idToken() : null));
 
 export const cloudStatus = (): CloudStatus => status;
 

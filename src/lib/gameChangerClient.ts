@@ -17,6 +17,7 @@ import {
   type GcTeamResponse,
   type GcTeamSchedule,
 } from "./gameChangerApi";
+import { gcAuthorization } from "./gcAuthorization";
 
 export type FetchGcTeamOptions = {
   fetchImpl?: typeof fetch;
@@ -97,6 +98,13 @@ export type FetchGcTeamsOptions = {
    * pull that opened at full throttle and got itself blocked.
    */
   maxConcurrency?: number;
+  /**
+   * Called once if the proxy turned the browser away for not being signed in with an account on
+   * the cloud copy's list (`members-only`), with what to tell the user. The run stops there: every
+   * other request would be turned away too. The ids it answered for are left unsettled, as after
+   * a refused route, so a pull resumed once signed in asks for them again.
+   */
+  onMembersOnly?: (message: string) => void;
   /** Told whenever the pool grows, so a run can show what it settled at. */
   onConcurrency?: (workers: number) => void;
 };
@@ -146,6 +154,21 @@ export const PULL_CONCURRENCY = 8;
  * only where it stops climbing.
  */
 export const PULL_MAX_CONCURRENCY = 24;
+
+/**
+ * The browser's `fetch`, carrying the signed-in account's token when there is one: the proxy is
+ * for the accounts on the cloud copy's list (`memberCheck.ts`). The default for every request
+ * here, so a caller passes nothing to send it; a job that answers its requests in its own process
+ * (`handlerFetch`) passes its own `fetchImpl` and sends none. `fetch` is looked up when it is
+ * called rather than kept, as a test stubbing it expects.
+ */
+const signedInFetch: typeof fetch = async (input, init) => {
+  const token = await gcAuthorization();
+  if (!token) return fetch(input, init);
+  const headers = new Headers(init?.headers);
+  headers.set("authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+};
 
 /** Failures that a second try can fix; a missing team or a bad id will fail the same way again. */
 const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "timeout"]);
@@ -295,7 +318,7 @@ const readTeamResult = (
 
 export const fetchGcTeam = async (
   teamId: string,
-  { fetchImpl = fetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
+  { fetchImpl = signedInFetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
 ): Promise<GcTeamResponse> => {
   try {
     const response = await fetchImpl(`${endpoint}?id=${encodeURIComponent(teamId)}`, {
@@ -378,7 +401,7 @@ export const BATCH_SIZE = 10;
  */
 const fetchGcTeamBatch = async (
   teamIds: readonly string[],
-  { fetchImpl = fetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
+  { fetchImpl = signedInFetch, signal, endpoint = gcProxyEndpoint() }: FetchGcTeamOptions = {}
 ): Promise<Map<string, GcTeamResponse>> => {
   const results = new Map<string, GcTeamResponse>();
   const forAll = (failure: GcTeamResponse) => {
@@ -631,6 +654,7 @@ export const fetchGcTeams = async (
     onHold,
     onBlocked,
     onSuppressed,
+    onMembersOnly,
     maxConcurrency,
     onConcurrency,
   }: FetchGcTeamsOptions = {}
@@ -657,6 +681,8 @@ export const fetchGcTeams = async (
 
   /** Set once the route is refused often enough that carrying on only destroys the list. */
   let givenUp = false;
+  /** Set once the proxy has turned this browser away (`members-only`), and the user told why. */
+  let shutOut = false;
   /*
    * The ramp's own state. `frozen` latches on the first hold of any kind and never clears: a route
    * that has pushed back once is not one to lean on harder, and a run that crept up to a ceiling
@@ -696,6 +722,20 @@ export const fetchGcTeams = async (
         givenUp = true;
         onRefused?.(brake.refusals());
       }
+      /*
+       * Turned away by the proxy itself: not a fact about any team, and the same answer is waiting
+       * for every other request, so the run stops and the user is told once.
+       */
+      const turnedAway = chunk
+        .map((teamId) => answers.get(teamId)?.result)
+        .find((result) => result && !result.ok && result.reason === "members-only");
+      if (turnedAway && !turnedAway.ok) {
+        givenUp = true;
+        if (!shutOut) {
+          shutOut = true;
+          onMembersOnly?.(turnedAway.message);
+        }
+      }
       // Reported one at a time, in the order asked for: the caller folds each schedule in as it
       // lands and has no reason to know the requests were grouped.
       for (const teamId of chunk) {
@@ -709,6 +749,11 @@ export const fetchGcTeams = async (
          * What did come back is still handed over: those schedules were fetched and paid for.
          */
         if (refused && !result.ok && result.reason === "blocked") {
+          onSuppressed?.(teamId);
+          continue;
+        }
+        // Nor is being turned away by the proxy: once signed in, a resume asks for these again.
+        if (!result.ok && result.reason === "members-only") {
           onSuppressed?.(teamId);
           continue;
         }

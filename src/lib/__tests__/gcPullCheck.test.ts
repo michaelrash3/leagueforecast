@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { ADVICE, checkSchedule, checkTeamResponse, verdict } from "../gcPullCheck";
+import {
+  ADVICE,
+  checkSchedule,
+  checkStrangerRefused,
+  checkTeamResponse,
+  verdict,
+} from "../gcPullCheck";
 import type { GcGame, GcTeamSchedule } from "../gameChangerApi";
 
 const schedule = (
@@ -190,5 +196,32 @@ describe("the verdict", () => {
     ]);
     expect(result.ok).toBe(false);
     expect(result.line).toContain("Pull");
+  });
+});
+
+describe("what the deployed proxy says to a stranger", () => {
+  it("passes a refusal for want of a sign-in, which is the lock working", () => {
+    expect(checkStrangerRefused(401, { ok: false, reason: "members-only" })).toMatchObject({
+      step: "Strangers",
+      status: "pass",
+    });
+  });
+
+  it("fails an answer: the deployed proxy is open to anyone", () => {
+    expect(checkStrangerRefused(200, { ok: true })).toMatchObject({
+      status: "fail",
+      advice: expect.stringMatching(/membersOnly/),
+    });
+  });
+
+  it("warns at any other answer, naming it", () => {
+    expect(checkStrangerRefused(503, { ok: false, reason: "upstream-error" })).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("503 (upstream-error)"),
+    });
+    expect(checkStrangerRefused(403, "not json")).toMatchObject({ status: "warn" });
+    // A 401 of somebody else's, such as a host's own login page in front of a preview, is not
+    // the list turning the stranger away.
+    expect(checkStrangerRefused(401, null)).toMatchObject({ status: "warn" });
   });
 });

@@ -1,9 +1,10 @@
 /**
  * Runs the built functions (`lib/index.js`) the way Cloud Functions will, with a fake request, and
  * fails the deploy if one does not answer as expected. No network: the upstream host is pointed at
- * a closed local port, so a pull fails fast and the failure is itself the answer checked; the
- * billing stop is handed only a reading under its budget, which it must leave alone; and the pull
- * functions are handed only what they turn away before asking Google anything.
+ * a closed local port, so a pull fails fast and the failure is itself the answer checked; Firestore,
+ * which the proxy asks whose a sign-in is (`memberCheck.ts`), is a stand-in that knows one member;
+ * the billing stop is handed only a reading under its budget, which it must leave alone; and the
+ * pull functions are handed only what they turn away before asking Google anything.
  */
 import { Worker } from "node:worker_threads";
 import { gunzipSync } from "node:zlib";
@@ -73,8 +74,42 @@ check(
   JSON.stringify(probe.headers)
 );
 
+// The proxy is for the accounts on the cloud copy's list. Firestore answers the check's read of a
+// caller's own entry: there for the one member, refused for anyone else.
+const realFetch = globalThis.fetch;
+const listReads = [];
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (!url.startsWith("https://firestore.googleapis.com/")) return realFetch(input, init);
+  listReads.push(url);
+  return new Response("{}", {
+    status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
+  });
+};
+const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+const signedInAs = (email) => ({
+  authorization: `Bearer ${part({ alg: "RS256" })}.${part({ email, exp: Math.floor(Date.now() / 1000) + 3600 })}.signature`,
+});
+
 const ids = Array.from({ length: 10 }, (_, index) => `SmokeTeam${String(index).padStart(3, "0")}`);
-const batch = await call(`/?ids=${ids.join(",")}&raw=1`, { "accept-encoding": "gzip, br" });
+const unsignedPull = await call(`/?ids=${ids.join(",")}&raw=1`);
+check(
+  "a pull with no sign-in is turned away, before anything is asked",
+  unsignedPull.status === 401 &&
+    JSON.parse(text(unsignedPull)).reason === "members-only" &&
+    listReads.length === 0,
+  `${unsignedPull.status} ${text(unsignedPull).slice(0, 200)} after ${listReads.length} reads`
+);
+const outsider = await call(`/?ids=${ids.join(",")}&raw=1`, signedInAs("outsider@example.com"));
+check(
+  "a pull by an account not on the list is turned away",
+  outsider.status === 403 && JSON.parse(text(outsider)).reason === "members-only",
+  `${outsider.status} ${text(outsider).slice(0, 200)}`
+);
+const batch = await call(`/?ids=${ids.join(",")}&raw=1`, {
+  "accept-encoding": "gzip, br",
+  ...signedInAs("member@example.com"),
+});
 const answered = JSON.parse(text(batch));
 check(
   "a batch answers one result a team",
@@ -86,6 +121,7 @@ check(
   batch.headers["content-encoding"] === "gzip",
   JSON.stringify(batch.headers)
 );
+globalThis.fetch = realFetch;
 
 // The hard stop: deployed where the setup put its topic and its own service account, and a
 // reading under the budget does nothing at all.
@@ -101,7 +137,6 @@ const reading = (costAmount) =>
   Buffer.from(
     JSON.stringify({ budgetDisplayName: "Smoke", costAmount, budgetAmount: 1, currencyCode: "USD" })
   ).toString("base64");
-const realFetch = globalThis.fetch;
 let fetched = 0;
 globalThis.fetch = async (...args) => {
   fetched += 1;

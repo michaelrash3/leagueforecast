@@ -66,6 +66,7 @@ describe("the Firebase project the app keeps its copy in", () => {
         signIn: async () => null,
         signOut: async () => undefined,
         onAccount: () => () => undefined,
+        idToken: async () => null,
         owns: async () => false,
         members: memoryMembers([], () => null),
         store: memoryCloud().store,

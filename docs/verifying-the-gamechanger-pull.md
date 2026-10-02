@@ -20,6 +20,12 @@ npm run verify:gc -- --base https://your-deployment.vercel.app --id FtEExZwB4b8E
 more than once to check several teams; the batch endpoint is exercised with all of them together,
 because that is the path a real pull uses and a single id never touches it.
 
+The deployed proxy is for the accounts on the cloud copy's list, and the script has none to sign in
+with. So it asks the deployment only what a stranger can, that it is up and that it turns a request
+with no sign-in away, and pulls the teams through the proxy's own handler in its own process, as
+the nightly refresh does. What it proves about GameChanger is about wherever the script runs: one
+of GitHub's servers, in the workflow.
+
 It exits non-zero if anything essential failed, so it can be wired into a shell script or a check.
 
 ## What it checks, and why each one matters
@@ -27,6 +33,7 @@ It exits non-zero if anything essential failed, so it can be wired into a shell 
 | Check          | What a failure means                                                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------- |
 | Proxy          | The function is not answering at all. Deployment or `--base`, not GameChanger.                        |
+| Strangers      | The deployment answered a request with no sign-in, so anyone who finds it can spend the budget.       |
 | Pull           | GameChanger refused, or answered something unreadable. The reason says which.                         |
 | Team profile   | The payload parsed but carries no name — the normalizer is reading the wrong field.                   |
 | Age level      | No age level anywhere, so every game from this team lands on a page chosen by hand.                   |
@@ -51,7 +58,8 @@ If the verify script reports `blocked`:
 1. Open `https://web.gc.com/teams/<id>/schedule` in a browser.
 2. In the network panel, find a request to `api.team-manager.gc.com` and copy its
    `x-aws-waf-token` header.
-3. Set `GC_EXTRA_HEADERS` in the deployment to `{"x-aws-waf-token": "..."}` and redeploy.
+3. Set `GC_EXTRA_HEADERS` to `{"x-aws-waf-token": "..."}` where the pull runs: in the deployment
+   (then redeploy), and in the environment the script runs in, since it pulls in its own process.
 4. Run the script again.
 
 A token expires, so this is a diagnosis rather than a deployment strategy. If it turns out to be

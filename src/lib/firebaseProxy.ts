@@ -67,7 +67,9 @@ export const serveGcProxy = async (
   res.setHeader("vary", "Origin, Accept-Encoding");
   if (req.method === "OPTIONS") {
     res.setHeader("access-control-allow-methods", "GET");
-    res.setHeader("access-control-allow-headers", "accept");
+    // The sign-in a pull carries (`memberCheck.ts`), which a page on another origin may send
+    // only when the answer to this preflight names it.
+    res.setHeader("access-control-allow-headers", "accept, authorization");
     res.setHeader("access-control-max-age", "86400");
     res.status(204);
     res.end();

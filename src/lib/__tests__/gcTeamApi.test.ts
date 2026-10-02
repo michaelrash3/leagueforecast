@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
-import handler, { clearProfileCache } from "../../../api/gc-team";
+import { clearProfileCache, gcTeamHandler as handler } from "../../../api/gc-team";
 import {
   GC_GAMES_ACCEPT,
   GC_PROFILE_ACCEPT,

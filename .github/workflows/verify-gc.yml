@@ -42,9 +42,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      # No `npm ci`: the script imports two of our own modules and takes only types from them, so
-      # it runs on Node's own type stripping with nothing installed. Keeping it that way means a
-      # dependency problem can never be mistaken for GameChanger refusing us.
+      # No `npm ci`: the script and everything it imports, the proxy's own handler included (it
+      # pulls the teams in its own process, since the deployed proxy is for the accounts on the
+      # cloud copy's list), use nothing outside Node, so it runs on Node's own type stripping with
+      # nothing installed. Keeping it that way means a dependency problem can never be mistaken
+      # for GameChanger refusing us.
 
       - name: Wait for the deployment to be the one we just merged
         if: github.event_name == 'push'
@@ -84,11 +86,17 @@ jobs:
               echo "### If this says \`blocked\`"
               echo
               echo "That is the AWS WAF, not a bug. GameChanger challenges the schedule page, a"
-              echo "browser answers with an \`x-aws-waf-token\` header, and a serverless function"
-              echo "cannot run that challenge. \`docs/verifying-the-gamechanger-pull.md\` has the"
+              echo "browser answers with an \`x-aws-waf-token\` header, and a server cannot run"
+              echo "that challenge. \`docs/verifying-the-gamechanger-pull.md\` has the"
               echo "steps; if it turns out to be needed every time, the pull needs a different"
               echo "route to GameChanger, which is worth knowing before a nationwide pull rather"
               echo "than during one."
+              echo
+              echo "### If the Strangers line failed"
+              echo
+              echo "The deployed proxy answered a request that carried no sign-in, so anybody who"
+              echo "finds its URL can spend the project's budget. It should turn such a request"
+              echo "away with \`members-only\`; the line's own advice says where to look."
               echo
               echo "### If the Proxy line failed"
               echo
