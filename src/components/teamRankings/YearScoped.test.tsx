@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadScoutGames, loadScoutGamesForYear } from "../../lib/teamRankingsStorage";
 import {
   ageGroup,
@@ -16,6 +16,17 @@ import {
  * other year is still in storage untouched, and the search — the one thing that must see every
  * year — still finds a club filed under the year that is not on screen.
  */
+/*
+ * The day after the games are dated. The Games tab lists a week either side of the last update
+ * (`gamesWindow.ts`), and this pool has never been pulled, so the reader's day is that update: on
+ * the real clock these games would drift out of the list as the season went on.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2026-09-13T12:00:00"));
+});
+afterAll(() => vi.useRealTimers());
+
 const pool = () => ({
   ageGroups: [ageGroup(10, 2027), ageGroup(11, 2028)],
   teams: [

@@ -115,6 +115,17 @@ export const todayIsoDay = (now = new Date()): string =>
     now.getDate()
   ).padStart(2, "0")}`;
 
+/**
+ * The ISO day `days` after `day` (before it, for a negative count), counted in whole calendar days.
+ * Worked in UTC because an ISO day names a date, not an instant: a local-time sum slips a day
+ * across a change of clocks.
+ */
+export const shiftIsoDay = (day: string, days: number): string => {
+  const at = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(at)) return day;
+  return new Date(at + days * 86_400_000).toISOString().slice(0, 10);
+};
+
 /** Whole days from an ISO instant or day to now, or null for a value that is not a time at all. */
 export const daysSince = (iso: string | null | undefined, now = new Date()): number | null => {
   if (!iso) return null;

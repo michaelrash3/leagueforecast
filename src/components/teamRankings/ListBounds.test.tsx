@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -21,6 +21,17 @@ import { ROWS_SHOWN_FIRST, ROWS_SHOWN_STEP } from "./RankingsSection";
  * A ladder rather than a random schedule: each team beats the next, so every result is connected
  * and the fit has an opinion about all of them, and the counts are exact.
  */
+/*
+ * The day after the games are dated. The Games tab lists a week either side of the last update
+ * (`gamesWindow.ts`), and this pool has never been pulled, so the reader's day is that update: on
+ * the real clock these games would drift out of the list as the season went on.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2026-09-13T12:00:00"));
+});
+afterAll(() => vi.useRealTimers());
+
 const TEAMS = 260;
 const GAMES = TEAMS - 1;
 
