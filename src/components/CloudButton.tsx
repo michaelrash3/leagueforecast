@@ -24,7 +24,7 @@ export const cloudSummary = (status: CloudStatus): string => {
     case "gone":
       return "Your cloud copy is gone";
     case "not-owner":
-      return "This cloud copy belongs to another account";
+      return "This account is not on the cloud copy's list";
     case "update":
       return "Update the app to keep saving to the cloud";
     case "error":

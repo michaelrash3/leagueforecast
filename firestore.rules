@@ -1,12 +1,15 @@
 rules_version = '2';
 
-// Who may read and write the cloud copy of League Forecast's data: whoever signs in with Google.
-// See README, "Your data on every device"; the tests are
+// Who may read and write the cloud copy of League Forecast's data: the Google accounts on the
+// owner's list. See README, "Your data on every device"; the tests are
 // src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
 //
-// The site has one user, and its owner chose Google sign-in as the whole of the lock, with no
-// address pinned here or in a secret: any Google account that signs in can read and change the
-// copy. A browser nobody has signed in to gets nothing, and nothing but the copy is open to anyone.
+// The list is `members/{address}`, one document per account, named by its address in lower case:
+// `{ role: "owner" }` for the owner, made once by hand in the Firebase console, and
+// `{ role: "member", addedAt }` for each account the owner adds from the app. Google sign-in alone
+// was the lock until the copy became the one place the data lives; any Google account could then
+// have read and changed it. A browser nobody has signed in to gets nothing, and nothing but the
+// copy and the list is open to anyone.
 service cloud.firestore {
   match /databases/{database}/documents {
     // Signed in, and with Google. A way of signing in that needs no Google account (anonymous, or
@@ -16,11 +19,47 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == "google.com";
     }
 
+    // The signed-in account's address as the list names it. Google may hand it back in any case
+    // the account was made in; the list is kept in lower case.
+    function address() {
+      return request.auth.token.email.lower();
+    }
+
+    function entry() {
+      return /databases/$(database)/documents/members/$(address());
+    }
+
+    // On the list, under an address Google has verified belongs to the account.
+    function isMember() {
+      return signedInWithGoogle()
+        && request.auth.token.email_verified == true
+        && exists(entry());
+    }
+
+    function isOwner() {
+      return isMember() && get(entry()).data.role == "owner";
+    }
+
     // The copy itself, `copies/main` and its `chunks`, and the pulls a device leaves beside it for
-    // the cloud to run, `copies/main/jobs`. Nothing else in the database is open, the first
-    // version's `cloud/` included.
+    // the cloud to run, `copies/main/jobs`. The first version's `cloud/` is open to nobody.
     match /copies/{document=**} {
-      allow read, write: if signedInWithGoogle();
+      allow read, write: if isMember();
+    }
+
+    // The list. A member may read their own entry, which is how the app learns whether they are
+    // the owner; the owner reads all of it, adds accounts to it and takes them off. The owner's own
+    // entry is never changed from the app, so no click can lock the owner out or hand the list
+    // to somebody else: it is made, and only ever changed, in the console.
+    match /members/{member} {
+      allow get: if isMember() && (member == address() || isOwner());
+      allow list: if isOwner();
+      allow create: if isOwner()
+        && member == member.lower()
+        && member.matches("^[^@\\s]+@[^@\\s]+$")
+        && request.resource.data.keys().hasOnly(["role", "addedAt"])
+        && request.resource.data.role == "member"
+        && request.resource.data.addedAt is string;
+      allow delete: if isOwner() && member != address();
     }
   }
 }

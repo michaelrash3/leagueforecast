@@ -1,5 +1,7 @@
 import type { CloudStore } from "../cloudEngine";
 import type { CloudManifest } from "../cloudManifest";
+import type { CloudMembers } from "../firebaseCloud";
+import { memberAddress, sortMembers, type Member } from "../members";
 
 /**
  * A stand-in for the Firestore copy, in memory: the manifest and its pieces, with the same
@@ -72,5 +74,47 @@ export const memoryCloud = (): MemoryCloud => {
       });
       return release;
     },
+  };
+};
+
+/**
+ * The list of who may use the copy, in memory, as the rules let `email` see and change it: its own
+ * entry for anyone on the list, and the rest for the owner, who alone adds and takes off, and never
+ * the owner's own entry. A refusal throws `permission-denied`, as Firestore does.
+ */
+export const memoryMembers = (
+  list: Member[],
+  email: () => string | null
+): CloudMembers & { entries: () => Member[] } => {
+  const refused = () =>
+    Object.assign(new Error("Missing or insufficient permissions."), {
+      code: "permission-denied",
+    });
+  const own = () => {
+    const address = email();
+    return address ? list.find((member) => member.address === memberAddress(address)) : undefined;
+  };
+  const owner = () => {
+    if (own()?.role !== "owner") throw refused();
+  };
+  return {
+    role: async () => own()?.role ?? null,
+    list: async () => {
+      owner();
+      return sortMembers(list);
+    },
+    add: async (address, addedAt) => {
+      owner();
+      const key = memberAddress(address);
+      if (list.some((member) => member.address === key)) throw refused();
+      list.push({ address: key, role: "member", addedAt });
+    },
+    remove: async (address) => {
+      owner();
+      const key = memberAddress(address);
+      if (key === own()?.address) throw refused();
+      list.splice(0, list.length, ...list.filter((member) => member.address !== key));
+    },
+    entries: () => sortMembers(list),
   };
 };

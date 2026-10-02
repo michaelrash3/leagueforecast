@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CloudStatus, KeptVersion } from "../lib/cloud/cloudSession";
 import { CloudButton, useCloudPanel } from "./CloudButton";
+import type { MembersApi } from "./CloudMembers";
 import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
 
 /*
@@ -20,7 +21,18 @@ const saved = (over: Partial<Extract<CloudStatus, { kind: "saved" }>> = {}): Clo
   ...over,
 });
 
-const panel = (status: CloudStatus, { onClose = vi.fn(), kept = [] as KeptVersion[] } = {}) => {
+/** The list as an account that is not its owner sees it: nothing. */
+const NOT_OWNER: MembersApi = {
+  list: async () => null,
+  add: async () => undefined,
+  remove: async () => undefined,
+  message: String,
+};
+
+const panel = (
+  status: CloudStatus,
+  { onClose = vi.fn(), kept = [] as KeptVersion[], members = NOT_OWNER } = {}
+) => {
   const actions: CloudActions = {
     signIn: vi.fn(),
     save: vi.fn(),
@@ -33,7 +45,15 @@ const panel = (status: CloudStatus, { onClose = vi.fn(), kept = [] as KeptVersio
     reloadApp: vi.fn(),
   };
   render(
-    <CloudPanel status={status} open onClose={onClose} actions={actions} kept={kept} now={NOW} />
+    <CloudPanel
+      status={status}
+      open
+      onClose={onClose}
+      actions={actions}
+      members={members}
+      kept={kept}
+      now={NOW}
+    />
   );
   return actions;
 };
@@ -168,9 +188,11 @@ describe("the cloud panel", () => {
     expect(actions.restart).toHaveBeenCalledTimes(1);
   });
 
-  it("says the copy is another account's, and offers to sign out", async () => {
+  it("says the account is not on the copy's list, and offers to sign out", async () => {
     const actions = panel({ kind: "not-owner", account: ME });
-    expect(screen.getByText(/belongs to a different Google account/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/owner@example.test is not on the list of accounts that may use this/)
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(actions.signOut).toHaveBeenCalledTimes(1);
   });

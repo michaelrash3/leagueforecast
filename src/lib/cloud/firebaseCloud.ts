@@ -9,9 +9,11 @@ import {
 } from "firebase/auth";
 import {
   Bytes,
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getFirestore,
   runTransaction,
   setDoc,
@@ -20,6 +22,14 @@ import {
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
 import { coerceManifest } from "./cloudManifest";
+import {
+  coerceMember,
+  memberAddress,
+  MEMBERS,
+  sortMembers,
+  type Member,
+  type MemberRole,
+} from "./members";
 
 /**
  * The cloud copy in Firestore, and the Google sign-in that says whose it is.
@@ -30,10 +40,12 @@ import { coerceManifest } from "./cloudManifest";
  * it does every file the build makes.) `firestore/lite` rather than the full SDK: this reads and
  * writes documents and never listens to them, and lite is a fraction the size.
  *
- * The layout, and what `firestore.rules` lets through to whoever signs in with Google, and to
- * nobody else:
+ * The layout, and what `firestore.rules` lets through to the Google accounts on the owner's list,
+ * and to nobody else:
  * - `copies/main`: what the copy is made of (`CloudManifest`).
  * - `copies/main/chunks/{upload-n}`: the pieces, each `{ data: Bytes }`.
+ * - `members/{address}`: the list itself (`members.ts`), each account's own entry readable by it,
+ *   and the whole of it by the owner, who adds to it and takes off it.
  *
  * The first version kept its copy under `cloud/`, in a layout nothing reads any more; the rules
  * refuse everyone there, and anything left in it is ignored.
@@ -54,7 +66,20 @@ export type FirebaseCloud = {
    * even a look, so a look answers it, and changes nothing.
    */
   owns: () => Promise<boolean>;
+  /** The list of who may, as the signed-in account may see and change it. */
+  members: CloudMembers;
   store: CloudStore;
+};
+
+export type CloudMembers = {
+  /** The signed-in account's own place on the list, or null when it is not on it. */
+  role: () => Promise<MemberRole | null>;
+  /** The whole list, owner first: for the owner, whom the rules alone let read it. */
+  list: () => Promise<Member[]>;
+  /** Puts an account on the list as a member; the owner's to do. */
+  add: (address: string, addedAt: string) => Promise<void>;
+  /** Takes an account off the list; the owner's to do, and never to the owner's own entry. */
+  remove: (address: string) => Promise<void>;
 };
 
 const accountOf = (user: User | null): CloudAccount | null =>
@@ -126,6 +151,38 @@ export const ownsCopy = async (db: Firestore): Promise<boolean> => {
   }
 };
 
+/**
+ * The list in one Firestore database, for whoever is signed in to it as `email`. Each call is one
+ * document read or written, or one query; the rules decide what each account gets.
+ */
+export const firestoreMembers = (db: Firestore, email: () => string | null): CloudMembers => ({
+  role: async () => {
+    const own = email();
+    if (!own) return null;
+    try {
+      const snap = await getDoc(doc(db, MEMBERS, memberAddress(own)));
+      return snap.exists() ? (coerceMember(snap.id, snap.data())?.role ?? null) : null;
+    } catch (error) {
+      // Not on the list: the rules refuse the account even its own entry.
+      if ((error as { code?: unknown } | null)?.code === "permission-denied") return null;
+      throw error;
+    }
+  },
+  list: async () =>
+    sortMembers(
+      (await getDocs(collection(db, MEMBERS))).docs.flatMap((snap) => {
+        const member = coerceMember(snap.id, snap.data());
+        return member ? [member] : [];
+      })
+    ),
+  add: async (address, addedAt) => {
+    await setDoc(doc(db, MEMBERS, memberAddress(address)), { role: "member", addedAt });
+  },
+  remove: async (address) => {
+    await deleteDoc(doc(db, MEMBERS, memberAddress(address)));
+  },
+});
+
 export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
   const app = initializeApp(config);
   const auth = getAuth(app);
@@ -139,6 +196,7 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     signOut: () => signOut(auth),
     onAccount: (listener) => onAuthStateChanged(auth, (user) => listener(accountOf(user))),
     owns: () => ownsCopy(db),
+    members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
   };
 };

@@ -32,6 +32,7 @@ import {
 import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
 import type { CloudAccount, FirebaseCloud } from "./firebaseCloud";
+import type { Member } from "./members";
 
 /**
  * Keeping this browser's data in the cloud: the one place that decides when to save, when to take
@@ -275,7 +276,7 @@ const messageOf = (error: unknown): string => {
   if (known) return known;
   const text = error instanceof Error ? error.message : String(error);
   if (codeOf(error) === "permission-denied" || /permission|insufficient/i.test(text)) {
-    return "The cloud copy refused this account. Is it the Google account the copy belongs to?";
+    return "The cloud copy refused this account. Is it still on the list of accounts that may use it?";
   }
   // Safari says "Load failed" for a request the network dropped; Chrome, "Failed to fetch".
   if (
@@ -1372,3 +1373,34 @@ export const dismissCloudNotice = (): void => {
   const account = signedIn();
   if (account && status.kind === "saved") setStatus(savedStatus(account));
 };
+
+/**
+ * Who may use the copy, for its owner: null for anyone else, and when nobody is signed in. The
+ * owner is the account whose own entry on the list says so, made by hand in the Firebase console
+ * (README, "Your data on every device"); the rules let nobody else read the list.
+ */
+export const cloudMembers = async (): Promise<Member[] | null> => {
+  // Asked of the session already open, never by opening one: a browser nobody signed in to has no
+  // list to show, and must not download Firebase to find that out.
+  const current = session;
+  if (!current?.account) return null;
+  if ((await current.cloud.members.role()) !== "owner") return null;
+  return current.cloud.members.list();
+};
+
+const NOT_SIGNED_IN = "Sign in to change who may use the cloud copy.";
+
+/** Puts an account on the list as a member. The owner's to do: the rules refuse anyone else. */
+export const addCloudMember = async (address: string): Promise<void> => {
+  if (!session?.account) throw new Error(NOT_SIGNED_IN);
+  await session.cloud.members.add(address, nowIso());
+};
+
+/** Takes an account off the list. The owner's to do, and never to the owner's own entry. */
+export const removeCloudMember = async (address: string): Promise<void> => {
+  if (!session?.account) throw new Error(NOT_SIGNED_IN);
+  await session.cloud.members.remove(address);
+};
+
+/** What to tell someone about a failed call to the cloud, in words they can act on. */
+export const cloudErrorMessage = (error: unknown): string => messageOf(error);

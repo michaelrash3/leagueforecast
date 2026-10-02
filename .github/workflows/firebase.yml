@@ -7,8 +7,8 @@
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
-# The rules open the cloud copy of the app's data to Google sign-in and nothing else; see README,
-# "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
+# The rules open the cloud copy of the app's data to the Google accounts on the owner's list and
+# nothing else; see README, "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
 # FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
 # never red for want of an account.
 name: Firebase functions
