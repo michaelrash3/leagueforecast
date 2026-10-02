@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { isScoutGamePlayed } from "../../lib/teamRankings";
+import { formatIsoDayShort } from "../../lib/date";
+import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
 import type { ToastTone } from "../../hooks/useToast";
 import { ScheduleImportPanel } from "../ScheduleImportPanel";
 import { TeamNameCombobox } from "../TeamNameCombobox";
@@ -48,8 +50,15 @@ type GamesSectionProps = {
   existingGames: ScoutGame[];
   onImportGames: (teams: ScoutTeam[], games: ScoutGame[]) => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
-  /** The games typed in or pasted here, newest first. League fixtures are not among them. */
+  /**
+   * The page's stored games, pulled, pasted or typed in, newest first. League Standings fixtures
+   * are not among them.
+   */
   loggedGames: ScoutGame[];
+  /** The days listed before the reader asks for every game (`gamesWindow.ts`). */
+  gamesWindow: GamesWindow;
+  /** Games listed whatever their date: the ones just added here. */
+  keep: ReadonlySet<string>;
   teamNameById: Map<string, string>;
   editingGameId: string | null;
   editScoreA: string;
@@ -72,6 +81,9 @@ type GamesSectionProps = {
 export const GAMES_SHOWN_FIRST = 100;
 export const GAMES_SHOWN_STEP = 200;
 
+/** "1 game", "7 games". */
+const gamesCount = (count: number) => `${count.toLocaleString()} ${count === 1 ? "game" : "games"}`;
+
 export function GamesSection({
   groupName,
   ageGroupId,
@@ -92,6 +104,8 @@ export function GamesSection({
   onImportGames,
   showToast,
   loggedGames,
+  gamesWindow,
+  keep,
   teamNameById,
   editingGameId,
   editScoreA,
@@ -104,13 +118,39 @@ export function GamesSection({
   onRemoveGame,
 }: GamesSectionProps) {
   /*
-   * Keyed on the page rather than reset in an effect: a different age group starts at the top
-   * again by itself, and nothing has to fire after render to make it so.
+   * Whether every game is listed rather than the week either side of the anchor. Keyed on the page
+   * rather than reset in an effect, as the list limit is: another age group opens on its window
+   * again by itself.
    */
-  const [listLimit, setListLimit] = useState({ key: ageGroupId, count: GAMES_SHOWN_FIRST });
-  const shown = listLimit.key === ageGroupId ? listLimit.count : GAMES_SHOWN_FIRST;
-  const shownGames = loggedGames.slice(0, shown);
-  const hiddenGames = loggedGames.length - shownGames.length;
+  const [allFor, setAllFor] = useState<string | null>(null);
+  const showingAll = allFor === ageGroupId;
+  const windowed = useMemo(
+    () => windowGames(loggedGames, gamesWindow, keep),
+    [loggedGames, gamesWindow, keep]
+  );
+  const listed = showingAll ? loggedGames : windowed.shown;
+  const anchorDay = formatIsoDayShort(gamesWindow.anchor);
+  const windowName =
+    gamesWindow.basis === "pull"
+      ? `the last GameChanger pull (${anchorDay})`
+      : gamesWindow.basis === "today"
+        ? `today (${anchorDay})`
+        : `${anchorDay}, the nearest day this season has games`;
+  const hiddenParts = [
+    windowed.undated > 0 ? `${windowed.undated.toLocaleString()} undated` : "",
+    windowed.needingScore > 0 ? `${windowed.needingScore.toLocaleString()} still need a score` : "",
+  ].filter(Boolean);
+
+  /*
+   * Keyed on the page and the list rather than reset in an effect: a different age group, or the
+   * switch between the week and every game, starts at the top again by itself, and nothing has to
+   * fire after render to make it so.
+   */
+  const listKey = `${ageGroupId}|${showingAll ? "all" : "window"}`;
+  const [listLimit, setListLimit] = useState({ key: listKey, count: GAMES_SHOWN_FIRST });
+  const shown = listLimit.key === listKey ? listLimit.count : GAMES_SHOWN_FIRST;
+  const shownGames = listed.slice(0, shown);
+  const hiddenGames = listed.length - shownGames.length;
 
   return (
     <>
@@ -234,10 +274,33 @@ export function GamesSection({
           Logged games{groupName ? ` (${groupName})` : ""}
         </h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Only games you&apos;ve entered here — this age group&apos;s League Standings schedule
-          (played and upcoming) appears in the rankings and scouting report automatically but
+          The games pulled, pasted or typed in on this page. This age group&apos;s League Standings
+          schedule (played and upcoming) counts in the rankings and the scouting report but
           isn&apos;t listed here.
         </p>
+        {loggedGames.length > 0 && (showingAll || windowed.hidden > 0) && (
+          <div
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400"
+            data-testid="games-window"
+          >
+            <span>
+              {showingAll
+                ? `All ${gamesCount(loggedGames.length)} on this page.`
+                : `Games within a week of ${windowName}. ${windowed.hidden.toLocaleString()} more ${
+                    windowed.hidden === 1 ? "is" : "are"
+                  } hidden${hiddenParts.length > 0 ? ` (${hiddenParts.join(", ")})` : ""}.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setAllFor(showingAll ? null : ageGroupId)}
+              className={button.ghost}
+            >
+              {showingAll
+                ? `Show only games near ${anchorDay}`
+                : `Show all ${gamesCount(loggedGames.length)}`}
+            </button>
+          </div>
+        )}
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
           {shownGames.map((game) => {
             const played = isScoutGamePlayed(game);
@@ -343,21 +406,27 @@ export function GamesSection({
         {hiddenGames > 0 && (
           <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
             <span>
-              Showing {shownGames.length} of {loggedGames.length}
+              Showing {shownGames.length.toLocaleString()} of {listed.length.toLocaleString()}
             </span>
             <button
               type="button"
-              onClick={() => setListLimit({ key: ageGroupId, count: shown + GAMES_SHOWN_STEP })}
+              onClick={() => setListLimit({ key: listKey, count: shown + GAMES_SHOWN_STEP })}
               className={button.ghost}
             >
               Show {Math.min(GAMES_SHOWN_STEP, hiddenGames)} more
             </button>
           </div>
         )}
-        {loggedGames.length === 0 && (
+        {loggedGames.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
             No games logged yet.
           </p>
+        ) : (
+          listed.length === 0 && (
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              No games within a week of {anchorDay}.
+            </p>
+          )
         )}
       </div>
     </>

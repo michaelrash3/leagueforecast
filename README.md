@@ -1311,6 +1311,24 @@ corrected. **Renaming onto a name that already exists merges the two** — which
 how a game logged against "TBD", or a club typed two ways, reaches the team it
 belongs to.
 
+### The Games tab
+
+The Games tab lists a page's games — pulled, pasted or typed in — newest first, a
+week either side of the app's last update and no further until asked. The last
+update is the newest GameChanger pull the pool holds, which the nightly refresh
+moves every night, read as the reader's own day; a pool nothing was ever pulled
+into goes by today. A squad year that day is not in, a finished season or one
+not yet begun, is centred on its own nearest day with games instead, so it shows
+that season's last (or first) fortnight rather than an empty list.
+
+Nothing is out of reach. A line under the heading says how many games the week
+leaves out, how many of those have no date and how many were due earlier and
+still have no score, and **Show all** lists every one: an old game is still
+scored from here. A game just added stays on the list whatever its date, so it
+does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
+page of 2027 held 45,107 games, 11,348 of them within a week of that day; the
+list still draws them a hundred at a time (`gamesWindow.ts`, `GamesSection`).
+
 ### Importing
 
 Paste games or pick a `.csv`. It is read on the device: no API key, no network

@@ -152,6 +152,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
+import { gamesWindowFor } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
   RankingsSection as RankingsBoards,
@@ -1182,6 +1183,32 @@ export function TeamRankingsView({
         .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
     [scoutGames, selectedAgeGroupId]
   );
+  /**
+   * The days the Games tab lists before it is asked for every game: a week either side of the
+   * newest pull (`gamesWindow.ts`).
+   */
+  const gamesWindow = useMemo(
+    () => gamesWindowFor({ pulledAt, today, year: selectedYear, games: ageGroupManualGames }),
+    [pulledAt, today, selectedYear, ageGroupManualGames]
+  );
+  /**
+   * Games added on this page since it was opened, kept on the list whatever their date, so a game
+   * dated a month back does not vanish the moment it is added. Keyed on the page, so another page
+   * starts with none and nothing has to be cleared when the page changes.
+   */
+  const [justAdded, setJustAdded] = useState<{ pageId: string; ids: string[] }>({
+    pageId: "",
+    ids: [],
+  });
+  const keptOnList = useMemo(
+    () => new Set(justAdded.pageId === selectedAgeGroupId ? justAdded.ids : []),
+    [justAdded, selectedAgeGroupId]
+  );
+  const noteAdded = (ids: string[]) =>
+    setJustAdded((previous) => ({
+      pageId: selectedAgeGroupId,
+      ids: [...(previous.pageId === selectedAgeGroupId ? previous.ids : []), ...ids],
+    }));
 
   /**
    * Sets or clears the state a team plays in, which is what the state leaderboard files it under.
@@ -2056,6 +2083,7 @@ export function TeamRankingsView({
 
     persistTeams(teams);
     persistGames([...scoutGames, newGame]);
+    noteAdded([newGame.id]);
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
   };
@@ -2069,6 +2097,7 @@ export function TeamRankingsView({
     const before = scoutGames;
     persistTeams(nextTeams);
     persistGames([...scoutGames, ...newGames]);
+    noteAdded(newGames.map((game) => game.id));
     setImportOpen(false);
     showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
       tone: "undo",
@@ -2531,6 +2560,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onImportGames={importGames}
               showToast={showToast}
               loggedGames={ageGroupManualGames}
+              gamesWindow={gamesWindow}
+              keep={keptOnList}
               teamNameById={teamNameById}
               editingGameId={editingGameId}
               editScoreA={editScoreA}

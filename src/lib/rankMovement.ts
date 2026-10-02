@@ -7,16 +7,14 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "./teamRankings";
+import { shiftIsoDay } from "./date";
 
 /** How far back "since last week" looks. */
 export const LAST_WEEK_DAYS = 7;
 
 /** The ISO day `days` before `today`, counted in whole calendar days. */
-export const daysBefore = (today: string, days: number = LAST_WEEK_DAYS): string => {
-  const at = Date.parse(`${today}T00:00:00Z`);
-  if (!Number.isFinite(at)) return today;
-  return new Date(at - days * 86_400_000).toISOString().slice(0, 10);
-};
+export const daysBefore = (today: string, days: number = LAST_WEEK_DAYS): string =>
+  shiftIsoDay(today, -days);
 
 /**
  * How many weeks back the "My team" rank line looks, last week's board included: most of a half.
