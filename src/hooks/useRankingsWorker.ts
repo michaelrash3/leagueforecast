@@ -8,6 +8,7 @@ import {
   type SeasonSegment,
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
+import { saveBoard, savedBoardFor } from "../lib/savedBoard";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
 import {
   checkTheModel,
@@ -269,6 +270,13 @@ export function useRankingsWorker(input: RankingsInput): {
     const timer = window.setTimeout(() => {
       if (latestIdRef.current !== id) return;
 
+      /** Puts a fit's rows up, and keeps them as the board the next open starts on. */
+      const settle = (fitted: ScoutRankingRow[]) => {
+        setRows(fitted);
+        setSettledSnapshot(snapshot);
+        saveBoard(snapshot, fitted);
+      };
+
       const runInline = () => {
         const fitted = buildTeamRankings(
           snapshot.ageGroupId,
@@ -279,8 +287,7 @@ export function useRankingsWorker(input: RankingsInput): {
           snapshot.segment
         );
         if (latestIdRef.current !== id) return;
-        setRows(fitted);
-        setSettledSnapshot(snapshot);
+        settle(fitted);
       };
 
       if (!worker) {
@@ -321,8 +328,7 @@ export function useRankingsWorker(input: RankingsInput): {
         detach?.();
         detach = null;
         if (latestIdRef.current !== id) return;
-        setRows(event.data.rows);
-        setSettledSnapshot(snapshot);
+        settle(event.data.rows);
       };
       const onError = (error: ErrorEvent) => {
         console.warn("Rankings worker failed, falling back to inline.", error.message);
@@ -766,7 +772,12 @@ export function useRankingsWorker(input: RankingsInput): {
   if (inlineRows)
     return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel, lastWeek, history };
   return {
-    rows,
+    /*
+     * Before this page's first fit has landed, the board kept from the last one fitted
+     * (`savedBoard.ts`), when it was fitted for the page on screen: last visit's rows at once,
+     * marked stale as they are while any refit runs, rather than an empty page for seconds.
+     */
+    rows: (settledSnapshot === null ? savedBoardFor(snapshot) : null) ?? rows,
     stale: settledSnapshot !== snapshot,
     whatIf,
     askWhatIf,
