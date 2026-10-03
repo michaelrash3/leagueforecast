@@ -10,6 +10,13 @@ import {
   type ScoutTeam,
 } from "../../teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
+import { filterRankingsByState, statesInUse, UNKNOWN_STATE } from "../../teamRankings/names";
+import {
+  clubsOfBoard,
+  defaultStateOf,
+  placesOf,
+  unknownStateCountOf,
+} from "../../teamRankings/boardDisplay";
 import {
   initTeamRankingsStore,
   loadAgeGroups,
@@ -378,6 +385,76 @@ describe("the boards a server builds", () => {
       Object.values(told).every((count) => count > 0),
       JSON.stringify(told)
     ).toBe(true);
+  });
+
+  it("say of each board's clubs, from the published rows alone, what the page says", () => {
+    /*
+     * The live board draws its places, states, state top ten and unplaced count from what each
+     * published row says of its club (`clubsOfBoard`); the page draws them from the clubs behind
+     * its rows (`rankedTeams`). Written out here as the page wrote them before they were shared,
+     * on the page's clubs, and held to the shared code on the published rows.
+     */
+    const source = stored();
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    let states = 0;
+    for (const { key, value } of boardViews(ageGroups, built)) {
+      const read = coerceBoardView(JSON.parse(JSON.stringify(value)));
+      if (!read) throw new Error(`${key} is not a board as published`);
+      const pageId = key.split(":").slice(2, -1).join(":");
+      const page = ageGroups.find((group) => group.id === pageId)!;
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(ageGroupYear(page)),
+        readSeason,
+      });
+      const byId = new Map(known.teams.map((team) => [team.id, team]));
+      const rankedTeams = read.rows
+        .map((row) => byId.get(row.teamId))
+        .filter((team): team is ScoutTeam => team !== undefined);
+      // Every row's club is on the roster, so the page's clubs are the rows' clubs.
+      expect(rankedTeams, key).toHaveLength(read.rows.length);
+      const mine = (myTeamId: string | undefined) => {
+        const own = rankedTeams.find((team) => team.id === myTeamId)?.state;
+        if (own) return own;
+        const counts = new Map<string, number>();
+        rankedTeams.forEach((team) => {
+          if (team.state) counts.set(team.state, (counts.get(team.state) ?? 0) + 1);
+        });
+        let best = "";
+        let most = 0;
+        counts.forEach((count, state) => {
+          if (count > most) {
+            most = count;
+            best = state;
+          }
+        });
+        return best;
+      };
+      const places = new Map<string, string | undefined>();
+      rankedTeams.forEach((team) => {
+        if (!places.has(team.id))
+          places.set(team.id, [team.city, team.state].filter(Boolean).join(", ") || undefined);
+      });
+      const clubs = clubsOfBoard(read.rows);
+      const someone = read.rows.find((row) => row.state)?.teamId;
+      for (const myTeamId of [page.myTeamId, someone, undefined]) {
+        expect(defaultStateOf(clubs, myTeamId), `${key} ${myTeamId}`).toBe(mine(myTeamId));
+      }
+      expect(placesOf(clubs), key).toEqual(places);
+      expect(statesInUse(clubs), key).toEqual(statesInUse(rankedTeams));
+      expect(unknownStateCountOf(clubs), key).toBe(
+        rankedTeams.filter((team) => !team.state).length
+      );
+      const rows = withMine(read.rows, page.myTeamId);
+      for (const state of [...statesInUse(rankedTeams), UNKNOWN_STATE]) {
+        expect(filterRankingsByState(rows, clubs, state), `${key} ${state}`).toEqual(
+          filterRankingsByState(rows, rankedTeams, state)
+        );
+      }
+      states += statesInUse(rankedTeams).length;
+    }
+    expect(states).toBeGreaterThan(0);
   });
 
   it("count each page's games by half as the page does, beside its boards", () => {

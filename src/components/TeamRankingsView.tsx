@@ -64,6 +64,7 @@ import {
   type SeasonReader,
 } from "../lib/live/allKnown";
 import { countedByHalf } from "../lib/teamRankings/halves";
+import { defaultStateOf, placesOf, unknownStateCountOf } from "../lib/teamRankings/boardDisplay";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -798,42 +799,16 @@ export function TeamRankingsView({
    */
   const nationalTop = useMemo(() => rankings.slice(0, NATIONAL_TOP), [rankings]);
 
-  /**
-   * Which state the top ten is for. Yours if we know it, otherwise whichever state has the most
-   * teams on this page — the one most likely to be the reason you are here.
-   */
-  const defaultState = useMemo(() => {
-    const mine = rankedTeams.find((team) => team.id === myTeamId)?.state;
-    if (mine) return mine;
-    const counts = new Map<string, number>();
-    rankedTeams.forEach((team) => {
-      if (team.state) counts.set(team.state, (counts.get(team.state) ?? 0) + 1);
-    });
-    let best = "";
-    let most = 0;
-    counts.forEach((count, state) => {
-      if (count > most) {
-        most = count;
-        best = state;
-      }
-    });
-    return best;
-  }, [rankedTeams, myTeamId]);
+  /** Which state the top ten is for (`defaultStateOf`), shared with the live board. */
+  const defaultState = useMemo(
+    () => defaultStateOf(rankedTeams, myTeamId),
+    [rankedTeams, myTeamId]
+  );
 
   const shownState = stateTop === null ? defaultState : stateTop;
 
-  /**
-   * "Prosper, TX" — where a club is from, which is what tells five Rangers apart in a list. The
-   * town comes from GameChanger for a pulled club; a stand-in has neither and shows nothing.
-   */
-  const placeById = useMemo(() => {
-    const places = new Map<string, string | undefined>();
-    rankedTeams.forEach((team) => {
-      if (!places.has(team.id))
-        places.set(team.id, [team.city, team.state].filter(Boolean).join(", ") || undefined);
-    });
-    return places;
-  }, [rankedTeams]);
+  /** "Prosper, TX" for each club on the page (`placesOf`), shared with the live board. */
+  const placeById = useMemo(() => placesOf(rankedTeams), [rankedTeams]);
   // A lookup rather than a search of the page's clubs per call: the Scouting picker asks it of
   // every row, and on a four-thousand-club page that was 288 ms of searching against about 5.
   const placeOf = useCallback((teamId: string) => placeById.get(teamId), [placeById]);
@@ -854,7 +829,7 @@ export function TeamRankingsView({
         : [],
     [rankings, rankedTeams, shownState]
   );
-  const unknownStateCount = rankedTeams.filter((team) => !team.state).length;
+  const unknownStateCount = unknownStateCountOf(rankedTeams);
 
   // Filtering is presentational: ratings come from every game, because a team's strength does not
   // depend on which rows are on screen. Only the numbering changes.

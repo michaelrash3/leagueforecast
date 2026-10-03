@@ -557,7 +557,9 @@ export const normalizeState = (value: string): string | undefined => {
  * The states represented among these teams, alphabetically. Drives the filter's options, so it
  * only ever offers a state that some team on the table actually has.
  */
-export const statesInUse = (teams: ScoutTeam[]): string[] =>
+export const statesInUse = <T extends Pick<ScoutTeam, "id" | "state">>(
+  teams: readonly T[]
+): string[] =>
   [
     ...new Set(teams.map((team) => team.state).filter((state): state is string => Boolean(state))),
   ].sort();
@@ -572,7 +574,7 @@ export const statesInUse = (teams: ScoutTeam[]): string[] =>
  */
 export const filterRankingsByState = (
   rows: ScoutRankingRow[],
-  teams: ScoutTeam[],
+  teams: ReadonlyArray<Pick<ScoutTeam, "id" | "state">>,
   state: string
 ): ScoutRankingRow[] => {
   if (!state) return rows;
