@@ -544,3 +544,18 @@ export const buildOpponentAdjustedRatings = (
     residualScale,
   };
 };
+
+/** What a table of ratings is sorted on. */
+type RatedRow = { rating: number; rawMargin: number; strengthOfSchedule: number; teamName: string };
+
+/**
+ * The order a table of ratings is read in, in League Standings and Team Rankings alike: the higher
+ * rating first, then the higher raw margin, then the name, by `localeCompare` in the runtime's own
+ * locale. A tie the fit leaves goes to the club that won its games by more.
+ */
+export const byRating = (a: RatedRow, b: RatedRow): number =>
+  b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName);
+
+/** The order of the schedule column: the toughest schedule first, then the name. */
+export const bySchedule = (a: RatedRow, b: RatedRow): number =>
+  b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName);

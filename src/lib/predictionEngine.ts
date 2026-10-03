@@ -2,7 +2,7 @@ import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
-import { buildOpponentAdjustedRatings } from "./powerRating";
+import { buildOpponentAdjustedRatings, byRating, bySchedule } from "./powerRating";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
 export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
@@ -398,17 +398,12 @@ export const buildPredictionEngine = (
                 : "Stable",
       };
     })
-    .sort(
-      (a, b) =>
-        b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
-    )
+    .sort(byRating)
     .map((row, index) => ({ ...row, rank: index + 1 }));
 
   // Schedule-toughness rank: 1 = faced the strongest opponents (highest average opponent rating).
   const teamsPlayed = powerRatings.filter((row) => row.games > 0);
-  const sosOrder = [...teamsPlayed].sort(
-    (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName)
-  );
+  const sosOrder = [...teamsPlayed].sort(bySchedule);
   const sosRankById = new Map(sosOrder.map((row, index) => [row.teamId, index + 1]));
   powerRatings.forEach((row) => {
     row.sosRank = sosRankById.get(row.teamId) ?? 0;
