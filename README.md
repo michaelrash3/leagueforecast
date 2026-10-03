@@ -3244,6 +3244,11 @@ turns the night red, after the pull's own lines; a sweep that fails once the
 views are out says so under the counts of what was published, and turns it red
 too.
 
+On 3 October 2026 a dry run of 50 teams on the real copy built its 60 boards (20
+pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
+have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
+boards together, peaked at 4.1 GB of the runner's 16.
+
 It runs every night at 07:17 UTC, which is 3:17 in the morning Eastern in summer
 and 2:17 in winter. A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
