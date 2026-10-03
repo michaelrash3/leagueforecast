@@ -3750,8 +3750,9 @@ const linkLeagueTeams = (
   inSeason.forEach((scoutTeamId) => {
     const team = scoutById.get(scoutTeamId);
     // A slot names nobody; matching a league team onto one would attach it to another game's
-    // unknown opponent.
-    if (!team || team.placeholder) return;
+    // unknown opponent. And a club made for a league team said not to be in Team Rankings is that
+    // team's alone, found by no name (`offClubIdFor`), whatever has since been filed against it.
+    if (!team || team.placeholder || isOffClubId(scoutTeamId)) return;
     const key = teamNameKey(team.name);
     const bucket = scoutIdsByName.get(key);
     if (bucket) bucket.push(scoutTeamId);

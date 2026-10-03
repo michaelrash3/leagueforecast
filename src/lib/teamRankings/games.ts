@@ -300,10 +300,11 @@ export type LeagueRowReader = {
  * name: a stand-in the import made for it, a pulled club the import filed it against, or a club
  * typed in by hand. Such a row is the league's game when one of its clubs played the team in the
  * league that day, in the same rating pool, and its other club could be what that schedule called
- * the team, with only one team of the kind that fits; it is then filed under the league's
- * fixture, where the rules for any copy of a league game decide which survives, whatever the two
- * say the score was and whether or not either is scored yet. Carried by the name before, the
- * league's row named the club those copies named, and was matched by its pair of clubs.
+ * the team; or, for a league game between two such teams, when each of its clubs could be what it
+ * was called by one of the two. With only one league game it could be, it is then filed under that
+ * game's fixture, where the rules for any copy of a league game decide which survives, whatever
+ * the two say the score was and whether or not either is scored yet. Carried by the name before,
+ * the league's row named the clubs those copies named, and was matched by its pair of clubs.
  */
 const offFixturesOf = (
   games: readonly ScoutGame[],
@@ -316,40 +317,75 @@ const offFixturesOf = (
   /** The teams each club played in the league, by pool and day. */
   const offsOn = new Map<string, string[]>();
   const clubs = new Set<string>();
+  /** The league's games between two such teams, by pool and day, and the teams in them. */
+  const pairsOn = new Map<string, Array<readonly [string, string]>>();
+  const paired = new Set<string>();
   games.forEach((game) => {
     if (!game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
-    const off = isOff(game.teamAId) ? game.teamAId : isOff(game.teamBId) ? game.teamBId : null;
-    if (!off) return;
-    const club = off === game.teamAId ? game.teamBId : game.teamAId;
+    const offA = isOff(game.teamAId);
+    const offB = isOff(game.teamBId);
+    if (!offA && !offB) return;
     const day = normalizeDateInput(game.date ?? "");
     if (!day) return;
+    const pool = poolOf(game.ageGroupId);
+    if (offA && offB) {
+      const key = `${pool}\u0000${day}`;
+      const pairs = pairsOn.get(key);
+      if (!pairs) pairsOn.set(key, [[game.teamAId, game.teamBId]]);
+      else pairs.push([game.teamAId, game.teamBId]);
+      paired.add(game.teamAId).add(game.teamBId);
+      return;
+    }
+    const [off, club] = offA ? [game.teamAId, game.teamBId] : [game.teamBId, game.teamAId];
     clubs.add(club);
-    const key = `${poolOf(game.ageGroupId)}\u0000${club}\u0000${day}`;
+    const key = `${pool}\u0000${club}\u0000${day}`;
     const offs = offsOn.get(key);
     if (!offs) offsOn.set(key, [off]);
     else if (!offs.includes(off)) offs.push(off);
   });
-  if (clubs.size === 0) return () => "";
+  if (clubs.size === 0 && paired.size === 0) return () => "";
+  /** Whether a club could be what a schedule called a team in a game between two such teams. */
+  const pairable = new Map<string, boolean>();
+  const couldBePaired = (clubId: string): boolean => {
+    let known = pairable.get(clubId);
+    if (known === undefined) {
+      known = [...paired].some((off) => namesake(clubId, off));
+      pairable.set(clubId, known);
+    }
+    return known;
+  };
   return (game) => {
     // Read before the date: nearly every row is between clubs that played no such team.
-    if (!clubs.has(game.teamAId) && !clubs.has(game.teamBId)) return "";
+    const byClub = clubs.has(game.teamAId) || clubs.has(game.teamBId);
+    const byPair = paired.size > 0 && couldBePaired(game.teamAId) && couldBePaired(game.teamBId);
+    if (!byClub && !byPair) return "";
     const day = normalizeDateInput(game.date ?? "");
     if (!day) return "";
     const pool = poolOf(game.ageGroupId);
-    const fits: Array<[string, string]> = [];
-    (
-      [
-        [game.teamAId, game.teamBId],
-        [game.teamBId, game.teamAId],
-      ] as const
-    ).forEach(([club, side]) => {
-      (offsOn.get(`${pool}\u0000${club}\u0000${day}`) ?? []).forEach((off) => {
-        if (namesake(side, off)) fits.push([club, off]);
+    const keyOf = (a: string, b: string) => `${pool}|${[a, b].sort().join("|")}|${day}`;
+    const fits = new Set<string>();
+    if (byClub) {
+      (
+        [
+          [game.teamAId, game.teamBId],
+          [game.teamBId, game.teamAId],
+        ] as const
+      ).forEach(([club, side]) => {
+        (offsOn.get(`${pool}\u0000${club}\u0000${day}`) ?? []).forEach((off) => {
+          if (namesake(side, off)) fits.add(keyOf(club, off));
+        });
       });
-    });
-    if (fits.length !== 1) return "";
-    const [club, off] = fits[0]!;
-    return `${pool}|${[club, off].sort().join("|")}|${day}`;
+    }
+    if (byPair) {
+      (pairsOn.get(`${pool}\u0000${day}`) ?? []).forEach(([a, b]) => {
+        const { teamAId: x, teamBId: y } = game;
+        if ((namesake(x, a) && namesake(y, b)) || (namesake(x, b) && namesake(y, a))) {
+          fits.add(keyOf(a, b));
+        }
+      });
+    }
+    if (fits.size !== 1) return "";
+    return [...fits][0]!;
   };
 };
 

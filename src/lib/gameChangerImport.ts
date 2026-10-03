@@ -40,6 +40,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   createAgeGroupId,
+  isOffClubId,
   isPlaceholderName,
   namesNobody,
   MIN_AGE_LEVEL,
@@ -338,6 +339,15 @@ const noteInPool = (
 ) => {
   const team = index.teamsById.get(teamId);
   if (!team) return;
+  if (level !== undefined) {
+    const seen = index.levelsByTeam.get(teamId);
+    if (seen) seen.add(level);
+    else index.levelsByTeam.set(teamId, new Set([level]));
+  }
+  // A club made for a league team said not to be in Team Rankings is that team's alone, and no
+  // name a schedule writes is filed onto it (`offClubIdFor`), whatever has been filed against it.
+  if (isOffClubId(teamId)) return;
+
   const pool = index.poolKeyOf(ageGroupId);
   const name = teamNameKey(team.name);
   const key = nameSlotKey(pool, name, level);
@@ -349,11 +359,6 @@ const noteInPool = (
   const wide = index.teamIdsByPoolName.get(anyLevel);
   if (!wide) index.teamIdsByPoolName.set(anyLevel, [teamId]);
   else if (!wide.includes(teamId)) wide.push(teamId);
-
-  if (level === undefined) return;
-  const seen = index.levelsByTeam.get(teamId);
-  if (seen) seen.add(level);
-  else index.levelsByTeam.set(teamId, new Set([level]));
 };
 
 /** Records that two teams have met, both ways round. */

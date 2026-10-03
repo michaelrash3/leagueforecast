@@ -557,7 +557,10 @@ earlier, the Trash Pandas' own pull had the same game against the 9U club, and t
 board showed them 0-7 against GameChanger's 0-6.
 
 A team answered **Not here** is carried in as a club of its own, named as the
-league names it, which no name ever leads to. Carried by its name, as it was until
+league names it, which no name ever leads to: not a league team's name, not the
+link panel's guess for a team nobody has answered for, and not a name a pulled
+schedule writes, however a game has come to be filed against it. Carried by its
+name, as it was until
 October 2026, its games landed on a club of that name the person had just said it
 is not. The club's id is read off the name ("S-off-" and the name's words), so it
 is the same on every pass and every device, and one already saved to the roster,
@@ -567,8 +570,9 @@ everywhere else. Every other copy of such a game names some other club of the
 team's name: a stand-in the import made for it, a pulled club the import filed it
 against, or a club typed in by hand. Such a row is filed with the league's own
 game when one of its clubs played the team in the league that day, in the same
-rating pool, and its other club's name fits the team's, with only one such team
-that fits; the rules for any copy of a league game then decide which survives,
+rating pool, and its other club's name fits the team's; for a league game between
+two such teams, when its two clubs fit one name each. With only one league game it
+could be, the rules for any copy of a league game then decide which survives,
 so the game counts once whatever the copies say the score was, and once on the
 schedule before it is played. A row between two of the league's own clubs goes
 with their own league game first. An answer is the season's, as the link panel
