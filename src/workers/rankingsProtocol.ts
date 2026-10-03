@@ -1,6 +1,7 @@
 import {
   fitScoutYearFor,
   rankingPoolGroupIds,
+  scoutFitRanks,
   scoutFitYear,
   rowsOfYearFit,
   type AgeGroup,
@@ -306,11 +307,19 @@ export const createRankingsHandler = (
     }
 
     if (request.kind === "movement") {
+      /*
+       * Kept for the pool, so every tab of a year is answered from the first one's fit, but only
+       * where that fit is the tab's own: the same year (`scoutFitYear`, as in `yearFitKey`), and a
+       * page old enough to be fitted at all. Without the second, a reader who opened an 8U tab
+       * first got its empty answer on 9U, and no arrows.
+       */
       const key = JSON.stringify([
         held.revision,
         rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
         request.segment ?? "",
         request.asOf,
+        scoutFitYear(request.ageGroupId, request.ageGroups) ?? null,
+        scoutFitRanks(request.ageGroupId, request.ageGroups),
         request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
       ]);
       let ranks = pastBoards.get(key);

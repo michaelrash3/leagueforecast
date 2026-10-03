@@ -269,4 +269,91 @@ describe("last week's places, from the pool the worker holds", () => {
     handle({ ...movement(2, "2026-09-12"), pool: shipment(1) });
     expect(posted).toHaveLength(1);
   });
+
+  /*
+   * The page asks for last week's places on every tab of a year at one revision, and the worker
+   * keeps the answer for the pool, so a tab after the first is answered from what the first left.
+   * That is only right where the first tab's fit is the next one's too.
+   */
+  describe("for each page of a pool in turn, as a reader moves through the tabs", () => {
+    /** Each page's answer, asked in order at one revision, the pool shipped with the first. */
+    const walk = (
+      ageGroups: AgeGroup[],
+      pool: { teams: ScoutTeam[]; games: ScoutGame[] },
+      pages: string[],
+      asOf: string
+    ) => {
+      const { posted, handle } = harness();
+      pages.forEach((ageGroupId, at) =>
+        handle({
+          kind: "movement",
+          id: at + 1,
+          ageGroupId,
+          ageGroups,
+          asOf,
+          pool: {
+            revision: 1,
+            ...(at === 0
+              ? { teams: encodeScoutTeams(pool.teams), games: encodeScoutGames(pool.games) }
+              : {}),
+          },
+        })
+      );
+      return posted.map((answer) => {
+        if (answer.kind !== "movement") throw new Error(`no answer: ${answer.kind}`);
+        return answer.ranks;
+      });
+    };
+
+    it("gives a page its places after a page too young to rank was asked first", () => {
+      // An 8U page has no table, so no places; its 10U sibling, in the same pool, has a board.
+      const withEightU: AgeGroup[] = [
+        { id: "u8", name: "8U 2027", ageLevel: 8, year: 2027, seasonIds: [] },
+        ...groups,
+      ];
+      const [eightU, tenU] = walk(withEightU, { teams, games }, ["u8", "u10"], "2026-09-12");
+      expect(eightU).toEqual({});
+      const expected = ranksAsOf("u10", teams, games, withEightU, undefined, "2026-09-12");
+      expect(Object.keys(expected).length).toBeGreaterThan(0);
+      expect(tenU).toEqual(expected);
+    });
+
+    it("gives a page the places of its own year's fit when a restore repeats its sibling's id", () => {
+      /*
+       * Ids are minted unique, but a hand-edited restore can repeat one across years. The fit reads
+       * a page's year off the last age group of its id, so here 9U is fitted for 2026 and 10U, in
+       * the same pool, for 2027: two fits, and 10U's places are not 9U's.
+       */
+      const repeated: AgeGroup[] = [
+        { id: "d9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+        { id: "d10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+        { id: "d9", name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: [] },
+      ];
+      const played = (id: string, ageGroupId: string, a: string, b: string): ScoutGame => ({
+        id,
+        ageGroupId,
+        teamAId: `S-${a}`,
+        teamBId: `S-${b}`,
+        teamAScore: 7,
+        teamBScore: 4,
+        date: "2027-03-07",
+      });
+      const pool = {
+        teams,
+        games: [
+          played("a", "d9", "A", "B"),
+          played("b", "d9", "B", "C"),
+          played("c", "d10", "C", "A"),
+          played("d", "d10", "D", "A"),
+        ],
+      };
+      const [nineU, tenU] = walk(repeated, pool, ["d9", "d10"], "2027-04-08");
+      const ranksOf = (page: string) =>
+        ranksAsOf(page, pool.teams, pool.games, repeated, undefined, "2027-04-08");
+      expect(nineU).toEqual(ranksOf("d9"));
+      expect(tenU).toEqual(ranksOf("d10"));
+      // The two fits differ, so an answer kept from the first could not stand for the second.
+      expect(ranksOf("d10")).not.toEqual(ranksOf("d9"));
+    });
+  });
 });
