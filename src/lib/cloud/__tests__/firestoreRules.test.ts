@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
   Bytes,
@@ -22,11 +22,13 @@ import {
   firestoreStore,
   ownsCopy,
   UnreadableCopyError,
+  watchLiveMeta,
+  type FullFirestore,
 } from "../firebaseCloud";
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
-import { forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
+import { checkLiveMeta, forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
 import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
@@ -65,31 +67,57 @@ const STRANGER: Account = {
   provider: "google.com",
 };
 
-/** Firestore as `account` sees it, or as a browser nobody has signed in to. */
-const as = (account: Account | null): Firestore => {
+/** A Firebase app of its own, for one account's client. */
+const newApp = (): FirebaseApp => {
   const app = initializeApp({ projectId: PROJECT, apiKey: "demo-key" }, `app-${apps.length}`);
   apps.push(app);
-  const db = getFirestore(app);
+  return app;
+};
+
+/** Where the emulator is, and the stand-in token it is to take for `account`. */
+const emulatorFor = (account: Account | null) => {
   const [host = "127.0.0.1", port = "8085"] = (HOST ?? "").split(":");
-  connectFirestoreEmulator(
-    db,
-    host,
-    Number(port),
-    account
-      ? {
-          mockUserToken: {
-            sub: account.uid,
-            ...(account.email === undefined
-              ? {}
-              : { email: account.email, email_verified: account.unverified === undefined }),
-            ...(account.provider === undefined
-              ? {}
-              : { firebase: { sign_in_provider: account.provider, identities: {} } }),
-          },
-        }
-      : {}
-  );
+  const token = account
+    ? {
+        mockUserToken: {
+          sub: account.uid,
+          ...(account.email === undefined
+            ? {}
+            : { email: account.email, email_verified: account.unverified === undefined }),
+          ...(account.provider === undefined
+            ? {}
+            : { firebase: { sign_in_provider: account.provider, identities: {} } }),
+        },
+      }
+    : {};
+  return { host, port: Number(port), token };
+};
+
+/** Firestore as `account` sees it, or as a browser nobody has signed in to. */
+const as = (account: Account | null): Firestore => {
+  const db = getFirestore(newApp());
+  const { host, port, token } = emulatorFor(account);
+  connectFirestoreEmulator(db, host, port, token);
   return db;
+};
+
+/** The full Firestore, which listens, as `account` sees it: what the app's watch loads. */
+/**
+ * Both Firestores of one app as `account` sees them, as the app holds them: the lite one the copy
+ * and the reads use, and a loader of the full one that listens, the same app's.
+ */
+const bothAs = (account: Account) => {
+  const app = newApp();
+  const { host, port, token } = emulatorFor(account);
+  const lite = getFirestore(app);
+  connectFirestoreEmulator(lite, host, port, token);
+  const full = async (): Promise<FullFirestore> => {
+    const sdk = await import("../firestoreListen");
+    const db = sdk.getFirestore(app);
+    sdk.connectFirestoreEmulator(db, host, port, token);
+    return { sdk, db };
+  };
+  return { lite, full };
 };
 
 const REFUSED = { code: "permission-denied" };
@@ -507,6 +535,87 @@ describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator"
       expect(await readLive(firestoreLive(as(account)))).toEqual({ ok: false, why: "refused" });
     }
   });
+
+  // Each wait below allows the emulator 10 s, though the whole runs in half a second (measured).
+  it(
+    "are heard as they change through the app's own watch, by the list alone",
+    { timeout: 30_000 },
+    async () => {
+      await published();
+      const listen = (account: Account) => {
+        const heard: Array<{ raw: unknown; fromServer: boolean }> = [];
+        const errors: unknown[] = [];
+        const both = bothAs(account);
+        let client: FullFirestore | null = null;
+        const load = async () => (client = await both.full());
+        const stop = watchLiveMeta(load)({
+          next: (raw, fromServer) => heard.push({ raw, fromServer }),
+          error: (error) => errors.push(error),
+        });
+        /** The pages' counts in the newest meta the server vouched for, as the page reads them. */
+        const pulledAt = () => {
+          const vouched = heard.filter((one) => one.fromServer);
+          const last = vouched[vouched.length - 1];
+          const read = last ? checkLiveMeta(last.raw) : null;
+          return read?.ok ? read.pages.pulledAt : null;
+        };
+        /** Cuts this client off the network, as a dropped connection does, or puts it back. */
+        const network = async (on: boolean) => {
+          if (!client) throw new Error("the watch has not loaded Firestore");
+          await (on ? client.sdk.enableNetwork(client.db) : client.sdk.disableNetwork(client.db));
+        };
+        const lastVouched = () => heard[heard.length - 1]?.fromServer;
+        return { heard, errors, stop, pulledAt, network, lastVouched, lite: both.lite };
+      };
+      const member = listen(LAPTOP);
+      const stranger = listen(STRANGER);
+      const pages = (pulledAt: string) => ({
+        pulledAt,
+        halves: { ag_10u_2027: { fall: 3, spring: 1 } },
+      });
+      const republish = async (pulledAt: string) => {
+        const result = await publishViews({
+          store: server(),
+          views: [{ key: KEY, value: VIEW }],
+          owns: ["board:"],
+          copy: { id: "copy-a", version: 2 },
+          today: "2027-04-15",
+          now: T,
+          inline: { pages: pages(pulledAt) },
+        });
+        expect(result.ok).toBe(true);
+      };
+      try {
+        await republish("2027-04-15T13:00:00.000Z");
+        await vi.waitFor(() => expect(member.pulledAt()).toBe("2027-04-15T13:00:00.000Z"), {
+          timeout: 10_000,
+        });
+        // A publish while it listens is heard, from the server.
+        await republish("2027-04-15T14:00:00.000Z");
+        await vi.waitFor(() => expect(member.pulledAt()).toBe("2027-04-15T14:00:00.000Z"), {
+          timeout: 10_000,
+        });
+        // Cut off, it hears what it has, not vouched for: the page's "offline"; back, vouched again.
+        await member.network(false);
+        await vi.waitFor(() => expect(member.lastVouched()).toBe(false), { timeout: 10_000 });
+        await member.network(true);
+        await vi.waitFor(() => expect(member.lastVouched()).toBe(true), { timeout: 10_000 });
+        expect(member.errors).toEqual([]);
+        // The same app's lite client reads beside its listener, as the app's do.
+        expect(await readLive(firestoreLive(member.lite))).toMatchObject({
+          ok: true,
+          pages: { pulledAt: "2027-04-15T14:00:00.000Z" },
+        });
+        // Turned away by the rules: its watch ends, refused, having heard nothing from the server.
+        await vi.waitFor(() => expect(stranger.errors).toHaveLength(1), { timeout: 10_000 });
+        expect(stranger.errors[0]).toMatchObject(REFUSED);
+        expect(stranger.heard.filter((one) => one.fromServer)).toEqual([]);
+      } finally {
+        member.stop();
+        stranger.stop();
+      }
+    }
+  );
 
   it("are read by nobody else", async () => {
     const entry = await published();

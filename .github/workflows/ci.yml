@@ -61,6 +61,13 @@ jobs:
             fi
           done
           grep -rlq "firestore.googleapis.com" --include="*.js" dist/assets
+          # Firestore's listener is a chunk of its own, which a live board loads and the service
+          # worker does not store ahead (`vite.config.ts`).
+          ls dist/assets/firestoreListen-*.js
+          if grep -q "firestoreListen-" dist/sw.js; then
+            echo "::error::The service worker stores Firestore's listener ahead"
+            exit 1
+          fi
       # One browser, one smoke spec, against the build above: a season loads, a score moves the
       # standings, and the backup carries it. The unit suites cover the pieces; this covers the wiring.
       - run: npx playwright install --with-deps chromium

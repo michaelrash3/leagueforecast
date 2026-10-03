@@ -72,6 +72,10 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Firestore's listener (`firestoreListen.ts`, 159 KB gzipped) is not stored ahead: it is
+        // no use offline, and a browser that opens no live board never loads it. The rest of the
+        // default stays: nothing from node_modules.
+        globIgnores: ["**/node_modules/**/*", "**/firestoreListen-*.js"],
         navigateFallback: "/index.html",
         // Without this, the service worker answers *every* navigation with the
         // cached app shell — including /api/*, so opening an API URL in the

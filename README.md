@@ -3762,8 +3762,9 @@ code (`boardDisplay.ts`), with the half the page would open on decided from the
 published counts. Its arrows are last week's places the board carries, and the
 club card's rank line is the one published with it, drawn only when it is for the
 club this device marks as its own on that page. What the board says it is replaces
-"Refitting…" (`liveLabel`): offline, still checking, built before this device's
-changes or the copy's latest, built by another version of the app, or yesterday's.
+"Refitting…" (`liveLabel`): offline as of when the server last vouched for it,
+still checking, built before this device's changes or the copy's latest, built by
+another version of the app, or yesterday's.
 It opens on what this account last read and kept, so a board is drawn before any
 network read, and then on the network's.
 
@@ -3796,6 +3797,60 @@ forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and tha
 the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
 opening where the board left off. Each guard was broken in turn and seen to fail
 a test, 33 of 33, two of them only after their tests were tightened.
+
+**Kept up to date while it is open.** Once its first read is in, the page listens
+to the meta (`watchMeta`), so a publish while it is open is drawn in place. It
+listens for as long as Team Rankings is open, past the handover, so the board
+Team Rankings opens a page on stays the latest. The copy's lite Firestore reads
+but cannot listen, so the listener is the full SDK (`watchLiveMeta` in
+`firebaseCloud.ts`), loaded then and never before. Its parts the app uses are a
+module of their own (`firestoreListen.ts`), and so a chunk of their own: 121 KB
+gzipped, which a browser that opens no live board never downloads. The service
+worker does not store it ahead either, since a listener is no use offline; CI
+checks both. Loading it took 71 ms on a 4× throttled CPU and 45 ms unthrottled
+(medians of five), with no task long enough to delay a tap. What the listener
+hears is taken as a read is:
+
+- checked, kept for the account, and put on screen;
+- the board read again only when the meta names another board for its key, so a
+  publish of other pages' boards costs this page nothing;
+- a meta heard again unchanged counts for nothing;
+- of two metas heard together, the later stands, though checking the earlier
+  against the copy takes longer.
+
+When the connection drops, Firestore says so with a snapshot from its cache. The
+board stays, labelled "Offline · the cloud's board as of 7:42 PM": the time the
+server last vouched for it, or the day if not today. For a board opened offline,
+that is when this account read the meta it kept. Once the server is heard again
+the label goes. A refusal heard ends the watch and forgets every board, as a
+refused read does; a watch that ends for any other reason leaves the board,
+offline. Firestore bills a listener a read for each change it hears, and a read
+again when it reconnects after half an hour away.
+
+With the listener in, the first download is 230.7 KB gzipped against 232.1 KB
+before, as the build folded the cloud session's code back into the entry, and
+Firebase stays out of it. The page's own chunk is 5.8 KB gzipped.
+`LiveTeamRankings.test.tsx` listens through an in-memory store whose watch
+delivers each version of the meta as Firestore does. It checks:
+
+- a publish drawn in place;
+- a publish that leaves the board alone;
+- an unchanged meta taken as nothing new;
+- the later of two metas winning;
+- the offline label as of the read that kept the board, and gone on reconnecting;
+- a refusal heard, and a watch ended otherwise;
+- a newer build's meta handing over;
+- the watch stopped on closing, and never started after a refused read.
+
+`cloudSession.test.ts` holds the session's reader carrying the cloud's watch.
+`firestoreRules.test.ts` runs the app's own watch on the emulator, on one app
+beside the lite client that reads, as the app holds them: a member hears each
+publish from the server, hears a snapshot not vouched for once its client is
+cut off and vouched for again once it is back, and a stranger's watch ends
+refused, having heard nothing from the server. Each guard was broken in turn and
+seen to fail a test or the CI check, 22 of 22. Three of them failed only once
+their tests were added or tightened, one after the in-memory watch was found
+delivering the meta as it stood at delivery, not as it was when it changed.
 
 ### Rebuilds after saves: the one-time setup
 

@@ -148,7 +148,10 @@ export function LiveTeamRankings({
    * it does not have. An offline read keeps whatever board was drawn from this device's own keep.
    */
   const offline =
-    live.metaMiss === "offline" || live.metaMiss === "no-reader" || live.boardMiss === "offline";
+    live.metaMiss === "offline" ||
+    live.metaMiss === "no-reader" ||
+    live.boardMiss === "offline" ||
+    live.link === "cut-off";
   const handOverNow =
     section !== "rankings" ||
     !selectedAgeGroupId ||
@@ -218,6 +221,7 @@ export function LiveTeamRankings({
         rules: meta.built["board:"]?.rules,
         boardDay: meta.today,
         today,
+        heardAt: live.heardAt,
       })
     : undefined;
   const group = ageGroups.find((one) => one.id === selectedAgeGroupId);

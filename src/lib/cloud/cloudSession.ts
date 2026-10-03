@@ -437,6 +437,8 @@ export const liveReader = async (): Promise<LiveReader | null> => {
   return {
     readMeta: () => timed(live.readMeta(), LIVE_LIMITS.meta, "reading the published boards"),
     getChunk: (id) => timed(live.getChunk(id), LIVE_LIMITS.chunk, "fetching a published board"),
+    // A watch has no limit: it says itself when the connection drops.
+    ...(live.watchMeta ? { watchMeta: live.watchMeta } : {}),
   };
 };
 

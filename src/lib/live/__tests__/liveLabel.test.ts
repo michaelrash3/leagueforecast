@@ -47,7 +47,24 @@ describe("what the live board says it is", () => {
       "The cloud's board, from before this device's changes"
     );
     expect(label({ check: "offline", standing: "owed", boardDay: "2027-04-01" })).toBe(
-      "The cloud's board as last read · offline"
+      "Offline · the cloud's board as last read"
     );
+  });
+
+  it("says offline as of when the server last vouched for it: the time today, else the day", () => {
+    // Instants made in the zone the test runs in, as the reader's own clock reads them.
+    const evening = new Date(2027, 3, 15, 19, 42).toISOString();
+    expect(label({ check: "offline", heardAt: evening })).toBe(
+      "Offline · the cloud's board as of 7:42 PM"
+    );
+    const dayBefore = new Date(2027, 3, 14, 9, 5).toISOString();
+    expect(label({ check: "offline", heardAt: dayBefore })).toBe(
+      "Offline · the cloud's board as of Wed, Apr 14"
+    );
+    expect(label({ check: "offline", heardAt: "not a time" })).toBe(
+      "Offline · the cloud's board as last read"
+    );
+    // Only offline says when: a board the network vouched for is as of now.
+    expect(label({ heardAt: evening })).toBe("The cloud's board");
   });
 });

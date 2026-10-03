@@ -74,15 +74,26 @@ const refused = async (cache: ViewCache | undefined): Promise<void> => {
   await cache?.clear().catch(() => undefined);
 };
 
+/**
+ * What a failed read or watch of `live/` says (`failureOf`), with a refusal clearing what `cache`
+ * kept: this account may not see it.
+ */
+export const failedLive = async (
+  error: unknown,
+  cache?: ViewCache
+): Promise<"refused" | "offline"> => {
+  const why = failureOf(error);
+  if (why === "refused") await refused(cache);
+  return why;
+};
+
 /** Reads and checks the meta. A refusal clears what `cache` kept: this account may not see it. */
 export const readLive = async (reader: LiveReader, cache?: ViewCache): Promise<LiveRead> => {
   let raw: unknown;
   try {
     raw = await reader.readMeta();
   } catch (error) {
-    const why = failureOf(error);
-    if (why === "refused") await refused(cache);
-    return { ok: false, why };
+    return { ok: false, why: await failedLive(error, cache) };
   }
   return checkLiveMeta(raw);
 };

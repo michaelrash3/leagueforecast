@@ -6,7 +6,8 @@ import type { CopySeen } from "../../lib/cloud/cloudSession";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
-import { openViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
+import { liveLabel } from "../../lib/live/liveLabel";
+import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
 import type { BoardRow, LivePages } from "../../lib/live/views/boardShape";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
@@ -143,6 +144,7 @@ const publish = async (
 const readerOf = (live: MemoryLive): LiveReader => ({
   readMeta: async () => (await live.store.readMeta())?.meta ?? null,
   getChunk: (id) => live.store.getChunk(id),
+  watchMeta: live.watchMeta,
 });
 
 const kept = new Map<string, unknown>();
@@ -336,7 +338,8 @@ describe("Team Rankings on the cloud's board", () => {
     first.unmount();
     forgetDecodedBoards();
     open(sourcesOf(null));
-    expect(await screen.findByText("The cloud's board as last read · offline")).toBeTruthy();
+    // As of when this account last read the meta, which the device kept with it.
+    expect(await screen.findByText(/^Offline · the cloud's board as of /)).toBeTruthy();
     expect(screen.getAllByText("Placeholder S-1").length).toBeGreaterThan(0);
     expect(handedOver()).toBeNull();
   });
@@ -350,12 +353,15 @@ describe("Team Rankings on the cloud's board", () => {
     const refusing: LiveReader = {
       readMeta: () => Promise.reject({ code: "permission-denied" }),
       getChunk: () => Promise.reject({ code: "permission-denied" }),
+      watchMeta: live.watchMeta,
     };
     open(sourcesOf(live, { reader: async () => refusing }));
     await waitFor(() => expect(kept.size).toBe(0));
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
     await act(async () => pool.finish());
     expect(handedOver()).not.toBeNull();
+    // Refused, it does not listen either.
+    expect(live.watching()).toBe(0);
   });
 
   it("hands over when nothing draws in the time allowed", async () => {
@@ -380,5 +386,173 @@ describe("Team Rankings on the cloud's board", () => {
     expect(screen.queryByText(/Loading this device's copy/)).toBeNull();
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+});
+
+/*
+ * While it is open the page listens to the meta (`watchMeta`), so a publish draws the new board in
+ * place, and a dropped connection says the board may be behind rather than passing it off as the
+ * latest.
+ */
+describe("the cloud's board while it is open", () => {
+  const SPRING_NEXT = { rows: [row("S-7", 1, { state: "OH" }), row("S-1", 2, { state: "OH" })] };
+
+  it("draws a board published while it is open, in place", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(screen.queryAllByText("Placeholder S-7")).toHaveLength(0);
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING_NEXT },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING_NEXT },
+    ]);
+    expect((await screen.findAllByText("Placeholder S-7")).length).toBeGreaterThan(0);
+    expect(screen.getByText("The cloud's board")).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("leaves the board on screen as it is when a publish names the same one", async () => {
+    const cache = openViewCache(cacheIo);
+    let shownKept = 0;
+    const counting: ViewCache = {
+      ...cache,
+      keepLastShown: (uid, shown) => {
+        shownKept += 1;
+        return cache.keepLastShown(uid, shown);
+      },
+    };
+    open(sourcesOf(live, { cache: counting }));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await waitFor(() => expect(shownKept).toBe(1));
+    // A later pull, the same boards: a new meta, naming the very board on screen.
+    const later = "2027-04-15T13:00:00.000Z";
+    await publish(live, undefined, {
+      pulledAt: later,
+      halves: { [PAGE]: { fall: 10, spring: 20 } },
+    });
+    expect(live.meta()?.inline.pages).toMatchObject({ pulledAt: later });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(shownKept).toBe(1);
+  });
+
+  it("says it is offline, as of the server's last word, while cut off, and keeps the board", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    act(() => live.cutOff());
+    expect(await screen.findByText(/^Offline · the cloud's board as of /)).toBeTruthy();
+    expect(screen.getAllByText("Placeholder S-1").length).toBeGreaterThan(0);
+    expect(handedOver()).toBeNull();
+    act(() => live.reconnect());
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+  });
+
+  it("is vouched for once the server is heard, after opening offline on the board it kept", async () => {
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    first.unmount();
+    forgetDecodedBoards();
+    const unreachable: LiveReader = {
+      ...readerOf(live),
+      readMeta: () => Promise.reject({ code: "unavailable" }),
+    };
+    act(() => live.cutOff());
+    // Hours later, still cut off: as of the read that kept the board, not of what the watch has
+    // from before, which says nothing new.
+    const later = `${TODAY}T15:00:00.000Z`;
+    open(sourcesOf(live, { reader: async () => unreachable, now: () => later }));
+    const asOf = (heardAt: string) =>
+      liveLabel({
+        check: "offline",
+        standing: null,
+        rules: undefined,
+        boardDay: TODAY,
+        today: TODAY,
+        heardAt,
+      });
+    expect(asOf(T)).not.toBe(asOf(later));
+    expect(await screen.findByText(asOf(T))).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(screen.getByText(asOf(T))).toBeTruthy();
+    act(() => live.reconnect());
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("takes a meta heard again unchanged as nothing new", async () => {
+    let looks = 0;
+    open(
+      sourcesOf(live, {
+        seen: () => {
+          looks += 1;
+          return seenOf(MANIFEST);
+        },
+      })
+    );
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await waitFor(() => expect(live.watching()).toBe(1));
+    act(() => live.reconnect());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    // Once, for the read on opening: the watch's first word and the reconnect repeat it.
+    expect(looks).toBe(1);
+  });
+
+  it("keeps the later of two metas heard together, though the earlier takes longer", async () => {
+    // Two publishes, the later the one on screen; the earlier's pieces are kept out their grace.
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING_NEXT },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING_NEXT },
+    ]);
+    const earlier = live.meta();
+    await publish(live);
+    const later = live.meta();
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await waitFor(() => expect(live.watching()).toBe(1));
+    // The earlier is checked against the copy, which takes a hash; the later is already on screen.
+    act(() => {
+      live.setMeta(earlier);
+      live.setMeta(later);
+    });
+    // Never drawn, though there is time for the earlier's check and its board's read, were it
+    // taken: tens of ms here.
+    await expect(screen.findAllByText("Placeholder S-7", {}, { timeout: 500 })).rejects.toThrow();
+    expect(screen.getAllByText("Placeholder S-1").length).toBeGreaterThan(0);
+  });
+
+  it("forgets every board it kept, and hands over, when the rules end its watch", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(kept.size).toBeGreaterThan(0);
+    act(() => live.failWatches({ code: "permission-denied" }));
+    await waitFor(() => expect(kept.size).toBe(0));
+    expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    await act(async () => pool.finish());
+    expect(handedOver()).not.toBeNull();
+  });
+
+  it("keeps the board, offline, when its watch ends for any other reason", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    act(() => live.failWatches({ code: "internal" }));
+    expect(await screen.findByText(/^Offline · the cloud's board as of /)).toBeTruthy();
+    expect(kept.size).toBeGreaterThan(0);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over when it hears a meta this build cannot read", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    act(() => live.setMeta({ ...live.meta(), schema: 99 }));
+    await act(async () => pool.finish());
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("stops listening when it closes", async () => {
+    const shown = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(live.watching()).toBe(1);
+    shown.unmount();
+    expect(live.watching()).toBe(0);
   });
 });

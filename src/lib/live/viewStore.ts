@@ -128,13 +128,26 @@ export type LiveStore = {
 };
 
 /**
+ * The meta heard as it changes, until the returned call stops it. `next` hears each version as
+ * stored (null when there is none), and whether the server vouched for it just now: false while the
+ * device is cut off and has only what it last heard, which says nothing new. `error` ends the watch:
+ * a refusal by the rules, or a listener that could not start.
+ */
+export type MetaWatch = (heard: {
+  next: (raw: unknown, fromServer: boolean) => void;
+  error: (error: unknown) => void;
+}) => () => void;
+
+/**
  * `live/` as a member's device reads it: the meta's fields as stored, or null when there is none,
  * and a piece by its id, or null when it is not there. Each a read by name, never a listing, which
- * the rules refuse.
+ * the rules refuse. A reader that can also listen to the meta (`watchMeta`) keeps a page's board
+ * the latest published while it is open.
  */
 export type LiveReader = {
   readMeta: () => Promise<unknown>;
   getChunk: (id: string) => Promise<Uint8Array | null>;
+  watchMeta?: MetaWatch;
 };
 
 /** A view to publish under `key`, which a member's device asks for by name. */

@@ -5,11 +5,13 @@ import { forgetLiveBoard } from "../lib/live/liveBoard";
 import {
   boardStanding,
   checkLiveMeta,
+  failedLive,
   readBoard,
   readLive,
   type BoardRead,
   type BoardStanding,
   type LiveMiss,
+  type LiveRead,
 } from "../lib/live/liveClient";
 import { openViewCache, type ViewCache } from "../lib/live/viewCache";
 import type { LiveMeta, LiveReader } from "../lib/live/viewStore";
@@ -68,6 +70,17 @@ export type LiveBoardState = {
   board: { key: string; h: string; view: BoardView; checked: boolean } | null;
   /** Why the network's board for the key cannot be drawn, once asked. */
   boardMiss: Extract<BoardRead, { ok: false }>["why"] | null;
+  /**
+   * When the server last vouched for the meta, as an ISO instant: the network's read, or the
+   * watch's last word from the server; for a kept meta, when this account read it. Null before any.
+   */
+  heardAt: string | null;
+  /**
+   * Whether the watch on the meta hears the server: `live` while it does, `cut-off` once the
+   * connection drops or the watch ends, while the board on screen may fall behind. Null with no
+   * watch, or before it has heard anything.
+   */
+  link: "live" | "cut-off" | null;
 };
 
 const NO_GAMES = { fall: 0, spring: 0 } as const;
@@ -79,8 +92,10 @@ const NO_GAMES = { fall: 0, spring: 0 } as const;
  * else the calendar's unless the published counts say it holds next to nothing
  * (`segmentWorthShowing`), as Team Rankings decides from its own pool.
  *
- * The meta is read once a mount; a board is read whenever the key moves. A refusal by the rules
- * clears every board kept and held, since this account may no longer see them.
+ * The meta is read once a mount, then watched where the reader can (`watchMeta`): a publish while
+ * the page is open is taken as a read would be, and the board on screen is read again only when the
+ * meta names another one for its key. A refusal by the rules, read or heard, clears every board
+ * kept and held, since this account may no longer see them.
  */
 export function useLiveBoard({
   pageId,
@@ -100,18 +115,67 @@ export function useLiveBoard({
   const [standing, setStanding] = useState<BoardStanding | null>(null);
   const [board, setBoard] = useState<LiveBoardState["board"]>(null);
   const [boardMiss, setBoardMiss] = useState<LiveBoardState["boardMiss"]>(null);
+  const [heardAt, setHeardAt] = useState<string | null>(null);
+  const [link, setLink] = useState<LiveBoardState["link"]>(null);
   const readerRef = useRef<LiveReader | null>(null);
+  // The board on screen, for the read of a board to see without depending on it.
+  const boardRef = useRef<LiveBoardState["board"]>(null);
+  const show = (next: LiveBoardState["board"]) => {
+    boardRef.current = next;
+    setBoard(next);
+  };
 
   useEffect(() => {
     let alive = true;
+    let unwatch: (() => void) | null = null;
     const { cache } = sources;
+    const forgetAll = () => {
+      forgetLiveBoard();
+      setMeta(null);
+      show(null);
+    };
+    // The meta on screen as JSON, so one heard again unchanged is not taken again, and a count of
+    // takes, so a slower take cannot put an older meta over a later one.
+    let shownPrint: string | null = null;
+    let takes = 0;
+    /** A read of the meta from the network, or one heard: kept, and put on screen if it is new. */
+    const take = async (read: LiveRead) => {
+      // Reads and snapshots come in order, so the latest take is the meta as it now stands.
+      const turn = (takes += 1);
+      if (!read.ok) {
+        if (read.why === "refused") forgetAll();
+        setMetaMiss(read.why);
+        return;
+      }
+      const at = sources.now();
+      setHeardAt(at);
+      const uid = sources.uid();
+      if (uid) void cache.keepMeta(uid, read.meta, at).catch(() => undefined);
+      const print = JSON.stringify(read.meta);
+      if (print === shownPrint) {
+        setMetaMiss(null);
+        return;
+      }
+      const stands = await boardStanding({
+        meta: read.meta,
+        seen: sources.seen(),
+        owed: sources.owed(),
+      });
+      if (!alive || turn !== takes) return;
+      shownPrint = print;
+      setStanding(stands);
+      setMeta({ meta: read.meta, pages: read.pages, from: "network" });
+      setMetaMiss(null);
+    };
     void (async () => {
       const uid = sources.uid();
       if (uid) {
         const kept = await cache.meta(uid).catch(() => null);
         const read = kept ? checkLiveMeta(kept.meta) : null;
-        if (alive && read?.ok)
+        if (alive && kept && read?.ok) {
           setMeta((shown) => shown ?? { meta: read.meta, pages: read.pages, from: "cache" });
+          setHeardAt((at) => at ?? kept.readAt);
+        }
       }
       const reader = await sources.reader().catch(() => null);
       if (!alive) return;
@@ -120,29 +184,32 @@ export function useLiveBoard({
         return;
       }
       readerRef.current = reader;
-      const live = await readLive(reader, cache);
+      const first = await readLive(reader, cache);
       if (!alive) return;
-      if (!live.ok) {
-        if (live.why === "refused") {
-          forgetLiveBoard();
-          setMeta(null);
-          setBoard(null);
-        }
-        setMetaMiss(live.why);
-        return;
-      }
-      if (uid) void cache.keepMeta(uid, live.meta, sources.now()).catch(() => undefined);
-      const stands = await boardStanding({
-        meta: live.meta,
-        seen: sources.seen(),
-        owed: sources.owed(),
+      await take(first);
+      if (!alive || !reader.watchMeta || (!first.ok && first.why === "refused")) return;
+      // Nothing after the last wait: the watch is in place before a cleanup could run.
+      unwatch = reader.watchMeta({
+        next: (raw, fromServer) => {
+          if (!alive) return;
+          setLink(fromServer ? "live" : "cut-off");
+          // Cut off, it hears only what it last heard: nothing to take.
+          if (fromServer) void take(checkLiveMeta(raw));
+        },
+        error: (error) => {
+          if (!alive) return;
+          setLink("cut-off");
+          void failedLive(error, cache).then((why) => {
+            if (!alive || why !== "refused") return;
+            forgetAll();
+            setMetaMiss("refused");
+          });
+        },
       });
-      if (!alive) return;
-      setStanding(stands);
-      setMeta({ meta: live.meta, pages: live.pages, from: "network" });
     })();
     return () => {
       alive = false;
+      unwatch?.();
     };
   }, [sources]);
 
@@ -156,12 +223,17 @@ export function useLiveBoard({
     const network = meta.from === "network";
     const reader = network ? readerRef.current : KEPT_ONLY;
     if (!reader) return;
+    // A newer meta that names the same board for this key, as a publish of other pages' boards
+    // does, leaves the board on screen as it is.
+    const shown = boardRef.current;
+    if (shown?.key === key && shown.h === meta.meta.views[key]?.h && (shown.checked || !network))
+      return;
     let alive = true;
     void (async () => {
       const read = await readBoard({ reader, meta: meta.meta, key, cache: sources.cache });
       if (!alive) return;
       if (read.ok) {
-        setBoard({ key, h: read.entry.h, view: read.view, checked: network });
+        show({ key, h: read.entry.h, view: read.view, checked: network });
         if (network) setBoardMiss(null);
         const uid = sources.uid();
         if (network && uid)
@@ -169,7 +241,7 @@ export function useLiveBoard({
       } else if (network) {
         if (read.why === "refused") {
           forgetLiveBoard();
-          setBoard(null);
+          show(null);
         }
         setBoardMiss(read.why);
       }
@@ -187,5 +259,7 @@ export function useLiveBoard({
     key,
     board: board && board.key === key ? board : null,
     boardMiss: board && board.key !== key ? null : boardMiss,
+    heardAt,
+    link,
   };
 }

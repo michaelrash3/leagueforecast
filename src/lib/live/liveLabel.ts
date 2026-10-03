@@ -1,12 +1,26 @@
-import { formatIsoDayShort, shiftIsoDay } from "../date";
+import { formatIsoDayShort, shiftIsoDay, todayIsoDay } from "../date";
 import type { BoardStanding } from "./liveClient";
 import { BOARD_RULES } from "./views/boardShape";
+
+/**
+ * When the server last vouched for the board, as the offline label says it: the time on the
+ * reader's own day, otherwise the day; null for an instant that is not one.
+ */
+const heardOn = (heardAt: string, today: string): string | null => {
+  const at = new Date(heardAt);
+  if (Number.isNaN(at.getTime())) return null;
+  const day = todayIsoDay(at);
+  return day === today
+    ? at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : formatIsoDayShort(day);
+};
 
 /**
  * What the live board says it is, beside its rows, in place of the page's "Refitting…": the one
  * thing most worth knowing about it, first of these that holds.
  *
- * - Read from what this device kept, the network not having answered: offline, or still checking.
+ * - Read from what this device kept, the network not having answered, or cut off since: offline,
+ *   as of when the server last vouched for it; or still checking.
  * - Built before changes this device has not saved, or before the copy's latest.
  * - Built by rules other than this build's.
  * - Built for an earlier day than the reader's: yesterday's, or a date's.
@@ -20,6 +34,7 @@ export const liveLabel = ({
   rules,
   boardDay,
   today,
+  heardAt = null,
 }: {
   /** `checked`: the network vouched for it; `checking`: not yet; `offline`: it could not. */
   check: "checked" | "checking" | "offline";
@@ -30,8 +45,15 @@ export const liveLabel = ({
   boardDay: string;
   /** The reader's own day. */
   today: string;
+  /** When the server last vouched for the meta (`LiveBoardState.heardAt`), if ever. */
+  heardAt?: string | null;
 }): string => {
-  if (check === "offline") return "The cloud's board as last read · offline";
+  if (check === "offline") {
+    const on = heardAt === null ? null : heardOn(heardAt, today);
+    return on
+      ? `Offline · the cloud's board as of ${on}`
+      : "Offline · the cloud's board as last read";
+  }
   if (standing === "owed") return "The cloud's board, from before this device's changes";
   if (standing === "behind-copy") return "The cloud's board, from before the latest changes";
   if (rules !== undefined && rules !== BOARD_RULES)

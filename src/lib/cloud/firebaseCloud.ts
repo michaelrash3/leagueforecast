@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, type FirebaseApp } from "firebase/app";
 import {
   GoogleAuthProvider,
   getAuth,
@@ -19,9 +19,10 @@ import {
   setDoc,
   type Firestore,
 } from "firebase/firestore/lite";
+import type * as FullSdk from "./firestoreListen";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
-import type { LiveReader } from "../live/viewStore";
+import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import {
   coerceMember,
@@ -160,6 +161,50 @@ export const firestoreLive = (db: Firestore): LiveReader => ({
   getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
 });
 
+/** The full Firestore SDK, and its client of an app. */
+export type FullFirestore = { sdk: typeof FullSdk; db: FullSdk.Firestore };
+
+/**
+ * The full Firestore SDK's client of `app`, loaded when first asked for. The lite Firestore the copy
+ * uses reads but cannot listen; the two share the app and its sign-in, each with a client of its
+ * own. Asked for only when a page watches, so a browser that only syncs its copy, or opens no live
+ * page, never downloads it.
+ */
+const fullFirestoreOf = (app: FirebaseApp) => (): Promise<FullFirestore> =>
+  import("./firestoreListen").then((sdk) => ({ sdk, db: sdk.getFirestore(app) }));
+
+/**
+ * `live/meta` as it changes, for a page that keeps its board the latest published while it is open,
+ * through the full Firestore `load` gives. Its snapshots say whether they came from the server, and
+ * Firestore delivers one from its cache when the connection drops, which is how a page learns it is
+ * cut off; it errors only to end, a refusal by the rules among the reasons.
+ */
+export const watchLiveMeta =
+  (load: () => Promise<FullFirestore>): MetaWatch =>
+  (heard) => {
+    let stop: (() => void) | null = null;
+    let stopped = false;
+    load().then(
+      ({ sdk, db }) => {
+        if (stopped) return;
+        stop = sdk.onSnapshot(
+          sdk.doc(db, LIVE_META),
+          { includeMetadataChanges: true },
+          (snap) => heard.next(snap.exists() ? snap.data() : null, !snap.metadata.fromCache),
+          (error) => heard.error(error)
+        );
+      },
+      // The SDK would not load: offline before it ever came down, which a later open retries.
+      (error: unknown) => {
+        if (!stopped) heard.error(error);
+      }
+    );
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  };
+
 /** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs to open. */
 export const ownsCopy = async (db: Firestore): Promise<boolean> => {
   try {
@@ -219,6 +264,6 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     owns: () => ownsCopy(db),
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
-    live: firestoreLive(db),
+    live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
   };
 };
