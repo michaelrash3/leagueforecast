@@ -14,9 +14,12 @@ import {
   FirestoreError,
   firestoreFieldsOf,
   firestoreRestDocuments,
+  firestoreRestLive,
   firestoreRestStore,
   type FirestoreValue,
 } from "../firestoreRest";
+import { coerceLiveMeta, publishViews, sweepViews } from "../../live/viewStore";
+import { unpackChunks } from "../cloudPack";
 import { newPullJob, packJobList } from "../pullJobs";
 import { restJobDocs } from "../pullJobRunner";
 
@@ -26,7 +29,7 @@ import { restJobDocs } from "../pullJobRunner";
  * API types them and refuses a commit whose precondition no longer holds, as Firestore does.
  */
 
-type Doc = { fields: Record<string, FirestoreValue>; updateTime: string };
+type Doc = { fields: Record<string, FirestoreValue>; createTime?: string; updateTime: string };
 
 const PREFIX = "/v1/projects/proj/databases/(default)/documents";
 
@@ -63,10 +66,37 @@ const fakeFirestore = () => {
         return reply(400, { error: { status: "FAILED_PRECONDITION" } });
       }
       clock += 1;
-      docs.set(path, { fields: write.update.fields, updateTime: `t${clock}` });
+      docs.set(path, {
+        fields: write.update.fields,
+        createTime:
+          current?.createTime ?? new Date(Date.UTC(2027, 0, 1) + clock * 1000).toISOString(),
+        updateTime: `t${clock}`,
+      });
       return reply(200, {});
     }
     const path = decodeURIComponent(url.pathname.slice(PREFIX.length + 1));
+    if (method === "GET" && path.split("/").length % 2 === 1) {
+      // A collection: its documents in name order, a page at a time, with only the masked fields.
+      const names = [...docs.keys()]
+        .filter((name) => name.startsWith(`${path}/`) && !name.slice(path.length + 1).includes("/"))
+        .sort();
+      const size = Number(url.searchParams.get("pageSize") ?? names.length);
+      const from = Number(url.searchParams.get("pageToken") ?? 0);
+      const mask = url.searchParams.getAll("mask.fieldPaths");
+      const page = names.slice(from, from + size).map((name) => {
+        const found = docs.get(name)!;
+        const fields = Object.fromEntries(
+          Object.entries(found.fields).filter(
+            ([field]) => mask.length === 0 || mask.includes(field)
+          )
+        );
+        return { name: `projects/proj/databases/(default)/documents/${name}`, ...found, fields };
+      });
+      return reply(200, {
+        documents: page,
+        ...(from + size < names.length ? { nextPageToken: String(from + size) } : {}),
+      });
+    }
     if (method === "GET") {
       const found = docs.get(path);
       return found ? reply(200, found) : reply(404, { error: { status: "NOT_FOUND" } });
@@ -90,7 +120,12 @@ const fakeFirestore = () => {
               ].sort(([a], [b]) => a.localeCompare(b))
             );
       clock += 1;
-      docs.set(path, { fields, updateTime: `t${clock}` });
+      docs.set(path, {
+        fields,
+        createTime:
+          current?.createTime ?? new Date(Date.UTC(2027, 0, 1) + clock * 1000).toISOString(),
+        updateTime: `t${clock}`,
+      });
       return reply(200, {});
     }
     if (method === "DELETE") {
@@ -304,5 +339,129 @@ describe("a pull's job through Firestore's REST API", () => {
     );
     await expect(jobs.update(JOB, { status: "done" })).rejects.toBeInstanceOf(FirestoreError);
     expect(firestore.docs.size).toBe(0);
+  });
+});
+
+describe("the published views through Firestore's REST API", () => {
+  const liveOn = (firestore: ReturnType<typeof fakeFirestore>, writable = true) =>
+    firestoreRestLive({
+      projectId: "proj",
+      token: async () => "a-token",
+      writable,
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+    });
+  const T = "2027-04-15T12:00:00.000Z";
+  const publish = (store: ReturnType<typeof liveOn>, value: unknown, version: number) =>
+    publishViews({
+      store,
+      views: [
+        { key: "board:2027:ag_10u_2027:year", value },
+        { key: "board:none:ag_showcase:spring", value: { rows: [] } },
+      ],
+      owns: ["board:"],
+      copy: { id: "copy-1", version },
+      today: "2027-04-15",
+      now: T,
+    });
+
+  it("writes the meta and the views' pieces, and reads them back as they were published", async () => {
+    const firestore = fakeFirestore();
+    const store = liveOn(firestore);
+    const rows = { rows: [{ teamId: "S-A", rating: 1.5, rank: 1 }] };
+    expect(await publish(store, rows, 3)).toMatchObject({ ok: true, wrote: true, uploaded: 2 });
+    const read = await store.readMeta();
+    expect(read?.token).toMatch(/^t\d+$/);
+    const meta = coerceLiveMeta(read?.meta);
+    expect(meta).toMatchObject({ copy: { id: "copy-1", version: 3 }, inline: {}, retired: [] });
+    const entry = meta?.views["board:2027:ag_10u_2027:year"];
+    if (!entry) throw new Error("no entry");
+    const piece = await store.getChunk(`${entry.id}-0`);
+    if (!piece) throw new Error("no piece");
+    expect(await unpackChunks([piece], entry.h)).toEqual(rows);
+    // Every field typed as the SDK types it: the counts as integers, not doubles.
+    const fields = firestore.docs.get("live/meta")?.fields;
+    expect(fields?.copy?.mapValue?.fields?.version).toEqual({ integerValue: "3" });
+    // Published again unchanged: nothing written.
+    const writes = firestore.fetchImpl.mock.calls.filter(([, init]) => init?.method).length;
+    expect(await publish(store, rows, 3)).toMatchObject({ ok: true, wrote: false });
+    expect(firestore.fetchImpl.mock.calls.filter(([, init]) => init?.method).length).toBe(writes);
+  });
+
+  it("will not replace a meta written since it was read, nor make one where one is", async () => {
+    const firestore = fakeFirestore();
+    const store = liveOn(firestore);
+    await publish(store, "A", 1);
+    const read = await store.readMeta();
+    const meta = coerceLiveMeta(read?.meta);
+    if (!read || !meta) throw new Error("no meta");
+    expect(await store.commitMeta(null, meta)).toBe(false);
+    await publish(store, "B", 2);
+    expect(await store.commitMeta(read.token, meta)).toBe(false);
+    expect(await store.commitMeta((await store.readMeta())?.token ?? null, meta)).toBe(true);
+  });
+
+  it("throws on a refusal that is not another writer's", async () => {
+    const firestore = fakeFirestore();
+    const store = liveOn(firestore);
+    const reads = firestore.fetchImpl.getMockImplementation()!;
+    firestore.fetchImpl.mockImplementation(async (input, init) =>
+      String(input).endsWith(":commit")
+        ? new Response(JSON.stringify({ error: { status: "PERMISSION_DENIED" } }), { status: 403 })
+        : reads(input, init)
+    );
+    await expect(publish(store, "A", 1)).rejects.toThrow(FirestoreError);
+  });
+
+  it("lists every piece by name and age, a page at a time, without their data", async () => {
+    const firestore = fakeFirestore();
+    const store = liveOn(firestore);
+    for (let at = 0; at < 301; at += 1) {
+      await store.putChunk(
+        `${"0".repeat(28)}${String(at).padStart(4, "0")}-0`,
+        new Uint8Array([1])
+      );
+    }
+    const pieces = await store.listChunks();
+    expect(pieces).toHaveLength(301);
+    expect(pieces[0]).toEqual({ id: `${"0".repeat(32)}-0`, createdAt: "2027-01-01T00:00:01.000Z" });
+    const lists = firestore.fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith("/live/meta/chunks"));
+    expect(lists).toHaveLength(2);
+    expect(lists.every((url) => url.searchParams.get("mask.fieldPaths") === "none")).toBe(true);
+    // And the sweep reads them so: with no meta naming any of them, every one an hour old goes.
+    const swept = await sweepViews({ store, now: "2027-01-01T02:00:00.000Z" });
+    expect(swept).toEqual({ ok: true, deleted: 0, strays: 301 });
+    expect(await store.listChunks()).toEqual([]);
+  });
+
+  it("reads views it was opened only to read, and writes nothing", async () => {
+    const firestore = fakeFirestore();
+    await publish(liveOn(firestore), "A", 1);
+    const reader = liveOn(firestore, false);
+    expect(coerceLiveMeta((await reader.readMeta())?.meta)?.copy.version).toBe(1);
+    await expect(
+      reader.commitMeta(null, coerceLiveMeta((await reader.readMeta())?.meta)!)
+    ).rejects.toThrow(/to read/);
+    await expect(reader.putChunk("x-0", new Uint8Array([1]))).rejects.toThrow(/to read/);
+    await expect(reader.deleteChunk("x-0")).rejects.toThrow(/to read/);
+  });
+
+  it("asks the origin it is given, as a test asks the emulator", async () => {
+    const asked: string[] = [];
+    const store = firestoreRestLive({
+      projectId: "proj",
+      token: async () => "t",
+      writable: false,
+      origin: "http://127.0.0.1:8080",
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        asked.push(String(input));
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+    expect(await store.readMeta()).toBeNull();
+    expect(asked).toEqual([
+      "http://127.0.0.1:8080/v1/projects/proj/databases/(default)/documents/live/meta",
+    ]);
   });
 });

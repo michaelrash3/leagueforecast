@@ -181,3 +181,31 @@ export const buildAllBoards = ({
     );
   });
 };
+
+/** A board's row as published: the owner's star left for each member's device to set. */
+export type BoardRow = Omit<ScoutRankingRow, "isMine">;
+/** A board as published (`publishViews`). */
+export type BoardView = { rows: BoardRow[] };
+
+/**
+ * A board's key in `live/meta`: `board:{year}:{page}:{half}`, the year first so a device can ask
+ * for one squad year's boards, and "none" for a page with no year, as its games' shard is named.
+ */
+export const boardKey = (year: number | undefined, pageId: string, half: BoardHalf): string =>
+  `board:${year ?? "none"}:${pageId}:${half}`;
+
+/**
+ * The boards as views to publish, each under its page's year, read as the page reads it (the
+ * first age group of its id), and without `isMine`, which is the owner's star: every member's
+ * device marks its own.
+ */
+export const boardViews = (
+  ageGroups: AgeGroup[],
+  boards: PageBoard[]
+): Array<{ key: string; value: BoardView }> => {
+  const byId = groupsById(ageGroups);
+  return boards.map(({ pageId, half, rows }) => ({
+    key: boardKey(ageGroupYear(byId.get(pageId)), pageId, half),
+    value: { rows: rows.map(({ isMine: _mine, ...row }) => row) },
+  }));
+};

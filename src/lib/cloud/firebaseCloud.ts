@@ -46,6 +46,8 @@ import {
  * - `copies/main/chunks/{upload-n}`: the pieces, each `{ data: Bytes }`.
  * - `members/{address}`: the list itself (`members.ts`), each account's own entry readable by it,
  *   and the whole of it by the owner, who adds to it and takes off it.
+ * - `live/meta` and `live/meta/chunks/{upload-n}`: the views a server publishes from the copy
+ *   (`viewStore.ts`), each document got by name, never listed, and written by no browser.
  *
  * The first version kept its copy under `cloud/`, in a layout nothing reads any more; the rules
  * refuse everyone there, and anything left in it is ignored.

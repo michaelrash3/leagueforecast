@@ -10,6 +10,7 @@ import {
   getDocs,
   getFirestore,
   setDoc,
+  updateDoc,
   type Firestore,
 } from "firebase/firestore/lite";
 import { CHUNK_BYTES } from "../cloudPack";
@@ -18,6 +19,9 @@ import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cl
 import { firestoreMembers, firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 import { createMemberCheck } from "../../memberCheck";
+import { coerceLiveMeta, publishViews } from "../../live/viewStore";
+import { firestoreRestLive } from "../firestoreRest";
+import { unpackChunks } from "../cloudPack";
 
 /*
  * The rules that open the cloud copy to the Google accounts on its list and to nothing else, and
@@ -176,7 +180,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     expect(await firestoreStore(as(OWNER)).readManifest()).toBeNull();
   });
 
-  it("open nothing but the copy, even to a Google sign-in", async () => {
+  it("open nothing but the copy, the list and the views, even to a Google sign-in", async () => {
     const owner = as(OWNER);
     await expect(setDoc(doc(owner, "config/owner"), { uid: "owner" })).rejects.toMatchObject(
       REFUSED
@@ -402,3 +406,125 @@ describe.skipIf(!HOST)(
     });
   }
 );
+
+describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator", () => {
+  /** `live/` as the server writes it, past the rules, as an administrator. */
+  const server = (fetchImpl?: typeof fetch) =>
+    firestoreRestLive({
+      projectId: PROJECT,
+      token: async () => "owner",
+      origin: `http://${HOST}`,
+      writable: true,
+      fetchImpl,
+    });
+  const T = "2027-04-15T12:00:00.000Z";
+  const KEY = "board:2027:ag_10u_2027:year";
+  const VIEW = { rows: [{ teamId: "S-A", rating: 1.5 }] };
+  const published = async () => {
+    const result = await publishViews({
+      store: server(),
+      views: [{ key: KEY, value: VIEW }],
+      owns: ["board:"],
+      copy: { id: "copy-a", version: 1 },
+      today: "2027-04-15",
+      now: T,
+    });
+    if (!result.ok) throw new Error("publish refused");
+    const entry = coerceLiveMeta((await server().readMeta())?.meta)?.views[KEY];
+    if (!entry) throw new Error("no entry");
+    return entry;
+  };
+
+  it("are read by the accounts on the list, the meta and every piece it names", async () => {
+    const entry = await published();
+    for (const account of [OWNER, LAPTOP, { ...LAPTOP, email: "Laptop@Example.COM" }]) {
+      const db = as(account);
+      const meta = await getDoc(doc(db, "live/meta"));
+      expect(coerceLiveMeta(meta.data())?.views[KEY]).toEqual(entry);
+      const piece = await getDoc(doc(db, `live/meta/chunks/${entry.id}-0`));
+      const data = piece.get("data") as Bytes;
+      expect(await unpackChunks([data.toUint8Array()], entry.h)).toEqual(VIEW);
+    }
+  });
+
+  it("are read by nobody else", async () => {
+    const entry = await published();
+    for (const account of [
+      null,
+      { uid: "anon", provider: "anonymous" as const },
+      { uid: "typed", email: "owner@example.com", provider: "password" as const },
+      STRANGER,
+      { ...LAPTOP, unverified: true as const },
+    ]) {
+      const db = as(account);
+      await expect(getDoc(doc(db, "live/meta"))).rejects.toMatchObject(REFUSED);
+      await expect(getDoc(doc(db, `live/meta/chunks/${entry.id}-0`))).rejects.toMatchObject(
+        REFUSED
+      );
+    }
+  });
+
+  it("are never listed, even by the owner", async () => {
+    await published();
+    await expect(getDocs(collection(as(OWNER), "live/meta/chunks"))).rejects.toMatchObject(REFUSED);
+    await expect(getDocs(collection(as(OWNER), "live"))).rejects.toMatchObject(REFUSED);
+  });
+
+  it("are written by no browser, the owner's included", async () => {
+    const entry = await published();
+    const before = (await getDoc(doc(as(OWNER), "live/meta"))).data();
+    for (const account of [OWNER, LAPTOP, STRANGER, null]) {
+      const db = as(account);
+      await expect(setDoc(doc(db, "live/meta"), { format: 1 })).rejects.toMatchObject(REFUSED);
+      await expect(updateDoc(doc(db, "live/meta"), { today: "x" })).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(doc(db, "live/meta"))).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(db, "live/meta/chunks/0123456789abcdef-0"), {
+          data: Bytes.fromUint8Array(new Uint8Array([1])),
+        })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(doc(db, `live/meta/chunks/${entry.id}-0`))).rejects.toMatchObject(
+        REFUSED
+      );
+      await expect(setDoc(doc(db, "live/other"), { x: 1 })).rejects.toMatchObject(REFUSED);
+    }
+    expect((await getDoc(doc(as(OWNER), "live/meta"))).data()).toEqual(before);
+  });
+
+  it("follow the list: an account taken off is shut out, one put on is let in", async () => {
+    await published();
+    const owner = firestoreMembers(as(OWNER), () => OWNER.email ?? null);
+    await owner.remove("laptop@example.com");
+    await expect(getDoc(doc(as(LAPTOP), "live/meta"))).rejects.toMatchObject(REFUSED);
+    await owner.add("stranger@example.com", "now");
+    expect((await getDoc(doc(as(STRANGER), "live/meta"))).exists()).toBe(true);
+  });
+
+  it("are replaced by the server only over the version it read, as in production", async () => {
+    await published();
+    const store = server();
+    const read = await store.readMeta();
+    const meta = coerceLiveMeta(read?.meta);
+    if (!read || !meta) throw new Error("no meta");
+    expect(await store.commitMeta(null, meta)).toBe(false);
+    expect(await store.commitMeta(read.token, { ...meta, today: "2027-04-16" })).toBe(true);
+    expect(await store.commitMeta(read.token, meta)).toBe(false);
+  });
+
+  it("are listed by the server by name and age only, none of their data", async () => {
+    const entry = await published();
+    const answers: Array<{ documents?: Array<{ fields?: object }> }> = [];
+    const recording: typeof fetch = async (input, init) => {
+      const response = await fetch(input, init);
+      if (String(input).includes("/live/meta/chunks?")) answers.push(await response.clone().json());
+      return response;
+    };
+    const pieces = await server(recording).listChunks();
+    expect(pieces.map(({ id }) => id)).toEqual([`${entry.id}-0`]);
+    expect(Number.isNaN(Date.parse(pieces[0]?.createdAt ?? ""))).toBe(false);
+    // As Firestore answered, before the store kept only names and times: no piece's bytes came.
+    const listed = answers.flatMap((answer) => answer.documents ?? []);
+    expect(listed).toHaveLength(1);
+    expect(listed.map((found) => Object.keys(found.fields ?? {}))).toEqual([[]]);
+  });
+});

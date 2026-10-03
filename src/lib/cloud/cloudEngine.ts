@@ -81,7 +81,7 @@ export const timedStore = (
 });
 
 /** A few at a time, in order of starting, each awaited: `work` for every item. */
-const inBatches = async <T>(items: readonly T[], work: (item: T) => Promise<void>) => {
+export const inBatches = async <T>(items: readonly T[], work: (item: T) => Promise<void>) => {
   for (let at = 0; at < items.length; at += PARALLEL_CHUNKS) {
     await Promise.all(items.slice(at, at + PARALLEL_CHUNKS).map(work));
   }
