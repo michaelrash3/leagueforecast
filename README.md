@@ -3366,6 +3366,13 @@ Readers fetch while a server writes, so publishing keeps four rules
   build of the replaced copy is held all the same while the meta still knows
   that copy.
 
+The shape of the views has a number (`LIVE_SCHEMA`). A meta written by a newer
+build of the app is left alone, by publishes and sweeps alike, since a sweep
+could take a piece the newer build names for a stray. A publish by a newer build
+keeps nothing of an older build's meta that it did not build itself, inline
+values included, since those have the older shape; the other families come back
+as they are next published.
+
 A publish that would write what the meta already says writes nothing at all, not
 even the meta. On the seeded fixture, the first publish of its 33 boards is 29
 uploads (the five empty boards share one), 224 KB gzipped, and 30 writes with a

@@ -404,6 +404,22 @@ describe("publishing views", () => {
     expect(live.costs.writes).toBe(0);
   });
 
+  it("keeps nothing it did not build from a meta an older build wrote, late or not", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A"), view("moves:x", "X")], 9, {
+      owns: ["board:", "moves:"],
+    });
+    const meta = live.meta();
+    live.setMeta({ ...meta, schema: LIVE_SCHEMA - 1, inline: { pages: ["p"] } });
+    // Version 5 is older than the copy's mark, but nothing of the older build's meta is kept.
+    const result = await publish(live, [view("board:a", "A2")], 5);
+    expect(result).toMatchObject({ ok: true, wrote: true, removed: 1, refused: 0 });
+    expect(live.meta()).toMatchObject({ schema: LIVE_SCHEMA, copy: { version: 5 } });
+    expect(live.meta()?.inline).toEqual({});
+    expect(Object.keys(live.meta()?.views ?? {})).toEqual(["board:a"]);
+    expect(await decode(live, "board:a")).toBe("A2");
+  });
+
   it("refuses a meta too large for every member to download, and takes back its uploads", async () => {
     const live = memoryLive();
     const many = Array.from({ length: META_MAX_BYTES / 100 }, (_, at) =>
@@ -525,6 +541,23 @@ describe("sweeping what no reader can still be fetching", () => {
     expect(swept).toEqual({ ok: true, deleted: 1, strays: 0 });
     expect(live.meta()?.retired).toEqual([]);
     expect(await decode(live, "board:other")).toBe("C");
+  });
+
+  it("leaves alone a meta a newer build wrote, deleting nothing it might name", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:k", "A")], 1);
+    const retiredId = live.meta()?.views["board:k"]?.id;
+    await publish(live, [view("board:k", "B")], 2);
+    await live.store.putChunk("0123456789abcdef0123456789abcdef-0", new Uint8Array([1]));
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA + 1 });
+    const writes = live.costs.writes;
+    expect(await sweepViews({ store: live.store, now: later(STRAY_AGE_MS * 2) })).toEqual({
+      ok: false,
+      reason: "newer-schema",
+    });
+    expect(live.costs.writes).toBe(writes);
+    expect(live.costs.deletes).toBe(0);
+    expect(live.chunks.has(`${retiredId}-0`)).toBe(true);
   });
 
   it("stops on a meta it cannot read, or one that keeps changing", async () => {
