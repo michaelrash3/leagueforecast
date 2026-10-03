@@ -469,6 +469,30 @@ describe("every other copy of a game against a team said not to be in Team Ranki
       (game) => (game.teamAId === "S-TP" || game.teamBId === "S-TP") && game.date === "2026-09-18"
     );
     expect(thatDay).toHaveLength(1);
+    // Against the team's own club, whichever copy is kept.
+    expect([thatDay[0]?.teamAId, thatDay[0]?.teamBId]).toEqual(["S-TP", own]);
+  });
+
+  it("is the team's own game when the league has no score yet and a scored copy is kept", () => {
+    // The pull filed the result against a pulled club of the name the person said is not the
+    // team; the league has the game but not its score, so the copy stands in its place.
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANG9", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(answered(null), [TP, ANG9], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["gc_tp_1"]);
+    expect(ids(countedFor(own, games))).toEqual(["gc_tp_1"]);
+    expect(countedFor("S-ANG9", games)).toEqual([]);
+    // The copy itself is left as stored; only the page's reading of it names the team's club.
+    expect(row.teamBId).toBe("S-ANG9");
+    expect(games.find((game) => game.id === "gc_tp_1")).toMatchObject({
+      teamAId: "S-TP",
+      teamBId: own,
+      teamAScore: 13,
+      teamBScore: 21,
+      source: row.source,
+    });
   });
 
   it("is the league's game when it was typed in by hand against the name", () => {
@@ -585,6 +609,23 @@ describe("every other copy of a game against a team said not to be in Team Ranki
       expect(ids(page(alone, [OWLN, CINC], [typed]))).not.toContain("scout_1");
     });
 
+    it("is the two teams' own game when the league has no score yet, either way round", () => {
+      const unscored = { ...both(), logs: {} };
+      for (const [typed, a, b] of [
+        [played("scout_1", "ag_9", "S-OWLN", "S-CINC", 4, 6, "2026-09-18"), owls, own],
+        [played("scout_1", "ag_9", "S-CINC", "S-OWLN", 6, 4, "2026-09-18"), own, owls],
+      ] as const) {
+        const games = page(unscored, [TP, OWLN, CINC], [typed]);
+        expect(ids(games)).not.toContain("league_fall_m1");
+        expect(games.find((game) => game.id === "scout_1")).toMatchObject({
+          teamAId: a,
+          teamBId: b,
+        });
+        expect(countedFor("S-OWLN", games)).toEqual([]);
+        expect(countedFor("S-CINC", games)).toEqual([]);
+      }
+    });
+
     it("is not one whose clubs fit only one of the names, nor one on another day or page", () => {
       const bears = played("scout_2", "ag_9", "S-OWLN", "S-BEAR", 4, 6, "2026-09-18");
       // Two clubs that could each be the Owls, and neither the Angels.
@@ -631,5 +672,8 @@ describe("every other copy of a game against a team said not to be in Team Ranki
       "gcTP"
     );
     expect(ids(countedFor("S-TP", page(snapshot, [TP, ANG9], [row])))).toEqual(["league_fall_m2"]);
+    // With neither league game scored, the copy kept in the own game's place is left as it is.
+    const kept = page({ ...snapshot, logs: {} }, [TP, ANG9], [row]);
+    expect(kept.find((game) => game.id === "gc_tp_1")).toBe(row);
   });
 });
