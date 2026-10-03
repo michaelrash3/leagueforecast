@@ -202,9 +202,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
  *    a newer build's, which this build cannot load: the ledger, the manifest and the meta, three
  *    reads, reserving nothing and starting no worker.
- * 3. A reservation of the run's ceiling, which the caps, a pause or another task's run still going
- *    may refuse. A reservation whose write landed though its answer was lost is found on the next
- *    try as this run's own, and kept.
+ * 3. A reservation of the run's ceiling, which the caps, a pause or a run still going may refuse,
+ *    the same task's earlier try included. A reservation whose write landed though its answer was
+ *    lost is found on the next try as this handling's own, by its id, and kept.
  * 4. The run, in the worker (`run`), dry or live and warm or not as the switch says.
  * 5. What it cost put in place of its ceiling, from the time since this began plus the instance's
  *    start-up (`startupS`), and the run counted as failed if it threw or ended in a failure. A
@@ -227,6 +227,7 @@ export const handleRebuildTask = async ({
   startupS,
   task,
   taskId = "",
+  runId = crypto.randomUUID(),
 }: {
   ledger: LedgerStore;
   copyStore: CloudStore;
@@ -243,6 +244,11 @@ export const handleRebuildTask = async ({
   task?: RebuildTask;
   /** The queue's name for the task, the same on each of its tries. */
   taskId?: string;
+  /**
+   * This handling of the task, made afresh for each: what tells its own reservation from another
+   * handling's of the same task, which the queue may deliver twice or again while a try still runs.
+   */
+  runId?: string;
 }): Promise<{ line: Record<string, string | number | boolean>; rethrow: boolean }> => {
   const began = clock();
   const asked: Record<string, string> = task ? { kind: task.kind, savedAt: task.savedAt } : {};
@@ -268,11 +274,11 @@ export const handleRebuildTask = async ({
 
   const at = now();
   const reserved = await updateLedger(ledger, (current) => {
-    // This run's own reservation, written by a try whose answer was lost.
-    if (current?.open?.at === at && current.open.task === taskId) {
+    // This handling's own reservation, written by a try whose answer was lost.
+    if (current?.open?.at === at && current.open.by === runId) {
       return { next: null, answer: { ok: true as const, next: current } };
     }
-    const answer = reserveRun(current, day, at, { task: taskId });
+    const answer = reserveRun(current, day, at, { task: taskId, by: runId });
     return { next: answer.next, answer };
   });
   if ("contended" in reserved) {
@@ -297,7 +303,7 @@ export const handleRebuildTask = async ({
   let settleError: string | null = null;
   try {
     const answer = await updateLedger(ledger, (current) => ({
-      next: settleRun(current, { at, used, failed, today: today() }),
+      next: settleRun(current, { at, by: runId, used, failed, today: today() }),
       answer: null,
     }));
     settled = "answer" in answer && answer.wrote;

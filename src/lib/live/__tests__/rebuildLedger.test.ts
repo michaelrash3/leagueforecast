@@ -76,9 +76,13 @@ describe("the ledger as the document holds it", () => {
       monthVcpuS: 9_000,
       failures: 2,
       pausedDay: "2027-04-14",
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "T1", by: "h1" },
     });
     expect(coerceLedger(JSON.parse(JSON.stringify(full)))).toEqual(full);
+    // A reservation that does not say its task or its handling reads as saying neither.
+    expect(
+      coerceLedger({ on: true, open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING } } })?.open
+    ).toEqual({ at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" });
   });
 
   it("holds every cap to its hard limit, and the failures that pause to one at least", () => {
@@ -126,6 +130,7 @@ describe("the ledger as the document holds it", () => {
       { open: { at: 5, day: TODAY, cost: RUN_CEILING } },
       { open: { at: NOW, day: null, cost: RUN_CEILING } },
       { open: { at: NOW, day: TODAY, cost: RUN_CEILING, task: 5 } },
+      { open: { at: NOW, day: TODAY, cost: RUN_CEILING, by: null } },
     ];
     for (const fields of bad) {
       expect(coerceLedger({ on: true, ...fields }), JSON.stringify(fields)).toBeNull();
@@ -155,7 +160,7 @@ describe("reserving a run", () => {
         dayGiBs: 100 + 2_560,
         monthGiBs: 1_000 + 2_560,
         monthVcpuS: 10 + 640,
-        open: { at: NOW, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 }, task: "" },
+        open: { at: NOW, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 }, task: "", by: "" },
       }),
     });
     expect(RUN_CEILING).toEqual({ gibs: (300 + 20) * 8, vcpuS: (300 + 20) * 2 });
@@ -217,7 +222,7 @@ describe("reserving a run", () => {
       dayGiBs: 2_560,
       monthGiBs: 2_560,
       monthVcpuS: 640,
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" },
     });
     expect(reserveRun(left, TODAY, LATER)).toEqual({
       ok: true,
@@ -226,7 +231,7 @@ describe("reserving a run", () => {
         monthGiBs: 2 * 2_560,
         monthVcpuS: 2 * 640,
         failures: 1,
-        open: { at: LATER, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
+        open: { at: LATER, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" },
       }),
     });
     // The third in a row pauses the rebuilds for the day, and the refusal is written with it.
@@ -243,13 +248,13 @@ describe("reserving a run", () => {
     });
   });
 
-  it("is busy while another task's run reserved within a run's span may still be going", () => {
+  it("is busy while a run reserved within a run's span may still be going", () => {
     const going = ledger({
       dayGiBs: 2_560,
       monthGiBs: 2_560,
       monthVcpuS: 640,
       failures: 2,
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A", by: "h1" },
     });
     // Neither counted nor cleared, and nothing written: that run is still to settle.
     for (const at of [after(1), after(319), after(-30)]) {
@@ -265,9 +270,11 @@ describe("reserving a run", () => {
       why: "failing",
       next: { failures: 3, pausedDay: TODAY, open: null },
     });
-    expect(reserveRun({ ...going, failures: 0 }, TODAY, after(320), { task: "B" })).toMatchObject({
+    expect(
+      reserveRun({ ...going, failures: 0 }, TODAY, after(320), { task: "B", by: "h2" })
+    ).toMatchObject({
       ok: true,
-      next: { failures: 1, open: { at: after(320), task: "B" } },
+      next: { failures: 1, open: { at: after(320), task: "B", by: "h2" } },
     });
     // A clock far ahead of this one, or a time no one can read, is no run going.
     for (const at of ["2027-04-15T14:02:00.000Z", "whenever"]) {
@@ -278,29 +285,37 @@ describe("reserving a run", () => {
         at
       ).toMatchObject({ ok: true, next: { failures: 1 } });
     }
-    // Two runs that do not say which task they run are two tasks.
+    // Runs that do not say which task they run, too.
     expect(
       reserveRun({ ...going, open: { ...going.open!, task: "" } }, TODAY, after(60))
     ).toMatchObject({ why: "busy" });
   });
 
-  it("counts its own task's earlier try as never settled, however recent", () => {
-    // The queue tries a task again only once its try has ended, so a reservation of that same
-    // task still open is one that died.
-    const died = ledger({
+  it("is busy while the same task's earlier try may still be going, and counts it after", () => {
+    // The queue delivers a task at least once: twice at once, or again past its dispatch deadline
+    // while the first try still runs. That try is to settle, not to be counted as dead.
+    const trying = ledger({
       dayGiBs: 2_560,
       monthGiBs: 2_560,
       monthVcpuS: 640,
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A", by: "h1" },
     });
-    expect(reserveRun(died, TODAY, after(60), { task: "A" })).toEqual({
+    for (const at of [after(1), after(60), after(319)]) {
+      expect(reserveRun(trying, TODAY, at, { task: "A", by: "h2" }), at).toEqual({
+        ok: false,
+        why: "busy",
+        next: null,
+      });
+    }
+    // A run's span on, the try that reserved it never settled.
+    expect(reserveRun(trying, TODAY, after(320), { task: "A", by: "h2" })).toEqual({
       ok: true,
       next: ledger({
         dayGiBs: 2 * 2_560,
         monthGiBs: 2 * 2_560,
         monthVcpuS: 2 * 640,
         failures: 1,
-        open: { at: after(60), day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+        open: { at: after(320), day: TODAY, cost: { ...RUN_CEILING }, task: "A", by: "h2" },
       }),
     });
   });
@@ -330,7 +345,7 @@ describe("settling a run", () => {
     monthGiBs: 20_000 + 2_560,
     monthVcpuS: 3_000 + 640,
     failures: 2,
-    open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
+    open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" },
   });
   const used = runCost(61.2, { gib: 8, cpu: 2 });
 
@@ -363,6 +378,13 @@ describe("settling a run", () => {
   it("settles nothing for a run that is no longer the open one", () => {
     // A later reserve counted it as never settled and keeps its ceiling charged.
     expect(settleRun(open, { at: LATER, used, failed: false, today: TODAY })).toBeNull();
+    // Nor for another handling's reservation made at the very same moment.
+    const held = { ...open, open: { ...open.open!, by: "h1" } };
+    expect(settleRun(held, { at: NOW, by: "h2", used, failed: false, today: TODAY })).toBeNull();
+    expect(settleRun(held, { at: NOW, used, failed: false, today: TODAY })).toBeNull();
+    expect(settleRun(held, { at: NOW, by: "h1", used, failed: false, today: TODAY })).toMatchObject(
+      { open: null, dayGiBs: 5_490 }
+    );
     expect(
       settleRun({ ...open, open: null }, { at: NOW, used, failed: false, today: TODAY })
     ).toBeNull();

@@ -75,10 +75,12 @@ export type Ledger = {
   /** The day the failures paused the rebuilds, which they stay paused for. */
   pausedDay: string | null;
   /**
-   * The run reserved and not yet settled: when, on which day, what it was charged, and the queued
-   * task it runs (the same on each of that task's tries; "" where it was not said).
+   * The run reserved and not yet settled: when, on which day, what it was charged, the queued task
+   * it runs (the same on each of that task's tries), and `by`, the handling of the task that
+   * reserved it (an id made afresh each time a task is handled, so two deliveries of one task are
+   * two); "" where either was not said.
    */
-  open: { at: string; day: string; cost: RunCost; task: string } | null;
+  open: { at: string; day: string; cost: RunCost; task: string; by: string } | null;
 };
 
 /** Where the ledger is kept: a path no rule opens, so only a server's key reads or writes it. */
@@ -143,12 +145,14 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     if (!isRecord(held) || typeof held.at !== "string" || typeof held.day !== "string") return null;
     if (!isCost(held.cost)) return null;
     const task = given(held.task, "");
-    if (typeof task !== "string") return null;
+    const by = given(held.by, "");
+    if (typeof task !== "string" || typeof by !== "string") return null;
     open = {
       at: held.at,
       day: held.day,
       cost: { gibs: held.cost.gibs, vcpuS: held.cost.vcpuS },
       task,
+      by,
     };
   }
   return {
@@ -190,6 +194,7 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     day: ledger.open.day,
     cost: { gibs: ledger.open.cost.gibs, vcpuS: ledger.open.cost.vcpuS },
     task: ledger.open.task,
+    by: ledger.open.by,
   },
 });
 
@@ -214,28 +219,34 @@ export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap
 const CLOCK_SKEW_MS = 60_000;
 
 /**
- * Whether a run of queued `task` may start on `today` (New York's day) at `now`, and the ledger
- * with its ceiling charged and the run open. A refusal hands back the ledger to write where
- * reading it moved it on (a new day or month, or a run left open counted as failed), or null where
- * nothing is written.
+ * Whether a run of queued `task`, handled `by` one handling of it, may start on `today` (New York's
+ * day) at `now`, and the ledger with its ceiling charged and the run open. A refusal hands back the
+ * ledger to write where reading it moved it on (a new day or month, or a run left open counted as
+ * failed), or null where nothing is written.
  *
- * In order: off; another task's run reserved less than a run's span ago may still be going, so
- * this one is `busy` and that run is neither counted nor cleared (counting it would count a
- * failure that has not happened, and drop the settle it is still to make); a new day empties the
- * day's total and lifts a pause from an earlier day, and a new month empties the month's; a run
- * still open after that, or one of this same task (its earlier try, which the queue retries only
- * once it has ended), never settled, and counts as a failure with its ceiling left charged; a
- * pause for today refuses; then the caps, each with this run's ceiling.
+ * In order: off; a run reserved less than a run's span ago may still be going, so this one is
+ * `busy` and that run is neither counted nor cleared (counting it would count a failure that has
+ * not happened, and drop the settle it is still to make). That holds for the same task's earlier
+ * try as for another task's: the queue delivers a task at least once, and may hand it over again
+ * while a try still runs, past its dispatch deadline or twice at once. A handling that finds its
+ * own reservation, written though the answer was lost, keeps it before asking this. Then a new day
+ * empties the day's total and lifts a pause from an earlier day, and a new month empties the
+ * month's; a run still open after that never settled, and counts as a failure with its ceiling
+ * left charged; a pause for today refuses; then the caps, each with this run's ceiling.
  */
 export const reserveRun = (
   ledger: Ledger | null,
   today: string,
   now: string,
-  { ceiling = RUN_CEILING, task = "" }: { ceiling?: RunCost; task?: string } = {}
+  {
+    ceiling = RUN_CEILING,
+    task = "",
+    by = "",
+  }: { ceiling?: RunCost; task?: string; by?: string } = {}
 ): { ok: true; next: Ledger } | { ok: false; why: ReserveRefusal; next: Ledger | null } => {
   if (!ledger || !ledger.on) return { ok: false, why: "off", next: null };
   const open = ledger.open;
-  if (open && !(task !== "" && open.task === task)) {
+  if (open) {
     const age = Date.parse(now) - Date.parse(open.at);
     if (age > -CLOCK_SKEW_MS && age < RUN_SPAN_S * 1000) {
       return { ok: false, why: "busy", next: null };
@@ -265,7 +276,7 @@ export const reserveRun = (
       dayGiBs: next.dayGiBs + ceiling.gibs,
       monthGiBs: next.monthGiBs + ceiling.gibs,
       monthVcpuS: next.monthVcpuS + ceiling.vcpuS,
-      open: { at: now, day: today, cost: { ...ceiling }, task },
+      open: { at: now, day: today, cost: { ...ceiling }, task, by },
     },
   };
 };
@@ -277,17 +288,17 @@ export const runCost = (seconds: number, size: { gib: number; cpu: number }): Ru
 });
 
 /**
- * The ledger once the run reserved at `at` has ended: what it `used` in place of its ceiling, and
- * a failure counted or the failures cleared. Null where that run is no longer the open one, since
- * a later reserve has counted it as never settled (its ceiling stays charged) or the owner has
- * cleared it; nothing is then written.
+ * The ledger once the run reserved at `at`, `by` one handling of its task, has ended: what it
+ * `used` in place of its ceiling, and a failure counted or the failures cleared. Null where that
+ * run is no longer the open one, since a later reserve has counted it as never settled (its
+ * ceiling stays charged) or the owner has cleared it; nothing is then written.
  */
 export const settleRun = (
   ledger: Ledger | null,
-  run: { at: string; used: RunCost; failed: boolean; today: string }
+  run: { at: string; by?: string; used: RunCost; failed: boolean; today: string }
 ): Ledger | null => {
   const open = ledger?.open;
-  if (!ledger || !open || open.at !== run.at) return null;
+  if (!ledger || !open || open.at !== run.at || open.by !== (run.by ?? "")) return null;
   const swap = (total: number, charged: number, used: number) =>
     Math.max(0, total - charged) + used;
   let next: Ledger = { ...ledger, open: null };

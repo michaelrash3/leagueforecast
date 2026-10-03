@@ -849,6 +849,30 @@ describe("a rebuild task on the main thread", () => {
     expect(ledger.held()).toMatchObject({ failures: 0, open: { task: "other" } });
   });
 
+  it("waits on its own task's earlier try still going, which may yet settle", async () => {
+    // The queue delivered the task again, twice at once or past its dispatch deadline: a minute
+    // after the first, or in the very same moment, which only the handlings' ids tell apart.
+    const { cloud, live } = await setUp({ current: false });
+    for (const at of ["2027-04-15T13:59:00.000Z", NOW]) {
+      const ledger = memoryLedger({
+        ...SWITCH,
+        day: TODAY,
+        month: "2027-04",
+        dayGiBs: 2_560,
+        monthGiBs: 2_560,
+        monthVcpuS: 640,
+        open: { at, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 }, task: "T1", by: "first" },
+      });
+      const run = vi.fn<() => Promise<RebuildResult>>();
+      expect(
+        await handle({ ledger: ledger.store, cloud, live, run, taskId: "T1", runId: "second" }),
+        at
+      ).toMatchObject({ line: { end: "busy" }, rethrow: true });
+      expect(run).not.toHaveBeenCalled();
+      expect(ledger.held()).toMatchObject({ failures: 0, open: { at, task: "T1", by: "first" } });
+    }
+  });
+
   it("keeps its own reservation whose answer was lost, and runs once", async () => {
     const { cloud, live } = await setUp({ current: false });
     const ledger = memoryLedger(SWITCH);

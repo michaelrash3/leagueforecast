@@ -3550,15 +3550,18 @@ GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
 puts what it cost in place of it when it ends. A run that never ends leaves its
 ceiling charged, and the next reserve counts it as a failure; the third failure
 in a row pauses the rebuilds for the rest of the day, and a run that does not
-fail clears the count. Another task's run reserved less than a run's span ago
-(320 s) may still be going, so a reserve then waits (`busy`, and the queue tries
-it again) rather than counting that run as dead and dropping the settle it is
-still to make; a retry of the same task counts its own earlier try at once.
-Every write is a read and then a replace only over the version read, tried three
-times, as is a read or write that throws, so two runs reserving at once cannot
-both spend the same headroom, an owner turning the switch is read before
-anything is written over it, and a write that landed though its answer was lost
-is found on the next read. `rebuildLedger.test.ts` holds each rule, and the
+fail clears the count. A run reserved less than a run's span ago (320 s) may
+still be going, so a reserve then waits (`busy`, and the queue tries it again)
+rather than counting that run as dead and dropping the settle it is still to
+make. That holds for the same task's earlier try as for another task's: the
+queue delivers a task at least once, and may hand it over again while a try
+still runs, past its dispatch deadline or twice at once, so a try that died
+holds the next one off until its span is up. Every write is a read and then a
+replace only over the version read, tried three times, as is a read or write that
+throws, so two runs reserving at once cannot both spend the same headroom, an
+owner turning the switch is read before anything is written over it, and a write
+that landed though its answer was lost is found on the next read, by the id each
+handling of a task writes with its reservation and settles it by. `rebuildLedger.test.ts` holds each rule, and the
 rules test on the emulator holds the document shut to every browser; each guard
 was broken in turn and seen to fail a test.
 
