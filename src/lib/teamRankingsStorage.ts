@@ -1650,16 +1650,19 @@ export const isCloudPoolKey = (key: string): boolean =>
   (isPoolKey(key) && !CLOUD_LOCAL_ONLY.has(key)) || key.startsWith(ARCHIVE_ROWS_PREFIX);
 
 /**
- * Whether the boards read this key (`buildAllBoards` through `loadAgeGroups`, `loadScoutTeams` and
- * `loadScoutGamesForYear`): the roster, the age groups, each year's games, and the one-key games of
- * an older pool with the index of years they are split against. No other pool key changes a board,
- * so a save that changes none of these leaves the boards as they were.
+ * Whether the boards, or the club cards published with them, read this key (`buildAllBoards`
+ * through `loadAgeGroups`, `loadScoutTeams` and `loadScoutGamesForYear`; `clubViews` through
+ * `loadNamedAges` as well): the roster, the age groups, each year's games, the one-key games of an
+ * older pool with the index of years they are split against, and the ages a person named, which a
+ * card's age reads. No other pool key changes a board or a card, so a save that changes none of
+ * these leaves them as they were.
  */
 export const isBoardInputKey = (key: string): boolean =>
   key === TEAMS_KEY ||
   key === AGE_GROUPS_KEY ||
   key === GAMES_INDEX_KEY ||
   key === GAMES_KEY ||
+  key === GC_NAMED_AGES_KEY ||
   isGamesShardKey(key);
 
 /** Every key this browser would put in its cloud copy now: each one it holds a value for. */

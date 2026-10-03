@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
 import { LEAGUE_PART } from "../../lib/cloud/cloudPlan";
@@ -10,6 +10,14 @@ import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
 import type { BoardRow, LivePages } from "../../lib/live/views/boardShape";
+import {
+  CLUB_FAMILY,
+  clubBucketOf,
+  clubKey,
+  encodeClubCard,
+  type ClubCard,
+} from "../../lib/live/views/clubShape";
+import { forgetDecodedClubs } from "./LiveClubPanel";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
@@ -133,7 +141,7 @@ const publish = async (
   publishViews({
     store: live.store,
     views,
-    owns: [BOARD_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY],
     copy: { id: MANIFEST.copy, version: MANIFEST.version },
     today: TODAY,
     now: T,
@@ -200,6 +208,7 @@ beforeEach(async () => {
   pool.ready = null;
   kept.clear();
   forgetDecodedBoards();
+  forgetDecodedClubs();
   forgetLiveBoard();
   resetTeamRankingsStore();
   window.localStorage.clear();
@@ -288,11 +297,11 @@ describe("Team Rankings on the cloud's board", () => {
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
   });
 
-  it("hands over with the club opened, or the search asked for", async () => {
+  it("hands a club over when it has no card to open its panel from", async () => {
     open(sourcesOf(live));
     fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-3" }))[0]!);
     await act(async () => pool.finish());
-    expect(handedOver()).toMatchObject({ openTeamId: "S-3" });
+    await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-3" }));
   });
 
   it("hands over with the search asked for, and the state boards as they were", async () => {
@@ -554,5 +563,83 @@ describe("the cloud's board while it is open", () => {
     expect(live.watching()).toBe(1);
     shown.unmount();
     expect(live.watching()).toBe(0);
+  });
+});
+
+/*
+ * A club tapped on the board opens its panel from the card a server published for it
+ * (`LiveClubPanel`), drawn by Team Rankings' own panel with nothing on it to change.
+ */
+describe("a club's panel on the cloud's board", () => {
+  const CARD: ClubCard = {
+    team: { id: "S-1", name: "Placeholder S-1", state: "OH" },
+    games: [
+      {
+        id: "g1",
+        teamAId: "S-1",
+        teamBId: "S-2",
+        ageGroupId: PAGE,
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2027-03-20",
+        event: "Placeholder Classic",
+      },
+      {
+        id: "g2",
+        teamAId: "S-4",
+        teamBId: "S-1",
+        ageGroupId: PAGE,
+        teamAScore: 6,
+        teamBScore: 2,
+        date: "2027-03-27",
+      },
+      { id: "g3", teamAId: "S-1", teamBId: "S-2", ageGroupId: PAGE, date: "2027-05-01" },
+    ],
+    names: { "S-2": "Placeholder S-2", "S-4": "Placeholder S-4" },
+    age: { level: 12 },
+  };
+  const withCard = () =>
+    publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      {
+        key: clubKey(2027, clubBucketOf("S-1")),
+        value: { clubs: { "S-1": encodeClubCard(CARD) } },
+      },
+    ]);
+  const tapClub = async (name: string) =>
+    fireEvent.click((await screen.findAllByRole("button", { name }))[0]!);
+
+  it("opens from its card, with its record and games, and nothing on it to change", async () => {
+    await withCard();
+    open(sourcesOf(live));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(panel).toHaveTextContent("1-1 in 12U 2027, from 2 games.");
+    expect(panel).toHaveTextContent("The app filed this club at 12U.");
+    expect(within(panel).getAllByText("Placeholder S-2")).toHaveLength(2);
+    expect(panel).toHaveTextContent("5–3 · 2027-03-20 · Placeholder Classic");
+    expect(panel).toHaveTextContent("2–6 · 2027-03-27");
+    expect(within(panel).getByText("Sched")).toBeTruthy();
+    for (const name of ["Rename", "Merge", "Set age", "Fold into it", "Unlink"])
+      expect(within(panel).queryByRole("button", { name })).toBeNull();
+    expect(within(panel).queryByRole("textbox")).toBeNull();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("closes, and opens Team Rankings on the club open when it hands over", async () => {
+    await withCard();
+    open(sourcesOf(live), { quietMs: 100 });
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("region", { name: "Placeholder S-1" })).toBeNull();
+    await tapClub("Placeholder S-1");
+    await screen.findByRole("region", { name: "Placeholder S-1" });
+    await act(async () => pool.finish());
+    await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
+      timeout: 2_000,
+    });
   });
 });

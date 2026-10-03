@@ -20,7 +20,13 @@ import {
 } from "../../teamRankingsCompact";
 import { countedByHalf } from "../../teamRankings/halves";
 import { daysBefore, rankLineStep, ranksAsOf } from "../../rankMovement";
-import { deriveAllKnown, gamesOnPages, leagueTeamIdsOn, type SeasonReader } from "../allKnown";
+import {
+  deriveAllKnown,
+  gamesOnPages,
+  leagueTeamIdsOn,
+  type AllKnown,
+  type SeasonReader,
+} from "../allKnown";
 import {
   BOARD_HALVES,
   boardKey,
@@ -124,7 +130,15 @@ export type PageFacts = {
 };
 
 /** Every board in a stored pool, and what its pages say beside them. */
-export type BoardsBuilt = { boards: PageBoard[]; facts: Map<string, PageFacts> };
+/**
+ * The boards, what their pages say, and what each squad year with a page knows (`deriveAllKnown`),
+ * derived once for the boards and kept for the views built beside them (`clubViews`).
+ */
+export type BoardsBuilt = {
+  boards: PageBoard[];
+  facts: Map<string, PageFacts>;
+  known: ReadonlyMap<number | undefined, AllKnown>;
+};
 
 type BuildInput = {
   ageGroups: AgeGroup[];
@@ -177,7 +191,7 @@ export const buildBoardsAndFacts = ({
   today,
   past = true,
 }: BuildInput): BoardsBuilt => {
-  const known = new Map<number | undefined, ReturnType<typeof deriveAllKnown>>();
+  const known = new Map<number | undefined, AllKnown>();
   const knownFor = (year: number | undefined) => {
     const held = known.get(year);
     if (held) return held;
@@ -295,7 +309,7 @@ export const buildBoardsAndFacts = ({
       pageIds.map((pageId) => boardOf(pageId, half, segment))
     );
   });
-  return { boards, facts };
+  return { boards, facts, known };
 };
 
 /** Every board in a stored pool (`buildBoardsAndFacts`), without what their pages say. */

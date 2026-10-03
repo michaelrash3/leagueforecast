@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
 import { loadCloudState, owedChanges } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
@@ -81,7 +81,16 @@ export type LiveBoardState = {
    * watch, or before it has heard anything.
    */
   link: "live" | "cut-off" | null;
+  /**
+   * Where another view of the meta on screen is read from, for a page that reads more than its
+   * board (a club's card): the network's reader once the meta is the network's, else only what this
+   * device kept. Null before any meta.
+   */
+  source: LiveViewSource | null;
 };
+
+/** A meta, and what its views are read through (`readView`). */
+export type LiveViewSource = { reader: LiveReader; meta: LiveMeta; cache: ViewCache };
 
 const NO_GAMES = { fall: 0, spring: 0 } as const;
 
@@ -118,6 +127,8 @@ export function useLiveBoard({
   const [heardAt, setHeardAt] = useState<string | null>(null);
   const [link, setLink] = useState<LiveBoardState["link"]>(null);
   const readerRef = useRef<LiveReader | null>(null);
+  // The same reader, for what a render hands on (`source`), which may not read a ref.
+  const [networkReader, setNetworkReader] = useState<LiveReader | null>(null);
   // The board on screen, for the read of a board to see without depending on it.
   const boardRef = useRef<LiveBoardState["board"]>(null);
   const show = (next: LiveBoardState["board"]) => {
@@ -184,6 +195,7 @@ export function useLiveBoard({
         return;
       }
       readerRef.current = reader;
+      setNetworkReader(reader);
       const first = await readLive(reader, cache);
       if (!alive) return;
       await take(first);
@@ -251,6 +263,18 @@ export function useLiveBoard({
     };
   }, [meta, key, sources]);
 
+  const source = useMemo(
+    (): LiveViewSource | null =>
+      meta
+        ? {
+            reader: (meta.from === "network" ? networkReader : null) ?? KEPT_ONLY,
+            meta: meta.meta,
+            cache: sources.cache,
+          }
+        : null,
+    [meta, networkReader, sources]
+  );
+
   return {
     meta,
     metaMiss,
@@ -261,5 +285,6 @@ export function useLiveBoard({
     boardMiss: board && board.key !== key ? null : boardMiss,
     heardAt,
     link,
+    source,
   };
 }

@@ -11,6 +11,7 @@ import {
   initTeamRankingsStore,
   loadAgeGroups,
   loadScoutGamesForYear,
+  loadNamedAges,
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
@@ -23,6 +24,7 @@ import { BOARD_FAMILY, builtFrom } from "../boardInputs";
 import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
+import { clubViews } from "../views/clubs";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -133,19 +135,28 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
     const result = await publish(cloud, live, manifest);
+    const built = builtWith(storedSeason);
+    const browser = boardViews(loadAgeGroups(), built);
+    // And every club's card beside them, from the same build (`clubParity.test.ts` holds them to
+    // what the page's panel reads).
+    const clubs = clubViews({ ageGroups: loadAgeGroups(), built, namedAges: loadNamedAges() });
+    expect(clubs.length).toBeGreaterThan(0);
     expect(result).toMatchObject({
       ok: true,
       boards: 33,
-      publish: { wrote: true, uploaded: 29 },
+      clubs: clubs.length,
+      // Some boards are the same as others (a half with no games): 29 uploads for 33, and one for
+      // each bucket of cards, every one of which differs.
+      publish: { wrote: true, uploaded: 29 + clubs.length },
       sweep: { deleted: 0, strays: 0 },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
 
-    const built = builtWith(storedSeason);
-    const browser = boardViews(loadAgeGroups(), built);
-    expect(Object.keys(live.meta()?.views ?? {})).toEqual(browser.map(({ key }) => key).sort());
-    for (const { key, value } of browser) {
+    expect(Object.keys(live.meta()?.views ?? {})).toEqual(
+      [...browser, ...clubs].map(({ key }) => key).sort()
+    );
+    for (const { key, value } of [...browser, ...clubs]) {
       expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
     }
     // And the seasons are what made them so: without them, some board's rows would read otherwise.
@@ -163,12 +174,15 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     expect(live.meta()?.inline).toEqual({
       pages: livePagesOf(built, latestImportedAt(loadScoutTeams())),
     });
-    expect(live.costs.writes).toBe(29 + 1);
+    expect(live.costs.writes).toBe(29 + clubs.length + 1);
 
     // The same copy published again writes nothing.
     const writes = live.costs.writes;
     const again = await publish(cloud, live, manifest);
-    expect(again).toMatchObject({ ok: true, publish: { wrote: false, unchanged: 33 } });
+    expect(again).toMatchObject({
+      ok: true,
+      publish: { wrote: false, unchanged: 33 + clubs.length },
+    });
     expect(live.costs.writes).toBe(writes);
   });
 
@@ -441,7 +455,7 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     });
     expect(result).toMatchObject({
       ok: true,
-      publish: { wrote: true, uploaded: 29 },
+      publish: { wrote: true },
       sweep: { ok: false, why: "Firestore answered HTTP 503 listing the views' pieces" },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });

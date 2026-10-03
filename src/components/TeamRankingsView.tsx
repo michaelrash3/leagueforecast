@@ -20,7 +20,6 @@ import {
   leagueStandIns,
   filedTeamIds,
   findDuplicateGame,
-  gcAgeLevels,
   gcLinkSquadYear,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
@@ -120,6 +119,7 @@ import {
   type DeletedClubs,
 } from "../lib/deletedGames";
 import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
+import { clubAgeOf } from "../lib/teamRankings/clubAge";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
   agelessClearedPass,
@@ -1870,27 +1870,11 @@ export function TeamRankingsView({
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
-  /**
-   * The open club's level in this year and whether it was set by hand, for the panel's Age line.
-   * Only for a club with a GameChanger link in the year: its level is the link's, where a club
-   * without one has its level read off games other clubs filed.
-   */
-  const openTeamAge = useMemo(() => {
-    if (!openTeam || selectedYear === undefined) return undefined;
-    const links = (openTeam.gcTeams ?? []).filter(
-      (link) => gcLinkSquadYear(link, ageGroups) === selectedYear
-    );
-    if (links.length === 0) return undefined;
-    const levels = gcAgeLevels(openTeam, selectedYear, ageGroups);
-    const level = levels[levels.length - 1];
-    const pin = links.map((link) => namedAges.get(link.teamId)).find((entry) => entry?.pinned);
-    return {
-      ...(level === undefined ? {} : { level }),
-      ...(pin
-        ? { pinned: { level: pin.level, ...(pin.was === undefined ? {} : { was: pin.was }) } }
-        : {}),
-    };
-  }, [openTeam, selectedYear, ageGroups, namedAges]);
+  /** The open club's level in this year and whether it was set by hand (`clubAgeOf`). */
+  const openTeamAge = useMemo(
+    () => (openTeam ? clubAgeOf(openTeam, selectedYear, ageGroups, namedAges) : undefined),
+    [openTeam, selectedYear, ageGroups, namedAges]
+  );
 
   /**
    * Renaming onto a name that already exists merges the two teams, so a placeholder or a

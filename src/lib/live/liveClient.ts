@@ -98,44 +98,51 @@ export const readLive = async (reader: LiveReader, cache?: ViewCache): Promise<L
   return checkLiveMeta(raw);
 };
 
-/** Boards decoded this page load, by fingerprint: the last few, so going back to one is free. */
+/** Views decoded this page load, by fingerprint: the last few of a kind, so going back is free. */
 const DECODED_KEPT = 6;
-const decoded = new Map<string, BoardView>();
 
-const remember = (h: string, view: BoardView): BoardView => {
-  decoded.delete(h);
-  decoded.set(h, view);
-  for (const oldest of decoded.keys()) {
-    if (decoded.size <= DECODED_KEPT) break;
-    decoded.delete(oldest);
+/** A place to keep the views of one kind decoded this page load, by fingerprint. */
+export type DecodedViews<T> = Map<string, T>;
+
+const remember = <T>(memory: DecodedViews<T>, h: string, view: T): T => {
+  memory.delete(h);
+  memory.set(h, view);
+  for (const oldest of memory.keys()) {
+    if (memory.size <= DECODED_KEPT) break;
+    memory.delete(oldest);
   }
   return view;
 };
 
+const decodedBoards: DecodedViews<BoardView> = new Map();
+
 /** Only for tests: forgets the boards decoded so far. */
-export const forgetDecodedBoards = (): void => decoded.clear();
+export const forgetDecodedBoards = (): void => decodedBoards.clear();
 
 /**
- * One board read:
- * - `memory`, `cache` or `network`: where its checked rows came from, with the meta that names
- *   them, which is a newer one than asked with when a piece was missing and the meta read again.
- * - `missing`: the meta names no board under the key: a page made since the last publish, or one
+ * One view read:
+ * - `memory`, `cache` or `network`: where its checked value came from, with the meta that names
+ *   it, which is a newer one than asked with when a piece was missing and the meta read again.
+ * - `missing`: the meta names no view under the key: a page made since the last publish, or one
  *   only this device has.
  * - `damaged`: its pieces do not unzip to the bytes its fingerprint names, or those bytes are not
- *   a board. Never drawn and never kept.
+ *   a view of its kind. Never drawn and never kept.
  * - `gone`: a piece is not there, and reading the meta again found no way to it: a publish retired
  *   it, and the sweep took it, while this device held the older meta.
  * - `refused`, `offline`: as `LiveMiss`.
  */
-export type BoardRead =
+export type ViewRead<T> =
   | {
       ok: true;
-      view: BoardView;
+      view: T;
       entry: ViewEntry;
       meta: LiveMeta;
       from: "memory" | "cache" | "network";
     }
   | { ok: false; why: "missing" | "damaged" | "gone" | "refused" | "offline"; meta: LiveMeta };
+
+/** One board read (`readView`). */
+export type BoardRead = ViewRead<BoardView>;
 
 /** The pieces of `entry`'s upload, joined, or null when one of them is not there. */
 const fetchPieces = async (reader: LiveReader, entry: ViewEntry): Promise<Uint8Array | null> => {
@@ -157,36 +164,47 @@ const fetchPieces = async (reader: LiveReader, entry: ViewEntry): Promise<Uint8A
 };
 
 /**
- * The board under `key` in `meta`: from those decoded this page load, then from `cache`, then from
- * the network, every one checked against the fingerprint the meta names and read as a board
- * (`coerceBoardView`). A piece that is not there costs one read of the meta, and the board is
- * fetched again from whatever upload it names now; never more than one. A board fetched is kept in
- * `cache` by its fingerprint.
+ * The view under `key` in `meta`: from those of its kind decoded this page load (`memory`), then
+ * from `cache`, then from the network, every one checked against the fingerprint the meta names
+ * and read as a view of its kind (`coerce`). A piece that is not there costs one read of the meta,
+ * and the view is fetched again from whatever upload it names now; never more than one. A view
+ * fetched is kept in `cache` by its fingerprint. The checker is the caller's, so a page that reads
+ * one kind of view loads no other kind's.
  */
-export const readBoard = async ({
+export const readView = async <T>({
   reader,
   meta,
   key,
   cache,
+  coerce,
+  memory,
 }: {
   reader: LiveReader;
   meta: LiveMeta;
   key: string;
-  cache?: ViewCache;
-}): Promise<BoardRead> => {
+  cache?: ViewCache | undefined;
+  coerce: (raw: unknown) => T | null;
+  memory: DecodedViews<T>;
+}): Promise<ViewRead<T>> => {
   let current = meta;
   let entry = current.views[key];
   if (!entry) return { ok: false, why: "missing", meta: current };
 
-  const held = decoded.get(entry.h);
-  if (held)
-    return { ok: true, view: remember(entry.h, held), entry, meta: current, from: "memory" };
+  const held = memory.get(entry.h);
+  if (held !== undefined)
+    return {
+      ok: true,
+      view: remember(memory, entry.h, held),
+      entry,
+      meta: current,
+      from: "memory",
+    };
 
   const kept = cache ? await cache.view(entry.h).catch(() => null) : null;
   if (kept !== null) {
-    const view = coerceBoardView(kept);
-    if (!view) return { ok: false, why: "damaged", meta: current };
-    return { ok: true, view: remember(entry.h, view), entry, meta: current, from: "cache" };
+    const view = coerce(kept);
+    if (view === null) return { ok: false, why: "damaged", meta: current };
+    return { ok: true, view: remember(memory, entry.h, view), entry, meta: current, from: "cache" };
   }
 
   try {
@@ -205,21 +223,41 @@ export const readBoard = async ({
       joined = await fetchPieces(reader, entry);
       if (!joined) return { ok: false, why: "gone", meta: current };
     }
-    let view: BoardView | null;
+    let view: T | null;
     try {
-      view = coerceBoardView(await unpackChunks([joined], entry.h));
+      view = coerce(await unpackChunks([joined], entry.h));
     } catch {
       view = null;
     }
-    if (!view) return { ok: false, why: "damaged", meta: current };
+    if (view === null) return { ok: false, why: "damaged", meta: current };
     await cache?.keepView(entry.h, joined).catch(() => undefined);
-    return { ok: true, view: remember(entry.h, view), entry, meta: current, from: "network" };
+    return {
+      ok: true,
+      view: remember(memory, entry.h, view),
+      entry,
+      meta: current,
+      from: "network",
+    };
   } catch (error) {
     const why = failureOf(error);
     if (why === "refused") await refused(cache);
     return { ok: false, why, meta: current };
   }
 };
+
+/** The board under `key` in `meta` (`readView`), read as a board (`coerceBoardView`). */
+export const readBoard = ({
+  reader,
+  meta,
+  key,
+  cache,
+}: {
+  reader: LiveReader;
+  meta: LiveMeta;
+  key: string;
+  cache?: ViewCache;
+}): Promise<BoardRead> =>
+  readView({ reader, meta, key, cache, coerce: coerceBoardView, memory: decodedBoards });
 
 /**
  * Whether a published board is the copy's as this device knows it:

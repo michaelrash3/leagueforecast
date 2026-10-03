@@ -3452,6 +3452,37 @@ board draws, and each line to the one the page walks, a club that joined the boa
 last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,
 three of them only after a test was added for a club new last week.
 
+**Club cards.** The panel a club opens on reads no fit (`TeamDetailPanel`): only the
+club, its own games of the year, its opponents' names, its age and its League
+Standings link. So beside the boards, from the same build, each club with a game in
+a squad year gets a card holding exactly those (`views/clubs.ts`), and a device that
+opens a club reads its card rather than the year's pool. A card's games are trimmed
+to what the panel reads (`panelGame`: who played, where it is filed, the scores and
+side B's own report, whether it is set not to count or its runaway score was
+confirmed, its day, its event and each side's level; not its start, since a game
+counts as played ahead by its day alone), and sent from the club's side: its
+opponents named once, each game pointing at one, and without its stored id, which
+the panel only keys rows by. Cards go out in buckets, a year's clubs split by a hash
+of their id into 64 views (`club:{year}:{bucket}`, `clubBucketOf`): one view per
+club would be a hundred thousand documents to write on a night every club is
+pulled, and one per year the whole pool to read for one club.
+
+On the 29 Sep backup's 112,228 clubs of 2027, the stored games made 284 MB of JSON
+(55 MB gzipped); trimmed and sent from the club's side, 85 MB of JSON and 17.1 MB
+gzipped in all, the biggest bucket 1,838 clubs and 281 KB gzipped, built in 3.15 s. A device reads one bucket to open a club, and nothing more for the
+others in it until the next publish. The cards read what the boards read and the
+ages a person named, so that key is a board input now (`isBoardInputKey`), and the
+boards' record vouches for both.
+
+`clubParity.test.ts` holds every card, read back through JSON and its own check, to
+the page's own panel for every club on every page of its year and each span: the
+record, each game's line, the games elsewhere, the League Standings link and the age,
+the record also over the whole year's games for a year's first clubs, as the page
+asks for it. `clubShape.test.ts` pins the bucket hash and reads a card back, a game
+against the club's own name and an opponent the roster cannot name included, and
+refuses each way a card can be damaged. Each guard was broken in turn and seen to
+fail a test, 29 of 29, five of them only after a test was added or tightened.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -3797,6 +3828,15 @@ forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and tha
 the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
 opening where the board left off. Each guard was broken in turn and seen to fail
 a test, 33 of 33, two of them only after their tests were tightened.
+
+**A club's panel.** A club tapped on the board opens its panel from its card
+(`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
+Team Rankings' own panel with nothing on it to change (`readOnly`): no rename,
+unlink, age, state or fold, which wait for this device's copy. The panel and the
+pool's codec it checks a card by load only when a club is opened. A club whose
+card cannot be read (no card, a bucket damaged or gone, a refusal, or offline with
+none kept) opens on Team Rankings, as every club did before there were cards, and so
+does the club open when the board hands over.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It

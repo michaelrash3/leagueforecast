@@ -3,10 +3,17 @@ import { fetchValues, type CloudStore } from "../cloud/cloudEngine";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { latestImportedAt } from "../gameChangerImport";
-import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadNamedAges,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+} from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
+import { clubViews } from "./views/clubs";
+import { CLUB_FAMILY } from "./views/clubShape";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
 
 /**
@@ -62,8 +69,9 @@ export const dryLiveStore = (store: LiveStore): LiveStore => {
 export type CopyPublish =
   | {
       ok: true;
-      /** The boards built, and how long building them took. */
+      /** The boards and the buckets of club cards built, and how long building them took. */
       boards: number;
+      clubs: number;
       buildMs: number;
       publish: Extract<PublishResult, { ok: true }>;
       /** The sweep after it, or why it stopped: the views are published either way. */
@@ -151,14 +159,18 @@ export const publishCopyViews = async ({
     readSeason,
     today,
   });
-  const views = boardViews(ageGroups, built);
+  const boards = boardViews(ageGroups, built);
+  // Each club's card, from what the boards' build derived, published with them and vouched for by
+  // the same record: they read the same inputs (`isBoardInput`).
+  const clubs = clubViews({ ageGroups, built, namedAges: loadNamedAges() });
+  const views = [...boards, ...clubs];
   const pages = livePagesOf(built, latestImportedAt(teams));
   const buildMs = Date.now() - started;
 
   const publish = await publishViews({
     store: liveStore,
     views,
-    owns: [BOARD_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY],
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
@@ -182,7 +194,8 @@ export const publishCopyViews = async ({
   if (sweeping === "due") {
     return {
       ok: true,
-      boards: views.length,
+      boards: boards.length,
+      clubs: clubs.length,
       buildMs,
       publish,
       sweep:
@@ -200,5 +213,5 @@ export const publishCopyViews = async ({
   } catch (error) {
     sweep = { ok: false, why: error instanceof Error ? error.message : String(error) };
   }
-  return { ok: true, boards: views.length, buildMs, publish, sweep };
+  return { ok: true, boards: boards.length, clubs: clubs.length, buildMs, publish, sweep };
 };

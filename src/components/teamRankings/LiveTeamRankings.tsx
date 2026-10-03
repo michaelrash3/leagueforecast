@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import { poolWantsCloud, preparePool, type CloudStatus } from "../../lib/cloud/cloudSession";
@@ -24,6 +24,10 @@ import { CloudPoolGate } from "../CloudPoolGate";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
+import { TEAM_PANEL_ID } from "../teamPanelId";
+
+/** A club's panel from its card, loaded with the pool's codec only when a club is opened. */
+const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -98,6 +102,9 @@ export function LiveTeamRankings({
   const [poolReady, setPoolReady] = useState(() => !poolWantsCloud());
   const [pageLoaded, setPageLoaded] = useState(false);
   const [waitedOut, setWaitedOut] = useState(false);
+  // The club whose panel is open, from its card, and one whose card could not be read.
+  const [openClub, setOpenClub] = useState<string | null>(null);
+  const [cannotOpen, setCannotOpen] = useState<string | null>(null);
 
   // The pool and the page's code come in under the board; the board has a while to draw.
   useEffect(() => {
@@ -160,8 +167,16 @@ export function LiveTeamRankings({
     (offline && !board) ||
     (waitedOut && !board) ||
     live.standing === "behind-copy" ||
-    live.standing === "owed";
-  const where: RankingsHandover = { stateTop, stateFilter, showAll };
+    live.standing === "owed" ||
+    cannotOpen !== null;
+  // The club open, or the one that could not be, opens on Team Rankings too.
+  const clubOpen = cannotOpen ?? openClub;
+  const where: RankingsHandover = {
+    stateTop,
+    stateFilter,
+    showAll,
+    ...(clubOpen ? { openTeamId: clubOpen } : {}),
+  };
   if (handOverNow && !handover) setHandover(where);
 
   const handOverWith = (extra: RankingsHandover) => setHandover({ ...where, ...extra });
@@ -170,7 +185,13 @@ export function LiveTeamRankings({
   const settled = board !== null && poolReady && pageLoaded && handover === null;
   useEffect(() => {
     if (!settled) return;
-    const quietly = () => setHandover({ stateTop, stateFilter, showAll });
+    const quietly = () =>
+      setHandover({
+        stateTop,
+        stateFilter,
+        showAll,
+        ...(clubOpen ? { openTeamId: clubOpen } : {}),
+      });
     let timer = setTimeout(quietly, quietMs);
     const restart = () => {
       clearTimeout(timer);
@@ -183,7 +204,7 @@ export function LiveTeamRankings({
       clearTimeout(timer);
       INPUT_EVENTS.forEach((type) => window.removeEventListener(type, restart, { capture: true }));
     };
-  }, [settled, stateTop, stateFilter, showAll, quietMs]);
+  }, [settled, stateTop, stateFilter, showAll, clubOpen, quietMs]);
 
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   const places = useMemo(() => placesOf(clubs), [clubs]);
@@ -225,6 +246,27 @@ export function LiveTeamRankings({
       })
     : undefined;
   const group = ageGroups.find((one) => one.id === selectedAgeGroupId);
+
+  /**
+   * A club tapped on the board opens its panel from its card (`LiveClubPanel`); with no meta to
+   * read a card through, it opens on Team Rankings, as every club did before there were cards.
+   */
+  const openTeam = (teamId: string) => {
+    if (!live.source) {
+      handOverWith({ openTeamId: teamId });
+      return;
+    }
+    setOpenClub(teamId);
+    window.requestAnimationFrame(() =>
+      document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
+    );
+  };
+  const closeClub = useCallback(() => setOpenClub(null), []);
+  const opening = (
+    <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
+    </section>
+  );
 
   const view = (strip?: ReactNode) => (
     <div className="flex flex-col gap-6" data-testid="live-board">
@@ -287,7 +329,7 @@ export function LiveTeamRankings({
             placeOf={(teamId) => places.get(teamId)}
             isLeagueTeam={(teamId) => leagueIds.has(teamId)}
             hasGamesFiledHere={() => false}
-            onOpenTeam={(teamId) => handOverWith({ openTeamId: teamId })}
+            onOpenTeam={openTeam}
             onMarkMine={() => undefined}
             onRemoveTeam={() => undefined}
             readOnly
@@ -304,6 +346,22 @@ export function LiveTeamRankings({
           </div>
         )}
       </div>
+      {openClub && live.source && (
+        <Suspense fallback={opening}>
+          <LiveClubPanel
+            key={openClub}
+            source={live.source}
+            year={selectedYear}
+            teamId={openClub}
+            ageGroupId={selectedAgeGroupId}
+            ageGroupName={group?.name ?? ""}
+            ageGroups={ageGroups}
+            segment={segment}
+            onClose={closeClub}
+            onCannot={setCannotOpen}
+          />
+        </Suspense>
+      )}
     </div>
   );
 

@@ -10,6 +10,7 @@ import {
   initTeamRankingsStore,
   isBoardInputKey,
   loadAgeGroups,
+  loadNamedAges,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -17,6 +18,7 @@ import {
   saveAgeGroups,
   saveDroppedClubs,
   saveKeptApart,
+  saveNamedAges,
   saveRefreshCadence,
   saveRefreshLog,
   saveScoutGames,
@@ -34,6 +36,7 @@ import {
   isBoardInput,
 } from "../boardInputs";
 import { BOARD_RULES, boardViews, buildBoardsAndFacts } from "../views/board";
+import { clubViews } from "../views/clubs";
 import { LIVE_FORMAT, LIVE_SCHEMA, type LiveMeta } from "../viewStore";
 
 /*
@@ -50,21 +53,23 @@ const readSeason: SeasonReader = (seasonId) => {
   return { teams, matchups, logs: coerceLogs(stored?.logs ?? null, matchups) };
 };
 
-/** The fixture's boards, from whatever the store now holds, folded to one fingerprint. */
+/**
+ * The fixture's boards and the club cards published with them, from whatever the store now holds,
+ * folded to one fingerprint.
+ */
 const boardsHeld = (): string => {
   const ageGroups = loadAgeGroups();
-  return fingerprint(
-    boardViews(
-      ageGroups,
-      buildBoardsAndFacts({
-        ageGroups,
-        teams: loadScoutTeams(),
-        gamesOfYear: loadScoutGamesForYear,
-        readSeason,
-        today: FIXTURE_TODAY,
-      })
-    )
-  );
+  const built = buildBoardsAndFacts({
+    ageGroups,
+    teams: loadScoutTeams(),
+    gamesOfYear: loadScoutGamesForYear,
+    readSeason,
+    today: FIXTURE_TODAY,
+  });
+  return fingerprint([
+    ...boardViews(ageGroups, built),
+    ...clubViews({ ageGroups, built, namedAges: loadNamedAges() }),
+  ]);
 };
 
 /** The boards of a store holding only `values`, as a server laying in a copy's parts would. */
@@ -84,6 +89,17 @@ beforeAll(async () => {
   saveAgeGroups(fixture.ageGroups);
   saveScoutTeams(fixture.teams);
   saveScoutGames(fixture.games);
+  // An age a person pinned on a club's panel, which only its card reads.
+  const linked = fixture.teams.find((team) => (team.gcTeams?.length ?? 0) > 0)?.gcTeams?.[0];
+  if (!linked) throw new Error("the fixture has no linked club");
+  saveNamedAges(
+    new Map([
+      [
+        linked.teamId,
+        { teamId: linked.teamId, level: 11, namedAt: "2027-01-01", pinned: true as const, was: 10 },
+      ],
+    ])
+  );
   const someone = fixture.teams[0]?.id ?? "nobody";
   saveDroppedClubs(new Set([someone]));
   saveKeptApart(new Set([`${someone}|elsewhere`]));
@@ -100,7 +116,7 @@ afterAll(() => {
   resetTeamRankingsStore();
 });
 
-describe("the keys the boards read", () => {
+describe("the keys the boards and club cards read", () => {
   it("are enough: the boards of a store holding only them are the boards of the whole pool", async () => {
     const inputs = new Map([...everything].filter(([key]) => isBoardInputKey(key)));
     // Some keys left out, or the test proves nothing.
@@ -143,6 +159,8 @@ describe("the keys the boards read", () => {
     expect(isBoardInput("league_forecast_gc_refresh_v1")).toBe(false);
     expect(isBoardInput("league_forecast_gc_tidy_v1")).toBe(false);
     expect(isBoardInput("league_forecast_scout_age_groups_v1")).toBe(true);
+    // A club card's age reads the ages a person named.
+    expect(isBoardInput("league_forecast_gc_named_ages_v1")).toBe(true);
   });
 });
 
