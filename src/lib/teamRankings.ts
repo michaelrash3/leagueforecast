@@ -1,6 +1,8 @@
 import type { GameLog, Matchup, TeamBase } from "./types";
 import {
   buildOpponentAdjustedRatings,
+  byRating,
+  bySchedule,
   DEFAULT_SHRINKAGE,
   type OpponentAdjustedRatings,
 } from "./powerRating";
@@ -2801,10 +2803,7 @@ export const scheduleComponents = (
 
 /** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
 const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
-  rows.sort(
-    (a, b) =>
-      b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName)
-  );
+  rows.sort(byRating);
   rows.forEach((row, index) => {
     row.rank = index + 1;
   });
@@ -2812,9 +2811,7 @@ const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
   const sosOrder = rows
     .filter((row) => row.games > 0)
     .slice()
-    .sort(
-      (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName)
-    );
+    .sort(bySchedule);
   const sosRankById = new Map(sosOrder.map((row, index) => [row.teamId, index + 1]));
   rows.forEach((row) => {
     row.sosRank = sosRankById.get(row.teamId) ?? 0;

@@ -4,6 +4,8 @@ import {
   DEFAULT_AGE_GAP_SHRINKAGE,
   SPARSE_SOLVER_THRESHOLD,
   buildOpponentAdjustedRatings,
+  byRating,
+  bySchedule,
   type OpponentAdjustedOptions,
   type OpponentAdjustedRatings,
   type RatingGame,
@@ -1025,5 +1027,34 @@ describe("weighting a game", () => {
     ratingsOf(dense).forEach((rating, at) => {
       expect(rating).toBeCloseTo(ratingsOf(sparse)[at]!, 8);
     });
+  });
+});
+
+describe("the order a table of ratings is read in", () => {
+  const row = (teamName: string, rating: number, rawMargin: number, strengthOfSchedule = 0) => ({
+    teamName,
+    rating,
+    rawMargin,
+    strengthOfSchedule,
+  });
+
+  it("puts the higher rating first, then the higher raw margin, then the name", () => {
+    // Stored so that neither the margin nor the name agrees with the order they settle.
+    const rows = [row("Alpha", 2, 1), row("Zulu", 2, 3), row("Mike", 2, 3), row("Yankee", 5, -1)];
+    expect([...rows].sort(byRating).map((one) => one.teamName)).toEqual([
+      "Yankee",
+      "Mike",
+      "Zulu",
+      "Alpha",
+    ]);
+  });
+
+  it("puts the toughest schedule first, then the name", () => {
+    const rows = [row("Zulu", 0, 0, 1.5), row("Alpha", 0, 0, -2), row("Mike", 0, 0, 1.5)];
+    expect([...rows].sort(bySchedule).map((one) => one.teamName)).toEqual([
+      "Mike",
+      "Zulu",
+      "Alpha",
+    ]);
   });
 });
