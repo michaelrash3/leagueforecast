@@ -17,7 +17,18 @@ import {
   encodeScoutGames,
   encodeScoutTeams,
 } from "../../teamRankingsCompact";
-import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
+import { countedByHalf } from "../../teamRankings/halves";
+import { deriveAllKnown, gamesOnPages, leagueTeamIdsOn, type SeasonReader } from "../allKnown";
+import {
+  BOARD_HALVES,
+  boardKey,
+  type BoardFacts,
+  type BoardHalf,
+  type BoardView,
+  type LivePages,
+} from "./boardShape";
+
+export * from "./boardShape";
 
 /**
  * The rankings boards as a view: every page's table for the whole year and for each half, built
@@ -48,31 +59,6 @@ export const asWorkerSees = (
   teams: decodePoolTeams(encodeScoutTeams(teams)),
   games: decodePoolGames(encodeScoutGames(games)),
 });
-
-/**
- * The version of the rules that turn a stored pool into boards, raised by any change meant to move
- * a board's numbers, rows or order: the commit that says so under "Pin, then change" raises it too,
- * and `boardParity.test.ts` keeps one fingerprint of the fixture's boards for each. A publish of
- * boards records it (`BuiltFrom.rules`), and one under older rules than the boards already
- * published writes nothing, so code left running after a failed deploy cannot undo newer boards.
- * It only ever goes up: undoing a change that raised it raises it again, with a fingerprint of its
- * own, or every publish after would be refused as older.
- *
- * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
- * onto a club of its own (`offClubIdFor`), not onto a club of its name.
- */
-export const BOARD_RULES = 2;
-
-/** A board's span: the whole squad year, or one half of it. */
-export type BoardHalf = "year" | SeasonSegment;
-
-/** Every span a page has a board for, each the `segment` the worker is asked with. */
-export const BOARD_HALVES: ReadonlyArray<{ half: BoardHalf; segment: SeasonSegment | undefined }> =
-  [
-    { half: "year", segment: undefined },
-    { half: "fall", segment: "fall" },
-    { half: "spring", segment: "spring" },
-  ];
 
 /** One page's table for one span. */
 export type PageBoard = { pageId: string; half: BoardHalf; rows: ScoutRankingRow[] };
@@ -111,6 +97,40 @@ export const ratingPools = (ageGroups: AgeGroup[]): string[][] => {
 };
 
 /**
+ * What a page's boards say of it beside their rows, built in the same pass from what the page
+ * knows (`deriveAllKnown` for its year), each as the page reads it:
+ * - `halves`: how many counted games each half of its pool holds (`countedByHalf` over the games
+ *   its boards are fitted from, the page's own `segmentGames`).
+ * - `league`: the clubs whose games on this page came from a League Standings season.
+ * - `places`: each club of its year's town and state, off the roster as the page looks a row's
+ *   club up (a map of every known club, the last of a repeated id winning).
+ */
+export type PageFacts = {
+  halves: Record<SeasonSegment, number>;
+  league: ReadonlySet<string>;
+  places: ReadonlyMap<string, { city?: string; state?: string }>;
+};
+
+/** Every board in a stored pool, and what its pages say beside them. */
+export type BoardsBuilt = { boards: PageBoard[]; facts: Map<string, PageFacts> };
+
+type BuildInput = {
+  ageGroups: AgeGroup[];
+  /** The stored roster, as `loadScoutTeams` decodes it. */
+  teams: ScoutTeam[];
+  gamesOfYear: (year: number | undefined) => ScoutGame[];
+  readSeason: SeasonReader;
+  /** The day the members are in, as an ISO day. Never the server's own. */
+  today: string;
+};
+
+/** A club's town and state, each only when it has one. */
+const placeOf = ({ city, state }: ScoutTeam): { city?: string; state?: string } => ({
+  ...(city ? { city } : {}),
+  ...(state ? { state } : {}),
+});
+
+/**
  * Every board in a stored pool: each page, for the year and each half, as the worker answers the
  * page's request for it.
  *
@@ -132,21 +152,13 @@ export const ratingPools = (ageGroups: AgeGroup[]): string[][] => {
  * `gamesOfYear` is one squad year's stored games, `loadScoutGamesForYear`'s answer: the games of
  * the pages with no year when `year` is undefined.
  */
-export const buildAllBoards = ({
+export const buildBoardsAndFacts = ({
   ageGroups,
   teams,
   gamesOfYear,
   readSeason,
   today,
-}: {
-  ageGroups: AgeGroup[];
-  /** The stored roster, as `loadScoutTeams` decodes it. */
-  teams: ScoutTeam[];
-  gamesOfYear: (year: number | undefined) => ScoutGame[];
-  readSeason: SeasonReader;
-  /** The day the members are in, as an ISO day. Never the server's own. */
-  today: string;
-}): PageBoard[] => {
+}: BuildInput): BoardsBuilt => {
   const known = new Map<number | undefined, ReturnType<typeof deriveAllKnown>>();
   const knownFor = (year: number | undefined) => {
     const held = known.get(year);
@@ -156,6 +168,26 @@ export const buildAllBoards = ({
     return derived;
   };
   const byId = groupsById(ageGroups);
+  const placesOfYear = new Map<number | undefined, PageFacts["places"]>();
+  const facts = new Map<string, PageFacts>();
+  const factsOf = (pageId: string): PageFacts => {
+    const year = ageGroupYear(byId.get(pageId));
+    const known = knownFor(year);
+    let places = placesOfYear.get(year);
+    if (!places) {
+      places = new Map(known.teams.map((team) => [team.id, placeOf(team)]));
+      placesOfYear.set(year, places);
+    }
+    return {
+      halves: countedByHalf(
+        gamesOnPages(known.games, rankingPoolGroupIds(pageId, ageGroups)),
+        year,
+        today
+      ),
+      league: leagueTeamIdsOn(known.derivedGames, pageId),
+      places,
+    };
+  };
   // Held for one rating pool at a time and let go before the next, as the worker lets a year's fit
   // go before it builds another (`rankingsProtocol.ts` measured one of 76,792 clubs at 44 MB).
   let shipped = new Map<string, { teams: ScoutTeam[]; games: ScoutGame[] }>();
@@ -187,39 +219,53 @@ export const buildAllBoards = ({
     return { pageId, half, rows };
   };
 
-  return ratingPools(ageGroups).flatMap((pageIds) => {
+  const boards = ratingPools(ageGroups).flatMap((pageIds) => {
     shipped = new Map();
     fits = new Map();
+    pageIds.forEach((pageId) => facts.set(pageId, factsOf(pageId)));
     return BOARD_HALVES.flatMap(({ half, segment }) =>
       pageIds.map((pageId) => boardOf(pageId, half, segment))
     );
   });
+  return { boards, facts };
 };
 
-/** A board's row as published: the owner's star left for each member's device to set. */
-export type BoardRow = Omit<ScoutRankingRow, "isMine">;
-/** A board as published (`publishViews`). */
-export type BoardView = { rows: BoardRow[] };
-
-/**
- * A board's key in `live/meta`: `board:{year}:{page}:{half}`, the year first so a device can ask
- * for one squad year's boards, and "none" for a page with no year, as its games' shard is named.
- */
-export const boardKey = (year: number | undefined, pageId: string, half: BoardHalf): string =>
-  `board:${year ?? "none"}:${pageId}:${half}`;
+/** Every board in a stored pool (`buildBoardsAndFacts`), without what their pages say. */
+export const buildAllBoards = (input: BuildInput): PageBoard[] => buildBoardsAndFacts(input).boards;
 
 /**
  * The boards as views to publish, each under its page's year, read as the page reads it (the
- * first age group of its id), and without `isMine`, which is the owner's star: every member's
- * device marks its own.
+ * first age group of its id), without `isMine`, which is the owner's star: every member's device
+ * marks its own (`withMine`). Each row carries what its page says of its club (`BoardFacts`).
  */
 export const boardViews = (
   ageGroups: AgeGroup[],
-  boards: PageBoard[]
+  { boards, facts }: BoardsBuilt
 ): Array<{ key: string; value: BoardView }> => {
   const byId = groupsById(ageGroups);
-  return boards.map(({ pageId, half, rows }) => ({
-    key: boardKey(ageGroupYear(byId.get(pageId)), pageId, half),
-    value: { rows: rows.map(({ isMine: _mine, ...row }) => row) },
-  }));
+  return boards.map(({ pageId, half, rows }) => {
+    const page = facts.get(pageId);
+    if (!page) throw new Error(`No facts were built for the page ${pageId}.`);
+    return {
+      key: boardKey(ageGroupYear(byId.get(pageId)), pageId, half),
+      value: {
+        rows: rows.map(({ isMine: _mine, ...row }) => {
+          const told: BoardFacts = {
+            ...page.places.get(row.teamId),
+            ...(page.league.has(row.teamId) ? { league: true as const } : {}),
+          };
+          return { ...row, ...told };
+        }),
+      },
+    };
+  });
 };
+
+/**
+ * What the publisher says of every page beside its boards (`LivePages`), in the order the boards
+ * come out in: the roster's last pull, and each page's counted games by half.
+ */
+export const livePagesOf = ({ facts }: BoardsBuilt, pulledAt: string | null): LivePages => ({
+  ...(pulledAt ? { pulledAt } : {}),
+  halves: Object.fromEntries([...facts].map(([pageId, page]) => [pageId, { ...page.halves }])),
+});

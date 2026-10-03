@@ -2,10 +2,11 @@ import { coerceBackup } from "../backup";
 import { fetchValues, type CloudStore } from "../cloud/cloudEngine";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
+import { latestImportedAt } from "../gameChangerImport";
 import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
-import { boardViews, buildAllBoards } from "./views/board";
+import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
 
 /**
@@ -142,16 +143,16 @@ export const publishCopyViews = async ({
 
   const started = Date.now();
   const ageGroups = loadAgeGroups();
-  const views = boardViews(
+  const teams = loadScoutTeams();
+  const built = buildBoardsAndFacts({
     ageGroups,
-    buildAllBoards({
-      ageGroups,
-      teams: loadScoutTeams(),
-      gamesOfYear: loadScoutGamesForYear,
-      readSeason,
-      today,
-    })
-  );
+    teams,
+    gamesOfYear: loadScoutGamesForYear,
+    readSeason,
+    today,
+  });
+  const views = boardViews(ageGroups, built);
+  const pages = livePagesOf(built, latestImportedAt(teams));
   const buildMs = Date.now() - started;
 
   const publish = await publishViews({
@@ -163,6 +164,8 @@ export const publishCopyViews = async ({
     now: now(),
     // What they were built from, so a rebuild finding the same copy, inputs, day and rules stops.
     built: { family: BOARD_FAMILY, from: await builtFrom(manifest, today) },
+    // What a device lays the page out by before it reads a board, published with the boards.
+    inline: { pages },
     collectDue: sweeping === "due",
     // Read again just before each commit, uploads and retries included: a copy started again
     // while the boards were built or went up is not theirs.

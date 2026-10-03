@@ -27,8 +27,12 @@ export const LIVE_FORMAT = 1;
  * The shape inside view values and `inline`; raised when one changes, so old builds stop reading.
  * A meta of a newer schema is left alone, by publishes and sweeps alike, and a publish over an
  * older one keeps nothing it did not build itself, since the rest has the older shape.
+ *
+ * 1: the boards as L3 first published them. 2: each board's rows say their club's town, state and
+ * League Standings badge (`BoardFacts`), and `inline.pages` says each page's counted games by half
+ * and the roster's last pull (`LivePages`), so a device can draw a page from them alone.
  */
-export const LIVE_SCHEMA = 1;
+export const LIVE_SCHEMA = 2;
 /** How long a retired upload stays readable before a sweep may delete it. */
 export const RETIRE_GRACE_MS = 15 * 60_000;
 /**
@@ -92,7 +96,10 @@ export type LiveMeta = {
    * build has run since it read the copy.
    */
   marks: Record<string, number>;
-  /** Small values a page needs before any view; passed through untouched by board publishes. */
+  /**
+   * Small values a page needs before any view, by name (`pages`, which the boards' publisher
+   * writes beside them). A publish replaces only the names it hands over, and a late one none.
+   */
   inline: Record<string, unknown>;
   views: Record<string, ViewEntry>;
   retired: RetiredUpload[];
@@ -161,6 +168,21 @@ const inKeyOrder = <T>(record: Record<string, T>): Record<string, T> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
 /**
+ * A JSON value with every record in it in key order, all the way down, so inline values read back
+ * from a store that hands a map's fields over in its own order still say the same as the values a
+ * publish built: an identical republish writes nothing.
+ */
+const canonical = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => [key, canonical(item)])
+  );
+};
+
+/**
  * `live/meta` as this build reads it, or null for one it cannot: another format, or any field or
  * entry that is not what it should be. Rebuilt field by field, so its JSON is the same however the
  * store handed it over.
@@ -198,7 +220,7 @@ export const coerceLiveMeta = (raw: unknown): LiveMeta | null => {
     builtAt,
     copy: { id: copy.id, version: copy.version },
     marks: inKeyOrder(marks as Record<string, number>),
-    inline,
+    inline: canonical(inline) as Record<string, unknown>,
     views: inKeyOrder(entries),
     retired: retiredUploads,
     built: inKeyOrder(builtFamilies),
@@ -262,7 +284,8 @@ type Upload = { id: string; c: number; bytes: number };
 /**
  * Publishes `views`, built from version `copy.version` of the copy `copy.id`, for the members' day
  * `today`. `owns` names the key prefixes this publish covers whole: a key under one of them that is
- * not among `views` is taken out, and every other key, and `inline`, is left as it is.
+ * not among `views` is taken out, and every other key is left as it is. Each `inline` value it
+ * hands over replaces the stored one of that name, and the rest are left as they are.
  *
  * Each view's JSON is hashed once. A view the meta already names with that fingerprint costs
  * nothing, and one another key already names reuses that upload; anything else is gzipped and
@@ -312,6 +335,7 @@ export const publishViews = async ({
   today,
   now,
   built,
+  inline,
   collectDue = false,
   stillCurrent,
   maxTries = 3,
@@ -325,6 +349,11 @@ export const publishViews = async ({
   now: string;
   /** The family these views are, and what they were built from. */
   built?: { family: string; from: BuiltFrom };
+  /**
+   * Inline values this publish built, by name, each written in place of the stored value of that
+   * name by a publish that is not late; a late one leaves every inline value as it is.
+   */
+  inline?: Record<string, unknown>;
   collectDue?: boolean;
   stillCurrent?: () => Promise<boolean>;
   maxTries?: number;
@@ -505,7 +534,10 @@ export const publishViews = async ({
       builtAt: now,
       copy: header,
       marks: inKeyOrder(marks),
-      inline: upgrading ? {} : (stored?.inline ?? {}),
+      inline: inKeyOrder({
+        ...(upgrading ? {} : (stored?.inline ?? {})),
+        ...(late ? {} : (canonical(inline ?? {}) as Record<string, unknown>)),
+      }),
       views: inKeyOrder(next),
       retired,
       built: inKeyOrder(families),

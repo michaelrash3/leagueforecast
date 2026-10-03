@@ -16,7 +16,6 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   countedInWindow,
-  countsTowardRating,
   dedupeLeagueFixtures,
   leagueStandIns,
   filedTeamIds,
@@ -31,7 +30,6 @@ import {
   MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
   segmentLabel,
-  segmentOfDate,
   resolveOrCreateTeam,
   seasonAtAge,
   seasonYearOptions,
@@ -47,7 +45,6 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
-  type SeasonSegment,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
@@ -60,7 +57,13 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
-import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../lib/live/allKnown";
+import {
+  deriveAllKnown,
+  gamesOnPages,
+  leagueTeamIdsOn,
+  type SeasonReader,
+} from "../lib/live/allKnown";
+import { countedByHalf } from "../lib/teamRankings/halves";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -686,15 +689,10 @@ export function TeamRankingsView({
     [chainGames, selectedAgeGroupId]
   );
 
-  // Teams whose game here came from a League Standings season rather than being logged by hand.
-  // Derived games only, so a manually added game never reads as a league one.
+  // Teams whose game here came from a League Standings season rather than being logged by hand
+  // (`leagueTeamIdsOn`, which the published boards flag their rows by too).
   const leagueGameTeamIds = useMemo(
-    () =>
-      new Set(
-        allKnown.derivedGames
-          .filter((game) => game.ageGroupId === selectedAgeGroupId)
-          .flatMap((game) => [game.teamAId, game.teamBId])
-      ),
+    () => leagueTeamIdsOn(allKnown.derivedGames, selectedAgeGroupId),
     [allKnown.derivedGames, selectedAgeGroupId]
   );
 
@@ -720,26 +718,19 @@ export function TeamRankingsView({
   );
 
   /**
-   * How many counted games each half of this year holds.
-   *
-   * So a half with nothing in it can say so on its own tab instead of being an empty board with no
-   * explanation, and so the board opens on a half worth reading (`segmentWorthShowing`). Off
-   * `poolGames`, which is the same list the boards are fitted from, and by the rule the fit counts
-   * a game by (`countsTowardRating`), so the count and the table cannot disagree. Counted as merely
-   * scored, a score typed ahead on a day not yet played, or a game kept only for the record, was a
-   * spring the board opened on in January and fitted with nothing: the 26 September 2026 pool
-   * already held two scores dated March 2027.
+   * How many counted games each half of this year holds (`countedByHalf`), off `poolGames`, the
+   * same list the boards are fitted from: so a half with nothing in it says so on its own tab, and
+   * the board opens on a half worth reading (`segmentWorthShowing`).
    */
-  const segmentGames = useMemo(() => {
-    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
-    const counts: Record<SeasonSegment, number> = { fall: 0, spring: 0 };
-    poolGames.forEach((game) => {
-      if (!countsTowardRating(game, today)) return;
-      const half = segmentOfDate(game.date, year);
-      if (half) counts[half] += 1;
-    });
-    return counts;
-  }, [poolGames, ageGroups, selectedAgeGroupId, today]);
+  const segmentGames = useMemo(
+    () =>
+      countedByHalf(
+        poolGames,
+        ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId)),
+        today
+      ),
+    [poolGames, ageGroups, selectedAgeGroupId, today]
+  );
 
   /**
    * Which half of the year the boards are for.

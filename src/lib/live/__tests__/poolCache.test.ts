@@ -32,7 +32,7 @@ import {
 import type { SeasonReader } from "../allKnown";
 import { createPoolCache, type PoolEnsure } from "../poolCache";
 import { seasonReaderOf } from "../publishCopy";
-import { boardViews, buildAllBoards } from "../views/board";
+import { boardViews, buildBoardsAndFacts } from "../views/board";
 
 /*
  * The pool a server keeps between rebuilds (`poolCache.ts`): brought up to each new version of the
@@ -174,7 +174,7 @@ const boardsOf = (readSeason: SeasonReader): string => {
   return fingerprint(
     boardViews(
       ageGroups,
-      buildAllBoards({
+      buildBoardsAndFacts({
         ageGroups,
         teams: loadScoutTeams(),
         gamesOfYear: loadScoutGamesForYear,

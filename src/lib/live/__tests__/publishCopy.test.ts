@@ -5,6 +5,7 @@ import { commitChanges } from "../../cloud/cloudEngine";
 import { chunkId, type CloudManifest } from "../../cloud/cloudManifest";
 import { unpackChunks } from "../../cloud/cloudPack";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
+import { latestImportedAt } from "../../gameChangerImport";
 import { memoryIo } from "../../cloud/cloudRunner";
 import {
   initTeamRankingsStore,
@@ -21,7 +22,7 @@ import type { SeasonReader } from "../allKnown";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
 import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
-import { boardViews, buildAllBoards } from "../views/board";
+import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -75,7 +76,7 @@ const copyWith = async (
 const boardsWith = (readSeason: SeasonReader) =>
   boardViews(
     loadAgeGroups(),
-    buildAllBoards({
+    buildBoardsAndFacts({
       ageGroups: loadAgeGroups(),
       teams: loadScoutTeams(),
       gamesOfYear: loadScoutGamesForYear,
@@ -145,11 +146,48 @@ describe("publishing the copy's boards", () => {
     );
     expect(differs.some(Boolean)).toBe(true);
 
+    // What a device lays the page out by went up in the same commit: each page's counted games by
+    // half, as the boards' own facts count them, and the roster's last pull.
+    const built = buildBoardsAndFacts({
+      ageGroups: loadAgeGroups(),
+      teams: loadScoutTeams(),
+      gamesOfYear: loadScoutGamesForYear,
+      readSeason: storedSeason,
+      today: FIXTURE_TODAY,
+    });
+    expect(live.meta()?.inline).toEqual({
+      pages: livePagesOf(built, latestImportedAt(loadScoutTeams())),
+    });
+    expect(live.costs.writes).toBe(29 + 1);
+
     // The same copy published again writes nothing.
     const writes = live.costs.writes;
     const again = await publish(cloud, live, manifest);
     expect(again).toMatchObject({ ok: true, publish: { wrote: false, unchanged: 33 } });
     expect(live.costs.writes).toBe(writes);
+  });
+
+  it("says when the roster was last pulled, beside the pages' counts", async () => {
+    const pulled = "2027-04-15T07:20:00.000Z";
+    const [first, ...rest] = fixture.teams;
+    if (!first) throw new Error("the fixture has no teams");
+    saveScoutTeams([
+      {
+        ...first,
+        gcTeams: [
+          { teamId: "gc1", name: first.name, ageGroupId: "ag_9u_2027", importedAt: pulled },
+        ],
+      },
+      ...rest,
+    ]);
+    try {
+      const { cloud, manifest } = await copyWith(LEAGUE);
+      const live = memoryLive();
+      await publish(cloud, live, manifest);
+      expect(live.meta()?.inline).toMatchObject({ pages: { pulledAt: pulled } });
+    } finally {
+      saveScoutTeams(fixture.teams);
+    }
   });
 
   it("records what the boards were built from, so a rebuild of the same copy finds them current", async () => {

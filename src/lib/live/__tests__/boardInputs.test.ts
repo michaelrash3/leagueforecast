@@ -32,7 +32,7 @@ import {
   builtFrom,
   isBoardInput,
 } from "../boardInputs";
-import { BOARD_RULES, boardViews, buildAllBoards } from "../views/board";
+import { BOARD_RULES, boardViews, buildBoardsAndFacts } from "../views/board";
 import { LIVE_FORMAT, LIVE_SCHEMA, type LiveMeta } from "../viewStore";
 
 /*
@@ -55,7 +55,7 @@ const boardsHeld = (): string => {
   return fingerprint(
     boardViews(
       ageGroups,
-      buildAllBoards({
+      buildBoardsAndFacts({
         ageGroups,
         teams: loadScoutTeams(),
         gamesOfYear: loadScoutGamesForYear,

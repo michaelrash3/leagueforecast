@@ -3414,6 +3414,26 @@ yet.
 - **`live/meta/chunks/{upload-n}`** holds each view's JSON, gzipped and cut into
   pieces a document can carry, as the copy keeps its values.
 
+A board is the rows the rankings worker would draw for that page and half, less
+the star (`isMine`), which is the owner's: each member's device puts its own on,
+by the worker's rule (`withMine` in `views/boardShape.ts`). Each row also says
+what the page says of its club, read off the roster of the page's year as the
+page reads it: its town and state, which the page shows beside the name and
+ranks the state top ten and the state filter by, and whether its games on that
+page came from a League Standings season, which the page badges. Beside the
+boards, in the same commit, the meta carries `inline.pages`: when the roster was
+last pulled, and for each page how many counted games each half holds, which
+decides the half the page opens on and what an empty half says. The page and
+the server count these with the same code (`countedByHalf`, `leagueTeamIdsOn`),
+and `boardParity.test.ts` holds every published board, read back through JSON
+and starred as a device stars it, to the worker's own rows, with each club's
+town, state and badge as the page writes them; the half counts are pinned to the
+page's own count on the fixture from before the code was shared. That is
+enough for a device to draw a board before it holds the pool. The browser's half
+of it (the shape a published board must have, and the star) is a module of its
+own that imports types alone, so a page that only reads boards loads neither the
+pool's derivation nor its codec.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -3443,7 +3463,8 @@ Readers fetch while a server writes, so publishing keeps four rules
   build of the replaced copy is held all the same while the meta still knows
   that copy.
 
-The shape of the views has a number (`LIVE_SCHEMA`). A meta written by a newer
+The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
+clubs' towns, states and badges and the meta its pages' counts. A meta written by a newer
 build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
@@ -3478,12 +3499,16 @@ piece that will not delete then is left for a full sweep to find as a stray, and
 counted, rather than failing a publish that is already out.
 
 A publish that would write what the meta already says writes nothing at all, not
-even the meta. On the seeded fixture, the first publish of its 33 boards is 29
-uploads (the five empty boards share one), 224 KB gzipped, and 30 writes with a
-6.0 KB meta; publishing the same boards again writes nothing; and a run more for
-the losing side of one 10U spring game changes 12 boards and costs 13 writes,
-retiring 12 uploads for the next sweep. A board takes 173 to 179 bytes of the
-meta, which a publish refuses to let pass 500 KB.
+even the meta; inline values are compared in key order all the way down, since a
+store may hand a map's fields back in an order of its own. A publish replaces the
+inline values it hands over, by name, and a late one none. On the seeded fixture,
+the first publish of its 33 boards is 29 uploads (the five empty boards share
+one), 238 KB gzipped (224 KB before the rows said their clubs' towns, states and
+badges), and 30 writes with a 6.5 KB meta, of which the pages' counts are 0.5 KB;
+publishing the same boards again writes nothing; and a run more for the losing
+side of one 10U spring game changes 12 boards and costs 13 writes, retiring 12
+uploads for the next sweep. A board takes about 180 bytes of the meta, which a
+publish refuses to let pass 500 KB.
 
 The rules let the accounts on the list `get` these documents and nothing else:
 not list them, which would cost a read for every piece, and not write them, the

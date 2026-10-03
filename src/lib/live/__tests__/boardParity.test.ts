@@ -30,8 +30,14 @@ import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
 import {
   BOARD_HALVES,
   BOARD_RULES,
+  boardViews,
   buildAllBoards,
+  buildBoardsAndFacts,
+  coerceBoardView,
+  livePagesOf,
   ratingPools,
+  withMine,
+  type BoardRow,
   type PageBoard,
 } from "../views/board";
 
@@ -310,6 +316,106 @@ describe("the boards a server builds", () => {
     const built = builtBoards(stored());
     // No -0, NaN, Infinity or key set to undefined: each would come back different from storage.
     expect(JSON.parse(JSON.stringify(built))).toStrictEqual(built);
+  });
+
+  it("publish rows a device stars into the worker's own, saying of each club what the page says", () => {
+    /*
+     * A member's device reads a board as published, after the trip through JSON and the store, and
+     * puts its own star on it (`withMine`): that must be the very board its worker would have
+     * drawn. Each row's facts are what the page says of the club: its town and state off the
+     * year's roster as the page looks a row's club up, and its League badge off the page's
+     * derived games, both written out here as the page writes them, not through the helpers.
+     */
+    const source = stored();
+    const expected = workerBoards(source, false);
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    const views = boardViews(ageGroups, built);
+    expect(views).toHaveLength(expected.size);
+    const told = { city: 0, state: 0, league: 0, unplaced: 0 };
+    for (const { key, value } of views) {
+      const parts = key.split(":");
+      const half = parts.pop()!;
+      const pageId = parts.slice(2).join(":");
+      const page = ageGroups.find((group) => group.id === pageId)!;
+      const year = ageGroupYear(page);
+      expect(key).toBe(`board:${year ?? "none"}:${pageId}:${half}`);
+      const read = coerceBoardView(JSON.parse(JSON.stringify(value)));
+      if (!read) throw new Error(`${key} is not a board as published`);
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason,
+      });
+      const byId = new Map(known.teams.map((team) => [team.id, team]));
+      const leagueIds = new Set(
+        known.derivedGames
+          .filter((game) => game.ageGroupId === pageId)
+          .flatMap((game) => [game.teamAId, game.teamBId])
+      );
+      read.rows.forEach((row) => {
+        const team = byId.get(row.teamId);
+        expect(row.city, `${key} ${row.teamId} town`).toBe(team?.city || undefined);
+        expect(row.state, `${key} ${row.teamId} state`).toBe(team?.state || undefined);
+        expect(row.league, `${key} ${row.teamId} league`).toBe(
+          leagueIds.has(row.teamId) ? true : undefined
+        );
+        if (row.city) told.city += 1;
+        if (row.state) told.state += 1;
+        else told.unplaced += 1;
+        if (row.league) told.league += 1;
+      });
+      const bare = read.rows.map(
+        ({ city: _city, state: _state, league: _league, ...row }): BoardRow => row
+      );
+      const legacy = new Set(known.teams.filter((team) => team.isMine).map((team) => team.id));
+      expect(withMine(bare, page.myTeamId, legacy), key).toStrictEqual(
+        expected.get(`${pageId}:${half}`)
+      );
+    }
+    // The fixture reaches every fact: towns, states, clubs with none, and League badges.
+    expect(
+      Object.values(told).every((count) => count > 0),
+      JSON.stringify(told)
+    ).toBe(true);
+  });
+
+  it("count each page's games by half as the page does, beside its boards", () => {
+    // Pinned from the page's own count (`segmentGames`) on the fixture before it was shared.
+    const pages = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }),
+      "2027-04-15T07:20:00.000Z"
+    );
+    const lastYear = { fall: 714, spring: 1808 };
+    const thisYear = { fall: 1771, spring: 2010 };
+    expect(pages).toEqual({
+      pulledAt: "2027-04-15T07:20:00.000Z",
+      halves: {
+        ag_9u_2026: lastYear,
+        ag_10u_2026: lastYear,
+        ag_11u_2026: lastYear,
+        ag_8u_2027: thisYear,
+        ag_9u_2027: thisYear,
+        ag_10u_2027: thisYear,
+        ag_11u_2027: thisYear,
+        ag_12u_2027: thisYear,
+        ag_13u_2027: thisYear,
+        ag_14u_2027: thisYear,
+        ag_showcase: { fall: 0, spring: 0 },
+      },
+    });
+    // In the order the boards come out in, and with no pull time where the roster was never pulled.
+    expect(Object.keys(pages.halves)).toEqual(ratingPools(ageGroups).flat());
+    expect(livePagesOf(buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }), null)).toEqual({
+      halves: pages.halves,
+    });
+    // A score dated ahead of the day counts in no half, as it rates nobody: a month earlier, the
+    // spring holds fewer.
+    const earlier = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: "2027-03-20" }),
+      null
+    ).halves;
+    expect(earlier.ag_12u_2027).toEqual({ fall: 1771, spring: 1505 });
   });
 
   it("hold still: the whole fixture's boards, pinned on every engine, under these board rules", () => {

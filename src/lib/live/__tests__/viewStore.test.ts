@@ -3,7 +3,7 @@ import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { chunkId } from "../../cloud/cloudManifest";
 import { hashJson, unpackChunks } from "../../cloud/cloudPack";
 import { ageGroupYear, type AgeGroup, type ScoutGame } from "../../teamRankings";
-import { boardViews, buildAllBoards } from "../views/board";
+import { boardViews, buildBoardsAndFacts } from "../views/board";
 import {
   coerceLiveMeta,
   LIVE_FORMAT,
@@ -301,6 +301,69 @@ describe("publishing views", () => {
     expect(after?.inline).toEqual({ pages: ["p"] });
   });
 
+  it("writes the inline values it hands over in place of those names, and keeps the rest", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:1", "one")], 1);
+    const meta = live.meta();
+    if (!meta) throw new Error("no meta");
+    live.setMeta({ ...meta, inline: { pages: { halves: {} }, other: ["kept"] } });
+    const pages = {
+      pulledAt: T,
+      halves: { ag_b: { fall: 1, spring: 2 }, ag_a: { fall: 0, spring: 3 } },
+    };
+    expect(await publish(live, [view("board:1", "one")], 2, { inline: { pages } })).toMatchObject({
+      ok: true,
+      wrote: true,
+    });
+    expect(live.meta()?.inline).toEqual({ other: ["kept"], pages });
+    // The same again writes nothing at all.
+    const { writes } = live.costs;
+    expect(await publish(live, [view("board:1", "one")], 2, { inline: { pages } })).toMatchObject({
+      ok: true,
+      wrote: false,
+    });
+    expect(live.costs.writes).toBe(writes);
+  });
+
+  it("reads inline values back in any order of their fields as the same values", async () => {
+    // A store may hand a map's fields over in an order of its own, as Firestore does: the meta
+    // still says what this publish would write, so it writes nothing.
+    const live = memoryLive();
+    const pages = {
+      pulledAt: T,
+      halves: { ag_b: { fall: 1, spring: 2 }, ag_a: { fall: 0, spring: 3 } },
+    };
+    await publish(live, [view("board:1", "one")], 1, { inline: { pages } });
+    const meta = live.meta();
+    if (!meta) throw new Error("no meta");
+    live.setMeta({
+      ...meta,
+      inline: {
+        pages: {
+          halves: { ag_a: { spring: 3, fall: 0 }, ag_b: { spring: 2, fall: 1 } },
+          pulledAt: T,
+        },
+      },
+    });
+    const { writes } = live.costs;
+    expect(await publish(live, [view("board:1", "one")], 1, { inline: { pages } })).toMatchObject({
+      ok: true,
+      wrote: false,
+    });
+    expect(live.costs.writes).toBe(writes);
+  });
+
+  it("leaves every inline value as it is when it is late", async () => {
+    const live = memoryLive();
+    const newer = { halves: { ag_a: { fall: 5, spring: 5 } } };
+    await publish(live, [view("board:1", "one")], 5, { inline: { pages: newer } });
+    const result = await publish(live, [view("board:1", "older")], 4, {
+      inline: { pages: { halves: { ag_a: { fall: 1, spring: 1 } } } },
+    });
+    expect(result).toMatchObject({ ok: true, refused: 1 });
+    expect(live.meta()?.inline).toEqual({ pages: newer });
+  });
+
   it("replaces every view of a copy made afresh, whatever version it had reached", async () => {
     const live = memoryLive();
     await publish(live, [view("board:k", "old"), view("board:gone", "x")], 9);
@@ -465,6 +528,14 @@ describe("publishing views", () => {
     expect(live.meta()?.inline).toEqual({});
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(["board:a"]);
     expect(await decode(live, "board:a")).toBe("A2");
+    // Its own inline values it writes, and keeps none of the older build's beside them.
+    const pages = { halves: { ag_a: { fall: 1, spring: 1 } } };
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1, inline: { pages: ["p"], other: 1 } });
+    expect(await publish(live, [view("board:a", "A3")], 6, { inline: { pages } })).toMatchObject({
+      ok: true,
+      wrote: true,
+    });
+    expect(live.meta()?.inline).toEqual({ pages });
   });
 
   it("refuses a meta too large for every member to download, and takes back its uploads", async () => {
@@ -884,6 +955,22 @@ describe("the meta as a reader takes it", () => {
     expect(meta?.retired).toEqual(good.retired);
   });
 
+  it("has its inline values in key order all the way down, lists left in their order", () => {
+    const meta = coerceLiveMeta({
+      ...good,
+      inline: {
+        pages: { halves: { b: { spring: 1, fall: 2 }, a: { fall: 3, spring: 4 } } },
+        list: [3, 1],
+      },
+    });
+    expect(JSON.stringify(meta?.inline)).toBe(
+      JSON.stringify({
+        list: [3, 1],
+        pages: { halves: { a: { fall: 3, spring: 4 }, b: { fall: 2, spring: 1 } } },
+      })
+    );
+  });
+
   it.each<[string, unknown]>([
     ["another format", { ...good, format: 2 }],
     ["no copy version", { ...good, copy: { id: COPY } }],
@@ -922,7 +1009,7 @@ describe("the boards as views", () => {
       );
     return boardViews(
       fixture.ageGroups,
-      buildAllBoards({
+      buildBoardsAndFacts({
         ageGroups: fixture.ageGroups,
         teams: fixture.teams,
         gamesOfYear: byYear,
