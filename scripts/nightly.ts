@@ -17,7 +17,8 @@
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
- * the views built from the copy the pull would have saved. `--limit N`
+ * the views built from the copy the pull would have saved. Either way it says, last but for its
+ * memory, how the rebuilds after saves have gone (`describeRebuilds`), read from their ledger. `--limit N`
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
  * timings only: this repository is public, and so are its Actions logs.
  */
@@ -27,6 +28,7 @@ import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
 import { dryLiveStore, publishCopyViews, type CopyPublish } from "../src/lib/live/publishCopy.ts";
+import { describeRebuilds } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { handlerFetch } from "./handlerFetch.ts";
@@ -196,6 +198,15 @@ const main = async (): Promise<void> => {
       );
       process.exitCode = 1;
     }
+  }
+  // Said and never judged: the rebuilds are not this run's work, and a night turned red by them
+  // would read as a refresh that failed.
+  try {
+    for (const line of describeRebuilds(await opened.readLedger())) console.log(line);
+  } catch (error) {
+    console.log(
+      `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
   console.log(
     `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`

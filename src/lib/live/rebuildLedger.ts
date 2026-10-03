@@ -67,9 +67,18 @@ export type Ledger = {
   /** The New York day `dayGiBs` counts, and the month (YYYY-MM) the month's totals count. */
   day: string;
   dayGiBs: number;
+  /**
+   * The runs reserved on `day`, and those of them that failed (`failed`); the same of `month` in
+   * `monthRuns` and `monthFailed`. Only counted, for the nightly to say (`rebuildReport.ts`): no
+   * cap reads them.
+   */
+  dayRuns: number;
+  dayFailed: number;
   month: string;
   monthGiBs: number;
   monthVcpuS: number;
+  monthRuns: number;
+  monthFailed: number;
   /** Failures since the last run that did not fail. */
   failures: number;
   /** The day the failures paused the rebuilds, which they stay paused for. */
@@ -88,6 +97,8 @@ export const REBUILD_LEDGER_PATH = "ops/rebuild";
 
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const isWhole = (value: unknown): value is number => isCount(value) && Number.isInteger(value);
 
 const isCost = (value: unknown): value is RunCost =>
   isRecord(value) && isCount(value.gibs) && isCount(value.vcpuS);
@@ -136,7 +147,13 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   const monthVcpuS = given(raw.monthVcpuS, 0);
   const failures = given(raw.failures, 0);
   if (!isCount(dayGiBs) || !isCount(monthGiBs) || !isCount(monthVcpuS)) return null;
-  if (!isCount(failures) || !Number.isInteger(failures)) return null;
+  if (!isWhole(failures)) return null;
+  const dayRuns = given(raw.dayRuns, 0);
+  const dayFailed = given(raw.dayFailed, 0);
+  const monthRuns = given(raw.monthRuns, 0);
+  const monthFailed = given(raw.monthFailed, 0);
+  if (!isWhole(dayRuns) || !isWhole(dayFailed)) return null;
+  if (!isWhole(monthRuns) || !isWhole(monthFailed)) return null;
   const pausedDay = given(raw.pausedDay, null);
   if (pausedDay !== null && typeof pausedDay !== "string") return null;
   const held = given(raw.open, null);
@@ -162,9 +179,13 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     caps,
     day,
     dayGiBs,
+    dayRuns,
+    dayFailed,
     month,
     monthGiBs,
     monthVcpuS,
+    monthRuns,
+    monthFailed,
     failures,
     pausedDay,
     open,
@@ -184,9 +205,13 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
   },
   day: ledger.day,
   dayGiBs: ledger.dayGiBs,
+  dayRuns: ledger.dayRuns,
+  dayFailed: ledger.dayFailed,
   month: ledger.month,
   monthGiBs: ledger.monthGiBs,
   monthVcpuS: ledger.monthVcpuS,
+  monthRuns: ledger.monthRuns,
+  monthFailed: ledger.monthFailed,
   failures: ledger.failures,
   pausedDay: ledger.pausedDay,
   open: ledger.open && {
@@ -200,13 +225,19 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
 
 const monthOf = (day: string): string => day.slice(0, 7);
 
-/** A failure counted, and the rebuilds paused for `today` once there are enough in a row. */
-const failed = (ledger: Ledger, today: string): Ledger => {
+/**
+ * The failure of a run reserved on `runDay` counted, and the rebuilds paused for `today` once there
+ * are enough in a row. It is a failed run of `runDay` and its month only while the ledger still
+ * counts that day's runs and that month's, so a day's failed runs are always among its runs.
+ */
+const failed = (ledger: Ledger, today: string, runDay: string): Ledger => {
   const failures = ledger.failures + 1;
   return {
     ...ledger,
     failures,
     pausedDay: failures >= ledger.caps.failures ? today : ledger.pausedDay,
+    dayFailed: ledger.dayFailed + (ledger.day === runDay ? 1 : 0),
+    monthFailed: ledger.monthFailed + (ledger.month === monthOf(runDay) ? 1 : 0),
   };
 };
 
@@ -253,14 +284,21 @@ export const reserveRun = (
     }
   }
   let next: Ledger = { ...ledger };
-  if (next.day !== today) next = { ...next, day: today, dayGiBs: 0 };
+  if (next.day !== today) next = { ...next, day: today, dayGiBs: 0, dayRuns: 0, dayFailed: 0 };
   if (next.pausedDay !== null && next.pausedDay !== today) {
     next = { ...next, pausedDay: null, failures: 0 };
   }
   if (next.month !== monthOf(today)) {
-    next = { ...next, month: monthOf(today), monthGiBs: 0, monthVcpuS: 0 };
+    next = {
+      ...next,
+      month: monthOf(today),
+      monthGiBs: 0,
+      monthVcpuS: 0,
+      monthRuns: 0,
+      monthFailed: 0,
+    };
   }
-  if (next.open) next = { ...failed(next, today), open: null };
+  if (next.open) next = { ...failed(next, today, next.open.day), open: null };
   if (next.pausedDay === today) return { ok: false, why: "failing", next };
   if (next.dayGiBs + ceiling.gibs > next.caps.dayGiBs) return { ok: false, why: "day-cap", next };
   if (
@@ -274,8 +312,10 @@ export const reserveRun = (
     next: {
       ...next,
       dayGiBs: next.dayGiBs + ceiling.gibs,
+      dayRuns: next.dayRuns + 1,
       monthGiBs: next.monthGiBs + ceiling.gibs,
       monthVcpuS: next.monthVcpuS + ceiling.vcpuS,
+      monthRuns: next.monthRuns + 1,
       open: { at: now, day: today, cost: { ...ceiling }, task, by },
     },
   };
@@ -312,7 +352,7 @@ export const settleRun = (
       monthVcpuS: swap(next.monthVcpuS, open.cost.vcpuS, run.used.vcpuS),
     };
   }
-  return run.failed ? failed(next, run.today) : { ...next, failures: 0 };
+  return run.failed ? failed(next, run.today, open.day) : { ...next, failures: 0 };
 };
 
 /** The ledger's document: its fields as read, and the token that writes it only if unchanged. */

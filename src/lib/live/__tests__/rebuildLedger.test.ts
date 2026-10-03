@@ -33,9 +33,13 @@ const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   caps: { ...DEFAULT_CAPS },
   day: TODAY,
   dayGiBs: 0,
+  dayRuns: 0,
+  dayFailed: 0,
   month: "2027-04",
   monthGiBs: 0,
   monthVcpuS: 0,
+  monthRuns: 0,
+  monthFailed: 0,
   failures: 0,
   pausedDay: null,
   open: null,
@@ -57,9 +61,13 @@ describe("the ledger as the document holds it", () => {
       caps: DEFAULT_CAPS,
       day: "",
       dayGiBs: 0,
+      dayRuns: 0,
+      dayFailed: 0,
       month: "",
       monthGiBs: 0,
       monthVcpuS: 0,
+      monthRuns: 0,
+      monthFailed: 0,
       failures: 0,
       pausedDay: null,
       open: null,
@@ -72,8 +80,12 @@ describe("the ledger as the document holds it", () => {
     // Everything as written comes back as it was.
     const full = ledger({
       dayGiBs: 2_560,
+      dayRuns: 4,
+      dayFailed: 1,
       monthGiBs: 40_000,
       monthVcpuS: 9_000,
+      monthRuns: 31,
+      monthFailed: 3,
       failures: 2,
       pausedDay: "2027-04-14",
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "T1", by: "h1" },
@@ -123,6 +135,11 @@ describe("the ledger as the document holds it", () => {
       { monthVcpuS: Number.NaN },
       { failures: 1.5 },
       { failures: -1 },
+      { dayRuns: 1.5 },
+      { dayRuns: "3" },
+      { dayFailed: null },
+      { monthRuns: -1 },
+      { monthFailed: Infinity },
       { pausedDay: 5 },
       { open: "yes" },
       { open: { at: NOW, day: TODAY } },
@@ -158,8 +175,10 @@ describe("reserving a run", () => {
       ok: true,
       next: ledger({
         dayGiBs: 100 + 2_560,
+        dayRuns: 1,
         monthGiBs: 1_000 + 2_560,
         monthVcpuS: 10 + 640,
+        monthRuns: 1,
         open: { at: NOW, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 }, task: "", by: "" },
       }),
     });
@@ -220,16 +239,22 @@ describe("reserving a run", () => {
   it("counts a run left open as a failure, its ceiling still charged, and hands that back to write", () => {
     const left = ledger({
       dayGiBs: 2_560,
+      dayRuns: 1,
       monthGiBs: 2_560,
       monthVcpuS: 640,
+      monthRuns: 1,
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" },
     });
     expect(reserveRun(left, TODAY, LATER)).toEqual({
       ok: true,
       next: ledger({
         dayGiBs: 2 * 2_560,
+        dayRuns: 2,
+        dayFailed: 1,
         monthGiBs: 2 * 2_560,
         monthVcpuS: 2 * 640,
+        monthRuns: 2,
+        monthFailed: 1,
         failures: 1,
         open: { at: LATER, day: TODAY, cost: { ...RUN_CEILING }, task: "", by: "" },
       }),
@@ -238,13 +263,20 @@ describe("reserving a run", () => {
     expect(reserveRun({ ...left, failures: 2 }, TODAY, LATER)).toEqual({
       ok: false,
       why: "failing",
-      next: { ...left, failures: 3, pausedDay: TODAY, open: null },
+      next: { ...left, failures: 3, pausedDay: TODAY, dayFailed: 1, monthFailed: 1, open: null },
     });
     // A refusal at the cap still counts the run left open.
     expect(reserveRun({ ...left, dayGiBs: DEFAULT_CAPS.dayGiBs }, TODAY, LATER)).toEqual({
       ok: false,
       why: "day-cap",
-      next: { ...left, dayGiBs: DEFAULT_CAPS.dayGiBs, failures: 1, open: null },
+      next: {
+        ...left,
+        dayGiBs: DEFAULT_CAPS.dayGiBs,
+        failures: 1,
+        dayFailed: 1,
+        monthFailed: 1,
+        open: null,
+      },
     });
   });
 
@@ -296,8 +328,10 @@ describe("reserving a run", () => {
     // while the first try still runs. That try is to settle, not to be counted as dead.
     const trying = ledger({
       dayGiBs: 2_560,
+      dayRuns: 1,
       monthGiBs: 2_560,
       monthVcpuS: 640,
+      monthRuns: 1,
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A", by: "h1" },
     });
     for (const at of [after(1), after(60), after(319)]) {
@@ -312,11 +346,67 @@ describe("reserving a run", () => {
       ok: true,
       next: ledger({
         dayGiBs: 2 * 2_560,
+        dayRuns: 2,
+        dayFailed: 1,
         monthGiBs: 2 * 2_560,
         monthVcpuS: 2 * 640,
+        monthRuns: 2,
+        monthFailed: 1,
         failures: 1,
         open: { at: after(320), day: TODAY, cost: { ...RUN_CEILING }, task: "A", by: "h2" },
       }),
+    });
+  });
+
+  it("counts the runs of the day and the month afresh as their totals are", () => {
+    const counted = ledger({ dayRuns: 5, dayFailed: 2, monthRuns: 30, monthFailed: 4 });
+    expect(reserveRun(counted, TODAY, NOW)).toMatchObject({
+      ok: true,
+      next: { dayRuns: 6, dayFailed: 2, monthRuns: 31, monthFailed: 4 },
+    });
+    expect(reserveRun(counted, "2027-04-16", "2027-04-16T04:30:00.000Z")).toMatchObject({
+      ok: true,
+      next: { dayRuns: 1, dayFailed: 0, monthRuns: 31, monthFailed: 4 },
+    });
+    expect(reserveRun(counted, "2027-05-01", "2027-05-01T04:30:00.000Z")).toMatchObject({
+      ok: true,
+      next: { dayRuns: 1, dayFailed: 0, monthRuns: 1, monthFailed: 0 },
+    });
+    // A refusal counts no run.
+    expect(reserveRun({ ...counted, dayGiBs: DEFAULT_CAPS.dayGiBs }, TODAY, NOW)).toMatchObject({
+      ok: false,
+      why: "day-cap",
+      next: { dayRuns: 5, monthRuns: 30 },
+    });
+  });
+
+  it("counts a run left open from an earlier day as failed only where its runs are still counted", () => {
+    const yesterday = ledger({
+      day: "2027-04-14",
+      dayRuns: 3,
+      monthRuns: 3,
+      open: {
+        at: "2027-04-14T23:58:00.000Z",
+        day: "2027-04-14",
+        cost: { ...RUN_CEILING },
+        task: "",
+        by: "",
+      },
+    });
+    // Yesterday's runs are no longer counted, so today's failed runs stay among today's runs.
+    expect(reserveRun(yesterday, TODAY, NOW)).toMatchObject({
+      ok: true,
+      next: { failures: 1, dayRuns: 1, dayFailed: 0, monthRuns: 4, monthFailed: 1 },
+    });
+    const lastMonth = {
+      ...yesterday,
+      day: "2027-03-31",
+      month: "2027-03",
+      open: { ...yesterday.open!, at: "2027-03-31T23:58:00.000Z", day: "2027-03-31" },
+    };
+    expect(reserveRun(lastMonth, TODAY, NOW)).toMatchObject({
+      ok: true,
+      next: { failures: 1, dayRuns: 1, dayFailed: 0, monthRuns: 1, monthFailed: 0 },
     });
   });
 
@@ -359,7 +449,14 @@ describe("settling a run", () => {
   it("counts a failure, and pauses the rest of the day at the cap", () => {
     expect(
       settleRun({ ...open, failures: 0 }, { at: NOW, used, failed: true, today: TODAY })
-    ).toMatchObject({ failures: 1, pausedDay: null, open: null, dayGiBs: 5_490 });
+    ).toMatchObject({
+      failures: 1,
+      pausedDay: null,
+      open: null,
+      dayGiBs: 5_490,
+      dayFailed: 1,
+      monthFailed: 1,
+    });
     expect(settleRun(open, { at: NOW, used, failed: true, today: TODAY })).toMatchObject({
       failures: 3,
       pausedDay: TODAY,
@@ -398,6 +495,16 @@ describe("settling a run", () => {
       dayGiBs: 0,
       monthGiBs: 20_490,
       monthVcpuS: 3_123,
+    });
+    // And a failure only to the day and month whose runs it is among.
+    expect(settleRun(moved, { at: NOW, used, failed: true, today: TODAY })).toMatchObject({
+      dayFailed: 0,
+      monthFailed: 1,
+    });
+    // A run that failed past midnight is a failed run of the day it was reserved on.
+    expect(settleRun(open, { at: NOW, used, failed: true, today: "2027-04-16" })).toMatchObject({
+      dayFailed: 1,
+      monthFailed: 1,
     });
     const nextMonth = { ...open, month: "2027-05", monthGiBs: 0, monthVcpuS: 0 };
     expect(settleRun(nextMonth, { at: NOW, used, failed: false, today: TODAY })).toMatchObject({
