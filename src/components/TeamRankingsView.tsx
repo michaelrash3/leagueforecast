@@ -17,10 +17,8 @@ import {
   buildUpcomingSchedule,
   countedInWindow,
   countsTowardRating,
-  dateInSquadYear,
   dedupeLeagueFixtures,
   leagueStandIns,
-  deriveLeagueScoutGames,
   filedTeamIds,
   findDuplicateGame,
   gcAgeLevels,
@@ -46,7 +44,6 @@ import {
   withScoreTyped,
   type AgeGroup,
   type AgeGroupSeason,
-  type LeagueSeasonSnapshot,
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
@@ -63,6 +60,7 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
+import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../lib/live/allKnown";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -239,6 +237,13 @@ const AUTOMATIC_INLINE_GAME_LIMIT = 20_000;
 /** What a section is called when a boundary has to say which one could not be drawn. */
 /** Referentially stable, so nothing memoised on "no games" re-runs every render. */
 const NO_STORED_GAMES: ScoutGame[] = [];
+
+/** League Standings seasons as this browser stores them, for `deriveAllKnown`. */
+const readStoredSeason: SeasonReader = (seasonId) => ({
+  teams: loadTeamsForSeason(seasonId),
+  matchups: loadMatchupsForSeason(seasonId),
+  logs: loadLogsForSeason(seasonId),
+});
 
 /**
  * What to say when a whole-pool save turned out not to hold the whole pool.
@@ -652,86 +657,21 @@ export function TeamRankingsView({
   /**
    * Every team and game the app knows about: the persisted scout roster extended (in memory, not
    * yet necessarily saved) with every league team name not already in it, and every game from
-   * every age group, League Standings ones derived alongside. League seasons are read fresh every
-   * render — this view never writes back to League Standings data, only reads it.
-   *
-   * Derived once, over every age group, because a scout id minted for a league team is only unique
-   * against the roster it was minted alongside: `mintScoutTeamId` breaks a name collision by
-   * counting, so "Lexington Legends" is `S-LEXI` when the 9U season is walked first and `S-LEXI2`
-   * when a 10U "Lexington Lions" got there ahead of it. Two passes over different sets of age
-   * groups therefore hand the same club two different ids, and anything that looked a row up in
-   * the other pass's roster would miss, or worse, hit the wrong club. One pass, one set of ids,
-   * and every narrower view below is a filter of it rather than a second derivation.
-   *
-   * Teams already in the stored roster are matched by name and keep the ids they were saved with,
-   * so widening this pass does not renumber anything already on disk.
-   *
-   * A league team Settings links to a club — picked, or the one club of its name on the season's
-   * pages — is carried onto that club instead, read off the games of the year on screen, which is
-   * the year every board here is built from. A season on a page of another year keeps its picks and
-   * goes by name for the rest, as it always has.
+   * every age group, League Standings ones derived alongside (`deriveAllKnown`, which says why it
+   * walks every age group and reads the links off the year on screen). The same function a server
+   * builds its boards from, so the two cannot drift. League seasons are read from storage whenever
+   * this recomputes — this view never writes back to League Standings data, only reads it.
    */
-  const allKnown = useMemo(() => {
-    let teams = scoutTeams;
-    const derivedGames: ScoutGame[] = [];
-    const picked = new Set<string>();
-    const named = new Set<string>();
-    const leagueClubs = new Map<string, Map<string, Map<string, string>>>();
-    const leagueHalves = new Map<string, Map<string, Set<SeasonSegment>>>();
-    const stored = { games: scoutGames, ageGroups };
-    ageGroups.forEach((group) => {
-      const seasons: LeagueSeasonSnapshot[] = group.seasonIds.map((seasonId) => ({
-        seasonId,
-        teams: loadTeamsForSeason(seasonId),
-        matchups: loadMatchupsForSeason(seasonId),
-        logs: loadLogsForSeason(seasonId),
-      }));
-      // The page's squad year supplies the year a League Standings date does not carry.
-      const year = ageGroupYear(group);
-      const derived = deriveLeagueScoutGames(group.id, seasons, teams, year, stored);
-      teams = derived.teams;
-      derivedGames.push(...derived.games);
-      derived.pickedClubIds.forEach((id) => picked.add(id));
-      derived.namedClubIds.forEach((id) => named.add(id));
-      leagueClubs.set(group.id, derived.clubByLeagueTeam);
-      // The halves each season's schedule falls in, dated as its games just were.
-      leagueHalves.set(
-        group.id,
-        new Map(
-          seasons.map(({ seasonId, matchups }) => {
-            const halves = new Set<SeasonSegment>();
-            matchups.forEach((matchup) => {
-              const half = segmentOfDate(dateInSquadYear(matchup.date, year), year);
-              if (half) halves.add(half);
-            });
-            return [seasonId, halves];
-          })
-        )
-      );
-    });
-    // `derivedGames` stays whole — `leagueGameTeamIds` reads it to decide which teams arrived from
-    // the league — while the pool every rating, record and page is built from gets one row per
-    // real fixture, so a pulled copy of a league game does not count the game twice.
-    return {
-      teams,
-      derivedGames,
-      /*
-       * The clubs League Standings reaches only through a person's pick, on every page. A pick
-       * holds by id, so a new name keeps the league's games where they are; a club any season
-       * reaches by its name, a guess or two teams' clashing picks included, loses them to the
-       * rename, and stays locked.
-       */
-      pickedOnly: new Set([...picked].filter((id) => !named.has(id))),
-      /** Page, then league season, then league team, to the club it was carried onto. */
-      leagueClubs,
-      /** Page, then league season, to the halves of the year its schedule is played in. */
-      leagueHalves,
-      games: dedupeLeagueFixtures(
-        [...derivedGames, ...scoutGames],
-        leagueStandIns(teams, ageGroups)
-      ),
-    };
-  }, [ageGroups, scoutGames, scoutTeams]);
+  const allKnown = useMemo(
+    () =>
+      deriveAllKnown({
+        ageGroups,
+        teams: scoutTeams,
+        yearGames: scoutGames,
+        readSeason: readStoredSeason,
+      }),
+    [ageGroups, scoutGames, scoutTeams]
+  );
 
   const allKnownGames = allKnown.games;
 
@@ -774,11 +714,10 @@ export function TeamRankingsView({
    * one was built on every switch for the same games: on the 18:40 pool that was about a second
    * of encoding and copying on the main thread, and a refit in the worker, for nothing.
    */
-  const poolGames = useMemo(() => {
-    const pool = new Set(JSON.parse(poolIds) as string[]);
-    const kept = allKnown.games.filter((game) => pool.has(game.ageGroupId));
-    return kept.length === allKnown.games.length ? allKnown.games : kept;
-  }, [allKnown.games, poolIds]);
+  const poolGames = useMemo(
+    () => gamesOnPages(allKnown.games, JSON.parse(poolIds) as string[]),
+    [allKnown.games, poolIds]
+  );
 
   /**
    * How many counted games each half of this year holds.

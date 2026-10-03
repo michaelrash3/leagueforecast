@@ -11,9 +11,15 @@ import {
   saveTidyStamp,
 } from "../lib/teamRankingsStorage";
 import { poolSignature } from "../lib/gameChangerImport";
-import { saveLogs, saveMatchups, saveTeams, type SeasonMeta } from "../lib/storage";
+import {
+  replaceLeagueSnapshot,
+  saveLogs,
+  saveMatchups,
+  saveTeams,
+  type SeasonMeta,
+} from "../lib/storage";
 import type { AgeUnknownList } from "../lib/ageUnknown";
-import type { GameLog, Matchup, TeamBase } from "../lib/types";
+import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../lib/types";
 import { writeDefaultAge, type DefaultAge } from "../lib/preferences";
 
 /**
@@ -44,6 +50,14 @@ export type Pool = {
    * claims it with `seasonIds: ["default"]`. The view reads it on its first render.
    */
   league?: { teams: TeamBase[]; matchups: Matchup[]; logs: Record<string, GameLog> };
+  /**
+   * Several League Standings seasons by id, for pages that claim more than the one `league` writes.
+   * Written in place of every season stored, as a restore writes them.
+   */
+  leagueSeasons?: Record<
+    string,
+    { teams: TeamBase[]; matchups: Matchup[]; logs: Record<string, GameLog> }
+  >;
   /** The default age this device kept from an earlier visit (`readDefaultAge`). */
   defaultAge?: DefaultAge;
 };
@@ -126,6 +140,17 @@ export const renderTeamRankings = (pool: Pool): Harness => {
     saveTeams(pool.league.teams);
     saveMatchups(pool.league.matchups);
     saveLogs(pool.league.logs);
+  }
+  if (pool.leagueSeasons) {
+    const seasons = Object.entries(pool.leagueSeasons).map(([id, season]) => ({
+      id,
+      name: id,
+      createdAt: "2026-09-01T12:00:00.000Z",
+      ...season,
+      bracketLogs: {},
+      settings: DEFAULT_SETTINGS,
+    }));
+    replaceLeagueSnapshot({ activeSeasonId: seasons[0]?.id ?? "default", seasons });
   }
   if (!pool.untidied) {
     saveTidyStamp(
