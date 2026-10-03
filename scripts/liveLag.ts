@@ -1,10 +1,12 @@
 /**
  * How long a save took to reach the members' boards (README, "Views a server publishes"), read off
- * the rebuilds' own log: each run that published logs when the save that queued it was made and
- * when its boards went up (`handleRebuildTask`), and this prints how many there were and the
- * median, 90th percentile and longest wait between the two.
+ * the log: the trigger's line for each save it queued a rebuild for, and each rebuild's line. A save
+ * reached them with the first live run that wrote boards of its copy at its version or later, once
+ * it was made (`liveLags`); this prints how many saves there were, how many no live rebuild logged
+ * here reached, and the median, 90th percentile and longest wait of the rest.
  *
- *   gcloud logging read 'jsonPayload.end="published"' --freshness=7d --format=json > rebuilds.json
+ *   gcloud logging read 'jsonPayload.event="save" OR jsonPayload.end="published"' \
+ *     --freshness=7d --format=json > rebuilds.json
  *   npm run live:lag -- rebuilds.json
  *
  * It takes Cloud Logging's entries (each line's fields under `jsonPayload`), or the lines alone,
@@ -38,11 +40,15 @@ if (!path) {
 } else {
   const lags = liveLags(linesOf(readFileSync(path, "utf8")));
   if (!lags) {
-    console.log("No run in the log published anything.");
+    console.log("No save in the log.");
   } else {
+    const reached = lags.saves - lags.unmatched;
     console.log(
-      `${lags.runs} runs published: a save reached the boards in ${lags.medianS.toFixed(0)} s ` +
-        `at the median, ${lags.p90S.toFixed(0)} s at the 90th percentile, ${lags.maxS.toFixed(0)} s at most.`
+      `${lags.saves} saves, ${lags.unmatched} reached by no live rebuild logged here.` +
+        (reached === 0
+          ? ""
+          : ` The other ${reached} reached the boards in ${lags.medianS.toFixed(0)} s at the ` +
+            `median, ${lags.p90S.toFixed(0)} s at the 90th percentile, ${lags.maxS.toFixed(0)} s at most.`)
     );
   }
 }

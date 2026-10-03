@@ -395,7 +395,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
     });
     const store = restLedgerStore(docsOn(firestore));
     const reserved = await updateLedger(store, (held) => {
-      const answer = reserveRun(held, "2027-04-15", "2027-04-15T14:00:00.000Z");
+      const answer = reserveRun(held, "2027-04-15", "2027-04-15T14:00:00.000Z", { task: "T1" });
       return { next: answer.next, answer };
     });
     expect(reserved).toMatchObject({ wrote: true, answer: { ok: true } });
@@ -406,7 +406,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
       day: "2027-04-15",
       dayGiBs: 2_560,
       pausedDay: null,
-      open: { at: "2027-04-15T14:00:00.000Z", day: "2027-04-15" },
+      open: { at: "2027-04-15T14:00:00.000Z", day: "2027-04-15", task: "T1" },
     });
     // Every field is written, the ones left out by the owner included, and read back the same.
     expect(Object.keys(written as object).sort()).toEqual(

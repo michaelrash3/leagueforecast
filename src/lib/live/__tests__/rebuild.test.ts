@@ -26,6 +26,7 @@ import {
   isRebuildFailure,
   liveLags,
   RECYCLE_AT,
+  saveLineOf,
   runRebuild,
   shouldRecycle,
   type RebuildResult,
@@ -211,6 +212,7 @@ describe("a rebuild in the worker", () => {
       end: "published",
       retryable: false,
       tries: 1,
+      copy: manifest.copy,
       version: 1,
       cold: true,
       wrote: true,
@@ -232,7 +234,11 @@ describe("a rebuild in the worker", () => {
   it("publishes the version a save mid-load moved the copy to", async () => {
     const cloud = memoryCloud();
     await save(cloud, null, V1);
+    // The boards are version 1's: checked against the manifest it read before the save, the run
+    // would find them current and leave version 2 unpublished.
     const live = memoryLive();
+    await nightly(cloud, live);
+    expect(live.meta()?.built[BOARD_FAMILY]?.v).toBe(1);
     const pool = createPoolCache();
     let saving: Promise<CloudManifest> | null = null;
     const store = readOnly(cloud);
@@ -651,7 +657,10 @@ describe("a rebuild task on the main thread", () => {
     const run = vi.fn<() => Promise<RebuildResult>>();
     const reads = cloud.costs.reads + live.costs.reads;
     const done = await handle({ ledger: ledger.store, cloud, live, run });
-    expect(done).toEqual({ line: { end: "current", version: 1 }, rethrow: false });
+    expect(done).toEqual({
+      line: { end: "current", copy: cloud.manifest()!.copy, version: 1 },
+      rethrow: false,
+    });
     expect(run).not.toHaveBeenCalled();
     expect(ledger.reads.count + cloud.costs.reads + live.costs.reads - reads).toBe(3);
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
@@ -682,7 +691,7 @@ describe("a rebuild task on the main thread", () => {
       pausedDay: TODAY,
     });
     expect(await handle({ ledger: paused.store, cloud, live, run })).toEqual({
-      line: { end: "failing" },
+      line: { end: "failing", copy: cloud.manifest()!.copy, version: 2 },
       rethrow: false,
     });
     const full = memoryLedger({ ...SWITCH, day: TODAY, month: "2027-04", dayGiBs: 9_000 });
@@ -702,8 +711,11 @@ describe("a rebuild task on the main thread", () => {
       clock: () => clock,
       startupS: () => 4,
       task: { copy: "c", kind: "edit", window: 1, savedAt: "2027-04-15T13:58:00.000Z" },
+      taskId: "T1",
       run: async (request) => {
         asked.push(request);
+        // Reserved under the queue's name for the task.
+        expect(ledger.held()?.open).toMatchObject({ at: NOW, task: "T1" });
         clock += 57_000;
         return {
           end: "published",
@@ -726,11 +738,11 @@ describe("a rebuild task on the main thread", () => {
         version: 2,
         boards: 33,
         wrote: true,
+        copy: cloud.manifest()!.copy,
         mode: "dry",
         gibs: 488,
         vcpuS: 122,
         settled: true,
-        publishedAt: NOW,
       },
       rethrow: false,
     });
@@ -741,6 +753,127 @@ describe("a rebuild task on the main thread", () => {
       failures: 0,
       open: null,
     });
+  });
+
+  it("says when its boards went up only for a live run that wrote them", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    for (const [wrote, at] of [
+      [true, NOW],
+      [false, undefined],
+    ] as const) {
+      const done = await handle({
+        ledger: memoryLedger(SWITCH).store,
+        cloud,
+        live,
+        run: async () => ({ end: "published", retryable: false, tries: 1, version: 2, wrote }),
+      });
+      expect(done.line.publishedAt).toBe(at);
+    }
+  });
+
+  it("leaves boards for a later day, a newer build's, and a meta it cannot read before reserving", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const meta = live.meta()!;
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    const cases: Array<[unknown, string]> = [
+      [
+        {
+          ...meta,
+          built: { [BOARD_FAMILY]: { ...meta.built[BOARD_FAMILY]!, today: "9999-12-31" } },
+        },
+        "older-day",
+      ],
+      [{ ...meta, schema: LIVE_SCHEMA + 1 }, "newer-live-schema"],
+      [{ format: "nonsense" }, "unreadable"],
+    ];
+    for (const [raw, end] of cases) {
+      live.setMeta(raw);
+      const ledger = memoryLedger(SWITCH);
+      expect((await handle({ ledger: ledger.store, cloud, live, run })).line.end, end).toBe(end);
+      expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("waits on another task's run still going, and asks the queue to try again", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const going = {
+      ...SWITCH,
+      day: TODAY,
+      month: "2027-04",
+      dayGiBs: 2_560,
+      monthGiBs: 2_560,
+      monthVcpuS: 640,
+      open: {
+        at: "2027-04-15T13:59:00.000Z",
+        day: TODAY,
+        cost: { gibs: 2_560, vcpuS: 640 },
+        task: "other",
+      },
+    };
+    const ledger = memoryLedger(going);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    expect(await handle({ ledger: ledger.store, cloud, live, run, taskId: "mine" })).toMatchObject({
+      line: { end: "busy" },
+      rethrow: true,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()).toMatchObject({ failures: 0, open: { task: "other" } });
+  });
+
+  it("keeps its own reservation whose answer was lost, and runs once", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    let lost = false;
+    const losing: LedgerStore = {
+      read: ledger.store.read,
+      replace: async (token, next) => {
+        const landed = await ledger.store.replace(token, next);
+        if (!lost) {
+          lost = true;
+          throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        }
+        return landed;
+      },
+    };
+    const run = vi.fn(async (): Promise<RebuildResult> => ({
+      end: "published",
+      retryable: false,
+      tries: 1,
+    }));
+    const done = await handle({ ledger: losing, cloud, live, run, taskId: "T1" });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(done).toMatchObject({ line: { end: "published", settled: true }, rethrow: false });
+    // Charged once, and settled at what the run took (no time on this clock).
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
+  it("says a settle it could not write, and leaves the retry to how the run ended", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    let ran = false;
+    const failing: LedgerStore = {
+      read: async () => {
+        if (ran) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return ledger.store.read();
+      },
+      replace: ledger.store.replace,
+    };
+    const done = await handle({
+      ledger: failing,
+      cloud,
+      live,
+      run: async () => {
+        ran = true;
+        return { end: "published", retryable: false, tries: 1, version: 2, wrote: true };
+      },
+    });
+    expect(done).toMatchObject({
+      line: { end: "published", settled: false, settleError: expect.stringMatching(/503/) },
+      rethrow: false,
+    });
+    // The reservation stands, its ceiling charged, for the next reserve to count.
+    expect(ledger.held()?.open).toMatchObject({ at: NOW });
   });
 
   it("settles a worker that threw as failed, and throws for the queue to try again", async () => {
@@ -797,27 +930,63 @@ describe("when to start a fresh worker", () => {
 });
 
 describe("how long a save took to reach the boards", () => {
-  it("is read off the lines of the runs that published", () => {
-    const line = (savedAt: string, publishedAt: string, end = "published") => ({
-      end,
-      savedAt,
-      publishedAt,
-    });
+  const ask = (copy: string, version: number) => ({
+    kind: "edit" as const,
+    copy,
+    version,
+    reset: false,
+  });
+  const ran = (
+    copy: string,
+    version: number,
+    publishedAt: string,
+    more: Record<string, unknown> = {}
+  ) => ({ end: "published", mode: "live", wrote: true, copy, version, publishedAt, ...more });
+
+  it("is each logged save's wait for the first live run that wrote its version or a later one", () => {
     const lines = [
-      line("2027-04-15T10:00:00.000Z", "2027-04-15T10:02:20.000Z"),
-      line("2027-04-15T11:00:00.000Z", "2027-04-15T11:02:40.000Z"),
-      line("2027-04-15T12:00:00.000Z", "2027-04-15T12:03:00.000Z"),
-      line("2027-04-15T13:00:00.000Z", "2027-04-15T13:12:00.000Z"),
-      // Not published, unreadable, or out of order: not counted.
-      line("2027-04-15T14:00:00.000Z", "2027-04-15T14:01:00.000Z", "current"),
-      line("2027-04-15T15:00:00.000Z", "yesterday"),
-      line("2027-04-15T16:00:00.000Z", "2027-04-15T15:00:00.000Z"),
-      { end: "published" },
+      saveLineOf(ask("c", 4), "2027-04-15T10:00:00.000Z"),
+      saveLineOf(ask("c", 5), "2027-04-15T10:01:00.000Z"),
+      // Its own window's run was refused; the next window's covers it.
+      saveLineOf(ask("c", 6), "2027-04-15T10:05:00.000Z"),
+      saveLineOf(ask("c", 7), "2027-04-15T10:09:00.000Z"),
+      // Covered by nothing logged here (the nightly, say): counted, not read as quick.
+      saveLineOf(ask("c", 9), "2027-04-15T11:00:00.000Z"),
+      // Lines in any order: the run of version 7 is logged first.
+      ran("c", 7, "2027-04-15T10:11:30.000Z"),
+      ran("c", 5, "2027-04-15T10:03:05.000Z"),
+      // A late run of an older version, after a newer save: not that save's publish.
+      ran("c", 5, "2027-04-15T10:06:00.000Z"),
+      // Stamped before the save, by a clock behind the trigger's: not a wait below nothing.
+      ran("c", 9, "2027-04-15T10:59:00.000Z"),
+      // Not reaching anyone: a dry run, one that wrote nothing, another copy's, one before the save.
+      ran("c", 9, "2027-04-15T11:01:00.000Z", { mode: "dry" }),
+      ran("c", 9, "2027-04-15T11:02:00.000Z", { wrote: false }),
+      ran("other", 9, "2027-04-15T11:03:00.000Z"),
+      { end: "busy", copy: "c", version: 9 },
       "a line of text",
       null,
     ];
-    expect(liveLags(lines)).toEqual({ runs: 4, medianS: 170, p90S: 720, maxS: 720 });
-    expect(liveLags(lines.slice(0, 3))).toEqual({ runs: 3, medianS: 160, p90S: 180, maxS: 180 });
-    expect(liveLags([])).toBeNull();
+    // 10:00 → 10:03:05 is 185 s; 10:01 → 185 - 60 = 125 s; 10:05 → 10:11:30 is 390 s; 10:09 → 150 s.
+    expect(liveLags(lines)).toEqual({
+      saves: 5,
+      unmatched: 1,
+      medianS: (150 + 185) / 2,
+      p90S: 390,
+      maxS: 390,
+    });
+    expect(liveLags(lines.slice(1, 4).concat(lines.slice(5, 9)))).toMatchObject({
+      saves: 3,
+      unmatched: 0,
+      medianS: 150,
+    });
+    expect(liveLags([ran("c", 1, "2027-04-15T10:00:00.000Z")])).toBeNull();
+    expect(liveLags([saveLineOf(ask("c", 1), "2027-04-15T10:00:00.000Z")])).toEqual({
+      saves: 1,
+      unmatched: 1,
+      medianS: 0,
+      p90S: 0,
+      maxS: 0,
+    });
   });
 });

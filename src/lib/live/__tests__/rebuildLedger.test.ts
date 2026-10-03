@@ -20,7 +20,10 @@ import {
 
 const TODAY = "2027-04-15";
 const NOW = "2027-04-15T14:00:00.000Z";
-const LATER = "2027-04-15T14:05:00.000Z";
+/** Longer after `NOW` than a run can last: a run reserved at `NOW` is over by then. */
+const LATER = "2027-04-15T14:06:00.000Z";
+/** Seconds after `NOW`. */
+const after = (seconds: number) => new Date(Date.parse(NOW) + seconds * 1000).toISOString();
 
 /** A ledger switched on, with nothing spent this day or month, as `coerceLedger` reads one. */
 const ledger = (more: Partial<Ledger> = {}): Ledger => ({
@@ -73,7 +76,7 @@ describe("the ledger as the document holds it", () => {
       monthVcpuS: 9_000,
       failures: 2,
       pausedDay: "2027-04-14",
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING } },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
     });
     expect(coerceLedger(JSON.parse(JSON.stringify(full)))).toEqual(full);
   });
@@ -122,6 +125,7 @@ describe("the ledger as the document holds it", () => {
       { open: { at: NOW, day: TODAY, cost: { gibs: -1, vcpuS: 0 } } },
       { open: { at: 5, day: TODAY, cost: RUN_CEILING } },
       { open: { at: NOW, day: null, cost: RUN_CEILING } },
+      { open: { at: NOW, day: TODAY, cost: RUN_CEILING, task: 5 } },
     ];
     for (const fields of bad) {
       expect(coerceLedger({ on: true, ...fields }), JSON.stringify(fields)).toBeNull();
@@ -151,7 +155,7 @@ describe("reserving a run", () => {
         dayGiBs: 100 + 2_560,
         monthGiBs: 1_000 + 2_560,
         monthVcpuS: 10 + 640,
-        open: { at: NOW, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 } },
+        open: { at: NOW, day: TODAY, cost: { gibs: 2_560, vcpuS: 640 }, task: "" },
       }),
     });
     expect(RUN_CEILING).toEqual({ gibs: (300 + 20) * 8, vcpuS: (300 + 20) * 2 });
@@ -213,7 +217,7 @@ describe("reserving a run", () => {
       dayGiBs: 2_560,
       monthGiBs: 2_560,
       monthVcpuS: 640,
-      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING } },
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
     });
     expect(reserveRun(left, TODAY, LATER)).toEqual({
       ok: true,
@@ -222,7 +226,7 @@ describe("reserving a run", () => {
         monthGiBs: 2 * 2_560,
         monthVcpuS: 2 * 640,
         failures: 1,
-        open: { at: LATER, day: TODAY, cost: { ...RUN_CEILING } },
+        open: { at: LATER, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
       }),
     });
     // The third in a row pauses the rebuilds for the day, and the refusal is written with it.
@@ -236,6 +240,68 @@ describe("reserving a run", () => {
       ok: false,
       why: "day-cap",
       next: { ...left, dayGiBs: DEFAULT_CAPS.dayGiBs, failures: 1, open: null },
+    });
+  });
+
+  it("is busy while another task's run reserved within a run's span may still be going", () => {
+    const going = ledger({
+      dayGiBs: 2_560,
+      monthGiBs: 2_560,
+      monthVcpuS: 640,
+      failures: 2,
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+    });
+    // Neither counted nor cleared, and nothing written: that run is still to settle.
+    for (const at of [after(1), after(319), after(-30)]) {
+      expect(reserveRun(going, TODAY, at, { task: "B" }), at).toEqual({
+        ok: false,
+        why: "busy",
+        next: null,
+      });
+    }
+    // A run's span on, it never settled: counted, and this one runs.
+    expect(reserveRun(going, TODAY, after(320), { task: "B" })).toMatchObject({
+      ok: false,
+      why: "failing",
+      next: { failures: 3, pausedDay: TODAY, open: null },
+    });
+    expect(reserveRun({ ...going, failures: 0 }, TODAY, after(320), { task: "B" })).toMatchObject({
+      ok: true,
+      next: { failures: 1, open: { at: after(320), task: "B" } },
+    });
+    // A clock far ahead of this one, or a time no one can read, is no run going.
+    for (const at of ["2027-04-15T14:02:00.000Z", "whenever"]) {
+      expect(
+        reserveRun({ ...going, failures: 0, open: { ...going.open!, at } }, TODAY, NOW, {
+          task: "B",
+        }),
+        at
+      ).toMatchObject({ ok: true, next: { failures: 1 } });
+    }
+    // Two runs that do not say which task they run are two tasks.
+    expect(
+      reserveRun({ ...going, open: { ...going.open!, task: "" } }, TODAY, after(60))
+    ).toMatchObject({ why: "busy" });
+  });
+
+  it("counts its own task's earlier try as never settled, however recent", () => {
+    // The queue tries a task again only once its try has ended, so a reservation of that same
+    // task still open is one that died.
+    const died = ledger({
+      dayGiBs: 2_560,
+      monthGiBs: 2_560,
+      monthVcpuS: 640,
+      open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+    });
+    expect(reserveRun(died, TODAY, after(60), { task: "A" })).toEqual({
+      ok: true,
+      next: ledger({
+        dayGiBs: 2 * 2_560,
+        monthGiBs: 2 * 2_560,
+        monthVcpuS: 2 * 640,
+        failures: 1,
+        open: { at: after(60), day: TODAY, cost: { ...RUN_CEILING }, task: "A" },
+      }),
     });
   });
 
@@ -264,7 +330,7 @@ describe("settling a run", () => {
     monthGiBs: 20_000 + 2_560,
     monthVcpuS: 3_000 + 640,
     failures: 2,
-    open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING } },
+    open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "" },
   });
   const used = runCost(61.2, { gib: 8, cpu: 2 });
 
@@ -410,21 +476,96 @@ describe("writing the ledger", () => {
     expect(doc.held()).toMatchObject({ dayGiBs: 0, open: null });
   });
 
-  it("lets two runs reserving at once have the headroom for one only one of them", async () => {
-    const doc = memoryLedger(ledger({ dayGiBs: DEFAULT_CAPS.dayGiBs - RUN_CEILING.gibs }));
+  it("lets one of two runs reserving at once run, and leaves the other's run to settle", async () => {
+    const doc = memoryLedger(ledger({ failures: 2 }));
+    const reserve = (at: string, task: string) => (held: Ledger | null) => {
+      const reserved = reserveRun(held, TODAY, at, { task });
+      return { next: reserved.next, answer: reserved };
+    };
     const answers = await Promise.all([
-      updateLedger(doc.store, reserving),
-      updateLedger(doc.store, (held) => {
-        const reserved = reserveRun(held, TODAY, LATER);
-        return { next: reserved.next, answer: reserved };
-      }),
+      updateLedger(doc.store, reserve(NOW, "A")),
+      updateLedger(doc.store, reserve(after(5), "B")),
     ]);
-    const oks = answers.map((answer) => "answer" in answer && answer.answer.ok);
-    expect(oks.filter(Boolean)).toHaveLength(1);
-    expect(answers).toContainEqual(
-      expect.objectContaining({ answer: expect.objectContaining({ why: "day-cap" }) })
-    );
-    expect(doc.held()?.dayGiBs).toBe(DEFAULT_CAPS.dayGiBs);
+    expect(answers.map((answer) => "answer" in answer && answer.answer.ok)).toEqual([true, false]);
+    expect(answers[1]).toMatchObject({ answer: { why: "busy" }, wrote: false });
+    // The winner's reservation stands, charged once and counted as nothing gone wrong.
+    expect(doc.held()).toMatchObject({ dayGiBs: 2_560, failures: 2, open: { at: NOW, task: "A" } });
+    const settled = await updateLedger(doc.store, (held) => ({
+      next: settleRun(held, {
+        at: NOW,
+        used: { gibs: 80, vcpuS: 20 },
+        failed: false,
+        today: TODAY,
+      }),
+      answer: null,
+    }));
+    expect(settled).toEqual({ answer: null, wrote: true });
+    expect(doc.held()).toMatchObject({ dayGiBs: 80, failures: 0, open: null });
+  });
+
+  it("tries a read or a write that throws again, and throws only when the last try does", async () => {
+    const doc = memoryLedger({ on: true });
+    const read = doc.store.read;
+    let reads = 0;
+    const flaky: LedgerStore = {
+      read: async () => {
+        reads += 1;
+        if (reads === 1) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return read();
+      },
+      replace: doc.store.replace,
+    };
+    expect(await updateLedger(flaky, reserving)).toMatchObject({
+      wrote: true,
+      answer: { ok: true },
+    });
+    expect(doc.held()?.open?.at).toBe(NOW);
+
+    // A settle whose write landed though its answer was lost is read back, and not made twice.
+    let lost = true;
+    const losing: LedgerStore = {
+      read: doc.store.read,
+      replace: async (token, next) => {
+        const landed = await doc.store.replace(token, next);
+        if (lost) {
+          lost = false;
+          throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        }
+        return landed;
+      },
+    };
+    const settle = (held: Ledger | null) => ({
+      next: settleRun(held, {
+        at: NOW,
+        used: { gibs: 80, vcpuS: 20 },
+        failed: false,
+        today: TODAY,
+      }),
+      answer: null,
+    });
+    expect(await updateLedger(losing, settle)).toEqual({ answer: null, wrote: false });
+    expect(doc.held()).toMatchObject({ dayGiBs: 80, monthVcpuS: 20, open: null });
+
+    const down: LedgerStore = {
+      read: vi.fn(async (): Promise<{ raw: unknown; token: string | null }> => {
+        throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+      }),
+      replace: doc.store.replace,
+    };
+    await expect(updateLedger(down, reserving)).rejects.toThrow(/503/);
+    expect(down.read).toHaveBeenCalledTimes(3);
+
+    // A throw and then writers that keep getting in first: contended, not the throw.
+    let tried = 0;
+    const busyThenMoving: LedgerStore = {
+      read: async () => {
+        tried += 1;
+        if (tried === 1) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return { raw: { on: true }, token: `t${tried}` };
+      },
+      replace: async () => false,
+    };
+    expect(await updateLedger(busyThenMoving, reserving)).toEqual({ contended: true });
   });
 
   it("writes the ledger it settles over the one it reserved", async () => {

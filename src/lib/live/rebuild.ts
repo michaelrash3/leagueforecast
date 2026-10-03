@@ -10,7 +10,7 @@ import {
   updateLedger,
   type LedgerStore,
 } from "./rebuildLedger";
-import type { RebuildTask } from "./rebuildPlan";
+import type { RebuildAsk, RebuildTask } from "./rebuildPlan";
 import { coerceLiveMeta, type LiveStore } from "./viewStore";
 
 /**
@@ -53,7 +53,8 @@ export type RebuildResult = {
   retryable: boolean;
   /** Runs through it: a second when the New York day turned while it ran. */
   tries: number;
-  /** The copy's version it loaded, and how: started afresh, the parts and pieces read, how long. */
+  /** The copy and version it loaded, and how: started afresh, the parts and pieces read, how long. */
+  copy?: string;
   version?: number;
   cold?: boolean;
   fetched?: number;
@@ -141,6 +142,7 @@ export const runRebuild = async ({
     }
     const base = {
       tries,
+      copy: ensured.manifest.copy,
       version: ensured.manifest.version,
       cold: ensured.cold,
       fetched: ensured.fetched.length,
@@ -198,13 +200,17 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * 1. The switch (`ops/rebuild`): absent, unreadable or off ends it.
  * 2. Whether the published boards are already the copy's, or another's to leave alone: the ledger,
  *    the manifest and the meta, three reads, reserving nothing and starting no worker.
- * 3. A reservation of the run's ceiling, which the caps or a pause may refuse.
+ * 3. A reservation of the run's ceiling, which the caps, a pause or another task's run still going
+ *    may refuse. A reservation whose write landed though its answer was lost is found on the next
+ *    try as this run's own, and kept.
  * 4. The run, in the worker (`run`), dry or live and warm or not as the switch says.
  * 5. What it cost put in place of its ceiling, from the time since this began plus the instance's
- *    start-up (`startupS`), and the run counted as failed if it threw or ended in a failure.
+ *    start-up (`startupS`), and the run counted as failed if it threw or ended in a failure. A
+ *    settle that cannot be written is said in the line, and left for the next reserve to count.
  *
- * It answers one line to log, and whether to throw so the queue tries the task again: only for a
- * run that threw or ended in something that moved under it.
+ * It answers one line to log, and whether to throw so the queue tries the task again: for a run
+ * that threw or ended in something that moved under it, and for one that waited on another task's
+ * run still going.
  */
 export const handleRebuildTask = async ({
   ledger,
@@ -217,6 +223,7 @@ export const handleRebuildTask = async ({
   size,
   startupS,
   task,
+  taskId = "",
 }: {
   ledger: LedgerStore;
   copyStore: CloudStore;
@@ -231,6 +238,8 @@ export const handleRebuildTask = async ({
   startupS: () => number;
   /** The task as queued, for the line: when the save that asked for it was made. */
   task?: RebuildTask;
+  /** The queue's name for the task, the same on each of its tries. */
+  taskId?: string;
 }): Promise<{ line: Record<string, string | number | boolean>; rethrow: boolean }> => {
   const began = clock();
   const asked: Record<string, string> = task ? { kind: task.kind, savedAt: task.savedAt } : {};
@@ -241,23 +250,31 @@ export const handleRebuildTask = async ({
 
   const manifest = await copyStore.readManifest();
   if (!manifest) return { line: { ...asked, end: "no-copy" }, rethrow: false };
+  const loaded = { copy: manifest.copy, version: manifest.version };
   const read = await liveStore.readMeta();
   const meta = read ? coerceLiveMeta(read.meta) : null;
-  if (read && !meta) return { line: { ...asked, end: "unreadable" }, rethrow: false };
+  if (read && !meta) return { line: { ...asked, ...loaded, end: "unreadable" }, rethrow: false };
   const state = await boardsState(meta, manifest, day);
   if (state !== "stale") {
     const end = state === "newer-schema" ? "newer-live-schema" : state;
-    return { line: { ...asked, end, version: manifest.version }, rethrow: false };
+    return { line: { ...asked, ...loaded, end }, rethrow: false };
   }
 
   const at = now();
   const reserved = await updateLedger(ledger, (current) => {
-    const answer = reserveRun(current, day, at);
+    // This run's own reservation, written by a try whose answer was lost.
+    if (current?.open?.at === at && current.open.task === taskId) {
+      return { next: null, answer: { ok: true as const, next: current } };
+    }
+    const answer = reserveRun(current, day, at, { task: taskId });
     return { next: answer.next, answer };
   });
-  if ("contended" in reserved) return { line: { ...asked, end: "contended" }, rethrow: false };
+  if ("contended" in reserved) {
+    return { line: { ...asked, ...loaded, end: "contended" }, rethrow: false };
+  }
   if (!reserved.answer.ok) {
-    return { line: { ...asked, end: reserved.answer.why }, rethrow: false };
+    const why = reserved.answer.why;
+    return { line: { ...asked, ...loaded, end: why }, rethrow: why === "busy" };
   }
   const { mode, warm } = reserved.answer.next;
 
@@ -270,23 +287,34 @@ export const handleRebuildTask = async ({
   }
   const failed = result === null || isRebuildFailure(result.end);
   const used = runCost((clock() - began) / 1000 + startupS(), size);
-  const settled = await updateLedger(ledger, (current) => ({
-    next: settleRun(current, { at, used, failed, today: today() }),
-    answer: null,
-  }));
+  let settled = false;
+  let settleError: string | null = null;
+  try {
+    const answer = await updateLedger(ledger, (current) => ({
+      next: settleRun(current, { at, used, failed, today: today() }),
+      answer: null,
+    }));
+    settled = "answer" in answer && answer.wrote;
+  } catch (thrown) {
+    settleError = thrown instanceof Error ? thrown.message : String(thrown);
+  }
 
   const { retryable = true, ...ran } = result ?? {};
+  // A save reached the members' boards only when a live run wrote them.
+  const published = mode === "live" && result?.end === "published" && result.wrote === true;
   return {
     line: {
       ...asked,
+      ...loaded,
       ...ran,
       end: result?.end ?? "threw",
       ...(error === null ? {} : { error }),
       mode,
       gibs: used.gibs,
       vcpuS: used.vcpuS,
-      settled: "answer" in settled && settled.wrote,
-      ...(result?.end === "published" ? { publishedAt: now() } : {}),
+      settled,
+      ...(settleError === null ? {} : { settleError }),
+      ...(published ? { publishedAt: now() } : {}),
     },
     rethrow: retryable,
   };
@@ -308,29 +336,73 @@ export const shouldRecycle = (
   runs >= RECYCLE_AT.runs;
 
 /**
- * How long a save took to reach the members' boards, from the rebuilds' log lines: for each run
- * that published, from the save that queued its task to the publish. Coalesced saves share the
- * first save's task, so this is the wait of the first save in each window, the longest of them.
+ * The line the trigger logs for a save it queued a rebuild for, which `liveLags` reads beside the
+ * rebuilds' own lines: the copy, its version, and Firestore's time for the save.
+ */
+export const saveLineOf = (ask: RebuildAsk, savedAt: string) => ({
+  event: "save",
+  copy: ask.copy,
+  v: ask.version,
+  savedAt,
+});
+
+/**
+ * How long each save took to reach the members' boards, from the log: the trigger's line for each
+ * save it queued a rebuild for (`saveLineOf`), and each rebuild's line. A save reached them with
+ * the first live run that wrote boards of its copy at its version or a later one, once it was made:
+ * a run of its own window or a later one's, whatever order the lines came in. Dry runs, runs that
+ * wrote nothing and the nightly's publishes (logged elsewhere) reach no one here, so a save they
+ * alone covered is counted as unmatched rather than read as quick.
  */
 export const liveLags = (
   lines: readonly unknown[]
-): { runs: number; medianS: number; p90S: number; maxS: number } | null => {
-  const lags = lines
-    .flatMap((line) => {
-      if (typeof line !== "object" || line === null) return [];
-      const { end, savedAt, publishedAt } = line as Record<string, unknown>;
-      if (end !== "published" || typeof savedAt !== "string" || typeof publishedAt !== "string") {
-        return [];
-      }
-      const seconds = (Date.parse(publishedAt) - Date.parse(savedAt)) / 1000;
-      return Number.isFinite(seconds) && seconds >= 0 ? [seconds] : [];
+): {
+  saves: number;
+  unmatched: number;
+  medianS: number;
+  p90S: number;
+  maxS: number;
+} | null => {
+  const records = lines.flatMap((line) =>
+    typeof line === "object" && line !== null ? [line as Record<string, unknown>] : []
+  );
+  const saves = records.flatMap(({ event, copy, v, savedAt }) => {
+    const at = typeof savedAt === "string" ? Date.parse(savedAt) : Number.NaN;
+    return event === "save" &&
+      typeof copy === "string" &&
+      typeof v === "number" &&
+      !Number.isNaN(at)
+      ? [{ copy, v, at }]
+      : [];
+  });
+  const publishes = records
+    .flatMap(({ end, mode, wrote, copy, version, publishedAt }) => {
+      const at = typeof publishedAt === "string" ? Date.parse(publishedAt) : Number.NaN;
+      return end === "published" &&
+        mode === "live" &&
+        wrote === true &&
+        typeof copy === "string" &&
+        typeof version === "number" &&
+        !Number.isNaN(at)
+        ? [{ copy, version, at }]
+        : [];
+    })
+    .sort((a, b) => a.at - b.at);
+  if (saves.length === 0) return null;
+  const lags = saves
+    .flatMap((save) => {
+      const reached = publishes.find(
+        (one) => one.copy === save.copy && one.version >= save.v && one.at >= save.at
+      );
+      return reached ? [(reached.at - save.at) / 1000] : [];
     })
     .sort((a, b) => a - b);
-  if (lags.length === 0) return null;
+  const unmatched = saves.length - lags.length;
+  if (lags.length === 0) return { saves: saves.length, unmatched, medianS: 0, p90S: 0, maxS: 0 };
   const at = (share: number) =>
     lags[Math.min(lags.length - 1, Math.ceil(share * lags.length) - 1)]!;
   const middle = lags.length / 2;
   const medianS =
     lags.length % 2 === 1 ? lags[Math.floor(middle)]! : (lags[middle - 1]! + lags[middle]!) / 2;
-  return { runs: lags.length, medianS, p90S: at(0.9), maxS: lags[lags.length - 1]! };
+  return { saves: saves.length, unmatched, medianS, p90S: at(0.9), maxS: lags[lags.length - 1]! };
 };

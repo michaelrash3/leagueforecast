@@ -3523,8 +3523,9 @@ A save that moved nothing a board reads (a refresh log, a tidy stamp, a cadence,
 a list, an archive's rows, or only the earlier versions kept) asks for none; nor
 does a deleted copy, or one this build cannot read. A copy's first save, and the
 first of a new copy, always asks. Every save in a window shares one queued task,
-whose id is a hash of the copy, the kind and the window, so a burst of edits is
-one rebuild: two minutes for a device's saves, run five seconds after the window
+whose id is a hash of the kind and the window, so a burst of edits is one
+rebuild, and so is a burst of saves each under a new copy id (a run builds
+whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
 closes; a quarter of an hour for a server's (the nightly, a cloud pull, a server's
 edit), run ten minutes after, by which time that server's own publish should be
 in and the rebuild finds the boards current for three reads. Who saved is
@@ -3547,10 +3548,15 @@ GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
 puts what it cost in place of it when it ends. A run that never ends leaves its
 ceiling charged, and the next reserve counts it as a failure; the third failure
 in a row pauses the rebuilds for the rest of the day, and a run that does not
-fail clears the count. Every write is a read and then a replace only over the
-version read, tried three times, so two runs reserving at once cannot both
-spend the same headroom, and an owner turning the switch is read before
-anything is written over it. `rebuildLedger.test.ts` holds each rule, and the
+fail clears the count. Another task's run reserved less than a run's span ago
+(320 s) may still be going, so a reserve then waits (`busy`, and the queue tries
+it again) rather than counting that run as dead and dropping the settle it is
+still to make; a retry of the same task counts its own earlier try at once.
+Every write is a read and then a replace only over the version read, tried three
+times, as is a read or write that throws, so two runs reserving at once cannot
+both spend the same headroom, an owner turning the switch is read before
+anything is written over it, and a write that landed though its answer was lost
+is found on the next read. `rebuildLedger.test.ts` holds each rule, and the
 rules test on the emulator holds the document shut to every browser; each guard
 was broken in turn and seen to fail a test.
 
@@ -3570,10 +3576,15 @@ and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
 a failure a run that threw, and one that ended on anything but its job done or a
 newer one's (a copy or a meta it cannot read, a store that refused, something
 that kept moving under it), and asks the queue for a retry only for one that
-threw or that something kept moving under. Each run logs one line, with the save
-that queued it and when its boards went up; `npm run live:lag -- rebuilds.json`
-reads those lines from Cloud Logging and prints the median, 90th-percentile and
-longest wait from a save to the members' boards. `rebuild.test.ts` holds the
+threw or that something kept moving under, or that waited on another run. A
+settle that cannot be written is said in the line and left for the next reserve
+to count. Each run logs one line, with its copy and version and, for a live run
+that wrote boards, when they went up; the trigger logs a line for each save it
+queues (`saveLineOf`). `npm run live:lag -- rebuilds.json` reads both from Cloud
+Logging and joins them: each save reached the members' boards with the first
+live run that wrote its copy at its version or a later one, and it prints the
+median, 90th-percentile and longest wait, and how many saves no logged run
+reached (the nightly's publishes are logged on GitHub, not here). `rebuild.test.ts` holds the
 worker's half against the copy and `live/` in memory on a seeded pool, its views
 the very ones the nightly publishes from the same copy, and the main thread's
 against a stand-in worker; each guard was broken in turn and seen to fail a test.

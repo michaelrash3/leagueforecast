@@ -17,11 +17,14 @@ import { isRecord } from "../validate";
 /** A run's cost in GiB-seconds of memory and vCPU-seconds, as Cloud Run bills a function's time. */
 export type RunCost = { gibs: number; vcpuS: number };
 
+/** How long a run can last at most: a rebuild's 300 s timeout and 20 s of start-up. */
+export const RUN_SPAN_S = 320;
+
 /**
- * What a run may cost at most: a rebuild's 300 s timeout and 20 s of start-up, at 8 GiB and two
- * vCPUs. Charged whole when a run is reserved, so the caps hold even for a run that never settles.
+ * What a run may cost at most: its whole span at 8 GiB and two vCPUs. Charged whole when a run is
+ * reserved, so the caps hold even for a run that never settles.
  */
-export const RUN_CEILING: RunCost = { gibs: 2_560, vcpuS: 640 };
+export const RUN_CEILING: RunCost = { gibs: RUN_SPAN_S * 8, vcpuS: RUN_SPAN_S * 2 };
 
 export type LedgerCaps = {
   /** GiB-seconds a New York day. */
@@ -71,8 +74,11 @@ export type Ledger = {
   failures: number;
   /** The day the failures paused the rebuilds, which they stay paused for. */
   pausedDay: string | null;
-  /** The run reserved and not yet settled: when, on which day, and what it was charged. */
-  open: { at: string; day: string; cost: RunCost } | null;
+  /**
+   * The run reserved and not yet settled: when, on which day, what it was charged, and the queued
+   * task it runs (the same on each of that task's tries; "" where it was not said).
+   */
+  open: { at: string; day: string; cost: RunCost; task: string } | null;
 };
 
 /** Where the ledger is kept: a path no rule opens, so only a server's key reads or writes it. */
@@ -136,7 +142,14 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   if (held !== null) {
     if (!isRecord(held) || typeof held.at !== "string" || typeof held.day !== "string") return null;
     if (!isCost(held.cost)) return null;
-    open = { at: held.at, day: held.day, cost: { gibs: held.cost.gibs, vcpuS: held.cost.vcpuS } };
+    const task = given(held.task, "");
+    if (typeof task !== "string") return null;
+    open = {
+      at: held.at,
+      day: held.day,
+      cost: { gibs: held.cost.gibs, vcpuS: held.cost.vcpuS },
+      task,
+    };
   }
   return {
     on: raw.on,
@@ -176,6 +189,7 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     at: ledger.open.at,
     day: ledger.open.day,
     cost: { gibs: ledger.open.cost.gibs, vcpuS: ledger.open.cost.vcpuS },
+    task: ledger.open.task,
   },
 });
 
@@ -191,24 +205,42 @@ const failed = (ledger: Ledger, today: string): Ledger => {
   };
 };
 
-export type ReserveRefusal = "off" | "failing" | "day-cap" | "month-cap";
+export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap";
 
 /**
- * Whether a run may start on `today` (New York's day) at `now`, and the ledger with its ceiling
- * charged and the run open. A refusal hands back the ledger to write where reading it moved it on
- * (a new day or month, or a run left open counted as failed), or null where nothing is written.
+ * How far ahead of this clock another instance's may run, and its run still read as reserved
+ * before this one: a minute, far more than two of Google's servers disagree by.
+ */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
+ * Whether a run of queued `task` may start on `today` (New York's day) at `now`, and the ledger
+ * with its ceiling charged and the run open. A refusal hands back the ledger to write where
+ * reading it moved it on (a new day or month, or a run left open counted as failed), or null where
+ * nothing is written.
  *
- * In order: off; a new day empties the day's total and lifts a pause from an earlier day, and a
- * new month empties the month's; a run still open never settled, and counts as a failure with its
- * ceiling left charged; a pause for today refuses; then the caps, each with this run's ceiling.
+ * In order: off; another task's run reserved less than a run's span ago may still be going, so
+ * this one is `busy` and that run is neither counted nor cleared (counting it would count a
+ * failure that has not happened, and drop the settle it is still to make); a new day empties the
+ * day's total and lifts a pause from an earlier day, and a new month empties the month's; a run
+ * still open after that, or one of this same task (its earlier try, which the queue retries only
+ * once it has ended), never settled, and counts as a failure with its ceiling left charged; a
+ * pause for today refuses; then the caps, each with this run's ceiling.
  */
 export const reserveRun = (
   ledger: Ledger | null,
   today: string,
   now: string,
-  ceiling: RunCost = RUN_CEILING
+  { ceiling = RUN_CEILING, task = "" }: { ceiling?: RunCost; task?: string } = {}
 ): { ok: true; next: Ledger } | { ok: false; why: ReserveRefusal; next: Ledger | null } => {
   if (!ledger || !ledger.on) return { ok: false, why: "off", next: null };
+  const open = ledger.open;
+  if (open && !(task !== "" && open.task === task)) {
+    const age = Date.parse(now) - Date.parse(open.at);
+    if (age > -CLOCK_SKEW_MS && age < RUN_SPAN_S * 1000) {
+      return { ok: false, why: "busy", next: null };
+    }
+  }
   let next: Ledger = { ...ledger };
   if (next.day !== today) next = { ...next, day: today, dayGiBs: 0 };
   if (next.pausedDay !== null && next.pausedDay !== today) {
@@ -233,7 +265,7 @@ export const reserveRun = (
       dayGiBs: next.dayGiBs + ceiling.gibs,
       monthGiBs: next.monthGiBs + ceiling.gibs,
       monthVcpuS: next.monthVcpuS + ceiling.vcpuS,
-      open: { at: now, day: today, cost: { ...ceiling } },
+      open: { at: now, day: today, cost: { ...ceiling }, task },
     },
   };
 };
@@ -295,22 +327,31 @@ export const restLedgerStore = (
  * Reads the ledger, and writes back what `step` makes of it only if nothing has written it since:
  * a second run reserving at the same moment, or the owner turning the switch, is read again and
  * `step` asked again, up to `tries` times, so two cannot both spend the same headroom. A step that
- * leaves the ledger as it was, or hands back none, writes nothing.
+ * leaves the ledger as it was, or hands back none, writes nothing. A read or a write that throws
+ * (Firestore busy for a moment) is tried again too, and only the last try's error is thrown: a
+ * write that landed though its answer was lost is then read back, and `step` finds it there.
  */
 export const updateLedger = async <T>(
   store: LedgerStore,
   step: (ledger: Ledger | null) => { next: Ledger | null; answer: T },
   tries = 3
 ): Promise<{ answer: T; wrote: boolean } | { contended: true }> => {
+  let failure: { error: unknown } | null = null;
   for (let attempt = 0; attempt < tries; attempt += 1) {
-    const { raw, token } = await store.read();
-    const ledger = coerceLedger(raw);
-    const { next, answer } = step(ledger);
-    if (!next) return { answer, wrote: false };
-    if (ledger && JSON.stringify(fieldsOf(ledger)) === JSON.stringify(fieldsOf(next))) {
-      return { answer, wrote: false };
+    try {
+      const { raw, token } = await store.read();
+      const ledger = coerceLedger(raw);
+      const { next, answer } = step(ledger);
+      if (!next) return { answer, wrote: false };
+      if (ledger && JSON.stringify(fieldsOf(ledger)) === JSON.stringify(fieldsOf(next))) {
+        return { answer, wrote: false };
+      }
+      if (await store.replace(token, next)) return { answer, wrote: true };
+      failure = null;
+    } catch (error) {
+      failure = { error };
     }
-    if (await store.replace(token, next)) return { answer, wrote: true };
   }
+  if (failure) throw failure.error;
   return { contended: true };
 };

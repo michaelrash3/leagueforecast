@@ -188,18 +188,24 @@ describe("the task a save queues", () => {
     );
   });
 
-  it("is another for the next window, the other kind, and another copy", async () => {
+  it("is another for the next window and the other kind, and the same for another copy", async () => {
     const at = "2027-04-15T10:01:00.000Z";
     const ids = new Set([
       (await rebuildTask(ASK, at)).id,
       (await rebuildTask(ASK, "2027-04-15T10:02:00.000Z")).id,
       (await rebuildTask(ASK, "2027-04-15T09:59:59.999Z")).id,
       (await rebuildTask(SERVER, at)).id,
-      (await rebuildTask({ ...ASK, copy: "beef" }, at)).id,
-      (await rebuildTask({ ...SERVER, copy: "beef" }, at)).id,
     ]);
-    expect(ids.size).toBe(6);
+    expect(ids.size).toBe(4);
     for (const id of ids) expect(id).toMatch(/^[0-9a-f]{40}$/);
+    // A run builds whatever copy stands when it runs: saves under new copy ids in one window,
+    // a client starting the copy afresh at every save, are still one task.
+    expect((await rebuildTask({ ...ASK, copy: "beef", reset: true }, at)).id).toBe(
+      (await rebuildTask(ASK, at)).id
+    );
+    expect((await rebuildTask({ ...SERVER, copy: "beef" }, at)).id).toBe(
+      (await rebuildTask(SERVER, at)).id
+    );
     // An edit's window and a server's share a number only at times 7.5 times apart: the kind
     // keeps them apart all the same.
     const edit = await rebuildTask(ASK, "1970-01-02T09:20:00.000Z");
@@ -254,7 +260,7 @@ describe("what one write of the copy does", () => {
     const readSwitch = vi.fn(async () => true);
     expect(
       await planCopyWrite({ before: BEFORE, after: asking, eventTime: at, readSwitch })
-    ).toEqual({ enqueue: await rebuildTask(ASK, at) });
+    ).toEqual({ enqueue: await rebuildTask(ASK, at), ask: ASK });
     expect(readSwitch).toHaveBeenCalledTimes(1);
   });
 
@@ -276,7 +282,7 @@ describe("what one write of the copy does", () => {
     for (const readSwitch of [rejects, throws]) {
       expect(
         await planCopyWrite({ before: BEFORE, after: asking, eventTime: at, readSwitch })
-      ).toEqual({ enqueue: await rebuildTask(ASK, at) });
+      ).toEqual({ enqueue: await rebuildTask(ASK, at), ask: ASK });
       expect(readSwitch).toHaveBeenCalledTimes(1);
     }
   });

@@ -87,9 +87,11 @@ export const askRebuild = async (
 export type RebuildTask = { copy: string; kind: RebuildKind; window: number; savedAt: string };
 
 /**
- * The task a save at `eventTime` (Firestore's commit time) queues: one per copy, kind and window,
- * so every save in a window shares it and the queue keeps one (a second asks for one already
- * there, which counts as done), scheduled after the window's end and its settle. Its id is a hash,
+ * The task a save at `eventTime` (Firestore's commit time) queues: one per kind and window, so
+ * every save in a window shares it and the queue keeps one (a second asks for one already there,
+ * which counts as done), scheduled after the window's end and its settle. Not one per copy as well:
+ * a run builds whatever copy stands when it runs, so the copy in the id would decide nothing, and a
+ * client saving under a new copy id each time would queue a task for every save. Its id is a hash,
  * which spreads the queue's ids as the queue asks; never one counting up.
  */
 export const rebuildTask = async (
@@ -100,7 +102,7 @@ export const rebuildTask = async (
   if (Number.isNaN(at)) throw new Error(`A save at no time anyone can read: ${eventTime}`);
   const span = REBUILD_WINDOW_S[ask.kind] * 1000;
   const window = Math.floor(at / span);
-  const id = (await hashValue(["rb", ask.kind, ask.copy, window])).slice(0, 40);
+  const id = (await hashValue(["rb", ask.kind, window])).slice(0, 40);
   return {
     id,
     scheduleTime: new Date((window + 1) * span + REBUILD_SETTLE_S[ask.kind] * 1000),
@@ -109,7 +111,9 @@ export const rebuildTask = async (
 };
 
 /**
- * What to do about one write of the copy's manifest: queue a rebuild, or skip it and say why.
+ * What to do about one write of the copy's manifest: queue a rebuild, with the save that asked for
+ * it (logged, so how long each save takes to reach the boards can be measured), or skip it and say
+ * why.
  * `readSwitch` reads whether rebuilds are on (`ops/rebuild`), and only for a save that asks for
  * one; a read that fails counts as on, since the rebuild reads the switch again before it spends
  * anything and a skipped save is only made good by the next night.
@@ -125,7 +129,8 @@ export const planCopyWrite = async ({
   eventTime: string;
   readSwitch: () => Promise<boolean>;
 }): Promise<
-  { enqueue: { id: string; scheduleTime: Date; task: RebuildTask } } | { skip: RebuildSkip | "off" }
+  | { enqueue: { id: string; scheduleTime: Date; task: RebuildTask }; ask: RebuildAsk }
+  | { skip: RebuildSkip | "off" }
 > => {
   const asked = await askRebuild(before, after);
   if ("skip" in asked) return asked;
@@ -134,5 +139,5 @@ export const planCopyWrite = async ({
     .then(readSwitch)
     .catch(() => true);
   if (!on) return { skip: "off" };
-  return { enqueue: await rebuildTask(asked.ask, eventTime) };
+  return { enqueue: await rebuildTask(asked.ask, eventTime), ask: asked.ask };
 };
