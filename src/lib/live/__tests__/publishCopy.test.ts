@@ -249,6 +249,28 @@ describe("publishing the copy's boards", () => {
     expect(live.chunks.size).toBe(0);
   });
 
+  it("says the copy was replaced, not that it published, when the meta already said it all", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    expect(await publish(cloud, live, manifest)).toMatchObject({ ok: true });
+    const replaced = {
+      ...cloud.store,
+      readManifest: async () => ({ ...manifest, copy: "fresh", version: 1 }),
+    };
+    const deletes = live.costs.deletes;
+    const again = await publishCopyViews({
+      copyStore: replaced,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+    });
+    expect(again).toEqual({ ok: false, reason: "copy-replaced" });
+    // Nor did it sweep.
+    expect(live.costs.deletes).toBe(deletes);
+  });
+
   it("publishes the views though the sweep after it fails, and says how the sweep ended", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();

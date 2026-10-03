@@ -348,6 +348,17 @@ describe("publishing views", () => {
     expect([...live.chunks.keys()].filter((id) => !chunks.includes(id))).toHaveLength(1);
   });
 
+  it("asks before saying an identical publish wrote nothing, too", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 1);
+    const writes = live.costs.writes;
+    const result = await publish(live, [view("board:a", "A")], 1, {
+      stillCurrent: async () => false,
+    });
+    expect(result).toEqual({ ok: false, reason: "not-current" });
+    expect(live.costs.writes).toBe(writes);
+  });
+
   it("gives up after its tries, and takes back what it uploaded", async () => {
     const live = memoryLive();
     const refusing: LiveStore = { ...live.store, commitMeta: async () => false };
