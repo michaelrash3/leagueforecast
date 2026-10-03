@@ -3234,10 +3234,13 @@ League Standings part that is missing, damaged or not seasons stops the publish.
 A device that saves League Standings during the run deletes the pieces the
 run's copy names; the run then says the copy moved on and publishes nothing,
 without turning the night red, and the next run publishes. The copy's id is read
-again just before the boards go up: a copy deleted and started again during the
+again just before each commit of the meta, after the uploads and on every retry
+(`publishViews`'s `stillCurrent`): a copy deleted and started again during the
 run is not theirs, and two copies have no order to keep the fresh one's boards
-from being replaced, so nothing is published and the night turns red, as the
-pull's own end does when it finds the copy replaced. The publish refuses
+from being replaced, so its uploads are taken back, nothing is published, and the
+night turns red, as the pull's own end does when it finds the copy replaced. The
+check and the commit are two documents, so a reset in the round trip between
+them is the one window left. The publish refuses
 under any collation but English, the order the members' browsers put tied rows
 in; the workflow pins `LANG=en_US.UTF-8` rather than leave it to the runner's
 image (Node sorts in English with `LANG` unset, `C` or `C.UTF-8`, and by the
