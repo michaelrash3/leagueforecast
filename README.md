@@ -86,6 +86,7 @@ api/
   league-summary.ts     # Vercel function: AI recap of standings movement (Gemini, then Groq)
   gc-team.ts            # Vercel function: CORS proxy for the GameChanger pull
 scripts/
+  poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
 src/
@@ -107,6 +108,8 @@ src/
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
+    live/                  # what a page knows (allKnown.ts) and the views built from it (views/),
+                           # the same in the browser and on a server
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
@@ -3223,6 +3226,96 @@ that fails is marked red in Actions, and GitHub emails whoever last changed the
 schedule. GitHub turns off a public repository's schedules after 60 days with no
 activity in it; **Enable workflow** on the workflow's page turns this one back
 on.
+
+### Boards a server can build
+
+The cloud copy is on its way to being the one place the data lives, with members
+reading views a server builds rather than every device loading the whole pool
+and fitting it itself. The first piece is a way to build the boards anywhere and
+get the browser's answer.
+
+**What a page knows** is one pure function of the stored pool,
+`deriveAllKnown` (`src/lib/live/allKnown.ts`). It was the body of a memo in
+`TeamRankingsView`, which read each League Standings season out of localStorage
+as it went. The seasons now arrive through a reader: the page hands it the
+storage loaders, and a server would hand it the cloud copy's `league` part.
+Nothing else moved, and the page now calls it. What it returns is a year's,
+because a league team is carried onto a club off the stored games of the year
+being read, so a server derives it once for each year with a page. It walks
+every age group each time, in stored order, because a league team's minted id
+counts the names minted before it: "Lexington Legends" is `S-LEXI` or `S-LEXI2`
+depending on what was walked first.
+
+**The boards** are `src/lib/live/views/board.ts`: every page's table, for the
+whole year and for each half, by the same functions the rankings worker uses.
+Each page is asked as the page asks the worker, with its own year's pool, and a
+fit is shared by the pages whose fit would read the same things, which in a
+stored pool is one fit per year and half with every page cut from it. A server
+could get three things wrong that the browser never decides for itself:
+
+- **The day.** A game scored on a day still to come rates nobody, and the worker
+  reads that day off its own clock, in the browser's zone. Here it is an
+  argument, and a server must pass the day its members are in, not its own.
+- **The pool's shape.** The worker fits the pool after the trip through the
+  compact codec the page ships it in, which marks slot-like names as
+  placeholders and drops empty fields. Raw arrays could rank a slot the worker
+  hides, so the builder takes the same trip (`asWorkerSees`).
+- **The locale.** Rows that tie on rating and margin are put in name order by
+  `localeCompare` with the runtime's own locale. A server must run under the
+  browser's, en-US.
+
+**Held to the worker to the last digit.** `boardParity.test.ts` asks the
+worker's own message handler for every page and half, exactly as the page asks
+(the year's pool in the codec, the page's star, the worker's clock), both fresh
+for each page and walked through the tabs, where the worker cuts the next tab
+from the fit it kept, and builds
+the same boards with `buildAllBoards` with the clock moved on, so they can only
+match by taking the day they are handed. Every row must be strictly equal, on
+the fixture and on restores that repeat a page id, where the page reads the
+first copy and the fit a page's level and year off the last. It also checks
+that a board survives a JSON round trip, which is how a member would read it,
+and that two clubs tied on rating and margin come out in name order.
+`TeamRankingsView.allKnown.test.tsx` checks that the pool the real page ships
+its worker is what `deriveAllKnown` gives, in the same order. Run on the old
+memo before the page was switched over, it showed the two agreed.
+
+The last digit is one JavaScript engine's. The recency weights' `0.5 ** x`
+rounds differently in Node 22 and Node 24 (V8 12.4 and 13.6): on the fixture,
+8,154 of the boards' numbers differ between the two, none by more than 3.6e-15,
+and on an earlier draw of it two clubs tied to that bit swapped schedule ranks.
+JavaScriptCore, Safari's engine, run by Bun, gave Node 24's boards exactly.
+Browsers run three engines, so a board a server builds is a browser's to the
+digit only where the engine rounds alike. Elsewhere the numbers agree to about
+the fifteenth place, and clubs tied but for that digit can swap ranks: over
+seeds 1 to 40 of the fixture, Node 22 and Node 24 ordered schedule ranks
+differently on 11, and the boards' own ranks and row order on none.
+
+So the boards are pinned twice. One fingerprint holds on any engine: every
+number cut to the millionth, the ranks left out, each board's rows in id order.
+It catches any change that moves a number by more than that or moves a club on
+or off a board, and reads the same on Node 22, Node 24 and Bun. The other is
+every digit, rank and row order exactly, kept for each V8 version it has been
+seen on and taken under English collation, the order a server runs in, and
+skipped otherwise; Thai collation, which passes over spaces, orders two of its
+ties the other way. It catches what the first cannot, such as the fit summing
+its games in another order, which moves only the last bits, and moves them on
+both sides of the parity tests at once. Any change meant to move the numbers
+updates the pins and says so.
+
+The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
+September 2026 pool's shape, with invented names. It has ten pages in two squad
+years and one with none, League Standings seasons that mint, link and fold,
+slots marked and unmarked, routs, disputed scores, scores on days still to
+come, and ties. The same seed gives the same pool on every machine,
+and the parity tests pass under every time zone and locale tried (UTC, Tokyo,
+Los Angeles, Kiritimati; en-US, sv-SE, de-DE, Thai, C). Measured in Node 24, every
+board for every page and half took 0.2 s for 3,034 teams and 8,520 games, 2.1 s
+for 30,304 teams and 86,973 games, and 6.1 to 6.7 s for 90,904 teams and
+258,267 games, the size of the real pool, with the process peaking at 870 to
+890 MB resident over four runs, the fixture's own arrays included.
+
+Nothing reads these boards yet. Publishing them where members can read them is
+the next step.
 
 ## AI write-ups
 

@@ -3189,6 +3189,15 @@ export const fitScoutYearFor = (
   return fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups);
 };
 
+/**
+ * The squad year `fitScoutYearFor` fits a page's pool for: the page's own, read as every fit reads
+ * a page (`indexGroups`), off the last age group of its id. Ids are minted unique, but a restore
+ * can repeat one across years, and then two pages of one pool are fitted for different years, so
+ * anything that keeps a fit for reuse has to tell them apart by this.
+ */
+export const scoutFitYear = (ageGroupId: string, ageGroups: AgeGroup[]): number | undefined =>
+  indexGroups(ageGroups).year(ageGroupId);
+
 const NO_TEAMS: ReadonlySet<string> = new Set();
 
 /** One page's table, cut from its year's fit: the clubs at home on the page, ranked. */

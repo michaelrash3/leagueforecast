@@ -1,6 +1,7 @@
 import {
   fitScoutYearFor,
   rankingPoolGroupIds,
+  scoutFitYear,
   rowsOfYearFit,
   type AgeGroup,
   type ScoutGame,
@@ -175,10 +176,13 @@ export type WorkerResponse =
 type HeldPool = { revision: number; teams: ScoutTeam[]; games: ScoutGame[] };
 
 /**
- * What a year's fit reads, as one string: the pool, the pages it spans, the half, the day and the
- * age groups, whose levels and years decide every age gap and home level in it. Not whose team is
- * "mine", which only marks a row once the page is cut, so starring a club does not refit a year.
- * Compared whole rather than digested, so no two different inputs can share a key.
+ * What a year's fit reads, as one string: the pool, the pages it spans, the half, the day, the year
+ * it is fitted for and the age groups, whose levels and years decide every age gap and home level
+ * in it. Not whose team is "mine", which only marks a row once the page is cut, so starring a club
+ * does not refit a year. Compared whole rather than digested, so no two different inputs can share
+ * a key. The year is the page's own (`scoutFitYear`): every page of a pool shares it, unless a
+ * restore repeats a page's id across years, when without it the page opened second was cut from
+ * the first one's fit and its board depended on which was opened first.
  */
 const yearFitKey = (request: RankingsRequest, revision: number, today: string): string =>
   JSON.stringify([
@@ -186,6 +190,7 @@ const yearFitKey = (request: RankingsRequest, revision: number, today: string): 
     rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
     request.segment ?? "",
     today,
+    scoutFitYear(request.ageGroupId, request.ageGroups) ?? null,
     request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
   ]);
 
