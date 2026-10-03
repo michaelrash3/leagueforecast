@@ -111,6 +111,20 @@ export const askRebuild = async (
 export type RebuildTask = { copy: string; kind: RebuildKind; window: number; savedAt: string };
 
 /**
+ * A task as the queue hands it back, or null for anything this build did not queue: only the
+ * rebuild's own trigger queues to it, so one of another shape is a mistake to log, not to run.
+ */
+export const coerceRebuildTask = (raw: unknown): RebuildTask | null => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const { copy, kind, window, savedAt } = raw as Record<string, unknown>;
+  if (typeof copy !== "string" || copy === "") return null;
+  if (kind !== "edit" && kind !== "server") return null;
+  if (typeof window !== "number" || !Number.isSafeInteger(window) || window < 0) return null;
+  if (typeof savedAt !== "string" || Number.isNaN(Date.parse(savedAt))) return null;
+  return { copy, kind, window, savedAt };
+};
+
+/**
  * The task a save at `eventTime` (Firestore's commit time) queues: one per kind and window, so
  * every save in a window shares it and the queue keeps one (a second asks for one already there,
  * which counts as done), scheduled after the window's end and its settle. Not one per copy as well:
