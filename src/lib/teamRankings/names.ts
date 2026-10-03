@@ -223,14 +223,16 @@ const normalizeName = teamNameKey;
  */
 const OFF_CLUB_PREFIX = `${SCOUT_ID_PREFIX}off-`;
 
-/** A 32-bit FNV-1a hash of `text`, in base 36: short, the same everywhere, and needing no await. */
-const shortHash = (text: string): string => {
-  let hash = 0x811c9dc5;
-  for (let at = 0; at < text.length; at += 1) {
-    hash ^= text.charCodeAt(at);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(36);
+/**
+ * `text` in base64url, from its UTF-8: every character of it kept, so two texts are never one, in
+ * letters an id can hold.
+ */
+const base64UrlOf = (text: string): string => {
+  let binary = "";
+  new TextEncoder().encode(text).forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
 /**
@@ -243,14 +245,14 @@ const shortHash = (text: string): string => {
  * page, is the one club, as a name is one club everywhere else, and two names are two clubs: a name
  * of plain letters, digits and spaces is spelled out ("S-off-cincinnati-angels-red"), and any other
  * ("A.B", an accent, a name in another script, punctuation alone) is spelled as nearly as those
- * letters allow and told apart by a hash of the whole name after an underscore, which no name
- * spelled out has, so "A.B" and "A B" are not one club.
+ * letters allow and then written out whole, in base64url, after an underscore, which no name
+ * spelled out has. A hash would be shorter, and two names could share one.
  */
 export const offClubIdFor = (name: string): string => {
   const key = normalizeName(name);
   const words = key.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   if (words !== "" && words === key.replace(/ /g, "-")) return `${OFF_CLUB_PREFIX}${words}`;
-  return `${OFF_CLUB_PREFIX}${words || "team"}_${shortHash(key)}`;
+  return `${OFF_CLUB_PREFIX}${words || "team"}_${base64UrlOf(key)}`;
 };
 
 /** Whether a club is one made for a league team said not to be in Team Rankings. */

@@ -354,8 +354,14 @@ describe("a league team said not to be in Team Rankings", () => {
       "Águilas",
       "Üguilas",
       "Aguilas",
+      // One spelling, and names apart only at their end: the whole name is kept, not its start.
+      "Águilas.A",
+      "Águilas A",
       "東京",
       "大阪",
+      // Two names a 32-bit hash of the whole name gives one value.
+      "郭仂裳",
+      "匭刢卓",
       " - / ",
       "?!",
       "O'Fallon Hawks",
@@ -366,9 +372,10 @@ describe("a league team said not to be in Team Rankings", () => {
     expect(ids[1]).toBe(ids[2]);
     expect(new Set(ids).size).toBe(names.length - 1);
     // Spelled as nearly as the letters allow, the same on every pass, and still its own.
-    expect(offClubIdFor("A.B")).toMatch(/^S-off-a-b_[0-9a-z]+$/);
+    expect(offClubIdFor("A.B")).toBe("S-off-a-b_YS5i");
     expect(offClubIdFor("a.b")).toBe(offClubIdFor("A.B"));
-    expect(offClubIdFor(" - / ")).toMatch(/^S-off-team_[0-9a-z]+$/);
+    expect(offClubIdFor(" - / ")).toBe("S-off-team_");
+    expect(offClubIdFor("Águilas")).toMatch(/^S-off-guilas_[A-Za-z0-9_-]+$/);
     expect(ids.every(isOffClubId)).toBe(true);
     // Nor can a name spelled out be one told apart by its hash.
     const told = offClubIdFor("A.B").slice("S-off-".length).replace("_", " ");
