@@ -7,12 +7,13 @@
  * REST API (`firestoreRestStore`), and lays them into the app's own pool store held in memory, as a
  * device taking in a cloud copy does (`loadPoolFrom`), so everything after reads the pool through
  * the app's own loaders. League Standings and archived seasons are not read: a pull needs neither.
- * It writes only when opened to (`openCloudStore`), which the nightly refresh is. Nothing is fetched
+ * It writes only when opened to (`openStores`), which the nightly refresh is. Nothing is fetched
  * from npm; the key signs its own request with Node's crypto.
  */
 import { createSign } from "node:crypto";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
-import { firestoreRestStore } from "../src/lib/cloud/firestoreRest.ts";
+import { firestoreRestLive, firestoreRestStore } from "../src/lib/cloud/firestoreRest.ts";
+import type { LiveStore } from "../src/lib/live/viewStore.ts";
 import { loadPoolFrom, type LoadedCopy } from "../src/lib/cloud/cloudRunner.ts";
 
 type ServiceAccount = { client_email: string; private_key: string; project_id: string };
@@ -81,6 +82,19 @@ const accountOf = (keyJson: string): ServiceAccount => {
 export const openCloudStore = (keyJson: string, writable: boolean): CloudStore => {
   const account = accountOf(keyJson);
   return firestoreRestStore({ projectId: account.project_id, token: tokens(account), writable });
+};
+
+/**
+ * The cloud copy's store and the published views' (`live/`), for the key's project, on one
+ * sign-in: read only unless `writable`.
+ */
+export const openStores = (
+  keyJson: string,
+  writable: boolean
+): { copy: CloudStore; live: LiveStore } => {
+  const account = accountOf(keyJson);
+  const access = { projectId: account.project_id, token: tokens(account), writable };
+  return { copy: firestoreRestStore(access), live: firestoreRestLive(access) };
 };
 
 export type CloudPool = LoadedCopy;

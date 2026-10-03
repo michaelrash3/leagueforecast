@@ -50,6 +50,10 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           # The user's day, which is what the rota and the day log are kept in.
           TZ: America/New_York
+          # The collation the members' browsers sort tied board rows by, pinned rather than left to
+          # the runner's image: Node takes it from LANG (unset, C and C.UTF-8 give English, an
+          # empty LANG the root one), and the publish refuses under any other (`publishCopy.ts`).
+          LANG: en_US.UTF-8
           # The whole pool is held at once; measured at about 4.3 GB on the pool of 29 September
           # 2026, on a runner with 16 GB.
           NODE_OPTIONS: --max-old-space-size=12288

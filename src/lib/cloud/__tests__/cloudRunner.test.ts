@@ -164,6 +164,8 @@ describe("a pull run on the cloud copy", () => {
     const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
     expect(result).toMatchObject({ end: "finished", asked: 2, answered: 2, failed: 0, filed: 2 });
     expect(result.version).toBe(before.version + 1);
+    // The copy the store in memory now is: what was just saved.
+    expect(result.manifest).toEqual(cloud.manifest());
 
     const after = cloud.manifest()!;
     const part = (key: string) => after.parts.find((entry) => entry.key === key);
@@ -193,6 +195,15 @@ describe("a pull run on the cloud copy", () => {
     const again = await runCloudPull(list, deps(cloud, "2026-09-29T14:00:00.000Z"));
     expect(again).toMatchObject({ end: "finished", changed: [], version: first.version });
     expect(cloud.costs.writes).toBe(writes);
+    expect(again.manifest).toEqual(cloud.manifest());
+  });
+
+  it("names the copy it read when nothing is due", async () => {
+    const cloud = memoryCloud();
+    const before = await seed(cloud, () => saveDroppedClubs(new Set([ACES, BEARS])));
+    const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    expect(result).toMatchObject({ end: "nothing-due", asked: 0 });
+    expect(result.manifest).toEqual(before);
   });
 
   it("never asks about a club the copy has thrown out", async () => {
@@ -433,6 +444,7 @@ describe("a pull run on the cloud copy", () => {
       deps(cloud, "2026-09-29T13:01:00.000Z", { fetchTeams: answering(startAgain) })
     );
     expect(result).toMatchObject({ end: "copy-replaced", changed: [] });
+    expect(result.manifest).toBeUndefined();
     expect(cloud.manifest()).toEqual(fresh);
   });
 
@@ -446,6 +458,7 @@ describe("a pull run on the cloud copy", () => {
       store: moving,
     });
     expect(result).toMatchObject({ end: "copy-kept-changing", changed: [] });
+    expect(result.manifest).toBeUndefined();
     expect(cloud.manifest()).toEqual(before);
     expect(cloud.chunks.size).toBe(pieces);
   });
@@ -457,6 +470,7 @@ describe("a pull run on the cloud copy", () => {
     cloud.setManifest({ ...before, schema: DATA_SCHEMA + 1 });
     const newer = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams }));
     expect(newer.end).toBe("newer-copy");
+    expect(newer.manifest).toBeUndefined();
 
     const other = memoryCloud();
     await seed(other, () => saveTidyStamp("r999|0|0|0|"));
@@ -467,7 +481,9 @@ describe("a pull run on the cloud copy", () => {
 
   it("says so when there is no copy, and refuses one holding a key this build does not keep", async () => {
     const empty = memoryCloud();
-    expect((await runCloudPull(list, deps(empty, "2026-09-29T13:00:00.000Z"))).end).toBe("no-copy");
+    const none = await runCloudPull(list, deps(empty, "2026-09-29T13:00:00.000Z"));
+    expect(none.end).toBe("no-copy");
+    expect(none.manifest).toBeUndefined();
 
     const cloud = memoryCloud();
     const before = await seed(cloud);

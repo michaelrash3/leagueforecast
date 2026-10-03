@@ -315,17 +315,22 @@ describe("fetchGcTeams", () => {
       if (call > 4) return okBody;
       return teamId === "Aaaaaaaa0001" ? timedOut : slow;
     });
-    const waited: number[] = [];
-    const sleeps = vi.spyOn(globalThis, "setTimeout");
+    const holds: Array<[number, string]> = [];
 
-    await fetchGcTeams(ids, { fetchImpl, concurrency: 1, delayMs: () => 0, retries: 2 });
-    sleeps.mock.calls.forEach(([, ms]) => {
-      if (typeof ms === "number" && ms > 0) waited.push(ms);
+    await fetchGcTeams(ids, {
+      fetchImpl,
+      concurrency: 1,
+      delayMs: () => 0,
+      retries: 2,
+      onHold: (ms, source) => holds.push([ms, source]),
     });
-    sleeps.mockRestore();
 
-    // The figure GameChanger named, rather than the zero the injected ladder would have given.
-    expect(waited).toContain(50);
+    /*
+     * The figure GameChanger named, rather than the zero the injected ladder would have given,
+     * which holds nothing at all. Read off the hold as told, not off the timer: the timer gets
+     * the hold less whatever time passed since it began, 49ms on a busy runner.
+     */
+    expect(holds).toContainEqual([50, "retry-after"]);
   });
 
   it("gives one team's failure to that team and leaves the rest of the batch alone", async () => {
