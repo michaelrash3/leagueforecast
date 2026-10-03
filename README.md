@@ -108,8 +108,9 @@ src/
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
-    live/                  # what a page knows (allKnown.ts) and the views built from it (views/),
-                           # the same in the browser and on a server
+    live/                  # what a page knows (allKnown.ts), the views built from it (views/),
+                           # the same in the browser and on a server, and how a server
+                           # publishes them for members to read (viewStore.ts)
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
@@ -2880,7 +2881,9 @@ else. The owner sees **Who can use the cloud copy** in the panel, adds an
 account there by its address and takes one off with **Remove**; every other
 entry is `role: "member"` with the time it was added. A member reads the copy
 and changes it as the owner does, and reads its own entry and no other. The same
-list says who may pull from GameChanger (**The GameChanger proxy on Firebase**). Google
+list says who may pull from GameChanger (**The GameChanger proxy on Firebase**), and
+who may read the views a server publishes from the copy (**Views a server
+publishes**), which no browser writes. Google
 sign-in alone was the lock until 2 October 2026, when the cloud copy was
 becoming the one place the data lives and any Google account could have read
 and changed it.
@@ -3316,8 +3319,70 @@ for 30,304 teams and 86,973 games, and 6.1 to 6.7 s for 90,904 teams and
 258,267 games, the size of the real pool, with the process peaking at 870 to
 890 MB resident over four runs, the fixture's own arrays included.
 
-Nothing reads these boards yet. Publishing them where members can read them is
-the next step.
+Nothing builds these boards on a server yet; how they are published is next.
+
+### Views a server publishes
+
+A server publishes what it builds to `live/`, in the same Firestore as the copy,
+for members' devices to read rather than build. Nothing publishes yet: the
+nightly refresh will, once it is wired to (`src/lib/live/viewStore.ts` is the
+whole of the publishing; the nightly only has to hand it the boards).
+
+- **`live/meta`** is one small document naming every view by its key
+  (`board:{year}:{page}:{half}`, with `none` for a page with no year): the
+  SHA-256 of the view's JSON, the upload that holds it, its pieces and size, and
+  the copy it was built from, by id and version. It also says which copy and
+  version the views reflect, the members' day they were built for, and the
+  newest version of each copy any publish has carried. A device will listen to
+  this one document and fetch only the views on its screen, and only when their
+  fingerprint has changed.
+- **`live/meta/chunks/{upload-n}`** holds each view's JSON, gzipped and cut into
+  pieces a document can carry, as the copy keeps its values.
+
+Readers fetch while a server writes, so publishing keeps four rules
+(`publishViews`, `sweepViews`):
+
+- **A piece is never rewritten.** A changed view goes up under a new upload, so a
+  reader holding the old meta still finds every piece it names.
+- **Nothing is deleted at once.** An upload the meta stops naming is retired, and
+  its pieces go only after fifteen minutes; a piece no meta ever named, from a
+  publish that crashed between its uploads and its commit, goes after an hour.
+  The meta is committed without a retired upload before its pieces are deleted.
+- **The meta is replaced only over the version read,** by Firestore's update-time
+  precondition; a refusal reads it again and merges again, reusing what was
+  already uploaded, without building anything again.
+- **No rebuild undoes a newer one.** A publish is late when a newer version of
+  its own copy has been published since, by any family of views: the meta keeps
+  each copy's newest version while the header or a view still names the copy. A
+  late publish replaces only views of its own copy built from no later version,
+  takes nothing out, adds nothing the meta lacks, and leaves the meta's copy,
+  version and day alone, so it can bring back nothing a newer publish removed.
+  A view built again unchanged takes the newer version, so a late build of an
+  older one still leaves it. A copy made afresh starts its versions again, and
+  each view keeps the copy it was built from: a publish that is not late writes
+  every view it built, whatever copy or version the meta had it from, so the
+  fresh copy takes over family by family. Two copies have no order between
+  them, so a server must not publish from a copy it has seen replaced; a late
+  build of the replaced copy is held all the same while the meta still knows
+  that copy.
+
+A publish that would write what the meta already says writes nothing at all, not
+even the meta. On the seeded fixture, the first publish of its 33 boards is 29
+uploads (the five empty boards share one), 224 KB gzipped, and 30 writes with a
+6.0 KB meta; publishing the same boards again writes nothing; and a run more for
+the losing side of one 10U spring game changes 12 boards and costs 13 writes,
+retiring 12 uploads for the next sweep. A board takes 173 to 179 bytes of the
+meta, which a publish refuses to let pass 500 KB.
+
+The rules let the accounts on the list `get` these documents and nothing else:
+not list them, which would cost a read for every piece, and not write them, the
+owner included. Only the server writes, as a service account the rules do not
+apply to. `firestoreRules.test.ts` holds this on the emulator, together with the
+server's own REST store (`firestoreRestLive`): its precondition refusing a meta
+written since it was read, and its listing of pieces by name and age with none
+of their data. `viewStore.test.ts` holds the rules above against an in-memory
+store that counts every read, write and delete; each rule was broken in turn and
+seen to fail a test.
 
 ## AI write-ups
 

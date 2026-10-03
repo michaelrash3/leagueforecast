@@ -9,7 +9,7 @@ rules_version = '2';
 // `{ role: "member", addedAt }` for each account the owner adds from the app. Google sign-in alone
 // was the lock until the copy became the one place the data lives; any Google account could then
 // have read and changed it. A browser nobody has signed in to gets nothing, and nothing but the
-// copy and the list is open to anyone.
+// copy, the list and the views a server publishes from the copy is open to anyone.
 service cloud.firestore {
   match /databases/{database}/documents {
     // Signed in, and with Google. A way of signing in that needs no Google account (anonymous, or
@@ -44,6 +44,15 @@ service cloud.firestore {
     // the cloud to run, `copies/main/jobs`. The first version's `cloud/` is open to nobody.
     match /copies/{document=**} {
       allow read, write: if isMember();
+    }
+
+    // The views a server publishes from the copy for the list to read: `live/meta`, which names
+    // every view, and its pieces, `live/meta/chunks` (README, "Views a server publishes"). Got by
+    // name and never listed, since a device fetches only the pieces the meta names, and a listing
+    // costs a read for every piece. Only the server writes here, as a service account the rules do
+    // not apply to; no browser does, the owner's included.
+    match /live/{document=**} {
+      allow get: if isMember();
     }
 
     // The list. A member may read their own entry, which is how the app learns whether they are
