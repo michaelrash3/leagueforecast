@@ -72,12 +72,15 @@ export type CopyPublish =
       /**
        * `copy-moved`: the copy no longer names the League Standings part this run's copy did,
        * because a device saved it during the run, so the pool held here is not the copy's and
-       * nothing is published; the next run publishes.
+       * nothing is published; the next run publishes. `copy-replaced`: the copy was deleted and
+       * started again by the time the boards were built, so they are another copy's; publishing
+       * them would replace the fresh copy's, since two copies have no order between them.
        */
       reason:
         | "locale"
         | "league-unreadable"
         | "copy-moved"
+        | "copy-replaced"
         | Extract<PublishResult, { ok: false }>["reason"];
     };
 
@@ -137,6 +140,11 @@ export const publishCopyViews = async ({
     })
   );
   const buildMs = Date.now() - started;
+
+  // As late as it can be read: a copy started again while the boards were built is not theirs.
+  if ((await copyStore.readManifest())?.copy !== manifest.copy) {
+    return { ok: false, reason: "copy-replaced" };
+  }
 
   const publish = await publishViews({
     store: liveStore,

@@ -218,6 +218,31 @@ describe("publishing the copy's boards", () => {
     expect(live.costs.writes).toBe(0);
   });
 
+  it("publishes nothing when the copy was started again while the boards were built", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    let reads = 0;
+    // The copy as read just before publishing: deleted and started again under another id.
+    const replaced = {
+      ...cloud.store,
+      readManifest: async () => {
+        reads += 1;
+        return { ...manifest, copy: "fresh", version: 1 };
+      },
+    };
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: replaced,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+    });
+    expect(result).toEqual({ ok: false, reason: "copy-replaced" });
+    expect(reads).toBe(1);
+    expect(live.costs).toEqual({ reads: 0, writes: 0, deletes: 0 });
+  });
+
   it("publishes the views though the sweep after it fails, and says how the sweep ended", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
