@@ -84,6 +84,17 @@ describe("whether a save asks for a rebuild", () => {
     expect(await askRebuild(BEFORE, saved(SHARD, h(50), { schema: DATA_SCHEMA }))).toMatchObject({
       ask: { kind: "edit", version: 5 },
     });
+    // A part under a key this build does not keep, at this build's schema: a newer build's key.
+    const keyed = saved(SHARD, h(50));
+    const unknown = { ...keyed, parts: [...keyed.parts, part("a-newer-builds-key", h(60))] };
+    expect(await askRebuild(BEFORE, unknown)).toEqual({ skip: "unknown-key" });
+    expect(await askRebuild(null, unknown)).toEqual({ skip: "unknown-key" });
+    // Every key the copy keeps, League Standings and an archive's rows among them, asks as ever.
+    const known = {
+      ...keyed,
+      parts: [...keyed.parts, part("league_forecast_scout_archive_rows_v1:2026", h(61))],
+    };
+    expect(await askRebuild(BEFORE, known)).toMatchObject({ ask: { kind: "edit" } });
   });
 
   it("asks for an edit's rebuild with every input a board reads", async () => {
@@ -159,14 +170,15 @@ describe("whether a save asks for a rebuild", () => {
   });
 
   it("asks a server's later check when a server saved it, and only delays it for a name that says so", async () => {
-    expect([...SERVER_DEVICES].sort()).toEqual(["cloud-pull", "live-edit", "nightly"]);
+    expect([...SERVER_DEVICES].sort()).toEqual(["live-edit", "nightly"]);
     for (const device of SERVER_DEVICES) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "server", copy: "c0ffee", version: 5, reset: false },
       });
     }
-    // A device is whatever the saving client says; only these exact names are servers.
-    for (const device of ["Nightly", "nightly ", "phone", ""]) {
+    // A device is whatever the saving client says; only these exact names are servers. A pull run
+    // in the cloud publishes nothing of its own, so its saves are rebuilt as a device's are.
+    for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull"]) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "edit", copy: "c0ffee", version: 5, reset: false },
       });

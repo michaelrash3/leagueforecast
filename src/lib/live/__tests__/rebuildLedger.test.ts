@@ -543,7 +543,8 @@ describe("writing the ledger", () => {
     });
     expect(doc.held()?.open?.at).toBe(NOW);
 
-    // A settle whose write landed though its answer was lost is read back, and not made twice.
+    // A settle whose write landed though its answer was lost is found on the next read, counted as
+    // written, and not made twice.
     let lost = true;
     const losing: LedgerStore = {
       read: doc.store.read,
@@ -565,7 +566,7 @@ describe("writing the ledger", () => {
       }),
       answer: null,
     });
-    expect(await updateLedger(losing, settle)).toEqual({ answer: null, wrote: false });
+    expect(await updateLedger(losing, settle)).toEqual({ answer: null, wrote: true });
     expect(doc.held()).toMatchObject({ dayGiBs: 80, monthVcpuS: 20, open: null });
 
     // The last try's write, its answer lost: read back once, and counted as written if it landed.
@@ -647,6 +648,77 @@ describe("writing the ledger", () => {
       replace: async () => false,
     };
     expect(await updateLedger(busyThenMoving, reserving)).toEqual({ contended: true });
+  });
+
+  it("holds a write whose answer was lost until a read tells, through the reads that fail", async () => {
+    // The first write fails outright, the second lands with its answer lost, and the third try's
+    // read fails: the second write is read back after the last try, found, and not made again.
+    const doc = memoryLedger({ on: true });
+    let writes = 0;
+    let reads = 0;
+    const store: LedgerStore = {
+      read: async () => {
+        reads += 1;
+        if (reads === 3) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return doc.store.read();
+      },
+      replace: vi.fn(async (token: string | null, next: Ledger) => {
+        writes += 1;
+        if (writes === 2) await doc.store.replace(token, next);
+        throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+      }),
+    };
+    expect(await updateLedger(store, reserving)).toMatchObject({
+      wrote: true,
+      answer: { ok: true },
+    });
+    expect(store.replace).toHaveBeenCalledTimes(2);
+    expect(doc.held()).toMatchObject({ dayGiBs: 2_560, open: { at: NOW } });
+
+    // The first write lands with its answer lost, and both reads after it fail: held through both.
+    const held = memoryLedger({ on: true });
+    let looks = 0;
+    let made = 0;
+    const blind: LedgerStore = {
+      read: async () => {
+        looks += 1;
+        if (looks === 2 || looks === 3) {
+          throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        }
+        return held.store.read();
+      },
+      replace: async (token, next) => {
+        made += 1;
+        await held.store.replace(token, next);
+        throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+      },
+    };
+    expect(await updateLedger(blind, reserving)).toMatchObject({
+      wrote: true,
+      answer: { ok: true },
+    });
+    expect(made).toBe(1);
+
+    // A lost write that another writer has since written over is not taken for written: the step
+    // is asked again of what is there.
+    const over = memoryLedger({ on: true });
+    let first = true;
+    const overwritten: LedgerStore = {
+      read: over.store.read,
+      replace: async (token, next) => {
+        const landed = await over.store.replace(token, next);
+        if (first) {
+          first = false;
+          over.edit({ warm: false });
+          throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        }
+        return landed;
+      },
+    };
+    expect(await updateLedger(overwritten, reserving)).toMatchObject({
+      wrote: false,
+      answer: { ok: false, why: "busy" },
+    });
   });
 
   it("writes the ledger it settles over the one it reserved", async () => {

@@ -343,11 +343,12 @@ const sameLedger = (a: Ledger, b: Ledger): boolean =>
  * a second run reserving at the same moment, or the owner turning the switch, is read again and
  * `step` asked again, up to `tries` times, so two cannot both spend the same headroom. A step that
  * leaves the ledger as it was, or hands back none, writes nothing. A read or a write that throws
- * (Firestore busy for a moment) is tried again too, and only the last try's error is thrown: a
- * write that landed though its answer was lost is read back by the next try, and `step` finds it
- * there. The last try's own such write is read back once more, writing nothing: found as written,
- * it was; and where `step` would write nothing now, its answer stands. Only otherwise is the error
- * thrown.
+ * (Firestore busy for a moment) is tried again too, and only the last try's error is thrown. A
+ * write that threw may have landed though its answer was lost, so it is held until a read tells:
+ * the next read that succeeds, or, when none did, one more read after the last try, writing
+ * nothing. Found as written, it was, and its answer stands; otherwise `step` is asked of what is
+ * there, and after the last try its answer stands only where it would write nothing. Only
+ * otherwise is the error thrown.
  */
 export const updateLedger = async <T>(
   store: LedgerStore,
@@ -355,13 +356,16 @@ export const updateLedger = async <T>(
   tries = 3
 ): Promise<{ answer: T; wrote: boolean } | { contended: true }> => {
   let failure: { error: unknown } | null = null;
-  // The last try's write, made though its answer was lost: it may have landed.
+  // A write made though its answer was lost, which no read since has told of: it may have landed.
   let unsure: { next: Ledger; answer: T } | null = null;
   for (let attempt = 0; attempt < tries; attempt += 1) {
-    unsure = null;
     try {
       const { raw, token } = await store.read();
       const ledger = coerceLedger(raw);
+      if (unsure && ledger && sameLedger(ledger, unsure.next)) {
+        return { answer: unsure.answer, wrote: true };
+      }
+      unsure = null;
       const { next, answer } = step(ledger);
       if (!next || (ledger && sameLedger(ledger, next))) return { answer, wrote: false };
       unsure = { next, answer };

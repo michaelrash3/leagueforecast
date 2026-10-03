@@ -557,13 +557,16 @@ describe("a rebuild in the worker", () => {
       "older-day",
       "copy-replaced",
       "no-copy",
+      // A newer build's boards or copy: this build is due to be replaced, which a pause of every
+      // save's rebuild for the rest of the day would only outlast.
+      "newer-live-schema",
+      "newer-schema",
+      "newer-rules",
+      "unknown-key",
     ] as const) {
       expect(isRebuildFailure(end), end).toBe(false);
     }
     for (const end of [
-      "newer-schema",
-      "newer-rules",
-      "unknown-key",
       "damaged",
       "league-unreadable",
       "store-refused",
@@ -572,7 +575,6 @@ describe("a rebuild in the worker", () => {
       "locale",
       "too-large",
       "unreadable",
-      "newer-live-schema",
     ] as const) {
       expect(isRebuildFailure(end), end).toBe(true);
     }
@@ -808,6 +810,36 @@ describe("a rebuild task on the main thread", () => {
     });
     expect(run).not.toHaveBeenCalled();
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+    // A part under a key this build does not keep, which a newer build's new key would be.
+    const keyed = (): CloudManifest => {
+      const held = cloud.manifest()!;
+      return { ...held, parts: [...held.parts, { ...held.parts[0]!, key: "a-newer-builds-key" }] };
+    };
+    expect(
+      await handle({ ledger: ledger.store, cloud, live, run, copyStore: readOnly(cloud, keyed) })
+    ).toEqual({
+      line: { end: "unknown-key", copy: cloud.manifest()!.copy, version: 2 },
+      rethrow: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
+  it("leaves a copy that is gone before reserving, with nothing to try again", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    expect(
+      await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        run,
+        copyStore: { ...readOnly(cloud), readManifest: async () => null },
+      })
+    ).toEqual({ line: { end: "no-copy" }, rethrow: false });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
   });
 
   it("leaves a copy it cannot read before reserving, and throws a read that failed", async () => {
@@ -957,6 +989,74 @@ describe("a rebuild task on the main thread", () => {
     expect(ledger.held()).toMatchObject({ failures: 0, open: null });
   });
 
+  it("runs once on a reservation whose answer was lost before the reads that would tell failed", async () => {
+    // The first write fails outright, the second lands with its answer lost, and the third try's
+    // read fails: the reservation is read back after the last try, and is this handling's.
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    let writes = 0;
+    let reads = 0;
+    const flaky: LedgerStore = {
+      read: async () => {
+        reads += 1;
+        // The switch's read, then the reserve's three tries: the third fails.
+        if (reads === 4) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return ledger.store.read();
+      },
+      replace: async (token, next) => {
+        writes += 1;
+        if (writes === 1) throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        const landed = await ledger.store.replace(token, next);
+        if (writes === 2) throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        return landed;
+      },
+    };
+    const run = vi.fn(async (): Promise<RebuildResult> => ({
+      end: "published",
+      retryable: false,
+      tries: 1,
+    }));
+    const done = await handle({ ledger: flaky, cloud, live, run });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(done).toMatchObject({ line: { end: "published", settled: true }, rethrow: false });
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
+  it("says a settle whose answer was lost as made, and one with nothing left to settle as not", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    let writes = 0;
+    const losing: LedgerStore = {
+      read: ledger.store.read,
+      replace: async (token, next) => {
+        writes += 1;
+        const landed = await ledger.store.replace(token, next);
+        // The reserve's answer comes back; the settle's is lost though it landed.
+        if (writes === 2) throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        return landed;
+      },
+    };
+    expect(await handle({ ledger: losing, cloud, live })).toMatchObject({
+      line: { end: "published", settled: true },
+      rethrow: false,
+    });
+    expect(writes).toBe(2);
+    expect(ledger.held()).toMatchObject({ failures: 0, open: null });
+
+    // The owner cleared the reservation while the run went: nothing of this run's is left to settle.
+    const cleared = memoryLedger(SWITCH);
+    const clearing = vi.fn(async (): Promise<RebuildResult> => {
+      const held = cleared.held()!;
+      await cleared.store.replace((await cleared.store.read()).token, { ...held, open: null });
+      return { end: "published", retryable: false, tries: 1 };
+    });
+    expect(await handle({ ledger: cleared.store, cloud, live, run: clearing })).toMatchObject({
+      line: { end: "published", settled: false },
+      rethrow: false,
+    });
+    expect(clearing).toHaveBeenCalledTimes(1);
+  });
+
   it("says a settle it could not write, and leaves the retry to how the run ended", async () => {
     const { cloud, live } = await setUp({ current: false });
     const ledger = memoryLedger(SWITCH);
@@ -1012,10 +1112,22 @@ describe("a rebuild task on the main thread", () => {
       ledger: ledger.store,
       cloud,
       live,
-      run: async () => ({ end: "newer-schema", retryable: false, tries: 1 }),
+      run: async () => ({ end: "damaged", retryable: false, tries: 1 }),
     });
-    expect(done).toMatchObject({ line: { end: "newer-schema" }, rethrow: false });
+    expect(done).toMatchObject({ line: { end: "damaged" }, rethrow: false });
     expect(ledger.held()).toMatchObject({ failures: 3, pausedDay: TODAY });
+    // A copy newer rules tidied, which a run finds only once loaded, stands aside: two failures
+    // already counted are cleared rather than made the third that pauses every save's rebuild.
+    const newer = memoryLedger({ ...SWITCH, failures: 2 });
+    expect(
+      await handle({
+        ledger: newer.store,
+        cloud,
+        live,
+        run: async () => ({ end: "newer-rules", retryable: false, tries: 1 }),
+      })
+    ).toMatchObject({ line: { end: "newer-rules", settled: true }, rethrow: false });
+    expect(newer.held()).toMatchObject({ failures: 0, pausedDay: null, open: null });
     // Something that moved under it is retried, and counted all the same.
     const moving = memoryLedger(SWITCH);
     const again = await handle({

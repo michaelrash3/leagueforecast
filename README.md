@@ -3521,16 +3521,18 @@ in turn and seen to fail a test.
 Which saves ask for a rebuild is decided on the save alone (`rebuildPlan.ts`).
 A save that moved nothing a board reads (a refresh log, a tidy stamp, a cadence,
 a list, an archive's rows, or only the earlier versions kept) asks for none; nor
-does a deleted copy, one this build cannot read, or one a newer build saved,
-which this build cannot load: a run of it would fail on every save, and each
-failure counts toward the pause every other save's rebuild waits on too. A copy's
-first save, and the first of a new copy, always asks. Every save in a window shares one queued task,
+does a deleted copy, one this build cannot read, or one a newer build saved (a
+schema above this build's, or a part under a key it does not keep), which this
+build cannot load: a run of it would spend a reservation on every save to no end.
+A copy's first save, and the first of a new copy, always asks. Every save in a window shares one queued task,
 whose id is a hash of the kind and the window, so a burst of edits is one
 rebuild, and so is a burst of saves each under a new copy id (a run builds
 whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
-closes; a quarter of an hour for a server's (the nightly, a cloud pull, a server's
-edit), run ten minutes after, by which time that server's own publish should be
-in and the rebuild finds the boards current for three reads. Who saved is
+closes; a quarter of an hour for a server's that publishes what it saved (the
+nightly, a server's edit), run ten minutes after, by which time that server's own
+publish should be in and the rebuild finds the boards current for three reads. A
+pull run in the cloud publishes nothing of its own, so its saves are rebuilt as a
+device's are. Who saved is
 whatever the saving client says it is, so the name only picks the delay; nothing
 is skipped for it. A save is queued only while the switch is on, and a switch
 that cannot be read counts as on, since the rebuild reads it again before it
@@ -3561,10 +3563,11 @@ replace only over the version read, tried three times, as is a read or write tha
 throws, so two runs reserving at once cannot both spend the same headroom, an
 owner turning the switch is read before anything is written over it, and a write
 that landed though its answer was lost is found on the next read, by the id each
-handling of a task writes with its reservation and settles it by. The last try's
-own such write is read back once more, writing nothing, so a reservation that
-landed on the last try runs rather than waiting out its span to be counted as a
-failure. `rebuildLedger.test.ts` holds each rule, and the
+handling of a task writes with its reservation and settles it by. Such a write is
+held until a read tells whether it landed, and when no read after it succeeds it
+is read back once more after the last try, writing nothing, so a reservation that
+landed runs rather than waiting out its span to be counted as a failure, and a
+settle that landed is logged as made. `rebuildLedger.test.ts` holds each rule, and the
 rules test on the emulator holds the document shut to every browser; each guard
 was broken in turn and seen to fail a test.
 
@@ -3585,11 +3588,13 @@ it ran. Then the main thread settles what the run cost: the time since it began,
 and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
 a failure a run that threw, and one that ended on anything but its job done or a
 newer one's (a copy or a meta it cannot read, a store that refused, something
-that kept moving under it), and asks the queue for a retry only for one that
-threw or that something kept moving under, or that waited on another run, or
-that lost the ledger to other writers on every try, which may have been an
-owner's edits to the switch rather than a run that published the copy. A
-settle that cannot be written is said in the line and left for the next reserve
+that kept moving under it). Boards or a copy a newer build or newer rules made
+are a newer one's: this build is due to be replaced, and a pause would hold every
+save's rebuild for the rest of the day, past that deploy. It asks the queue for a
+retry only for one that threw or that something kept moving under, or that
+waited on another run, or that lost the ledger to other writers on every try,
+which may have been an owner's edits to the switch rather than a run that
+published the copy. A settle that cannot be written is said in the line and left for the next reserve
 to count. Each run logs one line, with its copy and version and, for a live run
 that wrote boards, when they went up; the trigger logs a line for each save it
 queues (`saveLineOf`). `npm run live:lag -- rebuilds.json` reads both from Cloud

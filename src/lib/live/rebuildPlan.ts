@@ -1,5 +1,7 @@
 import { hashValue } from "../cloud/cloudPack";
-import { coerceManifest, DATA_SCHEMA } from "../cloud/cloudManifest";
+import { coerceManifest, DATA_SCHEMA, type CloudManifest } from "../cloud/cloudManifest";
+import { LEAGUE_PART } from "../cloud/cloudPlan";
+import { isCloudPoolKey } from "../teamRankingsStorage";
 import { boardInputsPrint } from "./boardInputs";
 
 /**
@@ -9,8 +11,9 @@ import { boardInputsPrint } from "./boardInputs";
  */
 
 /**
- * Who saved: a device, whose edits come in bursts a person is waiting on, or a server (the nightly,
- * a pull run in the cloud, an edit run on a server), whose own publish should already be in.
+ * Who saved: a device, whose edits come in bursts a person is waiting on, or a server that publishes
+ * the boards of what it saved (the nightly, an edit run on a server), whose own publish should
+ * already be in.
  */
 export type RebuildKind = "edit" | "server";
 
@@ -30,11 +33,13 @@ export const REBUILD_WINDOW_S = { edit: 120, server: 900 } as const;
 export const REBUILD_SETTLE_S = { edit: 5, server: 600 } as const;
 
 /**
- * The devices that are servers. `device` is whatever the saving client says it is, since the rules
- * let any member write the copy, so the name only picks the delay: a device naming itself a server
- * delays its own rebuild, and nothing is ever skipped for it.
+ * The devices that are servers publishing their own saves' boards. `device` is whatever the saving
+ * client says it is, since the rules let any member write the copy, so the name only picks the
+ * delay: a device naming itself a server delays its own rebuild, and nothing is ever skipped for
+ * it. A pull run in the cloud (`cloud-pull`) is not one: it saves each leg and publishes nothing,
+ * so its saves are rebuilt as a device's are, rather than checked a quarter of an hour on.
  */
-export const SERVER_DEVICES: ReadonlySet<string> = new Set(["nightly", "cloud-pull", "live-edit"]);
+export const SERVER_DEVICES: ReadonlySet<string> = new Set(["nightly", "live-edit"]);
 
 /** A rebuild a save asks for: of which copy and version, after which kind of save. */
 export type RebuildAsk = {
@@ -48,13 +53,27 @@ export type RebuildAsk = {
 /**
  * - `deleted`: the copy was deleted; its views go with the next copy's first save.
  * - `unreadable`: the saved manifest is not one this build can read.
- * - `newer-schema`: a newer build saved the copy. This build cannot load it, so a run would fail on
- *   every save, and each failure counts toward the pause every other save's rebuild waits on too;
- *   the rebuilds wait instead for this build to be replaced.
+ * - `newer-schema`, `unknown-key`: a newer build saved the copy, at a schema above this build's or
+ *   with a part under a key this build does not keep (`newerBuildOf`). This build cannot load it,
+ *   so a run would spend a reservation on every save to no end; the rebuilds wait instead for this
+ *   build to be replaced.
  * - `no-board-input`: nothing a board reads moved (`boardInputsPrint`): a refresh log, a tidy stamp,
  *   a cadence, a list, an archive's rows, or only the earlier versions kept.
  */
-export type RebuildSkip = "deleted" | "unreadable" | "newer-schema" | "no-board-input";
+export type RebuildSkip =
+  "deleted" | "unreadable" | "newer-schema" | "unknown-key" | "no-board-input";
+
+/**
+ * Whether a newer build saved the copy, as its manifest alone shows: a schema above this build's, or
+ * a part under a key this build does not keep, which could be one the boards should read. The pool
+ * refuses either before it reads a piece (`poolCache.ts`), so neither is worth a reservation.
+ */
+export const newerBuildOf = (manifest: CloudManifest): "newer-schema" | "unknown-key" | null => {
+  if (manifest.schema > DATA_SCHEMA) return "newer-schema";
+  return manifest.parts.some(({ key }) => key !== LEAGUE_PART && !isCloudPoolKey(key))
+    ? "unknown-key"
+    : null;
+};
 
 /**
  * Whether a write of the copy's manifest, from `before` to `after` (its fields as stored, `null` or
@@ -67,7 +86,8 @@ export const askRebuild = async (
   if (after === null || after === undefined) return { skip: "deleted" };
   const next = coerceManifest(after);
   if (!next) return { skip: "unreadable" };
-  if (next.schema > DATA_SCHEMA) return { skip: "newer-schema" };
+  const newer = newerBuildOf(next);
+  if (newer) return { skip: newer };
   const previous = before === null || before === undefined ? null : coerceManifest(before);
   // A copy with nothing before it, or a new copy, is built whatever saved it and whatever it holds:
   // its first boards are all it has.

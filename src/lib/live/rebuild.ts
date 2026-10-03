@@ -1,5 +1,5 @@
 import type { CloudStore } from "../cloud/cloudEngine";
-import { DATA_SCHEMA, UnreadableCopyError, type CloudManifest } from "../cloud/cloudManifest";
+import { UnreadableCopyError, type CloudManifest } from "../cloud/cloudManifest";
 import { boardsState } from "./boardInputs";
 import type { PoolCache, PoolEnsure } from "./poolCache";
 import { dryLiveStore, publishCopyViews, type CopyPublish } from "./publishCopy";
@@ -11,7 +11,7 @@ import {
   updateLedger,
   type LedgerStore,
 } from "./rebuildLedger";
-import type { RebuildAsk, RebuildTask } from "./rebuildPlan";
+import { newerBuildOf, type RebuildAsk, type RebuildTask } from "./rebuildPlan";
 import { coerceLiveMeta, type LiveStore } from "./viewStore";
 
 /**
@@ -82,9 +82,13 @@ const RETRYABLE: ReadonlySet<RebuildEnd> = new Set([
 ]);
 
 /**
- * The ends that are the rebuild doing its job or standing aside for a newer one. Every other end is
- * a failure the ledger counts toward a pause: a copy or a meta this build cannot read, a store that
- * refused, and a run that never got past what moved under it.
+ * The ends that are the rebuild doing its job or standing aside for a newer one: boards a newer one
+ * published (by newer rules, for a later day, or by a newer build), and a copy a newer build saved
+ * or tidied (`newer-schema`, `unknown-key`, `newer-rules`). The main thread leaves most of those
+ * before reserving; a run that meets one finds this build due to be replaced, which no pause would
+ * hasten, and a pause would hold every save's rebuild for the rest of the day, past that deploy.
+ * Every other end is a failure the ledger counts toward a pause: a copy or a meta this build cannot
+ * read, a store that refused, and a run that never got past what moved under it.
  */
 const FINE: ReadonlySet<RebuildEnd> = new Set([
   "published",
@@ -93,6 +97,10 @@ const FINE: ReadonlySet<RebuildEnd> = new Set([
   "older-day",
   "copy-replaced",
   "no-copy",
+  "newer-live-schema",
+  "newer-schema",
+  "unknown-key",
+  "newer-rules",
 ]);
 
 const endOfPublish = (reason: Extract<CopyPublish, { ok: false }>["reason"]): RebuildEnd => {
@@ -203,9 +211,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * there when it says so:
  * 1. The switch (`ops/rebuild`): absent, unreadable or off ends it.
  * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
- *    one this build cannot load (a newer build's, or one it cannot read at all): the ledger, the
- *    manifest and the meta, three reads, reserving nothing and starting no worker. A read that
- *    failed is thrown, for the queue to try again.
+ *    one this build cannot load (a newer build's, as its manifest shows, or one it cannot read at
+ *    all): the ledger, the manifest and the meta, three reads, reserving nothing and starting no
+ *    worker. A read that failed is thrown, for the queue to try again.
  * 3. A reservation of the run's ceiling, which the caps, a pause or a run still going may refuse,
  *    the same task's earlier try included. A reservation whose write landed though its answer was
  *    lost is found on the next try as this handling's own, by its id, and kept.
@@ -271,9 +279,8 @@ export const handleRebuildTask = async ({
   }
   if (!manifest) return { line: { ...asked, end: "no-copy" }, rethrow: false };
   const loaded = { copy: manifest.copy, version: manifest.version };
-  if (manifest.schema > DATA_SCHEMA) {
-    return { line: { ...asked, ...loaded, end: "newer-schema" }, rethrow: false };
-  }
+  const newer = newerBuildOf(manifest);
+  if (newer) return { line: { ...asked, ...loaded, end: newer }, rethrow: false };
   const read = await liveStore.readMeta();
   const meta = read ? coerceLiveMeta(read.meta) : null;
   if (read && !meta) return { line: { ...asked, ...loaded, end: "unreadable" }, rethrow: false };
