@@ -47,13 +47,32 @@ export const boardKey = (year: number | undefined, pageId: string, half: BoardHa
  * its state's top ten and state filter by, and whether its games on this page came from a League
  * Standings season (`leagueTeamIdsOn`), which the page badges. A field the club has none of is
  * left out, as is `league` for a club with no league game here.
+ *
+ * `was` is its place on the board a week before (`BoardView.past`), as the page's movement arrows
+ * read it (`ranksAsOf`), left out for a club that was not on it.
  */
-export type BoardFacts = { city?: string; state?: string; league?: true };
+export type BoardFacts = { city?: string; state?: string; league?: true; was?: number };
 
 /** A board's row as published: the owner's star left for each member's device to set. */
 export type BoardRow = Omit<ScoutRankingRow, "isMine"> & BoardFacts;
-/** A board as published (`publishViews`). */
-export type BoardView = { rows: BoardRow[] };
+
+/** A week of a club's place, oldest first in a rank line; null where it was not on the board. */
+export type HistoryPoint = { asOf: string; rank: number | null };
+
+/**
+ * A board as published (`publishViews`).
+ * - `past`: the board a week before, as the page's arrows read it: the day it stood on, and
+ *   whether anyone was on it in the whole year then, which decides whether a club with no `was`
+ *   is new or the half had not begun. Empty for a page too young to rank, as the worker's answer
+ *   is, and left out by a build not asked for it (`past: false`).
+ * - `history`: the page's own club's place week by week, oldest first and ending a week ago, as
+ *   the page's rank line walks it (`useRankingsWorker`), for the club the page names as its own.
+ */
+export type BoardView = {
+  rows: BoardRow[];
+  past?: { asOf: string; empty: boolean };
+  history?: { teamId: string; points: HistoryPoint[] };
+};
 
 type FieldKind = "string" | "number" | "boolean" | "number?";
 
@@ -96,6 +115,7 @@ const FACT_FIELDS: { [K in keyof BoardFacts]-?: (value: unknown) => boolean } = 
   city: (value) => typeof value === "string" && value !== "",
   state: (value) => typeof value === "string" && value !== "",
   league: (value) => value === true,
+  was: (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0,
 };
 
 const holds = (record: Record<string, unknown>, field: string, kind: FieldKind): boolean => {
@@ -127,11 +147,56 @@ export const isBoardRow = (raw: unknown): raw is BoardRow =>
     ([field, valid]) => raw[field] === undefined || valid(raw[field])
   );
 
-/** A published board as read back, or null when any row of it is not one (`isBoardRow`). */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+const isPlace = (value: unknown): boolean =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+
+const pastOf = (raw: unknown): BoardView["past"] | null => {
+  if (!isRecord(raw) || typeof raw.asOf !== "string" || !ISO_DAY.test(raw.asOf)) return null;
+  return typeof raw.empty === "boolean" ? { asOf: raw.asOf, empty: raw.empty } : null;
+};
+
+const historyOf = (raw: unknown): BoardView["history"] | null => {
+  if (!isRecord(raw) || typeof raw.teamId !== "string" || raw.teamId === "") return null;
+  if (!Array.isArray(raw.points)) return null;
+  const points: HistoryPoint[] = [];
+  for (const point of raw.points as unknown[]) {
+    if (!isRecord(point) || typeof point.asOf !== "string" || !ISO_DAY.test(point.asOf))
+      return null;
+    if (point.rank !== null && !isPlace(point.rank)) return null;
+    points.push({ asOf: point.asOf, rank: point.rank as number | null });
+  }
+  return { teamId: raw.teamId, points };
+};
+
+/**
+ * A published board as read back, or null when any row of it is not one (`isBoardRow`), or what
+ * it says of last week or the rank line is not what it should be.
+ */
 export const coerceBoardView = (raw: unknown): BoardView | null => {
   if (!isRecord(raw) || !Array.isArray(raw.rows)) return null;
   const rows: unknown[] = raw.rows;
-  return rows.every(isBoardRow) ? { rows } : null;
+  if (!rows.every(isBoardRow)) return null;
+  const past = raw.past === undefined ? undefined : pastOf(raw.past);
+  const history = raw.history === undefined ? undefined : historyOf(raw.history);
+  if (past === null || history === null) return null;
+  return { rows, ...(past ? { past } : {}), ...(history ? { history } : {}) };
+};
+
+/**
+ * Last week's places on a published board as the page's arrows read them (`movementOf`): null
+ * with no board a week before, none at all when nobody was on it, and otherwise each club's place
+ * on this page. The page reads every club of the year, and asks only of its own rows; when last
+ * week's board had clubs but none on this page, a key no club has keeps the map from reading as
+ * empty, so each row reads as new, as the page's does.
+ */
+export const lastWeekOf = (view: BoardView): Record<string, number> | null => {
+  if (!view.past) return null;
+  if (view.past.empty) return {};
+  const ranks: Record<string, number> = {};
+  for (const row of view.rows) if (row.was !== undefined) ranks[row.teamId] = row.was;
+  return Object.keys(ranks).length > 0 ? ranks : { "": 0 };
 };
 
 /**

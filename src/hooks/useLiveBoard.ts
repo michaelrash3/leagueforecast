@@ -13,7 +13,7 @@ import {
 } from "../lib/live/liveClient";
 import { openViewCache, type ViewCache } from "../lib/live/viewCache";
 import type { LiveMeta, LiveReader } from "../lib/live/viewStore";
-import { boardKey, type BoardRow, type LivePages } from "../lib/live/views/boardShape";
+import { boardKey, type BoardView, type LivePages } from "../lib/live/views/boardShape";
 import type { SeasonSegment } from "../lib/teamRankings";
 import { segmentWorthShowing } from "./useRankingsPages";
 
@@ -61,8 +61,11 @@ export type LiveBoardState = {
   /** The page's half, as the page itself would open on it, and the board's key. */
   segment: SeasonSegment | undefined;
   key: string | null;
-  /** The board drawn: its key and fingerprint, its rows, and whether the network vouched for it. */
-  board: { key: string; h: string; rows: readonly BoardRow[]; checked: boolean } | null;
+  /**
+   * The board drawn: its key and fingerprint, the board itself (rows, last week and the rank
+   * line), and whether the network vouched for it.
+   */
+  board: { key: string; h: string; view: BoardView; checked: boolean } | null;
   /** Why the network's board for the key cannot be drawn, once asked. */
   boardMiss: Extract<BoardRead, { ok: false }>["why"] | null;
 };
@@ -158,7 +161,7 @@ export function useLiveBoard({
       const read = await readBoard({ reader, meta: meta.meta, key, cache: sources.cache });
       if (!alive) return;
       if (read.ok) {
-        setBoard({ key, h: read.entry.h, rows: read.view.rows, checked: network });
+        setBoard({ key, h: read.entry.h, view: read.view, checked: network });
         if (network) setBoardMiss(null);
         const uid = sources.uid();
         if (network && uid)

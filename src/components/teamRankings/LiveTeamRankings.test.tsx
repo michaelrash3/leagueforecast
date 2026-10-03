@@ -78,10 +78,18 @@ const row = (teamId: string, rank: number, more: Partial<BoardRow> = {}): BoardR
 
 const SPRING = {
   rows: [
-    row("S-1", 1, { city: "Springfield", state: "OH" }),
-    row("S-2", 2, { state: "OH", league: true }),
+    row("S-1", 1, { city: "Springfield", state: "OH", was: 3 }),
+    row("S-2", 2, { state: "OH", league: true, was: 2 }),
     row("S-3", 3, { state: "KY" }),
   ],
+  past: { asOf: "2027-04-08", empty: false },
+  history: {
+    teamId: "S-2",
+    points: [
+      { asOf: "2027-04-01", rank: 5 },
+      { asOf: "2027-04-08", rank: 2 },
+    ],
+  },
 };
 const FALL = { rows: [row("S-F", 1, { state: "TX" })] };
 
@@ -226,6 +234,24 @@ describe("Team Rankings on the cloud's board", () => {
         (one) => one.isMine
       )
     ).toEqual([false, true, false]);
+  });
+
+  it("draws last week's arrows and the page's own club's rank line from the board", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
+    expect(screen.getAllByText("new").length).toBeGreaterThan(0);
+    const mine = screen.getByRole("region", { name: "My team" });
+    expect(mine.querySelector('[aria-label^="Place by week:"]')).not.toBeNull();
+  });
+
+  it("draws no rank line made for another club than the page's own", async () => {
+    live = memoryLive();
+    const other = { ...SPRING, history: { ...SPRING.history, teamId: "S-9" } };
+    await publish(live, [{ key: `board:2027:${PAGE}:spring`, value: other }]);
+    open(sourcesOf(live));
+    expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
+    const mine = screen.getByRole("region", { name: "My team" });
+    expect(mine.querySelector('[aria-label^="Place by week:"]')).toBeNull();
   });
 
   it("opens on the half the published counts say is worth reading", async () => {

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import { poolWantsCloud, preparePool, type CloudStatus } from "../../lib/cloud/cloudSession";
 import { todayIsoDay } from "../../lib/date";
 import { holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
 import { liveLabel } from "../../lib/live/liveLabel";
-import { withMine } from "../../lib/live/views/boardShape";
+import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { myTeamGlance } from "../../lib/myTeamGlance";
+import { movementOf } from "../../lib/rankMovement";
+import type { ScoutRankingRow } from "../../lib/teamRankings";
 import { ageGroupLevel, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
   clubsOfBoard,
@@ -119,14 +121,24 @@ export function LiveTeamRankings({
 
   const myTeamId = ageGroups.find((group) => group.id === selectedAgeGroupId)?.myTeamId;
   const board = live.board;
-  const rows = useMemo(() => (board ? withMine(board.rows, myTeamId) : []), [board, myTeamId]);
+  const rows = useMemo(() => (board ? withMine(board.view.rows, myTeamId) : []), [board, myTeamId]);
+  // Last week's places, as the page's arrows read them, and the page's own club's rank line.
+  const lastWeek = useMemo(() => (board ? lastWeekOf(board.view) : null), [board]);
+  const rankHistory =
+    board?.view.history && board.view.history.teamId === myTeamId
+      ? board.view.history.points
+      : undefined;
+  const boardMovement = useCallback(
+    (row: ScoutRankingRow) => movementOf(row.teamId, row.overallRank ?? row.rank, lastWeek),
+    [lastWeek]
+  );
 
   // The board on screen is the one Team Rankings opens on, whenever it hands over.
   useEffect(() => {
     if (board)
       holdLiveBoard(
         { ageGroupId: selectedAgeGroupId, ...(live.segment ? { segment: live.segment } : {}) },
-        board.rows
+        board.view.rows
       );
   }, [board, selectedAgeGroupId, live.segment]);
 
@@ -185,12 +197,12 @@ export function LiveTeamRankings({
   );
   const stateById = useMemo(() => new Map(clubs.map((club) => [club.id, club.state])), [clubs]);
   const leagueIds = useMemo(
-    () => new Set((board?.rows ?? []).filter((row) => row.league).map((row) => row.teamId)),
+    () => new Set((board?.view.rows ?? []).filter((row) => row.league).map((row) => row.teamId)),
     [board]
   );
   const myTeam = useMemo(
-    () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), [], null),
-    [rows, myTeamId, stateById]
+    () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), [], lastWeek),
+    [rows, myTeamId, stateById, lastWeek]
   );
 
   const counts = (live.meta && live.meta.pages.halves[selectedAgeGroupId]) ?? {
@@ -277,6 +289,8 @@ export function LiveTeamRankings({
             readOnly
             myTeam={myTeam}
             myTeamNextPending
+            {...(rankHistory ? { rankHistory } : {})}
+            movementOf={boardMovement}
           />
         ) : (
           <div className={`${card} p-5`} role="status" aria-live="polite">

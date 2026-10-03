@@ -5,6 +5,7 @@ import {
   coerceLivePages,
   isBoardRow,
   isRankingRow,
+  lastWeekOf,
   withMine,
   type BoardRow,
 } from "../views/boardShape";
@@ -44,6 +45,7 @@ describe("a published board's row", () => {
     const { ageLevel: _level, ...noLevel } = ROW;
     expect(isBoardRow(noLevel)).toBe(true);
     expect(isBoardRow({ ...ROW, overallRank: 3, somethingNewer: [1] })).toBe(true);
+    expect(isBoardRow({ ...ROW, was: 4 })).toBe(true);
   });
 
   it("is not one with a field missing, of the wrong kind, a star, or a fact that says nothing", () => {
@@ -63,6 +65,9 @@ describe("a published board's row", () => {
       ["state", 39],
       ["league", false],
       ["league", "true"],
+      ["was", 0],
+      ["was", 2.5],
+      ["was", "3"],
     ];
     for (const [field, value] of wrong) {
       expect(isBoardRow({ ...ROW, [field]: value }), `${field} = ${String(value)}`).toBe(false);
@@ -87,6 +92,59 @@ describe("a published board", () => {
     expect(coerceBoardView({ rows: ROW })).toBeNull();
     expect(coerceBoardView([ROW])).toBeNull();
     expect(coerceBoardView(null)).toBeNull();
+  });
+
+  it("says what last week's board and the rank line were, or is nothing when either is wrong", () => {
+    const past = { asOf: "2027-04-08", empty: false };
+    const history = {
+      teamId: "t1",
+      points: [
+        { asOf: "2027-04-01", rank: null },
+        { asOf: "2027-04-08", rank: 3 },
+      ],
+    };
+    expect(coerceBoardView({ rows: [ROW], past, history })).toEqual({
+      rows: [ROW],
+      past,
+      history,
+    });
+    for (const [field, value] of [
+      ["past", { asOf: "2027-04-08" }],
+      ["past", { asOf: "8 April", empty: false }],
+      ["past", { asOf: "2027-04-08", empty: "no" }],
+      ["history", { teamId: "", points: [] }],
+      ["history", { teamId: "t1", points: "none" }],
+      ["history", { teamId: "t1", points: [{ asOf: "2027-04-08", rank: 0 }] }],
+      ["history", { teamId: "t1", points: [{ asOf: "2027-04-08" }] }],
+      ["history", { teamId: "t1", points: [{ asOf: "April", rank: 2 }] }],
+    ] as const) {
+      expect(coerceBoardView({ rows: [ROW], [field]: value }), field).toBeNull();
+    }
+  });
+});
+
+describe("last week's places on a published board", () => {
+  const rows: BoardRow[] = [
+    { ...ROW, was: 2 },
+    { ...ROW, teamId: "t2", rank: 2 },
+  ];
+  const past = (empty: boolean) => ({ asOf: "2027-04-08", empty });
+
+  it("are each club's place a week before, by club, where it had one", () => {
+    expect(lastWeekOf({ rows, past: past(false) })).toEqual({ t1: 2 });
+  });
+
+  it("are nothing without a board a week before, and none at all when it had nobody", () => {
+    expect(lastWeekOf({ rows })).toBeNull();
+    expect(lastWeekOf({ rows, past: past(true) })).toEqual({});
+  });
+
+  it("make every club new when last week's board had clubs, none of them here", () => {
+    const fresh = lastWeekOf({ rows: rows.map(({ was: _was, ...row }) => row), past: past(false) });
+    expect(fresh).not.toBeNull();
+    expect(Object.keys(fresh ?? {})).toHaveLength(1);
+    expect(fresh?.t1).toBeUndefined();
+    expect(fresh?.t2).toBeUndefined();
   });
 });
 

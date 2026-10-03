@@ -20,7 +20,7 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
-import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, rankLineStep, ranksAsOf } from "../lib/rankMovement";
 import { todayIsoDay } from "../lib/date";
 import { createWorker } from "./createWorker";
 
@@ -596,15 +596,16 @@ export function useRankingsWorker(input: RankingsInput): {
     const done = historyHere?.points ?? [];
     const weeksBack = done.length + 2;
     const asOf = daysBefore(todayIsoDay(), 7 * weeksBack);
-    const newer = done[0]?.rank ?? lastWeek.ranks[historyTeam] ?? null;
     const answer = (ranks: Record<string, number>, empty: boolean) => {
-      const rank = ranks[historyTeam] ?? null;
-      setHistoryResult({
-        snapshot,
-        teamId: historyTeam,
-        points: empty ? done : [{ asOf, rank }, ...done],
-        done: empty || weeksBack >= RANK_HISTORY_WEEKS || (rank === null && newer === null),
+      const step = rankLineStep({
+        points: done,
+        lastWeekRank: lastWeek.ranks[historyTeam] ?? null,
+        weeksBack,
+        asOf,
+        rank: ranks[historyTeam] ?? null,
+        empty,
       });
+      setHistoryResult({ snapshot, teamId: historyTeam, ...step });
     };
     const runInline = () => {
       const ranks = ranksAsOf(

@@ -3,6 +3,7 @@ import {
   fitScoutYearFor,
   rankingPoolGroupIds,
   rowsOfYearFit,
+  scoutFitRanks,
   scoutFitYear,
   type AgeGroup,
   type ScoutGame,
@@ -18,6 +19,7 @@ import {
   encodeScoutTeams,
 } from "../../teamRankingsCompact";
 import { countedByHalf } from "../../teamRankings/halves";
+import { daysBefore, rankLineStep, ranksAsOf } from "../../rankMovement";
 import { deriveAllKnown, gamesOnPages, leagueTeamIdsOn, type SeasonReader } from "../allKnown";
 import {
   BOARD_HALVES,
@@ -25,6 +27,7 @@ import {
   type BoardFacts,
   type BoardHalf,
   type BoardView,
+  type HistoryPoint,
   type LivePages,
 } from "./boardShape";
 
@@ -60,8 +63,17 @@ export const asWorkerSees = (
   games: decodePoolGames(encodeScoutGames(games)),
 });
 
-/** One page's table for one span. */
-export type PageBoard = { pageId: string; half: BoardHalf; rows: ScoutRankingRow[] };
+/**
+ * One page's table for one span, and what its arrows and rank line read: every club of the year's
+ * place a week before (`past`), and the page's own club's places week by week (`history`).
+ */
+export type PageBoard = {
+  pageId: string;
+  half: BoardHalf;
+  rows: ScoutRankingRow[];
+  past?: { asOf: string; ranks: Record<string, number> };
+  history?: { teamId: string; points: HistoryPoint[] };
+};
 
 /**
  * The age groups by id, the first of any repeated id winning, as the page finds one
@@ -122,6 +134,11 @@ type BuildInput = {
   readSeason: SeasonReader;
   /** The day the members are in, as an ISO day. Never the server's own. */
   today: string;
+  /**
+   * Whether to work out last week's places and the rank lines as well (`PageBoard.past`): a fit
+   * of each pool and half for last week, and up to seven more for a page that names its own club.
+   */
+  past?: boolean;
 };
 
 /** A club's town and state, each only when it has one. */
@@ -158,6 +175,7 @@ export const buildBoardsAndFacts = ({
   gamesOfYear,
   readSeason,
   today,
+  past = true,
 }: BuildInput): BoardsBuilt => {
   const known = new Map<number | undefined, ReturnType<typeof deriveAllKnown>>();
   const knownFor = (year: number | undefined) => {
@@ -192,6 +210,9 @@ export const buildBoardsAndFacts = ({
   // go before it builds another (`rankingsProtocol.ts` measured one of 76,792 clubs at 44 MB).
   let shipped = new Map<string, { teams: ScoutTeam[]; games: ScoutGame[] }>();
   let fits = new Map<string, ScoutYearFit>();
+  // Past boards' places, kept for the pool as the worker keeps them (`pastBoards`): one fit for
+  // each half and day, shared by the pool's pages of the same fit year.
+  let pastRanks = new Map<string, Record<string, number>>();
 
   const boardOf = (pageId: string, half: BoardHalf, segment: SeasonSegment | undefined) => {
     const page = byId.get(pageId);
@@ -216,12 +237,59 @@ export const buildBoardsAndFacts = ({
     }
     // A fit shared with an older page still gives this one none if it is too young to rank.
     const rows = fit ? rowsOfYearFit(fit, pageId, page?.myTeamId, ageGroups) : [];
-    return { pageId, half, rows };
+    if (!past) return { pageId, half, rows };
+
+    /*
+     * Every club of the year's place on the board as it stood on `asOf`, as the worker answers
+     * the page's movement request: none for a page too young to rank, and otherwise its pool
+     * fitted as of that day (`ranksAsOf`), kept for the pool's other pages of the same fit year.
+     */
+    const ranksOn = (asOf: string): Record<string, number> => {
+      if (!scoutFitRanks(pageId, ageGroups)) return {};
+      const key = JSON.stringify([
+        poolKey,
+        segment ?? null,
+        scoutFitYear(pageId, ageGroups) ?? null,
+        asOf,
+      ]);
+      let ranks = pastRanks.get(key);
+      if (!ranks) {
+        ranks = ranksAsOf(pageId, pool.teams, pool.games, ageGroups, segment, asOf);
+        pastRanks.set(key, ranks);
+      }
+      return ranks;
+    };
+    const lastWeek = { asOf: daysBefore(today), ranks: ranksOn(daysBefore(today)) };
+    const teamId = page?.myTeamId;
+    if (teamId === undefined) return { pageId, half, rows, past: lastWeek };
+
+    /*
+     * The page's own club's rank line, walked with the page's own step (`rankLineStep`): a week
+     * further back each time until the step says stop; then last week's place on the end.
+     */
+    let points: HistoryPoint[] = [];
+    for (let weeksBack = 2; ; weeksBack += 1) {
+      const asOf = daysBefore(today, 7 * weeksBack);
+      const ranks = ranksOn(asOf);
+      const step = rankLineStep({
+        points,
+        lastWeekRank: lastWeek.ranks[teamId] ?? null,
+        weeksBack,
+        asOf,
+        rank: ranks[teamId] ?? null,
+        empty: Object.keys(ranks).length === 0,
+      });
+      points = step.points;
+      if (step.done) break;
+    }
+    points.push({ asOf: lastWeek.asOf, rank: lastWeek.ranks[teamId] ?? null });
+    return { pageId, half, rows, past: lastWeek, history: { teamId, points } };
   };
 
   const boards = ratingPools(ageGroups).flatMap((pageIds) => {
     shipped = new Map();
     fits = new Map();
+    pastRanks = new Map();
     pageIds.forEach((pageId) => facts.set(pageId, factsOf(pageId)));
     return BOARD_HALVES.flatMap(({ half, segment }) =>
       pageIds.map((pageId) => boardOf(pageId, half, segment))
@@ -243,19 +311,23 @@ export const boardViews = (
   { boards, facts }: BoardsBuilt
 ): Array<{ key: string; value: BoardView }> => {
   const byId = groupsById(ageGroups);
-  return boards.map(({ pageId, half, rows }) => {
+  return boards.map(({ pageId, half, rows, past, history }) => {
     const page = facts.get(pageId);
     if (!page) throw new Error(`No facts were built for the page ${pageId}.`);
     return {
       key: boardKey(ageGroupYear(byId.get(pageId)), pageId, half),
       value: {
         rows: rows.map(({ isMine: _mine, ...row }) => {
+          const was = past?.ranks[row.teamId];
           const told: BoardFacts = {
             ...page.places.get(row.teamId),
             ...(page.league.has(row.teamId) ? { league: true as const } : {}),
+            ...(was === undefined ? {} : { was }),
           };
           return { ...row, ...told };
         }),
+        ...(past ? { past: { asOf: past.asOf, empty: Object.keys(past.ranks).length === 0 } } : {}),
+        ...(history ? { history } : {}),
       },
     };
   });

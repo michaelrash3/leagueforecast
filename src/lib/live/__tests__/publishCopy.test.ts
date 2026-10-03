@@ -73,17 +73,23 @@ const copyWith = async (
   return { cloud, manifest: saved.manifest };
 };
 
-const boardsWith = (readSeason: SeasonReader) =>
-  boardViews(
-    loadAgeGroups(),
-    buildBoardsAndFacts({
-      ageGroups: loadAgeGroups(),
-      teams: loadScoutTeams(),
-      gamesOfYear: loadScoutGamesForYear,
-      readSeason,
-      today: FIXTURE_TODAY,
-    })
-  );
+/**
+ * The boards and their facts as a browser holding the stored pool would build them; without last
+ * week's places and the rank lines (`past: false`) where only the rows are compared, since those
+ * cost a fit of the year for each week.
+ */
+const builtWith = (readSeason: SeasonReader, past = true) =>
+  buildBoardsAndFacts({
+    ageGroups: loadAgeGroups(),
+    teams: loadScoutTeams(),
+    gamesOfYear: loadScoutGamesForYear,
+    readSeason,
+    today: FIXTURE_TODAY,
+    past,
+  });
+
+const boardsWith = (readSeason: SeasonReader, past = true) =>
+  boardViews(loadAgeGroups(), builtWith(readSeason, past));
 
 const decode = async (live: MemoryLive, key: string): Promise<unknown> => {
   const entry = live.meta()?.views[key];
@@ -117,7 +123,12 @@ afterAll(() => {
   resetTeamRankingsStore();
 });
 
-describe("publishing the copy's boards", () => {
+/*
+ * Each test here publishes every board of the fixture, with last week's places and the rank lines,
+ * which are a fit of a year for each week: 1 to 3.5 s apiece under coverage on their own
+ * (measured), and the gate runs them beside three hundred other files.
+ */
+describe("publishing the copy's boards", { timeout: 20_000 }, () => {
   it("publishes the boards a browser holding the copy draws, under the copy and version saved", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
@@ -131,30 +142,24 @@ describe("publishing the copy's boards", () => {
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
 
-    const browser = boardsWith(storedSeason);
+    const built = builtWith(storedSeason);
+    const browser = boardViews(loadAgeGroups(), built);
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(browser.map(({ key }) => key).sort());
     for (const { key, value } of browser) {
       expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
     }
-    // And the seasons are what made them so: without them, some board would read otherwise.
-    const without = boardsWith(() => EMPTY);
+    // And the seasons are what made them so: without them, some board's rows would read otherwise.
+    const without = boardsWith(() => EMPTY, false);
     const differs = await Promise.all(
       without.map(async ({ key, value }) => {
-        const published = await decode(live, key);
-        return JSON.stringify(published) !== JSON.stringify(value);
+        const published = (await decode(live, key)) as { rows: unknown };
+        return JSON.stringify(published.rows) !== JSON.stringify(value.rows);
       })
     );
     expect(differs.some(Boolean)).toBe(true);
 
     // What a device lays the page out by went up in the same commit: each page's counted games by
     // half, as the boards' own facts count them, and the roster's last pull.
-    const built = buildBoardsAndFacts({
-      ageGroups: loadAgeGroups(),
-      teams: loadScoutTeams(),
-      gamesOfYear: loadScoutGamesForYear,
-      readSeason: storedSeason,
-      today: FIXTURE_TODAY,
-    });
     expect(live.meta()?.inline).toEqual({
       pages: livePagesOf(built, latestImportedAt(loadScoutTeams())),
     });

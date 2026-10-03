@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRankingsWorker } from "./useRankingsWorker";
 import { loadSavedBoard, resetSavedBoard, saveBoard } from "../lib/savedBoard";
 import { forgetLiveBoard, holdLiveBoard } from "../lib/live/liveBoard";
+import { daysBefore } from "../lib/rankMovement";
+import { todayIsoDay } from "../lib/date";
 import type { AgeGroup, ScoutGame, ScoutRankingRow, ScoutTeam } from "../lib/teamRankings";
 import type {
+  MovementRequest,
   RankingsRequest,
   WhatIfRequest,
   WorkerRequest,
@@ -498,5 +501,48 @@ describe("opening on the board the live page drew", () => {
     const other = render({ ageGroupId: "u11" }).result.current;
     expect(other.rows).toEqual([]);
     expect(other.standIn).toBeNull();
+  });
+});
+
+describe("the rank line it walks", () => {
+  const movements = (worker: FakeWorker): MovementRequest[] =>
+    worker.posted.filter((message): message is MovementRequest => message.kind === "movement");
+
+  it("walks on past a week its club was missing from when the club was on last week's board", () => {
+    const { result } = render({ ageGroupId: "u10", myTeamId: "S-3" });
+    settle();
+    const worker = last(FakeWorker.instances);
+    act(() => {
+      worker.reply({ kind: "rankings", id: last(fits(worker)).id, rows: [], elapsedMs: 1 });
+    });
+    settle();
+    const reply = (ranks: Record<string, number>) =>
+      act(() => {
+        const asked = last(movements(worker));
+        worker.reply({
+          kind: "movement",
+          id: asked.id,
+          asOf: asked.asOf,
+          ranks,
+          empty: false,
+          elapsedMs: 1,
+        });
+      });
+    // Last week the club had a place; the week before it had none, on a board others were on.
+    reply({ "S-3": 5, "S-1": 1 });
+    reply({});
+    // One week without it is not two running, last week counting as the first: one more is asked.
+    expect(movements(worker)).toHaveLength(3);
+    expect(last(movements(worker))).toMatchObject({
+      asOf: daysBefore(todayIsoDay(), 21),
+      teamIds: ["S-3"],
+    });
+    reply({});
+    expect(movements(worker)).toHaveLength(3);
+    expect(result.current.history).toEqual([
+      { asOf: daysBefore(todayIsoDay(), 21), rank: null },
+      { asOf: daysBefore(todayIsoDay(), 14), rank: null },
+      { asOf: daysBefore(todayIsoDay(), 7), rank: 5 },
+    ]);
   });
 });

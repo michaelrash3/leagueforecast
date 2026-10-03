@@ -28,9 +28,11 @@ export const LIVE_FORMAT = 1;
  * A meta of a newer schema is left alone, by publishes and sweeps alike, and a publish over an
  * older one keeps nothing it did not build itself, since the rest has the older shape.
  *
- * 1: the boards as L3 first published them. 2: each board's rows say their club's town, state and
- * League Standings badge (`BoardFacts`), and `inline.pages` says each page's counted games by half
- * and the roster's last pull (`LivePages`), so a device can draw a page from them alone.
+ * 1: the boards as L3 first published them. 2: each board's rows say their club's town, state,
+ * League Standings badge and place a week ago (`BoardFacts`), each board says how last week's
+ * stood and carries its page's own club's rank line (`BoardView`), and `inline.pages` says each
+ * page's counted games by half and the roster's last pull (`LivePages`), so a device can draw a
+ * page, arrows and line included, from them alone.
  */
 export const LIVE_SCHEMA = 2;
 /** How long a retired upload stays readable before a sweep may delete it. */

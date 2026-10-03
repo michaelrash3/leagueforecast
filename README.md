@@ -3436,6 +3436,22 @@ of it (the shape a published board must have, and the star) is a module of its
 own that imports types alone, so a page that only reads boards loads neither the
 pool's derivation nor its codec.
 
+Each board also says how it stood a week before, as the page's arrows read it: each
+row's place on last week's board (`was`, absent for a club that was not on it), and
+the day of that board and whether anyone was on it (`past`), so a device can tell a
+club new to the board from a half that had not begun. A page that has its own club
+gets that club's rank line too (`history`): its place week by week, walked back from
+last week's board by the same step the page walks it with (`rankLineStep` in
+`rankMovement.ts`), with last week's place on the end. Each past week is another fit
+of the year as it stood that day, kept for the build by page, half, fitted year and
+day, so the boards of a year that share a fit share its weeks. It is not free: on
+the 29 Sep backup, building all 33 boards went from 12.4 s to 37.2 s, the largest
+(8,334 clubs) from 631 to 660 KB gzipped, and all of them together 4.4%.
+`boardParity.test.ts` holds each row's `was` to the arrow the worker's own last-week
+board draws, and each line to the one the page walks, a club that joined the board
+last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,
+three of them only after a test was added for a club new last week.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -3466,7 +3482,8 @@ Readers fetch while a server writes, so publishing keeps four rules
   that copy.
 
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
-clubs' towns, states and badges and the meta its pages' counts. A meta written by a newer
+clubs' towns, states and badges, the boards last week's places and their page's
+own club's rank line, and the meta its pages' counts. A meta written by a newer
 build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
@@ -3742,11 +3759,13 @@ is signed in as a member, or still finding out. Its page draws the published
 board as Team Rankings draws its own: the same header, places, state top ten and
 filter, League badges, full table and the member's own club card, from the same
 code (`boardDisplay.ts`), with the half the page would open on decided from the
-published counts. What the board says it is replaces "Refitting…" (`liveLabel`):
-offline, still checking, built before this device's changes or the copy's latest,
-built by another version of the app, or yesterday's. It opens on what this
-account last read and kept, so a board is drawn before any network read, and
-then on the network's.
+published counts. Its arrows are last week's places the board carries, and the
+club card's rank line is the one published with it, drawn only when it is for the
+club this device marks as its own on that page. What the board says it is replaces
+"Refitting…" (`liveLabel`): offline, still checking, built before this device's
+changes or the copy's latest, built by another version of the app, or yesterday's.
+It opens on what this account last read and kept, so a board is drawn before any
+network read, and then on the network's.
 
 The board is a stand-in, as the saved board is. Behind it the pool is brought in
 step with the copy and Team Rankings' own code loads, and the page hands over to
@@ -3769,7 +3788,8 @@ the switch on; the first download grew 2.8 KB gzipped (229.1 to 231.9 KB), as th
 cloud session's code moved into a chunk of its own beside the entry, and
 Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
 an in-memory store through the real reader, cache and checks: the rows, places,
-star, state boards and badges as the page draws them, the half from the published
+star, state boards and badges as the page draws them, last week's arrows and the
+club's own rank line (and no line made for another club), the half from the published
 counts, each reason to hand over at once, the quiet handover waiting for the pool
 and put off by input, a kept board drawn and labelled offline, and a refusal
 forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
