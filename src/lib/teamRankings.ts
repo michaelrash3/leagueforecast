@@ -302,6 +302,8 @@ export const deriveLeagueScoutGames = (
   // Every id `teams` holds, counted once when a league team is first looked up by name and kept in
   // step as teams are made, for `resolveOrCreateTeam`.
   let teamIds: Set<string> | undefined;
+  // The clubs made for teams said not to be in Team Rankings whose names this pass has settled.
+  const offNamed = new Set<string>();
   const games: ScoutGame[] = [];
   const pickedClubIds = new Set<string>();
   const namedClubIds = new Set<string>();
@@ -352,7 +354,23 @@ export const deriveLeagueScoutGames = (
           if (!teamIds.has(own)) {
             teams = [...teams, { id: own, name: cleanTeamName(name) }];
             teamIds.add(own);
+          } else if (!offNamed.has(own)) {
+            /*
+             * One saved to the roster keeps the league's name. With no league game on the page in
+             * view nothing locks its name, so it can be renamed there; then the copies of its
+             * games were read against a name the league never gave it, missed, and counted twice.
+             * The id is read off the name's key, so a saved name of the same key is the same name
+             * written another way, and stands, as a stored name's spelling does everywhere else.
+             */
+            const index = teams.findIndex((team) => team.id === own);
+            const saved = teams[index];
+            const named = cleanTeamName(name);
+            if (saved && teamNameKey(saved.name) !== teamNameKey(named)) {
+              teams = teams.slice();
+              teams[index] = { ...saved, name: named };
+            }
           }
+          offNamed.add(own);
           resolvedIdByLeagueId.set(leagueId, own);
           return own;
         }

@@ -566,9 +566,11 @@ is not. The club's id is read off the name ("S-off-" and the name's words, and
 for a name with anything but plain letters, digits and spaces, the whole name
 written out in base64url after an underscore, so "A.B" and "A B" are two clubs), so it
 is the same on every pass and every device, and one already saved to the roster,
-as marking it "our team" saves it, is the one carried onto again. Teams answered
-Not here under one name, on any page of the year, are one club, as a name is
-everywhere else. Every other copy of such a game names some other club of the
+as marking it "our team" saves it, is the one carried onto again, under the
+league's name: renamed while no league game on the page locked its name, it would
+have had the copies of its games read against a name the league never gave it.
+Teams answered Not here under one name, on any page of the year, are one club, as
+a name is everywhere else. Every other copy of such a game names some other club of the
 team's name: a stand-in the import made for it, a pulled club the import filed it
 against, or a club typed in by hand. Such a row is filed with the league's own
 game when one of its clubs played the team in the league that day, in the same

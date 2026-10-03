@@ -278,6 +278,31 @@ describe("a league team said not to be in Team Rankings", () => {
     expect(again.teams).toBe(saved);
   });
 
+  it("has the league's name again where it was saved and renamed while it played nothing", () => {
+    // Nothing locks the name of a club with no league game on the page in view.
+    const renamed = [...roster, { id: own, name: "Queen City Owls", state: "OH" }];
+    // Named as a club made for it is named, the age label left off.
+    const labelled = offLeague("fall", `${ANGELS} 9U`);
+    const derived = deriveLeagueScoutGames("ag_9", [labelled], renamed, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(derived.games[0]?.teamBId).toBe(own);
+    expect(derived.teams.filter((team) => team.id === own)).toEqual([
+      { id: own, name: ANGELS, state: "OH" },
+    ]);
+    expect(derived.teams).toHaveLength(renamed.length);
+    // A new roster, the one it was handed left as it was.
+    expect(renamed.find((team) => team.id === own)?.name).toBe("Queen City Owls");
+    // The same name written another way is the name it was saved under, and stands.
+    const cased = [...roster, { id: own, name: "CINCINNATI ANGELS RED" }];
+    const again = deriveLeagueScoutGames("ag_9", [offLeague()], cased, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(again.teams).toBe(cased);
+  });
+
   it("is never found by its name, by a league team nobody has answered for", () => {
     // Only the club made for the answered team carries the name; a team of that name nobody has
     // answered for is given a club of its own by the name, as before, not that one.
@@ -434,6 +459,17 @@ describe("every other copy of a game against a team said not to be in Team Ranki
     expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
     expect(ids(countedFor(own, games))).toEqual(["league_fall_m1"]);
     expect(countedFor("S-ANG9", games)).toEqual([]);
+  });
+
+  it("is the league's game when the team's own club was saved under another name", () => {
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANGN", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    const renamed: ScoutTeam = { id: own, name: "Queen City Owls" };
+    const games = page(answered(), [TP, ANGN, renamed], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
+    expect(ids(countedFor(own, games))).toEqual(["league_fall_m1"]);
   });
 
   it("is the league's game when the club of the name pulled its own copy of it", () => {
