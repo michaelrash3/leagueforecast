@@ -281,6 +281,76 @@ export type LeagueRowReader = {
    * where it is not given.
    */
   poolOf?: (ageGroupId: string) => string;
+  /**
+   * Whether a club is one made for a league team a person said is not in Team Rankings
+   * (`offClubIdFor`), and whether another club could be what a schedule called that team: any
+   * club whose name fits the team's, pulled or not, since none of them is the team. Left out, no
+   * row is read as such a team's.
+   */
+  isOffClub?: (clubId: string) => boolean;
+  namesakeOf?: (sideId: string, offClubId: string) => boolean;
+};
+
+/**
+ * For a stored row, the fixture key of the league game it is a copy of when that game is against a
+ * team a person said is not in Team Rankings, and "" otherwise.
+ *
+ * The league's row names the club made for that team (`offClubIdFor`), which no schedule and no
+ * name lookup ever reaches, so every other copy of the game names some other club of the team's
+ * name: a stand-in the import made for it, a pulled club the import filed it against, or a club
+ * typed in by hand. Such a row is the league's game when one of its clubs played the team in the
+ * league that day, in the same rating pool, and its other club could be what that schedule called
+ * the team, with only one team of the kind that fits; it is then filed under the league's
+ * fixture, where the rules for any copy of a league game decide which survives, whatever the two
+ * say the score was and whether or not either is scored yet. Carried by the name before, the
+ * league's row named the club those copies named, and was matched by its pair of clubs.
+ */
+const offFixturesOf = (
+  games: readonly ScoutGame[],
+  poolOf: (ageGroupId: string) => string,
+  roster: LeagueRowReader | undefined
+): ((game: ScoutGame) => string) => {
+  const isOff = roster?.isOffClub;
+  const namesake = roster?.namesakeOf;
+  if (!isOff || !namesake) return () => "";
+  /** The teams each club played in the league, by pool and day. */
+  const offsOn = new Map<string, string[]>();
+  const clubs = new Set<string>();
+  games.forEach((game) => {
+    if (!game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    const off = isOff(game.teamAId) ? game.teamAId : isOff(game.teamBId) ? game.teamBId : null;
+    if (!off) return;
+    const club = off === game.teamAId ? game.teamBId : game.teamAId;
+    const day = normalizeDateInput(game.date ?? "");
+    if (!day) return;
+    clubs.add(club);
+    const key = `${poolOf(game.ageGroupId)}\u0000${club}\u0000${day}`;
+    const offs = offsOn.get(key);
+    if (!offs) offsOn.set(key, [off]);
+    else if (!offs.includes(off)) offs.push(off);
+  });
+  if (clubs.size === 0) return () => "";
+  return (game) => {
+    // Read before the date: nearly every row is between clubs that played no such team.
+    if (!clubs.has(game.teamAId) && !clubs.has(game.teamBId)) return "";
+    const day = normalizeDateInput(game.date ?? "");
+    if (!day) return "";
+    const pool = poolOf(game.ageGroupId);
+    const fits: Array<[string, string]> = [];
+    (
+      [
+        [game.teamAId, game.teamBId],
+        [game.teamBId, game.teamAId],
+      ] as const
+    ).forEach(([club, side]) => {
+      (offsOn.get(`${pool}\u0000${club}\u0000${day}`) ?? []).forEach((off) => {
+        if (namesake(side, off)) fits.push([club, off]);
+      });
+    });
+    if (fits.length !== 1) return "";
+    const [club, off] = fits[0]!;
+    return `${pool}|${[club, off].sort().join("|")}|${day}`;
+  };
 };
 
 /**
@@ -336,16 +406,36 @@ export const dedupeLeagueFixtures = (
   // not survive that.
   const poolOf = roster?.poolOf ?? samePage;
   const byFixture = new Map<string, { league: number[]; stored: number[] }>();
-  games.forEach((game, index) => {
-    if (!leagueClubs.has(game.teamAId) || !leagueClubs.has(game.teamBId)) return;
-    const key = fixtureKeyOf(game, poolOf);
-    if (!key) return;
+  const file = (key: string, game: ScoutGame, index: number) => {
     let bucket = byFixture.get(key);
     if (!bucket) {
       bucket = { league: [], stored: [] };
       byFixture.set(key, bucket);
     }
     (game.id.startsWith(LEAGUE_GAME_PREFIX) ? bucket.league : bucket.stored).push(index);
+  };
+  // The league's rows first, so a stored row between two of its clubs is filed with their own
+  // fixture where there is one, before anything else is asked of it.
+  games.forEach((game, index) => {
+    if (!game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    const key = fixtureKeyOf(game, poolOf);
+    if (key) file(key, game, index);
+  });
+  const offFixture = offFixturesOf(games, poolOf, roster);
+  games.forEach((game, index) => {
+    if (game.id.startsWith(LEAGUE_GAME_PREFIX)) return;
+    const own =
+      leagueClubs.has(game.teamAId) && leagueClubs.has(game.teamBId)
+        ? fixtureKeyOf(game, poolOf)
+        : "";
+    if (own && byFixture.get(own)?.league.length) {
+      file(own, game, index);
+      return;
+    }
+    // A copy of a game against a team said not to be in Team Rankings names some club of the
+    // team's name, never the club made for it, so it is filed under the league's own fixture.
+    const key = offFixture(game) || own;
+    if (key) file(key, game, index);
   });
 
   const dropped = new Set<number>();

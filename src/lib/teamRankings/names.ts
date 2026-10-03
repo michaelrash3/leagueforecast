@@ -218,6 +218,31 @@ export const nameFitter = (): ((a: string, b: string) => boolean) => {
 const normalizeName = teamNameKey;
 
 /**
+ * The start of the id of a club made for a league team a person said is not in Team Rankings. No
+ * minted id has it: those are the prefix and capitals (`mintScoutTeamIdFrom`).
+ */
+const OFF_CLUB_PREFIX = `${SCOUT_ID_PREFIX}off-`;
+
+/**
+ * The club a league team said not to be in Team Rankings is carried onto: one of its own, so its
+ * games stay its own rather than land on a club of the same name the person said it is not.
+ *
+ * The id is read off the name, not minted against the roster, so it is the same on every pass and
+ * on every device, and a club saved to the roster once (marking it "our team" saves it) is the same
+ * club the next pass carries the team onto, not a second one. Every such team of one name, on any
+ * page, is the one club, as a name is one club everywhere else.
+ */
+export const offClubIdFor = (name: string): string => {
+  const words = normalizeName(name)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${OFF_CLUB_PREFIX}${words || "team"}`;
+};
+
+/** Whether a club is one made for a league team said not to be in Team Rankings. */
+export const isOffClubId = (id: string): boolean => id.startsWith(OFF_CLUB_PREFIX);
+
+/**
  * A team's name key, worked out once for each team object: a team is replaced rather than edited,
  * so the object stands for the version of its name. Looking a league team up by name used to work
  * out the key of every club in the pool on every look, and the League Standings seasons carried
@@ -241,6 +266,9 @@ const nameKeyOf = (team: ScoutTeam): string => {
  *
  * `ids`, where a caller looking many names up in one pass keeps it, is every id `teams` holds, and
  * a team made here is added to it: without it, each new team counts the whole pool's ids again.
+ *
+ * A club made for a league team said not to be in Team Rankings (`offClubIdFor`) carries that
+ * team's name and is never found by it: it is that team's alone.
  */
 export const resolveOrCreateTeam = (
   name: string,
@@ -264,7 +292,9 @@ export const resolveOrCreateTeam = (
       teamId: minted,
     };
   }
-  const existingIndex = teams.findIndex((team) => !team.placeholder && nameKeyOf(team) === key);
+  const existingIndex = teams.findIndex(
+    (team) => !team.placeholder && !isOffClubId(team.id) && nameKeyOf(team) === key
+  );
 
   if (existingIndex >= 0) {
     const existing = teams[existingIndex]!;

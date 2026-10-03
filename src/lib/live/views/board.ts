@@ -57,8 +57,11 @@ export const asWorkerSees = (
  * published writes nothing, so code left running after a failed deploy cannot undo newer boards.
  * It only ever goes up: undoing a change that raised it raises it again, with a fingerprint of its
  * own, or every publish after would be refused as older.
+ *
+ * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
+ * onto a club of its own (`offClubIdFor`), not onto a club of its name.
  */
-export const BOARD_RULES = 1;
+export const BOARD_RULES = 2;
 
 /** A board's span: the whole squad year, or one half of it. */
 export type BoardHalf = "year" | SeasonSegment;

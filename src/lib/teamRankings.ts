@@ -68,7 +68,9 @@ import {
 import {
   cleanTeamName,
   filterRankingsByState,
+  isOffClubId,
   nameFitter,
+  offClubIdFor,
   resolveOrCreateTeam,
   SCOUT_ID_PREFIX,
   teamNameKey,
@@ -324,6 +326,14 @@ export const deriveLeagueScoutGames = (
             if (row.how === "picked") pickedLeagueIds.add(row.leagueTeamId);
           });
       }
+      /*
+       * A person said these are not in Team Rankings. Their games still count, on a club of their
+       * own (`offClubIdFor`): carried by the name, they landed on a club of that name the person
+       * had just said they are not, and gave it games it never played.
+       */
+      const offLeagueIds = new Set(
+        leagueTeams.filter((team) => team.scoutTeamId === NO_SCOUT_TEAM).map((team) => team.id)
+      );
       const resolvedIdByLeagueId = new Map<string, string>();
       const resolveLeagueTeam = (leagueId: string): string | null => {
         const cached = resolvedIdByLeagueId.get(leagueId);
@@ -336,13 +346,26 @@ export const deriveLeagueScoutGames = (
         const name = leagueNameById.get(leagueId);
         if (!name) return null;
         teamIds ??= new Set(teams.map((team) => team.id));
+        if (offLeagueIds.has(leagueId)) {
+          const own = offClubIdFor(name);
+          // Made once, and found again by its id where a pass before this one, or the roster, has it.
+          if (!teamIds.has(own)) {
+            teams = [...teams, { id: own, name: cleanTeamName(name) }];
+            teamIds.add(own);
+          }
+          resolvedIdByLeagueId.set(leagueId, own);
+          return own;
+        }
         const result = resolveOrCreateTeam(name, teams, teamIds);
         teams = result.teams;
         resolvedIdByLeagueId.set(leagueId, result.teamId);
         return result.teamId;
       };
-      const noteHow = (leagueId: string, clubId: string) =>
+      // A club of a team's own was carried onto by neither a pick nor a name.
+      const noteHow = (leagueId: string, clubId: string) => {
+        if (offLeagueIds.has(leagueId)) return;
         (pickedLeagueIds.has(leagueId) ? pickedClubIds : namedClubIds).add(clubId);
+      };
 
       leagueMatchups.forEach((matchup) => {
         const teamAId = resolveLeagueTeam(matchup.away);
@@ -2733,6 +2756,14 @@ export const leagueStandIns = (
       const schedule = game.source?.teamId;
       if (!schedule) return false;
       return teamOf(clubId)?.gcTeams?.some((link) => link.teamId === schedule) ?? false;
+    },
+    isOffClub: isOffClubId,
+    namesakeOf: (sideId, offClubId) => {
+      const side = teamOf(sideId);
+      const off = teamOf(offClubId);
+      return (
+        side !== undefined && off !== undefined && !side.placeholder && fits(side.name, off.name)
+      );
     },
   };
 };

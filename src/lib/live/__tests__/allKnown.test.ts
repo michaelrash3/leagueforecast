@@ -39,12 +39,14 @@ describe("what a page knows", () => {
     /*
      * Last year's 9U league is stored first, so its Lexington Lions take S-LEXI and this year's
      * Lexington Legends S-LEXI2, whichever year is being read. A pass over one year's pages alone
-     * would give the Legends S-LEXI, the Lions' id on the other year's page.
+     * would give the Legends S-LEXI, the Lions' id on the other year's page. Between them, the club
+     * made for the 10U team said not to be in Team Rankings, whose id is read off its name.
      */
     [2026, 2027].forEach((year) => {
       const minted = known(year).teams.slice(fixture.teams.length);
       expect(minted.map((team) => [team.id, team.name])).toEqual([
         ["S-LEXI", "Lexington Lions"],
+        ["S-off-fir-club-12", "Fir Club 12"],
         ["S-LEXI2", "Lexington Legends"],
       ]);
     });
