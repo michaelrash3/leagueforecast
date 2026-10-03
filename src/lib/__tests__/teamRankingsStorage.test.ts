@@ -14,6 +14,7 @@ import {
   loadRefreshLog,
   loadTidyStamp,
   flushPoolWrites,
+  poolKeysNotStored,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -635,5 +636,32 @@ describe("the order the shard index reaches the store in", () => {
     expect(shardKey).toBeDefined();
     // Every write of the index, including the last, comes after the shard it names.
     expect(written.lastIndexOf(shardKey!)).toBeLessThan(written.lastIndexOf(indexKey!));
+  });
+});
+
+describe("a store that throws rather than answer", () => {
+  it("counts the write as not landed, as a store that says so does", async () => {
+    const store = new Map<string, unknown>();
+    let throwing = false;
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        if (throwing) throw new Error("the store broke");
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    throwing = true;
+    // Accepted into the cache, as every write is on this path; the store is what refuses it.
+    expect(saveTidyStamp("r1|thrown")).toBe(true);
+    expect(await flushPoolWrites()).toBe(false);
+    expect([...poolKeysNotStored()]).toEqual(["league_forecast_gc_tidy_v1"]);
+    throwing = false;
+    expect(saveTidyStamp("r1|kept")).toBe(true);
+    expect(await flushPoolWrites()).toBe(true);
+    expect([...poolKeysNotStored()]).toEqual([]);
   });
 });
