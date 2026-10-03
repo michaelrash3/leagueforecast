@@ -252,6 +252,11 @@ let poolUnavailable = false;
 
 /** Whether this session is looking at a pool it cannot reach. The app says so; nothing else can. */
 export const isPoolUnavailable = (): boolean => poolUnavailable;
+/**
+ * Whether the store opened on its backing (IndexedDB, or the backing a server hands it) rather than
+ * falling back to `localStorage`: an opening that fails is caught and leaves it reading there.
+ */
+export const isPoolStoreOpen = (): boolean => usingIdb;
 
 let reportWriteError: ((key: string) => void) | null = null;
 

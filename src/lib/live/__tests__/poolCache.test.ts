@@ -707,6 +707,22 @@ describe("an older pool's games, kept under one key", () => {
     }
   });
 
+  it("end the bring-up when the store cannot open on a copy of nothing but them", async () => {
+    // Found by Codex on the pull request: an opening that failed read the one key as empty, which
+    // passed for the split having emptied it.
+    const cloud = memoryCloud();
+    const { store } = readOnly(cloud);
+    await save(cloud, null, new Map([[LEGACY_GAMES_KEY, encodeScoutGames(POOL.games)]]));
+    const cache = createPoolCache({
+      io: () => ({
+        ...memoryIo(),
+        keys: () => Promise.reject(new Error("the store will not list")),
+      }),
+    });
+    expect(await cache.ensure(store)).toEqual({ ok: false, reason: "store-refused" });
+    expect(cache.held()).toEqual({ copy: null, version: null, keys: 0 });
+  });
+
   it("are split over any year the copy also holds, and the copy is still taken in", async () => {
     // A copy holding both: its years, the showcase page's among them, and the older one key, which
     // has every game but the showcase page's. Opening splits the one key over the years and empties

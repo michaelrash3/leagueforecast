@@ -7,6 +7,7 @@ import {
   applyCloudPoolValues,
   initTeamRankingsStore,
   isCloudPoolKey,
+  isPoolStoreOpen,
   isScoutGamesKey,
   LEGACY_GAMES_KEY,
   loadTidyStamp,
@@ -147,6 +148,9 @@ export const createPoolCache = ({
     // The one key is read back only as the split it was opened into, so it must have been taken.
     if (split && !laid[[...values.keys()].indexOf(LEGACY_GAMES_KEY)]) return false;
     await initTeamRankingsStore(backing);
+    // An opening that failed reads every key as empty, which a copy of nothing but games would
+    // pass for a split that emptied the one key.
+    if (!isPoolStoreOpen()) return false;
     // The store opens a channel to other tabs; a server has none, and an open channel would keep a
     // worker's thread alive.
     resetPoolSync();
