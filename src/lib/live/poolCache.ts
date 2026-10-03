@@ -136,13 +136,16 @@ export const createPoolCache = ({
     dropNow();
     const backing = io();
     // A backing that throws has not taken the value, as one that says so has not.
-    await Promise.all(
+    const laid = await Promise.all(
       [...values].map(([key, value]) =>
         Promise.resolve()
           .then(() => backing.set(key, value))
           .catch(() => false)
       )
     );
+    const split = values.has(LEGACY_GAMES_KEY);
+    // The one key is read back only as the split it was opened into, so it must have been taken.
+    if (split && !laid[[...values.keys()].indexOf(LEGACY_GAMES_KEY)]) return false;
     await initTeamRankingsStore(backing);
     // The store opens a channel to other tabs; a server has none, and an open channel would keep a
     // worker's thread alive.
@@ -150,8 +153,9 @@ export const createPoolCache = ({
     onCloudPoolWrite((key) => dirty.add(key));
     // An older pool's one key is split into years as the store opens, which empties it and writes
     // the years and their index over any the copy held, empty ones included: what the store holds
-    // of the games is the split's, not the copy's, so they are not read back.
-    const split = values.has(LEGACY_GAMES_KEY);
+    // of the games is the split's, not the copy's, so they are not read back. That the split took
+    // is: one the backing would not write leaves the one key standing.
+    if (split && (await readCloudPoolValue(LEGACY_GAMES_KEY)) != null) return false;
     const opened = await Promise.all(
       [...values.keys()].map(
         async (key) => (split && isScoutGamesKey(key)) || (await readCloudPoolValue(key)) != null

@@ -683,6 +683,30 @@ describe("an older pool's games, kept under one key", () => {
     expect(boardsOf(next.readSeason)).toBe(modern);
   });
 
+  it("end the bring-up when the store will not take the one key, or the years split from it", async () => {
+    // Found by Codex on the pull request: either way the store opened holding no games, and a
+    // build would have read none.
+    const cloud = memoryCloud();
+    const { store } = readOnly(cloud);
+    await save(cloud, null, legacy(base, POOL));
+    for (const refused of [
+      (key: string) => key === LEGACY_GAMES_KEY,
+      (key: string) => key.startsWith("league_forecast_scout_games_v2"),
+    ]) {
+      const cache = createPoolCache({
+        io: () => {
+          const io = memoryIo();
+          return {
+            ...io,
+            set: (key, value) => (refused(key) ? Promise.resolve(false) : io.set(key, value)),
+          };
+        },
+      });
+      expect(await cache.ensure(store)).toEqual({ ok: false, reason: "store-refused" });
+      expect(cache.held()).toEqual({ copy: null, version: null, keys: 0 });
+    }
+  });
+
   it("are split over any year the copy also holds, and the copy is still taken in", async () => {
     // A copy holding both: its years, the showcase page's among them, and the older one key, which
     // has every game but the showcase page's. Opening splits the one key over the years and empties
