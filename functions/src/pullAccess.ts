@@ -1,11 +1,15 @@
 /**
- * What both halves of a pull in the cloud reach Google with: the function that takes a task
- * (`runPull`, `index.ts`) and the worker it runs the leg in (`pullLeg.ts`). Each is bundled
- * separately and holds its own copy of this, since a worker shares no module with its parent.
+ * What the functions that work on the cloud copy reach Google with: both halves of a pull in the
+ * cloud (`runPull` in `index.ts`, and the worker it runs a leg in, `pullLeg.ts`), and both of a
+ * rebuild after a save (`onCopyWrite` and `rebuild` in `index.ts`, and the rebuild's worker,
+ * `rebuildWorker.ts`). Each is bundled separately and holds its own copy of this, since a worker
+ * shares no module with its parent.
  */
-import { applicationDefault, getApp, getApps, initializeApp } from "firebase-admin/app";
+import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFunctions } from "firebase-admin/functions";
 import type { LegTask } from "../../src/lib/cloud/pullJobRunner";
+import type { RebuildTask } from "../../src/lib/live/rebuildPlan";
+import { REBUILD_DISPATCH_S } from "../../src/lib/live/rebuildWorkerProtocol";
 
 export const REGION = "us-central1";
 
@@ -18,7 +22,13 @@ const projectId = (): string => {
   return named;
 };
 
-const adminApp = () => (getApps().length > 0 ? getApp() : initializeApp());
+/**
+ * The default admin app, made the first time it is needed. Not whichever app there is: a function
+ * an event triggers has firebase-functions make one of its own (`__FIREBASE_FUNCTIONS_SDK__`) to
+ * read the event before the handler runs, and so does a call that carries a sign-in, and asking for
+ * the default app then throws `app/no-app` though an app exists.
+ */
+const adminApp = () => getApps().find((app) => app.name === "[DEFAULT]") ?? initializeApp();
 
 /** The function's own account's token for Google's APIs, asked for again before its hour is up. */
 const accessToken = (() => {
@@ -43,6 +53,30 @@ export const enqueueLeg = async (task: LegTask): Promise<void> => {
     await getFunctions(adminApp())
       .taskQueue<LegTask>(`locations/${REGION}/functions/runPull`)
       .enqueue(task, { id: `${task.jobId}-${task.leg}`, dispatchDeadlineSeconds: 1800 });
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "functions/task-already-exists") return;
+    throw error;
+  }
+};
+
+/**
+ * Queues a rebuild under the id its window gives it (`rebuildTask`): every save in a window asks for
+ * the one task, and the first to ask queued it, so the rest are done. Run after its window, and
+ * waited on longer than the rebuild may run (`REBUILD_DISPATCH_S`).
+ */
+export const enqueueRebuild = async ({
+  id,
+  scheduleTime,
+  task,
+}: {
+  id: string;
+  scheduleTime: Date;
+  task: RebuildTask;
+}): Promise<void> => {
+  try {
+    await getFunctions(adminApp())
+      .taskQueue<RebuildTask>(`locations/${REGION}/functions/rebuild`)
+      .enqueue(task, { id, scheduleTime, dispatchDeadlineSeconds: REBUILD_DISPATCH_S });
   } catch (error) {
     if ((error as { code?: unknown }).code === "functions/task-already-exists") return;
     throw error;
