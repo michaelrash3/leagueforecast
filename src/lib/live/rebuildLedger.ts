@@ -334,13 +334,20 @@ export const restLedgerStore = (
   replace: (token, next) => docs.replace(path, fieldsOf(next), token),
 });
 
+/** Whether two ledgers hold the same, field for field. */
+const sameLedger = (a: Ledger, b: Ledger): boolean =>
+  JSON.stringify(fieldsOf(a)) === JSON.stringify(fieldsOf(b));
+
 /**
  * Reads the ledger, and writes back what `step` makes of it only if nothing has written it since:
  * a second run reserving at the same moment, or the owner turning the switch, is read again and
  * `step` asked again, up to `tries` times, so two cannot both spend the same headroom. A step that
  * leaves the ledger as it was, or hands back none, writes nothing. A read or a write that throws
  * (Firestore busy for a moment) is tried again too, and only the last try's error is thrown: a
- * write that landed though its answer was lost is then read back, and `step` finds it there.
+ * write that landed though its answer was lost is read back by the next try, and `step` finds it
+ * there. The last try's own such write is read back once more, writing nothing: found as written,
+ * it was; and where `step` would write nothing now, its answer stands. Only otherwise is the error
+ * thrown.
  */
 export const updateLedger = async <T>(
   store: LedgerStore,
@@ -348,21 +355,35 @@ export const updateLedger = async <T>(
   tries = 3
 ): Promise<{ answer: T; wrote: boolean } | { contended: true }> => {
   let failure: { error: unknown } | null = null;
+  // The last try's write, made though its answer was lost: it may have landed.
+  let unsure: { next: Ledger; answer: T } | null = null;
   for (let attempt = 0; attempt < tries; attempt += 1) {
+    unsure = null;
     try {
       const { raw, token } = await store.read();
       const ledger = coerceLedger(raw);
       const { next, answer } = step(ledger);
-      if (!next) return { answer, wrote: false };
-      if (ledger && JSON.stringify(fieldsOf(ledger)) === JSON.stringify(fieldsOf(next))) {
-        return { answer, wrote: false };
-      }
+      if (!next || (ledger && sameLedger(ledger, next))) return { answer, wrote: false };
+      unsure = { next, answer };
       if (await store.replace(token, next)) return { answer, wrote: true };
+      unsure = null;
       failure = null;
     } catch (error) {
       failure = { error };
     }
   }
-  if (failure) throw failure.error;
-  return { contended: true };
+  if (!failure) return { contended: true };
+  if (unsure) {
+    const written = unsure;
+    const check = await store.read().catch(() => null);
+    if (check) {
+      const ledger = coerceLedger(check.raw);
+      if (ledger && sameLedger(ledger, written.next)) {
+        return { answer: written.answer, wrote: true };
+      }
+      const { next, answer } = step(ledger);
+      if (!next || (ledger && sameLedger(ledger, next))) return { answer, wrote: false };
+    }
+  }
+  throw failure.error;
 };

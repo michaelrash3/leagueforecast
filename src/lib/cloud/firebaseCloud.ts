@@ -21,7 +21,7 @@ import {
 } from "firebase/firestore/lite";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
-import { coerceManifest } from "./cloudManifest";
+import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import {
   coerceMember,
   memberAddress,
@@ -92,15 +92,7 @@ export type CloudMembers = {
 const accountOf = (user: User | null): CloudAccount | null =>
   user ? { uid: user.uid, email: user.email } : null;
 
-/** Thrown for a manifest this build cannot read, which is never to be taken for no copy at all. */
-export class UnreadableCopyError extends Error {
-  constructor() {
-    super(
-      "The cloud copy was saved by a newer version of the app, or is damaged. Reload to update the app; nothing here has been changed."
-    );
-    this.name = "UnreadableCopyError";
-  }
-}
+export { UnreadableCopyError };
 
 /** The copy's documents in one Firestore database, as the sync engine reads and writes them. */
 export const firestoreStore = (db: Firestore): CloudStore => ({

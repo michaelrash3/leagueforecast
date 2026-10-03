@@ -9,6 +9,7 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
+import { UnreadableCopyError } from "../cloudManifest";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import {
   FirestoreError,
@@ -221,6 +222,18 @@ describe("the cloud copy through Firestore's REST API", () => {
     await loadPoolFrom(store);
     expect(loadScoutTeams().map((team) => team.id)).toEqual(["A", "B"]);
     expect(firestore.tokens.every((token) => token === "Bearer a-token")).toBe(true);
+  });
+
+  it("takes a manifest it cannot read for one, never for no copy", async () => {
+    const firestore = fakeFirestore();
+    const store = storeOn(firestore);
+    await firstCopy(store);
+    const held = firestore.docs.get("copies/main")!;
+    firestore.docs.set("copies/main", {
+      ...held,
+      fields: { ...held.fields, format: { integerValue: "9" } },
+    });
+    await expect(store.readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
   });
 
   it("will not replace a manifest another save changed after it was read", async () => {

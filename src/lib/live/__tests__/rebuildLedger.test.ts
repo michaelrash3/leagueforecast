@@ -568,6 +568,65 @@ describe("writing the ledger", () => {
     expect(await updateLedger(losing, settle)).toEqual({ answer: null, wrote: false });
     expect(doc.held()).toMatchObject({ dayGiBs: 80, monthVcpuS: 20, open: null });
 
+    // The last try's write, its answer lost: read back once, and counted as written if it landed.
+    const backed = memoryLedger({ on: true });
+    let writes = 0;
+    const landing: LedgerStore = {
+      read: backed.store.read,
+      replace: vi.fn(async (token: string | null, next: Ledger) => {
+        writes += 1;
+        if (writes === 3) await backed.store.replace(token, next);
+        throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+      }),
+    };
+    expect(await updateLedger(landing, reserving)).toMatchObject({
+      wrote: true,
+      answer: { ok: true },
+    });
+    expect(landing.replace).toHaveBeenCalledTimes(3);
+    expect(backed.held()).toMatchObject({ dayGiBs: 2_560, open: { at: NOW } });
+    // Read back and not there: thrown, and never a fourth write.
+    const never = memoryLedger({ on: true });
+    const failing: LedgerStore = {
+      read: never.store.read,
+      replace: vi.fn(async (): Promise<boolean> => {
+        throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+      }),
+    };
+    await expect(updateLedger(failing, reserving)).rejects.toThrow(/503/);
+    expect(failing.replace).toHaveBeenCalledTimes(3);
+    expect(never.held()).toMatchObject({ open: null });
+    // Not there, but the step would now write nothing: its answer stands.
+    const taken = memoryLedger({ on: true });
+    let tries = 0;
+    const overtaken: LedgerStore = {
+      read: taken.store.read,
+      replace: async () => {
+        tries += 1;
+        if (tries === 3) {
+          taken.edit({
+            open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "B", by: "h9" },
+          });
+        }
+        throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+      },
+    };
+    expect(await updateLedger(overtaken, reserving)).toMatchObject({
+      wrote: false,
+      answer: { ok: false, why: "busy" },
+    });
+    // And the read back failing too: the write's error is thrown.
+    let looks = 0;
+    const dark: LedgerStore = {
+      read: async () => {
+        looks += 1;
+        if (looks > 3) throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");
+        return never.store.read();
+      },
+      replace: failing.replace,
+    };
+    await expect(updateLedger(dark, reserving)).rejects.toThrow(/replacing/);
+
     const down: LedgerStore = {
       read: vi.fn(async (): Promise<{ raw: unknown; token: string | null }> => {
         throw new Error("Firestore answered HTTP 503 reading ops/rebuild.");

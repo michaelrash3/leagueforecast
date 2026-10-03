@@ -1,6 +1,6 @@
 import type { LiveMeta, LiveStore } from "../live/viewStore";
 import type { CloudStore } from "./cloudEngine";
-import { coerceManifest, type CloudManifest } from "./cloudManifest";
+import { coerceManifest, UnreadableCopyError, type CloudManifest } from "./cloudManifest";
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
@@ -305,7 +305,9 @@ export const firestoreRestStore = ({
       const found = await read(MANIFEST);
       if (!found) return null;
       const manifest = coerceManifest(fieldsOf(found.fields ?? {}));
-      if (!manifest) throw new Error("The cloud copy's manifest is not one this build can read.");
+      if (!manifest) {
+        throw new UnreadableCopyError("The cloud copy's manifest is not one this build can read.");
+      }
       return manifest;
     },
     commitManifest: !writable

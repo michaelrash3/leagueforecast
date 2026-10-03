@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
 import { commitChanges, type Change, type CloudStore } from "../../cloud/cloudEngine";
-import { DATA_SCHEMA, type CloudManifest } from "../../cloud/cloudManifest";
+import { DATA_SCHEMA, UnreadableCopyError, type CloudManifest } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { loadPoolFrom, memoryIo } from "../../cloud/cloudRunner";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
@@ -810,6 +810,37 @@ describe("a rebuild task on the main thread", () => {
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
   });
 
+  it("leaves a copy it cannot read before reserving, and throws a read that failed", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    const reading = (thrown: Error): CloudStore => ({
+      ...readOnly(cloud),
+      readManifest: () => Promise.reject(thrown),
+    });
+    expect(
+      await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        run,
+        copyStore: reading(new UnreadableCopyError()),
+      })
+    ).toEqual({ line: { end: "unreadable-copy" }, rethrow: false });
+    // Firestore busy for a moment: the queue tries the task again, nothing spent or counted.
+    await expect(
+      handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        run,
+        copyStore: reading(new Error("Firestore answered HTTP 503 reading copies/main.")),
+      })
+    ).rejects.toThrow(/503/);
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
   it("asks the queue to try again when other writers took the ledger on every try", async () => {
     const { cloud, live } = await setUp({ current: false });
     const ledger = memoryLedger(SWITCH);
@@ -898,6 +929,32 @@ describe("a rebuild task on the main thread", () => {
     expect(done).toMatchObject({ line: { end: "published", settled: true }, rethrow: false });
     // Charged once, and settled at what the run took (no time on this clock).
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
+  it("runs once on a reservation whose last write landed though its answer was lost", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    let writes = 0;
+    const flaky: LedgerStore = {
+      read: ledger.store.read,
+      replace: async (token, next) => {
+        writes += 1;
+        // The first two fail outright; the third lands and its answer is lost.
+        if (writes <= 2) throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        const landed = await ledger.store.replace(token, next);
+        if (writes === 3) throw new Error("Firestore answered HTTP 503 replacing ops/rebuild.");
+        return landed;
+      },
+    };
+    const run = vi.fn(async (): Promise<RebuildResult> => ({
+      end: "published",
+      retryable: false,
+      tries: 1,
+    }));
+    const done = await handle({ ledger: flaky, cloud, live, run });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(done).toMatchObject({ line: { end: "published", settled: true }, rethrow: false });
+    expect(ledger.held()).toMatchObject({ failures: 0, open: null });
   });
 
   it("says a settle it could not write, and leaves the retry to how the run ended", async () => {

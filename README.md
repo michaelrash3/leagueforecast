@@ -3561,7 +3561,10 @@ replace only over the version read, tried three times, as is a read or write tha
 throws, so two runs reserving at once cannot both spend the same headroom, an
 owner turning the switch is read before anything is written over it, and a write
 that landed though its answer was lost is found on the next read, by the id each
-handling of a task writes with its reservation and settles it by. `rebuildLedger.test.ts` holds each rule, and the
+handling of a task writes with its reservation and settles it by. The last try's
+own such write is read back once more, writing nothing, so a reservation that
+landed on the last try runs rather than waiting out its span to be counted as a
+failure. `rebuildLedger.test.ts` holds each rule, and the
 rules test on the emulator holds the document shut to every browser; each guard
 was broken in turn and seen to fail a test.
 
@@ -3569,7 +3572,9 @@ A queued rebuild runs in two halves (`rebuild.ts`). The function's main thread
 reads the switch, then asks, for three reads (the ledger, the copy's manifest
 and the published meta), whether the boards are already the copy's for today,
 or another's to leave alone: built by newer rules, for a later day, or by a newer
-build; a copy a newer build saved is left there too. Only then does it reserve the run and hand it to the worker, which brings
+build; a copy a newer build saved, or one this build cannot read at all, is left
+there too, while a read that failed is thrown for the queue to try again. Only then
+does it reserve the run and hand it to the worker, which brings
 the pool to the copy as it now stands and checks again against the very manifest
 it loaded, so a save landing between the two is published at the version the
 pool holds and the next rebuild publishes the newer one. It publishes with one

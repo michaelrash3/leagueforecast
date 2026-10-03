@@ -1,5 +1,5 @@
 import type { CloudStore } from "../cloud/cloudEngine";
-import { DATA_SCHEMA } from "../cloud/cloudManifest";
+import { DATA_SCHEMA, UnreadableCopyError, type CloudManifest } from "../cloud/cloudManifest";
 import { boardsState } from "./boardInputs";
 import type { PoolCache, PoolEnsure } from "./poolCache";
 import { dryLiveStore, publishCopyViews, type CopyPublish } from "./publishCopy";
@@ -32,6 +32,8 @@ import { coerceLiveMeta, type LiveStore } from "./viewStore";
  * - `copy-replaced`, `no-copy`: the copy was started again under the run, or deleted; its next save
  *   asks for its own boards.
  * - `unreadable`: the published meta is not one this build can read.
+ * - `unreadable-copy`: the copy's manifest is not one this build can read, which no run of it gets
+ *   past, and whose saves ask for nothing (`askRebuild`).
  * - the copy's own refusals (`newer-schema` to `kept-moving`), as `PoolEnsure` names them, and the
  *   publish's (`kept-changing`, `locale`, `too-large`).
  */
@@ -43,6 +45,7 @@ export type RebuildEnd =
   | "newer-live-schema"
   | "copy-replaced"
   | "unreadable"
+  | "unreadable-copy"
   | "kept-changing"
   | "locale"
   | "too-large"
@@ -200,8 +203,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * there when it says so:
  * 1. The switch (`ops/rebuild`): absent, unreadable or off ends it.
  * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
- *    a newer build's, which this build cannot load: the ledger, the manifest and the meta, three
- *    reads, reserving nothing and starting no worker.
+ *    one this build cannot load (a newer build's, or one it cannot read at all): the ledger, the
+ *    manifest and the meta, three reads, reserving nothing and starting no worker. A read that
+ *    failed is thrown, for the queue to try again.
  * 3. A reservation of the run's ceiling, which the caps, a pause or a run still going may refuse,
  *    the same task's earlier try included. A reservation whose write landed though its answer was
  *    lost is found on the next try as this handling's own, by its id, and kept.
@@ -257,7 +261,14 @@ export const handleRebuildTask = async ({
   const held = coerceLedger((await ledger.read()).raw);
   if (!held?.on) return { line: { ...asked, end: "off" }, rethrow: false };
 
-  const manifest = await copyStore.readManifest();
+  let manifest: CloudManifest | null;
+  try {
+    manifest = await copyStore.readManifest();
+  } catch (error) {
+    // A copy this build cannot read fails every run of it; a read that failed is tried again.
+    if (!(error instanceof UnreadableCopyError)) throw error;
+    return { line: { ...asked, end: "unreadable-copy" }, rethrow: false };
+  }
   if (!manifest) return { line: { ...asked, end: "no-copy" }, rethrow: false };
   const loaded = { copy: manifest.copy, version: manifest.version };
   if (manifest.schema > DATA_SCHEMA) {
