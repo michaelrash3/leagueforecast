@@ -562,7 +562,9 @@ link panel's guess for a team nobody has answered for, and not a name a pulled
 schedule writes, however a game has come to be filed against it. Carried by its
 name, as it was until
 October 2026, its games landed on a club of that name the person had just said it
-is not. The club's id is read off the name ("S-off-" and the name's words), so it
+is not. The club's id is read off the name ("S-off-" and the name's words, and
+for a name with anything but plain letters, digits and spaces, a hash of the
+whole name after an underscore, so "A.B" and "A B" are two clubs), so it
 is the same on every pass and every device, and one already saved to the roster,
 as marking it "our team" saves it, is the one carried onto again. Teams answered
 Not here under one name, on any page of the year, are one club, as a name is

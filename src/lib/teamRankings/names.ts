@@ -223,6 +223,16 @@ const normalizeName = teamNameKey;
  */
 const OFF_CLUB_PREFIX = `${SCOUT_ID_PREFIX}off-`;
 
+/** A 32-bit FNV-1a hash of `text`, in base 36: short, the same everywhere, and needing no await. */
+const shortHash = (text: string): string => {
+  let hash = 0x811c9dc5;
+  for (let at = 0; at < text.length; at += 1) {
+    hash ^= text.charCodeAt(at);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+};
+
 /**
  * The club a league team said not to be in Team Rankings is carried onto: one of its own, so its
  * games stay its own rather than land on a club of the same name the person said it is not.
@@ -230,13 +240,17 @@ const OFF_CLUB_PREFIX = `${SCOUT_ID_PREFIX}off-`;
  * The id is read off the name, not minted against the roster, so it is the same on every pass and
  * on every device, and a club saved to the roster once (marking it "our team" saves it) is the same
  * club the next pass carries the team onto, not a second one. Every such team of one name, on any
- * page, is the one club, as a name is one club everywhere else.
+ * page, is the one club, as a name is one club everywhere else, and two names are two clubs: a name
+ * of plain letters, digits and spaces is spelled out ("S-off-cincinnati-angels-red"), and any other
+ * ("A.B", an accent, a name in another script, punctuation alone) is spelled as nearly as those
+ * letters allow and told apart by a hash of the whole name after an underscore, which no name
+ * spelled out has, so "A.B" and "A B" are not one club.
  */
 export const offClubIdFor = (name: string): string => {
-  const words = normalizeName(name)
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `${OFF_CLUB_PREFIX}${words || "team"}`;
+  const key = normalizeName(name);
+  const words = key.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (words !== "" && words === key.replace(/ /g, "-")) return `${OFF_CLUB_PREFIX}${words}`;
+  return `${OFF_CLUB_PREFIX}${words || "team"}_${shortHash(key)}`;
 };
 
 /** Whether a club is one made for a league team said not to be in Team Rankings. */

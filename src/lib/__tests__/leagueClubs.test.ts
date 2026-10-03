@@ -4,6 +4,7 @@ import {
   countsTowardRating,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
+  isOffClubId,
   leagueScoutBridge,
   leagueStandIns,
   NO_SCOUT_TEAM,
@@ -341,7 +342,37 @@ describe("a league team said not to be in Team Rankings", () => {
     expect(offClubIdFor("Cincinnati Angels/Red 9U")).toBe(own);
     expect(offClubIdFor("Cincinnati Angels Blue")).not.toBe(own);
     expect(offClubIdFor("9U")).toBe("S-off-9u");
-    expect(offClubIdFor(" - / ")).toBe("S-off-team");
+  });
+
+  it("has an id no other name has, however near its letters", () => {
+    const names = [
+      "A.B",
+      "A B",
+      "A - B",
+      "St. Louis Stars",
+      "St Louis Stars",
+      "Águilas",
+      "Üguilas",
+      "Aguilas",
+      "東京",
+      "大阪",
+      " - / ",
+      "?!",
+      "O'Fallon Hawks",
+      "OFallon Hawks",
+    ];
+    const ids = names.map((name) => offClubIdFor(name));
+    // "A B" and "A - B" are one name; every other is its own club.
+    expect(ids[1]).toBe(ids[2]);
+    expect(new Set(ids).size).toBe(names.length - 1);
+    // Spelled as nearly as the letters allow, the same on every pass, and still its own.
+    expect(offClubIdFor("A.B")).toMatch(/^S-off-a-b_[0-9a-z]+$/);
+    expect(offClubIdFor("a.b")).toBe(offClubIdFor("A.B"));
+    expect(offClubIdFor(" - / ")).toMatch(/^S-off-team_[0-9a-z]+$/);
+    expect(ids.every(isOffClubId)).toBe(true);
+    // Nor can a name spelled out be one told apart by its hash.
+    const told = offClubIdFor("A.B").slice("S-off-".length).replace("_", " ");
+    expect(offClubIdFor(told)).not.toBe(offClubIdFor("A.B"));
   });
 });
 
