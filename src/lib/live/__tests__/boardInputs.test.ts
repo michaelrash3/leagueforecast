@@ -238,6 +238,10 @@ describe("where the published boards stand against a copy", () => {
     expect(await boardsState(null, copy, "2027-04-15")).toBe("stale");
     const unbuilt = { ...(await metaWith()), built: {} };
     expect(await boardsState(unbuilt, copy, "2027-04-15")).toBe("stale");
+    // A floor, which a late publish leaves when no build vouches for every board, is never current.
+    expect(await boardsState(await metaWith({ k: "", v: 0, inputs: "" }), copy, "2027-04-15")).toBe(
+      "stale"
+    );
   });
 
   it("are another build's to leave when newer rules built them, and a passed day's when built later", async () => {

@@ -57,8 +57,26 @@ export type RetiredUpload = { id: string; c: number; at: string };
  * id and version, a fingerprint of the stored values the family reads (`inputs`), the members'
  * day, and the version of the rules that turn those values into views. A rebuild that finds all of
  * them its own has nothing to do.
+ *
+ * When no one build can vouch for every view of the family (a late publish wrote over some, or a
+ * publish wrote them without saying what from), the copy and inputs are empty and the record is
+ * only a floor: the newest rules and the latest day any of its views were built under, which no
+ * publish of the family may go below. It never reads as any copy's.
  */
 export type BuiltFrom = { k: string; v: number; inputs: string; today: string; rules: number };
+
+/** A family's record once no one build vouches for all its views: what it may not go below. */
+const floorOf = (kept: BuiltFrom | undefined, from: BuiltFrom | undefined): BuiltFrom | null => {
+  if (!kept && !from) return null;
+  const days = [kept?.today, from?.today].filter((day): day is string => day !== undefined);
+  return {
+    k: "",
+    v: 0,
+    inputs: "",
+    today: days.reduce((a, b) => (a > b ? a : b)),
+    rules: Math.max(kept?.rules ?? 0, from?.rules ?? 0),
+  };
+};
 export type LiveMeta = {
   format: number;
   schema: number;
@@ -123,8 +141,10 @@ const entryOf = (raw: unknown): ViewEntry | null => {
 const builtOf = (raw: unknown): BuiltFrom | null => {
   if (!isRecord(raw)) return null;
   const { k, v, inputs, today, rules } = raw;
-  if (typeof k !== "string" || k === "" || !isCount(v) || !isCount(rules)) return null;
-  if (typeof inputs !== "string" || inputs === "" || typeof today !== "string") return null;
+  if (typeof k !== "string" || !isCount(v) || !isCount(rules)) return null;
+  if (typeof inputs !== "string" || typeof today !== "string") return null;
+  // Vouched for in full, or a floor with neither copy nor inputs; never half of each.
+  if ((k === "") !== (inputs === "")) return null;
   return { k, v, inputs, today, rules };
 };
 
@@ -454,25 +474,34 @@ export const publishViews = async ({
         ([id]) => copies.has(id)
       )
     );
-    // What each family was built from: a late publish leaves the record as it is, one that is not
-    // records its own, and one that covers a family without vouching for it takes the record out.
-    const families = upgrading ? {} : { ...stored?.built };
+    // What each family was built from. A publish that is not late records its own. Where views of
+    // a family are written by one that cannot vouch for them all (a late publish, or a publish that
+    // covers the family without saying what it built from), the record is only a floor from then
+    // on: no build vouches for every view, and dropping it would let older rules or an earlier day
+    // write over views built under newer ones.
+    const families: Record<string, BuiltFrom> = upgrading ? {} : { ...stored?.built };
+    const lower = (family: string, from: BuiltFrom | undefined) => {
+      const floor = floorOf(families[family], from);
+      if (floor) families[family] = floor;
+    };
     if (!late) {
       for (const family of Object.keys(families)) {
-        if (covers(family) && family !== built?.family) delete families[family];
+        if (covers(family) && family !== built?.family) lower(family, undefined);
       }
       if (built) families[built.family] = built.from;
     } else {
-      // A late publish leaves the record of a newer build, unless it wrote over views of that
-      // family: then the record no longer describes them, and none is safer than a wrong one.
+      const wrote = (family: string) => placed.some(({ key }) => key.startsWith(family));
       for (const family of Object.keys(families)) {
-        if (placed.some(({ key }) => key.startsWith(family))) delete families[family];
+        if (wrote(family) && family !== built?.family) lower(family, undefined);
       }
+      if (built && wrote(built.family)) lower(built.family, built.from);
     }
     const meta: LiveMeta = {
       format: LIVE_FORMAT,
       schema: LIVE_SCHEMA,
-      today: late ? stored.today : today,
+      // A late publish leaves the header's copy, but not an earlier day than a view it placed was
+      // built for: the day only goes forward, or a publish for the earlier day could write over it.
+      today: late && (placed.length === 0 || today < stored.today) ? stored.today : today,
       builtAt: now,
       copy: header,
       marks: inKeyOrder(marks),

@@ -140,18 +140,33 @@ describe("publishing views", () => {
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(["board:a", "board:b", "moves:x"]);
   });
 
-  it("keeps the newer publish's day and copy when an older one changes a view", async () => {
+  it("keeps the newer publish's copy when an older one changes a view, and moves the day on to the view's", async () => {
     const live = memoryLive();
     await publish(live, [view("moves:x", "X")], 3, { owns: ["moves:"] });
     await publish(live, [view("board:a", "A")], 5);
-    // Late by version though built a day on: the header stays the newer version's, day and all.
+    // Late by version though built a day on: the header's copy stays the newer version's, but the
+    // day is the later one, which a view now carries.
     const older = await publish(live, [view("moves:x", "X2")], 4, {
       owns: ["moves:"],
       today: "2027-04-16",
     });
     expect(older).toMatchObject({ ok: true, wrote: true });
     expect(await decode(live, "moves:x")).toBe("X2");
-    expect(live.meta()).toMatchObject({ today: "2027-04-15", copy: { id: COPY, version: 5 } });
+    expect(live.meta()).toMatchObject({ today: "2027-04-16", copy: { id: COPY, version: 5 } });
+    // So a build of the newer version for the day before cannot write over it (found by Codex).
+    expect(
+      await publish(live, [view("moves:x", "X5")], 5, { owns: ["moves:"], today: "2027-04-15" })
+    ).toEqual({ ok: false, reason: "older-day" });
+    expect(await decode(live, "moves:x")).toBe("X2");
+  });
+
+  it("leaves the day where it was when a late publish for a later one places nothing", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5);
+    const meta = live.meta();
+    const late = await publish(live, [view("board:a", "B")], 4, { today: "2027-04-16" });
+    expect(late).toMatchObject({ ok: true, wrote: false, refused: 1 });
+    expect(live.meta()).toEqual(meta);
   });
 
   it("stamps a view built again unchanged with its new version, so an older build leaves it", async () => {
@@ -530,7 +545,7 @@ describe("the day, the rules and what a publish was built from", () => {
     ).toMatchObject({ ok: true, wrote: true });
   });
 
-  it("records what a family was built from, keeps it through a late publish, and drops it for one that cannot vouch", async () => {
+  it("records what a family was built from, keeps it through a late publish, and keeps only a floor for one that cannot vouch", async () => {
     const live = memoryLive();
     await publish(live, [view("board:a", "A")], 5, boards({ v: 5, inputs: "five" }));
     expect(live.meta()?.built).toEqual({ "board:": { ...FROM, v: 5, inputs: "five" } });
@@ -540,21 +555,74 @@ describe("the day, the rules and what a publish was built from", () => {
     // Another family's publish leaves it.
     await publish(live, [view("moves:x", "X")], 6, { owns: ["moves:"] });
     expect(live.meta()?.built["board:"]).toMatchObject({ v: 5, inputs: "five" });
-    // A publish of the boards that says nothing of what they came from takes it out.
+    // A publish of the boards that says nothing of what they came from leaves only the floor: it
+    // vouches for no copy, and keeps the rules and day the boards were last built under.
     await publish(live, [view("board:a", "A7")], 7);
-    expect(live.meta()?.built).toEqual({});
+    expect(live.meta()?.built).toEqual({
+      "board:": { k: "", v: 0, inputs: "", today: "2027-04-15", rules: 1 },
+    });
+    expect(await publish(live, [view("board:a", "A8")], 8, boards({ v: 8, rules: 0 }))).toEqual({
+      ok: false,
+      reason: "older-rules",
+    });
   });
 
-  it("drops a family's record when a late publish writes over its views", async () => {
+  it("keeps only a floor of a family's record when a late publish writes over its views", async () => {
     // Another family moves the copy's mark on; a board build of a version in between is late, but
-    // may still replace boards from before it.
+    // may still replace boards from before it, and here under newer rules.
     const live = memoryLive();
     await publish(live, [view("board:a", "A")], 5, boards({ v: 5, inputs: "five" }));
     await publish(live, [view("moves:x", "X")], 7, { owns: ["moves:"] });
-    const late = await publish(live, [view("board:a", "A6")], 6, boards({ v: 6, inputs: "six" }));
+    const late = await publish(
+      live,
+      [view("board:a", "A6")],
+      6,
+      boards({ v: 6, inputs: "six", rules: 2, today: "2027-04-16" })
+    );
     expect(late).toMatchObject({ ok: true, wrote: true, refused: 0 });
     expect(await decode(live, "board:a")).toBe("A6");
-    expect(live.meta()?.built["board:"]).toBeUndefined();
+    // No build vouches for the boards now; the newest rules and latest day they were built under
+    // stay, so the build of version 7 under the older rules cannot write over them (found by Codex).
+    expect(live.meta()?.built["board:"]).toEqual({
+      k: "",
+      v: 0,
+      inputs: "",
+      today: "2027-04-16",
+      rules: 2,
+    });
+    expect(
+      await publish(live, [view("board:a", "A7")], 7, {
+        ...boards({ v: 7, inputs: "seven", today: "2027-04-16" }),
+      })
+    ).toEqual({ ok: false, reason: "older-rules" });
+    expect(await decode(live, "board:a")).toBe("A6");
+    // Rules as new vouch for the boards again.
+    await publish(
+      live,
+      [view("board:a", "A7")],
+      7,
+      boards({ v: 7, inputs: "seven", rules: 2, today: "2027-04-16" })
+    );
+    expect(live.meta()?.built["board:"]).toMatchObject({ k: COPY, v: 7, inputs: "seven" });
+  });
+
+  it("keeps only a floor of another family's record that a late publish writes over unvouched", async () => {
+    const live = memoryLive();
+    await publish(live, [view("moves:x", "X")], 5, {
+      owns: ["moves:"],
+      built: { family: "moves:", from: { ...FROM, v: 5 } },
+    });
+    await publish(live, [view("board:a", "A")], 7);
+    // Late, and saying nothing of what the moves came from.
+    const late = await publish(live, [view("moves:x", "X6")], 6, { owns: ["moves:"] });
+    expect(late).toMatchObject({ ok: true, wrote: true });
+    expect(live.meta()?.built["moves:"]).toEqual({
+      k: "",
+      v: 0,
+      inputs: "",
+      today: "2027-04-15",
+      rules: 1,
+    });
   });
 
   it("keeps only its own record over an older build's meta", async () => {
@@ -581,11 +649,20 @@ describe("the day, the rules and what a publish was built from", () => {
       retired: [],
     };
     expect(coerceLiveMeta(meta)?.built).toEqual({});
+    const floor = { k: "", v: 0, inputs: "", today: "2027-04-15", rules: 2 };
     const read = coerceLiveMeta({
       ...meta,
-      built: { "board:": FROM, "moves:": { ...FROM, rules: -1 }, "games:": "nonsense" },
+      built: {
+        "board:": FROM,
+        "moves:": { ...FROM, rules: -1 },
+        "games:": "nonsense",
+        "teams:": floor,
+        // Half a vouch: a copy with no inputs, or inputs with no copy.
+        "search:": { ...FROM, inputs: "" },
+        "health:": { ...FROM, k: "" },
+      },
     });
-    expect(read?.built).toEqual({ "board:": FROM });
+    expect(read?.built).toEqual({ "board:": FROM, "teams:": floor });
   });
 
   it("takes out the retired uploads past their grace with a commit it makes anyway, and deletes their pieces after", async () => {

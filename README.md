@@ -3391,8 +3391,10 @@ Readers fetch while a server writes, so publishing keeps four rules
   its own copy has been published since, by any family of views: the meta keeps
   each copy's newest version while the header or a view still names the copy. A
   late publish replaces only views of its own copy built from no later version,
-  takes nothing out, adds nothing the meta lacks, and leaves the meta's copy,
-  version and day alone, so it can bring back nothing a newer publish removed.
+  takes nothing out, adds nothing the meta lacks, and leaves the meta's copy and
+  version alone, so it can bring back nothing a newer publish removed. Its day
+  moves the meta's on when a view it placed was built for a later one: the day
+  only goes forward.
   A view built again unchanged takes the newer version, so a late build of an
   older one still leaves it. A copy made afresh starts its versions again, and
   each view keeps the copy it was built from: a publish that is not late writes
@@ -3421,9 +3423,14 @@ server that finds the record matching the copy at this very version, its inputs,
 the day and its own rules knows the boards are current without building them
 (`boardsState`). A later version with the same inputs is built again all the
 same, at no upload's cost, so the copy's mark moves and a slower build of a
-version in between cannot publish over it. A late publish that writes over a
-family's views takes the family's record out rather than leave it describing
-views it no longer does. The boards read the roster, the age groups and each year's
+version in between cannot publish over it. Where a publish writes a family's
+views but cannot vouch for them all (a late one, or one that does not say what
+it built from), the record keeps only a floor: no copy or inputs, and the newest
+rules and latest day any of those views were built under. It is never current,
+and a publish under older rules or for an earlier day still writes nothing;
+dropping it, as the first draft did, let an older build that was not late
+write over boards a late build had made under newer rules (found by Codex on
+the pull request, with the same hole in the day). The boards read the roster, the age groups and each year's
 games, and League Standings (`isBoardInput`); a save that changes none of these
 cannot move them, and is not counted as changing them. A publish that writes the
 meta anyway can take a sweep's commit with it (`collectDue`): retired uploads
