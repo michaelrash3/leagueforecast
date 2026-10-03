@@ -49,6 +49,17 @@ export const asWorkerSees = (
   games: decodePoolGames(encodeScoutGames(games)),
 });
 
+/**
+ * The version of the rules that turn a stored pool into boards, raised by any change meant to move
+ * a board's numbers, rows or order: the commit that says so under "Pin, then change" raises it too,
+ * and `boardParity.test.ts` keeps one fingerprint of the fixture's boards for each. A publish of
+ * boards records it (`BuiltFrom.rules`), and one under older rules than the boards already
+ * published writes nothing, so code left running after a failed deploy cannot undo newer boards.
+ * It only ever goes up: undoing a change that raised it raises it again, with a fingerprint of its
+ * own, or every publish after would be refused as older.
+ */
+export const BOARD_RULES = 1;
+
 /** A board's span: the whole squad year, or one half of it. */
 export type BoardHalf = "year" | SeasonSegment;
 

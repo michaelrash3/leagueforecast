@@ -1623,6 +1623,19 @@ const CLOUD_LOCAL_ONLY: ReadonlySet<string> = new Set([GC_PULL_KEY, GC_TRACK_KEY
 export const isCloudPoolKey = (key: string): boolean =>
   (isPoolKey(key) && !CLOUD_LOCAL_ONLY.has(key)) || key.startsWith(ARCHIVE_ROWS_PREFIX);
 
+/**
+ * Whether the boards read this key (`buildAllBoards` through `loadAgeGroups`, `loadScoutTeams` and
+ * `loadScoutGamesForYear`): the roster, the age groups, each year's games, and the one-key games of
+ * an older pool with the index of years they are split against. No other pool key changes a board,
+ * so a save that changes none of these leaves the boards as they were.
+ */
+export const isBoardInputKey = (key: string): boolean =>
+  key === TEAMS_KEY ||
+  key === AGE_GROUPS_KEY ||
+  key === GAMES_INDEX_KEY ||
+  key === GAMES_KEY ||
+  isGamesShardKey(key);
+
 /** Every key this browser would put in its cloud copy now: each one it holds a value for. */
 export const cloudPoolKeys = (): string[] => {
   const held = (key: string) => {

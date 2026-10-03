@@ -4,6 +4,7 @@ import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
+import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import { boardViews, buildAllBoards } from "./views/board";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
 
@@ -102,6 +103,8 @@ export const publishCopyViews = async ({
   manifest,
   today,
   now,
+  readSeason: seasonsHeld,
+  sweep: sweeping = "full",
   locale = boardLocale(),
 }: {
   copyStore: CloudStore;
@@ -110,14 +113,24 @@ export const publishCopyViews = async ({
   today: string;
   /** The time, as an ISO string, asked for as each step starts. */
   now: () => string;
+  /** The seasons of `manifest`'s own League Standings part, when the caller has read them. */
+  readSeason?: SeasonReader;
+  /**
+   * `full`, a sweep after the publish, strays and all (the nightly's); `due`, only the retired
+   * uploads past their grace, taken out by the publish's own commit when it writes anyway.
+   */
+  sweep?: "full" | "due";
   locale?: string;
 }): Promise<CopyPublish> => {
   if (!/^en(-|$)/.test(locale)) return { ok: false, reason: "locale" };
   const leagueOf = (copy: CloudManifest | null) =>
     copy?.parts.find((one) => one.key === LEAGUE_PART) ?? null;
   const ours = leagueOf(manifest);
-  const fetched = await fetchValues({ store: copyStore, parts: ours ? [ours] : [] });
-  const readSeason = fetched.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null;
+  const fetched = seasonsHeld
+    ? null
+    : await fetchValues({ store: copyStore, parts: ours ? [ours] : [] });
+  const readSeason =
+    seasonsHeld ?? (fetched?.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null);
   if (!readSeason) {
     // By part, not by version: a dry run's would-be copy has a version the store never had.
     const current = await copyStore.readManifest();
@@ -144,10 +157,13 @@ export const publishCopyViews = async ({
   const publish = await publishViews({
     store: liveStore,
     views,
-    owns: ["board:"],
+    owns: [BOARD_FAMILY],
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
+    // What they were built from, so a rebuild finding the same copy, inputs, day and rules stops.
+    built: { family: BOARD_FAMILY, from: await builtFrom(manifest, today) },
+    collectDue: sweeping === "due",
     // Read again just before each commit, uploads and retries included: a copy started again
     // while the boards were built or went up is not theirs.
     stillCurrent: async () => (await copyStore.readManifest())?.copy === manifest.copy,
@@ -160,6 +176,21 @@ export const publishCopyViews = async ({
   }
   // The views are out once the meta is committed; a sweep that fails after says so on its own.
   let sweep: Extract<CopyPublish, { ok: true }>["sweep"];
+  if (sweeping === "due") {
+    return {
+      ok: true,
+      boards: views.length,
+      buildMs,
+      publish,
+      sweep:
+        publish.undeleted > 0
+          ? {
+              ok: false,
+              why: `${publish.undeleted} retired pieces past their grace could not be deleted`,
+            }
+          : { ok: true, deleted: publish.deleted, strays: 0 },
+    };
+  }
   try {
     const swept = await sweepViews({ store: liveStore, now: now() });
     sweep = swept.ok ? swept : { ok: false, why: swept.reason };

@@ -27,7 +27,13 @@ import {
   type WorkerResponse,
 } from "../../../workers/rankingsProtocol";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
-import { BOARD_HALVES, buildAllBoards, ratingPools, type PageBoard } from "../views/board";
+import {
+  BOARD_HALVES,
+  BOARD_RULES,
+  buildAllBoards,
+  ratingPools,
+  type PageBoard,
+} from "../views/board";
 
 /**
  * The boards a server builds are the boards a browser draws, to the last digit.
@@ -306,15 +312,21 @@ describe("the boards a server builds", () => {
     expect(JSON.parse(JSON.stringify(built))).toStrictEqual(built);
   });
 
-  it("hold still: the whole fixture's boards, pinned on every engine", () => {
+  it("hold still: the whole fixture's boards, pinned on every engine, under these board rules", () => {
     /*
      * Which clubs are on which board and every field of every row, numbers to the millionth,
      * folded into one fingerprint. A change that moves a number by more than that, or moves a club
-     * on or off a board, moves it; a change meant to move the boards updates it and says so. It
-     * cannot see a rank, the order of the rows or a last-bit change, such as the fit summing its
-     * games in another order; the pin below holds those, where the engine is one it knows.
+     * on or off a board, moves it. It cannot see a rank, the order of the rows or a last-bit
+     * change, such as the fit summing its games in another order; the pin below holds those, where
+     * the engine is one it knows.
+     *
+     * One fingerprint for each version of the board rules (`BOARD_RULES`): a change meant to move
+     * the boards raises it and adds the new fingerprint here, which is what keeps boards built by
+     * newer rules from being written over by a server left on the older ones. Changing the entry
+     * already here instead gets past this test; review is what catches that.
      */
-    expect(fingerprint(steady(builtBoards(stored())))).toMatchInlineSnapshot(`"a2c59173"`);
+    const RULES_PINS: Record<number, string> = { 1: "a2c59173" };
+    expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
   });
 
   it.skipIf(digitPin === undefined)(

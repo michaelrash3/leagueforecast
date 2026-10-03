@@ -18,6 +18,7 @@ import {
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
+import { BOARD_FAMILY, builtFrom } from "../boardInputs";
 import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildAllBoards } from "../views/board";
@@ -149,6 +150,113 @@ describe("publishing the copy's boards", () => {
     const again = await publish(cloud, live, manifest);
     expect(again).toMatchObject({ ok: true, publish: { wrote: false, unchanged: 33 } });
     expect(live.costs.writes).toBe(writes);
+  });
+
+  it("records what the boards were built from, so a rebuild of the same copy finds them current", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    await publish(cloud, live, manifest);
+    expect(live.meta()?.built).toEqual({
+      [BOARD_FAMILY]: await builtFrom(manifest, FIXTURE_TODAY),
+    });
+  });
+
+  it("reads no League Standings piece when handed the copy's seasons", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const reads = cloud.costs.reads;
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      readSeason: storedSeason,
+    });
+    expect(result).toMatchObject({ ok: true, boards: 33 });
+    // The manifest, read again before the commit; no piece.
+    expect(cloud.costs.reads - reads).toBe(1);
+    for (const { key, value } of boardsWith(storedSeason)) {
+      expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
+    }
+  });
+
+  it("collects only what is due in its own commit when asked, and lists nothing", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    // A board retired a quarter of an hour before this publish, so past its grace.
+    const earlier = new Date(Date.parse(T) - RETIRE_GRACE_MS).toISOString();
+    for (const value of ["old", "older"]) {
+      await publishViews({
+        store: live.store,
+        views: [{ key: "board:gone", value }],
+        owns: [BOARD_FAMILY],
+        copy: { id: manifest.copy, version: 1 },
+        today: FIXTURE_TODAY,
+        now: earlier,
+      });
+    }
+    const retired = live.meta()?.retired.map((upload) => upload.id);
+    expect(retired).toHaveLength(1);
+    let listed = 0;
+    const counting = {
+      ...live.store,
+      listChunks: async () => {
+        listed += 1;
+        return live.store.listChunks();
+      },
+    };
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: counting,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      sweep: "due",
+    });
+    expect(result).toMatchObject({ ok: true, sweep: { ok: true, deleted: 1, strays: 0 } });
+    expect(live.chunks.has(`${retired?.[0]}-0`)).toBe(false);
+    expect(listed).toBe(0);
+    await publish(cloud, { ...live, store: counting } as MemoryLive, manifest);
+    expect(listed).toBe(1);
+  });
+
+  it("says the due sweep stopped, not that the publish did, when a piece will not delete", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    const earlier = new Date(Date.parse(T) - RETIRE_GRACE_MS).toISOString();
+    for (const value of ["old", "older"]) {
+      await publishViews({
+        store: live.store,
+        views: [{ key: "board:gone", value }],
+        owns: [BOARD_FAMILY],
+        copy: { id: manifest.copy, version: 1 },
+        today: FIXTURE_TODAY,
+        now: earlier,
+      });
+    }
+    const stubborn = {
+      ...live.store,
+      deleteChunk: async () => {
+        throw new Error("Firestore answered HTTP 503");
+      },
+    };
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: stubborn,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      sweep: "due",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      publish: { wrote: true },
+      sweep: { ok: false, why: "1 retired pieces past their grace could not be deleted" },
+    });
   });
 
   it("builds from no seasons when the copy has no League Standings, as a browser with none does", async () => {
