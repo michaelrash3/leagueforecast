@@ -10,20 +10,27 @@ import {
   initTeamRankingsStore,
   isBoardInputKey,
   loadAgeGroups,
+  loadAgeUnknown,
+  loadDroppedClubs,
   loadNamedAges,
+  loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
+  loadTooYoungClubs,
   readCloudPoolValue,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeUnknown,
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveRealClubs,
   saveRefreshCadence,
   saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
   saveTidyStamp,
+  saveTooYoungClubs,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
@@ -37,6 +44,7 @@ import {
 } from "../boardInputs";
 import { BOARD_RULES, boardViews, buildBoardsAndFacts } from "../views/board";
 import { clubViews } from "../views/clubs";
+import { searchViews } from "../views/search";
 import { LIVE_FORMAT, LIVE_SCHEMA, type LiveMeta } from "../viewStore";
 
 /*
@@ -54,8 +62,8 @@ const readSeason: SeasonReader = (seasonId) => {
 };
 
 /**
- * The fixture's boards and the club cards published with them, from whatever the store now holds,
- * folded to one fingerprint.
+ * The fixture's boards and the club cards and Find a team lists published with them, from whatever
+ * the store now holds, folded to one fingerprint.
  */
 const boardsHeld = (): string => {
   const ageGroups = loadAgeGroups();
@@ -69,6 +77,16 @@ const boardsHeld = (): string => {
   return fingerprint([
     ...boardViews(ageGroups, built),
     ...clubViews({ ageGroups, built, namedAges: loadNamedAges() }),
+    ...searchViews({
+      ageGroups,
+      built,
+      storedGames: loadScoutGames(),
+      held: {
+        dropped: loadDroppedClubs(),
+        ageless: loadAgeUnknown(),
+        tooYoung: loadTooYoungClubs(),
+      },
+    }),
   ]);
 };
 
@@ -101,7 +119,14 @@ beforeAll(async () => {
     ])
   );
   const someone = fixture.teams[0]?.id ?? "nobody";
-  saveDroppedClubs(new Set([someone]));
+  // GameChanger ids kept off every page, which only the Find a team lists read.
+  saveDroppedClubs(new Set(["gcDROPPED001"]));
+  saveAgeUnknown([
+    { teamId: "gcWAITING001", firstSeen: "2027-03-01", lastTried: "2027-03-02", tries: 1 },
+  ]);
+  saveTooYoungClubs(new Set(["gcTOOYOUNG01"]));
+  // And keys no view reads.
+  saveRealClubs(new Set([someone]));
   saveKeptApart(new Set([`${someone}|elsewhere`]));
   saveTidyStamp("r999|0|0|0|");
   saveRefreshCadence("daily");
@@ -116,7 +141,7 @@ afterAll(() => {
   resetTeamRankingsStore();
 });
 
-describe("the keys the boards and club cards read", () => {
+describe("the keys the boards, club cards and Find a team lists read", () => {
   it("are enough: the boards of a store holding only them are the boards of the whole pool", async () => {
     const inputs = new Map([...everything].filter(([key]) => isBoardInputKey(key)));
     // Some keys left out, or the test proves nothing.
@@ -161,6 +186,11 @@ describe("the keys the boards and club cards read", () => {
     expect(isBoardInput("league_forecast_scout_age_groups_v1")).toBe(true);
     // A club card's age reads the ages a person named.
     expect(isBoardInput("league_forecast_gc_named_ages_v1")).toBe(true);
+    // A Find a team list says where a pasted id the copy keeps off every page went.
+    expect(isBoardInput("league_forecast_gc_ageless_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_dropped_clubs_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_too_young_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_real_clubs_v1")).toBe(false);
   });
 });
 

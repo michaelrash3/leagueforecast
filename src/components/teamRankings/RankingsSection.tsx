@@ -76,6 +76,8 @@ type RankingsSectionProps = {
    * called when somebody goes to search, so the page can bring the list in.
    */
   onSearchWanted?: () => void;
+  /** The list a search asked for is on its way: the card says so until it is in. */
+  searchLoading?: boolean;
   /** Whether the marked club's next game is still to come in (`MyTeamCard`). */
   myTeamNextPending?: boolean;
 };
@@ -126,6 +128,7 @@ export function RankingsSection({
   standInNote,
   readOnly = false,
   onSearchWanted,
+  searchLoading = false,
   myTeamNextPending = false,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
@@ -177,9 +180,13 @@ export function RankingsSection({
           <button
             type="button"
             onClick={onSearchWanted}
+            disabled={searchLoading}
+            aria-busy={searchLoading}
             className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
           >
-            Search every team or coach, any age or season
+            {searchLoading
+              ? "Bringing in every team…"
+              : "Search every team or coach, any age or season"}
           </button>
         </div>
       )}

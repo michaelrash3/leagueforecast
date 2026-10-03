@@ -5,15 +5,21 @@ import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { latestImportedAt } from "../gameChangerImport";
 import {
   loadAgeGroups,
+  loadAgeUnknown,
+  loadDroppedClubs,
   loadNamedAges,
+  loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
+  loadTooYoungClubs,
 } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
 import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
+import { searchViews } from "./views/search";
+import { SEARCH_FAMILY } from "./views/searchShape";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
 
 /**
@@ -69,9 +75,13 @@ export const dryLiveStore = (store: LiveStore): LiveStore => {
 export type CopyPublish =
   | {
       ok: true;
-      /** The boards and the buckets of club cards built, and how long building them took. */
+      /**
+       * The boards, the buckets of club cards and the years' Find a team lists built, and how long
+       * building them took.
+       */
       boards: number;
       clubs: number;
+      searches: number;
       buildMs: number;
       publish: Extract<PublishResult, { ok: true }>;
       /** The sweep after it, or why it stopped: the views are published either way. */
@@ -163,14 +173,21 @@ export const publishCopyViews = async ({
   // Each club's card, from what the boards' build derived, published with them and vouched for by
   // the same record: they read the same inputs (`isBoardInput`).
   const clubs = clubViews({ ageGroups, built, namedAges: loadNamedAges() });
-  const views = [...boards, ...clubs];
+  // Each year's Find a team list, likewise, with the ids the copy keeps off every page.
+  const searches = searchViews({
+    ageGroups,
+    built,
+    storedGames: loadScoutGames(),
+    held: { dropped: loadDroppedClubs(), ageless: loadAgeUnknown(), tooYoung: loadTooYoungClubs() },
+  });
+  const views = [...boards, ...clubs, ...searches];
   const pages = livePagesOf(built, latestImportedAt(teams));
   const buildMs = Date.now() - started;
 
   const publish = await publishViews({
     store: liveStore,
     views,
-    owns: [BOARD_FAMILY, CLUB_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY],
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
@@ -196,6 +213,7 @@ export const publishCopyViews = async ({
       ok: true,
       boards: boards.length,
       clubs: clubs.length,
+      searches: searches.length,
       buildMs,
       publish,
       sweep:
@@ -213,5 +231,13 @@ export const publishCopyViews = async ({
   } catch (error) {
     sweep = { ok: false, why: error instanceof Error ? error.message : String(error) };
   }
-  return { ok: true, boards: boards.length, clubs: clubs.length, buildMs, publish, sweep };
+  return {
+    ok: true,
+    boards: boards.length,
+    clubs: clubs.length,
+    searches: searches.length,
+    buildMs,
+    publish,
+    sweep,
+  };
 };

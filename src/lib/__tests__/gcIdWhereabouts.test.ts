@@ -3,15 +3,7 @@ import { whereIsGcId, type GcIdStores } from "../gcIdWhereabouts";
 
 /** Where a pasted GameChanger id is when no club in Find a team carries it. Invented names. */
 const stores = (extra: Partial<GcIdStores> = {}): GcIdStores => ({
-  ageless: [
-    {
-      teamId: "gcWAIT000001",
-      name: "Example Hurricanes",
-      firstSeen: "2026-09-20",
-      lastTried: "2026-09-27",
-      tries: 2,
-    },
-  ],
+  ageless: [{ teamId: "gcWAIT000001", name: "Example Hurricanes" }],
   dropped: new Set(["gcGONE000001"]),
   tooYoung: new Set(["gcTINY000001"]),
   ...extra,

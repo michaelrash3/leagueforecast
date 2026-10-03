@@ -3483,6 +3483,32 @@ against the club's own name and an opponent the roster cannot name included, and
 refuses each way a card can be damaged. Each guard was broken in turn and seen to
 fail a test, 29 of 29, five of them only after a test was added or tightened.
 
+**Find a team lists.** Find a team crosses seasons and age levels, so it searches
+every club the pool has a page for, not the board on screen. Beside the boards, each
+squad year with a page gets its list (`views/search.ts`, `search:{year}`): every
+club its pages' box offers, with the line under its name, its coaches and its
+GameChanger ids, the page a pick of it opens, and the GameChanger ids the copy keeps
+off every page (waiting on an age, thrown out, too young), so a pasted one is
+answered as the page answers it (`whereIsGcId`). It is worked out by the page's own
+code, now shared (`clubSearch.ts`): the year's roster with its League Standings
+teams, over that year's League Standings games and every stored game of every
+year. One list per year rather than one in all, since a year's League Standings
+teams are on its own pages' lists and no other's. On the 29 Sep backup, 2027's list
+holds 104,265 clubs: 10 MB of JSON and 3.6 MB gzipped, built in 1.6 s, and read
+back through JSON and its check in 137 ms (Node, unthrottled, median of five). The
+backup holds no held ids, and coaches' names are about a third of it (an earlier
+encoding came to 2.4 MB gzipped without them). It is read only when somebody goes
+to search, and kept by fingerprint like a board. The lists read the copy's lists of
+held ids, so their keys are board inputs now.
+
+`searchParity.test.ts` holds every year's list, read back through JSON and its own
+check, to the page's own search on the seeded fixture, with coaches on a club and an
+id on each held list: every option, the page each opens, and what the box says of
+each held id. `searchShape.test.ts` reads a list back and refuses each way one can
+be damaged. Each guard was broken in turn and seen to fail a test, 35 of 35, three
+only after a test was added or changed; one of those, the publish taking out a year's
+lists once it builds none, now holds the club cards to the same.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -3837,6 +3863,15 @@ pool's codec it checks a card by load only when a club is opened. A club whose
 card cannot be read (no card, a bucket damaged or gone, a refusal, or offline with
 none kept) opens on Team Rankings, as every club did before there were cards, and so
 does the club open when the board hands over.
+
+**Find a team.** The board's search box reads its year's list (`useLiveSearch`)
+only when somebody taps it, says "Bringing in every team…" until the list is in,
+then puts the caret in the box. A pick opens the club's page and its panel from its
+card, as Team Rankings does. A pick on another year's page leaves that page's box to
+be asked again, rather than read a second list unasked. While somebody is in the box
+the board does not hand over on its own: Team Rankings would open on a box of its
+own, without what they typed. A list that cannot be read hands over to Team
+Rankings with its box focused, as every search did before there were lists.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It

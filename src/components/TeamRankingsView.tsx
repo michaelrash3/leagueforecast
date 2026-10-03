@@ -172,6 +172,7 @@ import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
+import { clubSearchGames } from "../lib/clubSearch";
 import { coachesOf } from "../lib/gcStaff";
 import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
@@ -1792,11 +1793,7 @@ export function TeamRankingsView({
    * when the index is built. Stable across renders so the index is rebuilt on a change, not a render.
    */
   const everyKnownGame = useCallback(
-    () =>
-      dedupeLeagueFixtures(
-        [...allKnown.derivedGames, ...loadScoutGames()],
-        leagueStandIns(allKnown.teams, ageGroups)
-      ),
+    () => clubSearchGames(allKnown.derivedGames, loadScoutGames(), allKnown.teams, ageGroups),
     [allKnown.derivedGames, allKnown.teams, ageGroups]
   );
   /**

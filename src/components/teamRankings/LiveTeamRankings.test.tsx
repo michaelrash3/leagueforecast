@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
 import { LEAGUE_PART } from "../../lib/cloud/cloudPlan";
@@ -17,7 +18,14 @@ import {
   encodeClubCard,
   type ClubCard,
 } from "../../lib/live/views/clubShape";
+import {
+  SEARCH_FAMILY,
+  encodeSearch,
+  searchKey,
+  type SearchView,
+} from "../../lib/live/views/searchShape";
 import { forgetDecodedClubs } from "./LiveClubPanel";
+import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
@@ -141,7 +149,7 @@ const publish = async (
   publishViews({
     store: live.store,
     views,
-    owns: [BOARD_FAMILY, CLUB_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY],
     copy: { id: MANIFEST.copy, version: MANIFEST.version },
     today: TODAY,
     now: T,
@@ -209,6 +217,7 @@ beforeEach(async () => {
   kept.clear();
   forgetDecodedBoards();
   forgetDecodedClubs();
+  forgetDecodedSearches();
   forgetLiveBoard();
   resetTeamRankingsStore();
   window.localStorage.clear();
@@ -641,5 +650,187 @@ describe("a club's panel on the cloud's board", () => {
     await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
       timeout: 2_000,
     });
+  });
+});
+
+describe("Find a team on the cloud's board", () => {
+  const ELEVEN = "ag_11u_2027";
+  const LIST: SearchView = {
+    options: [
+      { id: "S-1", label: "Placeholder S-1", detail: "12U 2027 · Springfield, OH" },
+      {
+        id: "S-9",
+        label: "Placeholder Niners",
+        detail: "11U 2027 · OH",
+        coaches: ["Placeholder Coach A"],
+        gcIds: ["gcNINERS0001"],
+      },
+    ],
+    pageOf: new Map([
+      ["S-1", PAGE],
+      ["S-9", ELEVEN],
+    ]),
+    held: { dropped: new Set(["gcDROPPED001"]), ageless: [], tooYoung: new Set() },
+  };
+  const NINERS: ClubCard = {
+    team: { id: "S-9", name: "Placeholder Niners", state: "OH" },
+    games: [
+      {
+        id: "g1",
+        teamAId: "S-9",
+        teamBId: "S-1",
+        ageGroupId: ELEVEN,
+        teamAScore: 4,
+        teamBScore: 1,
+        date: "2027-03-20",
+      },
+    ],
+    names: { "S-1": "Placeholder S-1" },
+  };
+  const ELEVEN_BOARD = { rows: [row("S-9", 1, { teamName: "Placeholder Niners", state: "OH" })] };
+  const withList = () =>
+    publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: `board:2027:${ELEVEN}:spring`, value: ELEVEN_BOARD },
+        { key: `board:2027:${ELEVEN}:fall`, value: { rows: [] } },
+        { key: `board:2027:${ELEVEN}:year`, value: ELEVEN_BOARD },
+        { key: searchKey(2027), value: encodeSearch(LIST) },
+        {
+          key: clubKey(2027, clubBucketOf("S-9")),
+          value: { clubs: { "S-9": encodeClubCard(NINERS) } },
+        },
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, [ELEVEN]: { fall: 0, spring: 5 } },
+      }
+    );
+  /** The reader, noting each piece it fetches, and holding back the pieces `held` names. */
+  const fetching = (held: (id: string) => boolean = () => false) => {
+    const fetched: string[] = [];
+    let release = (): void => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const reader = readerOf(live);
+    return {
+      fetched,
+      release,
+      sources: sourcesOf(live, {
+        reader: async () => ({
+          ...reader,
+          getChunk: async (id: string) => {
+            fetched.push(id);
+            if (held(id)) await released;
+            return reader.getChunk(id);
+          },
+        }),
+      }),
+    };
+  };
+  const listPieces = () => {
+    const entry = live.meta()?.views[searchKey(2027)];
+    if (!entry) throw new Error("no list published");
+    return (id: string) => id.startsWith(entry.id);
+  };
+  const listboxOf = (box: HTMLElement): HTMLElement =>
+    document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+
+  it("reads the year's list only once somebody goes to search, and opens a club picked on its page", async () => {
+    await withList();
+    const ofList = listPieces();
+    const { fetched, release, sources } = fetching(ofList);
+    const user = userEvent.setup();
+    open(sources);
+    await screen.findByText("The cloud's board");
+    expect(fetched.some(ofList)).toBe(false);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    // Said while it comes in, and not to be asked twice.
+    const coming = await screen.findByRole("button", { name: "Bringing in every team…" });
+    expect(coming).toBeDisabled();
+    await waitFor(() => expect(fetched.some(ofList)).toBe(true));
+    release();
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    // The caret is in the box the moment the list is in.
+    expect(document.activeElement).toBe(box);
+    // Searched by a coach, as the page's own box is.
+    await user.type(box, "coach a");
+    const found = within(listboxOf(box)).getAllByRole("option");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toHaveTextContent("Placeholder Niners");
+    expect(found[0]).toHaveTextContent("11U 2027");
+    await user.click(within(found[0]!).getByRole("button"));
+    // On the club's own page, with its panel from its card, and nothing handed over.
+    await waitFor(() => expect(window.location.search).toContain("age=11"));
+    const panel = await screen.findByRole("region", { name: "Placeholder Niners" });
+    expect(panel).toHaveTextContent("4–1 · 2027-03-20");
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says where a pasted GameChanger id the copy keeps off every page went", async () => {
+    await withList();
+    const user = userEvent.setup();
+    open(sourcesOf(live));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await user.type(box, "gcDROPPED001");
+    expect(await screen.findByText(/That team was thrown out, so pulls refuse it/)).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("does not hand over on its own while somebody is in the search box", async () => {
+    await withList();
+    pool.wants = false;
+    open(sourcesOf(live), { quietMs: 100 });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
+    expect(handedOver()).toBeNull();
+    act(() => box.blur());
+    await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 2_000 });
+  });
+
+  it("asks again on another year's pages rather than read that year's list unasked", async () => {
+    saveAgeGroups([
+      ...GROUPS,
+      { id: "ag_12u_2028", name: "12U 2028", ageLevel: 12, year: 2028, seasonIds: [] },
+    ]);
+    await publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: "board:2028:ag_12u_2028:spring", value: FALL },
+        { key: "board:2028:ag_12u_2028:fall", value: FALL },
+        { key: "board:2028:ag_12u_2028:year", value: FALL },
+        { key: searchKey(2027), value: encodeSearch(LIST) },
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, ag_12u_2028: { fall: 3, spring: 3 } },
+      }
+    );
+    open(sourcesOf(live));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    await screen.findByRole("combobox", { name: /find a team/i });
+    fireEvent.change(screen.getByLabelText("Season"), { target: { value: "2028" } });
+    // The 2028 page's own board, with its box to be asked again: 2027's list is not its list.
+    await screen.findAllByRole("button", { name: "Placeholder S-F" });
+    expect(screen.queryByRole("combobox", { name: /find a team/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Search every team or coach, any age or season" })
+    ).toBeEnabled();
+    expect(handedOver()).toBeNull();
   });
 });

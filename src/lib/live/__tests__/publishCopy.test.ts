@@ -10,9 +10,13 @@ import { memoryIo } from "../../cloud/cloudRunner";
 import {
   initTeamRankingsStore,
   loadAgeGroups,
+  loadAgeUnknown,
+  loadDroppedClubs,
+  loadScoutGames,
   loadScoutGamesForYear,
   loadNamedAges,
   loadScoutTeams,
+  loadTooYoungClubs,
   resetTeamRankingsStore,
   saveAgeGroups,
   saveScoutGames,
@@ -25,6 +29,7 @@ import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
 import { clubViews } from "../views/clubs";
+import { searchViews } from "../views/search";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -141,22 +146,36 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     // what the page's panel reads).
     const clubs = clubViews({ ageGroups: loadAgeGroups(), built, namedAges: loadNamedAges() });
     expect(clubs.length).toBeGreaterThan(0);
+    // And each year's Find a team list (`searchParity.test.ts` holds them to the page's search).
+    const searches = searchViews({
+      ageGroups: loadAgeGroups(),
+      built,
+      storedGames: loadScoutGames(),
+      held: {
+        dropped: loadDroppedClubs(),
+        ageless: loadAgeUnknown(),
+        tooYoung: loadTooYoungClubs(),
+      },
+    });
+    expect(searches.length).toBeGreaterThan(0);
+    const others = clubs.length + searches.length;
     expect(result).toMatchObject({
       ok: true,
       boards: 33,
       clubs: clubs.length,
+      searches: searches.length,
       // Some boards are the same as others (a half with no games): 29 uploads for 33, and one for
-      // each bucket of cards, every one of which differs.
-      publish: { wrote: true, uploaded: 29 + clubs.length },
+      // each bucket of cards and each list, every one of which differs.
+      publish: { wrote: true, uploaded: 29 + others },
       sweep: { deleted: 0, strays: 0 },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
 
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(
-      [...browser, ...clubs].map(({ key }) => key).sort()
+      [...browser, ...clubs, ...searches].map(({ key }) => key).sort()
     );
-    for (const { key, value } of [...browser, ...clubs]) {
+    for (const { key, value } of [...browser, ...clubs, ...searches]) {
       expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
     }
     // And the seasons are what made them so: without them, some board's rows would read otherwise.
@@ -174,16 +193,35 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     expect(live.meta()?.inline).toEqual({
       pages: livePagesOf(built, latestImportedAt(loadScoutTeams())),
     });
-    expect(live.costs.writes).toBe(29 + clubs.length + 1);
+    expect(live.costs.writes).toBe(29 + others + 1);
 
     // The same copy published again writes nothing.
     const writes = live.costs.writes;
     const again = await publish(cloud, live, manifest);
     expect(again).toMatchObject({
       ok: true,
-      publish: { wrote: false, unchanged: 33 + clubs.length },
+      publish: { wrote: false, unchanged: 33 + others },
     });
     expect(live.costs.writes).toBe(writes);
+  });
+
+  it("takes out the cards and lists of a year it no longer builds, as it does a board", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    // An earlier publish's views for a year the pool has since let go.
+    const gone = ["board:2019:ag_10u_2019:year", "club:2019:3", "search:2019"];
+    await publishViews({
+      store: live.store,
+      views: gone.map((key) => ({ key, value: { from: key } })),
+      owns: [],
+      copy: { id: manifest.copy, version: manifest.version - 1 },
+      today: FIXTURE_TODAY,
+      now: T,
+    });
+    expect(Object.keys(live.meta()?.views ?? {})).toEqual(expect.arrayContaining(gone));
+    expect(await publish(cloud, live, manifest)).toMatchObject({ ok: true });
+    const kept = Object.keys(live.meta()?.views ?? {});
+    for (const key of gone) expect(kept, key).not.toContain(key);
   });
 
   it("says when the roster was last pulled, beside the pages' counts", async () => {

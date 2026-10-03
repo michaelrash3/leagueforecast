@@ -132,7 +132,7 @@ describe("whether a save asks for a rebuild", () => {
       "league_forecast_gc_refresh_v1",
       TIDY_STAMP_KEY,
       "league_forecast_gc_cadence_v1",
-      "league_forecast_gc_dropped_clubs_v1",
+      "league_forecast_gc_real_clubs_v1",
       "league_forecast_scout_archive_v1",
     ];
     for (const key of others) {

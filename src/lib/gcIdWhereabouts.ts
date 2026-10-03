@@ -1,4 +1,4 @@
-import type { AgeUnknownList } from "./ageUnknown";
+import type { AgeUnknownTeam } from "./ageUnknown";
 import type { ScoutTeam } from "./teamRankings";
 import { MIN_AGE_LEVEL } from "./teamRankings/seasons";
 
@@ -9,7 +9,8 @@ export type GcIdStores = {
    * was when the pull started, so a club filed since carries the id here and not there.
    */
   liveTeams?: readonly ScoutTeam[];
-  ageless: AgeUnknownList;
+  /** The teams waiting on an age, of which only the id and the name are read. */
+  ageless: ReadonlyArray<Pick<AgeUnknownTeam, "teamId" | "name">>;
   dropped: ReadonlySet<string>;
   tooYoung: ReadonlySet<string>;
 };

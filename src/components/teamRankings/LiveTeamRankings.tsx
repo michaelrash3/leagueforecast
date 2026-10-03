@@ -1,8 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
+import { useLiveSearch } from "../../hooks/useLiveSearch";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import { poolWantsCloud, preparePool, type CloudStatus } from "../../lib/cloud/cloudSession";
 import { todayIsoDay } from "../../lib/date";
+import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
@@ -21,6 +23,7 @@ import { filterRankingsByState, statesInUse } from "../../lib/teamRankings/names
 import { loadAgeGroups } from "../../lib/teamRankingsStorage";
 import { button, card } from "../../styles/tokens";
 import { CloudPoolGate } from "../CloudPoolGate";
+import { warmTeamSearch } from "../TeamSearchSelect";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -38,6 +41,11 @@ export const LIVE_WAIT_MS = 4_000;
 export const QUIET_MS = 1_000;
 
 const INPUT_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
+
+const NO_OPTIONS: [] = [];
+
+/** Find a team's box (`RankingsSection`). */
+const SEARCH_BOX_ID = "scout-team-search";
 
 /**
  * Team Rankings opened on the cloud's published board (`useLiveBoard`), for a member who turned
@@ -105,6 +113,8 @@ export function LiveTeamRankings({
   // The club whose panel is open, from its card, and one whose card could not be read.
   const [openClub, setOpenClub] = useState<string | null>(null);
   const [cannotOpen, setCannotOpen] = useState<string | null>(null);
+  // Find a team, from the year's published list once somebody goes to search.
+  const search = useLiveSearch(live.source, selectedYear);
 
   // The pool and the page's code come in under the board; the board has a while to draw.
   useEffect(() => {
@@ -168,14 +178,17 @@ export function LiveTeamRankings({
     (waitedOut && !board) ||
     live.standing === "behind-copy" ||
     live.standing === "owed" ||
-    cannotOpen !== null;
-  // The club open, or the one that could not be, opens on Team Rankings too.
+    cannotOpen !== null ||
+    search.failed;
+  // The club open, or the one that could not be, opens on Team Rankings too, and so does a search
+  // whose list could not be read.
   const clubOpen = cannotOpen ?? openClub;
   const where: RankingsHandover = {
     stateTop,
     stateFilter,
     showAll,
     ...(clubOpen ? { openTeamId: clubOpen } : {}),
+    ...(search.failed ? { focusSearch: true } : {}),
   };
   if (handOverNow && !handover) setHandover(where);
 
@@ -185,13 +198,23 @@ export function LiveTeamRankings({
   const settled = board !== null && poolReady && pageLoaded && handover === null;
   useEffect(() => {
     if (!settled) return;
-    const quietly = () =>
+    /*
+     * Not while somebody is in the search box: the page would open on a box of its own, with what
+     * they typed and the clubs it found gone, which reading the results for a second is no reason
+     * for. It waits the while again once they leave it.
+     */
+    const quietly = () => {
+      if (document.activeElement?.id === SEARCH_BOX_ID) {
+        timer = setTimeout(quietly, quietMs);
+        return;
+      }
       setHandover({
         stateTop,
         stateFilter,
         showAll,
         ...(clubOpen ? { openTeamId: clubOpen } : {}),
       });
+    };
     let timer = setTimeout(quietly, quietMs);
     const restart = () => {
       clearTimeout(timer);
@@ -262,6 +285,35 @@ export function LiveTeamRankings({
     );
   };
   const closeClub = useCallback(() => setOpenClub(null), []);
+
+  /**
+   * A club picked in Find a team opens on the page its list says, with its panel from its card, as
+   * Team Rankings opens one; with no meta to read the list through, the search is Team Rankings'.
+   */
+  const searchOptions = search.view?.options ?? NO_OPTIONS;
+  const pageOfSearched = search.view?.pageOf;
+  const openSearchedTeam = (teamId: string) => {
+    const pageId = pageOfSearched?.get(teamId);
+    if (pageId) openPage(pageId);
+    openTeam(teamId);
+  };
+  const held = search.view?.held;
+  const explainGcId = useCallback(
+    (gcTeamId: string) => (held ? whereIsGcId(gcTeamId, held) : undefined),
+    [held]
+  );
+  // The caret in the box once the list asked for is in, and only then: a publish that changes the
+  // list later leaves the person wherever they are on the page.
+  const searchReady = search.view !== null;
+  useEffect(() => {
+    if (searchReady) document.getElementById(SEARCH_BOX_ID)?.focus();
+  }, [searchReady]);
+  // The box's own work on the list, after the frame that draws it (`warmTeamSearch`).
+  useEffect(() => {
+    if (searchOptions.length === 0) return;
+    const soon = window.setTimeout(() => warmTeamSearch(searchOptions), 0);
+    return () => window.clearTimeout(soon);
+  }, [searchOptions]);
   const opening = (
     <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
       <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
@@ -297,9 +349,11 @@ export function LiveTeamRankings({
         {board ? (
           <RankingsSection
             groupName={group?.name ?? ""}
-            searchOptions={[]}
-            onSearchTeam={() => undefined}
-            onSearchWanted={() => handOverWith({ focusSearch: true })}
+            searchOptions={searchOptions}
+            onSearchTeam={openSearchedTeam}
+            explainGcId={explainGcId}
+            onSearchWanted={live.source ? search.ask : () => handOverWith({ focusSearch: true })}
+            searchLoading={search.asked && !search.view}
             hasAgeGroups={ageGroups.length > 0}
             unrankedLevelNote={unrankedLevelNoteFor(selectedAgeGroupId, ageGroupLevel(group))}
             segment={
