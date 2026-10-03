@@ -318,6 +318,45 @@ describe("last week's places, from the pool the worker holds", () => {
       expect(tenU).toEqual(expected);
     });
 
+    it("keeps a page's whole rank line while a page too young to rank is visited", () => {
+      /*
+       * The worker keeps one rank line and one board more. A page with no table asks too, for last
+       * week and for the week before, and had its answers been kept they would have pushed the
+       * first page's out, so that going back to it fitted its line again one week at a time.
+       */
+      const withEightU: AgeGroup[] = [
+        { id: "u8", name: "8U 2027", ageLevel: 8, year: 2027, seasonIds: [] },
+        ...groups,
+      ];
+      const { posted, handle } = harness();
+      let id = 0;
+      const ask = (ageGroupId: string, asOf: string) => {
+        id += 1;
+        handle({
+          kind: "movement",
+          id,
+          ageGroupId,
+          ageGroups: withEightU,
+          asOf,
+          pool: {
+            revision: 1,
+            ...(id === 1 ? { teams: encodeScoutTeams(teams), games: encodeScoutGames(games) } : {}),
+          },
+        });
+        const answer = posted[posted.length - 1];
+        if (answer?.kind !== "movement") throw new Error("no answer");
+        return answer.ranks;
+      };
+      const weeks = Array.from({ length: RANK_HISTORY_WEEKS }, (_, at) =>
+        daysBefore("2026-09-19", 7 * (at + 1))
+      );
+      const first = weeks.map((asOf) => ask("u10", asOf));
+      expect(ask("u8", weeks[0] ?? "")).toEqual({});
+      expect(ask("u8", weeks[1] ?? "")).toEqual({});
+      // The same objects: every week of the line answered from what was kept, none fitted again.
+      weeks.forEach((asOf, at) => expect(ask("u10", asOf), asOf).toBe(first[at]));
+    });
+
     it("gives a page the places of its own year's fit when a restore repeats its sibling's id", () => {
       /*
        * Ids are minted unique, but a hand-edited restore can repeat one across years. The fit reads

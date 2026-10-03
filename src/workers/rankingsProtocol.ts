@@ -309,35 +309,41 @@ export const createRankingsHandler = (
     if (request.kind === "movement") {
       /*
        * Kept for the pool, so every tab of a year is answered from the first one's fit, but only
-       * where that fit is the tab's own: the same year (`scoutFitYear`, as in `yearFitKey`), and a
-       * page old enough to be fitted at all. Without the second, a reader who opened an 8U tab
-       * first got its empty answer on 9U, and no arrows.
+       * where that fit is the tab's own: the same year (`scoutFitYear`, as in `yearFitKey`). A
+       * page too young to rank has no table and so no places, and is answered without a fit and
+       * without touching what is kept. Kept under its pool's key, its empty answer reached the 9U
+       * tab opened after an 8U one, which drew no arrows; kept under a key of its own, its answers
+       * pushed a ranked page's rank line out (`PAST_BOARDS_KEPT` holds one line and a board more),
+       * and going back to that page fitted the line again a week at a time.
        */
-      const key = JSON.stringify([
-        held.revision,
-        rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
-        request.segment ?? "",
-        request.asOf,
-        scoutFitYear(request.ageGroupId, request.ageGroups) ?? null,
-        scoutFitRanks(request.ageGroupId, request.ageGroups),
-        request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
-      ]);
-      let ranks = pastBoards.get(key);
-      if (ranks) pastBoards.delete(key);
-      else
-        ranks = ranksAsOf(
-          request.ageGroupId,
-          held.teams,
-          held.games,
-          request.ageGroups,
-          request.segment,
-          request.asOf
-        );
-      pastBoards.set(key, ranks);
-      while (pastBoards.size > PAST_BOARDS_KEPT) {
-        const oldest = pastBoards.keys().next().value;
-        if (oldest === undefined) break;
-        pastBoards.delete(oldest);
+      let ranks: Record<string, number> = {};
+      if (scoutFitRanks(request.ageGroupId, request.ageGroups)) {
+        const key = JSON.stringify([
+          held.revision,
+          rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
+          request.segment ?? "",
+          request.asOf,
+          scoutFitYear(request.ageGroupId, request.ageGroups) ?? null,
+          request.ageGroups.map(({ myTeamId: _mine, ...group }) => group),
+        ]);
+        const kept = pastBoards.get(key);
+        if (kept) pastBoards.delete(key);
+        ranks =
+          kept ??
+          ranksAsOf(
+            request.ageGroupId,
+            held.teams,
+            held.games,
+            request.ageGroups,
+            request.segment,
+            request.asOf
+          );
+        pastBoards.set(key, ranks);
+        while (pastBoards.size > PAST_BOARDS_KEPT) {
+          const oldest = pastBoards.keys().next().value;
+          if (oldest === undefined) break;
+          pastBoards.delete(oldest);
+        }
       }
       const wanted = request.teamIds;
       const answer = wanted
