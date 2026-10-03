@@ -11,6 +11,11 @@ type MyTeamCardProps = {
   /** Which half of the season the numbers are for, when the page has one. */
   segmentName?: string;
   onOpenTeam: (teamId: string) => void;
+  /**
+   * Whether the schedule is still to come in: the live board has the places but not the games, so
+   * "no game on the schedule" would be a guess.
+   */
+  nextPending?: boolean;
 };
 
 /**
@@ -83,7 +88,13 @@ export function RankLine({ history, now }: { history: RankHistoryPoint[]; now: n
   );
 }
 
-export function MyTeamCard({ glance, segmentName, onOpenTeam, history }: MyTeamCardProps) {
+export function MyTeamCard({
+  glance,
+  segmentName,
+  onOpenTeam,
+  history,
+  nextPending = false,
+}: MyTeamCardProps) {
   const { next } = glance;
   return (
     <section aria-label="My team" className={`${card} p-4`}>
@@ -140,6 +151,8 @@ export function MyTeamCard({ glance, segmentName, onOpenTeam, history }: MyTeamC
                 ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
                 : ` — ${Math.round(next.winProb * 100)}% to win`}
           </>
+        ) : nextPending ? (
+          "Next game: loading…"
         ) : (
           "No game on the schedule yet."
         )}

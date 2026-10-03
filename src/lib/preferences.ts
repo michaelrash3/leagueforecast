@@ -137,3 +137,36 @@ export const writeDefaultAge = (pick: DefaultAge | null): boolean => {
 /** The level the default age's class plays at in squad year `year`: 9U in 2027 is 10U in 2028. */
 export const defaultLevelIn = (pick: DefaultAge, year: number): number =>
   year - (pick.year - pick.level);
+
+const LIVE_BOARD_KEY = "lf_live_v1";
+const liveBoardListeners = new Set<() => void>();
+
+/**
+ * Whether Team Rankings opens on the cloud's published board on this device (`LiveTeamRankings`),
+ * which a member turns on in the Cloud panel. Off unless turned on. Kept per device, never in a
+ * backup or the cloud copy, and cleared with the rest of the app's keys by a reset.
+ */
+export const readLiveBoard = (): boolean => safeGet(LIVE_BOARD_KEY) === "on";
+
+export const writeLiveBoard = (on: boolean): boolean => {
+  let written: boolean;
+  if (on) written = safeSet(LIVE_BOARD_KEY, "on");
+  else {
+    try {
+      localStorage.removeItem(LIVE_BOARD_KEY);
+      written = true;
+    } catch {
+      written = false;
+    }
+  }
+  liveBoardListeners.forEach((listener) => listener());
+  return written;
+};
+
+/** Calls `listener` whenever the switch is written here; for `useSyncExternalStore`. */
+export const subscribeLiveBoard = (listener: () => void): (() => void) => {
+  liveBoardListeners.add(listener);
+  return () => {
+    liveBoardListeners.delete(listener);
+  };
+};

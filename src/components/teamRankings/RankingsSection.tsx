@@ -64,6 +64,20 @@ type RankingsSectionProps = {
   rankHistory?: RankHistoryPoint[];
   /** How far a row has moved on this page since last week (`movementOf`). */
   movementOf?: (row: ScoutRankingRow) => Movement | undefined;
+  /**
+   * What the rows are, in place of "Refitting…", while they stand in for this page's own fit: the
+   * live board's label (`liveLabel`).
+   */
+  standInNote?: string;
+  /** Rows to read, not change: the live board, drawn before this device's copy is in hand. */
+  readOnly?: boolean;
+  /**
+   * Draws the Find a team card before the list it searches is in hand, at its real size, and is
+   * called when somebody goes to search, so the page can bring the list in.
+   */
+  onSearchWanted?: () => void;
+  /** Whether the marked club's next game is still to come in (`MyTeamCard`). */
+  myTeamNextPending?: boolean;
 };
 
 /**
@@ -109,6 +123,10 @@ export function RankingsSection({
   myTeam,
   rankHistory,
   movementOf,
+  standInNote,
+  readOnly = false,
+  onSearchWanted,
+  myTeamNextPending = false,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -151,6 +169,20 @@ export function RankingsSection({
           </div>
         </div>
       )}
+      {searchOptions.length === 0 && onSearchWanted && (
+        <div className={`${card} p-4`}>
+          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Find a team
+          </span>
+          <button
+            type="button"
+            onClick={onSearchWanted}
+            className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
+          >
+            Search every team or coach, any age or season
+          </button>
+        </div>
+      )}
 
       {rankings.length === 0 ? (
         <div className={`${card} p-5`}>
@@ -179,6 +211,7 @@ export function RankingsSection({
               {...(rankHistory ? { history: rankHistory } : {})}
               {...(segment ? { segmentName: segment.name } : {})}
               onOpenTeam={onOpenTeam}
+              nextPending={myTeamNextPending}
             />
           )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -189,7 +222,7 @@ export function RankingsSection({
                   {segment ? ` · ${segment.name}` : ""}
                 </h2>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`}
+                  {standInNote ?? (rankingsStale ? "Refitting…" : `of ${rankings.length} ranked`)}
                 </span>
               </div>
               <RankingList
@@ -375,15 +408,24 @@ export function RankingsSection({
                         </div>
                       </dl>
                       <div className="mt-2 space-x-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onMarkMine(row.teamId)}
-                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                          aria-pressed={row.isMine}
-                          title="Mark as my team"
-                        >
-                          {row.isMine ? "★ My team" : "☆ Mark mine"}
-                        </button>
+                        {/* The live board is for reading: marking a club is the page's, once it is in. */}
+                        {readOnly ? (
+                          row.isMine && (
+                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                              ★ My team
+                            </span>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onMarkMine(row.teamId)}
+                            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                            aria-pressed={row.isMine}
+                            title="Mark as my team"
+                          >
+                            {row.isMine ? "★ My team" : "☆ Mark mine"}
+                          </button>
+                        )}
                         {!isLeagueTeam(row.teamId) && hasGamesFiledHere(row.teamId) && (
                           <button
                             type="button"
@@ -457,15 +499,24 @@ export function RankingsSection({
                         <td>{row.games}</td>
                         <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
                         <td className="space-x-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => onMarkMine(row.teamId)}
-                            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                            aria-pressed={row.isMine}
-                            title="Mark as my team"
-                          >
-                            {row.isMine ? "★ My team" : "☆ Mark mine"}
-                          </button>
+                          {/* The live board is for reading: marking a club is the page's, once it is in. */}
+                          {readOnly ? (
+                            row.isMine && (
+                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                ★ My team
+                              </span>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onMarkMine(row.teamId)}
+                              className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                              aria-pressed={row.isMine}
+                              title="Mark as my team"
+                            >
+                              {row.isMine ? "★ My team" : "☆ Mark mine"}
+                            </button>
+                          )}
                           {!isLeagueTeam(row.teamId) && hasGamesFiledHere(row.teamId) && (
                             <button
                               type="button"

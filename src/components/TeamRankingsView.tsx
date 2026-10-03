@@ -22,12 +22,10 @@ import {
   findDuplicateGame,
   gcAgeLevels,
   gcLinkSquadYear,
-  isRankedAgeLevel,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
   ratedMargin,
   mergeScoutTeams,
-  MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
   segmentLabel,
   resolveOrCreateTeam,
@@ -64,7 +62,13 @@ import {
   type SeasonReader,
 } from "../lib/live/allKnown";
 import { countedByHalf } from "../lib/teamRankings/halves";
-import { defaultStateOf, placesOf, unknownStateCountOf } from "../lib/teamRankings/boardDisplay";
+import {
+  defaultStateOf,
+  placesOf,
+  unknownStateCountOf,
+  unrankedLevelNoteFor,
+} from "../lib/teamRankings/boardDisplay";
+import type { RankingsHandover } from "../lib/live/liveBoard";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -207,6 +211,8 @@ type TeamRankingsViewProps = {
    * than lift a route's worth of state up this hands the actions down as closures.
    */
   onCommands?: (commands: Command[]) => void;
+  /** Where the live board left off, when this page takes over from it (`LiveTeamRankings`). */
+  handover?: RankingsHandover;
 };
 
 /**
@@ -278,6 +284,7 @@ export function TeamRankingsView({
   requestConfirmation,
   onDataChange,
   onCommands,
+  handover,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   /*
@@ -443,11 +450,16 @@ export function TeamRankingsView({
   const [importOpen, setImportOpen] = useState(false);
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
-  const [openTeamId, setOpenTeamId] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState("");
+  const [openTeamId, setOpenTeamId] = useState<string | null>(handover?.openTeamId ?? null);
+  const [stateFilter, setStateFilter] = useState(handover?.stateFilter ?? "");
   /** Which state the top ten shows; `null` means the one picked for you. */
-  const [stateTop, setStateTop] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  const [stateTop, setStateTop] = useState<string | null>(handover?.stateTop ?? null);
+  const [showAll, setShowAll] = useState(handover?.showAll ?? false);
+  // Somebody went to search on the live board: the search they asked for, now it has its list.
+  const focusSearch = handover?.focusSearch === true;
+  useEffect(() => {
+    if (focusSearch) document.getElementById("scout-team-search")?.focus();
+  }, [focusSearch]);
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
@@ -755,6 +767,7 @@ export function TeamRankingsView({
   const {
     rows: rankings,
     stale: rankingsStale,
+    standIn,
     whatIf,
     askWhatIf,
     checkModel,
@@ -1060,16 +1073,9 @@ export function TeamRankingsView({
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
 
-  /**
-   * A level below `MIN_RANKED_AGE_LEVEL` has no table by design, so its page would otherwise read
-   * as "no teams yet" however many games were logged on it. Said plainly instead, because the
-   * games are not being ignored — they are evidence about the older teams that played down.
-   */
+  /** Why a page below the ranked ages has no table (`unrankedLevelNoteFor`). */
   const selectedAgeLevel = ageGroupLevel(ageGroups.find((g) => g.id === selectedAgeGroupId));
-  const unrankedLevelNote =
-    selectedAgeGroupId && !isRankedAgeLevel(selectedAgeLevel)
-      ? `${selectedAgeLevel}U is not ranked — at that age the results say more about which league is machine pitch than about the teams. Games logged here still count as evidence about the ${MIN_RANKED_AGE_LEVEL}U and older teams that played down against them.`
-      : null;
+  const unrankedLevelNote = unrankedLevelNoteFor(selectedAgeGroupId, selectedAgeLevel);
 
   const explanationRequest = useMemo(() => {
     if (!reportRow || reportRow.games === 0) return null;
@@ -2424,6 +2430,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               }
               rankings={rankings}
               rankingsStale={rankingsStale}
+              {...(rankingsStale && standIn === "live"
+                ? { standInNote: "The cloud's board · refitting here…" }
+                : {})}
               nationalTop={nationalTop}
               stateTopRows={stateTopRows}
               visibleRankings={visibleRankings}

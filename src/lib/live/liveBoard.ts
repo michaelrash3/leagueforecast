@@ -72,3 +72,15 @@ export const forgetLiveBoard = (): void => {
   held = null;
   starred = null;
 };
+
+/**
+ * Where the live page left off when it handed over to Team Rankings on this device's own copy, so
+ * the page opens there: the club tapped, the search asked for, and the state boards as they were.
+ */
+export type RankingsHandover = {
+  openTeamId?: string;
+  focusSearch?: boolean;
+  stateTop?: string | null;
+  stateFilter?: string;
+  showAll?: boolean;
+};

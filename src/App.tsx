@@ -15,7 +15,8 @@ import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
-import { CloudPoolGate } from "./components/CloudPoolGate";
+import { RankingsOpen } from "./components/RankingsOpen";
+import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
@@ -248,7 +249,7 @@ const OnboardingTour = lazy(() =>
  * never opens it. Fetched when it is asked for rather than shipped to everyone up front.
  */
 const TeamRankingsView = lazy(() =>
-  import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
+  loadTeamRankingsView().then((module) => ({ default: module.TeamRankingsView }))
 );
 
 /**
@@ -2590,15 +2591,19 @@ export default function App() {
             className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
-              <CloudPoolGate status={cloud}>
-                <TeamRankingsView
-                  seasons={seasons.all}
-                  showToast={showToast}
-                  requestConfirmation={requestConfirmation}
-                  onDataChange={noteScoutChange}
-                  onCommands={setRankingsCommands}
-                />
-              </CloudPoolGate>
+              <RankingsOpen
+                status={cloud}
+                page={(handover) => (
+                  <TeamRankingsView
+                    seasons={seasons.all}
+                    showToast={showToast}
+                    requestConfirmation={requestConfirmation}
+                    onDataChange={noteScoutChange}
+                    onCommands={setRankingsCommands}
+                    {...(handover ? { handover } : {})}
+                  />
+                )}
+              />
             </Suspense>
           </main>
         ) : (

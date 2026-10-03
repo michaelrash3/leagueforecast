@@ -5,6 +5,7 @@ import type { CloudStatus, KeptVersion } from "../lib/cloud/cloudSession";
 import { CloudButton, useCloudPanel } from "./CloudButton";
 import type { MembersApi } from "./CloudMembers";
 import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
+import { readLiveBoard } from "../lib/preferences";
 
 /*
  * The cloud copy's header button and panel, as views of a status: what each status says, and which
@@ -124,6 +125,18 @@ describe("the cloud panel", () => {
     expect(screen.getByRole("button", { name: "Save now" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(actions.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers this device the cloud's board for Team Rankings, off until turned on", async () => {
+    window.localStorage.clear();
+    panel(saved());
+    const box = screen.getByRole("checkbox", { name: "Open Team Rankings on the cloud's board" });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(box).toBeChecked();
+    expect(readLiveBoard()).toBe(true);
+    await userEvent.click(box);
+    expect(readLiveBoard()).toBe(false);
   });
 
   it("saves waiting changes on request", async () => {

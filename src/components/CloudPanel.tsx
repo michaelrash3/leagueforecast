@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import {
   addCloudMember,
@@ -17,6 +17,7 @@ import {
   type CloudStatus,
   type KeptVersion,
 } from "../lib/cloud/cloudSession";
+import { readLiveBoard, subscribeLiveBoard, writeLiveBoard } from "../lib/preferences";
 import { button } from "../styles/tokens";
 import { CloudMembers, type MembersApi } from "./CloudMembers";
 
@@ -78,6 +79,36 @@ const Note = ({ children }: { children: ReactNode }) => (
 const Line = ({ children }: { children: ReactNode }) => (
   <p className="text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200">{children}</p>
 );
+
+/**
+ * This device's switch for opening Team Rankings on the cloud's published board
+ * (`LiveTeamRankings`). Off unless turned on, and read as Team Rankings opens, so it changes the
+ * next open and never the page on screen.
+ */
+const LiveBoardSwitch = () => {
+  const on = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => false);
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        id={id}
+        type="checkbox"
+        checked={on}
+        onChange={(event) => writeLiveBoard(event.target.checked)}
+        className="mt-1"
+      />
+      <div className="flex flex-col gap-1">
+        <label htmlFor={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Open Team Rankings on the cloud&apos;s board
+        </label>
+        <Note>
+          The board the cloud last built shows at once, then this device&apos;s own copy takes over.
+          On this device only, from the next time Team Rankings opens.
+        </Note>
+      </div>
+    </div>
+  );
+};
 
 const Box = ({ tone, children }: { tone: "info" | "alert"; children: ReactNode }) => (
   <div
@@ -292,6 +323,7 @@ function Body({
             cloud{status.owed ? "; the changes still waiting are saved when you sign in again" : ""}
             .
           </Note>
+          <LiveBoardSwitch />
           <CloudMembers api={members} />
           {kept.length > 0 && (
             <div className="flex flex-col gap-2">

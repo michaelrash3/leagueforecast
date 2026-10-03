@@ -1,3 +1,4 @@
+import { isRankedAgeLevel, MIN_RANKED_AGE_LEVEL } from "./seasons";
 import type { ScoutTeam } from "./types";
 
 /**
@@ -67,3 +68,14 @@ export const clubsOfBoard = (
     ...(city ? { city } : {}),
     ...(state ? { state } : {}),
   }));
+
+/**
+ * Why a page has no table, when the reason is its age level: a level below `MIN_RANKED_AGE_LEVEL`
+ * has none by design, so its page would otherwise read as "no teams yet" however many games were
+ * logged on it. Said plainly instead, because the games are not being ignored — they are evidence
+ * about the older teams that played down. Null for a ranked level, and for no page at all.
+ */
+export const unrankedLevelNoteFor = (pageId: string, level: number | undefined): string | null =>
+  pageId && !isRankedAgeLevel(level)
+    ? `${level}U is not ranked — at that age the results say more about which league is machine pitch than about the teams. Games logged here still count as evidence about the ${MIN_RANKED_AGE_LEVEL}U and older teams that played down against them.`
+    : null;

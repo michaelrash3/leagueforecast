@@ -2928,7 +2928,9 @@ and changed it.
 The header's cloud button signs in, and after that shows where the copy stands;
 **Settings → Your data on every device** opens the same panel. From then on it
 saves and loads by itself. A browser nobody has signed in on never downloads
-Firebase's code.
+Firebase's code. Once it is signed in, the panel also offers **Open Team
+Rankings on the cloud's board**, a switch for this device alone, off until
+turned on ("The live board on a member's device").
 
 **What travels.** Every League Standings season, as one value, and the Team
 Rankings pool key by key, as it is stored: the teams, the age groups, each
@@ -3686,8 +3688,7 @@ holds for the copy (`liveReader` in `cloudSession.ts`): only in a browser that
 keeps a cloud copy, asked before Firebase is loaded, so one that never signed in
 never loads it to find out, and only as the account that browser's record is
 for. The meta is read with a 10 s limit and each piece with 30 s, as the copy's
-reads are. No page draws from it yet. Nothing it reads is trusted
-(`liveClient.ts`):
+reads are. Nothing it reads is trusted (`liveClient.ts`):
 
 - **The meta** must be one this build reads, of this build's schema, with pages'
   counts it can read. Anything else says why: nothing published yet, an older
@@ -3731,6 +3732,50 @@ and `firestoreRules.test.ts` the app's own reader on the emulator, reading a boa
 whole as the owner and as a member signed in under a mixed-case address and
 refused to a stranger and an unverified address. Each guard was broken in turn and
 seen to fail a test, 27 of 27.
+
+**Team Rankings on the cloud's board.** A member who turns on **Open Team
+Rankings on the cloud's board** in the Cloud panel opens Team Rankings on it
+(`LiveTeamRankings`). The switch is read as the page opens and kept until it
+closes, so turning it, or the cloud's state moving, never swaps one page for the
+other under the reader; it applies only in a browser that keeps a cloud copy and
+is signed in as a member, or still finding out. Its page draws the published
+board as Team Rankings draws its own: the same header, places, state top ten and
+filter, League badges, full table and the member's own club card, from the same
+code (`boardDisplay.ts`), with the half the page would open on decided from the
+published counts. What the board says it is replaces "Refitting…" (`liveLabel`):
+offline, still checking, built before this device's changes or the copy's latest,
+built by another version of the app, or yesterday's. It opens on what this
+account last read and kept, so a board is drawn before any network read, and
+then on the network's.
+
+The board is a stand-in, as the saved board is. Behind it the pool is brought in
+step with the copy and Team Rankings' own code loads, and the page hands over to
+Team Rankings on this device's copy once a second has passed with no tap, key or
+scroll after all three are ready. It hands over at once for whatever the board
+cannot do or should not stand in for: a club opened, the search asked for,
+another area of the page, a page with no published board, a meta this build
+cannot read or the rules refuse, nothing drawn within 4 s, or a board built
+before changes it does not have. It then shows the pool's progress under the
+board until the pool is in. Team Rankings opens where the board left off (the
+club tapped, the search, the state boards as they were) and on the same rows,
+starred by the worker's own rule, roster star and all (`liveBoard.ts`), marked
+as refitting until its own fit lands; once it has taken over it stays. Nothing
+can be changed on the board itself: marking a club, removing one and the
+schedule wait for the page.
+
+The page reads one meta and the pieces of the one board on screen, and none at
+all for a board this device kept. Its code is 5.3 KB gzipped, loaded only with
+the switch on; the first download grew 2.8 KB gzipped (229.1 to 231.9 KB), as the
+cloud session's code moved into a chunk of its own beside the entry, and
+Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
+an in-memory store through the real reader, cache and checks: the rows, places,
+star, state boards and badges as the page draws them, the half from the published
+counts, each reason to hand over at once, the quiet handover waiting for the pool
+and put off by input, a kept board drawn and labelled offline, and a refusal
+forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
+the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
+opening where the board left off. Each guard was broken in turn and seen to fail
+a test, 33 of 33, two of them only after their tests were tightened.
 
 ### Rebuilds after saves: the one-time setup
 
