@@ -198,10 +198,12 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     expect(differs.some(Boolean)).toBe(true);
 
     // What a device lays the page out by went up in the same commit: each page's counted games by
-    // half, as the boards' own facts count them, and the roster's last pull.
+    // half, as the boards' own facts count them, the roster's last pull, and the age groups
+    // themselves, as the copy's store holds them, for a device with no copy.
     expect(live.meta()?.inline).toEqual({
-      pages: livePagesOf(built, latestImportedAt(loadScoutTeams())),
+      pages: livePagesOf(built, latestImportedAt(loadScoutTeams()), loadAgeGroups()),
     });
+    expect(live.meta()?.inline.pages).toMatchObject({ groups: loadAgeGroups() });
     expect(live.costs.writes).toBe(29 + others + 1);
 
     // The same copy published again writes nothing.

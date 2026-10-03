@@ -224,6 +224,12 @@ export const withMine = (
 export type LivePages = {
   pulledAt?: string;
   halves: Record<string, Record<SeasonSegment, number>>;
+  /**
+   * The copy's age groups as its store holds them, for a device that holds no copy to lay the page
+   * out by. Read through the store's own check (`coerceAgeGroups`) where they are used, as a copy's
+   * are, so this module reads no more than that they are a list.
+   */
+  groups?: unknown[];
 };
 
 const isCount = (value: unknown): value is number =>
@@ -243,5 +249,10 @@ export const coerceLivePages = (raw: unknown): LivePages | null => {
     if (!isRecord(counts) || !isCount(counts.fall) || !isCount(counts.spring)) return null;
     halves[pageId] = { fall: counts.fall, spring: counts.spring };
   }
-  return { ...(pulledAt === undefined ? {} : { pulledAt }), halves };
+  if (raw.groups !== undefined && !Array.isArray(raw.groups)) return null;
+  return {
+    ...(pulledAt === undefined ? {} : { pulledAt }),
+    halves,
+    ...(raw.groups === undefined ? {} : { groups: raw.groups as unknown[] }),
+  };
 };

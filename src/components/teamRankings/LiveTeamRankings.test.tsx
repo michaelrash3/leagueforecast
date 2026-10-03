@@ -259,6 +259,30 @@ describe("Team Rankings on the cloud's board", () => {
     ).toEqual([false, true, false]);
   });
 
+  it("draws the board on a device that has never held the copy, by the pages the meta names", async () => {
+    await publish(live, undefined, {
+      pulledAt: T,
+      halves: { [PAGE]: { fall: 10, spring: 20 } },
+      groups: GROUPS,
+    });
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+    open(sourcesOf(live));
+    expect(await screen.findAllByRole("button", { name: "Placeholder S-1" })).not.toHaveLength(0);
+    expect(screen.getByRole("navigation", { name: "Age level" })).toHaveTextContent("12U");
+    // And it did not hand over while it waited for the pages: with the copy in, the board stays.
+    await act(async () => pool.finish());
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over when neither this device nor the meta has a page to lay out", async () => {
+    pool.wants = false;
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+    open(sourcesOf(live));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
   it("draws last week's arrows and the page's own club's rank line from the board", async () => {
     open(sourcesOf(live));
     expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
@@ -546,8 +570,12 @@ describe("the cloud's board while it is open", () => {
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
     expect(kept.size).toBeGreaterThan(0);
     act(() => live.failWatches({ code: "permission-denied" }));
-    await waitFor(() => expect(kept.size).toBe(0));
-    expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    // The keep is emptied first and the held board let go after it, a tick apart: both are waited
+    // for, or a check between the two finds the board still held.
+    await waitFor(() => {
+      expect(kept.size).toBe(0);
+      expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    });
     await act(async () => pool.finish());
     expect(handedOver()).not.toBeNull();
   });

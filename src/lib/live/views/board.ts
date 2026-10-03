@@ -349,9 +349,15 @@ export const boardViews = (
 
 /**
  * What the publisher says of every page beside its boards (`LivePages`), in the order the boards
- * come out in: the roster's last pull, and each page's counted games by half.
+ * come out in: the roster's last pull, each page's counted games by half, and, when given, the
+ * copy's age groups themselves.
  */
-export const livePagesOf = ({ facts }: BoardsBuilt, pulledAt: string | null): LivePages => ({
+export const livePagesOf = (
+  { facts }: BoardsBuilt,
+  pulledAt: string | null,
+  ageGroups?: AgeGroup[]
+): LivePages => ({
   ...(pulledAt ? { pulledAt } : {}),
   halves: Object.fromEntries([...facts].map(([pageId, page]) => [pageId, { ...page.halves }])),
+  ...(ageGroups ? { groups: ageGroups } : {}),
 });

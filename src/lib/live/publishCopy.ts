@@ -186,7 +186,8 @@ export const publishCopyViews = async ({
   // And each page's Games list.
   const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear });
   const views = [...boards, ...clubs, ...searches, ...games];
-  const pages = livePagesOf(built, latestImportedAt(teams));
+  // With the copy's age groups, so a device that has never held the pool can lay the page out.
+  const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);
   const buildMs = Date.now() - started;
 
   const publish = await publishViews({

@@ -182,6 +182,11 @@ describe("the pages' inline counts", () => {
     expect(coerceLivePages({ halves: {} })).toEqual({ halves: {} });
   });
 
+  it("carry the copy's age groups as a list, which the copy's own check reads where they are used", () => {
+    const groups = [{ id: "ag_9u", name: "9U", seasonIds: [] }, "not one"];
+    expect(coerceLivePages({ ...PAGES, groups })).toEqual({ ...PAGES, groups });
+  });
+
   it("are nothing when any page's counts, or the pull time, are not what they should be", () => {
     const bad: unknown[] = [
       null,
@@ -193,6 +198,7 @@ describe("the pages' inline counts", () => {
       { ...PAGES, halves: { ag_9u: { fall: -1, spring: 0 } } },
       { ...PAGES, halves: { ag_9u: { fall: 1.5, spring: 0 } } },
       { ...PAGES, halves: { ag_9u: [1, 2] } },
+      { ...PAGES, groups: { ag_9u: {} } },
     ];
     for (const raw of bad) expect(coerceLivePages(raw), JSON.stringify(raw)).toBeNull();
   });

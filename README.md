@@ -3425,8 +3425,9 @@ page reads it: its town and state, which the page shows beside the name and
 ranks the state top ten and the state filter by, and whether its games on that
 page came from a League Standings season, which the page badges. Beside the
 boards, in the same commit, the meta carries `inline.pages`: when the roster was
-last pulled, and for each page how many counted games each half holds, which
-decides the half the page opens on and what an empty half says. The page and
+last pulled, for each page how many counted games each half holds, which decides
+the half the page opens on and what an empty half says, and the age groups, for a
+device with no copy to lay the page out by (below). The page and
 the server count these with the same code (`countedByHalf`, `leagueTeamIdsOn`),
 and `boardParity.test.ts` holds every published board, read back through JSON
 and starred as a device stars it, to the worker's own rows, with each club's
@@ -3923,6 +3924,22 @@ since a card holds a club's games of every such page and each is a pool of its o
 was broken in turn and seen to fail a test, 14 of 14, three only after a test was
 added: the pool's pages, a meeting off the second card, and a bucket without the
 club.
+
+**On a device with no copy.** The page is laid out by the age groups, which a
+device reads from its own copy. One that has never held a copy has none, so the
+meta now carries the copy's age groups too (`LivePages.groups`), as its store holds
+them. A device with no age groups of its own lays the page out by those, read
+through the copy's own check (`coerceAgeGroups`), until its copy comes in. It hands
+over for want of a page only once it has pages to choose from, its own or the
+meta's, and the meta's are the ones laid out by, a render after the meta that brings
+them. A meta with none hands over, as before. Each guard was broken in turn and seen
+to fail a test, 8 of 8.
+
+The board on screen is held for Team Rankings to open on (`holdLiveBoard`), by an
+effect that runs after the board is drawn, and let go whenever none is on screen. It
+used only to be let go where a refusal forgets every board, and a refusal heard
+between a board's drawing and the effect was forgotten and then held again by the
+late effect. The listener's test caught it about one run in four.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It

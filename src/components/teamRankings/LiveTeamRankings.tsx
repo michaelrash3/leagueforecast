@@ -5,12 +5,12 @@ import { useRankingsPages } from "../../hooks/useRankingsPages";
 import { poolWantsCloud, preparePool, type CloudStatus } from "../../lib/cloud/cloudSession";
 import { todayIsoDay } from "../../lib/date";
 import { whereIsGcId } from "../../lib/gcIdWhereabouts";
-import { holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
+import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
-import type { ScoutRankingRow } from "../../lib/teamRankings";
+import type { AgeGroup, ScoutRankingRow } from "../../lib/teamRankings";
 import { ageGroupLevel, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
   clubsOfBoard,
@@ -20,7 +20,7 @@ import {
   unrankedLevelNoteFor,
 } from "../../lib/teamRankings/boardDisplay";
 import { filterRankingsByState, statesInUse } from "../../lib/teamRankings/names";
-import { loadAgeGroups } from "../../lib/teamRankingsStorage";
+import { coerceAgeGroups, loadAgeGroups } from "../../lib/teamRankingsStorage";
 import { button, card } from "../../styles/tokens";
 import { CloudPoolGate } from "../CloudPoolGate";
 import { warmTeamSearch } from "../TeamSearchSelect";
@@ -47,6 +47,7 @@ export const QUIET_MS = 1_000;
 const INPUT_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
 
 const NO_OPTIONS: [] = [];
+const NO_GROUPS: AgeGroup[] = [];
 
 /** Find a team's box (`RankingsSection`). */
 const SEARCH_BOX_ID = "scout-team-search";
@@ -83,7 +84,17 @@ export function LiveTeamRankings({
   quietMs?: number;
 }) {
   const today = todayIsoDay();
-  const [ageGroups] = useState(() => loadAgeGroups());
+  /*
+   * The pages, from this device's copy; on a device that has never held one, from what the meta
+   * publishes (`LivePages.groups`), read through the copy's own check, until the copy comes in.
+   */
+  const [localGroups] = useState(() => loadAgeGroups());
+  const [publishedRaw, setPublishedRaw] = useState<unknown[] | undefined>(undefined);
+  const publishedGroups = useMemo(
+    () => (publishedRaw ? coerceAgeGroups(publishedRaw) : NO_GROUPS),
+    [publishedRaw]
+  );
+  const ageGroups = localGroups.length > 0 ? localGroups : publishedGroups;
   const {
     section,
     selectedAgeGroupId,
@@ -106,6 +117,8 @@ export function LiveTeamRankings({
     calendarSegment,
     ...(sources ? { sources } : {}),
   });
+  const metaGroups = live.meta?.pages.groups;
+  if (localGroups.length === 0 && metaGroups !== publishedRaw) setPublishedRaw(metaGroups);
 
   const [handover, setHandover] = useState<RankingsHandover | null>(null);
   const [stateTop, setStateTop] = useState<string | null>(null);
@@ -158,13 +171,19 @@ export function LiveTeamRankings({
     [lastWeek]
   );
 
-  // The board on screen is the one Team Rankings opens on, whenever it hands over.
+  /*
+   * The board on screen is the one Team Rankings opens on, whenever it hands over; with none on
+   * screen, none is. Letting go here too, not only where a refusal forgets every board
+   * (`useLiveBoard`): a refusal heard between a board's drawing and this effect's running was
+   * forgotten first and then held again by the late effect, about one time in six in the test.
+   */
   useEffect(() => {
     if (board)
       holdLiveBoard(
         { ageGroupId: selectedAgeGroupId, ...(live.segment ? { segment: live.segment } : {}) },
         board.view.rows
       );
+    else forgetLiveBoard();
   }, [board, selectedAgeGroupId, live.segment]);
 
   /*
@@ -180,7 +199,10 @@ export function LiveTeamRankings({
   const handOverNow =
     (section !== "rankings" && section !== "games" && section !== "scouting") ||
     cannotList ||
-    !selectedAgeGroupId ||
+    // No page: once there are pages to choose from, this device's or the meta's, and the meta's
+    // are the ones laid out by, which is a render after the meta that brings them.
+    (!selectedAgeGroupId &&
+      (localGroups.length > 0 || (live.meta !== null && metaGroups === publishedRaw))) ||
     (live.metaMiss !== null && !offline) ||
     (live.boardMiss !== null && live.boardMiss !== "offline") ||
     (offline && !board) ||
