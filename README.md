@@ -3456,6 +3456,34 @@ of their data. `viewStore.test.ts` holds the rules above against an in-memory
 store that counts every read, write and delete; each rule was broken in turn and
 seen to fail a test.
 
+A server that rebuilds the boards soon after an edit, rather than once a night,
+keeps the pool between rebuilds (`poolCache.ts`): the parts of the copy the
+boards read, League Standings among them, and the tidy stamp, in the same
+in-memory store the nightly loads. Each rebuild brings it to the copy as it now
+stands by fetching only the parts whose hash differs from the one it holds, and
+taking out the keys the copy no longer has, all fetched before the store is
+touched. It starts afresh on a new copy, after any write to the store it did not
+make itself, and whenever the copy keeps an older pool's games under one key or
+kept them at the last start: the store splits that key into years as it opens,
+and those years are the store's, not the copy's. A store that will not take a
+value, or throws rather than say so, is emptied, and a drop waits for any
+bring-up under way. Before it reads a piece it
+refuses a copy a newer build saved, and one holding a key this build does not
+keep, since that key could be one the boards should read; once loaded, it
+refuses a pool tidied by newer rules. A piece that is not there is read again
+from the copy when a save replaced it mid-fetch, and is damage when the copy
+still names it.
+
+On the 29 September backup, in memory, a fresh start reads 27 pieces (21 MB
+gzipped) in 1.2 to 1.4 s. One club's edit reads the roster's 7 pieces (5.7 MB) in
+0.6 s. One score reads its year's 18 (15 MB) in 1.3 to 1.5 s, no faster, because
+that year is three quarters of the pool. A League Standings score reads that part
+alone, and a copy with nothing new costs one read. Building every board takes
+7 s either way, and the process peaked at 2.4 GB. `poolCache.test.ts` holds a
+warm bring-up to what a fresh start on the same version holds, loader by loader
+and board by board, after an edit to each kind of input; each guard was broken
+in turn and seen to fail a test.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

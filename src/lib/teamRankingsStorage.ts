@@ -379,7 +379,15 @@ const flushWrites = async (): Promise<void> => {
       const batch = [...pendingWrites.entries()];
       pendingWrites.clear();
       for (const [key, value] of batch) {
-        const ok = await (activeIo ?? browserIo).set(key, value);
+        // A store that throws rather than answering is a write that did not land, like one that
+        // says so: thrown out of here, it was lost from a queue nobody waits on, and the wait for
+        // the queue to empty reported every write landed.
+        let ok: boolean;
+        try {
+          ok = await (activeIo ?? browserIo).set(key, value);
+        } catch {
+          ok = false;
+        }
         if (ok) {
           refusedKeys.delete(key);
           continue;
@@ -1371,6 +1379,19 @@ export const loadTidyStamp = (): string | null => {
   return isString(raw) ? raw : null;
 };
 export const saveTidyStamp = (stamp: string): boolean => writeValue(GC_TIDY_KEY, stamp);
+/**
+ * The key the tidy stamp is kept under: a server that reads only some of a copy's parts reads this
+ * one too, to refuse a pool tidied by newer rules than its own (`poolCache.ts`).
+ */
+export const TIDY_STAMP_KEY = GC_TIDY_KEY;
+/** The key an older pool kept every game under, which the store splits into years as it opens. */
+export const LEGACY_GAMES_KEY = GAMES_KEY;
+/**
+ * Whether a key holds games, under any of the keys they have been kept in: the one key of an older
+ * pool, a year's, or the index of years. Opening a store that holds the one key rewrites the rest.
+ */
+export const isScoutGamesKey = (key: string): boolean =>
+  key === GAMES_KEY || key === GAMES_INDEX_KEY || isGamesShardKey(key);
 
 /**
  * The last pull's record, so the files can still be written after a reload.
