@@ -3339,7 +3339,8 @@ skipped otherwise; Thai collation, which passes over spaces, orders two of its
 ties the other way. It catches what the first cannot, such as the fit summing
 its games in another order, which moves only the last bits, and moves them on
 both sides of the parity tests at once. Any change meant to move the numbers
-updates the pins and says so.
+updates the pins, raises the board rules' version (`BOARD_RULES`) with a
+fingerprint of its own beside the old, and says so.
 
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad
@@ -3407,6 +3408,28 @@ could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
 values included, since those have the older shape; the other families come back
 as they are next published.
+
+Two more rules keep a slower or older server from undoing what a newer one
+published. A publish for an earlier members' day than the meta's writes nothing,
+whatever its version: it was built for a day that has passed. And each family of
+views records what it was last built from (`built`): the copy and its version, a
+fingerprint of the stored values the family reads, the day, and the version of
+the rules that make the views. A publish under older rules than that record
+writes nothing, so code left running after a failed deploy cannot write over
+newer boards (the version only ever goes up, a change undone included); and a
+server that finds the record matching the copy at this very version, its inputs,
+the day and its own rules knows the boards are current without building them
+(`boardsState`). A later version with the same inputs is built again all the
+same, at no upload's cost, so the copy's mark moves and a slower build of a
+version in between cannot publish over it. A late publish that writes over a
+family's views takes the family's record out rather than leave it describing
+views it no longer does. The boards read the roster, the age groups and each year's
+games, and League Standings (`isBoardInput`); a save that changes none of these
+cannot move them, and is not counted as changing them. A publish that writes the
+meta anyway can take a sweep's commit with it (`collectDue`): retired uploads
+past their grace leave the meta in the same commit, and their pieces go after; a
+piece that will not delete then is left for a full sweep to find as a stray, and
+counted, rather than failing a publish that is already out.
 
 A publish that would write what the meta already says writes nothing at all, not
 even the meta. On the seeded fixture, the first publish of its 33 boards is 29

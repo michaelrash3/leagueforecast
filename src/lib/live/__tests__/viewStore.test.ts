@@ -144,9 +144,10 @@ describe("publishing views", () => {
     const live = memoryLive();
     await publish(live, [view("moves:x", "X")], 3, { owns: ["moves:"] });
     await publish(live, [view("board:a", "A")], 5);
+    // Late by version though built a day on: the header stays the newer version's, day and all.
     const older = await publish(live, [view("moves:x", "X2")], 4, {
       owns: ["moves:"],
-      today: "2027-04-14",
+      today: "2027-04-16",
     });
     expect(older).toMatchObject({ ok: true, wrote: true });
     expect(await decode(live, "moves:x")).toBe("X2");
@@ -191,9 +192,9 @@ describe("publishing views", () => {
       copy: { id: "fresh", version: 1 },
       owns: ["moves:"],
     });
-    // A board build from version 5 of the first copy finishes late, on the day before.
+    // A board build from version 5 of the first copy finishes late, on the day after.
     const header = live.meta();
-    const late = await publish(live, [view("board:k", "five")], 5, { today: "2027-04-14" });
+    const late = await publish(live, [view("board:k", "five")], 5, { today: "2027-04-16" });
     expect(late).toMatchObject({ ok: true, wrote: false, refused: 1, removed: 0 });
     expect(await decode(live, "board:k")).toBe("six");
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(["board:j", "board:k", "moves:k"]);
@@ -481,6 +482,179 @@ describe("publishing views", () => {
   });
 });
 
+describe("the day, the rules and what a publish was built from", () => {
+  const FROM = { k: COPY, v: 1, inputs: "i1", today: "2027-04-15", rules: 1 };
+  const boards = (from: Partial<typeof FROM> = {}) => ({
+    built: { family: "board:", from: { ...FROM, ...from } },
+  });
+
+  it("writes nothing for an earlier day than the meta's, whatever its version", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5);
+    const meta = live.meta();
+    const chunks = live.chunks.size;
+    for (const version of [4, 5, 6]) {
+      expect(
+        await publish(live, [view("board:a", `day before at ${version}`)], version, {
+          today: "2027-04-14",
+        })
+      ).toEqual({ ok: false, reason: "older-day" });
+    }
+    expect(live.meta()).toEqual(meta);
+    // What it uploaded, taken back.
+    expect(live.chunks.size).toBe(chunks);
+  });
+
+  it("still holds a late version on the same day, and lets a later day at the same version in", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5);
+    expect(await publish(live, [view("board:a", "B")], 4)).toMatchObject({ ok: true, refused: 1 });
+    const later = await publish(live, [view("board:a", "C")], 5, { today: "2027-04-16" });
+    expect(later).toMatchObject({ ok: true, wrote: true });
+    expect(await decode(live, "board:a")).toBe("C");
+    expect(live.meta()?.today).toBe("2027-04-16");
+  });
+
+  it("writes nothing under older rules than the family was built by", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 1, boards({ rules: 2 }));
+    const meta = live.meta();
+    expect(await publish(live, [view("board:a", "B")], 2, boards({ v: 2, rules: 1 }))).toEqual({
+      ok: false,
+      reason: "older-rules",
+    });
+    expect(live.meta()).toEqual(meta);
+    // The same rules, or newer, write.
+    expect(
+      await publish(live, [view("board:a", "B")], 2, boards({ v: 2, rules: 2 }))
+    ).toMatchObject({ ok: true, wrote: true });
+  });
+
+  it("records what a family was built from, keeps it through a late publish, and drops it for one that cannot vouch", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5, boards({ v: 5, inputs: "five" }));
+    expect(live.meta()?.built).toEqual({ "board:": { ...FROM, v: 5, inputs: "five" } });
+    // Late: the record stays the newer build's.
+    await publish(live, [view("board:a", "A4")], 4, boards({ v: 4, inputs: "four" }));
+    expect(live.meta()?.built["board:"]).toMatchObject({ v: 5, inputs: "five" });
+    // Another family's publish leaves it.
+    await publish(live, [view("moves:x", "X")], 6, { owns: ["moves:"] });
+    expect(live.meta()?.built["board:"]).toMatchObject({ v: 5, inputs: "five" });
+    // A publish of the boards that says nothing of what they came from takes it out.
+    await publish(live, [view("board:a", "A7")], 7);
+    expect(live.meta()?.built).toEqual({});
+  });
+
+  it("drops a family's record when a late publish writes over its views", async () => {
+    // Another family moves the copy's mark on; a board build of a version in between is late, but
+    // may still replace boards from before it.
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5, boards({ v: 5, inputs: "five" }));
+    await publish(live, [view("moves:x", "X")], 7, { owns: ["moves:"] });
+    const late = await publish(live, [view("board:a", "A6")], 6, boards({ v: 6, inputs: "six" }));
+    expect(late).toMatchObject({ ok: true, wrote: true, refused: 0 });
+    expect(await decode(live, "board:a")).toBe("A6");
+    expect(live.meta()?.built["board:"]).toBeUndefined();
+  });
+
+  it("keeps only its own record over an older build's meta", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A"), view("moves:x", "X")], 5, {
+      owns: ["board:", "moves:"],
+      built: { family: "moves:", from: { ...FROM, v: 5 } },
+    });
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    await publish(live, [view("board:a", "B")], 6, boards({ v: 6 }));
+    expect(live.meta()?.built).toEqual({ "board:": { ...FROM, v: 6 } });
+  });
+
+  it("reads a meta whose records are missing or wrong, dropping only the wrong ones", () => {
+    const meta = {
+      format: LIVE_FORMAT,
+      schema: LIVE_SCHEMA,
+      today: "2027-04-15",
+      builtAt: T,
+      copy: { id: COPY, version: 1 },
+      marks: { [COPY]: 1 },
+      inline: {},
+      views: {},
+      retired: [],
+    };
+    expect(coerceLiveMeta(meta)?.built).toEqual({});
+    const read = coerceLiveMeta({
+      ...meta,
+      built: { "board:": FROM, "moves:": { ...FROM, rules: -1 }, "games:": "nonsense" },
+    });
+    expect(read?.built).toEqual({ "board:": FROM });
+  });
+
+  it("takes out the retired uploads past their grace with a commit it makes anyway, and deletes their pieces after", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:k", "A")], 1);
+    const retiredId = live.meta()?.views["board:k"]?.id;
+    await publish(live, [view("board:k", "B")], 2);
+    const due = later(RETIRE_GRACE_MS);
+    // Nothing to write: collecting is no reason to.
+    const writes = live.costs.writes;
+    expect(
+      await publish(live, [view("board:k", "B")], 2, { now: due, collectDue: true })
+    ).toMatchObject({ ok: true, wrote: false, deleted: 0 });
+    expect(live.costs.writes).toBe(writes);
+    expect(live.chunks.has(`${retiredId}-0`)).toBe(true);
+    // Something to write: the retired upload leaves the meta in that commit, its pieces after.
+    let atCommit: boolean | undefined;
+    live.beforeCommit(() => {
+      atCommit = live.chunks.has(`${retiredId}-0`);
+    });
+    const result = await publish(live, [view("board:k", "C")], 3, { now: due, collectDue: true });
+    expect(result).toMatchObject({ ok: true, wrote: true, deleted: 1 });
+    expect(atCommit).toBe(true);
+    expect(live.chunks.has(`${retiredId}-0`)).toBe(false);
+    expect(live.meta()?.retired.map((upload) => upload.id)).not.toContain(retiredId);
+    // B's upload, retired just now, waits out its own grace.
+    expect(live.meta()?.retired).toHaveLength(1);
+  });
+
+  it("counts a due piece that will not delete after the commit, rather than failing the publish", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:k", "A")], 1);
+    await publish(live, [view("board:k", "B")], 2);
+    const stubborn = {
+      ...live.store,
+      deleteChunk: async () => {
+        throw new Error("Firestore answered HTTP 503");
+      },
+    };
+    const result = await publishViews({
+      store: stubborn,
+      views: [view("board:k", "C")],
+      owns: ["board:"],
+      copy: { id: COPY, version: 3 },
+      today: "2027-04-15",
+      now: later(RETIRE_GRACE_MS),
+      collectDue: true,
+    });
+    expect(result).toMatchObject({ ok: true, wrote: true, deleted: 0, undeleted: 1 });
+    expect(await decode(live, "board:k")).toBe("C");
+  });
+
+  it("collects nothing still in its grace, and nothing unless asked", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:k", "A")], 1);
+    await publish(live, [view("board:k", "B")], 2);
+    expect(
+      await publish(live, [view("board:k", "C")], 3, {
+        now: later(RETIRE_GRACE_MS - 1_000),
+        collectDue: true,
+      })
+    ).toMatchObject({ ok: true, wrote: true, deleted: 0 });
+    expect(
+      await publish(live, [view("board:k", "D")], 4, { now: later(RETIRE_GRACE_MS * 2) })
+    ).toMatchObject({ ok: true, wrote: true, deleted: 0 });
+    expect(live.meta()?.retired).toHaveLength(3);
+  });
+});
+
 describe("sweeping what no reader can still be fetching", () => {
   it("deletes a retired upload only once it has been retired for the grace period", async () => {
     const live = memoryLive();
@@ -623,6 +797,7 @@ describe("the meta as a reader takes it", () => {
       "board:a": { h: "b".repeat(64), id: "fedcba9876543210", c: 2, b: 20, k: COPY, v: 1 },
     },
     retired: [{ id: "00112233445566778899", c: 1, at: T }],
+    built: {},
   };
 
   it("is this build's layout, with its views and marks in key order", () => {

@@ -52,6 +52,13 @@ export const META_MAX_BYTES = 500_000;
 export type ViewEntry = { h: string; id: string; c: number; b: number; k: string; v: number };
 /** An upload the views no longer name, and when that happened. */
 export type RetiredUpload = { id: string; c: number; at: string };
+/**
+ * What a family of views was last built from, as the publish that built them vouched: the copy by
+ * id and version, a fingerprint of the stored values the family reads (`inputs`), the members'
+ * day, and the version of the rules that turn those values into views. A rebuild that finds all of
+ * them its own has nothing to do.
+ */
+export type BuiltFrom = { k: string; v: number; inputs: string; today: string; rules: number };
 export type LiveMeta = {
   format: number;
   schema: number;
@@ -71,6 +78,8 @@ export type LiveMeta = {
   inline: Record<string, unknown>;
   views: Record<string, ViewEntry>;
   retired: RetiredUpload[];
+  /** By family (a key prefix, `board:`), what its views were last built from. */
+  built: Record<string, BuiltFrom>;
 };
 
 /** Where `live/` is kept: Firestore through REST on a server, a stand-in in tests. */
@@ -111,6 +120,14 @@ const entryOf = (raw: unknown): ViewEntry | null => {
   return { h, id, c, b, k, v };
 };
 
+const builtOf = (raw: unknown): BuiltFrom | null => {
+  if (!isRecord(raw)) return null;
+  const { k, v, inputs, today, rules } = raw;
+  if (typeof k !== "string" || k === "" || !isCount(v) || !isCount(rules)) return null;
+  if (typeof inputs !== "string" || inputs === "" || typeof today !== "string") return null;
+  return { k, v, inputs, today, rules };
+};
+
 const retiredOf = (raw: unknown): RetiredUpload | null => {
   if (!isRecord(raw)) return null;
   const { id, c, at } = raw;
@@ -130,7 +147,7 @@ const inKeyOrder = <T>(record: Record<string, T>): Record<string, T> =>
  */
 export const coerceLiveMeta = (raw: unknown): LiveMeta | null => {
   if (!isRecord(raw) || raw.format !== LIVE_FORMAT || !isCount(raw.schema)) return null;
-  const { today, builtAt, copy, marks, inline, views, retired } = raw;
+  const { today, builtAt, copy, marks, inline, views, retired, built } = raw;
   if (typeof today !== "string" || typeof builtAt !== "string") return null;
   if (!isRecord(copy) || typeof copy.id !== "string" || !isCount(copy.version)) return null;
   if (!isRecord(marks) || !Object.values(marks).every(isCount)) return null;
@@ -147,6 +164,13 @@ export const coerceLiveMeta = (raw: unknown): LiveMeta | null => {
     if (!upload) return null;
     retiredUploads.push(upload);
   }
+  // What a family was built from only spares a rebuild: a missing or unreadable entry costs one,
+  // so it is dropped rather than refusing the meta, and a meta from before it was kept reads empty.
+  const builtFamilies: Record<string, BuiltFrom> = {};
+  for (const [family, value] of Object.entries(isRecord(built) ? built : {})) {
+    const from = builtOf(value);
+    if (from) builtFamilies[family] = from;
+  }
   return {
     format: LIVE_FORMAT,
     schema: raw.schema,
@@ -157,6 +181,7 @@ export const coerceLiveMeta = (raw: unknown): LiveMeta | null => {
     inline,
     views: inKeyOrder(entries),
     retired: retiredUploads,
+    built: inKeyOrder(builtFamilies),
   };
 };
 
@@ -193,12 +218,23 @@ export type PublishResult =
       removed: number;
       /** Uploads newly retired. */
       retired: number;
+      /** Pieces of retired uploads past their grace this publish took out (`collectDue`). */
+      deleted: number;
+      /** Those it took out of the meta and could not delete: strays for a full sweep. */
+      undeleted: number;
       metaBytes: number;
       tries: number;
     }
   | {
       ok: false;
-      reason: "unreadable" | "newer-schema" | "kept-changing" | "too-large" | "not-current";
+      reason:
+        | "unreadable"
+        | "newer-schema"
+        | "kept-changing"
+        | "too-large"
+        | "not-current"
+        | "older-day"
+        | "older-rules";
     };
 
 type Upload = { id: string; c: number; bytes: number };
@@ -229,6 +265,17 @@ type Upload = { id: string; c: number; bytes: number };
  * Over a meta a newer build wrote it writes nothing, and over one an older build wrote it keeps
  * nothing it did not build, inline values included (`LIVE_SCHEMA`).
  *
+ * A publish for an earlier members' day than the meta's writes nothing, `older-day`, whatever its
+ * version: its views were built for a day that has passed, and a later day's are there. One that
+ * says what it `built` from, under older rules than the meta has that family's from, writes
+ * nothing either, `older-rules`: code left behind by a failed deploy must not undo newer views.
+ * A publish that is not late records what it `built` from for its family; one that covers the
+ * family and passes nothing takes the record out, since it cannot vouch for views it did not build.
+ *
+ * With `collectDue`, a publish that writes the meta anyway also takes out retired uploads past
+ * their grace, and deletes their pieces after its commit, as a sweep would: one commit for both.
+ * It is never a reason to write.
+ *
  * `stillCurrent`, when given, is asked just before each commit, or before finding there is nothing
  * to write, whether what was built is still worth publishing (the copy it came from has not been
  * replaced, say); a no stops the publish, `not-current`, with its uploads taken back and nothing
@@ -244,6 +291,8 @@ export const publishViews = async ({
   copy,
   today,
   now,
+  built,
+  collectDue = false,
   stillCurrent,
   maxTries = 3,
 }: {
@@ -254,13 +303,16 @@ export const publishViews = async ({
   today: string;
   /** The time, as an ISO string: when uploads are retired and the meta was built. */
   now: string;
+  /** The family these views are, and what they were built from. */
+  built?: { family: string; from: BuiltFrom };
+  collectDue?: boolean;
   stillCurrent?: () => Promise<boolean>;
   maxTries?: number;
 }): Promise<PublishResult> => {
-  const built = new Set<string>();
+  const builtKeys = new Set<string>();
   for (const { key } of views) {
-    if (built.has(key)) throw new Error(`Two views were built under the key ${key}.`);
-    built.add(key);
+    if (builtKeys.has(key)) throw new Error(`Two views were built under the key ${key}.`);
+    builtKeys.add(key);
   }
   const hashed = await Promise.all(
     views.map(async ({ key, value }) => ({ key, value: await hashJson(value) }))
@@ -303,6 +355,16 @@ export const publishViews = async ({
       await dropUploads(new Set());
       return { ok: false, reason: "newer-schema" };
     }
+    // ISO days, so their order is their text's.
+    if (stored && today < stored.today) {
+      await dropUploads(new Set());
+      return { ok: false, reason: "older-day" };
+    }
+    const storedFrom = built ? stored?.built[built.family] : undefined;
+    if (built && storedFrom && built.from.rules < storedFrom.rules) {
+      await dropUploads(new Set());
+      return { ok: false, reason: "older-rules" };
+    }
     // Over an older build's meta, nothing this publish did not build is kept: its views and inline
     // values have the older shape, and the meta about to be written says they have this one.
     const upgrading = stored !== null && stored.schema < LIVE_SCHEMA;
@@ -320,7 +382,7 @@ export const publishViews = async ({
     let removed = 0;
     for (const [key, entry] of Object.entries(storedViews)) {
       if (!covers(key) && !upgrading) next[key] = entry;
-      else if (!built.has(key)) {
+      else if (!builtKeys.has(key)) {
         // Taken out, unless this publish is late: a newer one decided what is there.
         if (late) next[key] = entry;
         else removed += 1;
@@ -392,6 +454,21 @@ export const publishViews = async ({
         ([id]) => copies.has(id)
       )
     );
+    // What each family was built from: a late publish leaves the record as it is, one that is not
+    // records its own, and one that covers a family without vouching for it takes the record out.
+    const families = upgrading ? {} : { ...stored?.built };
+    if (!late) {
+      for (const family of Object.keys(families)) {
+        if (covers(family) && family !== built?.family) delete families[family];
+      }
+      if (built) families[built.family] = built.from;
+    } else {
+      // A late publish leaves the record of a newer build, unless it wrote over views of that
+      // family: then the record no longer describes them, and none is safer than a wrong one.
+      for (const family of Object.keys(families)) {
+        if (placed.some(({ key }) => key.startsWith(family))) delete families[family];
+      }
+    }
     const meta: LiveMeta = {
       format: LIVE_FORMAT,
       schema: LIVE_SCHEMA,
@@ -402,6 +479,7 @@ export const publishViews = async ({
       inline: upgrading ? {} : (stored?.inline ?? {}),
       views: inKeyOrder(next),
       retired,
+      built: inKeyOrder(families),
     };
     const ours = [...uploads.values()].filter((made) => named.has(made.id));
     const counts = {
@@ -412,9 +490,10 @@ export const publishViews = async ({
       refused,
       removed,
       retired: newlyRetired,
+      deleted: 0,
+      undeleted: 0,
       tries,
     };
-    const metaBytes = new TextEncoder().encode(JSON.stringify(meta)).length;
     // Asked before the meta is found to say it all as well: a publish that writes nothing still
     // reports what it built as published.
     if (stillCurrent && !(await stillCurrent())) {
@@ -423,15 +502,40 @@ export const publishViews = async ({
     }
     if (stored && sameMeta(meta, stored)) {
       await dropUploads(new Set());
+      const metaBytes = new TextEncoder().encode(JSON.stringify(meta)).length;
       return { ok: true, wrote: false, ...counts, metaBytes };
     }
+    // Written anyway, so it may as well carry a sweep's commit: the retired uploads past their
+    // grace that no view names leave the meta here, and their pieces go once it is committed.
+    const due = collectDue
+      ? meta.retired.filter(
+          (upload) =>
+            !named.has(upload.id) && Date.parse(upload.at) + RETIRE_GRACE_MS <= Date.parse(now)
+        )
+      : [];
+    if (due.length > 0) meta.retired = meta.retired.filter((upload) => !due.includes(upload));
+    const metaBytes = new TextEncoder().encode(JSON.stringify(meta)).length;
     if (metaBytes > META_MAX_BYTES) {
       await dropUploads(new Set());
       return { ok: false, reason: "too-large" };
     }
     if (await store.commitMeta(read?.token ?? null, meta)) {
       await dropUploads(named);
-      return { ok: true, wrote: true, ...counts, metaBytes };
+      // The views are out: a piece that will not go now is a stray for a full sweep to find, not a
+      // reason to say the publish failed.
+      let deleted = 0;
+      let undeleted = 0;
+      await inBatches([...pieceIdsOf(due)], (id) =>
+        store.deleteChunk(id).then(
+          () => {
+            deleted += 1;
+          },
+          () => {
+            undeleted += 1;
+          }
+        )
+      );
+      return { ok: true, wrote: true, ...counts, deleted, undeleted, metaBytes };
     }
   }
   await dropUploads(new Set());

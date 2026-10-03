@@ -98,6 +98,8 @@ const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
   "newer-schema": "the published views were made by a newer build",
   "kept-changing": "the published meta kept changing under it",
   "too-large": "the meta would be too large for every member to download",
+  "older-day": "the published views are already a later day's",
+  "older-rules": "the published boards were built by newer rules than this build's",
 };
 
 /** What the views' publish did, or would have done, in counts and sizes. */
