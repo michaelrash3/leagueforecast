@@ -16,7 +16,7 @@ import { build } from "esbuild";
 const pulls = process.env.CLOUD_PULLS === "on";
 const rebuilds = process.env.LIVE_REBUILD === "on";
 await build({
-  entryPoints: ["src/index.ts", "src/pullLeg.ts", "src/rebuildWorker.ts"],
+  entryPoints: ["src/index.ts", "src/pullLeg.ts", ...(rebuilds ? ["src/rebuildWorker.ts"] : [])],
   bundle: true,
   platform: "node",
   format: "esm",

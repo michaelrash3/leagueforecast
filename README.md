@@ -3590,7 +3590,10 @@ meta commit, taking out the retired pieces that are due in the same commit and
 listing none. A dry run builds everything and writes nothing. A run turned away
 by boards for a later day goes once more only if the New York day turned while
 it ran. Then the main thread settles what the run cost: the time since it began,
-and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
+and the first time the instance's start-up, at 8 GiB and two vCPUs. The start-up
+is how long the function's code took to load, at most the 20 s a run's span allows
+it, and never the time the instance then sat idle: one a deploy starts may wait
+many minutes for its first task, which is not billed. It counts as
 a failure a run that threw, and one that ended on anything but its job done or a
 newer one's (a copy or a meta it cannot read, a store that refused, something
 that kept moving under it). Boards or a copy a newer build or newer rules made
@@ -3620,8 +3623,10 @@ or the night, publishes that one, and a write that failed every time would
 otherwise be retried for days. `rebuild` takes each task on one instance of 8 GiB
 and two vCPUs, one at a time, with a 300 s timeout. The queue tries a task again
 two minutes on and then four, past the 320 s that another try's run may still hold
-the ledger for, and waits ten minutes on a dispatch before taking it for failed, so
-a run still going is never tried a second time beside it. A task of any shape but
+the ledger for. The function's timeout answers the queue first, and a run still
+going then is never tried a second time beside it: the worker ends a run at 270 s,
+inside the timeout, and the ledger holds its reservation busy for 320 s. The
+queue's ten minutes on a dispatch matter only for an answer lost on its way. A task of any shape but
 the trigger's is logged and done with before anything is read. The run itself is
 made in a worker (`functions/src/rebuildWorker.ts`, on `rebuildWorkerProtocol.ts`)
 kept from task to task while the switch says warm, so a rebuild after a small save
@@ -3629,7 +3634,10 @@ fetches only the pieces that moved. It is started afresh for each run while warm
 is off, and ended when its run threw or it died, when it ran past 270 s (so the
 settle is still written inside the timeout), and once its heap passes 3,072 MB,
 the process 6,144 MB, or it has run 200 times; its heap is capped at 5,120 MB,
-above that line. The worker holds its pool for its whole life and never empties
+above that line, unless the runtime starts Node with a heap limit of its own, which
+stands over a worker's cap. Each run's line gives the limit its worker ran under
+(`heapLimitMb`), with its heap and the process's size as it ended, so the first
+runs show which holds. The worker holds its pool for its whole life and never empties
 the pool's store any other way: emptied under it, the pool would still name the
 copy it loaded, and the next run of an unchanged copy would publish boards of no
 one. The day is New York's, as the nightly's: the function sets the zone before it
@@ -3642,7 +3650,9 @@ limits against the ledger's prices; `rebuildTrigger.test.ts` holds the trigger's
 plans and lines, the manifest Firestore's REST API reads back planning as the plain
 one does; and the functions' smoke test (`functions/smoke.mjs`) sends the built
 trigger Firestore's own events, which it skips as it should with nothing read, and
-pings the built worker.
+pings the built worker. It also queues a save's rebuild through firebase-admin to
+a stand-in for Cloud Tasks, which shows the task's name and deadline, and a second
+save in the window finding it queued.
 
 ### Rebuilds after saves: the one-time setup
 

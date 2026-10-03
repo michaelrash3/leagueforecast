@@ -8,9 +8,11 @@ import {
   REBUILD_LIMIT_S,
   REBUILD_PASS_S,
   REBUILD_SIZE,
+  REBUILD_STARTUP_S,
   REBUILD_TIMEOUT_S,
   REBUILD_WORKER_HEAP_MB,
   rebuildRunner,
+  startupCharge,
   type RebuildAnswer,
   type RebuildPort,
   type RebuildRequest,
@@ -23,7 +25,9 @@ import {
  */
 
 const PUBLISHED: RebuildResult = { end: "published", retryable: false, tries: 1, wrote: true };
-const SMALL: WorkerMemory = { heapUsedMb: 900, rssMb: 1_800 };
+const SMALL: WorkerMemory = { heapUsedMb: 900.4, rssMb: 1_800.6, heapLimitMb: 5_168.2 };
+/** `PUBLISHED` as the main thread hands it on: with the worker's memory, in whole MiB. */
+const RAN: RebuildResult = { ...PUBLISHED, heapUsedMb: 900, rssMb: 1_801, heapLimitMb: 5_168 };
 
 /** A worker that answers each run as `answer` says, counting the workers started and ended. */
 const fakeWorkers = (
@@ -76,13 +80,15 @@ const ran = (id: number, memory: WorkerMemory = SMALL, result = PUBLISHED): Rebu
 
 describe("the rebuild function's sizes", () => {
   it("are the ones the ledger prices a run at, with time inside the timeout to settle", () => {
-    expect(RUN_SPAN_S).toBe(REBUILD_TIMEOUT_S + 20);
+    expect(RUN_SPAN_S).toBe(REBUILD_TIMEOUT_S + REBUILD_STARTUP_S);
+    expect(REBUILD_STARTUP_S).toBe(20);
     expect(RUN_CEILING).toEqual({
       gibs: RUN_SPAN_S * REBUILD_SIZE.gib,
       vcpuS: RUN_SPAN_S * REBUILD_SIZE.cpu,
     });
     expect(REBUILD_PASS_S).toBeLessThan(REBUILD_LIMIT_S);
-    // The queue never takes a run still going for a failed one, and the queue allows the wait.
+    // The function's timeout answers the queue first, and the queue allows the wait; what keeps a
+    // second try off a run still going is the worker's limit, inside the timeout, and the ledger.
     expect(REBUILD_DISPATCH_S).toBeGreaterThan(REBUILD_TIMEOUT_S);
     expect(REBUILD_DISPATCH_S).toBeLessThanOrEqual(1_800);
     expect(REBUILD_LIMIT_S).toBeLessThan(REBUILD_TIMEOUT_S);
@@ -95,11 +101,17 @@ describe("the rebuild function's sizes", () => {
 
 describe("the worker's answer", () => {
   it("is the run's result with the worker's memory, a run that threw, or a ping's pong", async () => {
-    const memory = () => memoryOf({ heapUsed: 3 * 2 ** 20, rss: 5 * 2 ** 20 });
+    const memory = () =>
+      memoryOf({ heapUsed: 3 * 2 ** 20, rss: 5 * 2 ** 20, heapLimit: 7 * 2 ** 20 });
     const run = vi.fn(async () => PUBLISHED);
     expect(
       await answerRebuild({ kind: "run", id: 7, dry: true, deadline: 99 }, { run, memory })
-    ).toEqual({ kind: "ran", id: 7, result: PUBLISHED, memory: { heapUsedMb: 3, rssMb: 5 } });
+    ).toEqual({
+      kind: "ran",
+      id: 7,
+      result: PUBLISHED,
+      memory: { heapUsedMb: 3, rssMb: 5, heapLimitMb: 7 },
+    });
     expect(run).toHaveBeenCalledWith({ dry: true, deadline: 99 });
     const threw = async (): Promise<RebuildResult> => {
       throw new Error("Firestore answered HTTP 503 reading copies/main.");
@@ -110,7 +122,7 @@ describe("the worker's answer", () => {
       kind: "failed",
       id: 8,
       error: "Firestore answered HTTP 503 reading copies/main.",
-      memory: { heapUsedMb: 3, rssMb: 5 },
+      memory: { heapUsedMb: 3, rssMb: 5, heapLimitMb: 7 },
     });
     // A ping reads nothing, so the smoke test can ask one of a built worker with no network.
     const untouched = vi.fn(async () => PUBLISHED);
@@ -127,9 +139,9 @@ describe("the main thread's worker", () => {
     const workers = fakeWorkers((request) => ran(request.id));
     let now = 1_000;
     const runner = rebuildRunner({ spawn: workers.spawn, clock: () => now });
-    expect(await runner.run({ dry: false, warm: true })).toEqual(PUBLISHED);
+    expect(await runner.run({ dry: false, warm: true })).toEqual(RAN);
     now = 5_000;
-    expect(await runner.run({ dry: true, warm: true })).toEqual(PUBLISHED);
+    expect(await runner.run({ dry: true, warm: true })).toEqual(RAN);
     expect(workers.started).toEqual([1]);
     expect(workers.ended).toEqual([]);
     expect(workers.posted).toEqual([
@@ -156,8 +168,8 @@ describe("the main thread's worker", () => {
 
   it("is recycled once its heap, the process or its runs pass what a warm worker should reach", async () => {
     for (const memory of [
-      { heapUsedMb: RECYCLE_AT.heapUsedMb + 1, rssMb: 1_800 },
-      { heapUsedMb: 900, rssMb: RECYCLE_AT.rssMb + 1 },
+      { ...SMALL, heapUsedMb: RECYCLE_AT.heapUsedMb + 1 },
+      { ...SMALL, rssMb: RECYCLE_AT.rssMb + 1 },
     ]) {
       const workers = fakeWorkers((request) => ran(request.id, memory));
       const runner = rebuildRunner({ spawn: workers.spawn });
@@ -185,7 +197,7 @@ describe("the main thread's worker", () => {
     const runner = rebuildRunner({ spawn: workers.spawn });
     await expect(runner.run({ dry: false, warm: true })).rejects.toThrow("copy unreachable");
     expect(workers.ended).toEqual([1]);
-    expect(await runner.run({ dry: false, warm: true })).toEqual(PUBLISHED);
+    expect(await runner.run({ dry: false, warm: true })).toEqual(RAN);
     expect(workers.started).toEqual([1, 2]);
   });
 
@@ -206,11 +218,13 @@ describe("the main thread's worker", () => {
 
   it("is ended when a run goes past its limit, and takes no answer meant for another run", async () => {
     let fire: (() => void) | null = null;
+    const delays: number[] = [];
     const workers = fakeWorkers(() => null);
     const runner = rebuildRunner({
       spawn: workers.spawn,
-      setTimer: (done) => {
+      setTimer: (done, ms) => {
         fire = done;
+        delays.push(ms);
         return () => {
           fire = null;
         };
@@ -227,8 +241,38 @@ describe("the main thread's worker", () => {
     const answered = runner.run({ dry: false, warm: true });
     await Promise.resolve();
     workers.ports[1]!.reply(ran(2));
-    expect(await answered).toEqual(PUBLISHED);
+    expect(await answered).toEqual(RAN);
     expect(fire).toBeNull();
+    // Each run's limit is the worker's, in milliseconds.
+    expect(delays).toEqual([REBUILD_LIMIT_S * 1000, REBUILD_LIMIT_S * 1000]);
+  });
+
+  it("is started afresh for the next run when a warm worker died or exited between runs", async () => {
+    for (const [how, kill] of [
+      ["died", (port: { die: (error: Error) => void }) => port.die(new Error("stray throw"))],
+      ["exited", (port: { exit: (code: number) => void }) => port.exit(1)],
+    ] as const) {
+      let fire: (() => void) | null = null;
+      const workers = fakeWorkers((request, worker) =>
+        worker === 1 && request.id > 1 ? null : ran(request.id)
+      );
+      const runner = rebuildRunner({
+        spawn: workers.spawn,
+        setTimer: (done) => {
+          fire = done;
+          return () => {
+            fire = null;
+          };
+        },
+      });
+      expect(await runner.run({ dry: false, warm: true }), how).toEqual(RAN);
+      // Idle and still held, it dies: the next run is not posted to it, which would never answer.
+      kill(workers.ports[0]!);
+      expect(await runner.run({ dry: false, warm: true }), how).toEqual(RAN);
+      expect(workers.started, how).toEqual([1, 2]);
+      expect(workers.ended, how).toEqual([1]);
+      expect(fire, how).toBeNull();
+    }
   });
 
   it("runs one at a time, a second waiting on the first", async () => {
@@ -256,5 +300,18 @@ describe("the main thread's worker", () => {
     await runner.run({ dry: false, warm: true });
     await runner.stop();
     expect(workers.ended).toEqual([1]);
+  });
+});
+
+describe("an instance's start-up", () => {
+  it("is charged once, to the first run, as long as its code took to load and no longer than a span allows", () => {
+    const loaded = startupCharge(4.5);
+    expect(loaded()).toBe(4.5);
+    expect(loaded()).toBe(0);
+    // An instance a deploy started long ago is charged the start-up a run's span allows, not its idling.
+    const idle = startupCharge(600);
+    expect(idle()).toBe(REBUILD_STARTUP_S);
+    expect(idle()).toBe(0);
+    expect(startupCharge(-1)()).toBe(0);
   });
 });

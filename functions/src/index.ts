@@ -30,6 +30,7 @@ import {
   REBUILD_TIMEOUT_S,
   REBUILD_WORKER_HEAP_MB,
   rebuildRunner,
+  startupCharge,
   type RebuildPort,
 } from "../../src/lib/live/rebuildWorkerProtocol";
 import { createMemberCheck, MEMBERS_ONLY_MESSAGES } from "../../src/lib/memberCheck";
@@ -311,12 +312,18 @@ export const onCopyWrite = !LIVE_REBUILD
       }
     );
 
-/** How long this instance took to start, charged once: to the first run that settles on it. */
-let startup: number | null = null;
+/**
+ * This instance's start-up, charged once, to the first run that settles on it: how long its code
+ * took to load, read as the module loads, not the idle time before its first task (`startupCharge`).
+ */
+const startupS = startupCharge(process.uptime());
 /** The worker the rebuilds run in, kept from task to task (`rebuildRunner`). */
 let runner: ReturnType<typeof rebuildRunner> | null = null;
 
-/** A worker for the rebuild's runs, with a heap capped above where it is recycled. */
+/**
+ * A worker for the rebuild's runs, with a heap capped above where it is recycled, unless the process
+ * was started with a limit of its own, which stands over the cap (`REBUILD_WORKER_HEAP_MB`).
+ */
 const startRebuildWorker = (): RebuildPort => {
   const worker = new Worker(new URL("./rebuildWorker.js", import.meta.url), {
     resourceLimits: { maxOldGenerationSizeMb: REBUILD_WORKER_HEAP_MB },
@@ -357,7 +364,6 @@ export const rebuild = !LIVE_REBUILD
         rateLimits: { maxConcurrentDispatches: 1 },
       },
       async (request) => {
-        startup ??= process.uptime();
         const task = coerceRebuildTask(request.data);
         if (!task) {
           logger.warn("rebuild", { end: "not-a-task" });
@@ -379,11 +385,7 @@ export const rebuild = !LIVE_REBUILD
             now: () => new Date().toISOString(),
             clock: Date.now,
             size: REBUILD_SIZE,
-            startupS: () => {
-              const seconds = startup ?? 0;
-              startup = 0;
-              return seconds;
-            },
+            startupS,
             task,
             taskId: typeof request.id === "string" ? request.id : "",
           });

@@ -72,6 +72,13 @@ export type RebuildResult = {
   uploaded?: number;
   wrote?: boolean;
   deleted?: number;
+  /**
+   * The worker's heap and the process as the run ended, and the most the worker's heap could have
+   * grown to, in whole MiB (`rebuildRunner`).
+   */
+  heapUsedMb?: number;
+  rssMb?: number;
+  heapLimitMb?: number;
 };
 
 /** The ends that are some save or publish moving under the run, which a retry may get past. */

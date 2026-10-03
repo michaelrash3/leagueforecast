@@ -8,6 +8,7 @@
  * naming a copy its store no longer holds. A pool that is to go goes with the worker, which the
  * function ends.
  */
+import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
 import { firestoreRestLive, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
 import { todayIsoDay } from "../../src/lib/date";
@@ -38,6 +39,8 @@ parentPort?.on("message", (request: RebuildRequest) => {
         deadline,
       });
     },
-    memory: () => memoryOf(process.memoryUsage()),
+    // Read here, in the worker: the main thread's heap and limit are not the worker's.
+    memory: () =>
+      memoryOf({ ...process.memoryUsage(), heapLimit: getHeapStatistics().heap_size_limit }),
   }).then((answer) => parentPort?.postMessage(answer));
 });

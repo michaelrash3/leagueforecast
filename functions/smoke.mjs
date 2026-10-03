@@ -6,6 +6,7 @@
  * the billing stop is handed only a reading under its budget, which it must leave alone; and the
  * pull functions are handed only what they turn away before asking Google anything.
  */
+import { createServer } from "node:http";
 import { Worker } from "node:worker_threads";
 import { gunzipSync } from "node:zlib";
 
@@ -397,10 +398,12 @@ if (process.env.LIVE_REBUILD !== "on") {
   // Cloud Tasks signs its requests and Cloud Run checks them; a task of any other shape than the
   // trigger's is done with at once.
   const signed = { authorization: "Bearer e30.eyJzdWIiOiJzbW9rZSJ9.c2ln" };
+  // Checked once the lines are back: a check made while they are taken would print nothing.
+  let stray = null;
   const strayLines = await logged(async () => {
-    const stray = await post(rebuild, { data: { copy: "", kind: "nightly" } }, signed);
-    check("a task of another shape is done with", stray.status === 204, `${stray.status}`);
+    stray = await post(rebuild, { data: { copy: "", kind: "nightly" } }, signed);
   });
+  check("a task of another shape is done with", stray?.status === 204, `${stray?.status}`);
   check(
     "and said",
     strayLines.some((line) => line.end === "not-a-task"),
@@ -422,5 +425,56 @@ if (process.env.LIVE_REBUILD !== "on") {
     JSON.stringify(pong)
   );
   check("and nothing asked anybody anything", fetched === 0, `${fetched} requests`);
+
+  // A save that moves a board, queued through firebase-admin to a stand-in for Cloud Tasks, which
+  // takes the task's first queueing and refuses the same name after, as Cloud Tasks does. The
+  // switch's read finds no credentials (no metadata server is asked), which counts as on. This is
+  // the first queueing the smoke test makes, so firebase-admin reads the stand-in's address here.
+  const tasks = [];
+  const names = new Set();
+  const queue = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const task = JSON.parse(body || "{}").task ?? {};
+      tasks.push({ url: req.url, ...task });
+      const again = names.has(task.name);
+      names.add(task.name);
+      res.writeHead(again ? 409 : 200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify(
+          again ? { error: { code: 409, status: "ALREADY_EXISTS", message: "exists" } } : task
+        )
+      );
+    });
+  });
+  await new Promise((resolve) => queue.listen(0, "127.0.0.1", resolve));
+  process.env.CLOUD_TASKS_EMULATOR_HOST = `127.0.0.1:${queue.address().port}`;
+  process.env.METADATA_SERVER_DETECTION = "none";
+  const saves = await logged(async () => {
+    await onCopyWrite(event(manifest(4, "a"), manifest(5, "b")));
+    await onCopyWrite(event(manifest(5, "b"), manifest(6, "c")));
+  });
+  queue.close();
+  const saved = saves.filter((line) => line.event === "save");
+  check(
+    "a save that moves a board queues its window's rebuild, waited on past the timeout",
+    tasks.length === 2 &&
+      tasks.every(
+        (task) =>
+          task.url === "/projects/smoke-project/locations/us-central1/queues/rebuild/tasks" &&
+          /\/tasks\/[0-9a-f]{40}$/.test(task.name) &&
+          task.name === tasks[0].name &&
+          task.dispatchDeadline === "600s" &&
+          typeof task.scheduleTime === "string"
+      ),
+    JSON.stringify(tasks)
+  );
+  check(
+    "and a second save in the window finds it queued, which is done",
+    saved.length === 2 &&
+      saved.every((line) => line.queued === true && line.task === tasks[0]?.name.slice(-40)),
+    JSON.stringify(saves)
+  );
   globalThis.fetch = realFetch;
 }

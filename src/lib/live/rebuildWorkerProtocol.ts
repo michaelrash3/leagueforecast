@@ -22,8 +22,18 @@ export const REBUILD_SIZE = { gib: 8, cpu: 2 } as const;
 export const REBUILD_TIMEOUT_S = 300;
 
 /**
- * How long the queue waits on a dispatched rebuild before taking it for failed and trying it again:
- * longer than the function's timeout, so a run still going is never tried a second time beside it.
+ * The start-up a run's span allows beside the timeout (`RUN_SPAN_S`), and the most of an instance's
+ * start-up charged to its first run (`startupCharge`).
+ */
+export const REBUILD_STARTUP_S = 20;
+
+/**
+ * How long the queue waits on a dispatched rebuild before taking it for failed and trying it again.
+ * The function answers first: at its timeout the request is ended and the queue counts that try
+ * failed then, while the run may still be going on the instance. What keeps a second try off a run
+ * still going is the worker's limit (`REBUILD_LIMIT_S`), which ends the run inside the timeout, and
+ * the ledger's busy window (`RUN_SPAN_S`). This deadline matters only for an answer lost on its
+ * way, and is set past the timeout so that it never cuts a run short.
  */
 export const REBUILD_DISPATCH_S = 600;
 
@@ -43,7 +53,10 @@ export const REBUILD_PASS_S = 150;
 /**
  * The most the worker's heap may hold, in MiB: above where `shouldRecycle` starts a fresh worker,
  * so a heap that grows is recycled rather than run out of memory, and below the instance's 8 GiB
- * with the rest of the process beside it. A warm pool and a build peaked at 2.4 GB.
+ * with the rest of the process beside it. A warm pool and a build peaked at 2.4 GB. A process
+ * started with its own `--max-old-space-size` has that limit stand over a worker's (measured on
+ * Node 22: a worker capped at 64 MB was given the flag's 8,192), so each run reports the limit its
+ * worker ran under (`heapLimitMb`), and the first runs show which holds.
  */
 export const REBUILD_WORKER_HEAP_MB = 5_120;
 
@@ -51,19 +64,49 @@ export const REBUILD_WORKER_HEAP_MB = 5_120;
 export type RebuildRequest =
   { kind: "run"; id: number; dry: boolean; deadline: number } | { kind: "ping"; id: number };
 
-/** The worker's own heap and the process's resident size, in MiB, as `shouldRecycle` reads them. */
-export type WorkerMemory = { heapUsedMb: number; rssMb: number };
+/**
+ * The worker's own heap and the process's resident size, in MiB, as `shouldRecycle` reads them, and
+ * the most the worker's heap may grow to.
+ */
+export type WorkerMemory = { heapUsedMb: number; rssMb: number; heapLimitMb: number };
 
 export type RebuildAnswer =
   | { kind: "ran"; id: number; result: RebuildResult; memory: WorkerMemory }
   | { kind: "failed"; id: number; error: string; memory: WorkerMemory }
   | { kind: "pong"; id: number };
 
-/** Bytes as `process.memoryUsage()` gives them, in the MiB `shouldRecycle` reads. */
-export const memoryOf = ({ heapUsed, rss }: { heapUsed: number; rss: number }): WorkerMemory => ({
+/**
+ * Bytes as `process.memoryUsage()` gives them, with the heap's limit as `v8.getHeapStatistics()`
+ * gives it, in the MiB `shouldRecycle` reads.
+ */
+export const memoryOf = ({
+  heapUsed,
+  rss,
+  heapLimit,
+}: {
+  heapUsed: number;
+  rss: number;
+  heapLimit: number;
+}): WorkerMemory => ({
   heapUsedMb: heapUsed / 2 ** 20,
   rssMb: rss / 2 ** 20,
+  heapLimitMb: heapLimit / 2 ** 20,
 });
+
+/**
+ * What an instance's start-up costs its first run: the time its code took to load (`loadedS`, the
+ * process's age once the module has loaded), at most the start-up a run's span allows, and nothing
+ * after. Not the process's age at the first task: an instance a deploy started may sit idle for
+ * many minutes first, which is not billed, and would otherwise be charged to the ledger.
+ */
+export const startupCharge = (loadedS: number): (() => number) => {
+  let left = Math.min(Math.max(0, loadedS), REBUILD_STARTUP_S);
+  return () => {
+    const charged = left;
+    left = 0;
+    return charged;
+  };
+};
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -211,7 +254,12 @@ export const rebuildRunner = ({
     }
     worker.runs += 1;
     if (!warm || shouldRecycle(answer.memory, worker.runs)) await end(worker);
-    return answer.result;
+    return {
+      ...answer.result,
+      heapUsedMb: Math.round(answer.memory.heapUsedMb),
+      rssMb: Math.round(answer.memory.rssMb),
+      heapLimitMb: Math.round(answer.memory.heapLimitMb),
+    };
   };
 
   return {
