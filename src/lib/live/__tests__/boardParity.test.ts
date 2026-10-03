@@ -208,7 +208,7 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "f7e87e1b", "13.6": "7c1c3cde" };
+const DIGIT_PINS: Record<string, string> = { "12.4": "540d5e53", "13.6": "dc60cab0" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -325,7 +325,7 @@ describe("the boards a server builds", () => {
      * newer rules from being written over by a server left on the older ones. Changing the entry
      * already here instead gets past this test; review is what catches that.
      */
-    const RULES_PINS: Record<number, string> = { 1: "a2c59173" };
+    const RULES_PINS: Record<number, string> = { 1: "a2c59173", 2: "f9baf500" };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
   });
 

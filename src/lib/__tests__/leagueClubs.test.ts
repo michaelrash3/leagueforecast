@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { importGcSchedule } from "../gameChangerImport";
 import {
   countsTowardRating,
   dedupeLeagueFixtures,
   deriveLeagueScoutGames,
+  isOffClubId,
   leagueScoutBridge,
+  leagueStandIns,
+  NO_SCOUT_TEAM,
+  offClubIdFor,
   type AgeGroup,
   type LeagueSeasonSnapshot,
   type ScoutGame,
@@ -188,5 +193,619 @@ describe("the league's own game, pulled under another name", () => {
     ]);
     // The year that places the league's "9/18" beside the tournament's ISO day in the forecast.
     expect(squadYear).toBe(2027);
+  });
+});
+
+describe("a league team said not to be in Team Rankings", () => {
+  const ANGELS = "Cincinnati Angels- Red";
+  const own = offClubIdFor(ANGELS);
+  const offLeague = (seasonId = "fall", name = ANGELS): LeagueSeasonSnapshot => ({
+    ...league([
+      { id: "L-TP", name: "Trash Pandas Baseball Club" },
+      { id: "L-ANG", name, scoutTeamId: NO_SCOUT_TEAM },
+    ]),
+    seasonId,
+  });
+
+  it("has its games carried onto a club of its own, not onto a club of its name", () => {
+    // By name, the game went to the 11U "Cincinnati Angels Red", first in the roster, which the
+    // person had just said this team is not.
+    const { derived } = onThePage(offLeague());
+
+    expect(own).toBe("S-off-cincinnati-angels-red");
+    expect(derived.games[0]).toMatchObject({ teamAId: "S-TP", teamBId: own });
+    expect(derived.teams.filter((team) => team.id === own)).toEqual([{ id: own, name: ANGELS }]);
+    expect(derived.teams).toHaveLength(roster.length + 1);
+    expect(derived.clubByLeagueTeam.get("fall")?.get("L-ANG")).toBe(own);
+    // Carried by neither a pick nor a name: nothing done to a pool club moves it.
+    expect([...derived.pickedClubIds, ...derived.namedClubIds]).not.toContain(own);
+    expect(derived.namedClubIds).toContain("S-TP");
+  });
+
+  it("is one game for its opponent when the opponent's pull filed its copy against the name alone", () => {
+    // The Trash Pandas' schedule has the game against "Cincinnati Angels- Red", which the pull
+    // filed against a club known only by that name, as it does where no pulled club played that
+    // day. The league's copy names the club of the team's own; the two are still one game.
+    const pulled: ScoutTeam = {
+      id: "S-TP",
+      name: "Trash Pandas Baseball Club",
+      gcTeams: [
+        { teamId: "gcTP", name: "Trash Pandas Baseball Club", ageGroupId: "ag_9", ageLevel: 9 },
+      ],
+    };
+    const byName: ScoutTeam = { id: "S-ANGN", name: ANGELS, nameOnly: true };
+    const teams = [club("S-ANG11", "Cincinnati Angels Red"), pulled, byName];
+    const row: ScoutGame = {
+      ...played("gc_tp_9", "ag_9", "S-TP", "S-ANGN", 13, 21, "2026-09-18"),
+      source: { kind: "gamechanger", teamId: "gcTP", gameId: "g1" },
+    };
+    const derived = deriveLeagueScoutGames("ag_9", [offLeague()], teams, 2027, {
+      games: [row],
+      ageGroups,
+    });
+    const games = dedupeLeagueFixtures(
+      [...derived.games, row],
+      leagueStandIns(derived.teams, ageGroups)
+    );
+
+    expect(countedFor("S-TP", games).map((game) => game.id)).toEqual(["league_fall_m1"]);
+    expect(countedFor(own, games).map((game) => game.id)).toEqual(["league_fall_m1"]);
+  });
+
+  it("is one club across the seasons and pages of a year, and on every pass", () => {
+    const nine = deriveLeagueScoutGames(
+      "ag_9",
+      [offLeague("fall"), offLeague("spring", "Cincinnati Angels Red 9U")],
+      roster,
+      2027,
+      { games: stored, ageGroups }
+    );
+    expect(nine.games.map((game) => game.teamBId)).toEqual([own, own]);
+    // Another page of the year, with the same team said not to be in Team Rankings there too.
+    const eleven = deriveLeagueScoutGames("ag_11", [offLeague("fall11")], nine.teams, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(eleven.games[0]?.teamBId).toBe(own);
+    expect(eleven.teams.filter((team) => team.id === own)).toHaveLength(1);
+    // And a roster that already holds it, saved there by an edit, has it carried onto it again.
+    const saved = [...roster, { id: own, name: ANGELS }];
+    const again = deriveLeagueScoutGames("ag_9", [offLeague()], saved, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(again.games[0]?.teamBId).toBe(own);
+    expect(again.teams).toBe(saved);
+  });
+
+  it("has the league's name again where it was saved and renamed while it played nothing", () => {
+    // Nothing locks the name of a club with no league game on the page in view.
+    const renamed = [...roster, { id: own, name: "Queen City Owls", state: "OH" }];
+    // Named as a club made for it is named, the age label left off.
+    const labelled = offLeague("fall", `${ANGELS} 9U`);
+    const derived = deriveLeagueScoutGames("ag_9", [labelled], renamed, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(derived.games[0]?.teamBId).toBe(own);
+    expect(derived.teams.filter((team) => team.id === own)).toEqual([
+      { id: own, name: ANGELS, state: "OH" },
+    ]);
+    expect(derived.teams).toHaveLength(renamed.length);
+    // A new roster, the one it was handed left as it was.
+    expect(renamed.find((team) => team.id === own)?.name).toBe("Queen City Owls");
+    // The same name written another way is the name it was saved under, and stands.
+    const cased = [...roster, { id: own, name: "CINCINNATI ANGELS RED" }];
+    const again = deriveLeagueScoutGames("ag_9", [offLeague()], cased, 2027, {
+      games: stored,
+      ageGroups,
+    });
+    expect(again.teams).toBe(cased);
+  });
+
+  it("is never found by its name, by a league team nobody has answered for", () => {
+    // Only the club made for the answered team carries the name; a team of that name nobody has
+    // answered for is given a club of its own by the name, as before, not that one.
+    const saved = [club("S-TP", "Trash Pandas Baseball Club"), { id: own, name: ANGELS }];
+    const derived = deriveLeagueScoutGames("ag_9", [league()], saved, 2027, {
+      games: [],
+      ageGroups,
+    });
+    const angels = derived.games[0]?.teamBId;
+    expect(angels).not.toBe(own);
+    expect(derived.teams.find((team) => team.id === angels)?.name).toBe(ANGELS);
+  });
+
+  it("is never guessed for anyone, nor filed onto by a pull, once a game is filed against it", () => {
+    // A game typed in against it, or a club of the name merged into it, files a game against it on
+    // the season's page; it is the answered team's all the same, and no name reaches it.
+    const saved = [club("S-TP", "Trash Pandas Baseball Club"), { id: own, name: ANGELS }];
+    const filed = played("scout_off", "ag_9", "S-TP", own, 3, 2, "2026-09-05");
+    const derived = deriveLeagueScoutGames("ag_9", [league()], saved, 2027, {
+      games: [filed],
+      ageGroups,
+    });
+    expect(derived.games[0]?.teamBId).not.toBe(own);
+    const fixtures = [{ away: "Trash Pandas Baseball Club", home: ANGELS, date: "9/18" }];
+    const bridge = leagueScoutBridge("fall", ageGroups, saved, [filed], league().teams, fixtures);
+    expect(bridge.rows.find((row) => row.leagueTeamId === "L-ANG")?.how).toBe("none");
+
+    // A pull of a schedule that names it makes a club of the name, as where no club had it.
+    const nine: AgeGroup = { id: "ag_9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] };
+    const pulled = importGcSchedule(
+      {
+        profile: {
+          id: "gcTP",
+          name: "Trash Pandas Baseball Club",
+          ageLevel: 9,
+          season: { season: "fall", year: 2026 },
+          state: "OH",
+          city: "Cincinnati",
+        },
+        games: [
+          {
+            id: "g1",
+            date: "2026-09-18",
+            opponentName: ANGELS,
+            status: "completed",
+            teamScore: 13,
+            opponentScore: 21,
+          },
+        ],
+        fetchedAt: "2026-09-20T03:35:17.077Z",
+      },
+      { ageGroups: [nine], teams: saved, games: [filed] }
+    );
+    const row = pulled.state.games.find((game) => game.id !== filed.id);
+    expect(row?.ageGroupId).toBe("ag_9");
+    expect([row?.teamAId, row?.teamBId]).not.toContain(own);
+    expect(pulled.outcome.opponentsCreated).toBe(1);
+  });
+
+  it("has an id read off its name, the same however the name is written", () => {
+    expect(offClubIdFor("cincinnati angels red")).toBe(own);
+    expect(offClubIdFor("Cincinnati Angels/Red 9U")).toBe(own);
+    expect(offClubIdFor("Cincinnati Angels Blue")).not.toBe(own);
+    expect(offClubIdFor("9U")).toBe("S-off-9u");
+  });
+
+  it("has an id no other name has, however near its letters", () => {
+    const names = [
+      "A.B",
+      "A B",
+      "A - B",
+      "St. Louis Stars",
+      "St Louis Stars",
+      "Águilas",
+      "Üguilas",
+      "Aguilas",
+      // One spelling, and names apart only at their end: the whole name is kept, not its start.
+      "Águilas.A",
+      "Águilas A",
+      "東京",
+      "大阪",
+      // Two names a 32-bit hash of the whole name gives one value.
+      "郭仂裳",
+      "匭刢卓",
+      " - / ",
+      "?!",
+      "O'Fallon Hawks",
+      "OFallon Hawks",
+    ];
+    const ids = names.map((name) => offClubIdFor(name));
+    // "A B" and "A - B" are one name; every other is its own club.
+    expect(ids[1]).toBe(ids[2]);
+    expect(new Set(ids).size).toBe(names.length - 1);
+    // Spelled as nearly as the letters allow, the same on every pass, and still its own.
+    expect(offClubIdFor("A.B")).toBe("S-off-a-b_YS5i");
+    expect(offClubIdFor("a.b")).toBe(offClubIdFor("A.B"));
+    expect(offClubIdFor(" - / ")).toBe("S-off-team_");
+    expect(offClubIdFor("Águilas")).toMatch(/^S-off-guilas_[A-Za-z0-9_-]+$/);
+    expect(ids.every(isOffClubId)).toBe(true);
+    // Nor can a name spelled out be one told apart by its hash.
+    const told = offClubIdFor("A.B").slice("S-off-".length).replace("_", " ");
+    expect(offClubIdFor(told)).not.toBe(offClubIdFor("A.B"));
+  });
+});
+
+describe("every other copy of a game against a team said not to be in Team Rankings", () => {
+  const ANGELS = "Cincinnati Angels- Red";
+  const own = offClubIdFor(ANGELS);
+  const pulled = (id: string, name: string, gc: string): ScoutTeam => ({
+    id,
+    name,
+    gcTeams: [{ teamId: gc, name, ageGroupId: "ag_9", ageLevel: 9 }],
+  });
+  const TP = pulled("S-TP", "Trash Pandas Baseball Club", "gcTP");
+  const ANG9 = pulled("S-ANG9", "Cincinnati Angels Red", "gcANG");
+  const ANGN: ScoutTeam = { id: "S-ANGN", name: "Cincinnati Angels Red", nameOnly: true };
+  const fromSchedule = (game: ScoutGame, gc: string): ScoutGame => ({
+    ...game,
+    source: { kind: "gamechanger", teamId: gc, gameId: `${game.id}-gc` },
+  });
+  /** The 9U league with the Angels answered Not here, its game final at `runs` or still to come. */
+  const answered = (runs: [number, number] | null = [13, 21]): LeagueSeasonSnapshot => ({
+    seasonId: "fall",
+    teams: [
+      { id: "L-TP", name: "Trash Pandas Baseball Club" },
+      { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+    ],
+    matchups: [{ id: "m1", date: "9/18", away: "L-TP", home: "L-ANG" }],
+    logs: runs ? { m1: finalLog(...runs) } : {},
+  });
+  /** The page's games as the view builds them: derived, stored, and their copies collapsed. */
+  const page = (
+    snapshot: LeagueSeasonSnapshot,
+    teams: ScoutTeam[],
+    rows: ScoutGame[],
+    pages: AgeGroup[] = ageGroups
+  ) => {
+    const derived = deriveLeagueScoutGames("ag_9", [snapshot], teams, 2027, {
+      games: rows,
+      ageGroups: pages,
+    });
+    return dedupeLeagueFixtures([...derived.games, ...rows], leagueStandIns(derived.teams, pages));
+  };
+  const ids = (games: ScoutGame[]) => games.map((game) => game.id);
+
+  it("is the league's game when the opponent's pull filed it against a pulled club of the name", () => {
+    // The import files a name onto a pulled club when only it could have played that day; the
+    // person said that club is not this team, and it never played the game.
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANG9", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(answered(), [TP, ANG9], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
+    expect(ids(countedFor(own, games))).toEqual(["league_fall_m1"]);
+    expect(countedFor("S-ANG9", games)).toEqual([]);
+  });
+
+  it("is the league's game when the team's own club was saved under another name", () => {
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANGN", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    const renamed: ScoutTeam = { id: own, name: "Queen City Owls" };
+    const games = page(answered(), [TP, ANGN, renamed], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
+    expect(ids(countedFor(own, games))).toEqual(["league_fall_m1"]);
+  });
+
+  it("is the league's game when the club of the name pulled its own copy of it", () => {
+    const row = fromSchedule(
+      played("gc_ang_1", "ag_9", "S-ANG9", "S-TP", 21, 13, "2026-09-18"),
+      "gcANG"
+    );
+    expect(ids(countedFor("S-TP", page(answered(), [TP, ANG9], [row])))).toEqual([
+      "league_fall_m1",
+    ]);
+  });
+
+  it("is the league's game whatever the copy says the score was, the league's book standing", () => {
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANGN", 13, 20, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(answered(), [TP, ANGN], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
+    expect(games.find((game) => game.id === "league_fall_m1")).toMatchObject({
+      teamAScore: 13,
+      teamBScore: 21,
+    });
+  });
+
+  it("is one game on the schedule before it is played", () => {
+    const row: ScoutGame = fromSchedule(
+      { id: "gc_tp_1", ageGroupId: "ag_9", teamAId: "S-TP", teamBId: "S-ANGN", date: "2026-09-18" },
+      "gcTP"
+    );
+    const games = page(answered(null), [TP, ANGN], [row]);
+    const thatDay = games.filter(
+      (game) => (game.teamAId === "S-TP" || game.teamBId === "S-TP") && game.date === "2026-09-18"
+    );
+    expect(thatDay).toHaveLength(1);
+    // Against the team's own club, whichever copy is kept.
+    expect([thatDay[0]?.teamAId, thatDay[0]?.teamBId]).toEqual(["S-TP", own]);
+  });
+
+  it("is the team's own game when the league has no score yet and a scored copy is kept", () => {
+    // The pull filed the result against a pulled club of the name the person said is not the
+    // team; the league has the game but not its score, so the copy stands in its place.
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANG9", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(answered(null), [TP, ANG9], [row]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["gc_tp_1"]);
+    expect(ids(countedFor(own, games))).toEqual(["gc_tp_1"]);
+    expect(countedFor("S-ANG9", games)).toEqual([]);
+    // The copy itself is left as stored; only the page's reading of it names the team's club.
+    expect(row.teamBId).toBe("S-ANG9");
+    expect(games.find((game) => game.id === "gc_tp_1")).toMatchObject({
+      teamAId: "S-TP",
+      teamBId: own,
+      teamAScore: 13,
+      teamBScore: 21,
+      source: row.source,
+    });
+  });
+
+  it("is the league's game when it was typed in by hand against the name", () => {
+    const typed = played("scout_1", "ag_9", "S-TP", "S-CINC", 13, 21, "2026-09-18");
+    const games = page(answered(), [TP, club("S-CINC", ANGELS)], [typed]);
+    expect(ids(countedFor("S-TP", games))).toEqual(["league_fall_m1"]);
+  });
+
+  it("is not a game with a club of the name on another day, nor one with a club of another name", () => {
+    const tournament = fromSchedule(
+      played("gc_tp_2", "ag_9", "S-TP", "S-ANG9", 4, 6, "2026-09-05"),
+      "gcTP"
+    );
+    const bears = fromSchedule(
+      played("gc_tp_3", "ag_9", "S-TP", "S-BEAR", 7, 1, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(answered(), [TP, ANG9, club("S-BEAR", "Bears")], [tournament, bears]);
+    expect(ids(countedFor("S-TP", games)).sort()).toEqual(
+      ["gc_tp_2", "gc_tp_3", "league_fall_m1"].sort()
+    );
+  });
+
+  it("is not a slot's game that day, nor a game on a page of another squad year", () => {
+    // Both at a score the league's game does not have, which the pass for rows filed against
+    // nobody would pair; neither may be filed with the league's game here.
+    const slot = fromSchedule(
+      played("gc_tp_4", "ag_9", "S-TP", "S-TBD", 13, 20, "2026-09-18"),
+      "gcTP"
+    );
+    const lastYear: AgeGroup = {
+      id: "ag_9_26",
+      name: "9U 2026",
+      ageLevel: 9,
+      year: 2026,
+      seasonIds: [],
+    };
+    const elsewhere = fromSchedule(
+      played("gc_tp_5", "ag_9_26", "S-TP", "S-ANGN", 13, 20, "2026-09-18"),
+      "gcTP"
+    );
+    const games = page(
+      answered(),
+      [TP, ANGN, { id: "S-TBD", name: ANGELS, placeholder: true }],
+      [slot, elsewhere],
+      [...ageGroups, lastYear]
+    );
+    expect(ids(games)).toEqual(expect.arrayContaining(["gc_tp_4", "gc_tp_5", "league_fall_m1"]));
+  });
+
+  it("is not taken for one of two such teams whose names it fits", () => {
+    const snapshot: LeagueSeasonSnapshot = {
+      seasonId: "fall",
+      teams: [
+        { id: "L-TP", name: "Trash Pandas Baseball Club" },
+        { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+        { id: "L-AR", name: "Angels Red", scoutTeamId: NO_SCOUT_TEAM },
+      ],
+      matchups: [
+        { id: "m1", date: "9/18", away: "L-TP", home: "L-ANG" },
+        { id: "m2", date: "9/18", away: "L-TP", home: "L-AR" },
+      ],
+      logs: { m1: finalLog(13, 21), m2: finalLog(2, 3) },
+    };
+    // A score neither league game has, so only the names could say which game it is, and they
+    // fit both.
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANGN", 13, 20, "2026-09-18"),
+      "gcTP"
+    );
+    expect(ids(page(snapshot, [TP, ANGN], [row]))).toContain("gc_tp_1");
+  });
+
+  describe("between two such teams", () => {
+    const OWLS = "Owls Select";
+    const owls = offClubIdFor(OWLS);
+    const both = (runs: [number, number] = [4, 6]): LeagueSeasonSnapshot => ({
+      seasonId: "fall",
+      teams: [
+        { id: "L-OWL", name: OWLS, scoutTeamId: NO_SCOUT_TEAM },
+        { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+        { id: "L-TP", name: "Trash Pandas Baseball Club" },
+      ],
+      matchups: [
+        { id: "m1", date: "9/18", away: "L-OWL", home: "L-ANG" },
+        { id: "m2", date: "9/18", away: "L-TP", home: "L-OWL" },
+      ],
+      logs: { m1: finalLog(...runs), m2: finalLog(1, 2) },
+    });
+    const OWLN: ScoutTeam = { id: "S-OWLN", name: "Owls Select", nameOnly: true };
+    const CINC = club("S-CINC", ANGELS);
+
+    it("is the league's game when its clubs are one of each name, either way round", () => {
+      for (const typed of [
+        played("scout_1", "ag_9", "S-OWLN", "S-CINC", 4, 6, "2026-09-18"),
+        played("scout_1", "ag_9", "S-CINC", "S-OWLN", 7, 4, "2026-09-18"),
+      ]) {
+        const games = page(both(), [TP, OWLN, CINC], [typed]);
+        expect(ids(games)).not.toContain("scout_1");
+        expect(ids(countedFor(owls, games)).sort()).toEqual(["league_fall_m1", "league_fall_m2"]);
+        expect(ids(countedFor(own, games))).toEqual(["league_fall_m1"]);
+        expect(games.find((game) => game.id === "league_fall_m1")).toMatchObject({
+          teamAScore: 4,
+          teamBScore: 6,
+        });
+      }
+      // And in a league where that is the only game against such a team.
+      const alone = {
+        ...both(),
+        matchups: both().matchups.slice(0, 1),
+        logs: { m1: finalLog(4, 6) },
+      };
+      const typed = played("scout_1", "ag_9", "S-OWLN", "S-CINC", 4, 6, "2026-09-18");
+      expect(ids(page(alone, [OWLN, CINC], [typed]))).not.toContain("scout_1");
+    });
+
+    it("is the two teams' own game when the league has no score yet, either way round", () => {
+      const unscored = { ...both(), logs: {} };
+      for (const [typed, a, b] of [
+        [played("scout_1", "ag_9", "S-OWLN", "S-CINC", 4, 6, "2026-09-18"), owls, own],
+        [played("scout_1", "ag_9", "S-CINC", "S-OWLN", 6, 4, "2026-09-18"), own, owls],
+      ] as const) {
+        const games = page(unscored, [TP, OWLN, CINC], [typed]);
+        expect(ids(games)).not.toContain("league_fall_m1");
+        expect(games.find((game) => game.id === "scout_1")).toMatchObject({
+          teamAId: a,
+          teamBId: b,
+        });
+        expect(countedFor("S-OWLN", games)).toEqual([]);
+        expect(countedFor("S-CINC", games)).toEqual([]);
+      }
+    });
+
+    it("is not one whose clubs fit only one of the names, nor one on another day or page", () => {
+      const bears = played("scout_2", "ag_9", "S-OWLN", "S-BEAR", 4, 6, "2026-09-18");
+      // Two clubs that could each be the Owls, and neither the Angels.
+      const owlsTwice = played("scout_5", "ag_9", "S-OWLN", "S-OWLB", 4, 6, "2026-09-18");
+      const later = played("scout_3", "ag_9", "S-OWLN", "S-CINC", 4, 6, "2026-09-19");
+      const lastYear: AgeGroup = {
+        id: "ag_9_26",
+        name: "9U 2026",
+        ageLevel: 9,
+        year: 2026,
+        seasonIds: [],
+      };
+      const elsewhere = played("scout_4", "ag_9_26", "S-OWLN", "S-CINC", 4, 6, "2026-09-18");
+      const games = page(
+        both(),
+        [TP, OWLN, CINC, club("S-BEAR", "Bears"), club("S-OWLB", "Owls Select Black")],
+        [bears, owlsTwice, later, elsewhere],
+        [...ageGroups, lastYear]
+      );
+      expect(ids(games)).toEqual(
+        expect.arrayContaining(["scout_2", "scout_3", "scout_4", "scout_5", "league_fall_m1"])
+      );
+    });
+  });
+
+  it("is a game between two of the league's own clubs first, where the league has that game too", () => {
+    // The Trash Pandas play the answered Angels and, the same day, the pulled Angels the league
+    // names as itself; their copy against the pulled club is that game, not the answered one.
+    const snapshot: LeagueSeasonSnapshot = {
+      seasonId: "fall",
+      teams: [
+        { id: "L-TP", name: "Trash Pandas Baseball Club" },
+        { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+        { id: "L-ANG9", name: "Cincinnati Angels Red", scoutTeamId: "S-ANG9" },
+      ],
+      matchups: [
+        { id: "m1", date: "9/18", away: "L-TP", home: "L-ANG" },
+        { id: "m2", date: "9/18", away: "L-TP", home: "L-ANG9" },
+      ],
+      logs: { m2: finalLog(13, 21) },
+    };
+    const row = fromSchedule(
+      played("gc_tp_1", "ag_9", "S-TP", "S-ANG9", 13, 21, "2026-09-18"),
+      "gcTP"
+    );
+    expect(ids(countedFor("S-TP", page(snapshot, [TP, ANG9], [row])))).toEqual(["league_fall_m2"]);
+    // With neither league game scored, the copy kept in the own game's place is left as it is.
+    const kept = page({ ...snapshot, logs: {} }, [TP, ANG9], [row]);
+    expect(kept.find((game) => game.id === "gc_tp_1")).toBe(row);
+  });
+});
+
+describe("a copy of the league's game against a team said not to be in Team Rankings", () => {
+  const ANGELS = "Cincinnati Angels Red";
+  const TP: ScoutTeam = {
+    id: "S-TP",
+    name: "Trash Pandas Baseball Club",
+    gcTeams: [
+      { teamId: "gcTP", name: "Trash Pandas Baseball Club", ageGroupId: "ag_9", ageLevel: 9 },
+    ],
+  };
+  const SHORT: ScoutTeam = { id: "S-AR", name: "Angels Red", nameOnly: true };
+  const leagueTeams = [
+    { id: "L-TP", name: "Trash Pandas Baseball Club", scoutTeamId: "S-TP" },
+    { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+  ];
+  const fixtures = [{ away: "Trash Pandas Baseball Club", home: ANGELS, date: "9/18" }];
+  const bridge = (teams: ScoutTeam[], rows: ScoutGame[], league = leagueTeams, games = fixtures) =>
+    leagueScoutBridge("fall", ageGroups, teams, rows, league, games).results;
+
+  it("is not handed back to the league's forecast, under a shorter name than the league's", () => {
+    // The pull filed its copy against a club called "Angels Red", whose name fits the team's.
+    const copy = played("gc_tp_1", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    expect(bridge([TP, SHORT], [copy])).toEqual([]);
+    // However the schedule wrote the day.
+    const written = [{ ...fixtures[0]!, date: "09/18/26" }];
+    expect(bridge([TP, SHORT], [copy], leagueTeams, written)).toEqual([]);
+  });
+
+  it("is handed back on another day, and for a club whose name does not fit", () => {
+    const tournament = played("gc_tp_2", "ag_9", "S-TP", "S-AR", 4, 6, "2026-09-06");
+    const bears = played("gc_tp_3", "ag_9", "S-TP", "S-BEAR", 7, 1, "2026-09-18");
+    // Nor is it a game the club of the name played against anybody but the league's team's club,
+    // a club of that team's name included.
+    const others = played("gc_ar_1", "ag_9", "S-AR", "S-BEAR", 7, 1, "2026-09-18");
+    const namesake = played("gc_ar_2", "ag_9", "S-TPN", "S-AR", 2, 9, "2026-09-18");
+    const teams = [TP, SHORT, club("S-BEAR", "Bears"), club("S-TPN", "Trash Pandas")];
+    const results = bridge(teams, [tournament, bears, others, namesake]);
+    expect(results.map((result) => result.date).sort()).toEqual([
+      "2026-09-06",
+      "2026-09-18",
+      "2026-09-18",
+      "2026-09-18",
+    ]);
+    // A slot of the name is a slot, which the league's schedule settles on its own.
+    const slot: ScoutTeam = { id: "S-SLOT", name: "Angels Red", placeholder: true };
+    const copy = played("gc_tp_4", "ag_9", "S-TP", "S-SLOT", 13, 21, "2026-09-18");
+    expect(bridge([TP, slot], [copy])).toHaveLength(1);
+  });
+
+  it("is not handed back on a day the two teams play twice", () => {
+    const twice = [...fixtures, { away: ANGELS, home: "Trash Pandas Baseball Club", date: "9/18" }];
+    const first = played("gc_tp_5", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    const second = played("gc_tp_6", "ag_9", "S-AR", "S-TP", 2, 3, "2026-09-18");
+    expect(bridge([TP, SHORT], [first, second], leagueTeams, twice)).toEqual([]);
+  });
+
+  it("is not handed back between two such teams when its clubs fit one name each", () => {
+    const pair = [
+      { id: "L-OWL", name: "Owls Select", scoutTeamId: NO_SCOUT_TEAM },
+      { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+      { id: "L-TP", name: "Trash Pandas Baseball Club", scoutTeamId: "S-TP" },
+    ];
+    const games = [
+      { away: "Owls Select", home: ANGELS, date: "9/18" },
+      { away: "Trash Pandas Baseball Club", home: "Owls Select", date: "9/25" },
+    ];
+    const OWLS = club("S-OWLN", "Owls Select");
+    // The Trash Pandas played both clubs in tournaments, so both clubs' games reach the forecast.
+    const knowns = [
+      played("gc_tp_8", "ag_9", "S-TP", "S-AR", 3, 1, "2026-09-06"),
+      played("gc_tp_9", "ag_9", "S-TP", "S-OWLN", 2, 5, "2026-09-07"),
+    ];
+    const copy = played("scout_1", "ag_9", "S-AR", "S-OWLN", 6, 4, "2026-09-18");
+    const half = played("scout_2", "ag_9", "S-AR", "S-BEAR", 6, 4, "2026-09-18");
+    const teams = [TP, SHORT, OWLS, club("S-BEAR", "Bears")];
+    expect(bridge(teams, [...knowns, copy], pair, games).map((result) => result.date)).toEqual([
+      "2026-09-06",
+      "2026-09-07",
+    ]);
+    expect(bridge(teams, [...knowns, half], pair, games)).toHaveLength(3);
+  });
+
+  it("is handed back where it could be either of two such teams' games that day", () => {
+    // "Angels Red" fits both teams' names, and is neither's.
+    const two = [
+      ...leagueTeams,
+      { id: "L-ARB", name: "Angels Red Black", scoutTeamId: NO_SCOUT_TEAM },
+    ];
+    const games = [
+      ...fixtures,
+      { away: "Trash Pandas Baseball Club", home: "Angels Red Black", date: "9/18" },
+    ];
+    const copy = played("gc_tp_1", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    expect(bridge([TP, SHORT], [copy], two, games)).toHaveLength(1);
   });
 });

@@ -556,6 +556,40 @@ league's "Cincinnati Angels- Red" landed on an 11U "Cincinnati Angels Red" pulle
 earlier, the Trash Pandas' own pull had the same game against the 9U club, and the
 board showed them 0-7 against GameChanger's 0-6.
 
+A team answered **Not here** is carried in as a club of its own, named as the
+league names it, which no name ever leads to: not a league team's name, not the
+link panel's guess for a team nobody has answered for, and not a name a pulled
+schedule writes, however a game has come to be filed against it. Carried by its
+name, as it was until
+October 2026, its games landed on a club of that name the person had just said it
+is not. The club's id is read off the name ("S-off-" and the name's words, and
+for a name with anything but plain letters, digits and spaces, the whole name
+written out in base64url after an underscore, so "A.B" and "A B" are two clubs), so it
+is the same on every pass and every device, and one already saved to the roster,
+as marking it "our team" saves it, is the one carried onto again, under the
+league's name: renamed while no league game on the page locked its name, it would
+have had the copies of its games read against a name the league never gave it.
+Teams answered Not here under one name, on any page of the year, are one club, as
+a name is everywhere else. Every other copy of such a game names some other club of the
+team's name: a stand-in the import made for it, a pulled club the import filed it
+against, or a club typed in by hand. Such a row is filed with the league's own
+game when one of its clubs played the team in the league that day, in the same
+rating pool, and its other club's name fits the team's; for a league game between
+two such teams, when its two clubs fit one name each. With only one league game it
+could be, the rules for any copy of a league game then decide which survives,
+so the game counts once whatever the copies say the score was, and once on the
+schedule before it is played. The league's forecast reads such a row the same way
+and leaves it out of the results it takes from Team Rankings, since the league's
+own schedule already has the game. A copy kept in the league game's place, while the
+league has no score for it, is read as the team's own club's game, not the game
+of the club its name led to. A row between two of the league's own clubs goes
+with their own league game first. An answer is the season's, as the link panel
+shows it: a team answered Not here in the fall and not in the spring is two clubs
+on the board until it is answered in both, and a star or state set on the club
+its name reached before the answer stays on that club. A game typed in against
+the name no longer warns that it is logged already, though it is still counted
+once.
+
 A club's own schedule sometimes files the league game against nobody the league
 names — a slot such as "TBD- 09/25/26, 7:15 PM", or a one-off spelling of the
 opponent — and when the opponent's own schedule is not in the pool, nothing else

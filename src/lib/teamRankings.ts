@@ -68,7 +68,9 @@ import {
 import {
   cleanTeamName,
   filterRankingsByState,
+  isOffClubId,
   nameFitter,
+  offClubIdFor,
   resolveOrCreateTeam,
   SCOUT_ID_PREFIX,
   teamNameKey,
@@ -300,6 +302,8 @@ export const deriveLeagueScoutGames = (
   // Every id `teams` holds, counted once when a league team is first looked up by name and kept in
   // step as teams are made, for `resolveOrCreateTeam`.
   let teamIds: Set<string> | undefined;
+  // The clubs made for teams said not to be in Team Rankings whose names this pass has settled.
+  const offNamed = new Set<string>();
   const games: ScoutGame[] = [];
   const pickedClubIds = new Set<string>();
   const namedClubIds = new Set<string>();
@@ -324,6 +328,14 @@ export const deriveLeagueScoutGames = (
             if (row.how === "picked") pickedLeagueIds.add(row.leagueTeamId);
           });
       }
+      /*
+       * A person said these are not in Team Rankings. Their games still count, on a club of their
+       * own (`offClubIdFor`): carried by the name, they landed on a club of that name the person
+       * had just said they are not, and gave it games it never played.
+       */
+      const offLeagueIds = new Set(
+        leagueTeams.filter((team) => team.scoutTeamId === NO_SCOUT_TEAM).map((team) => team.id)
+      );
       const resolvedIdByLeagueId = new Map<string, string>();
       const resolveLeagueTeam = (leagueId: string): string | null => {
         const cached = resolvedIdByLeagueId.get(leagueId);
@@ -336,13 +348,42 @@ export const deriveLeagueScoutGames = (
         const name = leagueNameById.get(leagueId);
         if (!name) return null;
         teamIds ??= new Set(teams.map((team) => team.id));
+        if (offLeagueIds.has(leagueId)) {
+          const own = offClubIdFor(name);
+          // Made once, and found again by its id where a pass before this one, or the roster, has it.
+          if (!teamIds.has(own)) {
+            teams = [...teams, { id: own, name: cleanTeamName(name) }];
+            teamIds.add(own);
+          } else if (!offNamed.has(own)) {
+            /*
+             * One saved to the roster keeps the league's name. With no league game on the page in
+             * view nothing locks its name, so it can be renamed there; then the copies of its
+             * games were read against a name the league never gave it, missed, and counted twice.
+             * The id is read off the name's key, so a saved name of the same key is the same name
+             * written another way, and stands, as a stored name's spelling does everywhere else.
+             */
+            const index = teams.findIndex((team) => team.id === own);
+            const saved = teams[index];
+            const named = cleanTeamName(name);
+            if (saved && teamNameKey(saved.name) !== teamNameKey(named)) {
+              teams = teams.slice();
+              teams[index] = { ...saved, name: named };
+            }
+          }
+          offNamed.add(own);
+          resolvedIdByLeagueId.set(leagueId, own);
+          return own;
+        }
         const result = resolveOrCreateTeam(name, teams, teamIds);
         teams = result.teams;
         resolvedIdByLeagueId.set(leagueId, result.teamId);
         return result.teamId;
       };
-      const noteHow = (leagueId: string, clubId: string) =>
+      // A club of a team's own was carried onto by neither a pick nor a name.
+      const noteHow = (leagueId: string, clubId: string) => {
+        if (offLeagueIds.has(leagueId)) return;
         (pickedLeagueIds.has(leagueId) ? pickedClubIds : namedClubIds).add(clubId);
+      };
 
       leagueMatchups.forEach((matchup) => {
         const teamAId = resolveLeagueTeam(matchup.away);
@@ -2734,6 +2775,14 @@ export const leagueStandIns = (
       if (!schedule) return false;
       return teamOf(clubId)?.gcTeams?.some((link) => link.teamId === schedule) ?? false;
     },
+    isOffClub: isOffClubId,
+    namesakeOf: (sideId, offClubId) => {
+      const side = teamOf(sideId);
+      const off = teamOf(offClubId);
+      return (
+        side !== undefined && off !== undefined && !side.placeholder && fits(side.name, off.name)
+      );
+    },
   };
 };
 
@@ -3719,8 +3768,9 @@ const linkLeagueTeams = (
   inSeason.forEach((scoutTeamId) => {
     const team = scoutById.get(scoutTeamId);
     // A slot names nobody; matching a league team onto one would attach it to another game's
-    // unknown opponent.
-    if (!team || team.placeholder) return;
+    // unknown opponent. And a club made for a league team said not to be in Team Rankings is that
+    // team's alone, found by no name (`offClubIdFor`), whatever has since been filed against it.
+    if (!team || team.placeholder || isOffClubId(scoutTeamId)) return;
     const key = teamNameKey(team.name);
     const bucket = scoutIdsByName.get(key);
     if (bucket) bucket.push(scoutTeamId);
@@ -3952,6 +4002,53 @@ export const leagueScoutBridge = (
       .filter((key) => key !== "")
   );
   /*
+   * A league team answered Not here has no club behind it, so a copy of its league game names some
+   * club of its name: the import's stand-in for it, a pulled club the import filed it against, a
+   * club typed in, any whose name fits the team's ("Angels Red" for "Cincinnati Angels Red"). The
+   * rankings file such a copy with the league's game (`dedupeLeagueFixtures`), and so does this:
+   * a copy whose one club is the league team that played such a team that day and whose other
+   * club's name fits that team's, or, for a game between two such teams, whose clubs fit one name
+   * each, where only one league game that day is one it could be.
+   */
+  const offIds = new Set(
+    leagueTeams.filter((team) => team.scoutTeamId === NO_SCOUT_TEAM).map((team) => team.id)
+  );
+  const offGamesOn = new Map<string, Map<string, readonly [string, string]>>();
+  if (offIds.size > 0) {
+    seasonFixtures.forEach(({ away, home, date }) => {
+      const awayId = leagueIdByKey.get(teamNameKey(away));
+      const homeId = leagueIdByKey.get(teamNameKey(home));
+      if (!awayId || !homeId || (!offIds.has(awayId) && !offIds.has(homeId))) return;
+      const day = normalizeDateInput(date ?? "");
+      if (!day) return;
+      const games = offGamesOn.get(day) ?? new Map<string, readonly [string, string]>();
+      games.set([awayId, homeId].sort().join("|"), [awayId, homeId]);
+      offGamesOn.set(day, games);
+    });
+  }
+  const leagueNameOf = new Map(leagueTeams.map((team) => [team.id, team.name]));
+  const fits = nameFitter();
+  /** Whether a club in a copy could be what it called this league team. */
+  const standsFor = (scoutTeamId: string, leagueTeamId: string): boolean => {
+    if (!offIds.has(leagueTeamId)) return ratingId(scoutTeamId) === leagueTeamId;
+    const club = scoutById.get(scoutTeamId);
+    const name = leagueNameOf.get(leagueTeamId);
+    return club !== undefined && !club.placeholder && name !== undefined && fits(club.name, name);
+  };
+  const isOffTeamFixture = (game: ScoutGame): boolean => {
+    if (offGamesOn.size === 0) return false;
+    const day = normalizeDateInput(game.date ?? "");
+    const fixtures = day ? offGamesOn.get(day) : undefined;
+    if (!fixtures) return false;
+    const { teamAId: x, teamBId: y } = game;
+    let could = 0;
+    fixtures.forEach(([a, b]) => {
+      if ((standsFor(x, a) && standsFor(y, b)) || (standsFor(x, b) && standsFor(y, a))) could += 1;
+    });
+    return could === 1;
+  };
+
+  /*
    * A league club's own pulled row filed against nobody the league names: "TBD- 09/25/26, 7:15 PM"
    * for 513 Force - Bouley's 0-13 to the Hornets, or "513 Force" on the Angels' schedule. It shares
    * no names with the fixture, so it read as a tournament result and the forecast counted the
@@ -4014,6 +4111,7 @@ export const leagueScoutBridge = (
 
   const isSeasonFixture = (game: ScoutGame): boolean => {
     if (slotCopies.has(game.id)) return true;
+    if (isOffTeamFixture(game)) return true;
     if (fixtureKeys.size === 0) return false;
     const away = scoutById.get(game.teamAId)?.name;
     const home = scoutById.get(game.teamBId)?.name;

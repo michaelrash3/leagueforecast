@@ -404,10 +404,9 @@ export const poolFixture = ({
   };
 
   // This year's 10U league: five clubs by their own names, one by a person's pick under another
-  // name, one nobody has pulled, which is minted, and one a person said is not in Team Rankings.
-  // That answer turns the link panel's name match off, but deriving the league's games still goes
-  // by the name for any team no pick or guess reaches, so today its games land on the club of its
-  // name all the same.
+  // name, one nobody has pulled, which is minted, and one a person said is not in Team Rankings,
+  // named as a pulled club on the page is: its games are carried onto a club of its own, not onto
+  // that one.
   const tenU = scheduled(pageId(10, 2027)).filter((club) => club.kind === "pulled");
   const named = tenU.slice(0, 5).map((club, i) => ({ id: `t10-${i}`, name: club.team.name }));
   const pickedClub = tenU[5];
