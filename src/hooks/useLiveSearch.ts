@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { readView, type DecodedViews } from "../lib/live/liveClient";
+import { useState } from "react";
+import type { DecodedViews } from "../lib/live/liveClient";
 import { coerceSearch, searchKey, type SearchView } from "../lib/live/views/searchShape";
 import type { LiveViewSource } from "./useLiveBoard";
+import { useLiveView } from "./useLiveView";
 
 /** Lists decoded this page load, by fingerprint: a search asked for again is free. */
 const decodedSearches: DecodedViews<SearchView> = new Map();
@@ -29,34 +30,7 @@ export type LiveSearch = {
  */
 export function useLiveSearch(source: LiveViewSource | null, year: number | undefined): LiveSearch {
   const [askedFor, setAskedFor] = useState<{ year: number | undefined } | null>(null);
-  const [read, setRead] = useState<{ key: string; view: SearchView } | null>(null);
-  const [failed, setFailed] = useState(false);
   const key = askedFor && askedFor.year === year ? searchKey(year) : null;
-
-  useEffect(() => {
-    if (!key || !source) return;
-    let alive = true;
-    void readView({
-      reader: source.reader,
-      meta: source.meta,
-      key,
-      cache: source.cache,
-      coerce: coerceSearch,
-      memory: decodedSearches,
-    }).then((done) => {
-      if (!alive) return;
-      if (done.ok) setRead({ key, view: done.view });
-      else setFailed(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [key, source]);
-
-  return {
-    asked: key !== null,
-    view: read && read.key === key ? read.view : null,
-    failed,
-    ask: () => setAskedFor({ year }),
-  };
+  const { view, failed } = useLiveView(source, key, coerceSearch, decodedSearches);
+  return { asked: key !== null, view, failed, ask: () => setAskedFor({ year }) };
 }

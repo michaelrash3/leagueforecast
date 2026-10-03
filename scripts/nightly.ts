@@ -110,7 +110,7 @@ const tellViews = (views: CopyPublish, dry: boolean): void => {
   }
   const { publish, sweep } = views;
   console.log(
-    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards and ${views.searches} Find a team lists built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`
+    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards, ${views.searches} Find a team lists and ${views.games} Games lists built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`
   );
   console.log(
     sweep.ok

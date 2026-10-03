@@ -3509,6 +3509,26 @@ be damaged. Each guard was broken in turn and seen to fail a test, 35 of 35, thr
 only after a test was added or changed; one of those, the publish taking out a year's
 lists once it builds none, now holds the club cards to the same.
 
+**Games lists.** The Games tab lists a page's stored games, newest first, each by
+its clubs' names, its score or that it is still to be played, its event, its day and
+whether it counts. So each page gets a list of exactly those (`views/games.ts`,
+`games:{year}:{page}`), in the tab's own order (`loggedGamesOn`, now shared), named
+by the year's roster as the page names them, its clubs once each and a game's id
+its place in the list. Which games the tab lists first, today's, a device works out
+on its reader's own day, as the page does. On the 29 Sep backup the 11 pages' lists
+came to 3.1 MB gzipped, built in 0.5 s; the biggest, 12U's 45,107 games among 19,941
+clubs, is 534 KB gzipped and is read back through JSON and its check in 44 ms (Node,
+unthrottled, median of five).
+
+`gamesParity.test.ts` holds every page's list, read back through JSON and its own
+check, to the page's own tab on the seeded fixture, with a game set not to count,
+one still to be played and one with no day: every row in order, and the day listed
+first and the counts of the rest on the members' day and on the page's busiest.
+`gamesShape.test.ts` reads a list back and refuses each way one can be damaged.
+`gamesWindow.test.ts` pins the tab's order itself, which both sides share. Each guard
+was broken in turn and seen to fail a test, 31 of 31, three only after a test was
+added: the order, and a club entry too long.
+
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
 
@@ -3872,6 +3892,13 @@ be asked again, rather than read a second list unasked. While somebody is in the
 the board does not hand over on its own: Team Rankings would open on a box of its
 own, without what they typed. A list that cannot be read hands over to Team
 Rankings with its box focused, as every search did before there were lists.
+
+**The Games tab.** On the board the tab reads its page's list (`LiveGames`) and is
+drawn by Team Rankings' own tab with nothing on it to change (`GamesSection`
+`readOnly`): no form, no import, and no score, count or remove on a game. One button
+in the form's place, Add, import or pull games, hands over to Team Rankings, where
+those are. The tab and its code load only when it is opened. A list that cannot be
+read hands over as the tab did before there were lists.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It

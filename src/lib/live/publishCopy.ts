@@ -18,6 +18,8 @@ import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
 import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
+import { gamesViews } from "./views/games";
+import { GAMES_FAMILY } from "./views/gamesShape";
 import { searchViews } from "./views/search";
 import { SEARCH_FAMILY } from "./views/searchShape";
 import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./viewStore";
@@ -76,12 +78,13 @@ export type CopyPublish =
   | {
       ok: true;
       /**
-       * The boards, the buckets of club cards and the years' Find a team lists built, and how long
-       * building them took.
+       * The boards, the buckets of club cards, the years' Find a team lists and the pages' Games
+       * lists built, and how long building them took.
        */
       boards: number;
       clubs: number;
       searches: number;
+      games: number;
       buildMs: number;
       publish: Extract<PublishResult, { ok: true }>;
       /** The sweep after it, or why it stopped: the views are published either way. */
@@ -180,14 +183,16 @@ export const publishCopyViews = async ({
     storedGames: loadScoutGames(),
     held: { dropped: loadDroppedClubs(), ageless: loadAgeUnknown(), tooYoung: loadTooYoungClubs() },
   });
-  const views = [...boards, ...clubs, ...searches];
+  // And each page's Games list.
+  const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear });
+  const views = [...boards, ...clubs, ...searches, ...games];
   const pages = livePagesOf(built, latestImportedAt(teams));
   const buildMs = Date.now() - started;
 
   const publish = await publishViews({
     store: liveStore,
     views,
-    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY],
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
@@ -214,6 +219,7 @@ export const publishCopyViews = async ({
       boards: boards.length,
       clubs: clubs.length,
       searches: searches.length,
+      games: games.length,
       buildMs,
       publish,
       sweep:
@@ -236,6 +242,7 @@ export const publishCopyViews = async ({
     boards: boards.length,
     clubs: clubs.length,
     searches: searches.length,
+    games: games.length,
     buildMs,
     publish,
     sweep,

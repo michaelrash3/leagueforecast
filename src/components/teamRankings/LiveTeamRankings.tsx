@@ -31,6 +31,8 @@ import { TEAM_PANEL_ID } from "../teamPanelId";
 
 /** A club's panel from its card, loaded with the pool's codec only when a club is opened. */
 const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
+/** The Games tab from its page's list, loaded with the tab's code only when the tab is opened. */
+const LiveGames = lazy(() => import("./LiveGames"));
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -115,6 +117,8 @@ export function LiveTeamRankings({
   const [cannotOpen, setCannotOpen] = useState<string | null>(null);
   // Find a team, from the year's published list once somebody goes to search.
   const search = useLiveSearch(live.source, selectedYear);
+  // Whether a page's Games list could not be read.
+  const [cannotList, setCannotList] = useState(false);
 
   // The pool and the page's code come in under the board; the board has a while to draw.
   useEffect(() => {
@@ -170,7 +174,8 @@ export function LiveTeamRankings({
     live.boardMiss === "offline" ||
     live.link === "cut-off";
   const handOverNow =
-    section !== "rankings" ||
+    (section !== "rankings" && section !== "games") ||
+    cannotList ||
     !selectedAgeGroupId ||
     (live.metaMiss !== null && !offline) ||
     (live.boardMiss !== null && live.boardMiss !== "offline") ||
@@ -285,6 +290,7 @@ export function LiveTeamRankings({
     );
   };
   const closeClub = useCallback(() => setOpenClub(null), []);
+  const cannotListGames = useCallback(() => setCannotList(true), []);
 
   /**
    * A club picked in Find a team opens on the page its list says, with its panel from its card, as
@@ -314,6 +320,13 @@ export function LiveTeamRankings({
     const soon = window.setTimeout(() => warmTeamSearch(searchOptions), 0);
     return () => window.clearTimeout(soon);
   }, [searchOptions]);
+  const readingGames = (
+    <div className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+        Reading the cloud&apos;s games…
+      </p>
+    </div>
+  );
   const opening = (
     <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
       <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
@@ -346,7 +359,23 @@ export function LiveTeamRankings({
         aria-labelledby={sectionTabId(section)}
         className="flex flex-col gap-6"
       >
-        {board ? (
+        {section === "games" ? (
+          live.source ? (
+            <Suspense fallback={readingGames}>
+              <LiveGames
+                source={live.source}
+                year={selectedYear}
+                pageId={selectedAgeGroupId}
+                groupName={group?.name ?? ""}
+                today={today}
+                onCannot={cannotListGames}
+                onEditWanted={() => handOverWith({})}
+              />
+            </Suspense>
+          ) : (
+            readingGames
+          )
+        ) : board ? (
           <RankingsSection
             groupName={group?.name ?? ""}
             searchOptions={searchOptions}

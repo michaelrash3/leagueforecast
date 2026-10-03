@@ -29,6 +29,7 @@ import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
 import { clubViews } from "../views/clubs";
+import { gamesViews } from "../views/games";
 import { searchViews } from "../views/search";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
@@ -158,14 +159,22 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
       },
     });
     expect(searches.length).toBeGreaterThan(0);
-    const others = clubs.length + searches.length;
+    // And each page's Games list (`gamesParity.test.ts` holds them to the page's Games tab).
+    const games = gamesViews({
+      ageGroups: loadAgeGroups(),
+      built,
+      gamesOfYear: loadScoutGamesForYear,
+    });
+    expect(games.length).toBe(loadAgeGroups().length);
+    const others = clubs.length + searches.length + games.length;
     expect(result).toMatchObject({
       ok: true,
       boards: 33,
       clubs: clubs.length,
       searches: searches.length,
+      games: games.length,
       // Some boards are the same as others (a half with no games): 29 uploads for 33, and one for
-      // each bucket of cards and each list, every one of which differs.
+      // each bucket of cards and each list, every one of which differs from every other.
       publish: { wrote: true, uploaded: 29 + others },
       sweep: { deleted: 0, strays: 0 },
     });
@@ -173,9 +182,9 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
 
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(
-      [...browser, ...clubs, ...searches].map(({ key }) => key).sort()
+      [...browser, ...clubs, ...searches, ...games].map(({ key }) => key).sort()
     );
-    for (const { key, value } of [...browser, ...clubs, ...searches]) {
+    for (const { key, value } of [...browser, ...clubs, ...searches, ...games]) {
       expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
     }
     // And the seasons are what made them so: without them, some board's rows would read otherwise.
@@ -209,7 +218,12 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
     // An earlier publish's views for a year the pool has since let go.
-    const gone = ["board:2019:ag_10u_2019:year", "club:2019:3", "search:2019"];
+    const gone = [
+      "board:2019:ag_10u_2019:year",
+      "club:2019:3",
+      "search:2019",
+      "games:2019:ag_10u_2019",
+    ];
     await publishViews({
       store: live.store,
       views: gone.map((key) => ({ key, value: { from: key } })),

@@ -26,6 +26,8 @@ import {
 } from "../../lib/live/views/searchShape";
 import { forgetDecodedClubs } from "./LiveClubPanel";
 import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
+import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
+import { forgetDecodedGames } from "./LiveGames";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
@@ -149,7 +151,7 @@ const publish = async (
   publishViews({
     store: live.store,
     views,
-    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY],
+    owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY],
     copy: { id: MANIFEST.copy, version: MANIFEST.version },
     today: TODAY,
     now: T,
@@ -218,6 +220,7 @@ beforeEach(async () => {
   forgetDecodedBoards();
   forgetDecodedClubs();
   forgetDecodedSearches();
+  forgetDecodedGames();
   forgetLiveBoard();
   resetTeamRankingsStore();
   window.localStorage.clear();
@@ -329,8 +332,8 @@ describe("Team Rankings on the cloud's board", () => {
     });
   });
 
-  it("hands over at once for any area but the boards", async () => {
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
+  it("hands over at once for any area but the boards and the games", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
     pool.wants = false;
     open(sourcesOf(live));
     await waitFor(() => expect(handedOver()).not.toBeNull());
@@ -832,5 +835,80 @@ describe("Find a team on the cloud's board", () => {
       screen.getByRole("button", { name: "Search every team or coach, any age or season" })
     ).toBeEnabled();
     expect(handedOver()).toBeNull();
+  });
+});
+
+describe("the Games tab on the cloud's board", () => {
+  const BOARDS: PublishedView[] = [
+    { key: `board:2027:${PAGE}:spring`, value: SPRING },
+    { key: `board:2027:${PAGE}:fall`, value: FALL },
+    { key: `board:2027:${PAGE}:year`, value: SPRING },
+  ];
+  const LIST = encodeGames({
+    page: PAGE,
+    games: [
+      {
+        id: "g1",
+        teamAId: "S-1",
+        teamBId: "S-2",
+        ageGroupId: PAGE,
+        teamAScore: 7,
+        teamBScore: 2,
+        date: TODAY,
+        event: "Placeholder Cup",
+      },
+      { id: "g2", teamAId: "S-3", teamBId: "S-1", ageGroupId: PAGE, date: TODAY },
+      {
+        id: "g3",
+        teamAId: "S-2",
+        teamBId: "S-3",
+        ageGroupId: PAGE,
+        teamAScore: 30,
+        teamBScore: 0,
+        date: "2027-04-01",
+        excluded: true,
+      },
+      { id: "g4", teamAId: "S-1", teamBId: "S-3", ageGroupId: PAGE, date: "2027-03-01" },
+    ],
+    names: new Map([
+      ["S-1", "Placeholder S-1"],
+      ["S-2", "Placeholder S-2"],
+      ["S-3", "Placeholder S-3"],
+    ]),
+  });
+  const onGames = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
+
+  it("lists the page's games from its list, today's first, with nothing on it to change", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    onGames();
+    open(sourcesOf(live));
+    await screen.findByText(/^Today's games/);
+    // Today's two, the rest counted, and the one still owed a score said so.
+    expect(screen.getByText(/2 more are hidden \(1 still need a score\)/)).toBeTruthy();
+    expect(screen.getByText("Placeholder S-1 7")).toBeTruthy();
+    expect(screen.getByText(/Placeholder S-3 vs/)).toBeTruthy();
+    for (const name of ["Remove", "Enter score", "Don't count", "Add Game", "Import games"])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show all 4 games" }));
+    expect(screen.getByText("Not counted")).toBeTruthy();
+    expect(screen.getByText("All 4 games on this page.")).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over to add a game", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    open(sourcesOf(live));
+    fireEvent.click(await screen.findByRole("button", { name: "Add, import or pull games" }));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("hands over when the page has no list to read", async () => {
+    pool.wants = false;
+    onGames();
+    open(sourcesOf(live));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 });

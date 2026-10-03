@@ -16,6 +16,16 @@ import { isScoutGamePlayed, type ScoutGame } from "./types";
  * games instead, and one not yet begun its first, rather than nothing.
  */
 
+/**
+ * A page's stored games as the Games tab lists them, newest first: the games filed on `pageId` out
+ * of a squad year's stored ones (`loadScoutGamesForYear`), in their stored order within a day.
+ * League Standings fixtures are not among them.
+ */
+export const loggedGamesOn = (yearGames: readonly ScoutGame[], pageId: string): ScoutGame[] =>
+  yearGames
+    .filter((game) => game.ageGroupId === pageId)
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
 export type GamesWindow = {
   /** The one ISO day the list keeps. */
   day: string;

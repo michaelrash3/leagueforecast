@@ -158,7 +158,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
-import { gamesWindowFor } from "../lib/teamRankings/gamesWindow";
+import { gamesWindowFor, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
   RankingsSection as RankingsBoards,
@@ -1090,11 +1090,7 @@ export function TeamRankingsView({
   const explanation = useLeagueSummary(explanationRequest);
 
   const ageGroupManualGames = useMemo(
-    () =>
-      scoutGames
-        .filter((game) => game.ageGroupId === selectedAgeGroupId)
-        .slice()
-        .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
+    () => loggedGamesOn(scoutGames, selectedAgeGroupId),
     [scoutGames, selectedAgeGroupId]
   );
   /**
