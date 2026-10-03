@@ -5,18 +5,36 @@
  */
 import { Worker } from "node:worker_threads";
 import { logger } from "firebase-functions";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import gcTeamForMembers from "../../api/gc-team";
 import { capBilling, describeCap } from "../../src/lib/billingCap";
 import { FIREBASE_WEB_CONFIG } from "../../src/lib/cloud/cloudConfig";
-import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import {
+  firestoreRestDocuments,
+  firestoreRestLive,
+  firestoreRestStore,
+} from "../../src/lib/cloud/firestoreRest";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
+import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
+import { handleRebuildTask } from "../../src/lib/live/rebuild";
+import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
+import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
+import { handleCopyWrite } from "../../src/lib/live/rebuildTrigger";
+import {
+  REBUILD_SIZE,
+  REBUILD_TIMEOUT_S,
+  REBUILD_WORKER_HEAP_MB,
+  rebuildRunner,
+  startupCharge,
+  type RebuildPort,
+} from "../../src/lib/live/rebuildWorkerProtocol";
 import { createMemberCheck, MEMBERS_ONLY_MESSAGES } from "../../src/lib/memberCheck";
-import { enqueueLeg, REGION, restAccess, zoneOf } from "./pullAccess";
+import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 
 /**
@@ -237,5 +255,154 @@ export const runPull = !CLOUD_PULLS
           return;
         }
         logger.info(said(`${answer.outcome} in ${took}.`));
+      }
+    );
+
+/*
+ * Rebuilds after saves (README, "Views a server publishes"): each write of the copy's manifest asks
+ * `onCopyWrite` whether it moved anything a board reads, and it queues a `rebuild` task for the
+ * window the save falls in. The task builds every board in a worker that keeps the pool from run to
+ * run, and publishes them, metered by the ledger in `ops/rebuild`, whose switch turns it all off.
+ *
+ * Both run as an account of their own, `live-runner`, which may read and write Firestore, receive
+ * the copy's events, queue a task and send it to `rebuild`, and nothing else; the one-time setup
+ * that makes it is in the README ("Rebuilds after saves: the one-time setup").
+ */
+
+/**
+ * Whether this build holds the rebuilds: set by `build.mjs` from LIVE_REBUILD, the last step of
+ * their one-time setup. Without them the project deploys as it did before them.
+ */
+declare const LIVE_REBUILD: boolean;
+
+/** The account both halves of a rebuild run as. */
+const LIVE_RUNNER = "live-runner@";
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * Each write of `copies/main`, and nothing under it (`rebuildTrigger.ts`): a save that moved a
+ * board's input queues the rebuild of its window, and each is logged for `npm run live:lag`. Not
+ * tried again: a save whose rebuild could not be queued says so in its line, and the next save, or
+ * the nightly, publishes it; a write that failed every time would otherwise be retried for days.
+ */
+export const onCopyWrite = !LIVE_REBUILD
+  ? undefined
+  : onDocumentWritten(
+      {
+        document: "copies/main",
+        region: REGION,
+        serviceAccount: LIVE_RUNNER,
+        memory: "256MiB",
+        timeoutSeconds: 60,
+        maxInstances: 2,
+        retry: false,
+      },
+      async (event) => {
+        const ledger = restLedgerStore(firestoreRestDocuments(restAccess()));
+        const { level, message, line } = await handleCopyWrite({
+          change: event.data,
+          eventTime: event.time,
+          // A switch that is not there, or not one, is off; a read that throws counts as on.
+          readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
+          enqueue: enqueueRebuild,
+        });
+        logger[level](message, line);
+      }
+    );
+
+/**
+ * This instance's start-up, charged once, to the first run that settles on it: how long its code
+ * took to load, read as the module loads, not the idle time before its first task (`startupCharge`).
+ */
+const startupS = startupCharge(process.uptime());
+/** The worker the rebuilds run in, kept from task to task (`rebuildRunner`). */
+let runner: ReturnType<typeof rebuildRunner> | null = null;
+
+/**
+ * A worker for the rebuild's runs, with a heap capped above where it is recycled, unless the process
+ * was started with a limit of its own, which stands over the cap (`REBUILD_WORKER_HEAP_MB`).
+ */
+const startRebuildWorker = (): RebuildPort => {
+  const worker = new Worker(new URL("./rebuildWorker.js", import.meta.url), {
+    resourceLimits: { maxOldGenerationSizeMb: REBUILD_WORKER_HEAP_MB },
+  });
+  return {
+    post: (request) => worker.postMessage(request),
+    listen: ({ answer, error, exit }) => {
+      worker.on("message", answer);
+      worker.on("error", error);
+      worker.on("exit", exit);
+    },
+    terminate: async () => {
+      await worker.terminate();
+    },
+  };
+};
+
+/**
+ * One rebuild, as the queue sends it (`handleRebuildTask`): the switch read, the boards checked,
+ * the run reserved against the ledger, built and published in the worker, and what it cost settled.
+ * One at a time, on one instance with the memory the whole pool takes, which the ledger prices a run
+ * at; the queue tries a task again two minutes on and then four, past the span a run another try
+ * may still be making holds the ledger for. A task of any shape but the trigger's is logged and
+ * done with before anything is read.
+ */
+export const rebuild = !LIVE_REBUILD
+  ? undefined
+  : onTaskDispatched(
+      {
+        region: REGION,
+        serviceAccount: LIVE_RUNNER,
+        memory: "8GiB",
+        cpu: REBUILD_SIZE.cpu,
+        timeoutSeconds: REBUILD_TIMEOUT_S,
+        maxInstances: 1,
+        concurrency: 1,
+        retryConfig: { maxAttempts: 3, minBackoffSeconds: 120 },
+        rateLimits: { maxConcurrentDispatches: 1 },
+      },
+      async (request) => {
+        const task = coerceRebuildTask(request.data);
+        if (!task) {
+          logger.warn("rebuild", { end: "not-a-task" });
+          return;
+        }
+        // New York's day, as the nightly's: set before the worker starts, which keeps the zone it
+        // starts in.
+        process.env.TZ = "America/New_York";
+        runner ??= rebuildRunner({ spawn: startRebuildWorker });
+        const access = restAccess();
+        let done: Awaited<ReturnType<typeof handleRebuildTask>>;
+        try {
+          done = await handleRebuildTask({
+            ledger: restLedgerStore(firestoreRestDocuments(access)),
+            copyStore: firestoreRestStore({ ...access, writable: false }),
+            liveStore: firestoreRestLive({ ...access, writable: false }),
+            run: runner.run,
+            today: () => todayIsoDay(),
+            now: () => new Date().toISOString(),
+            clock: Date.now,
+            size: REBUILD_SIZE,
+            startupS,
+            task,
+            taskId: typeof request.id === "string" ? request.id : "",
+          });
+        } catch (error) {
+          logger.error("rebuild", {
+            kind: task.kind,
+            savedAt: task.savedAt,
+            end: "threw",
+            error: messageOf(error),
+          });
+          throw error;
+        }
+        if (!done.rethrow) {
+          logger.info("rebuild", done.line);
+          return;
+        }
+        logger.warn("rebuild", done.line);
+        throw new Error(`The rebuild ended ${String(done.line.end)}; the queue tries it again.`);
       }
     );

@@ -4,6 +4,8 @@
 # The pulls in the cloud (`startPull`, `runPull`) are deployed too once the CLOUD_PULLS variable
 # is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
 # one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
+# The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD variable is
+# `on` (README, "Rebuilds after saves: the one-time setup").
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
@@ -55,10 +57,12 @@ jobs:
           node-version-file: .nvmrc
       - run: npm ci --prefix functions
       # The built bundle, run as Cloud Functions will run it: a fake request, no network. Built
-      # with the pulls in the cloud, and then without, as a project not yet set up for them has it.
+      # with the pulls in the cloud and the rebuilds after saves, and then without either, as a
+      # project not yet set up for them has it.
       - run: npm run build --prefix functions && npm run smoke --prefix functions
         env:
           CLOUD_PULLS: "on"
+          LIVE_REBUILD: "on"
       - run: npm run build --prefix functions && npm run smoke --prefix functions
       # The rules, tried against the Firestore emulator by the app's own Firestore code: an owner,
       # a second account and a signed-out browser, each doing what the app does and what it must
@@ -78,18 +82,28 @@ jobs:
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls out
-          # until it is on.
+          # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls and
+          # the rebuilds out until each is on.
           CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
+          LIVE_REBUILD: ${{ vars.LIVE_REBUILD }}
         run: |
           if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
             echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
             exit 0
           fi
+          # With the pulls on, every function built is deployed, and one no longer built is taken
+          # down; without them, only the functions named, the rebuilds' once they are on.
           only="functions,firestore:rules"
           if [ "$CLOUD_PULLS" != "on" ]; then
-            only="functions:gcTeam,functions:billingCap,firestore:rules"
+            only="functions:gcTeam,functions:billingCap"
+            if [ "$LIVE_REBUILD" = "on" ]; then
+              only="$only,functions:onCopyWrite,functions:rebuild"
+            fi
+            only="$only,firestore:rules"
             echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
+          fi
+          if [ "$LIVE_REBUILD" != "on" ]; then
+            echo "::notice::Rebuilds after saves not deployed: do their one-time setup, then set the LIVE_REBUILD variable to on (README, 'Rebuilds after saves: the one-time setup')."
           fi
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT

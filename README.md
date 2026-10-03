@@ -109,9 +109,11 @@ src/
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
     live/                  # what a page knows (allKnown.ts), the views built from it (views/),
-                           # the same in the browser and on a server, and how a server
+                           # the same in the browser and on a server, how a server
                            # publishes them for members to read (viewStore.ts,
-                           # publishCopy.ts)
+                           # publishCopy.ts), and rebuilds them after a save
+                           # (rebuildPlan.ts, rebuildLedger.ts, rebuild.ts,
+                           # rebuildTrigger.ts, rebuildWorkerProtocol.ts)
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
@@ -3082,8 +3084,9 @@ save is a few writes.
    `copies` rather than inside one of its documents, with a document whose ID is
    the address you sign in to Google with, in lower case, and one string field,
    `role` (lower case too), set to `owner`. Without it the rules turn every account away, yours included,
-   until the document is there. The nightly refresh and the cloud pulls sign in
-   as service accounts, which the rules do not apply to.
+   until the document is there. The nightly refresh, the cloud pulls and the
+   rebuilds after saves sign in as service accounts, which the rules do not apply
+   to.
 4. The rules deploy with the functions on merge (`firebase.yml`), tested there
    against the Firestore emulator first (`npm run test:rules` locally; it needs
    Java 21).
@@ -3395,7 +3398,9 @@ Nothing builds these boards on a server yet; how they are published is next.
 A server publishes what it builds to `live/`, in the same Firestore as the copy,
 for members' devices to read rather than build. The nightly refresh publishes
 every board each night, once it has saved the copy (`src/lib/live/publishCopy.ts`
-on `viewStore.ts`; see "The nightly refresh on GitHub"). No device reads them
+on `viewStore.ts`; see "The nightly refresh on GitHub"), and once their setup is
+done ("Rebuilds after saves: the one-time setup"), a rebuild publishes them again
+a few minutes after any save that moved what a board reads. No device reads them
 yet.
 
 - **`live/meta`** is one small document naming every view by its key
@@ -3585,7 +3590,10 @@ meta commit, taking out the retired pieces that are due in the same commit and
 listing none. A dry run builds everything and writes nothing. A run turned away
 by boards for a later day goes once more only if the New York day turned while
 it ran. Then the main thread settles what the run cost: the time since it began,
-and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
+and the first time the instance's start-up, at 8 GiB and two vCPUs. The start-up
+is how long the function's code took to load, at most the 20 s a run's span allows
+it, and never the time the instance then sat idle: one a deploy starts may wait
+many minutes for its first task, which is not billed. It counts as
 a failure a run that threw, and one that ended on anything but its job done or a
 newer one's (a copy or a meta it cannot read, a store that refused, something
 that kept moving under it). Boards or a copy a newer build or newer rules made
@@ -3605,6 +3613,121 @@ reached (the nightly's publishes are logged on GitHub, not here). `rebuild.test.
 worker's half against the copy and `live/` in memory on a seeded pool, its views
 the very ones the nightly publishes from the same copy, and the main thread's
 against a stand-in worker; each guard was broken in turn and seen to fail a test.
+
+Two functions run it (`functions/src/index.ts`), built and deployed only once
+their setup is done. `onCopyWrite` takes each write of `copies/main`, and of
+nothing under it, plans it (`rebuildTrigger.ts`), queues the task it asks for, and
+logs one line: a skip and why, or the save with the task it shares and whether the
+queue took it. It is not tried again when the queue refuses, since the next save,
+or the night, publishes that one, and a write that failed every time would
+otherwise be retried for days. `rebuild` takes each task on one instance of 8 GiB
+and two vCPUs, one at a time, with a 300 s timeout. The queue tries a task again
+two minutes on and then four, past the 320 s that another try's run may still hold
+the ledger for. The function's timeout answers the queue first, and a run still
+going then is never tried a second time beside it: the worker ends a run at 270 s,
+inside the timeout, and the ledger holds its reservation busy for 320 s. The
+queue's ten minutes on a dispatch matter only for an answer lost on its way. A task of any shape but
+the trigger's is logged and done with before anything is read. The run itself is
+made in a worker (`functions/src/rebuildWorker.ts`, on `rebuildWorkerProtocol.ts`)
+kept from task to task while the switch says warm, so a rebuild after a small save
+fetches only the pieces that moved. It is started afresh for each run while warm
+is off, and ended when its run threw or it died, when it ran past 270 s (so the
+settle is still written inside the timeout), and once its heap passes 3,072 MB,
+the process 6,144 MB, or it has run 200 times; its heap is capped at 5,120 MB,
+above that line, unless the runtime starts Node with a heap limit of its own, which
+stands over a worker's cap. Each run's line gives the limit its worker ran under
+(`heapLimitMb`), with its heap and the process's size as it ended, so the first
+runs show which holds. The worker holds its pool for its whole life and never empties
+the pool's store any other way: emptied under it, the pool would still name the
+copy it loaded, and the next run of an unchanged copy would publish boards of no
+one. The day is New York's, as the nightly's: the function sets the zone before it
+starts the worker, which keeps the zone it was started in. Rows that tie are put in
+order by the runtime's collation, which the publish requires to be English (unset,
+`C`, `C.UTF-8` and `en_US.UTF-8` all are); a runtime that were not would end every
+run `locale`, which the first dry runs would show. `rebuildWorkerProtocol.test.ts`
+holds the worker kept, recycled and ended as it should be, and the sizes and
+limits against the ledger's prices; `rebuildTrigger.test.ts` holds the trigger's
+plans and lines, the manifest Firestore's REST API reads back planning as the plain
+one does; and the functions' smoke test (`functions/smoke.mjs`) sends the built
+trigger Firestore's own events, which it skips as it should with nothing read, and
+pings the built worker. It also queues a save's rebuild through firebase-admin to
+a stand-in for Cloud Tasks, which shows the task's name and deadline, and a second
+save in the window finding it queued.
+
+### Rebuilds after saves: the one-time setup
+
+The two functions run as an account of their own, `live-runner`. It may read and
+write Firestore, receive the copy's events, queue a task, and send one to
+`rebuild`, and nothing else. `rebuild` needs Cloud Tasks, which the deploy account
+may not turn on itself. Until both are done and the `LIVE_REBUILD` variable says
+so, the functions are built without these two (`functions/build.mjs`), as the pulls
+are, and the Firebase workflow deploys the rest and says why. The hard stop's setup
+("A hard stop on the bill") already made what a project's event-triggered functions
+need, and gave the deploy account `roles/eventarc.admin`.
+
+1. See where the database is. **Firestore → Databases** names its location, and so
+   does this in Cloud Shell:
+
+   ```sh
+   gcloud firestore databases describe --database='(default)' --format='value(locationId)'
+   ```
+
+   The functions run in `us-central1`, and the deploy puts the trigger itself where
+   the database is. A database in the United States (`nam5`, `us-central1`, and the
+   like) needs nothing more; one elsewhere still works, with each write's event
+   crossing to `us-central1`.
+
+2. Open [Cloud Shell](https://console.cloud.google.com/?cloudshell=true) in the
+   project and paste this, with your project's id in the first line:
+
+   ```sh
+   PROJECT=your-project-id
+   gcloud config set project "$PROJECT"
+   # Cloud Tasks carries each rebuild to the function that runs it. The pulls' setup
+   # turns it on too; turning it on again changes nothing.
+   gcloud services enable cloudtasks.googleapis.com
+   # The rebuilds' own account: Firestore, the copy's events, queueing a rebuild and
+   # sending it to rebuild.
+   gcloud iam service-accounts create live-runner --display-name "Rebuilds after saves"
+   RUNNER="live-runner@$PROJECT.iam.gserviceaccount.com"
+   for ROLE in roles/datastore.user roles/cloudtasks.enqueuer roles/run.invoker \
+     roles/eventarc.eventReceiver; do
+     gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$RUNNER" \
+       --role "$ROLE" --condition=None > /dev/null
+   done
+   # The trigger queues a rebuild as itself, so it may act as itself.
+   gcloud iam service-accounts add-iam-policy-binding "$RUNNER" \
+     --member "serviceAccount:$RUNNER" --role roles/iam.serviceAccountUser > /dev/null
+   # The deploy account makes the queue.
+   gcloud projects add-iam-policy-binding "$PROJECT" \
+     --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
+     --role roles/cloudtasks.queueAdmin --condition=None > /dev/null
+   ```
+
+3. In **Firestore → Data**, start a collection `ops` at the top of the database,
+   beside `copies`, with a document whose ID is `rebuild` and three fields: `on`
+   (boolean) `true`, `mode` (string) `dry`, and `warm` (boolean) `true`. A field of
+   any other type makes the document unreadable, which reads as off. A dry run
+   builds every board and writes none; leave `mode` at `dry` until the first runs'
+   lines look right (below), then set it to `live`. Setting `on` to `false` stops
+   every rebuild at once, with no deploy.
+4. In GitHub, **Settings → Secrets and variables → Actions → Variables → New
+   repository variable**: name `LIVE_REBUILD`, value `on`.
+5. **Actions → Firebase functions → Run workflow** on `main`. When it is green,
+   the Firebase console's **Functions** page lists `onCopyWrite` and `rebuild`.
+
+Then save anything that moves a board, wait three minutes, and find the rebuild's
+line in **Logs Explorer** (`jsonPayload.end` is in every one). A dry run that
+built everything ends `published` with `wrote` false, and says how many boards it
+built and pieces it would have uploaded; `locale` means the runtime's collation is
+not English; every other end is named above. Once `mode` is `live`,
+`npm run live:lag` reads how long saves took to reach the boards.
+
+Setting `LIVE_REBUILD` to anything but `on` builds without the two functions. With
+the pulls on, the next deploy then takes them down; without, it leaves them as
+they were. `on: false` in `ops/rebuild` stops them either way, and
+`firebase functions:delete onCopyWrite rebuild --region us-central1` takes them
+down.
 
 ## AI write-ups
 

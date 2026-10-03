@@ -6,12 +6,14 @@
  * the billing stop is handed only a reading under its budget, which it must leave alone; and the
  * pull functions are handed only what they turn away before asking Google anything.
  */
+import { createServer } from "node:http";
 import { Worker } from "node:worker_threads";
 import { gunzipSync } from "node:zlib";
 
 process.env.GC_API_BASE = "http://127.0.0.1:9";
 process.env.GCLOUD_PROJECT = "smoke-project";
-const { gcTeam, billingCap, startPull, runPull } = await import("./lib/index.js");
+const { gcTeam, billingCap, startPull, runPull, onCopyWrite, rebuild } =
+  await import("./lib/index.js");
 
 const call = (url, headers = {}) =>
   new Promise((resolve, reject) => {
@@ -156,6 +158,49 @@ await billingCap({
 check("a reading under the budget calls nobody", fetched === 0, `${fetched} requests`);
 globalThis.fetch = realFetch;
 
+/** A POST to an HTTP-shaped handler, answered as Express would. */
+const post = (handler, body, headers = {}) =>
+  new Promise((resolve, reject) => {
+    const sent = { status: 200, headers: {} };
+    const res = {
+      status(code) {
+        sent.status = code;
+        return res;
+      },
+      setHeader(name, value) {
+        sent.headers[name.toLowerCase()] = String(value);
+        return res;
+      },
+      getHeader: (name) => sent.headers[name.toLowerCase()],
+      set(name, value) {
+        return res.setHeader(name, value);
+      },
+      send(payload) {
+        res.end(typeof payload === "string" ? payload : JSON.stringify(payload));
+      },
+      json(payload) {
+        res.end(JSON.stringify(payload));
+      },
+      end(payload) {
+        sent.body = payload;
+        resolve(sent);
+      },
+      on: () => res,
+    };
+    const lower = { "content-type": "application/json", ...headers };
+    const req = {
+      method: "POST",
+      url: "/",
+      body,
+      rawBody: Buffer.from(JSON.stringify(body)),
+      headers: lower,
+      header: (name) => lower[name.toLowerCase()],
+      get: (name) => lower[name.toLowerCase()],
+      socket: { remoteAddress: "203.0.113.7" },
+    };
+    Promise.resolve(handler(req, res)).catch(reject);
+  });
+
 // The pulls in the cloud, built only once their setup is done (`build.mjs`): left out, they are
 // not there at all, so a deploy asks nothing of the project for them.
 if (process.env.CLOUD_PULLS !== "on") {
@@ -186,48 +231,6 @@ if (process.env.CLOUD_PULLS !== "on") {
     JSON.stringify(startPull.__endpoint)
   );
 
-  const post = (handler, body, headers = {}) =>
-    new Promise((resolve, reject) => {
-      const sent = { status: 200, headers: {} };
-      const res = {
-        status(code) {
-          sent.status = code;
-          return res;
-        },
-        setHeader(name, value) {
-          sent.headers[name.toLowerCase()] = String(value);
-          return res;
-        },
-        getHeader: (name) => sent.headers[name.toLowerCase()],
-        set(name, value) {
-          return res.setHeader(name, value);
-        },
-        send(payload) {
-          res.end(typeof payload === "string" ? payload : JSON.stringify(payload));
-        },
-        json(payload) {
-          res.end(JSON.stringify(payload));
-        },
-        end(payload) {
-          sent.body = payload;
-          resolve(sent);
-        },
-        on: () => res,
-      };
-      const lower = { "content-type": "application/json", ...headers };
-      const req = {
-        method: "POST",
-        url: "/",
-        body,
-        rawBody: Buffer.from(JSON.stringify(body)),
-        headers: lower,
-        header: (name) => lower[name.toLowerCase()],
-        get: (name) => lower[name.toLowerCase()],
-        socket: { remoteAddress: "203.0.113.7" },
-      };
-      Promise.resolve(handler(req, res)).catch(reject);
-    });
-
   fetched = 0;
   globalThis.fetch = async (...args) => {
     fetched += 1;
@@ -254,5 +257,224 @@ if (process.env.CLOUD_PULLS !== "on") {
   });
   check("a leg's worker loads and answers", answer.outcome === "gone", JSON.stringify(answer));
   check("and neither function asked anybody anything", fetched === 0, `${fetched} requests`);
+  globalThis.fetch = realFetch;
+}
+
+// The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are.
+if (process.env.LIVE_REBUILD !== "on") {
+  check(
+    "the rebuilds after saves are left out of a build without LIVE_REBUILD",
+    onCopyWrite === undefined && rebuild === undefined,
+    `${typeof onCopyWrite} ${typeof rebuild}`
+  );
+} else {
+  const written = onCopyWrite.__endpoint;
+  check(
+    "a write of the copy's manifest, and of nothing under it, triggers the rebuilds' account",
+    written.eventTrigger?.eventType === "google.cloud.firestore.document.v1.written" &&
+      written.eventTrigger?.eventFilters?.document === "copies/main" &&
+      Object.keys(written.eventTrigger?.eventFilterPathPatterns ?? {}).length === 0 &&
+      written.eventTrigger?.retry === false &&
+      written.serviceAccountEmail === "live-runner@",
+    JSON.stringify(written)
+  );
+  const queued = rebuild.__endpoint;
+  check(
+    "a rebuild runs one at a time, as the rebuilds' account, at the size the ledger prices",
+    queued.taskQueueTrigger?.retryConfig?.maxAttempts === 3 &&
+      queued.taskQueueTrigger?.retryConfig?.minBackoffSeconds === 120 &&
+      queued.taskQueueTrigger?.rateLimits?.maxConcurrentDispatches === 1 &&
+      queued.serviceAccountEmail === "live-runner@" &&
+      queued.availableMemoryMb === 8192 &&
+      queued.cpu === 2 &&
+      queued.timeoutSeconds === 300 &&
+      queued.maxInstances === 1 &&
+      queued.concurrency === 1,
+    JSON.stringify(queued)
+  );
+
+  // Firestore's event, as it sends one, through the SDK's own reading of it. A write that asks for
+  // no rebuild is decided before anything is read, so these need no network.
+  const MANIFEST = "projects/smoke-project/databases/(default)/documents/copies/main";
+  const str = (value) => ({ stringValue: value });
+  const int = (value) => ({ integerValue: String(value) });
+  const manifest = (version, leagueHash) => ({
+    name: MANIFEST,
+    createTime: "2026-10-03T00:00:00Z",
+    updateTime: "2026-10-03T00:00:00Z",
+    fields: {
+      format: int(2),
+      schema: int(1),
+      copy: str("c0ffee"),
+      version: int(version),
+      save: str("s"),
+      updatedAt: str("2026-10-03T00:00:00.000Z"),
+      device: str("phone"),
+      parts: {
+        arrayValue: {
+          values: [
+            {
+              mapValue: {
+                fields: {
+                  key: str("league"),
+                  hash: str(leagueHash.repeat(64)),
+                  bytes: int(10),
+                  chunks: int(1),
+                  id: str("0123456789abcdef"),
+                  at: int(1),
+                  by: str("phone"),
+                },
+              },
+            },
+          ],
+        },
+      },
+      kept: { arrayValue: {} },
+    },
+  });
+  const event = (oldValue, value) => ({
+    specversion: "1.0",
+    id: "smoke-write",
+    source: "//firestore.googleapis.com/projects/smoke-project/databases/(default)",
+    type: "google.cloud.firestore.document.v1.written",
+    time: new Date().toISOString(),
+    datacontenttype: "application/json",
+    project: "smoke-project",
+    database: "(default)",
+    namespace: "(default)",
+    document: "copies/main",
+    data: { ...(oldValue ? { oldValue } : {}), ...(value ? { value } : {}) },
+  });
+  /** The lines a call logs: the functions logger writes one JSON line each. */
+  const logged = async (call) => {
+    const lines = [];
+    const out = process.stdout.write;
+    const err = process.stderr.write;
+    const keep = (chunk) => {
+      lines.push(...String(chunk).split("\n").filter(Boolean));
+      return true;
+    };
+    process.stdout.write = keep;
+    process.stderr.write = keep;
+    try {
+      await call();
+    } finally {
+      process.stdout.write = out;
+      process.stderr.write = err;
+    }
+    return lines.flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
+  };
+  fetched = 0;
+  globalThis.fetch = async (...args) => {
+    fetched += 1;
+    return realFetch(...args);
+  };
+  const skips = [];
+  for (const [label, before, after] of [
+    ["a delete", manifest(4, "a"), undefined],
+    [
+      "a manifest this build cannot read",
+      manifest(4, "a"),
+      { ...manifest(5, "a"), fields: { format: int(9) } },
+    ],
+    ["a save that moved no board's input", manifest(4, "a"), manifest(5, "a")],
+  ]) {
+    const lines = await logged(() => onCopyWrite(event(before, after)));
+    skips.push([label, lines.find((line) => line.event === "skip")?.why]);
+  }
+  check(
+    "a delete, an unreadable manifest and a save no board reads are skipped as such",
+    JSON.stringify(skips.map(([, why]) => why)) ===
+      JSON.stringify(["deleted", "unreadable", "no-board-input"]),
+    JSON.stringify(skips)
+  );
+
+  // Cloud Tasks signs its requests and Cloud Run checks them; a task of any other shape than the
+  // trigger's is done with at once.
+  const signed = { authorization: "Bearer e30.eyJzdWIiOiJzbW9rZSJ9.c2ln" };
+  // Checked once the lines are back: a check made while they are taken would print nothing.
+  let stray = null;
+  const strayLines = await logged(async () => {
+    stray = await post(rebuild, { data: { copy: "", kind: "nightly" } }, signed);
+  });
+  check("a task of another shape is done with", stray?.status === 204, `${stray?.status}`);
+  check(
+    "and said",
+    strayLines.some((line) => line.end === "not-a-task"),
+    JSON.stringify(strayLines)
+  );
+  // The rebuild's worker, bundled apart: it loads, and answers a ping without reading anything.
+  const pong = await new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./lib/rebuildWorker.js", import.meta.url));
+    worker.once("message", (answer) => {
+      resolve(answer);
+      void worker.terminate();
+    });
+    worker.once("error", reject);
+    worker.postMessage({ kind: "ping", id: 1 });
+  });
+  check(
+    "a rebuild's worker loads and answers",
+    pong.kind === "pong" && pong.id === 1,
+    JSON.stringify(pong)
+  );
+  check("and nothing asked anybody anything", fetched === 0, `${fetched} requests`);
+
+  // A save that moves a board, queued through firebase-admin to a stand-in for Cloud Tasks, which
+  // takes the task's first queueing and refuses the same name after, as Cloud Tasks does. The
+  // switch's read finds no credentials (no metadata server is asked), which counts as on. This is
+  // the first queueing the smoke test makes, so firebase-admin reads the stand-in's address here.
+  const tasks = [];
+  const names = new Set();
+  const queue = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const task = JSON.parse(body || "{}").task ?? {};
+      tasks.push({ url: req.url, ...task });
+      const again = names.has(task.name);
+      names.add(task.name);
+      res.writeHead(again ? 409 : 200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify(
+          again ? { error: { code: 409, status: "ALREADY_EXISTS", message: "exists" } } : task
+        )
+      );
+    });
+  });
+  await new Promise((resolve) => queue.listen(0, "127.0.0.1", resolve));
+  process.env.CLOUD_TASKS_EMULATOR_HOST = `127.0.0.1:${queue.address().port}`;
+  process.env.METADATA_SERVER_DETECTION = "none";
+  const saves = await logged(async () => {
+    await onCopyWrite(event(manifest(4, "a"), manifest(5, "b")));
+    await onCopyWrite(event(manifest(5, "b"), manifest(6, "c")));
+  });
+  queue.close();
+  const saved = saves.filter((line) => line.event === "save");
+  check(
+    "a save that moves a board queues its window's rebuild, waited on past the timeout",
+    tasks.length === 2 &&
+      tasks.every(
+        (task) =>
+          task.url === "/projects/smoke-project/locations/us-central1/queues/rebuild/tasks" &&
+          /\/tasks\/[0-9a-f]{40}$/.test(task.name) &&
+          task.name === tasks[0].name &&
+          task.dispatchDeadline === "600s" &&
+          typeof task.scheduleTime === "string"
+      ),
+    JSON.stringify(tasks)
+  );
+  check(
+    "and a second save in the window finds it queued, which is done",
+    saved.length === 2 &&
+      saved.every((line) => line.queued === true && line.task === tasks[0]?.name.slice(-40)),
+    JSON.stringify(saves)
+  );
   globalThis.fetch = realFetch;
 }
