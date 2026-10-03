@@ -4067,6 +4067,33 @@ the deterministic story is shown. To exercise the AI path locally, run
   type, is dropped rather than drawn. On the 114,500-team pool of 29 September
   2026 the rows came up at 3.9 s rather than 7.8 s, and the fresh board landed
   when it always had.
+- A member who turns on the cloud's board ("The live board on a member's
+  device") sees its rows before the pool is read. On the 29 September 2026
+  backup (116,485 teams), 12U 2027, the medians of five runs, each in a fresh
+  browser, were:
+
+  |                                                       | 4× CPU, phone screen | 1× CPU, desktop |
+  | ----------------------------------------------------- | -------------------- | --------------- |
+  | Live off: the saved board                             | 18.8 s               | 3.77 s          |
+  | Live, board read from the network (150 ms round trip) | 7.3 s                | 2.14 s          |
+  | Live, board kept on the device                        | 6.6 s                | 1.91 s          |
+  | Team Rankings' own fit lands, Live off / on           | 28.0 / 28.7 s        | 7.9 / 9.5 s     |
+  - **The run.** The build is served by `vite preview`. The boards were
+    published from the backup by the nightly's own code into files a
+    scratch-only version of the reader served after the round trip, standing
+    in for a signed-in member. Firestore and the sign-in were not in the run;
+    the startup wait for the cloud copy is on both sides and was left out.
+  - **The board.** 12U 2027's board is 3.39 MB of JSON, 646 KB gzipped, one
+    piece. All 33 boards are 3.4 MB gzipped with a 7 KB meta, built in 11.5 s.
+  - **What the board still waits for.** Of the phone's 6.6 s, 5.4 s is the
+    main thread reading the pool from IndexedDB before the app mounts, which
+    the board does not need.
+  - **What comes after.** Team Rankings mounts once the board hands over, and
+    its first render is one long task of up to 10.6 s on the phone (2.2 s on
+    the desktop), against 5.2 s (1.1 s) after the saved board, whose wait
+    comes before its rows instead. Its own fit lands about as late as without
+    Live: the handover waits for a quiet second.
+
 - Every page of a squad year is fitted over the same games, so the rankings
   worker fits a year once and cuts each page from that fit, keyed on the pool,
   its pages, the half, the day and the age groups (not on which team is yours).
