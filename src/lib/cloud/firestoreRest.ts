@@ -241,15 +241,42 @@ export type FirestoreRestDocuments = {
    * a pull deleted from the console is not made again by the job still running it.
    */
   update: (path: string, patch: Record<string, unknown>) => Promise<void>;
+  /**
+   * The document's fields, with the token `replace` takes to write it only if nothing has since:
+   * its update time. Null where there is no document.
+   */
+  readAt: (path: string) => Promise<{ fields: Record<string, unknown>; token: string } | null>;
+  /**
+   * Writes `fields` as the whole document, only if it is still as `readAt` found it: at `token`,
+   * or still absent where `token` is null. Says whether it did; false is another writer's save.
+   */
+  replace: (
+    path: string,
+    fields: Record<string, unknown>,
+    token: string | null
+  ) => Promise<boolean>;
 };
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
-  const { documents, call, read } = restClient(access);
+  const { documents, call, read, commit } = restClient(access);
   return {
     read: async (path) => {
       const found = await read(path);
       return found ? fieldsOf(found.fields ?? {}) : null;
     },
+    readAt: async (path) => {
+      const found = await read(path);
+      if (!found) return null;
+      if (!found.updateTime) throw new FirestoreError(200, `reading ${path} with no update time`);
+      return { fields: fieldsOf(found.fields ?? {}), token: found.updateTime };
+    },
+    replace: (path, fields, token) =>
+      commit(
+        path,
+        firestoreFieldsOf(fields),
+        token === null ? { exists: false } : { updateTime: token },
+        `replacing ${path}`
+      ),
     update: async (path, patch) => {
       const mask = Object.keys(patch)
         .filter((name) => patch[name] !== undefined)

@@ -3518,6 +3518,42 @@ warm bring-up to what a fresh start on the same version holds, loader by loader
 and board by board, after an edit to each kind of input; each guard was broken
 in turn and seen to fail a test.
 
+Which saves ask for a rebuild is decided on the save alone (`rebuildPlan.ts`).
+A save that moved nothing a board reads (a refresh log, a tidy stamp, a cadence,
+a list, an archive's rows, or only the earlier versions kept) asks for none; nor
+does a deleted copy, or one this build cannot read. A copy's first save, and the
+first of a new copy, always asks. Every save in a window shares one queued task,
+whose id is a hash of the copy, the kind and the window, so a burst of edits is
+one rebuild: two minutes for a device's saves, run five seconds after the window
+closes; a quarter of an hour for a server's (the nightly, a cloud pull, a server's
+edit), run ten minutes after, by which time that server's own publish should be
+in and the rebuild finds the boards current for three reads. Who saved is
+whatever the saving client says it is, so the name only picks the delay; nothing
+is skipped for it. A save is queued only while the switch is on, and a switch
+that cannot be read counts as on, since the rebuild reads it again before it
+spends anything.
+
+What the rebuilds may spend is kept in `ops/rebuild` (`rebuildLedger.ts`), a
+document no rule opens, so no browser reads or writes it, the owner's included:
+the switch (`on`, `mode` dry or live, `warm`), the caps, and the totals against
+them. The owner makes it in the console with the switch alone; a cap left out is
+its default (10,000 GiB-seconds a New York day, 120,000 a month and 30,000
+vCPU-seconds, and 3 failures in a row), and each is held to a hard limit
+whatever the document says (40,000, 250,000, 125,000 and 10). A field set to
+anything but what it holds makes the document unreadable, which reads as off,
+rather than a ledger with its guard lifted. Each run reserves its ceiling first
+(its 300 s timeout and 20 s of start-up at 8 GiB and two vCPUs: 2,560
+GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
+puts what it cost in place of it when it ends. A run that never ends leaves its
+ceiling charged, and the next reserve counts it as a failure; the third failure
+in a row pauses the rebuilds for the rest of the day, and a run that does not
+fail clears the count. Every write is a read and then a replace only over the
+version read, tried three times, so two runs reserving at once cannot both
+spend the same headroom, and an owner turning the switch is read before
+anything is written over it. `rebuildLedger.test.ts` holds each rule, and the
+rules test on the emulator holds the document shut to every browser; each guard
+was broken in turn and seen to fail a test.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

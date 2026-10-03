@@ -22,6 +22,13 @@ import { coerceLiveMeta, publishViews, sweepViews } from "../../live/viewStore";
 import { unpackChunks } from "../cloudPack";
 import { newPullJob, packJobList } from "../pullJobs";
 import { restJobDocs } from "../pullJobRunner";
+import {
+  coerceLedger,
+  REBUILD_LEDGER_PATH,
+  reserveRun,
+  restLedgerStore,
+  updateLedger,
+} from "../../live/rebuildLedger";
 
 /*
  * The cloud copy through Firestore's REST API (`firestoreRestStore`), as the nightly refresh on
@@ -339,6 +346,85 @@ describe("a pull's job through Firestore's REST API", () => {
     );
     await expect(jobs.update(JOB, { status: "done" })).rejects.toBeInstanceOf(FirestoreError);
     expect(firestore.docs.size).toBe(0);
+  });
+});
+
+describe("a document written only if nobody has since, through Firestore's REST API", () => {
+  const docsOn = (firestore: ReturnType<typeof fakeFirestore>) =>
+    firestoreRestDocuments({
+      projectId: "proj",
+      token: async () => "a-token",
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+    });
+
+  it("is read with the token that writes it, and written over only at that token", async () => {
+    const firestore = fakeFirestore();
+    const docs = docsOn(firestore);
+    expect(await docs.readAt("ops/rebuild")).toBeNull();
+    // Absent: written only while it still is.
+    expect(await docs.replace("ops/rebuild", { on: true, caps: { dayGiBs: 9 } }, null)).toBe(true);
+    expect(await docs.replace("ops/rebuild", { on: false }, null)).toBe(false);
+    const read = await docs.readAt("ops/rebuild");
+    expect(read?.fields).toEqual({ on: true, caps: { dayGiBs: 9 } });
+    expect(read?.token).toEqual(expect.any(String));
+    // Written whole: a field the write leaves out is gone.
+    expect(await docs.replace("ops/rebuild", { on: false }, read!.token)).toBe(true);
+    expect(await docs.read("ops/rebuild")).toEqual({ on: false });
+    // And not again at the token it was read at, which that write moved on.
+    expect(await docs.replace("ops/rebuild", { on: true }, read!.token)).toBe(false);
+    expect(await docs.read("ops/rebuild")).toEqual({ on: false });
+  });
+
+  it("throws a refusal that is not another writer's save", async () => {
+    const firestore = fakeFirestore();
+    firestore.fetchImpl.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ error: { status: "PERMISSION_DENIED" } }), { status: 403 })
+    );
+    await expect(docsOn(firestore).replace("ops/rebuild", { on: true }, null)).rejects.toThrow(
+      FirestoreError
+    );
+  });
+
+  it("holds the rebuilds' ledger as the console makes it and a reserve leaves it", async () => {
+    const firestore = fakeFirestore();
+    // As the owner makes it in the console: the switch alone.
+    firestore.docs.set(REBUILD_LEDGER_PATH, {
+      fields: firestoreFieldsOf({ on: true, mode: "dry", warm: true }),
+      updateTime: "t0",
+    });
+    const store = restLedgerStore(docsOn(firestore));
+    const reserved = await updateLedger(store, (held) => {
+      const answer = reserveRun(held, "2027-04-15", "2027-04-15T14:00:00.000Z");
+      return { next: answer.next, answer };
+    });
+    expect(reserved).toMatchObject({ wrote: true, answer: { ok: true } });
+    const written = (await store.read()).raw;
+    expect(coerceLedger(written)).toMatchObject({
+      on: true,
+      mode: "dry",
+      day: "2027-04-15",
+      dayGiBs: 2_560,
+      pausedDay: null,
+      open: { at: "2027-04-15T14:00:00.000Z", day: "2027-04-15" },
+    });
+    // Every field is written, the ones left out by the owner included, and read back the same.
+    expect(Object.keys(written as object).sort()).toEqual(
+      [
+        "caps",
+        "day",
+        "dayGiBs",
+        "failures",
+        "mode",
+        "month",
+        "monthGiBs",
+        "monthVcpuS",
+        "on",
+        "open",
+        "pausedDay",
+        "warm",
+      ].sort()
+    );
   });
 });
 
