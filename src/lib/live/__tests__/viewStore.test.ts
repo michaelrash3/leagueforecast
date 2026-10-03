@@ -328,6 +328,26 @@ describe("publishing views", () => {
     expect(await decode(live, "board:a")).toBe("A2");
   });
 
+  it("asks before each commit whether it is still worth publishing, and stops when it is not", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 1);
+    const meta = live.meta();
+    const chunks = [...live.chunks.keys()];
+    let asked = 0;
+    // A racing publish refuses the first commit, so the question is asked again before the second.
+    live.beforeCommit(() =>
+      publish(live, [view("moves:x", "X")], 1, { owns: ["moves:"] }).then(() => undefined)
+    );
+    const answers = [true, false];
+    const result = await publish(live, [view("board:a", "B")], 2, {
+      stillCurrent: async () => answers[asked++] ?? false,
+    });
+    expect(result).toEqual({ ok: false, reason: "not-current" });
+    expect(asked).toBe(2);
+    expect(live.meta()?.views["board:a"]).toEqual(meta?.views["board:a"]);
+    expect([...live.chunks.keys()].filter((id) => !chunks.includes(id))).toHaveLength(1);
+  });
+
   it("gives up after its tries, and takes back what it uploaded", async () => {
     const live = memoryLive();
     const refusing: LiveStore = { ...live.store, commitMeta: async () => false };

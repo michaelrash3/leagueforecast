@@ -218,29 +218,35 @@ describe("publishing the copy's boards", () => {
     expect(live.costs.writes).toBe(0);
   });
 
-  it("publishes nothing when the copy was started again while the boards were built", async () => {
+  it("publishes nothing when the copy was started again while its boards went up", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
-    let reads = 0;
-    // The copy as read just before publishing: deleted and started again under another id.
+    const live = memoryLive();
+    let started = false;
+    // The copy is deleted and started again under another id once the first piece is up.
     const replaced = {
       ...cloud.store,
-      readManifest: async () => {
-        reads += 1;
-        return { ...manifest, copy: "fresh", version: 1 };
+      readManifest: async () =>
+        started ? { ...manifest, copy: "fresh", version: 1 } : cloud.store.readManifest(),
+    };
+    const uploading = {
+      ...live.store,
+      putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
+        started = true;
+        await live.store.putChunk(id, data);
       },
     };
-    const live = memoryLive();
     const result = await publishCopyViews({
       copyStore: replaced,
-      liveStore: live.store,
+      liveStore: uploading,
       manifest,
       today: FIXTURE_TODAY,
       now: () => T,
       locale: "en-US",
     });
     expect(result).toEqual({ ok: false, reason: "copy-replaced" });
-    expect(reads).toBe(1);
-    expect(live.costs).toEqual({ reads: 0, writes: 0, deletes: 0 });
+    // Nothing named, nothing left behind: its uploads are taken back.
+    expect(live.meta()).toBeNull();
+    expect(live.chunks.size).toBe(0);
   });
 
   it("publishes the views though the sweep after it fails, and says how the sweep ended", async () => {

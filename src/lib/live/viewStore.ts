@@ -196,7 +196,10 @@ export type PublishResult =
       metaBytes: number;
       tries: number;
     }
-  | { ok: false; reason: "unreadable" | "newer-schema" | "kept-changing" | "too-large" };
+  | {
+      ok: false;
+      reason: "unreadable" | "newer-schema" | "kept-changing" | "too-large" | "not-current";
+    };
 
 type Upload = { id: string; c: number; bytes: number };
 
@@ -226,6 +229,10 @@ type Upload = { id: string; c: number; bytes: number };
  * Over a meta a newer build wrote it writes nothing, and over one an older build wrote it keeps
  * nothing it did not build, inline values included (`LIVE_SCHEMA`).
  *
+ * `stillCurrent`, when given, is asked just before each commit whether what was built is still
+ * worth publishing (the copy it came from has not been replaced, say); a no stops the publish,
+ * `not-current`, with its uploads taken back and nothing written.
+ *
  * Uploads the committed meta does not name are deleted at once, since nothing ever named them. A
  * store error is thrown as it is, leaving any uploads for `sweepViews` to collect an hour later.
  */
@@ -236,6 +243,7 @@ export const publishViews = async ({
   copy,
   today,
   now,
+  stillCurrent,
   maxTries = 3,
 }: {
   store: LiveStore;
@@ -245,6 +253,7 @@ export const publishViews = async ({
   today: string;
   /** The time, as an ISO string: when uploads are retired and the meta was built. */
   now: string;
+  stillCurrent?: () => Promise<boolean>;
   maxTries?: number;
 }): Promise<PublishResult> => {
   const built = new Set<string>();
@@ -412,6 +421,10 @@ export const publishViews = async ({
     if (metaBytes > META_MAX_BYTES) {
       await dropUploads(new Set());
       return { ok: false, reason: "too-large" };
+    }
+    if (stillCurrent && !(await stillCurrent())) {
+      await dropUploads(new Set());
+      return { ok: false, reason: "not-current" };
     }
     if (await store.commitMeta(read?.token ?? null, meta)) {
       await dropUploads(named);
