@@ -23,7 +23,11 @@ import { hashJson, packHashed, type HashedValue } from "../cloud/cloudPack";
 
 /** The layout of `live/meta`. A reader or publisher refuses any other. */
 export const LIVE_FORMAT = 1;
-/** The shape inside view values; raised when a view's shape changes, so old builds stop reading. */
+/**
+ * The shape inside view values and `inline`; raised when one changes, so old builds stop reading.
+ * A meta of a newer schema is left alone, by publishes and sweeps alike, and a publish over an
+ * older one keeps nothing it did not build itself, since the rest has the older shape.
+ */
 export const LIVE_SCHEMA = 1;
 /** How long a retired upload stays readable before a sweep may delete it. */
 export const RETIRE_GRACE_MS = 15 * 60_000;
@@ -219,6 +223,9 @@ type Upload = { id: string; c: number; bytes: number };
  * copy it has seen replaced; a late build of one that had a later publish is held all the same,
  * while any view still names that copy and its mark is kept.
  *
+ * Over a meta a newer build wrote it writes nothing, and over one an older build wrote it keeps
+ * nothing it did not build, inline values included (`LIVE_SCHEMA`).
+ *
  * Uploads the committed meta does not name are deleted at once, since nothing ever named them. A
  * store error is thrown as it is, leaving any uploads for `sweepViews` to collect an hour later.
  */
@@ -286,9 +293,13 @@ export const publishViews = async ({
       await dropUploads(new Set());
       return { ok: false, reason: "newer-schema" };
     }
+    // Over an older build's meta, nothing this publish did not build is kept: its views and inline
+    // values have the older shape, and the meta about to be written says they have this one.
+    const upgrading = stored !== null && stored.schema < LIVE_SCHEMA;
     const storedViews = stored?.views ?? {};
     const mark = stored?.marks[copy.id];
-    const late = stored !== null && mark !== undefined && copy.version < mark;
+    // Late against an older build's meta or not, an upgrade keeps none of it, so it is not held.
+    const late = stored !== null && !upgrading && mark !== undefined && copy.version < mark;
     // What a late publish may still replace: a view of its own copy, from no later version.
     const replaceable = (entry: ViewEntry) =>
       !late || (entry.k === copy.id && entry.v <= copy.version);
@@ -298,7 +309,7 @@ export const publishViews = async ({
     let unchanged = 0;
     let removed = 0;
     for (const [key, entry] of Object.entries(storedViews)) {
-      if (!covers(key)) next[key] = entry;
+      if (!covers(key) && !upgrading) next[key] = entry;
       else if (!built.has(key)) {
         // Taken out, unless this publish is late: a newer one decided what is there.
         if (late) next[key] = entry;
@@ -378,7 +389,7 @@ export const publishViews = async ({
       builtAt: now,
       copy: header,
       marks: inKeyOrder(marks),
-      inline: stored?.inline ?? {},
+      inline: upgrading ? {} : (stored?.inline ?? {}),
       views: inKeyOrder(next),
       retired,
     };
@@ -428,7 +439,10 @@ export const sweepViews = async ({
   store: LiveStore;
   now: string;
   maxTries?: number;
-}): Promise<{ ok: true; deleted: number; strays: number } | { ok: false; reason: string }> => {
+}): Promise<
+  | { ok: true; deleted: number; strays: number }
+  | { ok: false; reason: "unreadable" | "newer-schema" | "kept-changing" }
+> => {
   const at = Date.parse(now);
   let deleted = 0;
   let meta: LiveMeta | null = null;
@@ -437,6 +451,9 @@ export const sweepViews = async ({
     meta = read ? coerceLiveMeta(read.meta) : null;
     if (read && !meta) return { ok: false, reason: "unreadable" };
     if (!read || !meta) break;
+    // A newer build's meta may name pieces in ways this one cannot see: neither rewrite it nor
+    // take a piece it names for a stray.
+    if (meta.schema > LIVE_SCHEMA) return { ok: false, reason: "newer-schema" };
     const named = new Set(Object.values(meta.views).map((entry) => entry.id));
     const due = meta.retired.filter(
       (upload) => !named.has(upload.id) && Date.parse(upload.at) + RETIRE_GRACE_MS <= at
