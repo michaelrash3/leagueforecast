@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CloudManifest, ManifestPart } from "../../cloud/cloudManifest";
+import { DATA_SCHEMA, type CloudManifest, type ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { LEGACY_GAMES_KEY, TIDY_STAMP_KEY } from "../../teamRankingsStorage";
 import {
@@ -73,6 +73,17 @@ describe("whether a save asks for a rebuild", () => {
     });
     // Unreadable whatever came before it, even nothing.
     expect(await askRebuild(null, "junk")).toEqual({ skip: "unreadable" });
+  });
+
+  it("does not when a newer build saved the copy, its first save and a new copy's included", async () => {
+    const newer = saved(SHARD, h(50), { schema: DATA_SCHEMA + 1 });
+    expect(await askRebuild(BEFORE, newer)).toEqual({ skip: "newer-schema" });
+    expect(await askRebuild(null, newer)).toEqual({ skip: "newer-schema" });
+    expect(await askRebuild(BEFORE, { ...newer, copy: "beef" })).toEqual({ skip: "newer-schema" });
+    // This build's own schema asks as ever.
+    expect(await askRebuild(BEFORE, saved(SHARD, h(50), { schema: DATA_SCHEMA }))).toMatchObject({
+      ask: { kind: "edit", version: 5 },
+    });
   });
 
   it("asks for an edit's rebuild with every input a board reads", async () => {

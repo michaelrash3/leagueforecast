@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
 import { commitChanges, type Change, type CloudStore } from "../../cloud/cloudEngine";
-import type { CloudManifest } from "../../cloud/cloudManifest";
+import { DATA_SCHEMA, type CloudManifest } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { loadPoolFrom, memoryIo } from "../../cloud/cloudRunner";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
@@ -792,6 +792,34 @@ describe("a rebuild task on the main thread", () => {
       expect((await handle({ ledger: ledger.store, cloud, live, run })).line.end, end).toBe(end);
       expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
     }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("leaves a copy a newer build saved before reserving anything", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    const newer = () => ({ ...cloud.manifest()!, schema: DATA_SCHEMA + 1 });
+    expect(
+      await handle({ ledger: ledger.store, cloud, live, run, copyStore: readOnly(cloud, newer) })
+    ).toEqual({
+      line: { end: "newer-schema", copy: cloud.manifest()!.copy, version: 2 },
+      rethrow: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()).toMatchObject({ dayGiBs: 0, failures: 0, open: null });
+  });
+
+  it("asks the queue to try again when other writers took the ledger on every try", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    // An owner's edits to the switch, say, each landing between this run's read and its write.
+    const moving: LedgerStore = { read: ledger.store.read, replace: async () => false };
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    expect(await handle({ ledger: moving, cloud, live, run })).toEqual({
+      line: { end: "contended", copy: cloud.manifest()!.copy, version: 2 },
+      rethrow: true,
+    });
     expect(run).not.toHaveBeenCalled();
   });
 

@@ -3521,8 +3521,10 @@ in turn and seen to fail a test.
 Which saves ask for a rebuild is decided on the save alone (`rebuildPlan.ts`).
 A save that moved nothing a board reads (a refresh log, a tidy stamp, a cadence,
 a list, an archive's rows, or only the earlier versions kept) asks for none; nor
-does a deleted copy, or one this build cannot read. A copy's first save, and the
-first of a new copy, always asks. Every save in a window shares one queued task,
+does a deleted copy, one this build cannot read, or one a newer build saved,
+which this build cannot load: a run of it would fail on every save, and each
+failure counts toward the pause every other save's rebuild waits on too. A copy's
+first save, and the first of a new copy, always asks. Every save in a window shares one queued task,
 whose id is a hash of the kind and the window, so a burst of edits is one
 rebuild, and so is a burst of saves each under a new copy id (a run builds
 whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
@@ -3564,7 +3566,7 @@ A queued rebuild runs in two halves (`rebuild.ts`). The function's main thread
 reads the switch, then asks, for three reads (the ledger, the copy's manifest
 and the published meta), whether the boards are already the copy's for today,
 or another's to leave alone: built by newer rules, for a later day, or by a newer
-build. Only then does it reserve the run and hand it to the worker, which brings
+build; a copy a newer build saved is left there too. Only then does it reserve the run and hand it to the worker, which brings
 the pool to the copy as it now stands and checks again against the very manifest
 it loaded, so a save landing between the two is published at the version the
 pool holds and the next rebuild publishes the newer one. It publishes with one
@@ -3576,7 +3578,9 @@ and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
 a failure a run that threw, and one that ended on anything but its job done or a
 newer one's (a copy or a meta it cannot read, a store that refused, something
 that kept moving under it), and asks the queue for a retry only for one that
-threw or that something kept moving under, or that waited on another run. A
+threw or that something kept moving under, or that waited on another run, or
+that lost the ledger to other writers on every try, which may have been an
+owner's edits to the switch rather than a run that published the copy. A
 settle that cannot be written is said in the line and left for the next reserve
 to count. Each run logs one line, with its copy and version and, for a live run
 that wrote boards, when they went up; the trigger logs a line for each save it

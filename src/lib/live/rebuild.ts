@@ -1,4 +1,5 @@
 import type { CloudStore } from "../cloud/cloudEngine";
+import { DATA_SCHEMA } from "../cloud/cloudManifest";
 import { boardsState } from "./boardInputs";
 import type { PoolCache, PoolEnsure } from "./poolCache";
 import { dryLiveStore, publishCopyViews, type CopyPublish } from "./publishCopy";
@@ -198,8 +199,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * One queued rebuild, on the main thread of the function that runs it. In order, each step stopping
  * there when it says so:
  * 1. The switch (`ops/rebuild`): absent, unreadable or off ends it.
- * 2. Whether the published boards are already the copy's, or another's to leave alone: the ledger,
- *    the manifest and the meta, three reads, reserving nothing and starting no worker.
+ * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
+ *    a newer build's, which this build cannot load: the ledger, the manifest and the meta, three
+ *    reads, reserving nothing and starting no worker.
  * 3. A reservation of the run's ceiling, which the caps, a pause or another task's run still going
  *    may refuse. A reservation whose write landed though its answer was lost is found on the next
  *    try as this run's own, and kept.
@@ -209,8 +211,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  *    settle that cannot be written is said in the line, and left for the next reserve to count.
  *
  * It answers one line to log, and whether to throw so the queue tries the task again: for a run
- * that threw or ended in something that moved under it, and for one that waited on another task's
- * run still going.
+ * that threw or ended in something that moved under it, for one that waited on another task's run
+ * still going, and for one that lost the ledger to other writers on every try, since those may
+ * have been an owner's edits to the switch rather than a run that published this copy.
  */
 export const handleRebuildTask = async ({
   ledger,
@@ -251,6 +254,9 @@ export const handleRebuildTask = async ({
   const manifest = await copyStore.readManifest();
   if (!manifest) return { line: { ...asked, end: "no-copy" }, rethrow: false };
   const loaded = { copy: manifest.copy, version: manifest.version };
+  if (manifest.schema > DATA_SCHEMA) {
+    return { line: { ...asked, ...loaded, end: "newer-schema" }, rethrow: false };
+  }
   const read = await liveStore.readMeta();
   const meta = read ? coerceLiveMeta(read.meta) : null;
   if (read && !meta) return { line: { ...asked, ...loaded, end: "unreadable" }, rethrow: false };
@@ -270,7 +276,7 @@ export const handleRebuildTask = async ({
     return { next: answer.next, answer };
   });
   if ("contended" in reserved) {
-    return { line: { ...asked, ...loaded, end: "contended" }, rethrow: false };
+    return { line: { ...asked, ...loaded, end: "contended" }, rethrow: true };
   }
   if (!reserved.answer.ok) {
     const why = reserved.answer.why;

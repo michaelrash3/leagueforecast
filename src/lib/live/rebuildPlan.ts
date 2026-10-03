@@ -1,5 +1,5 @@
 import { hashValue } from "../cloud/cloudPack";
-import { coerceManifest } from "../cloud/cloudManifest";
+import { coerceManifest, DATA_SCHEMA } from "../cloud/cloudManifest";
 import { boardInputsPrint } from "./boardInputs";
 
 /**
@@ -48,10 +48,13 @@ export type RebuildAsk = {
 /**
  * - `deleted`: the copy was deleted; its views go with the next copy's first save.
  * - `unreadable`: the saved manifest is not one this build can read.
+ * - `newer-schema`: a newer build saved the copy. This build cannot load it, so a run would fail on
+ *   every save, and each failure counts toward the pause every other save's rebuild waits on too;
+ *   the rebuilds wait instead for this build to be replaced.
  * - `no-board-input`: nothing a board reads moved (`boardInputsPrint`): a refresh log, a tidy stamp,
  *   a cadence, a list, an archive's rows, or only the earlier versions kept.
  */
-export type RebuildSkip = "deleted" | "unreadable" | "no-board-input";
+export type RebuildSkip = "deleted" | "unreadable" | "newer-schema" | "no-board-input";
 
 /**
  * Whether a write of the copy's manifest, from `before` to `after` (its fields as stored, `null` or
@@ -64,6 +67,7 @@ export const askRebuild = async (
   if (after === null || after === undefined) return { skip: "deleted" };
   const next = coerceManifest(after);
   if (!next) return { skip: "unreadable" };
+  if (next.schema > DATA_SCHEMA) return { skip: "newer-schema" };
   const previous = before === null || before === undefined ? null : coerceManifest(before);
   // A copy with nothing before it, or a new copy, is built whatever saved it and whatever it holds:
   // its first boards are all it has.
