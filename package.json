@@ -22,7 +22,8 @@
     "recency:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/recencySweep.ts",
     "ageless:sweep": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/agelessSweep.ts",
     "gc:reach": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/gcReach.ts",
-    "nightly": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/nightly.ts"
+    "nightly": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/nightly.ts",
+    "live:lag": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/liveLag.ts"
   },
   "dependencies": {
     "firebase": "^12.19.0",

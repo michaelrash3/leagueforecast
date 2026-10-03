@@ -32,6 +32,20 @@ export const MANIFEST_FORMAT = 2;
  */
 export const DATA_SCHEMA = 1;
 
+/**
+ * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the
+ * browser's store and the servers' (`firestoreRest.ts`) both throw it, so whoever reads the copy can
+ * tell it from a read that failed.
+ */
+export class UnreadableCopyError extends Error {
+  constructor(
+    message = "The cloud copy was saved by a newer version of the app, or is damaged. Reload to update the app; nothing here has been changed."
+  ) {
+    super(message);
+    this.name = "UnreadableCopyError";
+  }
+}
+
 export type ManifestPart = {
   /** The stored key: a Team Rankings key, or `league` for every League Standings season. */
   key: string;

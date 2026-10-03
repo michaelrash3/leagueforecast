@@ -20,7 +20,8 @@ import { firestoreMembers, firestoreStore, ownsCopy, UnreadableCopyError } from 
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
-import { firestoreRestLive } from "../firestoreRest";
+import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
+import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
 
 /*
@@ -526,5 +527,49 @@ describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator"
     const listed = answers.flatMap((answer) => answer.documents ?? []);
     expect(listed).toHaveLength(1);
     expect(listed.map((found) => Object.keys(found.fields ?? {}))).toEqual([[]]);
+  });
+});
+
+describe.skipIf(!HOST)("the rebuilds' switch and ledger, on the Firestore emulator", () => {
+  /** `ops/rebuild` as a rebuild reads and writes it, past the rules, as an administrator. */
+  const server = () =>
+    restLedgerStore(
+      firestoreRestDocuments({
+        projectId: PROJECT,
+        token: async () => "owner",
+        origin: `http://${HOST}`,
+      })
+    );
+  const SWITCH = { on: true, mode: "dry", warm: true };
+
+  it("are read and written by the server alone, only over the version it read", async () => {
+    const store = server();
+    expect(await store.read()).toEqual({ raw: null, token: null });
+    const ledger = coerceLedger(SWITCH);
+    if (!ledger) throw new Error("no ledger");
+    expect(await store.replace(null, ledger)).toBe(true);
+    const read = await store.read();
+    expect(coerceLedger(read.raw)).toEqual(ledger);
+    expect(await store.replace(null, ledger)).toBe(false);
+    expect(await store.replace(read.token, { ...ledger, dayGiBs: 9 })).toBe(true);
+    expect(await store.replace(read.token, ledger)).toBe(false);
+  });
+
+  it("are closed to every browser: no read, list or write, the owner's and a member's included", async () => {
+    const ledger = coerceLedger(SWITCH);
+    if (!ledger) throw new Error("no ledger");
+    await server().replace(null, ledger);
+    const before = (await server().read()).raw;
+    for (const account of [OWNER, LAPTOP, STRANGER, null]) {
+      const db = as(account);
+      const where = doc(db, REBUILD_LEDGER_PATH);
+      await expect(getDoc(where)).rejects.toMatchObject(REFUSED);
+      await expect(getDocs(collection(db, "ops"))).rejects.toMatchObject(REFUSED);
+      await expect(setDoc(where, { on: true, mode: "live" })).rejects.toMatchObject(REFUSED);
+      await expect(updateDoc(where, { dayGiBs: 0 })).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(where)).rejects.toMatchObject(REFUSED);
+      await expect(setDoc(doc(db, "ops/other"), { on: true })).rejects.toMatchObject(REFUSED);
+    }
+    expect((await server().read()).raw).toEqual(before);
   });
 });

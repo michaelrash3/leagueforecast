@@ -3518,6 +3518,94 @@ warm bring-up to what a fresh start on the same version holds, loader by loader
 and board by board, after an edit to each kind of input; each guard was broken
 in turn and seen to fail a test.
 
+Which saves ask for a rebuild is decided on the save alone (`rebuildPlan.ts`).
+A save that moved nothing a board reads (a refresh log, a tidy stamp, a cadence,
+a list, an archive's rows, or only the earlier versions kept) asks for none; nor
+does a deleted copy, one this build cannot read, or one a newer build saved (a
+schema above this build's, or a part under a key it does not keep), which this
+build cannot load: a run of it would spend a reservation on every save to no end.
+A copy's first save, and the first of a new copy, always asks. Every save in a window shares one queued task,
+whose id is a hash of the kind and the window, so a burst of edits is one
+rebuild, and so is a burst of saves each under a new copy id (a run builds
+whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
+closes; a quarter of an hour for a server's that publishes what it saved (the
+nightly, a server's edit), run ten minutes after, by which time that server's own
+publish should be in and the rebuild finds the boards current for three reads. A
+pull run in the cloud publishes nothing of its own, so its saves are rebuilt as a
+device's are. Who saved is
+whatever the saving client says it is, so the name only picks the delay; nothing
+is skipped for it. A save is queued only while the switch is on, and a switch
+that cannot be read counts as on, since the rebuild reads it again before it
+spends anything.
+
+What the rebuilds may spend is kept in `ops/rebuild` (`rebuildLedger.ts`), a
+document no rule opens, so no browser reads or writes it, the owner's included:
+the switch (`on`, `mode` dry or live, `warm`), the caps, and the totals against
+them. The owner makes it in the console with the switch alone; a cap left out is
+its default (10,000 GiB-seconds a New York day, 120,000 a month and 30,000
+vCPU-seconds, and 3 failures in a row), and each is held to a hard limit
+whatever the document says (40,000, 250,000, 125,000 and 10). A field set to
+anything but what it holds makes the document unreadable, which reads as off,
+rather than a ledger with its guard lifted. Each run reserves its ceiling first
+(its 300 s timeout and 20 s of start-up at 8 GiB and two vCPUs: 2,560
+GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
+puts what it cost in place of it when it ends. A run that never ends leaves its
+ceiling charged, and the next reserve counts it as a failure; the third failure
+in a row pauses the rebuilds for the rest of the day, and a run that does not
+fail clears the count. A run reserved less than a run's span ago (320 s) may
+still be going, so a reserve then waits (`busy`, and the queue tries it again)
+rather than counting that run as dead and dropping the settle it is still to
+make. That holds for the same task's earlier try as for another task's: the
+queue delivers a task at least once, and may hand it over again while a try
+still runs, past its dispatch deadline or twice at once, so a try that died
+holds the next one off until its span is up. Every write is a read and then a
+replace only over the version read, tried three times, as is a read or write that
+throws, so two runs reserving at once cannot both spend the same headroom, an
+owner turning the switch is read before anything is written over it, and a write
+that landed though its answer was lost is found on the next read, by the id each
+handling of a task writes with its reservation and settles it by. Such a write is
+held until a read tells whether it landed, and when no read after it succeeds it
+is read back once more after the last try, writing nothing, so a reservation that
+landed runs rather than waiting out its span to be counted as a failure, and a
+settle that landed is logged as made. `rebuildLedger.test.ts` holds each rule, and the
+rules test on the emulator holds the document shut to every browser; each guard
+was broken in turn and seen to fail a test.
+
+A queued rebuild runs in two halves (`rebuild.ts`). The function's main thread
+reads the switch, then asks, for three reads (the ledger, the copy's manifest
+and the published meta), whether the boards are already the copy's for today,
+or another's to leave alone: built by newer rules, for a later day, or by a newer
+build; a copy a newer build saved, or one this build cannot read at all, is left
+there too, while a read that failed is thrown for the queue to try again. Only then
+does it reserve the run and hand it to the worker, which brings
+the pool to the copy as it now stands and checks again against the very manifest
+it loaded, so a save landing between the two is published at the version the
+pool holds and the next rebuild publishes the newer one. It publishes with one
+meta commit, taking out the retired pieces that are due in the same commit and
+listing none. A dry run builds everything and writes nothing. A run turned away
+by boards for a later day goes once more only if the New York day turned while
+it ran. Then the main thread settles what the run cost: the time since it began,
+and the instance's start-up the first time, at 8 GiB and two vCPUs. It counts as
+a failure a run that threw, and one that ended on anything but its job done or a
+newer one's (a copy or a meta it cannot read, a store that refused, something
+that kept moving under it). Boards or a copy a newer build or newer rules made
+are a newer one's: this build is due to be replaced, and a pause would hold every
+save's rebuild for the rest of the day, past that deploy. It asks the queue for a
+retry only for one that threw or that something kept moving under, or that
+waited on another run, or that lost the ledger to other writers on every try,
+which may have been an owner's edits to the switch rather than a run that
+published the copy. A settle that cannot be written is said in the line and left for the next reserve
+to count. Each run logs one line, with its copy and version and, for a live run
+that wrote boards, when they went up; the trigger logs a line for each save it
+queues (`saveLineOf`). `npm run live:lag -- rebuilds.json` reads both from Cloud
+Logging and joins them: each save reached the members' boards with the first
+live run that wrote its copy at its version or a later one, and it prints the
+median, 90th-percentile and longest wait, and how many saves no logged run
+reached (the nightly's publishes are logged on GitHub, not here). `rebuild.test.ts` holds the
+worker's half against the copy and `live/` in memory on a seeded pool, its views
+the very ones the nightly publishes from the same copy, and the main thread's
+against a stand-in worker; each guard was broken in turn and seen to fail a test.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**
